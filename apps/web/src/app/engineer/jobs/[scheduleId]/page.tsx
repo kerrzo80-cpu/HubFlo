@@ -3,8 +3,9 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, Camera, CheckCircle2, FileText, MapPin, Phone, RotateCcw, ShoppingCart, Wrench } from "lucide-react";
 import { formatDuration, getEngineerScheduleItem, mapsUrl } from "@/lib/engineer-data";
 
-export default function EngineerJobDetailPage({ params }: { params: { scheduleId: string } }) {
-  const job = getEngineerScheduleItem(params.scheduleId);
+export default async function EngineerJobDetailPage({ params }: { params: Promise<{ scheduleId: string }> }) {
+  const { scheduleId } = await params;
+  const job = getEngineerScheduleItem(scheduleId);
   if (!job) notFound();
 
   const missingRequirements = job.requirements.filter((requirement) => requirement.status === "missing");
