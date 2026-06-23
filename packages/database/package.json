@@ -1,0 +1,20 @@
+{
+  "name": "@hubflo/database",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "drizzle-orm": "latest",
+    "pg": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/pg": "latest",
+    "drizzle-kit": "latest",
+    "typescript": "latest"
+  }
+}

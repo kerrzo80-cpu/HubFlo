@@ -1,0 +1,20 @@
+{
+  "name": "hubflo",
+  "private": true,
+  "packageManager": "pnpm@11.5.3",
+  "scripts": {
+    "dev": "pnpm --filter @hubflo/web dev",
+    "dev:local": "./scripts/pnpm.sh --filter @hubflo/web dev",
+    "build": "pnpm --filter @hubflo/web build",
+    "build:local": "./scripts/pnpm.sh --filter @hubflo/web build",
+    "typecheck": "scripts/typecheck.sh",
+    "typecheck:all": "scripts/typecheck.sh",
+    "typecheck:raw": "pnpm -r typecheck",
+    "test:local": "./scripts/pnpm.sh --filter @hubflo/domain test",
+    "test": "pnpm --filter @hubflo/domain test",
+    "db:generate:local": "./scripts/pnpm.sh --filter @hubflo/database db:generate",
+    "db:generate": "pnpm --filter @hubflo/database db:generate",
+    "db:migrate:local": "./scripts/pnpm.sh --filter @hubflo/database db:migrate",
+    "db:migrate": "pnpm --filter @hubflo/database db:migrate"
+  }
+}

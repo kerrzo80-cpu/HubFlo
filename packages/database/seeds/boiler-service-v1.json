@@ -1,0 +1,125 @@
+{
+  "key": "boiler-service",
+  "name": "Boiler service",
+  "version": 1,
+  "jobType": "boiler_service",
+  "stages": [
+    {
+      "key": "identify_appliance",
+      "name": "Identify appliance",
+      "fields": [
+        { "key": "make", "label": "Boiler make", "type": "text", "required": true },
+        { "key": "model", "label": "Boiler model", "type": "text", "required": true },
+        {
+          "key": "serial_number",
+          "label": "Serial number",
+          "type": "text",
+          "required": true,
+          "allowOverride": true
+        },
+        {
+          "key": "location",
+          "label": "Boiler location",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "data_plate_photo",
+          "label": "Data plate photo",
+          "type": "photo",
+          "required": true
+        },
+        {
+          "key": "asset_match",
+          "label": "Appliance matches the site asset record",
+          "type": "boolean",
+          "required": true
+        }
+      ]
+    },
+    {
+      "key": "pre_service_checks",
+      "name": "Pre-service checks",
+      "fields": [
+        { "key": "visual_condition", "label": "Visual condition", "type": "select", "required": true },
+        { "key": "safe_access", "label": "Access is safe", "type": "boolean", "required": true },
+        { "key": "safe_work_area", "label": "Working area is safe", "type": "boolean", "required": true },
+        { "key": "flue_accessible", "label": "Flue is visible and accessible", "type": "boolean", "required": true },
+        { "key": "customer_issues", "label": "Customer-reported issues", "type": "textarea", "required": false }
+      ]
+    },
+    {
+      "key": "service_checklist",
+      "name": "Service checklist",
+      "fields": [
+        { "key": "casing", "label": "Casing removed as required", "type": "check", "required": true },
+        { "key": "burner", "label": "Burner and heat exchanger inspected", "type": "check", "required": true },
+        { "key": "components", "label": "Components cleaned as required", "type": "check", "required": true },
+        { "key": "seals", "label": "Seals checked", "type": "check", "required": true },
+        { "key": "condensate", "label": "Condensate route checked", "type": "check", "required": true },
+        { "key": "pressure", "label": "Pressure checked", "type": "check", "required": true }
+      ]
+    },
+    {
+      "key": "test_readings",
+      "name": "Test readings",
+      "fields": [
+        { "key": "fga_readings", "label": "Flue gas analyser readings", "type": "measurement", "required": true },
+        { "key": "operating_pressure", "label": "Operating pressure", "type": "measurement", "required": true },
+        { "key": "safety_devices", "label": "Safety devices checked", "type": "boolean", "required": true },
+        { "key": "operational_test", "label": "Final operational test passed", "type": "boolean", "required": true }
+      ]
+    },
+    {
+      "key": "defects",
+      "name": "Defects and recommendations",
+      "fields": [
+        { "key": "defects_found", "label": "Defects found", "type": "boolean", "required": true },
+        { "key": "safe_to_operate", "label": "Safe to leave operational", "type": "boolean", "required": true },
+        { "key": "parts_required", "label": "Parts required", "type": "boolean", "required": true },
+        { "key": "quote_required", "label": "Quote required", "type": "boolean", "required": true }
+      ],
+      "rules": [
+        {
+          "when": { "field": "parts_required", "equals": true },
+          "actions": [
+            { "type": "create_blocker", "blockerType": "waiting_on_part", "severity": "red" },
+            { "type": "create_task", "taskType": "purchase_parts" },
+            { "type": "create_task", "taskType": "rebook_visit" },
+            { "type": "set_job_status", "statusKey": "waiting_on_parts" },
+            { "type": "block_invoice", "reason": "parts_required" }
+          ]
+        },
+        {
+          "when": { "field": "quote_required", "equals": true },
+          "actions": [
+            { "type": "create_variation", "status": "needs_review" },
+            { "type": "create_task", "taskType": "review_variation" },
+            { "type": "block_invoice", "reason": "unresolved_variation" }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "customer_sign_off",
+      "name": "Customer sign-off",
+      "fields": [
+        { "key": "completion_summary", "label": "Completion summary", "type": "textarea", "required": true },
+        { "key": "customer_present", "label": "Customer present", "type": "boolean", "required": true },
+        { "key": "signature", "label": "Customer signature", "type": "signature", "required": false },
+        { "key": "completion_note", "label": "Engineer completion note", "type": "textarea", "required": true }
+      ]
+    },
+    {
+      "key": "complete_visit",
+      "name": "Complete visit",
+      "completionActions": [
+        { "type": "update_asset_service_dates", "nextServiceMonths": 12 },
+        { "type": "create_service_reminder", "daysBeforeDue": 60 },
+        { "type": "evaluate_invoice_readiness" },
+        { "type": "create_timeline_event", "eventType": "engineer_visit_completed" }
+      ]
+    }
+  ]
+}
+
