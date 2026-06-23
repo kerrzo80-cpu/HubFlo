@@ -48,12 +48,10 @@ export default function EngineerTimeCheckPage() {
           </div>
           <TriangleAlert size={21} />
         </div>
-        <p className="engineer-muted-copy">HubFlo found a 30 minute gap between scheduled jobs. In the full flow this will ask whether it was travel, materials, admin, reactive work, training, or no time claim.</p>
+        <p className="engineer-muted-copy">HubFlo found a 30 minute gap between scheduled jobs. Assign it to an existing job/cost centre, or create a reactive job if work came in before the office could schedule it.</p>
         <div className="engineer-gap-options">
-          <button type="button">Travel</button>
-          <button type="button">Materials</button>
-          <button type="button">Reactive job</button>
-          <button type="button">Admin</button>
+          <button type="button">Assign to job and cost centre</button>
+          <button type="button">Create reactive job</button>
         </div>
       </section>
 

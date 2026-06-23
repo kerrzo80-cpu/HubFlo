@@ -122,6 +122,15 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
           background: linear-gradient(135deg, #287ea8 0%, #17698f 100%) !important;
         }
 
+        .engineer-gap-options {
+          grid-template-columns: 1fr !important;
+        }
+
+        .engineer-gap-options button {
+          min-height: 54px !important;
+          padding: 0 16px !important;
+        }
+
         @media (max-width: 620px) {
           .engineer-brand-bar {
             left: 12px;
