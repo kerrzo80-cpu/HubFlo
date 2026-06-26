@@ -390,6 +390,12 @@ type JobDraft = {
   due: string;
 };
 
+type JobScheduleDraft = {
+  manager: string;
+  scheduledDate: string;
+  scheduledTime: string;
+};
+
 type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
 type LeadStatus = "New enquiry" | "Needs scheduling" | "Survey booked" | "Quoted" | "Lost";
 
@@ -2921,6 +2927,7 @@ export default function Dashboard() {
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
+  const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3112,6 +3119,18 @@ export default function Dashboard() {
         ? clientSites.find((site) => site.id === selectedJob.siteId) ?? null
         : null,
     [clientSites, selectedJob],
+  );
+
+  const selectedJobScheduleDraft = useMemo(
+    () =>
+      selectedJob
+        ? jobScheduleDrafts[selectedJob.id] ?? {
+            manager: selectedJob.manager,
+            scheduledDate: selectedJob.scheduledDate ?? "",
+            scheduledTime: selectedJob.scheduledTime ?? "",
+          }
+        : null,
+    [jobScheduleDrafts, selectedJob],
   );
 
   const selectedDrawerAudit = useMemo(() => {
@@ -4467,6 +4486,118 @@ export default function Dashboard() {
     setSelectedCostCentreId(null);
     setHomeView("job-record");
     setActiveJobTab("cost-centres");
+  }
+
+  function updateSelectedJobScheduleDraft(patch: Partial<JobScheduleDraft>) {
+    if (!selectedJob) return;
+    setJobScheduleDrafts((current) => {
+      const existing = current[selectedJob.id] ?? {
+        manager: selectedJob.manager,
+        scheduledDate: selectedJob.scheduledDate ?? "",
+        scheduledTime: selectedJob.scheduledTime ?? "",
+      };
+      return {
+        ...current,
+        [selectedJob.id]: { ...existing, ...patch },
+      };
+    });
+  }
+
+  async function patchSelectedJob(patch: Partial<Job>, successMessage: string) {
+    if (!selectedJob) return null;
+    type JobScheduleConflict = {
+      conflict: true;
+      message: string;
+    };
+
+    const response = await fetch(`/api/jobs/${selectedJob.id}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+
+    if (response.status === 409) {
+      const conflict = (await response.json()) as JobScheduleConflict;
+      const warning = conflict.message || "Selected slot is already taken.";
+      setSectionError(warning);
+      showNotice(warning);
+      return null;
+    }
+
+    if (!response.ok) {
+      throw new Error("Unable to update job");
+    }
+
+    const updated = (await response.json()) as Job;
+    setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+    showNotice(successMessage);
+    return updated;
+  }
+
+  async function scheduleSelectedJob() {
+    if (!selectedJob || !selectedJobScheduleDraft) return;
+    if (!selectedJobScheduleDraft.manager || !selectedJobScheduleDraft.scheduledDate || !selectedJobScheduleDraft.scheduledTime) {
+      showNotice("Choose an engineer, date and time before scheduling this job.");
+      return;
+    }
+
+    try {
+      const updated = await patchSelectedJob(
+        {
+          manager: selectedJobScheduleDraft.manager,
+          scheduledDate: selectedJobScheduleDraft.scheduledDate,
+          scheduledTime: selectedJobScheduleDraft.scheduledTime,
+          status: "Scheduled",
+          next: "Engineer scheduled. Await attendance confirmation.",
+        },
+        `${selectedJob.ref} scheduled for ${selectedJobScheduleDraft.scheduledDate} at ${selectedJobScheduleDraft.scheduledTime}.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo user",
+        action: "scheduled",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} scheduled with ${updated.manager} on ${updated.scheduledDate} at ${updated.scheduledTime}.`,
+        source: "scheduler",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to schedule job.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
+  async function startSelectedJob() {
+    if (!selectedJob) return;
+    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
+      showNotice("Schedule the job before starting it.");
+      return;
+    }
+    try {
+      const updated = await patchSelectedJob(
+        {
+          status: "In progress",
+          next: "Track timesheets, POs, WhatsApp updates and variations.",
+        },
+        `${selectedJob.ref} moved to in progress.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo user",
+        action: "started",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} moved from scheduled into in progress delivery.`,
+        source: "scheduler",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to start job.";
+      setSectionError(message);
+      showNotice(message);
+    }
   }
 
   function setJobCentresForSelected(updater: (centres: EstimateCostCentre[]) => EstimateCostCentre[]) {
@@ -8616,6 +8747,61 @@ export default function Dashboard() {
                         )}
                       </article>
                     </div>
+                    <section className="job-scheduling-panel">
+                      <header>
+                        <div>
+                          <span className="permission-heading">Scheduling</span>
+                          <h2>Assign staff and move job forward</h2>
+                        </div>
+                        <span className={`status-pill ${selectedJob.status === "In progress" ? "green" : selectedJob.status === "Pending" ? "amber" : "blue"}`}>
+                          {selectedJob.status}
+                        </span>
+                      </header>
+                      {selectedJobScheduleDraft ? (
+                        <div className="job-scheduling-grid">
+                          <label>
+                            Engineer / lead
+                            <select
+                              value={selectedJobScheduleDraft.manager}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ manager: event.target.value })}
+                            >
+                              {surveyorOptions.map((surveyor) => (
+                                <option key={surveyor}>{surveyor}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Date
+                            <input
+                              type="date"
+                              value={selectedJobScheduleDraft.scheduledDate}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledDate: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Time
+                            <input
+                              type="time"
+                              value={selectedJobScheduleDraft.scheduledTime}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledTime: event.target.value })}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                      <div className="job-scheduling-actions">
+                        <button className="primary-button" type="button" onClick={scheduleSelectedJob}>
+                          Schedule staff
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={selectedJob.status === "In progress"}
+                          onClick={startSelectedJob}
+                        >
+                          Start job
+                        </button>
+                      </div>
+                    </section>
                   </section>
                 ) : null}
 

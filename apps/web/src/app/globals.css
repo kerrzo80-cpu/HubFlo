@@ -1514,6 +1514,44 @@ h1 {
   gap: 14px;
 }
 
+.job-scheduling-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.job-scheduling-panel header,
+.job-scheduling-actions {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-scheduling-panel h2 {
+  font-size: 16px;
+  margin: 4px 0 0;
+}
+
+.job-scheduling-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1.2fr repeat(2, minmax(0, 0.9fr));
+}
+
+.job-scheduling-grid label {
+  color: #526169;
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 800;
+  gap: 7px;
+}
+
 .quote-build-toolbar {
   align-items: center;
   background: #fff;
