@@ -2864,7 +2864,8 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteE
 }
 
 function quotePortalLink(quote: Quote) {
-  return quote.portalUrl ?? `https://client.hubflo.app/quotes/${quote.portalToken ?? quote.ref.toLowerCase()}`;
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+  return quote.portalUrl ?? `${baseUrl}/client/quotes/${quote.portalToken ?? quote.ref.toLowerCase()}`;
 }
 
 function makeQuotePortalToken(quote: Quote) {
@@ -4670,7 +4671,8 @@ export default function Dashboard() {
     }
 
     const portalToken = selectedQuote.portalToken ?? makeQuotePortalToken(selectedQuote);
-    const portalUrl = selectedQuote.portalUrl ?? `https://client.hubflo.app/quotes/${portalToken}`;
+    const portalBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+    const portalUrl = selectedQuote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
     const sentAt = workflowTimestamp();
     const outlookMessageId = `outlook-${selectedQuote.ref.toLowerCase()}-${Date.now()}`;
 

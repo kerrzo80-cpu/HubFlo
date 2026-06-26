@@ -1581,6 +1581,130 @@ h1 {
   opacity: 0.72;
 }
 
+.client-portal-shell {
+  align-items: center;
+  background: #eef2f5;
+  display: flex;
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.client-portal-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin: 0 auto;
+  max-width: 720px;
+  padding: 28px;
+  width: 100%;
+}
+
+.client-portal-card header {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+}
+
+.client-portal-card header span,
+.client-portal-heading span,
+.client-portal-total span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.client-portal-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.client-portal-heading h1 {
+  font-size: 26px;
+  line-height: 1.16;
+  margin: 0;
+}
+
+.client-portal-heading p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.client-portal-total {
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+}
+
+.client-portal-total strong {
+  font-size: 34px;
+}
+
+.client-portal-total small,
+.client-portal-confirmation span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.client-portal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.client-portal-confirmation,
+.client-portal-state {
+  align-items: center;
+  background: #f1faf4;
+  border: 1px solid #bddfcb;
+  color: #1d7f44;
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+}
+
+.client-portal-confirmation div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.client-portal-confirmation.declined,
+.client-portal-state.error {
+  background: #fff4f2;
+  border-color: #f1b8ae;
+  color: #b43c2f;
+}
+
+.client-portal-state {
+  justify-content: center;
+  min-height: 160px;
+}
+
+.client-portal-state p {
+  margin: 0;
+}
+
+.spin {
+  animation: hubflo-spin 0.9s linear infinite;
+}
+
+@keyframes hubflo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .quote-record-panel {
   display: flex;
   flex-direction: column;
