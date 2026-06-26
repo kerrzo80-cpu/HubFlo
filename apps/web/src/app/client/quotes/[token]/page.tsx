@@ -13,6 +13,10 @@ type PortalQuote = {
   value: number;
   viewedAt?: string;
   respondedAt?: string;
+  job?: {
+    ref: string;
+    status: string;
+  } | null;
 };
 
 type PortalResponse = {
@@ -62,7 +66,10 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
         const response = await fetch(`/api/quote-portal/${token}`, { cache: "no-store" });
         if (!response.ok) throw new Error("This quote link could not be found.");
         const loaded = (await response.json()) as PortalQuote;
-        if (!cancelled) setQuote(loaded);
+        if (!cancelled) {
+          setQuote(loaded);
+          setJobRef(loaded.job?.ref ?? null);
+        }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Unable to load quote.");
       } finally {

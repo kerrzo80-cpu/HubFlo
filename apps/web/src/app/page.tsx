@@ -616,17 +616,18 @@ function makeInvoiceFromJobTotals(
     .toISOString()
     .slice(0, 10);
 
-  const variationLineTotalCost = sumMoney(variations, "costValue");
-  const variationLineTotalSell = sumMoney(variations, "sellValue");
-  const variationLines: InvoiceLine[] = variations.length
+  const billedVariations = variations.filter((variation) => isBillableVariationStatus(variation.status));
+  const variationLineTotalCost = sumMoney(billedVariations, "costValue");
+  const variationLineTotalSell = sumMoney(billedVariations, "sellValue");
+  const variationLines: InvoiceLine[] = billedVariations.length
     ? [
         {
           id: `inv-${Date.now()}-variations`,
-          description: `${job.ref} variations`,
+          description: `${job.ref} approved variations`,
           category: "Variations",
           costToUs: variationLineTotalCost,
           chargeToClient: variationLineTotalSell,
-          note: `${variations.length} variation line item(s) included.`,
+          note: `${billedVariations.length} approved variation line item(s) included.`,
         },
       ]
     : [];
@@ -730,6 +731,8 @@ type JobVariation = {
   requiresClientApproval?: boolean;
   clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   engineerName?: string;
+  portalToken?: string;
+  source: "seed" | "event";
 };
 
 type JobDeliveryKind = "whatsapp" | "attendance" | "timesheet" | "variation" | "po";
@@ -746,7 +749,11 @@ type JobDeliveryEvent = {
   materials?: string;
   costValue?: number;
   sellValue?: number;
+  reason?: string;
+  requiresClientApproval?: boolean;
+  clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   status?: string;
+  portalToken?: string;
   source: "HubFlo" | "WhatsApp" | "Engineer app";
 };
 
@@ -2274,6 +2281,7 @@ function buildJobVariations(job: Job): JobVariation[] {
         requiresClientApproval: true,
         clientApprovalStatus: "Sent",
         engineerName: "Scott Reid",
+        source: "seed",
       },
     ];
   }
@@ -2294,11 +2302,91 @@ function buildJobVariations(job: Job): JobVariation[] {
         requiresClientApproval: true,
         clientApprovalStatus: "Not sent",
         engineerName: "Scott Reid",
+        source: "seed",
       },
     ];
   }
 
   return [];
+}
+
+const variationBillableStatuses = new Set(["Client approved", "Approved", "Proceed"]);
+
+function isBillableVariationStatus(status: JobVariation["status"]) {
+  return variationBillableStatuses.has(status);
+}
+
+function mapVariationStatusFromEvent(event: Pick<JobDeliveryEvent, "status" | "requiresClientApproval">): JobVariation["status"] {
+  if (event.status === "Client approved") return "Client approved";
+  if (event.status === "Approved" || event.status === "Rejected") return event.status;
+  if (event.status === "Sent for approval") return "Sent for approval";
+  if (event.status === "Quote drafted" || event.status === "Priced") return event.status as JobVariation["status"];
+
+  if (event.status === "Office review") {
+    return event.requiresClientApproval === false ? "Priced" : "Detected";
+  }
+
+  return "Detected";
+}
+
+function mapVariationClientStatusFromEvent(
+  event: Pick<JobDeliveryEvent, "status" | "clientApprovalStatus" | "requiresClientApproval">,
+): JobVariation["clientApprovalStatus"] | undefined {
+  if (!event.requiresClientApproval) return undefined;
+
+  if (event.clientApprovalStatus) {
+    return event.clientApprovalStatus;
+  }
+
+  if (event.status === "Sent for approval") return "Sent";
+  if (event.status === "Client approved" || event.status === "Approved") return "Approved";
+  if (event.status === "Rejected") return "Declined";
+  return "Not sent";
+}
+
+function variationApprovalText(event: Pick<JobDeliveryEvent, "kind" | "status" | "requiresClientApproval" | "clientApprovalStatus">) {
+  if (event.kind !== "variation" || !event.requiresClientApproval) return "";
+  const status = event.clientApprovalStatus ?? "Not sent";
+  return `Client approval: ${status}`;
+}
+
+type VariationPortalSyncRecord = {
+  variationEventId: string;
+  token: string;
+  status: "Pending" | "Viewed" | "Approved" | "Declined";
+};
+
+function mapVariationEventStatusFromPortalStatus(status: VariationPortalSyncRecord["status"]) {
+  if (status === "Approved") return "Client approved";
+  if (status === "Declined") return "Rejected";
+  return "Sent for approval";
+}
+
+function mapVariationClientStatusFromPortalStatus(status: VariationPortalSyncRecord["status"]) {
+  if (status === "Approved") return "Approved";
+  if (status === "Declined") return "Declined";
+  if (status === "Viewed") return "Viewed";
+  return "Sent";
+}
+
+function buildEventVariationFromDeliveryEvent(event: JobDeliveryEvent, index: number): JobVariation {
+  return {
+    id: event.id,
+    reference: `V-${String(index + 1).padStart(3, "0")}`,
+    title: event.summary || "Variation raised",
+    status: mapVariationStatusFromEvent(event),
+    costValue: event.costValue ?? 0,
+    sellValue: event.sellValue ?? 0,
+    description: event.summary || "No variation summary captured.",
+    reason: event.reason || "Engineer raised",
+  labourHours: event.hours,
+  materialsUsed: event.materials,
+  requiresClientApproval: event.requiresClientApproval ?? true,
+  clientApprovalStatus: mapVariationClientStatusFromEvent(event),
+  engineerName: event.actor,
+  portalToken: event.portalToken,
+  source: "event",
+  };
 }
 
 function sumMoney(items: Array<{ budget?: number; costValue?: number; sellValue?: number }>, key: "budget" | "costValue" | "sellValue") {
@@ -2677,6 +2765,212 @@ function makeTakeoffRowsFromDocument(centre: QuoteCostCentre, document: TakeoffS
   ];
 }
 
+type TakeoffParseOutcome = {
+  rows: TakeoffBoqRow[];
+  status: "parsed" | "fallback";
+  notes: string[];
+};
+
+function csvRowsFromText(value: string): string[][] {
+  const rows: string[][] = [];
+  let currentField = "";
+  let currentRow: string[] = [];
+  let quoted = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index] ?? "";
+    const nextChar = value[index + 1];
+    if (char === '"') {
+      if (quoted && nextChar === '"') {
+        currentField += '"';
+        index += 1;
+        continue;
+      }
+      quoted = !quoted;
+      continue;
+    }
+
+    if (!quoted && (char === "," || char === ";" || char === "\t")) {
+      currentRow.push(currentField.trim());
+      currentField = "";
+      continue;
+    }
+
+    if (!quoted && (char === "\n" || char === "\r")) {
+      if (char === "\r" && nextChar === "\n") {
+        index += 1;
+      }
+      currentRow.push(currentField.trim());
+      if (currentRow.some((item) => item.trim().length > 0)) {
+        rows.push(currentRow);
+      }
+      currentField = "";
+      currentRow = [];
+      continue;
+    }
+
+    currentField += char;
+  }
+
+  currentRow.push(currentField.trim());
+  if (currentRow.some((item) => item.trim().length > 0)) {
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+function parseNumberish(value: string) {
+  if (!value) return undefined;
+  const cleaned = value.replace(/,/g, ".").replace(/[£$]/g, "").replace(/[^0-9.\-]/g, "");
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normaliseHeader(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function detectColumn(headers: string[], candidates: string[][]) {
+  const normalised = headers.map(normaliseHeader);
+  for (let index = 0; index < candidates.length; index += 1) {
+    const group = candidates[index];
+    if (!group) continue;
+    const found = normalised.findIndex((header) => group.some((candidate) => header.includes(candidate)));
+    if (found >= 0) return found;
+  }
+  return -1;
+}
+
+function parseSupplierNeed(value: string | undefined, unitCost = 0) {
+  if (unitCost > 0) return false;
+  const lowered = normaliseHeader(value ?? "");
+  if (!lowered) return true;
+  if (["supplier", "quote", "ordered", "buy", "stock", "external", "need quote", "po", "purchase", "outsource"].some((flag) => lowered.includes(flag))) {
+    return true;
+  }
+  if (["included", "internal", "yes", "0", "no purchase", "to stock"].some((flag) => lowered.includes(flag))) {
+    return false;
+  }
+  return true;
+}
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.onerror = () => {
+      reject(reader.error);
+    };
+    reader.readAsText(file);
+  });
+}
+
+async function parseTakeoffRowsFromUpload(
+  centre: QuoteCostCentre,
+  document: TakeoffSourceDocument,
+  file: File,
+): Promise<TakeoffParseOutcome> {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  const fileKind = document.kind;
+  const baseSection = centre.name || "Imported scope";
+  const rowSource: TakeoffBoqRow["source"] = fileKind === "Contractor BOQ" ? "BOQ" : "Takeoff";
+
+  if (!extension || !["csv", "txt", "tsv"].includes(extension)) {
+    return {
+      rows: makeTakeoffRowsFromDocument(centre, document),
+      status: "fallback",
+      notes: [
+        `Automatic parsing is currently available for CSV/TXT BOQ exports. ${fileKind} upload kept as draft placeholders for manual review.`,
+      ],
+    };
+  }
+
+  const content = await readFileAsText(file);
+  const rows = csvRowsFromText(content);
+  if (!rows.length) {
+    return {
+      rows: makeTakeoffRowsFromDocument(centre, document),
+      status: "fallback",
+      notes: ["Uploaded file was empty; please convert to CSV from the BOQ source and re-upload."],
+    };
+  }
+
+  const header = rows[0] ?? [];
+  if (!header.length || rows.length < 2) {
+    return {
+      rows: [],
+      status: "fallback",
+      notes: ["Could not detect column headers in the BOQ upload."],
+    };
+  }
+
+  const descriptionIndex = detectColumn(header, [
+    ["description", "item description", "item", "name", "material", "description line"],
+    ["details", "particulars", "what"],
+  ]);
+  const qtyIndex = detectColumn(header, [["quantity", "qty", "qtys", "amount"], ["no", "number"]]);
+  const unitIndex = detectColumn(header, [["unit", "uom", "measure"]]);
+  const sectionIndex = detectColumn(header, [["section", "area", "room", "trade", "location"], ["group"]]);
+  const costIndex = detectColumn(header, [["unit cost", "unitprice", "rate", "cost", "unit price", "price"], ["sell", "charge"]]);
+  const supplierIndex = detectColumn(header, [["supplier required", "provisional", "source", "procure"], ["purchase", "supply", "sourced"]]);
+  const markupIndex = detectColumn(header, [["markup", "margin", "markup%"]]);
+
+  if (descriptionIndex < 0 || qtyIndex < 0) {
+    return {
+      rows: [],
+      status: "fallback",
+      notes: [
+        "Could not find Description and Quantity columns in this BOQ format. Please keep headings like Description and Quantity, or add rows manually.",
+      ],
+    };
+  }
+
+  const parsedRows = rows.slice(1).flatMap((row, index) => {
+    const description = row[descriptionIndex]?.trim();
+    if (!description) return [];
+    const quantity = parseNumberish(row[qtyIndex] ?? "") ?? 1;
+    const section = row[sectionIndex]?.trim() || baseSection;
+    const unit = row[unitIndex]?.trim() || "item";
+    const unitCost = parseNumberish(row[costIndex] ?? "") ?? 0;
+    const markupPercent = parseNumberish(row[markupIndex] ?? "") ?? 30;
+    const supplierRequired = parseSupplierNeed(row[supplierIndex], unitCost);
+
+    const id = `upload-${Date.now()}-${index}-${Math.round(Math.random() * 1000)}`;
+    return [
+      {
+        id,
+        source: rowSource,
+        section,
+        description,
+        quantity: Math.max(0, quantity),
+        unit,
+        supplierRequired,
+        unitCost,
+        markupPercent,
+      },
+    ];
+  });
+
+  if (!parsedRows.length) {
+    return {
+      rows: [],
+      status: "fallback",
+      notes: ["The BOQ file uploaded did not contain usable rows. Use sample import while you review and add rows."],
+    };
+  }
+
+  const total = parsedRows.reduce((sum, row) => sum + row.quantity, 0);
+  const notes = [
+    `${parsedRows.length} rows imported from ${fileKind} file with total quantity ${total.toFixed(2)}.`,
+    extension === "csv" ? "Tip: save BOM/BOQ from spreadsheets as CSV for best import results." : "Text import used with tab/semicolon delimiters.",
+  ];
+
+  return { rows: parsedRows, status: "parsed", notes };
+}
+
 function makeOneOffQuoteMaterialLine(): QuoteCostLine {
   return {
     id: `one-off-material-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -2710,6 +3004,87 @@ function makeSupplierQuoteLines(fileName: string, centre: QuoteCostCentre, marku
     unitCost: line.unitCost,
     unitSell: lineSellFromMarkup(line.unitCost, markupPercent),
   }));
+}
+
+type SupplierQuoteParseOutcome = {
+  lines: QuoteCostLine[];
+  status: "parsed" | "fallback";
+  notes: string[];
+};
+
+async function parseSupplierQuoteRowsFromUpload(
+  file: File,
+  centre: QuoteCostCentre,
+  markupPercent: number,
+): Promise<SupplierQuoteParseOutcome> {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (!extension || !["csv", "txt", "tsv"].includes(extension)) {
+    return {
+      lines: makeSupplierQuoteLines(file.name, centre, markupPercent),
+      status: "fallback",
+      notes: ["Supplier quote uploads are parsed automatically from CSV/TXT only right now."],
+    };
+  }
+
+  const content = await readFileAsText(file);
+  const rows = csvRowsFromText(content);
+  if (rows.length < 2) {
+    return {
+      lines: [],
+      status: "fallback",
+      notes: ["Supplier quote file had no data rows."],
+    };
+  }
+
+  const header = rows[0] ?? [];
+  const descriptionIndex = detectColumn(header, [
+    ["description", "item description", "item", "name", "material", "description line"],
+    ["details", "particulars", "what"],
+  ]);
+  const qtyIndex = detectColumn(header, [["quantity", "qty", "amount"], ["no"]]);
+  const costIndex = detectColumn(header, [["unit cost", "unitprice", "rate", "cost", "unit price", "price"]]);
+  const unitIndex = detectColumn(header, [["unit", "uom", "measure"]]);
+
+  if (descriptionIndex < 0 || (qtyIndex < 0 && costIndex < 0)) {
+    return {
+      lines: [],
+      status: "fallback",
+      notes: ["Could not detect description and pricing columns in this supplier quote upload."],
+    };
+  }
+
+  const parsed = rows.slice(1).flatMap((row, index) => {
+    const description = row[descriptionIndex]?.trim();
+    if (!description) return [];
+    const quantity = parseNumberish(row[qtyIndex] ?? "") ?? 1;
+    const unitCost = parseNumberish(row[costIndex] ?? "") ?? 0;
+    const unit = row[unitIndex]?.trim() || "item";
+    const id = `supplier-quote-${Date.now()}-${index}-${Math.round(Math.random() * 1000)}`;
+    return [
+      {
+        id,
+        catalogItemId: "supplier-quote-material",
+        description: `${file.name.replace(/\.csv|\.txt|\.tsv/i, "")} - ${description} (${unit})`,
+        quantity: Math.max(0, quantity),
+        unitCost: Math.max(0, unitCost),
+        unitSell: lineSellFromMarkup(Math.max(0, unitCost), markupPercent),
+      },
+    ];
+  });
+
+  if (!parsed.length) {
+    return {
+      lines: [],
+      status: "fallback",
+      notes: ["No usable rows were parsed from this supplier quote file."],
+    };
+  }
+
+  return {
+    lines: parsed,
+    status: "parsed",
+    notes: [`${parsed.length} supplier lines parsed from ${file.name}.`],
+  };
 }
 
 function makeHeatLossRoom(index: number): HeatLossRoom {
@@ -2900,6 +3275,20 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteE
 function quotePortalLink(quote: Quote) {
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
   return quote.portalUrl ?? `${baseUrl}/client/quotes/${quote.portalToken ?? quote.ref.toLowerCase()}`;
+}
+
+function variationPortalBaseUrl() {
+  return typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
+}
+
+function variationPortalLink(token: string | undefined | null) {
+  if (!token) return "";
+  return `${variationPortalBaseUrl()}/client/variations/${token}`;
+}
+
+function formatVariationPortalCopyNotice(response: { portalToken?: string | null }) {
+  const link = variationPortalLink(response.portalToken);
+  return link ? `Variation link copied: ${link}` : "No variation link available.";
 }
 
 function makeQuotePortalToken(quote: Quote) {
@@ -3202,10 +3591,7 @@ export default function Dashboard() {
   );
 
   const selectedQuoteJob = useMemo(
-    () =>
-      selectedQuote?.convertedJobId
-        ? jobs.find((job) => job.id === selectedQuote.convertedJobId) ?? null
-        : null,
+    () => getQuoteJob(selectedQuote),
     [jobs, selectedQuote],
   );
 
@@ -3408,6 +3794,11 @@ export default function Dashboard() {
     [jobDeliveryEvents, selectedJob],
   );
 
+  const selectedJobBillableVariations = useMemo(
+    () => selectedJobVariations.filter((variation) => isBillableVariationStatus(variation.status)),
+    [selectedJobVariations],
+  );
+
   const selectedInvoiceSourceQuote = useMemo(
     () =>
       selectedInvoice?.sourceType === "quote"
@@ -3571,8 +3962,8 @@ export default function Dashboard() {
       (total, centre) => total + estimateCostCentreTotals(centre).totalSell,
       0,
     );
-    const variationCost = sumMoney(selectedJobVariations, "costValue");
-    const variationSell = sumMoney(selectedJobVariations, "sellValue");
+    const variationCost = sumMoney(selectedJobBillableVariations, "costValue");
+    const variationSell = sumMoney(selectedJobBillableVariations, "sellValue");
     const totalCost = baseCost + variationCost;
     const totalCharge = (baseSell > 0 ? baseSell : selectedJob.value) + variationSell;
     const projectedProfit = totalCharge - totalCost;
@@ -3587,7 +3978,7 @@ export default function Dashboard() {
       projectedProfit,
       projectedMargin: totalCharge > 0 ? Math.round((projectedProfit / totalCharge) * 100) : 0,
     };
-  }, [selectedJob, selectedJobEstimateCostCentres, selectedJobVariations]);
+  }, [selectedJob, selectedJobEstimateCostCentres, selectedJobBillableVariations]);
 
   useEffect(() => {
     if (!editingEmployeeId || !activeEditingEmployee) return;
@@ -3622,9 +4013,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (!hasHydratedLocalData) return;
 
-    async function loadLiveData() {
-      let hasOfflineFallback = false;
+    let stopped = false;
 
+    const loadLiveData = async () => {
+      let hasOfflineFallback = false;
       try {
         const [clientsResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse] = await Promise.all([
           fetch("/api/clients", { headers: requestHeaders }),
@@ -3634,6 +4026,8 @@ export default function Dashboard() {
           fetch("/api/purchase-requests", { headers: requestHeaders }),
           fetch("/api/audit", { headers: requestHeaders }),
         ]);
+
+        if (stopped) return;
 
         if (clientsResponse.ok) {
           setClients((await clientsResponse.json()) as ClientRecord[]);
@@ -3671,17 +4065,31 @@ export default function Dashboard() {
           hasOfflineFallback = true;
         }
 
+        if (stopped) return;
+
         if (hasOfflineFallback) {
           setSectionError("Some HubFlo workflows are currently using local workspace data.");
         } else {
           setSectionError(null);
         }
       } catch {
-        setSectionError("Could not reach live workflow APIs, so local data is shown.");
+        if (!stopped) {
+          setSectionError("Could not reach live workflow APIs, so local data is shown.");
+        }
       }
-    }
+    };
 
     loadLiveData().catch(() => {});
+    const timer = setInterval(() => {
+      if (!stopped) {
+        loadLiveData().catch(() => {});
+      }
+    }, 20000);
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [hasHydratedLocalData, requestHeaders]);
 
   useEffect(() => {
@@ -3722,6 +4130,11 @@ export default function Dashboard() {
     communicationRecords,
     hasHydratedLocalData,
   ]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || !selectedJob) return;
+    refreshSelectedJobVariationPortalStatuses().catch(() => {});
+  }, [hasHydratedLocalData, selectedJob?.id]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;
@@ -4608,22 +5021,7 @@ export default function Dashboard() {
   function buildVariationsForJob(job: Job) {
     const capturedVariations = jobDeliveryEvents
       .filter((event) => event.jobId === job.id && event.kind === "variation")
-      .map(
-        (event, index): JobVariation => ({
-          id: event.id,
-          reference: `V-${String(index + 1).padStart(3, "0")}`,
-          title: event.summary,
-          status: event.status === "Client approved" ? "Client approved" : "Quote drafted",
-          costValue: event.costValue ?? 0,
-          sellValue: event.sellValue ?? 0,
-          description: event.summary,
-          labourHours: event.hours,
-          materialsUsed: event.materials,
-          requiresClientApproval: true,
-          clientApprovalStatus: event.status === "Client approved" ? "Approved" : "Not sent",
-          engineerName: event.actor,
-        }),
-      );
+      .map((event, index) => buildEventVariationFromDeliveryEvent(event, index));
 
     return [...capturedVariations, ...buildJobVariations(job)];
   }
@@ -5128,6 +5526,8 @@ export default function Dashboard() {
       materials: selectedJobDeliveryDraft.variationMaterials.trim(),
       costValue,
       sellValue,
+      reason: "Engineer raised",
+      requiresClientApproval: true,
       status: "Office review",
     });
     resetSelectedJobDeliveryDraft({
@@ -5147,6 +5547,211 @@ export default function Dashboard() {
       importance: "high",
     });
     showNotice("Variation draft created for office review.");
+  }
+
+  function updateSelectedJobVariationEvent(variationId: string, patch: Partial<JobDeliveryEvent>) {
+    if (!selectedJob) return null;
+    let updated: JobDeliveryEvent | undefined;
+    setJobDeliveryEvents((current) =>
+      current.map((event) => {
+        if (event.id !== variationId || event.jobId !== selectedJob.id || event.kind !== "variation") {
+          return event;
+        }
+        updated = { ...event, ...patch };
+        return updated;
+      }),
+    );
+    return updated ?? null;
+  }
+
+  function sendSelectedJobVariationForApproval(variationId: string) {
+    if (!selectedJob) return;
+    const variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    if (!variationEvent) {
+      showNotice("This variation is not yet linked to a live event.");
+      return;
+    }
+    if (!variationEvent.requiresClientApproval) {
+      const approved = updateSelectedJobVariationEvent(variationEvent.id, { status: "Approved", clientApprovalStatus: "Approved" });
+      if (!approved) {
+        showNotice("Could not update variation status.");
+        return;
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo user",
+        action: "approved",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${variationEvent.summary} marked approved on ${selectedJob.ref}.`,
+        source: "variation actions",
+        importance: "high",
+      });
+      showNotice(`${variationEvent.summary} marked as approved (no client approval required).`);
+      return;
+    }
+    if (variationEvent.status === "Client approved") {
+      showNotice("Variation already approved by client.");
+      return;
+    }
+    if (variationEvent.status === "Sent for approval") {
+      showNotice("Variation already sent to client for approval.");
+      return;
+    }
+    const clientEmail = selectedJobClient?.email ?? selectedJob.customer;
+
+    const requestVariationApproval = async () => {
+      const response = await fetch("/api/variation-portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          variationEventId: variationEvent.id,
+          jobId: selectedJob.id,
+          jobRef: selectedJob.ref,
+          summary: variationEvent.summary,
+          description: variationEvent.summary,
+          costValue: variationEvent.costValue ?? 0,
+          sellValue: variationEvent.sellValue ?? 0,
+          actor: activeEmployee?.name ?? selectedJob.manager,
+          clientEmail,
+          requiresClientApproval: variationEvent.requiresClientApproval ?? true,
+        }),
+      });
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => null);
+        throw new Error((errorPayload as { error?: string })?.error ?? "Unable to send the variation approval request.");
+      }
+      return response.json() as Promise<{ token: string }>;
+    };
+
+    requestVariationApproval()
+      .then((created) => {
+        const target = updateSelectedJobVariationEvent(variationEvent.id, {
+          status: "Sent for approval",
+          clientApprovalStatus: "Sent",
+          portalToken: created.token,
+        });
+        if (!target) {
+          showNotice("Could not update variation status.");
+          return;
+        }
+
+        const portalUrl = variationPortalLink(created.token);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Client portal",
+          subject: `${variationEvent.summary} - approval requested`,
+          body: `Please review and approve the additional variation for ${selectedJob.ref}. Amount: ${currency(target.sellValue ?? 0)}.\n\nApprove here: ${portalUrl}`,
+          from: "office@errolwatsongroup.co.uk",
+          to: clientEmail,
+          status: "Sent",
+        });
+
+        logAuditEvent({
+          actor: activeEmployee?.name ?? selectedJob.manager,
+          action: "variation approval requested",
+          recordType: "job",
+          recordId: selectedJob.id,
+          summary: `Variation ${target.summary} sent to client for approval from ${selectedJob.ref}.`,
+          source: "variation actions",
+          importance: "high",
+        });
+        showNotice(`Variation sent to client via variation approval flow. ${formatVariationPortalCopyNotice(target)}`);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Unable to send variation approval request.";
+        showNotice(message);
+      });
+  }
+
+  function approveSelectedJobVariation(variationId: string) {
+    if (!selectedJob) return;
+    const variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    if (!variationEvent) {
+      showNotice("This variation is not yet linked to a live event.");
+      return;
+    }
+    if (variationEvent.status === "Approved" || variationEvent.status === "Client approved") {
+      showNotice("Variation is already approved for job billing/proceed.");
+      return;
+    }
+    if (variationEvent.requiresClientApproval && variationEvent.status !== "Sent for approval") {
+      showNotice("Send this variation for client approval before marking approved.");
+      return;
+    }
+
+    const nextStatus = variationEvent.requiresClientApproval ? "Client approved" : "Approved";
+    const target = updateSelectedJobVariationEvent(variationEvent.id, {
+      status: nextStatus,
+      clientApprovalStatus: variationEvent.requiresClientApproval ? "Approved" : undefined,
+    });
+    if (!target) {
+      showNotice("Could not update variation status.");
+      return;
+    }
+    logAuditEvent({
+      actor: activeEmployee?.name ?? selectedJob.manager,
+      action: "variation approved",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `${variationEvent.summary} approved for ${selectedJob.ref}.`,
+      source: "variation actions",
+      importance: "high",
+    });
+    showNotice("Variation approved and marked ready to proceed.");
+  }
+
+  async function copySelectedJobVariationPortalLink(variationId: string) {
+    if (typeof window === "undefined") return;
+    if (!selectedJob) return;
+    const variationEvent = jobDeliveryEvents.find((event) => event.id === variationId && event.kind === "variation" && event.jobId === selectedJob.id);
+    if (!variationEvent?.portalToken) {
+      showNotice("No portal link has been generated for this variation yet.");
+      return;
+    }
+
+    const portalUrl = variationPortalLink(variationEvent.portalToken);
+    try {
+      await window.navigator.clipboard.writeText(portalUrl);
+      showNotice(`Copied variation approval link for ${variationEvent.summary}.`);
+    } catch {
+      showNotice(`Copy manually from here: ${portalUrl}`);
+    }
+  }
+
+  async function refreshSelectedJobVariationPortalStatuses() {
+    if (!selectedJob) return;
+    try {
+      const response = await fetch(`/api/variation-portal?jobId=${encodeURIComponent(selectedJob.id)}`);
+      if (!response.ok) return;
+      const records = await response.json() as VariationPortalSyncRecord[];
+      const byEvent = new Map<string, VariationPortalSyncRecord>(records.map((entry) => [entry.variationEventId, entry]));
+
+      setJobDeliveryEvents((current) =>
+        current.map((event) => {
+          if (
+            event.jobId !== selectedJob.id ||
+            event.kind !== "variation" ||
+            !byEvent.has(event.id)
+          ) {
+            return event;
+          }
+
+          const portalStatus = byEvent.get(event.id);
+          if (!portalStatus) return event;
+          return {
+            ...event,
+            portalToken: portalStatus.token,
+            status: mapVariationEventStatusFromPortalStatus(portalStatus.status),
+            clientApprovalStatus: mapVariationClientStatusFromPortalStatus(portalStatus.status),
+          };
+        }),
+      );
+    } catch {
+      // If the portal service is unavailable we keep local status.
+    }
   }
 
   async function requestSelectedJobPurchaseOrder() {
@@ -5714,15 +6319,25 @@ export default function Dashboard() {
     showNotice(`${rows.length} takeoff / BOQ row(s) applied to the scope summary.`);
   }
 
-  function handleTakeoffDocumentUpload(centre: QuoteCostCentre, kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
+  async function handleTakeoffDocumentUpload(centre: QuoteCostCentre, kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
     const document = makeTakeoffDocument(kind, file.name);
-    const rows = makeTakeoffRowsFromDocument(centre, document);
+    const parseResult = await parseTakeoffRowsFromUpload(centre, document, file).catch(() => ({
+      rows: makeTakeoffRowsFromDocument(centre, document),
+      status: "fallback" as const,
+      notes: ["Upload parsing failed; fallback draft lines added."],
+    }));
+
+    const rows = parseResult.rows.length ? parseResult.rows : makeTakeoffRowsFromDocument(centre, document);
+    const recordDocument: TakeoffSourceDocument = {
+      ...document,
+      questions: [...document.questions, ...parseResult.notes],
+    };
 
     updateQuoteCostCentre(centre.id, {
-      takeoffDocuments: [...(centre.takeoffDocuments ?? []), document],
+      takeoffDocuments: [...(centre.takeoffDocuments ?? []), recordDocument],
       takeoffRows: [...(centre.takeoffRows ?? []), ...rows],
     });
 
@@ -5732,14 +6347,18 @@ export default function Dashboard() {
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
-        summary: `${kind} file ${file.name} uploaded into ${centre.name}; ${rows.length} draft takeoff row(s) created for review.`,
+        summary: `${kind} file ${file.name} uploaded into ${centre.name}; ${rows.length} draft takeoff row(s) created for review.${parseResult.status === "parsed" ? " Parsed automatically." : " Manual review expected."}`,
         source: "web",
         importance: "normal",
       });
     }
 
     event.currentTarget.value = "";
-    showNotice(`${file.name} scanned into ${rows.length} draft takeoff row(s) for review.`);
+    if (parseResult.notes.length) {
+      showNotice(parseResult.notes.join(" "));
+    } else {
+      showNotice(`${file.name} scanned into ${rows.length} draft takeoff row(s) for review.`);
+    }
   }
 
   function updateSupplierQuoteDraft(centreId: string, patch: Partial<SupplierQuoteDraft>) {
@@ -5959,12 +6578,14 @@ export default function Dashboard() {
     showNotice(`Supplier quote request staged for ${supplier} with ${lines.length} item(s).`);
   }
 
-  function handleSupplierQuoteUpload(centre: QuoteCostCentre, event: ChangeEvent<HTMLInputElement>) {
+  async function handleSupplierQuoteUpload(centre: QuoteCostCentre, event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
-      showNotice("Supplier quote import only accepts PDF files.");
+    const lowered = file.name.toLowerCase();
+    const isCsvLike = lowered.endsWith(".csv") || lowered.endsWith(".txt") || lowered.endsWith(".tsv");
+    if (!lowered.endsWith(".pdf") && !isCsvLike) {
+      showNotice("Supplier quote upload now supports PDF, CSV and TXT/TSV for automatic parsing.");
       event.currentTarget.value = "";
       return;
     }
@@ -5972,6 +6593,46 @@ export default function Dashboard() {
     const existing = supplierQuoteDrafts[centre.id];
     const markupPercent = existing?.markupPercent ?? 30;
     const supplier = existing?.supplier || file.name.replace(/\.pdf$/i, "");
+    if (isCsvLike) {
+      const parsed = await parseSupplierQuoteRowsFromUpload(file, centre, markupPercent).catch(() => ({
+        lines: [],
+        status: "fallback" as const,
+        notes: ["Supplier quote parse failed; using existing draft lines."],
+      }));
+
+      if (parsed.lines.length > 0) {
+        setSupplierQuoteDrafts((current) => ({
+          ...current,
+          [centre.id]: {
+            ...current[centre.id],
+            supplier,
+            fileName: file.name,
+            markupPercent,
+            lines: parsed.lines,
+          },
+        }));
+
+        if (selectedQuote) {
+          logAuditEvent({
+            actor: activeEmployee?.name ?? "HubFlo",
+            action: "uploaded",
+            recordType: "quote",
+            recordId: selectedQuote.id,
+            summary: `${file.name} parsed into ${parsed.lines.length} supplier-priced lines for ${centre.name}.`,
+            source: "web",
+            importance: "normal",
+          });
+        }
+
+        showNotice(parsed.lines.length ? parsed.notes.join(" ") : "Supplier quote parsed.");
+      } else {
+        showNotice(parsed.notes.join(" ") || "No supplier lines parsed; fallback sample retained.");
+      }
+
+      event.currentTarget.value = "";
+      return;
+    }
+
     const requestedLines = existing?.lines.length ? existing.lines : makeSupplierQuoteLines(file.name, centre, markupPercent);
     const lines = requestedLines.map((line, index) => {
       const radiatorMatch = radiatorCatalogue.find((radiator) =>
@@ -5996,6 +6657,7 @@ export default function Dashboard() {
         lines,
       },
     }));
+
     if (selectedQuote) {
       logAuditEvent({
         actor: activeEmployee?.name ?? "HubFlo",
@@ -7978,6 +8640,11 @@ export default function Dashboard() {
                       Convert to job
                     </button>
                   ) : null}
+                  {homeView === "quote-record" && selectedQuoteJob ? (
+                    <button className="secondary-button" onClick={() => openJobDrawer(selectedQuoteJob.id)}>
+                      Open linked job
+                    </button>
+                  ) : null}
                 </>
               ) : homeView === "leads" ? (
                 <>
@@ -8931,8 +9598,13 @@ export default function Dashboard() {
                                     ? "Upload specs to pull named products and exclusions"
                                     : "Upload BOQ to create draft rows and cost centres"}
                               </strong>
+                              <small>
+                                {kind === "Contractor BOQ"
+                                  ? "CSV/TXT exports are parsed automatically into rows."
+                                  : "Review generated rows and edit quantities / costs manually."}
+                              </small>
                               <input
-                                accept={kind === "Drawings" ? "application/pdf,image/*,.dwg,.dxf" : "application/pdf,.xlsx,.xls,.csv,.doc,.docx"}
+                                accept={kind === "Drawings" ? "application/pdf,image/*,.dwg,.dxf" : ".csv,.txt,.tsv,.pdf"}
                                 type="file"
                                 onChange={(event) => handleTakeoffDocumentUpload(selectedQuoteCostCentre, kind, event)}
                               />
@@ -9415,7 +10087,7 @@ export default function Dashboard() {
                         <label>
                           Supplier Quote
                           <input
-                            accept="application/pdf,.pdf"
+                            accept=".pdf,.csv,.txt,.tsv"
                             type="file"
                             onChange={(event) => handleSupplierQuoteUpload(selectedQuoteCostCentre, event)}
                           />
@@ -10249,13 +10921,46 @@ export default function Dashboard() {
                               </small>
                             </div>
                             <div className="variation-actions">
-                              <button className="simpro-grey-button" type="button" onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}>
+                              <button
+                                className="simpro-grey-button"
+                                type="button"
+                                onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}
+                              >
                                 Preview
                               </button>
-                              <button className="simpro-blue-button" type="button" onClick={() => showNotice(`${variation.reference} sent to client for online approval.`)}>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                disabled={
+                                  variation.source === "seed" ||
+                                  variation.requiresClientApproval === false ||
+                                  variation.status === "Client approved" ||
+                                  variation.status === "Approved" ||
+                                  variation.status === "Proceed"
+                                }
+                                onClick={() => sendSelectedJobVariationForApproval(variation.id)}
+                              >
                                 Send for approval
                               </button>
-                              <button className="simpro-save-button" type="button" onClick={() => showNotice(`${variation.reference} approved. Engineer and office alerted to proceed.`)}>
+                              <button
+                                className="simpro-grey-button"
+                                type="button"
+                                disabled={!variation.portalToken}
+                                onClick={() => copySelectedJobVariationPortalLink(variation.id)}
+                              >
+                                Copy approval link
+                              </button>
+                              <button
+                                className="simpro-save-button"
+                                type="button"
+                                disabled={
+                                  variation.source === "seed" ||
+                                  (variation.requiresClientApproval
+                                    ? variation.status !== "Sent for approval"
+                                    : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed")
+                                }
+                                onClick={() => approveSelectedJobVariation(variation.id)}
+                              >
                                 Mark approved / proceed
                               </button>
                             </div>
@@ -10273,7 +10978,14 @@ export default function Dashboard() {
                         <span className="permission-heading">Job history</span>
                         <h2>Logs & communications</h2>
                       </div>
-                      <button className="secondary-button" type="button" onClick={() => showNotice("Outlook and WhatsApp sync checks refreshed locally.")}>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          refreshSelectedJobVariationPortalStatuses().catch(() => {});
+                          showNotice("Variation portal and job logs refreshed locally.");
+                        }}
+                      >
                         Refresh logs
                       </button>
                     </header>
@@ -10342,20 +11054,23 @@ export default function Dashboard() {
                     </div>
                     <div className="job-delivery-list">
                       <strong>Site activity</strong>
-                      {selectedJobDeliveryEvents.length === 0 ? (
-                        <p>No WhatsApp, timesheet, PO or variation events captured yet.</p>
-                      ) : (
-                        selectedJobDeliveryEvents.map((event) => (
-                          <article key={event.id} className="job-delivery-event">
-                            <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
-                            <div>
-                              <strong>{event.summary}</strong>
-                              <small>{event.actor} · {event.source} · {event.createdAt}</small>
-                            </div>
-                            {event.status ? <b>{event.status}</b> : null}
-                          </article>
-                        ))
-                      )}
+                        {selectedJobDeliveryEvents.length === 0 ? (
+                          <p>No WhatsApp, timesheet, PO or variation events captured yet.</p>
+                        ) : (
+                          selectedJobDeliveryEvents.map((event) => (
+                            <article key={event.id} className="job-delivery-event">
+                              <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
+                              <div>
+                                <strong>{event.summary}</strong>
+                                <small>
+                                  {event.actor} · {event.source} · {event.createdAt}
+                                  {variationApprovalText(event) ? ` · ${variationApprovalText(event)}` : ""}
+                                </small>
+                              </div>
+                              {event.status ? <b>{event.status}</b> : null}
+                            </article>
+                          ))
+                        )}
                     </div>
                     <div className="quote-log-list">
                       {selectedJobAudit.length > 0 ? (
@@ -12485,6 +13200,7 @@ export default function Dashboard() {
                   {filteredQuotes.map((quote) => {
                     const site = clientSites.find((item) => item.id === quote.siteId);
                     const linkedInvoice = invoiceSourceMap.byQuote.get(quote.id) ?? null;
+                    const linkedJob = getQuoteJob(quote);
                     return (
                       <div
                         className="quote-row clickable"
@@ -12518,6 +13234,18 @@ export default function Dashboard() {
                         <span className="next-action quote-workflow-action">
                           <strong>{quote.convertedJobRef ?? quote.next}</strong>
                           <small>{quote.convertedJobRef ? "Linked job" : quote.due}</small>
+                          {linkedJob ? (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openJobDrawer(linkedJob.id);
+                              }}
+                            >
+                              Open linked job
+                            </button>
+                          ) : null}
                           {linkedInvoice ? (
                             <button
                               className="secondary-button"

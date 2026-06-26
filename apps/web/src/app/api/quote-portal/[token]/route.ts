@@ -43,6 +43,13 @@ export async function GET(_request: Request, context: RouteContext) {
     value: updated.value,
     viewedAt: updated.viewedAt,
     respondedAt: updated.respondedAt,
+    job: updated.convertedJobId
+      ? {
+          id: updated.convertedJobId,
+          ref: updated.convertedJobRef ?? "",
+          status: "Pending",
+        }
+      : null,
   });
 }
 
