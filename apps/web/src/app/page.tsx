@@ -3830,7 +3830,7 @@ export default function Dashboard() {
       {
         label: "Job",
         detail: job ? `${job.ref} · ${job.status}` : "Waiting for job",
-        state: stageState(Boolean(job && ["Ready to invoice", "Completed"].includes(job.status)), Boolean(job && !invoice)),
+        state: stageState(Boolean(job && ["Ready to invoice", "Completed", "Invoiced", "Closed"].includes(job.status)), Boolean(job && !invoice)),
       },
       {
         label: "Invoice",
@@ -4742,6 +4742,10 @@ export default function Dashboard() {
     }
     const sentAt = workflowTimestamp();
     const outlookMessageId = `outlook-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+    const sourceJob =
+      selectedInvoice.sourceType === "job"
+        ? jobs.find((job) => job.id === selectedInvoice.sourceId) ?? null
+        : null;
     setInvoices((current) =>
       current.map((invoice) =>
         invoice.id === selectedInvoice.id
@@ -4755,6 +4759,21 @@ export default function Dashboard() {
           : invoice,
       ),
     );
+    if (sourceJob) {
+      setJobs((current) =>
+        current.map((job) =>
+          job.id === sourceJob.id
+            ? {
+                ...job,
+                status: "Invoiced",
+                health: "green",
+                next: `Invoice ${selectedInvoice.ref} sent. Await payment.`,
+                due: selectedInvoice.dueDate,
+              }
+            : job,
+        ),
+      );
+    }
     logAuditEvent({
       actor: activeEmployee?.name ?? "HubFlo user",
       action: "emailed",
@@ -4764,6 +4783,17 @@ export default function Dashboard() {
       source: "outlook draft",
       importance: "high",
     });
+    if (sourceJob) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo user",
+        action: "invoiced",
+        recordType: "job",
+        recordId: sourceJob.id,
+        summary: `${sourceJob.ref} marked Invoiced after ${selectedInvoice.ref} was emailed to ${selectedInvoiceEmailDraft.to}.`,
+        source: "invoice email",
+        importance: "high",
+      });
+    }
     addCommunicationRecord({
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -4778,7 +4808,7 @@ export default function Dashboard() {
       messageId: outlookMessageId,
       status: "Sent",
     });
-    showNotice(`Invoice ${selectedInvoice.ref} sent and logged.`);
+    showNotice(sourceJob ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.` : `Invoice ${selectedInvoice.ref} sent and logged.`);
   }
 
   function openQuoteCostCentreRecord(centreId: string) {
@@ -10929,7 +10959,11 @@ export default function Dashboard() {
                         </div>
                         <div className="job-scheduling-actions">
                           <small>
-                            {selectedInvoice.sentAt ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}` : "Not sent yet"}
+                            {selectedInvoice.sentAt
+                              ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
+                              : selectedInvoiceSourceJob
+                                ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
+                                : "Not sent yet"}
                           </small>
                           <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
                             <Mail size={15} />
