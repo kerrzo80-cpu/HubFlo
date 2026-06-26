@@ -94,6 +94,7 @@ const STORAGE_KEYS = {
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   jobCostCentres: "hubflo:job-cost-centres:v1",
   jobReviews: "hubflo:job-reviews:v1",
+  jobDeliveryEvents: "hubflo:job-delivery-events:v1",
   invoices: "hubflo:invoices:v1",
 } as const;
 
@@ -721,6 +722,54 @@ type JobVariation = {
   requiresClientApproval?: boolean;
   clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   engineerName?: string;
+};
+
+type JobDeliveryKind = "whatsapp" | "timesheet" | "variation" | "po";
+
+type JobDeliveryEvent = {
+  id: string;
+  jobId: string;
+  jobRef: string;
+  kind: JobDeliveryKind;
+  actor: string;
+  summary: string;
+  createdAt: string;
+  hours?: number;
+  materials?: string;
+  costValue?: number;
+  sellValue?: number;
+  status?: string;
+  source: "HubFlo" | "WhatsApp" | "Engineer app";
+};
+
+type JobDeliveryDraft = {
+  whatsappNote: string;
+  timesheetHours: string;
+  timesheetNote: string;
+  variationDescription: string;
+  variationHours: string;
+  variationMaterials: string;
+  variationCost: string;
+  variationSell: string;
+  poSupplier: string;
+  poItem: string;
+  poEstimatedCost: string;
+  poReason: string;
+};
+
+const blankJobDeliveryDraft: JobDeliveryDraft = {
+  whatsappNote: "",
+  timesheetHours: "",
+  timesheetNote: "",
+  variationDescription: "",
+  variationHours: "",
+  variationMaterials: "",
+  variationCost: "",
+  variationSell: "",
+  poSupplier: "",
+  poItem: "",
+  poEstimatedCost: "",
+  poReason: "",
 };
 
 type CatalogItem = {
@@ -2969,6 +3018,8 @@ export default function Dashboard() {
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
+  const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
+  const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3184,6 +3235,26 @@ export default function Dashboard() {
     [selectedJobReviewState],
   );
 
+  const selectedJobDeliveryEvents = useMemo(
+    () => (selectedJob ? jobDeliveryEvents.filter((event) => event.jobId === selectedJob.id) : []),
+    [jobDeliveryEvents, selectedJob],
+  );
+
+  const selectedJobDeliveryDraft = useMemo(
+    () => (selectedJob ? jobDeliveryDrafts[selectedJob.id] ?? blankJobDeliveryDraft : blankJobDeliveryDraft),
+    [jobDeliveryDrafts, selectedJob],
+  );
+
+  const selectedJobTimesheetHours = useMemo(
+    () => selectedJobDeliveryEvents.reduce((total, event) => total + (event.kind === "timesheet" ? event.hours ?? 0 : 0), 0),
+    [selectedJobDeliveryEvents],
+  );
+
+  const selectedJobPurchaseRequests = useMemo(
+    () => (selectedJob ? purchaseRequests.filter((request) => request.jobId === selectedJob.id) : []),
+    [purchaseRequests, selectedJob],
+  );
+
   const selectedDrawerAudit = useMemo(() => {
     const ids = new Set<string>();
     if (selectedQuote) ids.add(selectedQuote.id);
@@ -3246,8 +3317,31 @@ export default function Dashboard() {
   );
 
   const selectedJobVariations = useMemo(
-    () => (selectedJob ? buildJobVariations(selectedJob) : []),
-    [selectedJob],
+    () => {
+      if (!selectedJob) return [];
+
+      const capturedVariations = jobDeliveryEvents
+        .filter((event) => event.jobId === selectedJob.id && event.kind === "variation")
+        .map(
+          (event, index): JobVariation => ({
+            id: event.id,
+            reference: `V-${String(index + 1).padStart(3, "0")}`,
+            title: event.summary,
+            status: event.status === "Client approved" ? "Client approved" : "Quote drafted",
+            costValue: event.costValue ?? 0,
+            sellValue: event.sellValue ?? 0,
+            description: event.summary,
+            labourHours: event.hours,
+            materialsUsed: event.materials,
+            requiresClientApproval: true,
+            clientApprovalStatus: event.status === "Client approved" ? "Approved" : "Not sent",
+            engineerName: event.actor,
+          }),
+        );
+
+      return [...capturedVariations, ...buildJobVariations(selectedJob)];
+    },
+    [jobDeliveryEvents, selectedJob],
   );
 
   const selectedInvoiceSourceQuote = useMemo(
@@ -3448,6 +3542,7 @@ export default function Dashboard() {
     setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, defaultQuoteCostCentres));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
+    setJobDeliveryEvents(safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
     setHasHydratedLocalData(true);
   }, []);
 
@@ -3533,6 +3628,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
+    safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
   }, [
     clients,
     clientSites,
@@ -3548,6 +3644,7 @@ export default function Dashboard() {
     quoteCostCentres,
     jobEstimateCostCentres,
     jobReviewApprovals,
+    jobDeliveryEvents,
     hasHydratedLocalData,
   ]);
 
@@ -4605,6 +4702,193 @@ export default function Dashboard() {
         [selectedJob.id]: { ...existing, ...patch },
       };
     });
+  }
+
+  function updateSelectedJobDeliveryDraft(patch: Partial<JobDeliveryDraft>) {
+    if (!selectedJob) return;
+    setJobDeliveryDrafts((current) => ({
+      ...current,
+      [selectedJob.id]: { ...(current[selectedJob.id] ?? blankJobDeliveryDraft), ...patch },
+    }));
+  }
+
+  function resetSelectedJobDeliveryDraft(patch: Partial<JobDeliveryDraft>) {
+    if (!selectedJob) return;
+    setJobDeliveryDrafts((current) => ({
+      ...current,
+      [selectedJob.id]: { ...(current[selectedJob.id] ?? blankJobDeliveryDraft), ...patch },
+    }));
+  }
+
+  function addJobDeliveryEvent(event: Omit<JobDeliveryEvent, "id" | "createdAt">) {
+    const created: JobDeliveryEvent = {
+      ...event,
+      id: `delivery-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      createdAt: workflowTimestamp(),
+    };
+    setJobDeliveryEvents((current) => [created, ...current]);
+    return created;
+  }
+
+  function logSelectedJobWhatsappUpdate() {
+    if (!selectedJob) return;
+    const note = selectedJobDeliveryDraft.whatsappNote.trim();
+    if (!note) {
+      showNotice("Add a WhatsApp/site update first.");
+      return;
+    }
+    const created = addJobDeliveryEvent({
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      kind: "whatsapp",
+      actor: activeEmployee?.name ?? selectedJob.manager,
+      summary: note,
+      source: "WhatsApp",
+      status: "Captured",
+    });
+    resetSelectedJobDeliveryDraft({ whatsappNote: "" });
+    logAuditEvent({
+      actor: created.actor,
+      action: "captured",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `WhatsApp update captured for ${selectedJob.ref}: ${note}`,
+      source: "whatsapp doorway",
+      importance: "normal",
+    });
+    showNotice("WhatsApp update captured against the job.");
+  }
+
+  function submitSelectedJobTimesheet() {
+    if (!selectedJob) return;
+    const hours = Number(selectedJobDeliveryDraft.timesheetHours);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      showNotice("Enter the hours before submitting the timesheet.");
+      return;
+    }
+    const note = selectedJobDeliveryDraft.timesheetNote.trim() || `${hours} hrs submitted by ${selectedJob.manager}.`;
+    const created = addJobDeliveryEvent({
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      kind: "timesheet",
+      actor: selectedJob.manager,
+      summary: note,
+      source: "WhatsApp",
+      hours,
+      status: "Submitted",
+    });
+    resetSelectedJobDeliveryDraft({ timesheetHours: "", timesheetNote: "" });
+    logAuditEvent({
+      actor: created.actor,
+      action: "submitted",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `${hours} hrs timesheet submitted for ${selectedJob.ref}.`,
+      source: "timesheet capture",
+      importance: "normal",
+    });
+    showNotice("Timesheet captured against the job.");
+  }
+
+  function raiseSelectedJobVariation() {
+    if (!selectedJob) return;
+    const description = selectedJobDeliveryDraft.variationDescription.trim();
+    if (!description) {
+      showNotice("Describe the variation before raising it.");
+      return;
+    }
+    const hours = Number(selectedJobDeliveryDraft.variationHours) || 0;
+    const costValue = Number(selectedJobDeliveryDraft.variationCost) || Math.round(hours * 40);
+    const sellValue = Number(selectedJobDeliveryDraft.variationSell) || Math.round(costValue * 1.3);
+    addJobDeliveryEvent({
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      kind: "variation",
+      actor: selectedJob.manager,
+      summary: description,
+      source: "WhatsApp",
+      hours,
+      materials: selectedJobDeliveryDraft.variationMaterials.trim(),
+      costValue,
+      sellValue,
+      status: "Office review",
+    });
+    resetSelectedJobDeliveryDraft({
+      variationDescription: "",
+      variationHours: "",
+      variationMaterials: "",
+      variationCost: "",
+      variationSell: "",
+    });
+    logAuditEvent({
+      actor: selectedJob.manager,
+      action: "variation raised",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `Variation raised for ${selectedJob.ref}: ${description}. Office review required before client approval.`,
+      source: "variation capture",
+      importance: "high",
+    });
+    showNotice("Variation draft created for office review.");
+  }
+
+  async function requestSelectedJobPurchaseOrder() {
+    if (!selectedJob) return;
+    const supplier = selectedJobDeliveryDraft.poSupplier.trim();
+    const item = selectedJobDeliveryDraft.poItem.trim();
+    if (!supplier || !item) {
+      showNotice("Add the supplier and item before requesting a PO.");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/purchase-requests", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          jobRef: selectedJob.ref,
+          requestedBy: activeEmployee?.name ?? selectedJob.manager,
+          supplier,
+          item,
+          estimatedCost: Number(selectedJobDeliveryDraft.poEstimatedCost) || 0,
+          reason: selectedJobDeliveryDraft.poReason.trim() || "Requested during job delivery",
+        }),
+      });
+
+      if (!response.ok) throw new Error("Unable to create purchase request");
+
+      const created = (await response.json()) as PurchaseRequest;
+      setPurchaseRequests((current) => [created, ...current]);
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "po",
+        actor: created.requestedBy,
+        summary: `${created.item} from ${created.supplier}`,
+        source: "HubFlo",
+        costValue: created.estimatedCost,
+        status: created.status,
+      });
+      resetSelectedJobDeliveryDraft({
+        poSupplier: "",
+        poItem: "",
+        poEstimatedCost: "",
+        poReason: "",
+      });
+      logAuditEvent({
+        actor: created.requestedBy,
+        action: "created",
+        recordType: "purchase_request",
+        recordId: created.id,
+        summary: `PO request created for ${created.jobRef} with ${created.supplier}.`,
+        source: "job delivery",
+        importance: "normal",
+      });
+      showNotice("PO request submitted for office approval.");
+    } catch {
+      setSectionError("Unable to submit PO request right now.");
+    }
   }
 
   async function patchSelectedJob(patch: Partial<Job>, successMessage: string) {
@@ -6573,7 +6857,7 @@ export default function Dashboard() {
   }
 
   async function createPurchaseRequest() {
-    const job = jobs[0];
+    const job = selectedJob ?? jobs[0];
     if (!job || !purchaseDraft.supplier.trim() || !purchaseDraft.item.trim()) return;
 
     try {
@@ -9017,6 +9301,214 @@ export default function Dashboard() {
                         >
                           Approve for invoice
                         </button>
+                      </div>
+                    </section>
+                    <section className="job-delivery-panel">
+                      <header>
+                        <div>
+                          <span className="permission-heading">Project management</span>
+                          <h2>WhatsApp, timesheets, POs and variations</h2>
+                        </div>
+                        <span className="status-pill blue">{selectedJobDeliveryEvents.length} events</span>
+                      </header>
+
+                      <div className="job-delivery-stats" aria-label="Job delivery totals">
+                        <article>
+                          <span>Site updates</span>
+                          <strong>{selectedJobDeliveryEvents.filter((event) => event.kind === "whatsapp").length}</strong>
+                        </article>
+                        <article>
+                          <span>Timesheets</span>
+                          <strong>{selectedJobTimesheetHours.toFixed(1)}h</strong>
+                        </article>
+                        <article>
+                          <span>PO requests</span>
+                          <strong>{selectedJobPurchaseRequests.length}</strong>
+                        </article>
+                        <article>
+                          <span>Variations</span>
+                          <strong>{selectedJobVariations.length}</strong>
+                        </article>
+                      </div>
+
+                      <div className="job-delivery-grid">
+                        <article className="job-delivery-card">
+                          <header>
+                            <strong>Site update</strong>
+                            <small>Captured from WhatsApp doorway</small>
+                          </header>
+                          <label>
+                            Message
+                            <textarea
+                              value={selectedJobDeliveryDraft.whatsappNote}
+                              onChange={(event) => updateSelectedJobDeliveryDraft({ whatsappNote: event.target.value })}
+                              placeholder="Example: arrived on site, customer asked about moving radiator..."
+                            />
+                          </label>
+                          <button className="secondary-button" type="button" onClick={logSelectedJobWhatsappUpdate}>
+                            Capture update
+                          </button>
+                        </article>
+
+                        <article className="job-delivery-card">
+                          <header>
+                            <strong>Timesheet</strong>
+                            <small>Engineer time against this job</small>
+                          </header>
+                          <div className="job-delivery-two-col">
+                            <label>
+                              Hours
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                value={selectedJobDeliveryDraft.timesheetHours}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ timesheetHours: event.target.value })}
+                              />
+                            </label>
+                            <label>
+                              Engineer
+                              <input value={selectedJob.manager} readOnly />
+                            </label>
+                          </div>
+                          <label>
+                            Notes
+                            <textarea
+                              value={selectedJobDeliveryDraft.timesheetNote}
+                              onChange={(event) => updateSelectedJobDeliveryDraft({ timesheetNote: event.target.value })}
+                              placeholder="What was done during these hours?"
+                            />
+                          </label>
+                          <button className="secondary-button" type="button" onClick={submitSelectedJobTimesheet}>
+                            Submit timesheet
+                          </button>
+                        </article>
+
+                        <article className="job-delivery-card wide">
+                          <header>
+                            <strong>Variation</strong>
+                            <small>Creates an office review draft before client approval</small>
+                          </header>
+                          <label>
+                            Work description
+                            <textarea
+                              value={selectedJobDeliveryDraft.variationDescription}
+                              onChange={(event) => updateSelectedJobDeliveryDraft({ variationDescription: event.target.value })}
+                              placeholder="Describe the extra works and why they are needed."
+                            />
+                          </label>
+                          <div className="job-delivery-four-col">
+                            <label>
+                              Labour hrs
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.25"
+                                value={selectedJobDeliveryDraft.variationHours}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationHours: event.target.value })}
+                              />
+                            </label>
+                            <label>
+                              Materials
+                              <input
+                                value={selectedJobDeliveryDraft.variationMaterials}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationMaterials: event.target.value })}
+                                placeholder="Pipe, fittings, valves"
+                              />
+                            </label>
+                            <label>
+                              Cost
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={selectedJobDeliveryDraft.variationCost}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationCost: event.target.value })}
+                              />
+                            </label>
+                            <label>
+                              Sell
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={selectedJobDeliveryDraft.variationSell}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationSell: event.target.value })}
+                              />
+                            </label>
+                          </div>
+                          <button className="primary-button" type="button" onClick={raiseSelectedJobVariation}>
+                            Raise variation
+                          </button>
+                        </article>
+
+                        <article className="job-delivery-card wide">
+                          <header>
+                            <strong>Purchase order</strong>
+                            <small>Request materials for this job</small>
+                          </header>
+                          <div className="job-delivery-four-col">
+                            <label>
+                              Supplier
+                              <input
+                                value={selectedJobDeliveryDraft.poSupplier}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ poSupplier: event.target.value })}
+                                placeholder="City Plumbing"
+                              />
+                            </label>
+                            <label>
+                              Item
+                              <input
+                                value={selectedJobDeliveryDraft.poItem}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ poItem: event.target.value })}
+                                placeholder="Radiators, valves, copper..."
+                              />
+                            </label>
+                            <label>
+                              Estimated cost
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={selectedJobDeliveryDraft.poEstimatedCost}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ poEstimatedCost: event.target.value })}
+                              />
+                            </label>
+                            <label>
+                              Reason
+                              <input
+                                value={selectedJobDeliveryDraft.poReason}
+                                onChange={(event) => updateSelectedJobDeliveryDraft({ poReason: event.target.value })}
+                                placeholder="Needed for first fix"
+                              />
+                            </label>
+                          </div>
+                          <button className="secondary-button" type="button" onClick={requestSelectedJobPurchaseOrder}>
+                            Request PO
+                          </button>
+                        </article>
+                      </div>
+
+                      <div className="job-delivery-list">
+                        <strong>Latest job activity</strong>
+                        {selectedJobDeliveryEvents.length === 0 ? (
+                          <p>No site updates, timesheets, variations or PO requests captured yet.</p>
+                        ) : (
+                          selectedJobDeliveryEvents.slice(0, 5).map((event) => (
+                            <article key={event.id} className="job-delivery-event">
+                              <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
+                              <div>
+                                <strong>{event.summary}</strong>
+                                <small>
+                                  {event.actor} · {event.source} · {event.createdAt}
+                                  {event.status ? ` · ${event.status}` : ""}
+                                </small>
+                              </div>
+                              {event.kind === "timesheet" ? <b>{(event.hours ?? 0).toFixed(1)}h</b> : null}
+                              {event.kind === "po" || event.kind === "variation" ? <b>{currency(event.sellValue ?? event.costValue ?? 0)}</b> : null}
+                            </article>
+                          ))
+                        )}
                       </div>
                     </section>
                   </section>
