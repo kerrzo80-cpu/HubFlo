@@ -911,6 +911,18 @@ type TakeoffSourceDocument = {
   questions: string[];
 };
 
+type SurveyAssetKind = "Room scan" | "Survey photo" | "Concept look";
+
+type SurveyAsset = {
+  id: string;
+  kind: SurveyAssetKind;
+  title: string;
+  detail: string;
+  status: "Draft" | "Review" | "Ready";
+  clientVisible: boolean;
+  createdAt: string;
+};
+
 type QuoteCostCentre = {
   id: string;
   name: string;
@@ -921,6 +933,7 @@ type QuoteCostCentre = {
   heatLossRooms?: HeatLossRoom[];
   takeoffRows?: TakeoffBoqRow[];
   takeoffDocuments?: TakeoffSourceDocument[];
+  surveyAssets?: SurveyAsset[];
 };
 
 type EstimateMaterialLine = {
@@ -6262,6 +6275,61 @@ export default function Dashboard() {
     updateQuoteCostCentre(centreId, { name });
   }
 
+  function makeSurveyAsset(centre: QuoteCostCentre, kind: SurveyAssetKind): SurveyAsset {
+    const stamp = new Date().toISOString();
+    const count = (centre.surveyAssets ?? []).filter((asset) => asset.kind === kind).length + 1;
+    const defaults: Record<SurveyAssetKind, Pick<SurveyAsset, "title" | "detail" | "status" | "clientVisible">> = {
+      "Room scan": {
+        title: `${centre.name} room scan ${count}`,
+        detail: "Draft iPad room scan placeholder. Later this will hold dimensions, openings, ceiling height and scan file output.",
+        status: "Draft",
+        clientVisible: false,
+      },
+      "Survey photo": {
+        title: `${centre.name} survey photo ${count}`,
+        detail: "Survey evidence placeholder. Later this can be uploaded from the iPad and marked internal or client visible.",
+        status: "Review",
+        clientVisible: false,
+      },
+      "Concept look": {
+        title: `${centre.name} concept option ${count}`,
+        detail: "Client concept placeholder. Later this can be generated from the room photo and selected finish style.",
+        status: "Ready",
+        clientVisible: true,
+      },
+    };
+
+    return {
+      id: `${centre.id}-survey-${Date.now()}-${count}`,
+      kind,
+      createdAt: stamp,
+      ...defaults[kind],
+    };
+  }
+
+  function addSurveyAssetToQuoteCentre(centre: QuoteCostCentre, kind: SurveyAssetKind) {
+    const asset = makeSurveyAsset(centre, kind);
+    updateQuoteCostCentre(centre.id, { surveyAssets: [asset, ...(centre.surveyAssets ?? [])] });
+    showNotice(`${asset.kind} added to ${centre.name}.`);
+  }
+
+  function toggleSurveyAssetClientVisible(centreId: string, assetId: string) {
+    if (!selectedQuote) return;
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
+        centre.id === centreId
+          ? {
+              ...centre,
+              surveyAssets: (centre.surveyAssets ?? []).map((asset) =>
+                asset.id === assetId ? { ...asset, clientVisible: !asset.clientVisible } : asset,
+              ),
+            }
+          : centre,
+      ),
+    }));
+  }
+
   function importSampleTakeoffRows(centre: QuoteCostCentre) {
     const rows = makeSampleTakeoffRows(centre);
     updateQuoteCostCentre(centre.id, { takeoffRows: [...(centre.takeoffRows ?? []), ...rows] });
@@ -9579,10 +9647,13 @@ export default function Dashboard() {
                             <span>Capture the room once, then let Verrova feed the quote, heat loss, supplier request and client-facing visuals.</span>
                           </div>
                           <div className="simpro-parts-actions">
-                            <button className="simpro-grey-button" type="button" onClick={() => showNotice("Room scanner will open from the iPad survey app when native capture is connected.")}>
+                            <button className="simpro-grey-button" type="button" onClick={() => addSurveyAssetToQuoteCentre(selectedQuoteCostCentre, "Room scan")}>
                               ROOM SCAN
                             </button>
-                            <button className="simpro-blue-button" type="button" onClick={() => showNotice("Concept image generation will sit here once the quote room photos are captured.")}>
+                            <button className="simpro-grey-button" type="button" onClick={() => addSurveyAssetToQuoteCentre(selectedQuoteCostCentre, "Survey photo")}>
+                              ADD PHOTO
+                            </button>
+                            <button className="simpro-blue-button" type="button" onClick={() => addSurveyAssetToQuoteCentre(selectedQuoteCostCentre, "Concept look")}>
                               CREATE CONCEPTS
                             </button>
                           </div>
@@ -9595,7 +9666,7 @@ export default function Dashboard() {
                               <strong>Room scan</strong>
                               <p>Use iPad LiDAR/RoomPlan later to capture dimensions, openings, walls and ceiling heights against this cost centre.</p>
                             </div>
-                            <small>{(selectedQuoteCostCentre.heatLossRooms ?? []).length} room(s) in heat loss schedule</small>
+                            <small>{(selectedQuoteCostCentre.surveyAssets ?? []).filter((asset) => asset.kind === "Room scan").length} scan record(s)</small>
                           </article>
                           <article className="survey-tool-card">
                             <span className="survey-tool-icon"><FileText size={18} /></span>
@@ -9603,7 +9674,7 @@ export default function Dashboard() {
                               <strong>Survey evidence</strong>
                               <p>Photos, drawings and notes can be marked client visible or internal only before the quote is issued.</p>
                             </div>
-                            <small>{(selectedQuoteCostCentre.takeoffDocuments ?? []).length} uploaded source document(s)</small>
+                            <small>{(selectedQuoteCostCentre.surveyAssets ?? []).filter((asset) => asset.kind === "Survey photo").length} photo/evidence record(s)</small>
                           </article>
                           <article className="survey-tool-card">
                             <span className="survey-tool-icon"><Sparkles size={18} /></span>
@@ -9611,7 +9682,7 @@ export default function Dashboard() {
                               <strong>Concept looks</strong>
                               <p>Create option images for bathrooms, radiators, finishes or layouts so the customer can see the intended result.</p>
                             </div>
-                            <small>Concept generation ready to connect</small>
+                            <small>{(selectedQuoteCostCentre.surveyAssets ?? []).filter((asset) => asset.kind === "Concept look").length} concept option(s)</small>
                           </article>
                           <article className="survey-tool-card">
                             <span className="survey-tool-icon"><ListChecks size={18} /></span>
@@ -9643,6 +9714,38 @@ export default function Dashboard() {
                             <span>Quote</span>
                             <strong>Send selected visuals and priced scope</strong>
                           </div>
+                        </div>
+
+                        <div className="survey-asset-list">
+                          <div className="survey-asset-head">
+                            <strong>Survey records</strong>
+                            <span>{(selectedQuoteCostCentre.surveyAssets ?? []).filter((asset) => asset.clientVisible).length} client-visible item(s)</span>
+                          </div>
+                          {(selectedQuoteCostCentre.surveyAssets ?? []).length ? (
+                            (selectedQuoteCostCentre.surveyAssets ?? []).map((asset) => (
+                              <article className="survey-asset-row" key={asset.id}>
+                                <div>
+                                  <span>{asset.kind}</span>
+                                  <strong>{asset.title}</strong>
+                                  <small>{asset.detail}</small>
+                                </div>
+                                <b>{asset.status}</b>
+                                <label>
+                                  <input
+                                    checked={asset.clientVisible}
+                                    type="checkbox"
+                                    onChange={() => toggleSurveyAssetClientVisible(selectedQuoteCostCentre.id, asset.id)}
+                                  />
+                                  Client visible
+                                </label>
+                              </article>
+                            ))
+                          ) : (
+                            <div className="survey-empty-state">
+                              <strong>No survey records yet</strong>
+                              <span>Add a room scan, survey photo or concept look to start building the survey pack for this cost centre.</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ) : null}
