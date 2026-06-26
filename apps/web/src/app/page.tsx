@@ -732,7 +732,7 @@ type JobVariation = {
   engineerName?: string;
 };
 
-type JobDeliveryKind = "whatsapp" | "timesheet" | "variation" | "po";
+type JobDeliveryKind = "whatsapp" | "attendance" | "timesheet" | "variation" | "po";
 
 type JobDeliveryEvent = {
   id: string;
@@ -3284,6 +3284,19 @@ export default function Dashboard() {
     [jobDeliveryEvents, selectedJob],
   );
 
+  const selectedJobAttendanceEvents = useMemo(
+    () => selectedJobDeliveryEvents.filter((event) => event.kind === "attendance"),
+    [selectedJobDeliveryEvents],
+  );
+
+  const selectedJobAttendanceStatus = useMemo(() => {
+    if (!selectedJob?.scheduledDate || !selectedJob.scheduledTime) return "Not scheduled";
+    if (selectedJobAttendanceEvents.some((event) => event.status === "Arrived")) return "Arrived on site";
+    if (selectedJobAttendanceEvents.some((event) => event.status === "Confirmed")) return "Engineer confirmed";
+    if (selectedJobAttendanceEvents.some((event) => event.status === "Requested")) return "Awaiting confirmation";
+    return "Not requested";
+  }, [selectedJob, selectedJobAttendanceEvents]);
+
   const selectedJobDeliveryDraft = useMemo(
     () => (selectedJob ? jobDeliveryDrafts[selectedJob.id] ?? blankJobDeliveryDraft : blankJobDeliveryDraft),
     [jobDeliveryDrafts, selectedJob],
@@ -5231,6 +5244,115 @@ export default function Dashboard() {
     }
   }
 
+  function requestSelectedJobAttendanceConfirmation() {
+    if (!selectedJob) return;
+    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
+      showNotice("Schedule the job before requesting attendance confirmation.");
+      return;
+    }
+
+    const created = addJobDeliveryEvent({
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      kind: "attendance",
+      actor: activeEmployee?.name ?? "HubFlo user",
+      summary: `Attendance confirmation requested from ${selectedJob.manager} for ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}.`,
+      source: "WhatsApp",
+      status: "Requested",
+    });
+    logAuditEvent({
+      actor: created.actor,
+      action: "attendance requested",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `${selectedJob.manager} was asked to confirm attendance for ${selectedJob.ref}.`,
+      source: "schedule confirmation",
+      importance: "normal",
+    });
+    showNotice("Attendance confirmation requested and logged.");
+  }
+
+  async function confirmSelectedJobAttendance() {
+    if (!selectedJob) return;
+    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
+      showNotice("Schedule the job before confirming attendance.");
+      return;
+    }
+
+    try {
+      const created = addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "attendance",
+        actor: selectedJob.manager,
+        summary: `${selectedJob.manager} confirmed attendance for ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}.`,
+        source: "WhatsApp",
+        status: "Confirmed",
+      });
+      const updated = await patchSelectedJob(
+        {
+          next: `${selectedJob.manager} confirmed attendance. Await arrival on site.`,
+        },
+        `${selectedJob.ref} attendance confirmed.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: created.actor,
+        action: "attendance confirmed",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.manager} confirmed scheduled attendance for ${updated.ref}.`,
+        source: "schedule confirmation",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to confirm attendance.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
+  async function markSelectedJobArrived() {
+    if (!selectedJob) return;
+    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
+      showNotice("Schedule the job before marking arrival.");
+      return;
+    }
+
+    try {
+      const created = addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "attendance",
+        actor: selectedJob.manager,
+        summary: `${selectedJob.manager} arrived on site for ${selectedJob.ref}.`,
+        source: "WhatsApp",
+        status: "Arrived",
+      });
+      const updated = await patchSelectedJob(
+        {
+          status: "In progress",
+          next: "Engineer on site. Track timesheets, POs, WhatsApp updates and variations.",
+        },
+        `${selectedJob.ref} marked arrived and moved to in progress.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: created.actor,
+        action: "arrived",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.manager} arrived on site and ${updated.ref} moved into delivery.`,
+        source: "schedule confirmation",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to mark job arrived.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
   async function startSelectedJob() {
     if (!selectedJob) return;
     if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
@@ -5246,6 +5368,15 @@ export default function Dashboard() {
         `${selectedJob.ref} moved to in progress.`,
       );
       if (!updated) return;
+      addJobDeliveryEvent({
+        jobId: updated.id,
+        jobRef: updated.ref,
+        kind: "attendance",
+        actor: updated.manager,
+        summary: `${updated.manager} started ${updated.ref} from the schedule control.`,
+        source: "HubFlo",
+        status: "Arrived",
+      });
       logAuditEvent({
         actor: activeEmployee?.name ?? "HubFlo user",
         action: "started",
@@ -9606,11 +9737,38 @@ export default function Dashboard() {
                         <button
                           className="secondary-button"
                           type="button"
-                          disabled={selectedJob.status === "In progress"}
-                          onClick={startSelectedJob}
+                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
+                          onClick={requestSelectedJobAttendanceConfirmation}
                         >
-                          Start job
+                          Request confirmation
                         </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
+                          onClick={confirmSelectedJobAttendance}
+                        >
+                          Confirmed
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={selectedJob.status === "In progress"}
+                          onClick={markSelectedJobArrived}
+                        >
+                          Arrived / start
+                        </button>
+                      </div>
+                      <div className="attendance-status-panel">
+                        <div>
+                          <span>Attendance status</span>
+                          <strong>{selectedJobAttendanceStatus}</strong>
+                        </div>
+                        <p>
+                          {selectedJob.scheduledDate && selectedJob.scheduledTime
+                            ? `${selectedJob.manager} · ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}`
+                            : "Schedule this job before requesting engineer confirmation."}
+                        </p>
                       </div>
                     </section>
                     <section className="job-review-panel">
