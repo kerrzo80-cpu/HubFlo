@@ -3317,30 +3317,7 @@ export default function Dashboard() {
   );
 
   const selectedJobVariations = useMemo(
-    () => {
-      if (!selectedJob) return [];
-
-      const capturedVariations = jobDeliveryEvents
-        .filter((event) => event.jobId === selectedJob.id && event.kind === "variation")
-        .map(
-          (event, index): JobVariation => ({
-            id: event.id,
-            reference: `V-${String(index + 1).padStart(3, "0")}`,
-            title: event.summary,
-            status: event.status === "Client approved" ? "Client approved" : "Quote drafted",
-            costValue: event.costValue ?? 0,
-            sellValue: event.sellValue ?? 0,
-            description: event.summary,
-            labourHours: event.hours,
-            materialsUsed: event.materials,
-            requiresClientApproval: true,
-            clientApprovalStatus: event.status === "Client approved" ? "Approved" : "Not sent",
-            engineerName: event.actor,
-          }),
-        );
-
-      return [...capturedVariations, ...buildJobVariations(selectedJob)];
-    },
+    () => (selectedJob ? buildVariationsForJob(selectedJob) : []),
     [jobDeliveryEvents, selectedJob],
   );
 
@@ -4370,6 +4347,29 @@ export default function Dashboard() {
     setHomeView("invoice-record");
   }
 
+  function buildVariationsForJob(job: Job) {
+    const capturedVariations = jobDeliveryEvents
+      .filter((event) => event.jobId === job.id && event.kind === "variation")
+      .map(
+        (event, index): JobVariation => ({
+          id: event.id,
+          reference: `V-${String(index + 1).padStart(3, "0")}`,
+          title: event.summary,
+          status: event.status === "Client approved" ? "Client approved" : "Quote drafted",
+          costValue: event.costValue ?? 0,
+          sellValue: event.sellValue ?? 0,
+          description: event.summary,
+          labourHours: event.hours,
+          materialsUsed: event.materials,
+          requiresClientApproval: true,
+          clientApprovalStatus: event.status === "Client approved" ? "Approved" : "Not sent",
+          engineerName: event.actor,
+        }),
+      );
+
+    return [...capturedVariations, ...buildJobVariations(job)];
+  }
+
   function openInvoiceForQuote(quote: Quote) {
     if (!quote) return;
     const existing = invoiceSourceMap.byQuote.get(quote.id) ?? null;
@@ -4422,7 +4422,7 @@ export default function Dashboard() {
       { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
     );
 
-    const created = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildJobVariations(job));
+    const created = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job));
 
     if (!sourceLineTotals.length) {
       showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
@@ -5058,6 +5058,7 @@ export default function Dashboard() {
         source: "completion review",
         importance: "high",
       });
+      openInvoiceForJob(updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);
@@ -7525,7 +7526,7 @@ export default function Dashboard() {
                       Create invoice
                     </button>
                   ) : null}
-                  {homeView === "job-record" && !selectedInvoiceFromJob ? (
+                  {homeView === "job-record" && !selectedInvoiceFromJob && selectedJob?.status === "Ready to invoice" ? (
                     <button
                       className="primary-button"
                       onClick={() => {
