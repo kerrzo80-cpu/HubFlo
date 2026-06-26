@@ -47,6 +47,12 @@ export interface Quote {
   value: number;
   next: string;
   due: string;
+  portalToken?: string;
+  portalUrl?: string;
+  outlookMessageId?: string;
+  sentAt?: string;
+  viewedAt?: string;
+  respondedAt?: string;
 }
 
 export interface PurchaseRequest {
@@ -405,6 +411,12 @@ export function createQuote(payload: Omit<Quote, "id">): Quote {
     value: payload.value,
     next: payload.next,
     due: payload.due,
+    portalToken: payload.portalToken,
+    portalUrl: payload.portalUrl,
+    outlookMessageId: payload.outlookMessageId,
+    sentAt: payload.sentAt,
+    viewedAt: payload.viewedAt,
+    respondedAt: payload.respondedAt,
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
   store.quotes = [...store.quotes, created];
@@ -422,6 +434,24 @@ export function updateQuoteStatus(id: string, status: QuoteStatus): Quote | null
   const updated: Quote = {
     ...current,
     status,
+  };
+  store.quotes[index] = updated;
+  persistWorkflowStore();
+  return clone(updated);
+}
+
+export function updateQuote(id: string, patch: Partial<Quote>): Quote | null {
+  const store = getStore();
+  const index = store.quotes.findIndex((quote) => quote.id === id);
+  if (index < 0) return null;
+  const current = store.quotes[index];
+  if (!current) return null;
+
+  const updated: Quote = {
+    ...current,
+    ...patch,
+    id: current.id,
+    ref: current.ref,
   };
   store.quotes[index] = updated;
   persistWorkflowStore();
@@ -453,9 +483,9 @@ export function convertQuoteToJob(
     site: site?.address ?? "Site to be confirmed",
     description: quote.description,
     manager: quote.owner,
-    status: "Accepted",
+    status: "Pending",
     value: quoteValue,
-    next: "Schedule first visit",
+    next: "Schedule staff and first visit",
     due: quote.due,
   });
 

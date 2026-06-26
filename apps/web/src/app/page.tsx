@@ -1483,6 +1483,7 @@ const jobStatuses = [
   "Enquiry",
   "Quoted",
   "Accepted",
+  "Pending",
   "Scheduled",
   "In progress",
   "Waiting on parts",
@@ -2755,14 +2756,30 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteE
     to: client?.email ?? "",
     cc: "",
     subject: `${quote.ref} - ${quote.description}`,
-    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nIf you are happy for us to proceed, reply to this email and we will arrange the next steps.\n\nKind regards,\nErrol Watson Group`,
+    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nErrol Watson Group`,
     layout: "quote",
     attachPdf: true,
   };
 }
 
 function quotePortalLink(quote: Quote) {
-  return `https://client.hubflo.app/quotes/${quote.ref.toLowerCase()}`;
+  return quote.portalUrl ?? `https://client.hubflo.app/quotes/${quote.portalToken ?? quote.ref.toLowerCase()}`;
+}
+
+function makeQuotePortalToken(quote: Quote) {
+  return `${quote.ref.toLowerCase()}-${quote.id.slice(0, 8)}`;
+}
+
+function workflowTimestamp() {
+  return new Date()
+    .toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+    .replace(",", "");
 }
 
 function estimateMaterialCost(line: EstimateMaterialLine) {
@@ -3024,6 +3041,11 @@ export default function Dashboard() {
   const selectedQuote = useMemo(
     () => (selectedQuoteId ? quotes.find((quote) => quote.id === selectedQuoteId) ?? null : null),
     [quotes, selectedQuoteId],
+  );
+
+  const selectedQuoteAudit = useMemo(
+    () => (selectedQuote ? auditEvents.filter((event) => event.recordId === selectedQuote.id) : []),
+    [auditEvents, selectedQuote],
   );
 
   const selectedJob = useMemo(
@@ -4329,36 +4351,67 @@ export default function Dashboard() {
     }));
   }
 
-  function sendSelectedQuoteEmail() {
+  async function persistQuotePatch(quoteId: string, patch: Partial<Quote>) {
+    const response = await fetch(`/api/quotes/${quoteId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) throw new Error("Unable to update quote");
+    const updated = (await response.json()) as Quote;
+    setQuotes((current) => current.map((quote) => (quote.id === updated.id ? updated : quote)));
+    return updated;
+  }
+
+  async function sendSelectedQuoteEmail() {
     if (!selectedQuote || !selectedQuoteEmailDraft) return;
     if (!selectedQuoteEmailDraft.to.trim()) {
       showNotice("Add a recipient before sending the quote.");
       return;
     }
 
-    setQuotes((current) =>
-      current.map((quote) =>
-        quote.id === selectedQuote.id
-          ? { ...quote, status: "Sent" as QuoteStatus, next: "Await customer response" }
-          : quote,
-      ),
-    );
+    const portalToken = selectedQuote.portalToken ?? makeQuotePortalToken(selectedQuote);
+    const portalUrl = selectedQuote.portalUrl ?? `https://client.hubflo.app/quotes/${portalToken}`;
+    const sentAt = workflowTimestamp();
+    const outlookMessageId = `outlook-${selectedQuote.ref.toLowerCase()}-${Date.now()}`;
+
+    try {
+      await persistQuotePatch(selectedQuote.id, {
+        status: "Sent" as QuoteStatus,
+        next: "Await customer response",
+        portalToken,
+        portalUrl,
+        outlookMessageId,
+        sentAt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send quote right now.";
+      setSectionError(message);
+      showNotice(message);
+      return;
+    }
 
     logAuditEvent({
       actor: activeEmployee?.name ?? "HubFlo user",
       action: "emailed",
       recordType: "quote",
       recordId: selectedQuote.id,
-      summary: `${selectedQuote.ref} emailed to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${quotePortalLink(selectedQuote)}.`,
+      summary: `${selectedQuote.ref} emailed from HubFlo via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
 
-    showNotice("Quote email captured on the quote timeline. Outlook sending will connect here next.");
+    showNotice("Quote sent from HubFlo and captured against the quote.");
   }
 
-  function logQuotePortalViewed() {
+  async function logQuotePortalViewed() {
     if (!selectedQuote) return;
+    const viewedAt = workflowTimestamp();
+    try {
+      await persistQuotePatch(selectedQuote.id, { viewedAt });
+    } catch {
+      showNotice("Portal view logged locally, but quote metadata could not be updated.");
+    }
     logAuditEvent({
       actor: selectedQuoteClient?.primaryContact ?? selectedQuote.customer,
       action: "viewed",
@@ -4371,19 +4424,23 @@ export default function Dashboard() {
     showNotice("Client portal view logged on the quote timeline.");
   }
 
-  function respondToQuoteOnline(status: Extract<QuoteStatus, "Accepted" | "Declined">) {
+  async function respondToQuoteOnline(status: Extract<QuoteStatus, "Accepted" | "Declined">) {
     if (!selectedQuote) return;
-    setQuotes((current) =>
-      current.map((quote) =>
-        quote.id === selectedQuote.id
-          ? {
-              ...quote,
-              status,
-              next: status === "Accepted" ? "Create job and schedule" : "Review client feedback",
-            }
-          : quote,
-      ),
-    );
+    const respondedAt = workflowTimestamp();
+    let updatedQuote: Quote;
+    try {
+      updatedQuote = await persistQuotePatch(selectedQuote.id, {
+        status,
+        next: status === "Accepted" ? "Create pending job and schedule" : "Review client feedback",
+        respondedAt,
+        viewedAt: selectedQuote.viewedAt ?? respondedAt,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to record the online response.";
+      setSectionError(message);
+      showNotice(message);
+      return;
+    }
     logAuditEvent({
       actor: selectedQuoteClient?.primaryContact ?? selectedQuote.customer,
       action: status === "Accepted" ? "accepted" : "declined",
@@ -4393,6 +4450,10 @@ export default function Dashboard() {
       source: "client portal",
       importance: status === "Accepted" ? "high" : "normal",
     });
+    if (status === "Accepted" && !updatedQuote.convertedJobId) {
+      await convertQuoteToJob(updatedQuote);
+      return;
+    }
     showNotice(status === "Accepted" ? "Quote accepted online and logged." : "Quote declined online and logged.");
   }
 
@@ -7468,7 +7529,7 @@ export default function Dashboard() {
                             </div>
                             <div>
                               <span>Portal views</span>
-                              <strong>{selectedDrawerAudit.filter((event) => event.action === "viewed" && event.source === "client portal").length}</strong>
+                              <strong>{selectedQuoteAudit.filter((event) => event.action === "viewed" && event.source === "client portal").length}</strong>
                             </div>
                             <div>
                               <span>Online response</span>
@@ -7510,11 +7571,11 @@ export default function Dashboard() {
                     <div className="quote-log-summary-grid">
                       <div>
                         <span>Portal views</span>
-                        <strong>{selectedDrawerAudit.filter((event) => event.action === "viewed" && event.source === "client portal").length}</strong>
+                        <strong>{selectedQuoteAudit.filter((event) => event.action === "viewed" && event.source === "client portal").length}</strong>
                       </div>
                       <div>
                         <span>Emails</span>
-                        <strong>{selectedDrawerAudit.filter((event) => event.action === "emailed").length}</strong>
+                        <strong>{selectedQuoteAudit.filter((event) => event.action === "emailed").length}</strong>
                       </div>
                       <div>
                         <span>Response</span>
@@ -7522,8 +7583,8 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="quote-log-list">
-                      {selectedDrawerAudit.length > 0 ? (
-                        selectedDrawerAudit.map((event) => (
+                      {selectedQuoteAudit.length > 0 ? (
+                        selectedQuoteAudit.map((event) => (
                           <article key={event.id}>
                             <span className={`quote-log-action ${event.importance}`}>{event.action}</span>
                             <div>
