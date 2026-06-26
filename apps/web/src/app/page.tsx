@@ -351,6 +351,13 @@ type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "schedule" | "assets";
 type QuoteBuildTab = "summary" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
+type WorkflowTrackerState = "done" | "current" | "waiting";
+
+type WorkflowTrackerStage = {
+  label: string;
+  detail: string;
+  state: WorkflowTrackerState;
+};
 
 const invoiceStatuses: InvoiceStatus[] = ["Draft", "Sent", "Partially paid", "Paid", "Cancelled"];
 
@@ -3684,6 +3691,78 @@ export default function Dashboard() {
 
   function getLeadQuote(lead: Lead) {
     return leadQuoteMap.get(lead.id) ?? leadQuoteMap.get(lead.ref);
+  }
+
+  function getQuoteJob(quote: Quote | null | undefined) {
+    if (!quote) return null;
+    return quote.convertedJobId
+      ? jobs.find((job) => job.id === quote.convertedJobId) ?? null
+      : jobs.find((job) => job.sourceQuoteId === quote.id || job.sourceQuoteRef === quote.ref) ?? null;
+  }
+
+  function getInvoiceForWorkflow(quote: Quote | null | undefined, job: Job | null | undefined) {
+    if (job) {
+      const jobInvoice = invoiceSourceMap.byJob.get(job.id);
+      if (jobInvoice) return jobInvoice;
+    }
+    return quote ? invoiceSourceMap.byQuote.get(quote.id) ?? null : null;
+  }
+
+  function stageState(isDone: boolean, isCurrent: boolean): WorkflowTrackerState {
+    if (isDone) return "done";
+    if (isCurrent) return "current";
+    return "waiting";
+  }
+
+  function buildWorkflowTrackerStages(input: {
+    lead?: Lead | null;
+    quote?: Quote | null;
+    job?: Job | null;
+    invoice?: Invoice | null;
+  }): WorkflowTrackerStage[] {
+    const lead = input.lead ?? null;
+    const quote = input.quote ?? (lead ? getLeadQuote(lead) ?? null : null);
+    const job = input.job ?? getQuoteJob(quote);
+    const invoice = input.invoice ?? getInvoiceForWorkflow(quote, job);
+
+    return [
+      {
+        label: "Lead",
+        detail: lead ? `${lead.ref} · ${lead.status}` : quote?.sourceLeadRef ?? "No lead linked",
+        state: stageState(Boolean(lead && ["Quoted", "Lost"].includes(lead.status)), Boolean(lead && !quote)),
+      },
+      {
+        label: "Quote",
+        detail: quote ? `${quote.ref} · ${quote.status}` : "Waiting for quote",
+        state: stageState(Boolean(quote && ["Accepted", "Converted"].includes(quote.status)), Boolean(quote && !job)),
+      },
+      {
+        label: "Job",
+        detail: job ? `${job.ref} · ${job.status}` : "Waiting for job",
+        state: stageState(Boolean(job && ["Ready to invoice", "Completed"].includes(job.status)), Boolean(job && !invoice)),
+      },
+      {
+        label: "Invoice",
+        detail: invoice ? `${invoice.ref} · ${invoice.status}` : "Waiting for invoice",
+        state: stageState(Boolean(invoice && invoice.status !== "Draft"), Boolean(invoice)),
+      },
+    ];
+  }
+
+  function renderWorkflowTracker(stages: WorkflowTrackerStage[]) {
+    return (
+      <section className="workflow-tracker" aria-label="Record workflow progress">
+        {stages.map((stage) => (
+          <article className={`workflow-stage ${stage.state}`} key={stage.label}>
+            <span>{stage.state === "done" ? <Check size={14} /> : null}</span>
+            <div>
+              <strong>{stage.label}</strong>
+              <small>{stage.detail}</small>
+            </div>
+          </article>
+        ))}
+      </section>
+    );
   }
 
   const filteredQuotes = useMemo(() => {
@@ -7675,6 +7754,17 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {renderWorkflowTracker(
+                  buildWorkflowTrackerStages({
+                    lead: selectedQuote.sourceLeadId
+                      ? leads.find((lead) => lead.id === selectedQuote.sourceLeadId) ?? null
+                      : null,
+                    quote: selectedQuote,
+                    job: selectedQuoteJob,
+                    invoice: selectedInvoiceFromQuote,
+                  }),
+                )}
+
                 <div className="simpro-main-tabs" role="tablist" aria-label="Quote setup sections">
                   {quoteDetailTabs.map((tab) => (
                     <button
@@ -9158,6 +9248,16 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+                {renderWorkflowTracker(
+                  buildWorkflowTrackerStages({
+                    lead: selectedJobSourceQuote?.sourceLeadId
+                      ? leads.find((lead) => lead.id === selectedJobSourceQuote.sourceLeadId) ?? null
+                      : null,
+                    quote: selectedJobSourceQuote,
+                    job: selectedJob,
+                    invoice: selectedInvoiceFromJob,
+                  }),
+                )}
                 <div className="simpro-main-tabs" role="tablist" aria-label="Job record sections">
                   {jobDetailTabs.map((tab) => (
                     <button
@@ -10193,6 +10293,14 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {renderWorkflowTracker(
+                  buildWorkflowTrackerStages({
+                    quote: selectedInvoiceSourceQuote,
+                    job: selectedInvoiceSourceJob,
+                    invoice: selectedInvoice,
+                  }),
+                )}
+
                 <div className="simpro-main-tabs" role="tablist" aria-label="Invoice sections">
                   {invoiceTabs.map((tab) => (
                     <button
@@ -10431,6 +10539,13 @@ export default function Dashboard() {
                     </div>
                   </div>
                 </div>
+
+                {renderWorkflowTracker(
+                  buildWorkflowTrackerStages({
+                    lead: selectedLead,
+                    quote: getLeadQuote(selectedLead),
+                  }),
+                )}
 
                 <div className="employee-tab-strip" role="tablist" aria-label="Lead record sections">
                   {leadTabs.map((tab) => (
