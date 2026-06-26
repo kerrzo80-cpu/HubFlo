@@ -132,7 +132,7 @@ export async function POST(request: Request) {
 
   addClientRecord(client);
   addClientSiteRecord(site);
-  appendAuditEvent({
+  const clientAuditEvent = appendAuditEvent({
     actor: payload.actor?.trim() || "HubFlo user",
     action: "created",
     recordType: "client",
@@ -141,7 +141,7 @@ export async function POST(request: Request) {
     source: "customer intake",
     importance: "normal",
   });
-  appendAuditEvent({
+  const siteAuditEvent = appendAuditEvent({
     actor: payload.actor?.trim() || "HubFlo user",
     action: "created",
     recordType: "site",
@@ -157,6 +157,7 @@ export async function POST(request: Request) {
       site,
       clients: getClients(),
       clientSites: getClientSites(),
+      auditEvents: [clientAuditEvent, siteAuditEvent],
     },
     { status: 201 },
   );

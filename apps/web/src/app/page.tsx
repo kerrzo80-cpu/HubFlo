@@ -5438,6 +5438,7 @@ export default function Dashboard() {
       site?: ClientSite;
       clients: ClientRecord[];
       clientSites: ClientSite[];
+      auditEvents?: AuditEvent[];
     };
 
     const response = await fetch("/api/clients", {
@@ -5472,6 +5473,13 @@ export default function Dashboard() {
       (result.clientSites ?? (createdSite ? [createdSite] : [])).forEach((site) => map.set(site.id, site));
       return Array.from(map.values());
     });
+    const createdAuditEvents = result.auditEvents ?? [];
+    if (createdAuditEvents.length) {
+      setAuditEvents((current) => [
+        ...createdAuditEvents,
+        ...current.filter((event) => !createdAuditEvents.some((created) => created.id === event.id)),
+      ]);
+    }
 
     return { client: createdClient, site: createdSite };
   }
