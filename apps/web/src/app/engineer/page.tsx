@@ -25,6 +25,7 @@ export default function EngineerTodayPage() {
 
       <section className="engineer-action-strip" aria-label="Daily actions">
         <Link href="/engineer/time-check" className="engineer-primary-action">Quick time check</Link>
+        <Link href="/office/alerts" className="engineer-secondary-action">Office alerts</Link>
         <a href="tel:+441224000000" className="engineer-secondary-action">Call office</a>
       </section>
 

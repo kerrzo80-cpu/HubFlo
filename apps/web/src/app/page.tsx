@@ -33,6 +33,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
+import { getOfficeAlerts, getOfficePoRequests } from "@/lib/engineer-data";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
 import {
   seedAuditEvents,
@@ -523,6 +524,14 @@ type DocumentFolderTemplate = {
   defaultVisibility: DocumentVisibility;
 };
 
+type RecordDocumentFile = {
+  folderId: string;
+  name: string;
+  type: string;
+  visibility: DocumentVisibility;
+  linkedTo: string;
+};
+
 type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
 
 type EngineerFlowStep = {
@@ -557,9 +566,16 @@ type JobVariation = {
   id: string;
   reference: string;
   title: string;
-  status: "Detected" | "Priced" | "Approved" | "Rejected";
+  status: "Detected" | "Quote drafted" | "Sent for approval" | "Client approved" | "Proceed" | "Priced" | "Approved" | "Rejected";
   costValue: number;
   sellValue: number;
+  description?: string;
+  reason?: string;
+  labourHours?: number;
+  materialsUsed?: string;
+  requiresClientApproval?: boolean;
+  clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
+  engineerName?: string;
 };
 
 type CatalogItem = {
@@ -643,6 +659,18 @@ type TakeoffBoqRow = {
   markupPercent: number;
 };
 
+type TakeoffDocumentKind = "Drawings" | "Specification" | "Contractor BOQ";
+
+type TakeoffSourceDocument = {
+  id: string;
+  kind: TakeoffDocumentKind;
+  fileName: string;
+  status: "Uploaded" | "Draft extracted" | "Needs review";
+  confidence: "High" | "Medium" | "Low";
+  extractedAt: string;
+  questions: string[];
+};
+
 type QuoteCostCentre = {
   id: string;
   name: string;
@@ -652,6 +680,7 @@ type QuoteCostCentre = {
   lines: QuoteCostLine[];
   heatLossRooms?: HeatLossRoom[];
   takeoffRows?: TakeoffBoqRow[];
+  takeoffDocuments?: TakeoffSourceDocument[];
 };
 
 type EstimateMaterialLine = {
@@ -708,6 +737,7 @@ type EmployeeProfileDraft = {
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
+  { label: "AI Surveyor", icon: Sparkles },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
@@ -1763,6 +1793,39 @@ function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
   ];
 }
 
+function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[]): EstimateCostCentre[] {
+  if (!quoteCentres.length) return makeDefaultEstimateCostCentres(job);
+
+  return quoteCentres.map((centre, centreIndex) => {
+    const totals = quoteCostCentreTotals(centre);
+    const materials = totals.materialLines.map((line, lineIndex): EstimateMaterialLine => ({
+      id: `${job.id}-${centre.id}-material-${lineIndex}`,
+      catalogItemId: line.catalogItemId,
+      description: line.description,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+      markupPercent: quoteLineMarkupPercent(line),
+    }));
+    const labour = totals.labourLines.map((line, lineIndex): EstimateLabourLine => ({
+      id: `${job.id}-${centre.id}-labour-${lineIndex}`,
+      role: line.description,
+      hours: line.quantity,
+      costRate: line.unitCost,
+      markupPercent: quoteLineMarkupPercent(line),
+    }));
+
+    return {
+      id: `${job.id}-from-${centre.id}-${centreIndex}`,
+      name: centre.name,
+      templateName: centre.templateName,
+      clientDescription: centre.clientDescription ?? "",
+      engineerDescription: centre.engineerDescription ?? "",
+      materials,
+      labour,
+    };
+  });
+}
+
 const defaultClientId = seedClients[0]?.id ?? "";
 const defaultSiteId = seedClientSites.find((site) => site.clientId === defaultClientId)?.id ?? "";
 
@@ -1962,9 +2025,16 @@ function buildJobVariations(job: Job): JobVariation[] {
         id: `${job.id}-variation-001`,
         reference: "V-003",
         title: "Additional pipework route",
-        status: "Priced",
+        status: "Sent for approval",
         costValue: 1240,
         sellValue: 1860,
+        description: "Engineer found the existing pipe route could not be reused. Extra route required before works proceed.",
+        reason: "Hidden issue found",
+        labourHours: 6,
+        materialsUsed: "Copper pipe, fittings, clips, consumables and access protection.",
+        requiresClientApproval: true,
+        clientApprovalStatus: "Sent",
+        engineerName: "Scott Reid",
       },
     ];
   }
@@ -1975,9 +2045,16 @@ function buildJobVariations(job: Job): JobVariation[] {
         id: `${job.id}-variation-allowance`,
         reference: "V-001",
         title: "Client-requested scope allowance",
-        status: "Detected",
+        status: "Quote drafted",
         costValue: Math.round(job.value * 0.04),
         sellValue: Math.round(job.value * 0.06),
+        description: "Engineer captured additional works requested on site. Office needs to price and issue for approval before proceeding.",
+        reason: "Client request",
+        labourHours: 4,
+        materialsUsed: "Materials to be confirmed from engineer note/photos.",
+        requiresClientApproval: true,
+        clientApprovalStatus: "Not sent",
+        engineerName: "Scott Reid",
       },
     ];
   }
@@ -2249,6 +2326,111 @@ function makeSampleTakeoffRows(centre: QuoteCostCentre): TakeoffBoqRow[] {
       description: "Valves and final connection materials",
       quantity: 1,
       unit: "item",
+      supplierRequired: true,
+      unitCost: 0,
+      markupPercent: 30,
+    },
+  ];
+}
+
+function makeTakeoffDocument(kind: TakeoffDocumentKind, fileName: string): TakeoffSourceDocument {
+  const questionMap: Record<TakeoffDocumentKind, string[]> = {
+    Drawings: [
+      "Confirm drawing scale and revision before final quantities.",
+      "Pipe routes may need engineer review where walls/floors are not visible.",
+    ],
+    Specification: [
+      "Confirm any named manufacturer requirements before supplier request.",
+      "Check whether client specification includes excluded builder's works.",
+    ],
+    "Contractor BOQ": [
+      "Check contractor BOQ quantities against the latest drawing revision.",
+      "Confirm if provisional sums should be priced or excluded.",
+    ],
+  };
+
+  return {
+    id: `takeoff-doc-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+    kind,
+    fileName,
+    status: "Draft extracted",
+    confidence: kind === "Contractor BOQ" ? "High" : "Medium",
+    extractedAt: new Date().toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }),
+    questions: questionMap[kind],
+  };
+}
+
+function makeTakeoffRowsFromDocument(centre: QuoteCostCentre, document: TakeoffSourceDocument): TakeoffBoqRow[] {
+  const stamp = Date.now();
+  const baseSection = centre.name || "Imported scope";
+
+  if (document.kind === "Contractor BOQ") {
+    return [
+      {
+        id: `boq-${stamp}-1`,
+        source: "BOQ",
+        section: baseSection,
+        description: "Contractor BOQ plumbing materials allowance",
+        quantity: 1,
+        unit: "item",
+        supplierRequired: true,
+        unitCost: 0,
+        markupPercent: 30,
+      },
+      {
+        id: `boq-${stamp}-2`,
+        source: "BOQ",
+        section: baseSection,
+        description: "Contractor BOQ sundries and consumables",
+        quantity: 1,
+        unit: "item",
+        supplierRequired: false,
+        unitCost: 120,
+        markupPercent: 30,
+      },
+    ];
+  }
+
+  if (document.kind === "Specification") {
+    return [
+      {
+        id: `spec-${stamp}-1`,
+        source: "Takeoff",
+        section: baseSection,
+        description: "Specified valves, controls and accessories",
+        quantity: 1,
+        unit: "item",
+        supplierRequired: true,
+        unitCost: 0,
+        markupPercent: 30,
+      },
+    ];
+  }
+
+  return [
+    {
+      id: `drawing-${stamp}-1`,
+      source: "Takeoff",
+      section: baseSection,
+      description: "Pipe runs measured from uploaded drawings",
+      quantity: 18,
+      unit: "m",
+      supplierRequired: true,
+      unitCost: 0,
+      markupPercent: 30,
+    },
+    {
+      id: `drawing-${stamp}-2`,
+      source: "Takeoff",
+      section: baseSection,
+      description: "Fittings allowance inferred from drawing routes",
+      quantity: 1,
+      unit: "allowance",
       supplierRequired: true,
       unitCost: 0,
       markupPercent: 30,
@@ -3364,6 +3546,43 @@ export default function Dashboard() {
     [purchaseRequests],
   );
 
+  const officeAlerts = useMemo(() => getOfficeAlerts(), []);
+  const officePoRequests = useMemo(() => getOfficePoRequests(), []);
+  const highPriorityOfficeAlerts = officeAlerts.filter((alert) => alert.priority === "High").length;
+  const officeExceptionCards = useMemo(
+    () => [
+      {
+        label: "Variations",
+        title: "Review before works proceed",
+        detail: `${officeAlerts.filter((alert) => alert.type === "Variation detected").length} draft variation quote awaiting office review`,
+        tone: "amber",
+        href: "/office/alerts",
+      },
+      {
+        label: "Stop / go",
+        title: "Completion evidence missing",
+        detail: `${officeAlerts.filter((alert) => alert.type === "Stop/go missing").length} required photos, notes or form fields blocking close-out`,
+        tone: "red",
+        href: "/office/alerts",
+      },
+      {
+        label: "Parts / PO",
+        title: "Engineer parts support",
+        detail: `${officePoRequests.length + pendingPORequests.length} supplier or PO requests need office action`,
+        tone: "amber",
+        href: "/office/po-requests",
+      },
+      {
+        label: "WhatsApp",
+        title: "Message doorway pilot",
+        detail: "Replies can become time checks, variations, PO requests and job notes",
+        tone: "blue",
+        href: "/office/whatsapp-pilot",
+      },
+    ],
+    [officeAlerts, officePoRequests.length, pendingPORequests.length],
+  );
+
   const scheduledLeadVisits = useMemo(
     () =>
       leads
@@ -4252,6 +4471,34 @@ export default function Dashboard() {
       importance: "normal",
     });
     showNotice(`${rows.length} takeoff / BOQ row(s) applied to the scope summary.`);
+  }
+
+  function handleTakeoffDocumentUpload(centre: QuoteCostCentre, kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+
+    const document = makeTakeoffDocument(kind, file.name);
+    const rows = makeTakeoffRowsFromDocument(centre, document);
+
+    updateQuoteCostCentre(centre.id, {
+      takeoffDocuments: [...(centre.takeoffDocuments ?? []), document],
+      takeoffRows: [...(centre.takeoffRows ?? []), ...rows],
+    });
+
+    if (selectedQuote) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo",
+        action: "uploaded",
+        recordType: "quote",
+        recordId: selectedQuote.id,
+        summary: `${kind} file ${file.name} uploaded into ${centre.name}; ${rows.length} draft takeoff row(s) created for review.`,
+        source: "web",
+        importance: "normal",
+      });
+    }
+
+    event.currentTarget.value = "";
+    showNotice(`${file.name} scanned into ${rows.length} draft takeoff row(s) for review.`);
   }
 
   function updateSupplierQuoteDraft(centreId: string, patch: Partial<SupplierQuoteDraft>) {
@@ -5609,10 +5856,23 @@ export default function Dashboard() {
         current.map((item) => (item.id === result.quote.id ? result.quote : item)),
       );
       setJobs((current) => [result.job, ...current.filter((job) => job.id !== result.job.id)]);
+      setJobEstimateCostCentres((current) => ({
+        ...current,
+        [result.job.id]: estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []),
+      }));
       setAuditEvents((current) => [
         ...result.auditEvents,
         ...current.filter((event) => !result.auditEvents.some((created) => created.id === event.id)),
       ]);
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo",
+        action: "converted",
+        recordType: "job",
+        recordId: result.job.id,
+        summary: `${result.job.ref} received ${(quoteCostCentres[quote.id] ?? []).length} quote cost centre(s), engineer notes and priced materials from ${quote.ref}.`,
+        source: "web",
+        importance: "high",
+      });
       openJobDrawer(result.job.id);
       showNotice(`${result.quote.ref} converted into ${result.job.ref}.`);
     } catch {
@@ -5688,28 +5948,77 @@ export default function Dashboard() {
     }
   }
 
-  function renderDocumentWorkspace(recordType: RecordDocumentScope, recordRef: string) {
-    const folders = recordDocumentFolders(recordType);
-    const exampleFiles = [
+  function documentFilesForRecord(recordType: RecordDocumentScope, recordRef: string): RecordDocumentFile[] {
+    const baseFiles: RecordDocumentFile[] = [
       {
         folderId: "drawings",
         name: `${recordRef} marked-up drawing.pdf`,
         type: "Drawing",
-        visibility: "Engineer" as DocumentVisibility,
+        visibility: "Engineer",
+        linkedTo: recordRef,
       },
       {
         folderId: "survey-photos",
         name: `${recordRef} survey photo set`,
         type: "Photos",
-        visibility: "Engineer" as DocumentVisibility,
+        visibility: "Engineer",
+        linkedTo: recordRef,
       },
       {
         folderId: "bill-of-quantities",
         name: `${recordRef} reviewed BOQ.xlsx`,
         type: "BOQ",
-        visibility: "Private" as DocumentVisibility,
+        visibility: "Private",
+        linkedTo: recordRef,
       },
-    ].filter((file) => folders.some((folder) => folder.id === file.folderId));
+    ];
+
+    if (recordType !== "quote" && recordType !== "job") return baseFiles;
+
+    const quote =
+      recordType === "quote"
+        ? quotes.find((item) => item.ref === recordRef)
+        : quotes.find((item) => item.convertedJobRef === recordRef);
+    if (!quote) return baseFiles;
+
+    const centres = quoteCostCentres[quote.id] ?? [];
+    const workflowFiles = centres.flatMap((centre): RecordDocumentFile[] => {
+      const sourceDocuments = (centre.takeoffDocuments ?? []).map((document): RecordDocumentFile => ({
+        folderId:
+          document.kind === "Drawings"
+            ? "drawings"
+            : document.kind === "Contractor BOQ"
+              ? "bill-of-quantities"
+              : "office-private",
+        name: document.fileName,
+        type: document.kind,
+        visibility: document.kind === "Drawings" ? "Engineer" : "Private",
+        linkedTo: centre.name,
+      }));
+
+      const supplierDraft = supplierQuoteDrafts[centre.id];
+      const supplierFiles: RecordDocumentFile[] = supplierDraft?.fileName
+        ? [
+            {
+              folderId: "supplier-quotes",
+              name: supplierDraft.fileName,
+              type: supplierDraft.fileName.toLowerCase().endsWith(".pdf") ? "Returned supplier quote" : "Supplier request",
+              visibility: "Private",
+              linkedTo: centre.name,
+            },
+          ]
+        : [];
+
+      return [...sourceDocuments, ...supplierFiles];
+    });
+
+    return [...workflowFiles, ...baseFiles];
+  }
+
+  function renderDocumentWorkspace(recordType: RecordDocumentScope, recordRef: string) {
+    const folders = recordDocumentFolders(recordType);
+    const exampleFiles = documentFilesForRecord(recordType, recordRef)
+      .filter((file) => folders.some((folder) => folder.id === file.folderId));
 
     return (
       <section className="documents-workspace">
@@ -5746,6 +6055,7 @@ export default function Dashboard() {
           <div className="document-file-row table-head">
             <span>File</span>
             <span>Folder</span>
+            <span>Type</span>
             <span>Visibility</span>
             <span>Linked to</span>
           </div>
@@ -5755,8 +6065,9 @@ export default function Dashboard() {
               <div className="document-file-row" key={`${file.folderId}-${file.name}`}>
                 <strong>{file.name}</strong>
                 <span>{folder?.name ?? "Unfiled"}</span>
+                <span>{file.type}</span>
                 <span className={`document-visibility ${file.visibility.toLowerCase()}`}>{file.visibility}</span>
-                <span>{recordRef}</span>
+                <span>{file.linkedTo}</span>
               </div>
             );
           })}
@@ -5947,6 +6258,8 @@ export default function Dashboard() {
                 event.preventDefault();
                 if (module.label === "Dashboard") {
                   returnToDashboard();
+                } else if (module.label === "AI Surveyor") {
+                  window.location.href = "/ai-surveyor";
                 } else if (module.label === "Leads") {
                   setHomeView("leads");
                 } else if (module.label === "Schedules") {
@@ -6028,6 +6341,15 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
+          <a href="/ai-surveyor" className="context-link">
+            <Sparkles size={17} />
+            <span>AI Surveyor</span>
+          </a>
+          <a href="/office/alerts" className="context-link">
+            <Bell size={17} />
+            <span>Office alerts</span>
+            <b className={highPriorityOfficeAlerts ? "danger" : ""}>{officeAlerts.length}</b>
+          </a>
           <a href="#" className="context-link" onClick={(event) => { event.preventDefault(); showNotice("Blocked jobs quick view is not wired yet."); }}>
             <ShieldAlert size={17} />
             <span>Blocked jobs</span>
@@ -7091,6 +7413,11 @@ export default function Dashboard() {
                                   <strong>{supplierLines.length}</strong>
                                   <small>{supplierQuoteDrafts[selectedQuoteCostCentre.id]?.fileName || "Request not sent yet"}</small>
                                 </div>
+                                <div>
+                                  <span>Takeoff sources</span>
+                                  <strong>{(selectedQuoteCostCentre.takeoffDocuments ?? []).length}</strong>
+                                  <small>{(selectedQuoteCostCentre.takeoffRows ?? []).length} draft row(s)</small>
+                                </div>
                                 <div className={totals.profit >= 0 ? "profit-positive" : "profit-negative"}>
                                   <span>Potential profit</span>
                                   <strong>{currency(totals.profit)}</strong>
@@ -7120,6 +7447,43 @@ export default function Dashboard() {
                             </button>
                           </div>
                         </div>
+                        <div className="takeoff-upload-grid">
+                          {(["Drawings", "Specification", "Contractor BOQ"] as TakeoffDocumentKind[]).map((kind) => (
+                            <label className="takeoff-upload-card" key={kind}>
+                              <span>{kind}</span>
+                              <strong>
+                                {kind === "Drawings"
+                                  ? "Upload plans to scan pipe runs, rads and fittings"
+                                  : kind === "Specification"
+                                    ? "Upload specs to pull named products and exclusions"
+                                    : "Upload BOQ to create draft rows and cost centres"}
+                              </strong>
+                              <input
+                                accept={kind === "Drawings" ? "application/pdf,image/*,.dwg,.dxf" : "application/pdf,.xlsx,.xls,.csv,.doc,.docx"}
+                                type="file"
+                                onChange={(event) => handleTakeoffDocumentUpload(selectedQuoteCostCentre, kind, event)}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        {(selectedQuoteCostCentre.takeoffDocuments ?? []).length ? (
+                          <div className="takeoff-document-list">
+                            {(selectedQuoteCostCentre.takeoffDocuments ?? []).map((document) => (
+                              <article className="takeoff-document-card" key={document.id}>
+                                <div>
+                                  <span>{document.kind}</span>
+                                  <strong>{document.fileName}</strong>
+                                  <small>{document.status} · {document.confidence} confidence · {document.extractedAt}</small>
+                                </div>
+                                <ul>
+                                  {document.questions.map((question) => (
+                                    <li key={question}>{question}</li>
+                                  ))}
+                                </ul>
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="takeoff-summary-strip">
                           <div>
                             <span>Rows imported</span>
@@ -8028,6 +8392,29 @@ export default function Dashboard() {
                             </div>
                             <span className="status-pill amber">{variation.status}</span>
                           </header>
+                          <p className="variation-description">{variation.description}</p>
+                          <div className="variation-detail-grid">
+                            <div>
+                              <span>Raised by</span>
+                              <strong>{variation.engineerName ?? "Engineer"}</strong>
+                            </div>
+                            <div>
+                              <span>Reason</span>
+                              <strong>{variation.reason ?? "Not recorded"}</strong>
+                            </div>
+                            <div>
+                              <span>Hours</span>
+                              <strong>{variation.labourHours ? `${variation.labourHours} hrs` : "TBC"}</strong>
+                            </div>
+                            <div>
+                              <span>Client approval</span>
+                              <strong>{variation.requiresClientApproval ? variation.clientApprovalStatus ?? "Not sent" : "Not required"}</strong>
+                            </div>
+                          </div>
+                          <div className="variation-materials">
+                            <span>Materials / engineer note</span>
+                            <strong>{variation.materialsUsed ?? "No materials recorded yet."}</strong>
+                          </div>
                           <div className="variation-money">
                             <div>
                               <span>Cost</span>
@@ -8040,6 +8427,28 @@ export default function Dashboard() {
                             <div>
                               <span>Profit</span>
                               <strong>{currency(variation.sellValue - variation.costValue)}</strong>
+                            </div>
+                          </div>
+                          <div className="variation-approval-panel">
+                            <div>
+                              <span>Variation quote</span>
+                              <strong>{variation.reference} · {currency(variation.sellValue)}</strong>
+                              <small>
+                                {variation.requiresClientApproval
+                                  ? "Send to client for online approval before works proceed."
+                                  : "Captured after works; office can approve for billing."}
+                              </small>
+                            </div>
+                            <div className="variation-actions">
+                              <button className="simpro-grey-button" type="button" onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}>
+                                Preview
+                              </button>
+                              <button className="simpro-blue-button" type="button" onClick={() => showNotice(`${variation.reference} sent to client for online approval.`)}>
+                                Send for approval
+                              </button>
+                              <button className="simpro-save-button" type="button" onClick={() => showNotice(`${variation.reference} approved. Engineer and office alerted to proceed.`)}>
+                                Mark approved / proceed
+                              </button>
                             </div>
                           </div>
                         </article>
@@ -10153,6 +10562,31 @@ export default function Dashboard() {
                 </section>
 
                 <aside className="right-column">
+                  <section className="side-panel office-exceptions-panel">
+                    <div className="panel-header compact">
+                      <div>
+                        <h2>Office exceptions</h2>
+                        <p>{officeAlerts.length} alerts · {highPriorityOfficeAlerts} high priority</p>
+                      </div>
+                      <a className="calendar-button" aria-label="Open office alerts" href="/office/alerts">
+                        <Bell size={17} />
+                      </a>
+                    </div>
+                    <div className="office-exception-list">
+                      {officeExceptionCards.map((item) => (
+                        <a className={`office-exception-card ${item.tone}`} href={item.href} key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.title}</strong>
+                          <small>{item.detail}</small>
+                        </a>
+                      ))}
+                    </div>
+                    <div className="office-exception-actions">
+                      <a href="/office/alerts">Open alerts queue</a>
+                      <a href="/engineer">Engineer view</a>
+                    </div>
+                  </section>
+
                   <section className="side-panel schedule-panel">
                     <div className="panel-header compact">
                       <div>

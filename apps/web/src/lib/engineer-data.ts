@@ -39,6 +39,40 @@ export type EngineerScheduleItem = {
   photos: EngineerAttachment[];
 };
 
+export type OfficeAlertType =
+  | "PO requested"
+  | "Parts needed"
+  | "Variation detected"
+  | "Rebook required"
+  | "Could not access"
+  | "Missing daily time check"
+  | "Stop/go missing";
+
+export type OfficeAlert = {
+  id: string;
+  type: OfficeAlertType;
+  priority: "High" | "Medium" | "Low";
+  engineerName: string;
+  jobRef?: string;
+  customer?: string;
+  address?: string;
+  detail: string;
+  createdAt: string;
+  status: "New" | "In review" | "Approved" | "Chased";
+};
+
+export type EngineerPoRequest = {
+  id: string;
+  engineerName: string;
+  jobRef: string;
+  customer: string;
+  address: string;
+  supplier: string;
+  note: string;
+  requestedAt: string;
+  status: "New" | "Approved" | "Rejected" | "Ordered";
+};
+
 export const engineerSchedule: EngineerScheduleItem[] = [
   {
     scheduleId: "sched-1048-am",
@@ -141,6 +175,85 @@ export function getEngineerSchedule(engineerId = "eng-scott") {
 
 export function getEngineerScheduleItem(scheduleId: string) {
   return engineerSchedule.find((item) => item.scheduleId === scheduleId);
+}
+
+export function getOfficePoRequests(): EngineerPoRequest[] {
+  return engineerSchedule
+    .filter((item) => item.status === "Needs parts")
+    .map((item) => ({
+      id: `po-${item.scheduleId}`,
+      engineerName: item.engineerName,
+      jobRef: item.jobRef,
+      customer: item.customer,
+      address: item.address,
+      supplier: item.jobRef === "J-1048" ? "Pipe Center Aberdeen" : "Supplier TBC",
+      note: item.jobRef === "J-1048"
+        ? "Pump valves likely needed. Please confirm supplier availability before reattendance."
+        : "Engineer has requested parts support.",
+      requestedAt: "Today 09:24",
+      status: "New",
+    }));
+}
+
+export function getOfficeAlerts(): OfficeAlert[] {
+  const stopGoAlerts = engineerSchedule
+    .flatMap((item) =>
+      item.requirements
+        .filter((requirement) => requirement.status === "missing")
+        .map((requirement) => ({
+          id: `alert-${item.scheduleId}-${requirement.id}`,
+          type: "Stop/go missing" as const,
+          priority: "High" as const,
+          engineerName: item.engineerName,
+          jobRef: item.jobRef,
+          customer: item.customer,
+          address: item.address,
+          detail: `${requirement.label} is missing before completion can be confirmed.`,
+          createdAt: "Today",
+          status: "New" as const,
+        })),
+    );
+
+  const outcomeAlerts = engineerSchedule
+    .filter((item) => item.status === "Needs parts")
+    .map((item) => ({
+      id: `alert-${item.scheduleId}-parts`,
+      type: "Parts needed" as const,
+      priority: "High" as const,
+      engineerName: item.engineerName,
+      jobRef: item.jobRef,
+      customer: item.customer,
+      address: item.address,
+      detail: "Engineer has flagged parts are needed before the job can complete.",
+      createdAt: "Today 09:24",
+      status: "New" as const,
+    }));
+
+  return [
+    ...outcomeAlerts,
+    {
+      id: "alert-variation-example",
+      type: "Variation detected",
+      priority: "Medium",
+      engineerName: "Scott Reid",
+      jobRef: "J-1052",
+      customer: "Morrison & Co.",
+      address: "42 Queen's Road, Aberdeen, AB15 4YE",
+      detail: "Engineer captured extra controls wiring time and materials for office pricing review.",
+      createdAt: "Today 14:42",
+      status: "In review",
+    },
+    ...stopGoAlerts,
+    {
+      id: "alert-timecheck-scott",
+      type: "Missing daily time check",
+      priority: "Medium",
+      engineerName: "Scott Reid",
+      detail: "Yesterday's quick time check has not been confirmed.",
+      createdAt: "09:00",
+      status: "Chased",
+    },
+  ];
 }
 
 export function mapsUrl(address: string) {
