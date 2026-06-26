@@ -961,6 +961,13 @@ type EstimateCostCentre = {
   engineerDescription: string;
   materials: EstimateMaterialLine[];
   labour: EstimateLabourLine[];
+  surveyAssets?: SurveyAsset[];
+};
+
+type SurveyPackCentre = {
+  id: string;
+  name: string;
+  surveyAssets?: SurveyAsset[];
 };
 
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
@@ -2078,6 +2085,7 @@ function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[])
       engineerDescription: centre.engineerDescription ?? "",
       materials,
       labour,
+      surveyAssets: centre.surveyAssets?.map((asset) => ({ ...asset })) ?? [],
     };
   });
 }
@@ -2447,7 +2455,7 @@ function quoteCostCentreTotals(centre: QuoteCostCentre) {
   };
 }
 
-function quoteSurveyPackSummary(centres: QuoteCostCentre[]) {
+function surveyPackSummary(centres: SurveyPackCentre[]) {
   const assets = centres.flatMap((centre) =>
     (centre.surveyAssets ?? []).map((asset) => ({
       ...asset,
@@ -2464,6 +2472,10 @@ function quoteSurveyPackSummary(centres: QuoteCostCentre[]) {
     photos: assets.filter((asset) => asset.kind === "Survey photo"),
     concepts: assets.filter((asset) => asset.kind === "Concept look"),
   };
+}
+
+function quoteSurveyPackSummary(centres: QuoteCostCentre[]) {
+  return surveyPackSummary(centres);
 }
 
 function buildQuoteReviewQuestions(
@@ -3822,6 +3834,11 @@ export default function Dashboard() {
         ? jobEstimateCostCentres[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob)
         : [],
     [jobEstimateCostCentres, selectedJob],
+  );
+
+  const selectedJobSurveyPack = useMemo(
+    () => surveyPackSummary(selectedJobEstimateCostCentres),
+    [selectedJobEstimateCostCentres],
   );
 
   const selectedCostCentre = useMemo(
@@ -9161,6 +9178,9 @@ export default function Dashboard() {
                             <strong className="simpro-row-title">
                               {centre.name}
                               <small>{centre.templateName ?? "Uncategorised"}</small>
+                              {(centre.surveyAssets?.length ?? 0) > 0 ? (
+                                <small>{centre.surveyAssets?.length} survey records handed over</small>
+                              ) : null}
                             </strong>
                             <span className="simpro-row-total">Total: {currency(centreSell)}</span>
                             <span className={centreSell - centreCost >= 0 ? "profit-positive simpro-row-profit" : "profit-negative simpro-row-profit"}>
@@ -10628,6 +10648,31 @@ export default function Dashboard() {
                         )}
                       </article>
                     </div>
+                    <section className="quote-survey-pack-preview job-survey-pack-preview">
+                      <div>
+                        <span>Survey pack handover</span>
+                        <strong>{selectedJobSurveyPack.assets.length} records from accepted scope</strong>
+                      </div>
+                      {selectedJobSurveyPack.assets.length > 0 ? (
+                        <>
+                          <div className="quote-survey-pack-stats">
+                            <span>{selectedJobSurveyPack.scans.length} room scans</span>
+                            <span>{selectedJobSurveyPack.photos.length} survey photos</span>
+                            <span>{selectedJobSurveyPack.concepts.length} concept looks</span>
+                            <span>{selectedJobSurveyPack.clientVisible.length} client visible</span>
+                          </div>
+                          <div className="quote-survey-pack-list">
+                            {selectedJobSurveyPack.assets.slice(0, 6).map((asset) => (
+                              <span key={`${asset.centreId}-${asset.id}`}>
+                                {asset.title} · {asset.centreName} · {asset.clientVisible ? "public" : "private"}
+                              </span>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <small>No survey records were handed over from the quote yet.</small>
+                      )}
+                    </section>
                     <section className="job-scheduling-panel">
                       <header>
                         <div>
@@ -11045,6 +11090,9 @@ export default function Dashboard() {
                             <strong className="simpro-row-title">
                               {centre.name}
                               <small>{centre.templateName ?? "Uncategorised"}</small>
+                              {(centre.surveyAssets?.length ?? 0) > 0 ? (
+                                <small>{centre.surveyAssets?.length} survey records handed over</small>
+                              ) : null}
                             </strong>
                             <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
                             <div className="simpro-row-actions">
@@ -11371,6 +11419,21 @@ export default function Dashboard() {
                           <strong>{selectedCostCentre.templateName ?? "Uncategorised"}</strong>
                         </div>
                       </div>
+                      {(selectedCostCentre.surveyAssets?.length ?? 0) > 0 ? (
+                        <div className="quote-survey-pack-preview cost-centre-survey-pack">
+                          <div>
+                            <span>Survey records</span>
+                            <strong>{selectedCostCentre.surveyAssets?.length} attached to this cost centre</strong>
+                          </div>
+                          <div className="quote-survey-pack-list">
+                            {selectedCostCentre.surveyAssets?.map((asset) => (
+                              <span key={asset.id}>
+                                {asset.kind}: {asset.title} · {asset.status} · {asset.clientVisible ? "public" : "private"}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                       {(() => {
                         const totals = estimateCostCentreTotals(selectedCostCentre);
                         return (

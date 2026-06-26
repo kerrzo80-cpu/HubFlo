@@ -10730,6 +10730,19 @@ kbd,
   font-size: 10px;
 }
 
+.job-survey-pack-preview {
+  margin-top: 14px;
+}
+
+.cost-centre-survey-pack {
+  margin: 0 0 16px;
+  max-width: 760px;
+}
+
+.cost-centre-survey-pack .quote-survey-pack-list span {
+  border-color: rgba(212, 175, 55, 0.28);
+}
+
 .ai-surveyor-platform,
 .ai-surveyor-workspace,
 .office-shell,
