@@ -95,6 +95,7 @@ const STORAGE_KEYS = {
   jobCostCentres: "hubflo:job-cost-centres:v1",
   jobReviews: "hubflo:job-reviews:v1",
   jobDeliveryEvents: "hubflo:job-delivery-events:v1",
+  communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
 } as const;
 
@@ -345,7 +346,7 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
-type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" | "variations";
+type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" | "variations" | "logs";
 type QuoteDetailTab = "setup" | "cost-build" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "schedule" | "assets";
@@ -848,6 +849,38 @@ type QuoteEmailDraft = {
   attachPdf: boolean;
 };
 
+type CommunicationRecordType = "lead" | "quote" | "job" | "invoice";
+type CommunicationDirection = "outbound" | "inbound";
+
+type CommunicationRecord = {
+  id: string;
+  recordType: CommunicationRecordType;
+  recordId: string;
+  relatedJobId?: string;
+  direction: CommunicationDirection;
+  channel: "Outlook" | "Client portal" | "WhatsApp";
+  subject: string;
+  body: string;
+  from: string;
+  to: string;
+  cc?: string;
+  createdAt: string;
+  messageId?: string;
+  status: "Sent" | "Received" | "Captured";
+};
+
+type CommunicationDraft = {
+  from: string;
+  subject: string;
+  body: string;
+};
+
+const blankCommunicationDraft: CommunicationDraft = {
+  from: "",
+  subject: "",
+  body: "",
+};
+
 type TakeoffBoqRow = {
   id: string;
   source: "Takeoff" | "BOQ";
@@ -1003,6 +1036,7 @@ const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
   { key: "engineer-flow", label: "Engineer Flow" },
   { key: "documents", label: "Documents" },
   { key: "variations", label: "Variations" },
+  { key: "logs", label: "Logs" },
 ];
 
 const quoteDetailTabs: Array<{ key: QuoteDetailTab; label: string }> = [
@@ -3028,6 +3062,8 @@ export default function Dashboard() {
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
+  const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
+  const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3263,6 +3299,36 @@ export default function Dashboard() {
     [purchaseRequests, selectedJob],
   );
 
+  const selectedJobAudit = useMemo(
+    () => (selectedJob ? auditEvents.filter((event) => event.recordId === selectedJob.id) : []),
+    [auditEvents, selectedJob],
+  );
+
+  const selectedQuoteCommunications = useMemo(
+    () => (selectedQuote ? communicationRecords.filter((record) => record.recordType === "quote" && record.recordId === selectedQuote.id) : []),
+    [communicationRecords, selectedQuote],
+  );
+
+  const selectedInvoiceCommunications = useMemo(
+    () => (selectedInvoice ? communicationRecords.filter((record) => record.recordType === "invoice" && record.recordId === selectedInvoice.id) : []),
+    [communicationRecords, selectedInvoice],
+  );
+
+  const selectedQuoteCommunicationDraft = useMemo(
+    () => (selectedQuote ? communicationDrafts[`quote:${selectedQuote.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
+    [communicationDrafts, selectedQuote],
+  );
+
+  const selectedJobCommunicationDraft = useMemo(
+    () => (selectedJob ? communicationDrafts[`job:${selectedJob.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
+    [communicationDrafts, selectedJob],
+  );
+
+  const selectedInvoiceCommunicationDraft = useMemo(
+    () => (selectedInvoice ? communicationDrafts[`invoice:${selectedInvoice.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
+    [communicationDrafts, selectedInvoice],
+  );
+
   const selectedDrawerAudit = useMemo(() => {
     const ids = new Set<string>();
     if (selectedQuote) ids.add(selectedQuote.id);
@@ -3462,6 +3528,14 @@ export default function Dashboard() {
     [invoiceSourceMap.byJob, selectedJob],
   );
 
+  const selectedJobCommunications = useMemo(() => {
+    if (!selectedJob) return [];
+    const relatedIds = new Set<string>([selectedJob.id]);
+    if (selectedJob.sourceQuoteId) relatedIds.add(selectedJob.sourceQuoteId);
+    if (selectedInvoiceFromJob) relatedIds.add(selectedInvoiceFromJob.id);
+    return communicationRecords.filter((record) => relatedIds.has(record.recordId) || record.relatedJobId === selectedJob.id);
+  }, [communicationRecords, selectedInvoiceFromJob, selectedJob]);
+
   const selectedJobCostSummary = useMemo(() => {
     if (!selectedJob) {
       return {
@@ -3528,6 +3602,7 @@ export default function Dashboard() {
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
     setJobDeliveryEvents(safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
+    setCommunicationRecords(safeLoadStoredJson(STORAGE_KEYS.communications, []));
     setHasHydratedLocalData(true);
   }, []);
 
@@ -3614,6 +3689,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
+    safeSaveStoredJson(STORAGE_KEYS.communications, communicationRecords);
   }, [
     clients,
     clientSites,
@@ -3630,6 +3706,7 @@ export default function Dashboard() {
     jobEstimateCostCentres,
     jobReviewApprovals,
     jobDeliveryEvents,
+    communicationRecords,
     hasHydratedLocalData,
   ]);
 
@@ -4319,6 +4396,94 @@ export default function Dashboard() {
       .catch(() => {});
   }
 
+  function communicationDraftKey(recordType: CommunicationRecordType, recordId: string) {
+    return `${recordType}:${recordId}`;
+  }
+
+  function updateCommunicationDraft(recordType: CommunicationRecordType, recordId: string, patch: Partial<CommunicationDraft>) {
+    const key = communicationDraftKey(recordType, recordId);
+    setCommunicationDrafts((current) => ({
+      ...current,
+      [key]: { ...(current[key] ?? blankCommunicationDraft), ...patch },
+    }));
+  }
+
+  function resetCommunicationDraft(recordType: CommunicationRecordType, recordId: string) {
+    const key = communicationDraftKey(recordType, recordId);
+    setCommunicationDrafts((current) => ({
+      ...current,
+      [key]: blankCommunicationDraft,
+    }));
+  }
+
+  function addCommunicationRecord(record: Omit<CommunicationRecord, "id" | "createdAt">) {
+    const created: CommunicationRecord = {
+      ...record,
+      id: `comm-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      createdAt: workflowTimestamp(),
+    };
+    setCommunicationRecords((current) => [created, ...current]);
+    return created;
+  }
+
+  function captureOutlookReply(
+    recordType: CommunicationRecordType,
+    recordId: string,
+    draft: CommunicationDraft,
+    options: { defaultFrom: string; to: string; relatedJobId?: string; label: string },
+  ) {
+    const subject = draft.subject.trim();
+    const body = draft.body.trim();
+    if (!subject || !body) {
+      showNotice("Add the Outlook reply subject and message before capturing it.");
+      return;
+    }
+
+    const created = addCommunicationRecord({
+      recordType,
+      recordId,
+      relatedJobId: options.relatedJobId,
+      direction: "inbound",
+      channel: "Outlook",
+      subject,
+      body,
+      from: draft.from.trim() || options.defaultFrom,
+      to: options.to,
+      status: "Received",
+      messageId: `outlook-reply-${recordId}-${Date.now()}`,
+    });
+    resetCommunicationDraft(recordType, recordId);
+    logAuditEvent({
+      actor: created.from,
+      action: "reply captured",
+      recordType,
+      recordId,
+      summary: `Outlook reply captured on ${options.label}: ${created.subject}.`,
+      source: "outlook capture",
+      importance: "normal",
+    });
+    showNotice("Outlook reply captured against this record.");
+  }
+
+  function renderCommunicationThread(records: CommunicationRecord[]) {
+    if (records.length === 0) {
+      return <p>No Outlook messages captured yet.</p>;
+    }
+
+    return records.map((record) => (
+      <article className="communication-item" key={record.id}>
+        <span className={`communication-direction ${record.direction}`}>{record.direction}</span>
+        <div>
+          <strong>{record.subject}</strong>
+          <p>{record.body}</p>
+          <small>
+            {record.from} to {record.to} · {record.createdAt} · {record.channel}
+          </small>
+        </div>
+      </article>
+    ));
+  }
+
   function resetEmployeeDraft() {
     if (!activeEditingEmployee) return;
     setEmployeeRoleDraft(activeEditingEmployee.role);
@@ -4586,6 +4751,20 @@ export default function Dashboard() {
       source: "outlook draft",
       importance: "high",
     });
+    addCommunicationRecord({
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+      direction: "outbound",
+      channel: "Outlook",
+      subject: selectedInvoiceEmailDraft.subject,
+      body: selectedInvoiceEmailDraft.body,
+      from: "accounts@errolwatsongroup.co.uk",
+      to: selectedInvoiceEmailDraft.to.trim(),
+      cc: selectedInvoiceEmailDraft.cc.trim(),
+      messageId: outlookMessageId,
+      status: "Sent",
+    });
     showNotice(`Invoice ${selectedInvoice.ref} sent and logged.`);
   }
 
@@ -4700,6 +4879,20 @@ export default function Dashboard() {
       summary: `${selectedQuote.ref} emailed from HubFlo via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
+    });
+    addCommunicationRecord({
+      recordType: "quote",
+      recordId: selectedQuote.id,
+      relatedJobId: selectedQuote.convertedJobId,
+      direction: "outbound",
+      channel: "Outlook",
+      subject: selectedQuoteEmailDraft.subject,
+      body: `${selectedQuoteEmailDraft.body}\n\nPortal link: ${portalUrl}`,
+      from: "office@errolwatsongroup.co.uk",
+      to: selectedQuoteEmailDraft.to.trim(),
+      cc: selectedQuoteEmailDraft.cc.trim(),
+      messageId: outlookMessageId,
+      status: "Sent",
     });
 
     showNotice("Quote sent from HubFlo and captured against the quote.");
@@ -8264,12 +8457,61 @@ export default function Dashboard() {
                       </div>
                       <div>
                         <span>Emails</span>
-                        <strong>{selectedQuoteAudit.filter((event) => event.action === "emailed").length}</strong>
+                        <strong>{selectedQuoteCommunications.filter((record) => record.channel === "Outlook").length}</strong>
                       </div>
                       <div>
                         <span>Response</span>
                         <strong>{selectedQuote.status === "Accepted" || selectedQuote.status === "Declined" ? selectedQuote.status : "Waiting"}</strong>
                       </div>
+                    </div>
+                    <section className="communication-capture-panel">
+                      <div>
+                        <span className="permission-heading">Outlook thread</span>
+                        <h3>Capture client reply</h3>
+                      </div>
+                      <div className="communication-capture-grid">
+                        <label>
+                          From
+                          <input
+                            value={selectedQuoteCommunicationDraft.from}
+                            onChange={(event) => updateCommunicationDraft("quote", selectedQuote.id, { from: event.target.value })}
+                            placeholder={selectedQuoteClient?.email ?? selectedQuote.customer}
+                          />
+                        </label>
+                        <label>
+                          Subject
+                          <input
+                            value={selectedQuoteCommunicationDraft.subject}
+                            onChange={(event) => updateCommunicationDraft("quote", selectedQuote.id, { subject: event.target.value })}
+                            placeholder={`Re: ${selectedQuote.ref}`}
+                          />
+                        </label>
+                        <label className="wide">
+                          Message
+                          <textarea
+                            value={selectedQuoteCommunicationDraft.body}
+                            onChange={(event) => updateCommunicationDraft("quote", selectedQuote.id, { body: event.target.value })}
+                            placeholder="Paste or summarise the Outlook reply here."
+                          />
+                        </label>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          captureOutlookReply("quote", selectedQuote.id, selectedQuoteCommunicationDraft, {
+                            defaultFrom: selectedQuoteClient?.email ?? selectedQuote.customer,
+                            to: "office@errolwatsongroup.co.uk",
+                            relatedJobId: selectedQuote.convertedJobId,
+                            label: selectedQuote.ref,
+                          })
+                        }
+                      >
+                        Capture Outlook reply
+                      </button>
+                    </section>
+                    <div className="communication-thread">
+                      {renderCommunicationThread(selectedQuoteCommunications)}
                     </div>
                     <div className="quote-log-list">
                       {selectedQuoteAudit.length > 0 ? (
@@ -8288,6 +8530,7 @@ export default function Dashboard() {
                     </div>
                   </section>
                 ) : null}
+
               </section>
             ) : null
           ) : homeView === "quote-cost-centre-record" ? (
@@ -9834,6 +10077,115 @@ export default function Dashboard() {
                     </div>
                   </section>
                 ) : null}
+
+                {activeJobTab === "logs" ? (
+                  <section className="quote-logs-panel">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Job history</span>
+                        <h2>Logs & communications</h2>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => showNotice("Outlook and WhatsApp sync checks refreshed locally.")}>
+                        Refresh logs
+                      </button>
+                    </header>
+                    <div className="quote-log-summary-grid">
+                      <div>
+                        <span>Outlook messages</span>
+                        <strong>{selectedJobCommunications.length}</strong>
+                      </div>
+                      <div>
+                        <span>Site activity</span>
+                        <strong>{selectedJobDeliveryEvents.length}</strong>
+                      </div>
+                      <div>
+                        <span>Audit events</span>
+                        <strong>{selectedJobAudit.length}</strong>
+                      </div>
+                    </div>
+                    <section className="communication-capture-panel">
+                      <div>
+                        <span className="permission-heading">Outlook thread</span>
+                        <h3>Capture job email</h3>
+                      </div>
+                      <div className="communication-capture-grid">
+                        <label>
+                          From
+                          <input
+                            value={selectedJobCommunicationDraft.from}
+                            onChange={(event) => updateCommunicationDraft("job", selectedJob.id, { from: event.target.value })}
+                            placeholder={selectedJobClient?.email ?? selectedJob.customer}
+                          />
+                        </label>
+                        <label>
+                          Subject
+                          <input
+                            value={selectedJobCommunicationDraft.subject}
+                            onChange={(event) => updateCommunicationDraft("job", selectedJob.id, { subject: event.target.value })}
+                            placeholder={`Re: ${selectedJob.ref}`}
+                          />
+                        </label>
+                        <label className="wide">
+                          Message
+                          <textarea
+                            value={selectedJobCommunicationDraft.body}
+                            onChange={(event) => updateCommunicationDraft("job", selectedJob.id, { body: event.target.value })}
+                            placeholder="Paste or summarise a job email here."
+                          />
+                        </label>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          captureOutlookReply("job", selectedJob.id, selectedJobCommunicationDraft, {
+                            defaultFrom: selectedJobClient?.email ?? selectedJob.customer,
+                            to: "office@errolwatsongroup.co.uk",
+                            relatedJobId: selectedJob.id,
+                            label: selectedJob.ref,
+                          })
+                        }
+                      >
+                        Capture Outlook email
+                      </button>
+                    </section>
+                    <div className="communication-thread">
+                      {renderCommunicationThread(selectedJobCommunications)}
+                    </div>
+                    <div className="job-delivery-list">
+                      <strong>Site activity</strong>
+                      {selectedJobDeliveryEvents.length === 0 ? (
+                        <p>No WhatsApp, timesheet, PO or variation events captured yet.</p>
+                      ) : (
+                        selectedJobDeliveryEvents.map((event) => (
+                          <article key={event.id} className="job-delivery-event">
+                            <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
+                            <div>
+                              <strong>{event.summary}</strong>
+                              <small>{event.actor} · {event.source} · {event.createdAt}</small>
+                            </div>
+                            {event.status ? <b>{event.status}</b> : null}
+                          </article>
+                        ))
+                      )}
+                    </div>
+                    <div className="quote-log-list">
+                      {selectedJobAudit.length > 0 ? (
+                        selectedJobAudit.map((event) => (
+                          <article key={event.id}>
+                            <span className={`quote-log-action ${event.importance}`}>{event.action}</span>
+                            <div>
+                              <strong>{event.summary}</strong>
+                              <span>{event.actor} · {event.createdAt} · {event.source}</span>
+                            </div>
+                          </article>
+                        ))
+                      ) : (
+                        <p>No job audit events captured yet.</p>
+                      )}
+                    </div>
+                  </section>
+                ) : null}
               </section>
             ) : null
           ) : homeView === "cost-centre-record" ? (
@@ -10492,6 +10844,55 @@ export default function Dashboard() {
 
                 {activeInvoiceTab === "logs" ? (
                   <section className="client-record-panel">
+                    <section className="communication-capture-panel">
+                      <div>
+                        <span className="permission-heading">Outlook thread</span>
+                        <h3>Invoice replies</h3>
+                      </div>
+                      <div className="communication-capture-grid">
+                        <label>
+                          From
+                          <input
+                            value={selectedInvoiceCommunicationDraft.from}
+                            onChange={(event) => updateCommunicationDraft("invoice", selectedInvoice.id, { from: event.target.value })}
+                            placeholder={selectedInvoiceClient?.email ?? selectedInvoice.customer}
+                          />
+                        </label>
+                        <label>
+                          Subject
+                          <input
+                            value={selectedInvoiceCommunicationDraft.subject}
+                            onChange={(event) => updateCommunicationDraft("invoice", selectedInvoice.id, { subject: event.target.value })}
+                            placeholder={`Re: ${selectedInvoice.ref}`}
+                          />
+                        </label>
+                        <label className="wide">
+                          Message
+                          <textarea
+                            value={selectedInvoiceCommunicationDraft.body}
+                            onChange={(event) => updateCommunicationDraft("invoice", selectedInvoice.id, { body: event.target.value })}
+                            placeholder="Paste remittance, payment query or invoice reply here."
+                          />
+                        </label>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          captureOutlookReply("invoice", selectedInvoice.id, selectedInvoiceCommunicationDraft, {
+                            defaultFrom: selectedInvoiceClient?.email ?? selectedInvoice.customer,
+                            to: "accounts@errolwatsongroup.co.uk",
+                            relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+                            label: selectedInvoice.ref,
+                          })
+                        }
+                      >
+                        Capture Outlook reply
+                      </button>
+                    </section>
+                    <div className="communication-thread">
+                      {renderCommunicationThread(selectedInvoiceCommunications)}
+                    </div>
                     {selectedInvoiceAudit.length === 0 ? (
                       <div className="employee-empty-panel">
                         <strong>No audit log</strong>

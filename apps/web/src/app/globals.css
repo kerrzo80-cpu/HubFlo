@@ -2013,6 +2013,11 @@ h1 {
   .job-delivery-event {
     grid-template-columns: 1fr;
   }
+
+  .communication-capture-grid,
+  .communication-item {
+    grid-template-columns: 1fr;
+  }
 }
 
 .invoice-email-panel {
@@ -4104,6 +4109,117 @@ h1 {
 .quote-log-summary-grid strong {
   color: var(--ink);
   font-size: 18px;
+}
+
+.communication-capture-panel {
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.communication-capture-panel h3 {
+  font-size: 15px;
+  margin: 3px 0 0;
+}
+
+.communication-capture-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.communication-capture-grid label {
+  color: #526169;
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.communication-capture-grid label.wide {
+  grid-column: 1 / -1;
+}
+
+.communication-capture-grid input,
+.communication-capture-grid textarea {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 40px;
+  padding: 10px 11px;
+}
+
+.communication-capture-grid textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.communication-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.communication-thread > p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.communication-item {
+  align-items: start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 92px 1fr;
+  padding: 12px;
+}
+
+.communication-direction {
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  justify-self: start;
+  letter-spacing: 0;
+  padding: 5px 8px;
+  text-transform: capitalize;
+}
+
+.communication-direction.outbound {
+  background: #335fa8;
+}
+
+.communication-direction.inbound {
+  background: #1d7f44;
+}
+
+.communication-item div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.communication-item p {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  white-space: pre-line;
+}
+
+.communication-item small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .quote-log-list {
