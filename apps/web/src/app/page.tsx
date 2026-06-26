@@ -127,17 +127,25 @@ type LeadCustomerMatch = {
   matchReason: string;
 };
 
+type CustomerLookupDraft = {
+  clientId?: string;
+  customerName: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+};
+
 function normalizePhone(value: string) {
   return value.replace(/[^\d]/g, "");
 }
 
-function buildLeadCustomerMatches(draft: LeadDraft, clients: ClientRecord[], sites: ClientSite[]): LeadCustomerMatch[] {
+function buildLeadCustomerMatches(draft: CustomerLookupDraft, clients: ClientRecord[], sites: ClientSite[]): LeadCustomerMatch[] {
   if (draft.clientId) return [];
 
   const draftName = normalizeClientIdentity(draft.customerName);
-  const draftEmail = normalizeClientIdentity(draft.email);
-  const draftPhone = normalizePhone(draft.phone);
-  const draftAddress = normalizeClientIdentity(draft.address);
+  const draftEmail = normalizeClientIdentity(draft.email ?? "");
+  const draftPhone = normalizePhone(draft.phone ?? "");
+  const draftAddress = normalizeClientIdentity(draft.address ?? "");
 
   if (![draftName, draftEmail, draftPhone, draftAddress].some((value) => value.length >= 2)) return [];
 
@@ -1912,12 +1920,9 @@ function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[])
   });
 }
 
-const defaultClientId = seedClients[0]?.id ?? "";
-const defaultSiteId = seedClientSites.find((site) => site.clientId === defaultClientId)?.id ?? "";
-
 const blankQuote: QuoteDraft = {
-  clientId: defaultClientId,
-  siteId: defaultSiteId,
+  clientId: "",
+  siteId: "",
   customer: "",
   owner: "Errol Watson",
   description: "",
@@ -1928,8 +1933,8 @@ const blankQuote: QuoteDraft = {
 };
 
 const blankJob: JobDraft = {
-  clientId: defaultClientId,
-  siteId: defaultSiteId,
+  clientId: "",
+  siteId: "",
   customer: "",
   site: "",
   description: "",
@@ -2970,6 +2975,16 @@ export default function Dashboard() {
   const jobClientSites = useMemo(
     () => clientSites.filter((site) => site.clientId === newJob.clientId),
     [clientSites, newJob.clientId],
+  );
+
+  const quoteCustomerMatches = useMemo(
+    () => buildLeadCustomerMatches({ clientId: newQuote.clientId, customerName: newQuote.customer }, clients, clientSites),
+    [clientSites, clients, newQuote.clientId, newQuote.customer],
+  );
+
+  const jobCustomerMatches = useMemo(
+    () => buildLeadCustomerMatches({ clientId: newJob.clientId, customerName: newJob.customer }, clients, clientSites),
+    [clientSites, clients, newJob.clientId, newJob.customer],
   );
 
   const selectedQuote = useMemo(
@@ -5299,6 +5314,66 @@ export default function Dashboard() {
     }));
   }
 
+  function setQuoteExistingClient(clientId: string) {
+    const client = clients.find((item) => item.id === clientId);
+    const site = clientSites.find((item) => item.clientId === clientId);
+    if (!client) return;
+    setNewQuote((current) => ({
+      ...current,
+      clientId,
+      siteId: site?.id ?? "",
+      customer: client.name,
+    }));
+  }
+
+  function setQuoteExistingSite(siteId: string) {
+    setNewQuote((current) => ({
+      ...current,
+      siteId,
+    }));
+  }
+
+  function clearQuoteCustomerMatch() {
+    setNewQuote((current) => ({
+      ...current,
+      clientId: "",
+      siteId: "",
+      customer: "",
+    }));
+  }
+
+  function setJobExistingClient(clientId: string) {
+    const client = clients.find((item) => item.id === clientId);
+    const site = clientSites.find((item) => item.clientId === clientId);
+    if (!client) return;
+    setNewJob((current) => ({
+      ...current,
+      clientId,
+      siteId: site?.id ?? "",
+      customer: client.name,
+      site: site?.address ?? current.site,
+    }));
+  }
+
+  function setJobExistingSite(siteId: string) {
+    const site = clientSites.find((item) => item.id === siteId);
+    setNewJob((current) => ({
+      ...current,
+      siteId,
+      site: site?.address ?? current.site,
+    }));
+  }
+
+  function clearJobCustomerMatch() {
+    setNewJob((current) => ({
+      ...current,
+      clientId: "",
+      siteId: "",
+      customer: "",
+      site: "",
+    }));
+  }
+
   function selectLeadAddress(address: string, postcode: string) {
     const matchingSite = clientSites.find((site) => site.clientId === newLead.clientId && site.address === address);
     setNewLead((current) => ({
@@ -5823,7 +5898,14 @@ export default function Dashboard() {
   async function submitQuote() {
     const client = clients.find((item) => item.id === newQuote.clientId);
     const site = clientSites.find((item) => item.id === newQuote.siteId);
-    if (!client || !newQuote.description.trim()) return;
+    if (!client) {
+      showNotice("Select an existing customer before creating the quote.");
+      return;
+    }
+    if (!newQuote.description.trim()) {
+      showNotice("Add a quote description before creating the quote.");
+      return;
+    }
 
     const payload = {
       ref: createRef(),
@@ -5869,7 +5951,14 @@ export default function Dashboard() {
   async function createJob() {
     const client = clients.find((item) => item.id === newJob.clientId);
     const site = clientSites.find((item) => item.id === newJob.siteId);
-    if (!client || !newJob.description.trim()) return;
+    if (!client) {
+      showNotice("Select an existing customer before creating the job.");
+      return;
+    }
+    if (!newJob.description.trim()) {
+      showNotice("Add a job description before creating the job.");
+      return;
+    }
     if (newJob.scheduledDate && newJob.scheduledTime && newJobScheduleWarning) {
       showNotice(newJobScheduleWarning);
       return;
@@ -11102,40 +11191,61 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="form-body two-column-form">
-              <label>
-                Client
-                <select
-                  value={newQuote.clientId}
-                  onChange={(event) => {
-                    const nextClientId = event.target.value;
-                    const nextSiteId = clientSites.find((site) => site.clientId === nextClientId)?.id ?? "";
-                    setNewQuote((current) => ({
-                      ...current,
-                      clientId: nextClientId,
-                      siteId: nextSiteId,
-                    }));
-                  }}
-                >
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Site
-                <select
-                  value={newQuote.siteId}
-                  onChange={(event) => setNewQuote((current) => ({ ...current, siteId: event.target.value }))}
-                >
-                  {quoteClientSites.map((site) => (
-                    <option key={site.id} value={site.id}>
-                      {site.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="full-field lead-match-block">
+                <label>
+                  Customer
+                  <input
+                    value={newQuote.customer}
+                    onChange={(event) =>
+                      setNewQuote((current) => ({
+                        ...current,
+                        clientId: "",
+                        siteId: "",
+                        customer: event.target.value,
+                      }))
+                    }
+                    placeholder="Start typing to search existing customers..."
+                  />
+                </label>
+                {newQuote.clientId ? (
+                  <div className="lead-match-selected">
+                    <Check size={15} />
+                    <span>
+                      Existing customer selected: <strong>{newQuote.customer}</strong>
+                    </span>
+                    <button type="button" onClick={clearQuoteCustomerMatch}>
+                      Clear
+                    </button>
+                  </div>
+                ) : quoteCustomerMatches.length > 0 ? (
+                  <div className="lead-match-list" aria-label="Existing customer matches for quote">
+                    {quoteCustomerMatches.map((match) => (
+                      <button type="button" key={match.client.id} onClick={() => setQuoteExistingClient(match.client.id)}>
+                        <strong>{match.client.name}</strong>
+                        <span>
+                          {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
+                        </span>
+                        <small>{match.matchReason || "matched by customer details"}</small>
+                      </button>
+                    ))}
+                  </div>
+                ) : newQuote.customer.trim().length >= 2 ? (
+                  <p className="lead-match-empty">No existing customer found. Create a lead first to save a new customer record.</p>
+                ) : null}
+              </div>
+              {newQuote.clientId ? (
+                <label className="full-field">
+                  Site
+                  <select value={newQuote.siteId} onChange={(event) => setQuoteExistingSite(event.target.value)}>
+                    {quoteClientSites.length === 0 ? <option value="">No sites saved</option> : null}
+                    {quoteClientSites.map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name} - {site.address}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>
                 Owner
                 <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
@@ -11197,40 +11307,62 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="form-body two-column-form">
-              <label>
-                Client
-                <select
-                  value={newJob.clientId}
-                  onChange={(event) => {
-                    const nextClientId = event.target.value;
-                    const nextSiteId = clientSites.find((site) => site.clientId === nextClientId)?.id ?? "";
-                    setNewJob((current) => ({
-                      ...current,
-                      clientId: nextClientId,
-                      siteId: nextSiteId,
-                    }));
-                  }}
-                >
-                  {clients.map((client) => (
-                    <option key={client.id} value={client.id}>
-                      {client.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Site
-                <select
-                  value={newJob.siteId}
-                  onChange={(event) => setNewJob((current) => ({ ...current, siteId: event.target.value }))}
-                >
-                  {jobClientSites.map((site) => (
-                    <option key={site.id} value={site.id}>
-                      {site.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <div className="full-field lead-match-block">
+                <label>
+                  Customer
+                  <input
+                    value={newJob.customer}
+                    onChange={(event) =>
+                      setNewJob((current) => ({
+                        ...current,
+                        clientId: "",
+                        siteId: "",
+                        site: "",
+                        customer: event.target.value,
+                      }))
+                    }
+                    placeholder="Start typing to search existing customers..."
+                  />
+                </label>
+                {newJob.clientId ? (
+                  <div className="lead-match-selected">
+                    <Check size={15} />
+                    <span>
+                      Existing customer selected: <strong>{newJob.customer}</strong>
+                    </span>
+                    <button type="button" onClick={clearJobCustomerMatch}>
+                      Clear
+                    </button>
+                  </div>
+                ) : jobCustomerMatches.length > 0 ? (
+                  <div className="lead-match-list" aria-label="Existing customer matches for job">
+                    {jobCustomerMatches.map((match) => (
+                      <button type="button" key={match.client.id} onClick={() => setJobExistingClient(match.client.id)}>
+                        <strong>{match.client.name}</strong>
+                        <span>
+                          {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
+                        </span>
+                        <small>{match.matchReason || "matched by customer details"}</small>
+                      </button>
+                    ))}
+                  </div>
+                ) : newJob.customer.trim().length >= 2 ? (
+                  <p className="lead-match-empty">No existing customer found. Create a lead first to save a new customer record.</p>
+                ) : null}
+              </div>
+              {newJob.clientId ? (
+                <label className="full-field">
+                  Site
+                  <select value={newJob.siteId} onChange={(event) => setJobExistingSite(event.target.value)}>
+                    {jobClientSites.length === 0 ? <option value="">No sites saved</option> : null}
+                    {jobClientSites.map((site) => (
+                      <option key={site.id} value={site.id}>
+                        {site.name} - {site.address}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label className="full-field">
                 Description
                 <input value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} />
