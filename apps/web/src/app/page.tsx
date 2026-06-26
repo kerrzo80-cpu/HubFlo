@@ -456,6 +456,17 @@ type Invoice = {
   chargeTotal: number;
   vatRate: number;
   notes: string;
+  sentTo?: string;
+  sentAt?: string;
+  outlookMessageId?: string;
+};
+
+type InvoiceEmailDraft = {
+  to: string;
+  cc: string;
+  subject: string;
+  body: string;
+  attachPdf: boolean;
 };
 
 type JobReviewKey = "site" | "commercial" | "finance";
@@ -636,6 +647,18 @@ function makeInvoiceFromJobTotals(
     notes: `${job.description} captured from cost centres for invoicing.`,
   };
 }
+
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null): InvoiceEmailDraft {
+  const contactName = client?.primaryContact?.split(" ")[0] || "there";
+  return {
+    to: client?.email ?? "",
+    cc: "",
+    subject: `${invoice.ref} - ${invoice.title}`,
+    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.\n\nKind regards,\nErrol Watson Group`,
+    attachPdf: true,
+  };
+}
+
 type DocumentVisibility = "Private" | "Engineer" | "Client";
 
 type DocumentFolderTemplate = {
@@ -2942,6 +2965,7 @@ export default function Dashboard() {
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
+  const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
@@ -3245,6 +3269,14 @@ export default function Dashboard() {
   const selectedInvoiceClient = useMemo(
     () => (selectedInvoice?.clientId ? clients.find((client) => client.id === selectedInvoice.clientId) ?? null : null),
     [clients, selectedInvoice],
+  );
+
+  const selectedInvoiceEmailDraft = useMemo(
+    () =>
+      selectedInvoice
+        ? invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient)
+        : null,
+    [invoiceEmailDrafts, selectedInvoice, selectedInvoiceClient],
   );
 
   const selectedInvoiceSite = useMemo(
@@ -4336,6 +4368,48 @@ export default function Dashboard() {
       source: "web",
       importance: status === "Paid" ? "high" : "normal",
     });
+  }
+
+  function updateSelectedInvoiceEmailDraft(patch: Partial<InvoiceEmailDraft>) {
+    if (!selectedInvoice) return;
+    const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+    setInvoiceEmailDrafts((current) => ({
+      ...current,
+      [selectedInvoice.id]: { ...existing, ...patch },
+    }));
+  }
+
+  function sendSelectedInvoiceEmail() {
+    if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
+    if (!selectedInvoiceEmailDraft.to.trim()) {
+      showNotice("Add a recipient before sending the invoice.");
+      return;
+    }
+    const sentAt = workflowTimestamp();
+    const outlookMessageId = `outlook-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+    setInvoices((current) =>
+      current.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              status: "Sent",
+              sentTo: selectedInvoiceEmailDraft.to.trim(),
+              sentAt,
+              outlookMessageId,
+            }
+          : invoice,
+      ),
+    );
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "HubFlo user",
+      action: "emailed",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `Invoice ${selectedInvoice.ref} emailed from HubFlo via Outlook to ${selectedInvoiceEmailDraft.to}.`,
+      source: "outlook draft",
+      importance: "high",
+    });
+    showNotice(`Invoice ${selectedInvoice.ref} sent and logged.`);
   }
 
   function openQuoteCostCentreRecord(centreId: string) {
@@ -9690,6 +9764,67 @@ export default function Dashboard() {
                         )}
                       </article>
                     </div>
+
+                    {selectedInvoiceEmailDraft ? (
+                      <section className="invoice-email-panel">
+                        <header>
+                          <div>
+                            <span className="permission-heading">Outlook invoice email</span>
+                            <h2>Send final invoice</h2>
+                          </div>
+                          <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
+                            {selectedInvoice.status}
+                          </span>
+                        </header>
+                        <div className="invoice-email-grid">
+                          <label>
+                            To
+                            <input
+                              value={selectedInvoiceEmailDraft.to}
+                              onChange={(event) => updateSelectedInvoiceEmailDraft({ to: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Cc
+                            <input
+                              value={selectedInvoiceEmailDraft.cc}
+                              onChange={(event) => updateSelectedInvoiceEmailDraft({ cc: event.target.value })}
+                            />
+                          </label>
+                          <label className="full-field">
+                            Subject
+                            <input
+                              value={selectedInvoiceEmailDraft.subject}
+                              onChange={(event) => updateSelectedInvoiceEmailDraft({ subject: event.target.value })}
+                            />
+                          </label>
+                          <label className="full-field">
+                            Message
+                            <textarea
+                              value={selectedInvoiceEmailDraft.body}
+                              onChange={(event) => updateSelectedInvoiceEmailDraft({ body: event.target.value })}
+                            />
+                          </label>
+                          <label className="quote-email-checkbox full-field">
+                            <input
+                              checked={selectedInvoiceEmailDraft.attachPdf}
+                              type="checkbox"
+                              onChange={(event) => updateSelectedInvoiceEmailDraft({ attachPdf: event.target.checked })}
+                            />
+                            Attach generated invoice PDF
+                          </label>
+                        </div>
+                        <div className="job-scheduling-actions">
+                          <small>
+                            {selectedInvoice.sentAt ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}` : "Not sent yet"}
+                          </small>
+                          <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
+                            <Mail size={15} />
+                            Email invoice
+                          </button>
+                        </div>
+                      </section>
+                    ) : null}
 
                     <section className="simpro-summary-page">
                       <h2 className="permission-heading">Category summary</h2>

@@ -1620,6 +1620,47 @@ h1 {
   border-color: #bddfcb;
 }
 
+.invoice-email-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.invoice-email-panel header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invoice-email-panel h2 {
+  font-size: 16px;
+  margin: 4px 0 0;
+}
+
+.invoice-email-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.invoice-email-grid label {
+  color: #526169;
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.invoice-email-grid textarea {
+  min-height: 132px;
+}
+
 .primary-button:disabled,
 .secondary-button:disabled {
   cursor: not-allowed;
