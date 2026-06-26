@@ -6053,7 +6053,8 @@ export default function Dashboard() {
         source: "web",
         importance: "normal",
       });
-      showNotice(`Quote ${created.ref} created for ${created.customer}.`);
+      openQuoteDrawer(created.id);
+      showNotice(`Quote ${created.ref} created and opened.`);
     } catch {
       setSectionError("Unable to create quote right now.");
     }
@@ -6134,7 +6135,8 @@ export default function Dashboard() {
         source: "web",
         importance: "high",
       });
-      showNotice(`Job ${created.ref} created.`);
+      openJobDrawer(created.id);
+      showNotice(`Job ${created.ref} created and opened.`);
     } catch {
       setSectionError("Unable to create job right now.");
     }
