@@ -9767,3 +9767,851 @@ kbd,
     letter-spacing: 0.22em;
   }
 }
+
+/* Verrova light refinement: keep the premium mark, restore the calmer workspace feel. */
+:root {
+  --charcoal-950: #1c1b1d;
+  --charcoal-900: #252326;
+  --charcoal-800: #333034;
+  --charcoal-700: #474348;
+  --ink: #20262b;
+  --muted: #667680;
+  --subtle: #89959c;
+  --line: #d9e1e5;
+  --line-soft: #e9eef0;
+  --canvas: #f3f6f7;
+  --surface: #ffffff;
+  --blue: #58acd5;
+  --blue-dark: #287ea8;
+  --blue-deep: #17698f;
+  --blue-soft: #eaf6fb;
+  --green: #278459;
+  --green-soft: #e8f5ee;
+  --amber: #b36a16;
+  --amber-soft: #fff4df;
+  --red: #b43a3a;
+  --red-soft: #fff0ef;
+  --champagne: #b9902d;
+  --ivory: #fbfaf6;
+  --obsidian: #111316;
+  --shadow: 0 8px 28px rgba(27, 38, 45, 0.07);
+}
+
+body {
+  background:
+    radial-gradient(circle at 14% -12%, rgba(212, 175, 55, 0.12), transparent 26rem),
+    linear-gradient(180deg, #f8fbfc 0%, var(--canvas) 100%);
+  color: var(--ink);
+}
+
+.platform {
+  background: var(--canvas);
+}
+
+.global-header {
+  background: linear-gradient(90deg, #ffffff 0%, #f8fbfc 62%, #f4f0e5 100%);
+  border-bottom: 1px solid rgba(185, 144, 45, 0.28);
+  box-shadow: 0 4px 18px rgba(27, 38, 45, 0.07);
+  color: var(--ink);
+}
+
+.product-name {
+  border-left-color: rgba(185, 144, 45, 0.26);
+}
+
+.product-name strong {
+  color: var(--ink);
+}
+
+.product-name span,
+.role-switch span,
+.employee-switch span,
+.breadcrumb,
+.sidebar-label,
+.metric-topline,
+.client-portal-card header span,
+.client-portal-heading span,
+.client-portal-total span,
+.simpro-record-titlebar span,
+.form-header span {
+  color: var(--champagne);
+}
+
+.global-search,
+.role-switch select,
+.employee-switch select,
+.create-menu,
+.module-submenu,
+.form-body input,
+.form-body select,
+.form-body textarea,
+.simpro-filter-band input,
+.simpro-section-create input,
+.simpro-cost-centre-add input,
+.simpro-cost-centre-add select,
+.simpro-inline-form input,
+.simpro-service-form input,
+.simpro-service-form select,
+.simpro-labour-add select,
+.simpro-parts-header select,
+.simpro-editor-header select,
+.simpro-billable-row input,
+.simpro-billable-row select,
+.ai-form-grid input,
+.ai-form-grid select,
+.quote-line-row input,
+.estimate-line-row input {
+  background: #fff;
+  border-color: #cfd8dd;
+  color: var(--ink);
+}
+
+.global-search input,
+.global-search input::placeholder,
+.form-body input::placeholder,
+.form-body textarea::placeholder {
+  color: #6f7f88;
+}
+
+.header-icon,
+.account-button,
+.module-more,
+.mobile-menu,
+.employee-config-button,
+.context-title button {
+  color: var(--blue-deep);
+}
+
+kbd,
+.counter,
+.account-avatar {
+  background: #fff7df;
+  border-color: rgba(185, 144, 45, 0.34);
+  color: #6c5012;
+}
+
+.create-button,
+.primary-button,
+.simpro-blue-button,
+.simpro-save-button,
+.ai-estimate-table-panel header button {
+  background: linear-gradient(135deg, #58acd5 0%, #17698f 100%);
+  border-color: #17698f;
+  box-shadow: 0 10px 24px rgba(40, 126, 168, 0.14);
+  color: #fff;
+}
+
+.secondary-button,
+.filter-button,
+.status-filter,
+.simpro-grey-button,
+.simpro-options-button,
+.simpro-kebab-button,
+.employee-tab,
+.module-submenu button,
+.create-menu button {
+  background: #fff;
+  border-color: #cfd8dd;
+  color: #536169;
+}
+
+.module-bar,
+.context-sidebar,
+.lead-schedule-panel {
+  background: #fff;
+  border-color: var(--line);
+}
+
+.module-link {
+  color: #536169;
+}
+
+.module-link.active {
+  border-bottom-color: var(--champagne);
+  color: #6f5619;
+}
+
+.body-shell {
+  background: transparent;
+}
+
+.context-title,
+.context-link,
+.context-link.active,
+.breadcrumb strong,
+.workspace-header h1,
+.workspace-header p,
+.metric > strong,
+.quote-row,
+.lead-row,
+.lead-source,
+.lead-summary-grid strong,
+.quote-record-banner h2,
+.quote-record-stats strong,
+.workflow-stage strong,
+.client-record-stats strong,
+.employee-record-stats strong,
+.client-info-card dd,
+.employee-card,
+.simpro-record-titlebar strong,
+.simpro-section-heading h3,
+.simpro-cost-centre-row strong,
+.simpro-summary-panel h2,
+.simpro-summary-panel h3,
+.form-header h2,
+.client-portal-heading h1,
+.client-portal-total strong,
+.ai-surveyor-topline h1 {
+  color: var(--ink);
+}
+
+.workspace-header p,
+.quote-site,
+.quote-row.table-header,
+.lead-row.table-header,
+.lead-survey-cell small,
+.empty-copy,
+.quote-record-banner p,
+.workflow-stage small,
+.client-portal-heading p,
+.client-portal-total small,
+.client-portal-confirmation span,
+.client-directory-card p,
+.client-site-card p,
+.client-history-item p,
+.client-info-card p,
+.employee-directory-card p,
+.simpro-cost-centre-row small,
+.simpro-activity-panel p,
+.simpro-editor-header span,
+.form-body label,
+.ai-surveyor-topline p,
+.account-copy small,
+.support-panel small {
+  color: var(--muted);
+}
+
+.metric-strip,
+.workflow-board,
+.quote-panel,
+.lead-workspace,
+.quote-record-banner,
+.workflow-tracker,
+.quote-record-stats div,
+.client-record-banner,
+.client-record-stats div,
+.client-info-card,
+.client-site-card,
+.client-history-item,
+.employee-record-banner,
+.employee-record-stats div,
+.employee-record-panel,
+.employee-directory-card,
+.client-directory-card,
+.employee-card,
+.job-scheduling-panel,
+.simpro-record-shell,
+.simpro-estimate-page,
+.simpro-section-card,
+.simpro-summary-panel,
+.simpro-activity-panel,
+.simpro-timeline-card,
+.simpro-editor-card,
+.simpro-parts-page,
+.documents-workspace,
+.engineer-flow-workspace,
+.setup-workspace,
+.form-header,
+.form-body,
+.form-footer,
+.client-portal-card,
+.ai-estimate-table-panel,
+.ai-handoff-panel,
+.ai-mini-table,
+.ai-boq-table,
+.office-alert-card,
+.office-summary-card,
+.office-review-context,
+.whatsapp-live-test,
+.whatsapp-reply-tester,
+.whatsapp-structured-card {
+  background: #fff;
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+.queue-card,
+.lead-summary-grid article,
+.quote-row.table-header,
+.lead-row.table-header,
+.workflow-stage,
+.workflow-stage.current,
+.client-portal-total,
+.employee-empty-panel,
+.simpro-cost-centre-row,
+.simpro-cost-centre-row.quote,
+.simpro-summary-table .table-head,
+.simpro-summary-table .table-row,
+.simpro-breakdown-table div,
+.simpro-billable-row,
+.quote-line-row,
+.estimate-line-row,
+.job-row,
+.ai-mini-table > div,
+.ai-boq-table > div,
+.ai-estimate-table .table-head,
+.ai-estimate-table > div {
+  background: #f8fbfc;
+  border-color: var(--line-soft);
+  color: var(--ink);
+}
+
+.quote-row.clickable:hover,
+.lead-row.clickable:hover,
+.queue-card:hover,
+.employee-card:hover,
+.client-directory-card:hover,
+.employee-directory-card:hover,
+.simpro-cost-centre-row:hover {
+  background: #fffaf0;
+  border-color: rgba(185, 144, 45, 0.34);
+}
+
+.queue-card.active,
+.employee-card.active,
+.employee-tab.active,
+.simpro-tab.active,
+.simpro-sub-tabs button.active {
+  background: var(--blue-soft);
+  border-color: rgba(91, 178, 219, 0.45);
+  color: var(--blue-deep);
+}
+
+.section-notice {
+  background: #edf7fc;
+  border-color: #b5ddf3;
+  color: #235974;
+}
+
+.section-error {
+  background: #fff3e8;
+  border-color: #ffcfa4;
+  color: #6f3e0f;
+}
+
+.client-portal-shell {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(212, 175, 55, 0.12), transparent 24rem),
+    linear-gradient(180deg, #f8fbfc, #eef4f7);
+}
+
+.client-portal-confirmation,
+.client-portal-state {
+  background: var(--green-soft);
+  border-color: #bddfcb;
+  color: var(--green);
+}
+
+.client-portal-confirmation.declined,
+.client-portal-state.error {
+  background: var(--red-soft);
+  border-color: #f1b8ae;
+  color: var(--red);
+}
+
+.verrova-client-lockup strong {
+  color: var(--ink);
+}
+
+.engineer-brand-bar {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(185, 144, 45, 0.2) !important;
+  box-shadow: 0 10px 30px rgba(40, 126, 168, 0.09) !important;
+  color: var(--blue-deep) !important;
+}
+
+.engineer-brand-copy strong {
+  color: var(--ink) !important;
+}
+
+.engineer-brand-copy span {
+  color: var(--champagne) !important;
+}
+
+.engineer-shell {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(88, 172, 213, 0.2), transparent 28rem),
+    radial-gradient(circle at 100% 18%, rgba(219, 242, 250, 0.85), transparent 24rem),
+    linear-gradient(145deg, #f8fdff 0%, #eaf6fb 54%, #f4fbfd 100%) !important;
+  color: var(--ink) !important;
+}
+
+.engineer-hero,
+.engineer-job-detail-hero,
+.engineer-secondary-action,
+.engineer-timeline,
+.engineer-panel,
+.engineer-contact-card,
+.engineer-job-card {
+  background: #fff !important;
+  border-color: rgba(88, 172, 213, 0.18) !important;
+  color: var(--ink) !important;
+}
+
+.engineer-primary-action,
+.engineer-po-form button,
+.engineer-outcome-bar button {
+  background: linear-gradient(135deg, var(--blue) 0%, var(--blue-deep) 100%) !important;
+  color: #fff !important;
+}
+
+.engineer-hero h1,
+.engineer-job-detail-hero h1,
+.engineer-hero p,
+.engineer-job-detail-hero p {
+  color: var(--ink) !important;
+}
+
+.engineer-hero .eyebrow,
+.engineer-job-detail-hero .eyebrow {
+  color: var(--blue-deep) !important;
+}
+
+@media (max-width: 980px) {
+  .global-header {
+    background: #fff;
+  }
+}
+
+/* Verrova white + navy executive brand */
+:root {
+  --navy: #081d3a;
+  --navy-900: #06162d;
+  --navy-800: #0d2445;
+  --charcoal-900: #1f2937;
+  --ink: #0b1730;
+  --muted: #667085;
+  --subtle: #98a2b3;
+  --line: #e4e7ec;
+  --line-soft: #eef2f6;
+  --canvas: #f5f7fa;
+  --surface: #ffffff;
+  --blue: #305fbc;
+  --blue-dark: #1d4da3;
+  --blue-deep: #0b3b82;
+  --blue-soft: #eef4ff;
+  --champagne: #d4af37;
+  --shadow: 0 10px 28px rgba(16, 24, 40, 0.08);
+}
+
+body {
+  background: linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+  color: var(--ink);
+}
+
+.platform {
+  background: var(--canvas);
+}
+
+.global-header {
+  background: #fff;
+  border-bottom: 1px solid #e6dfcc;
+  box-shadow: 0 2px 18px rgba(16, 24, 40, 0.06);
+  color: var(--ink);
+}
+
+.verrova-mark {
+  background:
+    linear-gradient(145deg, #f7df94 0%, #d4af37 42%, #9e741e 100%);
+  color: var(--navy);
+}
+
+.product-name {
+  border-left-color: rgba(212, 175, 55, 0.34);
+}
+
+.product-name strong {
+  color: var(--navy);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+}
+
+.product-name span {
+  color: #9c7823;
+}
+
+.create-button,
+.primary-button,
+.simpro-blue-button,
+.simpro-save-button,
+.ai-estimate-table-panel header button {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--blue-deep) 100%);
+  border-color: var(--navy);
+  box-shadow: 0 12px 24px rgba(8, 29, 58, 0.16);
+  color: #fff;
+}
+
+.global-search,
+.employee-switch select,
+.role-switch select,
+.account-button,
+.employee-config-button,
+kbd,
+.account-avatar {
+  border-color: #e4e7ec;
+}
+
+.account-avatar,
+kbd,
+.counter {
+  background: #fff9ea;
+  color: var(--navy);
+}
+
+.header-icon,
+.account-button,
+.employee-config-button {
+  color: var(--navy);
+}
+
+.module-bar {
+  background: #fff;
+  border-bottom-color: #e4e7ec;
+}
+
+.module-link {
+  color: #344054;
+}
+
+.module-link.active {
+  border-bottom-color: var(--champagne);
+  color: var(--navy);
+}
+
+.body-shell {
+  background: transparent;
+}
+
+.context-sidebar {
+  background:
+    linear-gradient(180deg, var(--navy) 0%, var(--navy-900) 100%);
+  border-right: 0;
+  box-shadow: 10px 0 24px rgba(8, 29, 58, 0.08);
+}
+
+.context-title,
+.context-sidebar .sidebar-label {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.context-title button {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.context-link {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.context-link:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.context-link.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-left-color: var(--champagne);
+  color: #fff;
+}
+
+.context-link b {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.context-link b.danger {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+}
+
+.sidebar-divider,
+.support-panel {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.support-panel span,
+.support-panel small {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.support-panel strong {
+  color: #f6dd94;
+}
+
+.workspace {
+  background:
+    radial-gradient(circle at 88% -18%, rgba(212, 175, 55, 0.1), transparent 24rem),
+    transparent;
+}
+
+.breadcrumb,
+.metric-topline,
+.client-portal-card header span,
+.client-portal-heading span,
+.client-portal-total span,
+.simpro-record-titlebar span,
+.form-header span {
+  color: #9c7823;
+}
+
+.metric-strip,
+.workflow-board,
+.quote-panel,
+.lead-workspace,
+.quote-record-banner,
+.workflow-tracker,
+.quote-record-stats div,
+.client-record-banner,
+.client-record-stats div,
+.client-info-card,
+.client-site-card,
+.client-history-item,
+.employee-record-banner,
+.employee-record-stats div,
+.employee-record-panel,
+.employee-directory-card,
+.client-directory-card,
+.employee-card,
+.job-scheduling-panel,
+.simpro-record-shell,
+.simpro-estimate-page,
+.simpro-section-card,
+.simpro-summary-panel,
+.simpro-activity-panel,
+.simpro-timeline-card,
+.simpro-editor-card,
+.simpro-parts-page,
+.documents-workspace,
+.engineer-flow-workspace,
+.setup-workspace,
+.form-header,
+.form-body,
+.form-footer,
+.client-portal-card,
+.ai-estimate-table-panel,
+.ai-handoff-panel,
+.ai-mini-table,
+.ai-boq-table,
+.office-alert-card,
+.office-summary-card,
+.office-review-context,
+.whatsapp-live-test,
+.whatsapp-reply-tester,
+.whatsapp-structured-card {
+  background: #fff;
+  border-color: #e4e7ec;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+.queue-card,
+.lead-summary-grid article,
+.quote-row.table-header,
+.lead-row.table-header,
+.workflow-stage,
+.workflow-stage.current,
+.client-portal-total,
+.employee-empty-panel,
+.simpro-cost-centre-row,
+.simpro-cost-centre-row.quote,
+.simpro-summary-table .table-head,
+.simpro-summary-table .table-row,
+.simpro-breakdown-table div,
+.simpro-billable-row,
+.quote-line-row,
+.estimate-line-row,
+.job-row,
+.ai-mini-table > div,
+.ai-boq-table > div,
+.ai-estimate-table .table-head,
+.ai-estimate-table > div {
+  background: #fcfcfd;
+  border-color: #eef2f6;
+}
+
+.queue-card.active,
+.employee-card.active,
+.employee-tab.active,
+.simpro-tab.active,
+.simpro-sub-tabs button.active {
+  background: #eef4ff;
+  border-color: #b2ccff;
+  color: var(--blue-deep);
+}
+
+.quote-row.clickable:hover,
+.lead-row.clickable:hover,
+.queue-card:hover,
+.employee-card:hover,
+.client-directory-card:hover,
+.employee-directory-card:hover,
+.simpro-cost-centre-row:hover {
+  background: #fffaf0;
+  border-color: rgba(212, 175, 55, 0.34);
+}
+
+.client-portal-shell {
+  background:
+    radial-gradient(circle at 10% -16%, rgba(212, 175, 55, 0.14), transparent 24rem),
+    linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%);
+}
+
+.verrova-client-lockup strong {
+  color: var(--navy);
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.ai-surveyor-platform,
+.ai-surveyor-workspace,
+.office-shell,
+.engineer-shell {
+  background:
+    radial-gradient(circle at 88% -18%, rgba(212, 175, 55, 0.09), transparent 24rem),
+    linear-gradient(180deg, #ffffff 0%, #f5f7fa 100%) !important;
+  color: var(--ink) !important;
+}
+
+.ai-surveyor-header {
+  background: #fff !important;
+  border-bottom-color: #e6dfcc !important;
+}
+
+.ai-module-bar {
+  background: #fff !important;
+  border-bottom-color: #e4e7ec !important;
+}
+
+.engineer-brand-bar {
+  background: #fff !important;
+  border-color: #e6dfcc !important;
+  box-shadow: 0 10px 28px rgba(16, 24, 40, 0.08) !important;
+  color: var(--navy) !important;
+}
+
+.engineer-brand-copy strong {
+  color: var(--navy) !important;
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-weight: 500 !important;
+}
+
+.engineer-brand-copy span {
+  color: #9c7823 !important;
+}
+
+.engineer-hero,
+.engineer-job-detail-hero,
+.engineer-secondary-action,
+.engineer-timeline,
+.engineer-panel,
+.engineer-contact-card,
+.engineer-job-card,
+.engineer-summary-grid div,
+.engineer-detail-meta span {
+  background: #fff !important;
+  border-color: #e4e7ec !important;
+  box-shadow: var(--shadow) !important;
+  color: var(--ink) !important;
+}
+
+.engineer-hero h1,
+.engineer-job-detail-hero h1,
+.engineer-hero p,
+.engineer-job-detail-hero p,
+.engineer-summary-grid div,
+.engineer-detail-meta span {
+  color: var(--ink) !important;
+}
+
+.engineer-hero .eyebrow,
+.engineer-job-detail-hero .eyebrow,
+.engineer-summary-grid span {
+  color: #9c7823 !important;
+}
+
+.engineer-primary-action,
+.engineer-po-form button,
+.engineer-outcome-bar button {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--blue-deep) 100%) !important;
+  box-shadow: 0 12px 24px rgba(8, 29, 58, 0.16) !important;
+  color: #fff !important;
+}
+
+.engineer-time-block {
+  background: #eef4ff !important;
+  color: var(--navy) !important;
+}
+
+.office-shell > section,
+.office-shell .engineer-back-link,
+.whatsapp-pilot-grid,
+.whatsapp-message-flow {
+  border-color: #e4e7ec !important;
+}
+
+.office-shell h1,
+.office-shell h2,
+.office-alert-card h2,
+.office-summary-card strong,
+.whatsapp-structured-card strong {
+  color: var(--navy) !important;
+}
+
+.office-alert-card,
+.office-summary-card,
+.office-review-context,
+.office-review-rows,
+.whatsapp-live-test,
+.whatsapp-reply-tester,
+.whatsapp-structured-card {
+  background: #fff !important;
+  border-color: #e4e7ec !important;
+  box-shadow: var(--shadow) !important;
+}
+
+.client-portal-card header {
+  border-bottom-color: #e4e7ec;
+}
+
+.client-portal-card .primary-button,
+.client-portal-card .secondary-button {
+  min-width: 118px;
+  justify-content: center;
+}
+
+.client-portal-card .primary-button {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--blue-deep) 100%);
+  border-color: var(--navy);
+  color: #fff;
+}
+
+.client-portal-card .secondary-button {
+  color: var(--navy);
+}
+
+@media (max-width: 760px) {
+  .context-sidebar {
+    background: #fff;
+  }
+
+  .context-title,
+  .context-sidebar .sidebar-label,
+  .context-link {
+    color: var(--ink);
+  }
+
+  .context-link.active {
+    background: #eef4ff;
+    color: var(--blue-deep);
+  }
+}
