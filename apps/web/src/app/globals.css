@@ -1552,6 +1552,80 @@ h1 {
   gap: 7px;
 }
 
+.job-review-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.job-review-panel header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-review-panel h2 {
+  font-size: 16px;
+  margin: 4px 0 0;
+}
+
+.job-review-checklist {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.job-review-check {
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 24px 1fr;
+  min-height: 96px;
+  padding: 12px;
+  text-align: left;
+}
+
+.job-review-check span {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: flex;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
+}
+
+.job-review-check strong,
+.job-review-check small {
+  grid-column: 2;
+}
+
+.job-review-check small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.job-review-check.checked {
+  background: #f2faf5;
+  border-color: #bddfcb;
+}
+
+.primary-button:disabled,
+.secondary-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .quote-build-toolbar {
   align-items: center;
   background: #fff;

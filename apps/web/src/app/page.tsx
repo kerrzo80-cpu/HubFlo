@@ -93,6 +93,7 @@ const STORAGE_KEYS = {
   flowCompletion: "hubflo:flow-completion:v1",
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   jobCostCentres: "hubflo:job-cost-centres:v1",
+  jobReviews: "hubflo:job-reviews:v1",
   invoices: "hubflo:invoices:v1",
 } as const;
 
@@ -455,6 +456,21 @@ type Invoice = {
   chargeTotal: number;
   vatRate: number;
   notes: string;
+};
+
+type JobReviewKey = "site" | "commercial" | "finance";
+type JobReviewState = Record<JobReviewKey, boolean>;
+
+const jobReviewChecks: Array<{ key: JobReviewKey; label: string; detail: string }> = [
+  { key: "site", label: "Site completion", detail: "Engineer photos, notes, gas forms and customer sign-off checked." },
+  { key: "commercial", label: "Commercial review", detail: "Timesheets, POs, variations and margin checked." },
+  { key: "finance", label: "Finance approval", detail: "Invoice values, VAT and supporting documents checked." },
+];
+
+const emptyJobReviewState: JobReviewState = {
+  site: false,
+  commercial: false,
+  finance: false,
 };
 
 function invoiceTotalFromLines(lines: InvoiceLine[]) {
@@ -2928,6 +2944,7 @@ export default function Dashboard() {
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
+  const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -3131,6 +3148,16 @@ export default function Dashboard() {
           }
         : null,
     [jobScheduleDrafts, selectedJob],
+  );
+
+  const selectedJobReviewState = useMemo(
+    () => (selectedJob ? jobReviewApprovals[selectedJob.id] ?? emptyJobReviewState : emptyJobReviewState),
+    [jobReviewApprovals, selectedJob],
+  );
+
+  const selectedJobReviewComplete = useMemo(
+    () => jobReviewChecks.every((check) => selectedJobReviewState[check.key]),
+    [selectedJobReviewState],
   );
 
   const selectedDrawerAudit = useMemo(() => {
@@ -3388,6 +3415,7 @@ export default function Dashboard() {
     setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
     setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, defaultQuoteCostCentres));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
+    setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
     setHasHydratedLocalData(true);
   }, []);
 
@@ -3472,6 +3500,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
+    safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
   }, [
     clients,
     clientSites,
@@ -3486,6 +3515,7 @@ export default function Dashboard() {
     flowStepCompletion,
     quoteCostCentres,
     jobEstimateCostCentres,
+    jobReviewApprovals,
     hasHydratedLocalData,
   ]);
 
@@ -4595,6 +4625,83 @@ export default function Dashboard() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to start job.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
+  async function completeSelectedJob() {
+    if (!selectedJob) return;
+    try {
+      const updated = await patchSelectedJob(
+        {
+          status: "Completed",
+          next: "Completion review required before invoicing.",
+        },
+        `${selectedJob.ref} marked complete and sent for review.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo user",
+        action: "completed",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} marked complete and moved into office review.`,
+        source: "job completion",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to complete job.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
+  function toggleSelectedJobReview(check: JobReviewKey) {
+    if (!selectedJob) return;
+    setJobReviewApprovals((current) => {
+      const existing = current[selectedJob.id] ?? emptyJobReviewState;
+      const next = { ...existing, [check]: !existing[check] };
+      return { ...current, [selectedJob.id]: next };
+    });
+    const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "HubFlo user",
+      action: "reviewed",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `${checkLabel} ${selectedJobReviewState[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
+      source: "completion review",
+      importance: "normal",
+    });
+  }
+
+  async function approveSelectedJobForInvoice() {
+    if (!selectedJob) return;
+    if (!selectedJobReviewComplete) {
+      showNotice("All completion review checks must be ticked before invoicing.");
+      return;
+    }
+    try {
+      const updated = await patchSelectedJob(
+        {
+          status: "Ready to invoice",
+          next: "Raise and email final invoice.",
+        },
+        `${selectedJob.ref} approved and ready to invoice.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "HubFlo user",
+        action: "approved",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} passed completion review and is ready to invoice.`,
+        source: "completion review",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
       setSectionError(message);
       showNotice(message);
     }
@@ -8799,6 +8906,42 @@ export default function Dashboard() {
                           onClick={startSelectedJob}
                         >
                           Start job
+                        </button>
+                      </div>
+                    </section>
+                    <section className="job-review-panel">
+                      <header>
+                        <div>
+                          <span className="permission-heading">Completion review</span>
+                          <h2>Pass around before invoicing</h2>
+                        </div>
+                        <strong>{jobReviewChecks.filter((check) => selectedJobReviewState[check.key]).length}/{jobReviewChecks.length}</strong>
+                      </header>
+                      <div className="job-review-checklist">
+                        {jobReviewChecks.map((check) => (
+                          <button
+                            className={selectedJobReviewState[check.key] ? "job-review-check checked" : "job-review-check"}
+                            key={check.key}
+                            type="button"
+                            onClick={() => toggleSelectedJobReview(check.key)}
+                          >
+                            <span>{selectedJobReviewState[check.key] ? <Check size={15} /> : null}</span>
+                            <strong>{check.label}</strong>
+                            <small>{check.detail}</small>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="job-scheduling-actions">
+                        <button className="secondary-button" type="button" onClick={completeSelectedJob}>
+                          Mark complete
+                        </button>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={!selectedJobReviewComplete}
+                          onClick={approveSelectedJobForInvoice}
+                        >
+                          Approve for invoice
                         </button>
                       </div>
                     </section>
