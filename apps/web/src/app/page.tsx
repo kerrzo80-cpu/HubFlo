@@ -2447,6 +2447,25 @@ function quoteCostCentreTotals(centre: QuoteCostCentre) {
   };
 }
 
+function quoteSurveyPackSummary(centres: QuoteCostCentre[]) {
+  const assets = centres.flatMap((centre) =>
+    (centre.surveyAssets ?? []).map((asset) => ({
+      ...asset,
+      centreId: centre.id,
+      centreName: centre.name,
+    })),
+  );
+  const clientVisible = assets.filter((asset) => asset.clientVisible);
+
+  return {
+    assets,
+    clientVisible,
+    scans: assets.filter((asset) => asset.kind === "Room scan"),
+    photos: assets.filter((asset) => asset.kind === "Survey photo"),
+    concepts: assets.filter((asset) => asset.kind === "Concept look"),
+  };
+}
+
 function buildQuoteReviewQuestions(
   quote: Quote,
   centres: QuoteCostCentre[],
@@ -2457,6 +2476,7 @@ function buildQuoteReviewQuestions(
   const hasSupplierImport = allLines.some((line) => line.catalogItemId === "supplier-quote-material");
   const hasOneOffMaterial = allLines.some((line) => line.catalogItemId === "one-off-material");
   const hasAllowance = allLines.some((line) => /skip|waste|disposal|consumable|delivery|parking/i.test(line.description));
+  const surveyPack = quoteSurveyPackSummary(centres);
 
   if (totals.lineCount === 0) {
     questions.push({
@@ -2530,6 +2550,16 @@ function buildQuoteReviewQuestions(
       severity: "low",
       title: "No supplier PDF or one-off material lines have been added.",
       detail: "If supplier quotes are expected, import them or add missing items manually so the quote is not only using generic catalogue rates.",
+      action: "cost-build",
+    });
+  }
+
+  if (surveyPack.assets.length > 0 && surveyPack.clientVisible.length === 0) {
+    questions.push({
+      id: `${quote.id}-survey-visibility`,
+      severity: "low",
+      title: "Survey records exist but none are marked client-visible.",
+      detail: "If photos, room scans or concept looks should support the quote, mark the right records client-visible before sending.",
       action: "cost-build",
     });
   }
@@ -9210,38 +9240,65 @@ export default function Dashboard() {
 
                         <section className="quote-send-grid">
                           <article className="quote-document-preview">
-                            <header>
-                              <div>
-                                <span>{documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "Quote"} preview</span>
-                                <h2>{selectedQuote.ref}</h2>
-                              </div>
-                              <strong>{currency(selectedQuoteTotals.sell)}</strong>
-                            </header>
-                            <div className="quote-document-meta">
-                              <span>{selectedQuoteClient?.name ?? selectedQuote.customer}</span>
-                              <span>{selectedQuoteSite?.name ?? "Site to confirm"}</span>
-                              <span>Prepared by {selectedQuote.owner}</span>
-                            </div>
-                            <h3>{selectedQuote.description}</h3>
-                            <div className="quote-document-sections">
-                              {selectedQuoteCostCentres.map((centre) => {
-                                const totals = quoteCostCentreTotals(centre);
-                                return (
-                                  <div className="quote-document-section" key={centre.id}>
+                            {(() => {
+                              const surveyPack = quoteSurveyPackSummary(selectedQuoteCostCentres);
+                              return (
+                                <>
+                                  <header>
                                     <div>
-                                      <strong>{centre.name}</strong>
-                                      <span>{centre.clientDescription || "Scope description to be confirmed before issue."}</span>
+                                      <span>{documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "Quote"} preview</span>
+                                      <h2>{selectedQuote.ref}</h2>
                                     </div>
-                                    <strong>{currency(totals.totalSell)}</strong>
+                                    <strong>{currency(selectedQuoteTotals.sell)}</strong>
+                                  </header>
+                                  <div className="quote-document-meta">
+                                    <span>{selectedQuoteClient?.name ?? selectedQuote.customer}</span>
+                                    <span>{selectedQuoteSite?.name ?? "Site to confirm"}</span>
+                                    <span>Prepared by {selectedQuote.owner}</span>
                                   </div>
-                                );
-                              })}
-                            </div>
-                            <footer>
-                              <span>Subtotal {currency(selectedQuoteTotals.sell)}</span>
-                              <span>VAT {currency(selectedQuoteTotals.sell * 0.2)}</span>
-                              <strong>Total {currency(selectedQuoteTotals.sell * 1.2)}</strong>
-                            </footer>
+                                  <h3>{selectedQuote.description}</h3>
+                                  <div className="quote-document-sections">
+                                    {selectedQuoteCostCentres.map((centre) => {
+                                      const totals = quoteCostCentreTotals(centre);
+                                      return (
+                                        <div className="quote-document-section" key={centre.id}>
+                                          <div>
+                                            <strong>{centre.name}</strong>
+                                            <span>{centre.clientDescription || "Scope description to be confirmed before issue."}</span>
+                                          </div>
+                                          <strong>{currency(totals.totalSell)}</strong>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="quote-survey-pack-preview">
+                                    <div>
+                                      <span>Survey pack</span>
+                                      <strong>{surveyPack.clientVisible.length} client-visible item(s)</strong>
+                                    </div>
+                                    <div className="quote-survey-pack-stats">
+                                      <span>{surveyPack.scans.length} scan(s)</span>
+                                      <span>{surveyPack.photos.length} photo(s)</span>
+                                      <span>{surveyPack.concepts.length} concept(s)</span>
+                                    </div>
+                                    {surveyPack.clientVisible.length ? (
+                                      <div className="quote-survey-pack-list">
+                                        {surveyPack.clientVisible.map((asset) => (
+                                          <span key={asset.id}>{asset.kind}: {asset.title}</span>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <small>No survey records are currently marked client-visible.</small>
+                                    )}
+                                  </div>
+                                  <footer>
+                                    <span>Subtotal {currency(selectedQuoteTotals.sell)}</span>
+                                    <span>VAT {currency(selectedQuoteTotals.sell * 0.2)}</span>
+                                    <strong>Total {currency(selectedQuoteTotals.sell * 1.2)}</strong>
+                                  </footer>
+                                </>
+                              );
+                            })()}
                           </article>
 
                           <aside className="quote-email-panel">

@@ -10676,6 +10676,60 @@ kbd,
   font-size: 11px;
 }
 
+.quote-survey-pack-preview {
+  background: #fcfcfd;
+  border: 1px solid #eef2f6;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 13px;
+}
+
+.quote-survey-pack-preview > div:first-child {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.quote-survey-pack-preview span {
+  color: #9c7823;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.quote-survey-pack-preview strong {
+  color: var(--navy);
+  font-size: 12px;
+}
+
+.quote-survey-pack-stats,
+.quote-survey-pack-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quote-survey-pack-stats span,
+.quote-survey-pack-list span {
+  background: #fff;
+  border: 1px solid #e4e7ec;
+  border-radius: 999px;
+  color: #344054;
+  font-size: 10px;
+  letter-spacing: 0;
+  padding: 5px 8px;
+  text-transform: none;
+}
+
+.quote-survey-pack-preview small {
+  color: #667085;
+  font-size: 10px;
+}
+
 .ai-surveyor-platform,
 .ai-surveyor-workspace,
 .office-shell,
