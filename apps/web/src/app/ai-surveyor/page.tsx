@@ -548,6 +548,7 @@ export default function AiSurveyorPage() {
   const [recordSearch, setRecordSearch] = useState("");
   const [notice, setNotice] = useState("");
   const [isCreatingQuote, setIsCreatingQuote] = useState(false);
+  const [createdQuote, setCreatedQuote] = useState<{ id: string; ref: string } | null>(null);
 
   useEffect(() => {
     setDrafts(safeLoadDrafts());
@@ -770,7 +771,8 @@ export default function AiSurveyorPage() {
       const created = (await quoteResponse.json()) as { id: string; ref: string };
       saveQuoteCostCentreHandoff(created.id, jobDetails, estimateLines, response, linkedRecord);
       saveDraft({ linkedQuoteRef: created.ref });
-      setNotice(`${created.ref} created as a draft quote${linkedRecord ? ` from ${linkedRecord.kind} ${linkedRecord.ref}` : ""}. Review it in the existing Quotes workflow before sending.`);
+      setCreatedQuote(created);
+      setNotice(`${created.ref} created as a draft quote${linkedRecord ? ` from ${linkedRecord.kind} ${linkedRecord.ref}` : ""}. Review it in HubFlo before sending.`);
     } catch {
       setNotice("Unable to create the simPRO draft quote right now. The AI draft is still saved locally.");
       saveDraft();
@@ -985,9 +987,24 @@ export default function AiSurveyorPage() {
               </button>
               <button type="button" className="primary-action" onClick={createSimproDraftQuote} disabled={isCreatingQuote}>
                 <Send size={16} />
-                Send/Create simPRO Draft Quote
+                Create HubFlo Draft Quote
               </button>
             </section>
+
+            {createdQuote ? (
+              <section className="ai-panel ai-handoff-panel">
+                <header>
+                  <span><Link2 size={15} /> HubFlo quote ready</span>
+                </header>
+                <div>
+                  <strong>{createdQuote.ref}</strong>
+                  <p>Quote created with AI Surveyor cost centre, takeoff rows and supplier-request lines ready for office review.</p>
+                  <a className="primary-button" href={`/?quote=${createdQuote.id}`}>
+                    Open quote in HubFlo
+                  </a>
+                </div>
+              </section>
+            ) : null}
 
             <section className="ai-panel">
               <header>
