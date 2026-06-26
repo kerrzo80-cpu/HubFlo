@@ -3989,6 +3989,70 @@ export default function Dashboard() {
     );
   }, [selectedInvoice]);
 
+  const selectedInvoiceReadiness = useMemo(() => {
+    if (!selectedInvoice) {
+      return {
+        items: [] as JobReadinessItem[],
+        completeCount: 0,
+        requiredCount: 0,
+      };
+    }
+
+    const sourceApproved = selectedInvoiceSourceJob
+      ? ["Ready to invoice", "Invoiced", "Closed"].includes(selectedInvoiceSourceJob.status)
+      : selectedInvoiceSourceQuote
+        ? selectedInvoiceSourceQuote.status === "Accepted"
+        : true;
+    const hasRecipient = Boolean(selectedInvoiceEmailDraft?.to.trim().includes("@"));
+    const lineChargeTotal = selectedInvoice.lines.reduce((sum, line) => sum + line.chargeToClient, 0);
+    const items: JobReadinessItem[] = [
+      {
+        label: "Source approved",
+        detail: selectedInvoiceSourceJob
+          ? `${selectedInvoiceSourceJob.ref} is ${selectedInvoiceSourceJob.status}`
+          : selectedInvoiceSourceQuote
+            ? `${selectedInvoiceSourceQuote.ref} is ${selectedInvoiceSourceQuote.status}`
+            : "Manual invoice with no linked source.",
+        complete: sourceApproved,
+      },
+      {
+        label: "Invoice lines",
+        detail: `${selectedInvoice.lines.length} lines · ${currency(lineChargeTotal)} charge before VAT`,
+        complete: selectedInvoice.lines.length > 0 && lineChargeTotal > 0,
+      },
+      {
+        label: "Recipient",
+        detail: selectedInvoiceEmailDraft?.to.trim() || "Add the customer email before sending.",
+        complete: hasRecipient,
+      },
+      {
+        label: "PDF attachment",
+        detail: selectedInvoiceEmailDraft?.attachPdf ? "Generated invoice PDF will be attached." : "PDF attachment is switched off.",
+        complete: Boolean(selectedInvoiceEmailDraft?.attachPdf),
+      },
+      {
+        label: "Job closure",
+        detail: selectedInvoiceSourceJob
+          ? `Sending will move ${selectedInvoiceSourceJob.ref} to Invoiced.`
+          : "No job status will be changed.",
+        complete: Boolean(selectedInvoiceSourceJob),
+        optional: !selectedInvoiceSourceJob,
+      },
+    ];
+    const requiredItems = items.filter((item) => !item.optional);
+
+    return {
+      items,
+      completeCount: requiredItems.filter((item) => item.complete).length,
+      requiredCount: requiredItems.length,
+    };
+  }, [
+    selectedInvoice,
+    selectedInvoiceEmailDraft,
+    selectedInvoiceSourceJob,
+    selectedInvoiceSourceQuote,
+  ]);
+
   const selectedInvoiceFromQuote = useMemo(
     () => (selectedQuote ? invoiceSourceMap.byQuote.get(selectedQuote.id) ?? null : null),
     [invoiceSourceMap.byQuote, selectedQuote],
@@ -12041,6 +12105,34 @@ export default function Dashboard() {
                         )}
                       </article>
                     </div>
+
+                    <section className="job-readiness-panel invoice-readiness-panel">
+                      <header>
+                        <div>
+                          <span className="permission-heading">Ready to send</span>
+                          <h2>Invoice send checklist</h2>
+                        </div>
+                        <strong>
+                          {selectedInvoiceReadiness.completeCount}/{selectedInvoiceReadiness.requiredCount}
+                          <span> required</span>
+                        </strong>
+                      </header>
+                      <div className="job-readiness-list invoice-readiness-list">
+                        {selectedInvoiceReadiness.items.map((item) => (
+                          <article
+                            className={item.complete ? "job-readiness-item complete" : "job-readiness-item"}
+                            key={item.label}
+                          >
+                            <span>{item.complete ? <Check size={15} /> : <AlertTriangle size={15} />}</span>
+                            <div>
+                              <strong>{item.label}</strong>
+                              <small>{item.detail}</small>
+                            </div>
+                            {item.optional ? <em>Optional</em> : null}
+                          </article>
+                        ))}
+                      </div>
+                    </section>
 
                     {selectedInvoiceEmailDraft ? (
                       <section className="invoice-email-panel">
