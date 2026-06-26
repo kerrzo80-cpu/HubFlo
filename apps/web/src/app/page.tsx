@@ -349,7 +349,7 @@ type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" |
 type QuoteDetailTab = "setup" | "cost-build" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "schedule" | "assets";
-type QuoteBuildTab = "summary" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
+type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
 
@@ -1077,6 +1077,7 @@ const costCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
 
 const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
+  { key: "survey-tools", label: "Survey tools" },
   { key: "takeoff", label: "Takeoff" },
   { key: "catalogue", label: "Catalogue" },
   { key: "one-off", label: "One-off items" },
@@ -9566,6 +9567,83 @@ export default function Dashboard() {
                             </>
                           );
                         })()}
+                      </div>
+                    ) : null}
+
+                    {activeQuoteBuildTab === "survey-tools" ? (
+                      <div className="survey-tools-panel">
+                        <div className="simpro-parts-header">
+                          <div>
+                            <h2>Survey tools</h2>
+                            <h3>iPad room scans, survey photos, concept looks and takeoff outputs</h3>
+                            <span>Capture the room once, then let Verrova feed the quote, heat loss, supplier request and client-facing visuals.</span>
+                          </div>
+                          <div className="simpro-parts-actions">
+                            <button className="simpro-grey-button" type="button" onClick={() => showNotice("Room scanner will open from the iPad survey app when native capture is connected.")}>
+                              ROOM SCAN
+                            </button>
+                            <button className="simpro-blue-button" type="button" onClick={() => showNotice("Concept image generation will sit here once the quote room photos are captured.")}>
+                              CREATE CONCEPTS
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="survey-tool-grid">
+                          <article className="survey-tool-card">
+                            <span className="survey-tool-icon"><MapPin size={18} /></span>
+                            <div>
+                              <strong>Room scan</strong>
+                              <p>Use iPad LiDAR/RoomPlan later to capture dimensions, openings, walls and ceiling heights against this cost centre.</p>
+                            </div>
+                            <small>{(selectedQuoteCostCentre.heatLossRooms ?? []).length} room(s) in heat loss schedule</small>
+                          </article>
+                          <article className="survey-tool-card">
+                            <span className="survey-tool-icon"><FileText size={18} /></span>
+                            <div>
+                              <strong>Survey evidence</strong>
+                              <p>Photos, drawings and notes can be marked client visible or internal only before the quote is issued.</p>
+                            </div>
+                            <small>{(selectedQuoteCostCentre.takeoffDocuments ?? []).length} uploaded source document(s)</small>
+                          </article>
+                          <article className="survey-tool-card">
+                            <span className="survey-tool-icon"><Sparkles size={18} /></span>
+                            <div>
+                              <strong>Concept looks</strong>
+                              <p>Create option images for bathrooms, radiators, finishes or layouts so the customer can see the intended result.</p>
+                            </div>
+                            <small>Concept generation ready to connect</small>
+                          </article>
+                          <article className="survey-tool-card">
+                            <span className="survey-tool-icon"><ListChecks size={18} /></span>
+                            <div>
+                              <strong>Takeoff output</strong>
+                              <p>Reviewed dimensions and BOQ rows pull through to the takeoff tab, scope summary and supplier request.</p>
+                            </div>
+                            <small>{(selectedQuoteCostCentre.takeoffRows ?? []).length} draft takeoff row(s)</small>
+                          </article>
+                        </div>
+
+                        <div className="survey-flow-strip">
+                          <div>
+                            <span>Capture</span>
+                            <strong>Scan room + add photos</strong>
+                          </div>
+                          <ChevronRight size={16} />
+                          <div>
+                            <span>Review</span>
+                            <strong>Confirm dimensions and questions</strong>
+                          </div>
+                          <ChevronRight size={16} />
+                          <div>
+                            <span>Build</span>
+                            <strong>Generate takeoff / heat loss rows</strong>
+                          </div>
+                          <ChevronRight size={16} />
+                          <div>
+                            <span>Quote</span>
+                            <strong>Send selected visuals and priced scope</strong>
+                          </div>
+                        </div>
                       </div>
                     ) : null}
 
