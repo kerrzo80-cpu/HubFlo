@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   ArrowLeft,
@@ -198,7 +197,7 @@ const defaultJobDetails: JobDetails = {
 };
 
 const ewgSystemPrompt =
-  "You are the EWG AI Surveyor and Estimator for Errol Watson Group. You help price UK plumbing, heating, bathroom, joinery and small construction works. You can analyse typed notes, survey sheets, handwritten notes, photos, drawings, specifications, emails and tender documents. Your job is to produce realistic estimates, takeoffs, BOQs, material lists, labour allowances, RFQs and simPRO-ready quote descriptions.\n\nAlways separate labour and materials. Use £70/hr labour rate, 30% material markup and 20% VAT unless the user changes these values. Break multi-trade work into clear sections. Make sensible assumptions where information is missing and clearly list those assumptions. Ask only essential questions where missing information would materially affect the price. For drawings and takeoffs, clearly state if quantities are provisional because scale, dimensions or details are unclear. Always include exclusions and qualifications suitable for a customer quote or tender submission.";
+  "You are the Verrova AI Surveyor and Estimator for Verrova. You help price UK plumbing, heating, bathroom, joinery and small construction works. You can analyse typed notes, survey sheets, handwritten notes, photos, drawings, specifications, emails and tender documents. Your job is to produce realistic estimates, takeoffs, BOQs, material lists, labour allowances, RFQs and simPRO-ready quote descriptions.\n\nAlways separate labour and materials. Use £70/hr labour rate, 30% material markup and 20% VAT unless the user changes these values. Break multi-trade work into clear sections. Make sensible assumptions where information is missing and clearly list those assumptions. Ask only essential questions where missing information would materially affect the price. For drawings and takeoffs, clearly state if quantities are provisional because scale, dimensions or details are unclear. Always include exclusions and qualifications suitable for a customer quote or tender submission.";
 
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -772,7 +771,7 @@ export default function AiSurveyorPage() {
       saveQuoteCostCentreHandoff(created.id, jobDetails, estimateLines, response, linkedRecord);
       saveDraft({ linkedQuoteRef: created.ref });
       setCreatedQuote(created);
-      setNotice(`${created.ref} created as a draft quote${linkedRecord ? ` from ${linkedRecord.kind} ${linkedRecord.ref}` : ""}. Review it in HubFlo before sending.`);
+      setNotice(`${created.ref} created as a draft quote${linkedRecord ? ` from ${linkedRecord.kind} ${linkedRecord.ref}` : ""}. Review it in Verrova before sending.`);
     } catch {
       setNotice("Unable to create the simPRO draft quote right now. The AI draft is still saved locally.");
       saveDraft();
@@ -796,10 +795,10 @@ export default function AiSurveyorPage() {
       <header className="global-header ai-surveyor-header">
         <a className="ai-back-link" href="/">
           <ArrowLeft size={17} />
-          <span>HubFlo</span>
+          <span>Verrova</span>
         </a>
         <div className="brand-lockup">
-          <Image src="/ewg-logo.png" alt="Errol Watson Group" width={200} height={111} priority />
+          <span className="verrova-mark" aria-hidden="true">V</span>
           <div className="product-name">
             <strong>AI Surveyor</strong>
             <span>Estimator / Takeoff</span>
@@ -810,7 +809,7 @@ export default function AiSurveyorPage() {
       <nav className="module-bar ai-module-bar" aria-label="Main modules">
         <a className="module-link" href="/">
           <FileText size={16} />
-          <span>HubFlo</span>
+          <span>Verrova</span>
         </a>
         <a className="module-link active" href="/ai-surveyor">
           <Sparkles size={16} />
@@ -822,7 +821,7 @@ export default function AiSurveyorPage() {
         <div className="ai-surveyor-topline">
           <div>
             <div className="breadcrumb">
-              <span>EWG Operations</span>
+              <span>Verrova Operations</span>
               <strong>AI Surveyor / Estimator</strong>
             </div>
             <h1>AI Surveyor / Estimator</h1>
@@ -844,7 +843,7 @@ export default function AiSurveyorPage() {
           <div className="ai-input-column">
             <section className="ai-panel">
               <header>
-                <span><Link2 size={15} /> Link to HubFlo</span>
+                <span><Link2 size={15} /> Link to Verrova</span>
               </header>
               <div className="ai-record-linker">
                 <label>
@@ -856,7 +855,7 @@ export default function AiSurveyorPage() {
                   />
                 </label>
                 <label>
-                  Select HubFlo record
+                  Select Verrova record
                   <select
                     value={linkedRecord ? `${linkedRecord.kind}:${linkedRecord.id}` : ""}
                     onChange={(event) => selectHubRecord(event.target.value)}
@@ -878,7 +877,7 @@ export default function AiSurveyorPage() {
                       type="button"
                       onClick={() => {
                         setLinkedRecord(null);
-                        setNotice("AI Surveyor draft is no longer linked to a HubFlo record.");
+                        setNotice("AI Surveyor draft is no longer linked to a Verrova record.");
                       }}
                     >
                       Clear link
@@ -987,20 +986,20 @@ export default function AiSurveyorPage() {
               </button>
               <button type="button" className="primary-action" onClick={createSimproDraftQuote} disabled={isCreatingQuote}>
                 <Send size={16} />
-                Create HubFlo Draft Quote
+                Create Verrova Draft Quote
               </button>
             </section>
 
             {createdQuote ? (
               <section className="ai-panel ai-handoff-panel">
                 <header>
-                  <span><Link2 size={15} /> HubFlo quote ready</span>
+                  <span><Link2 size={15} /> Verrova quote ready</span>
                 </header>
                 <div>
                   <strong>{createdQuote.ref}</strong>
                   <p>Quote created with AI Surveyor cost centre, takeoff rows and supplier-request lines ready for office review.</p>
                   <a className="primary-button" href={`/?quote=${createdQuote.id}`}>
-                    Open quote in HubFlo
+                    Open quote in Verrova
                   </a>
                 </div>
               </section>

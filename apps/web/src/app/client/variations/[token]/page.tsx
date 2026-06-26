@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
@@ -106,7 +105,10 @@ export default function ClientVariationPortal({ params }: { params: Promise<{ to
     <main className="client-portal-shell">
       <section className="client-portal-card">
         <header>
-          <Image src="/ewg-logo.png" alt="Errol Watson Group" width={120} height={68} priority />
+          <span className="verrova-client-lockup">
+            <span className="verrova-mark" aria-hidden="true">V</span>
+            <strong>Verrova</strong>
+          </span>
           <span>Online variation approval</span>
         </header>
 
@@ -144,7 +146,7 @@ export default function ClientVariationPortal({ params }: { params: Promise<{ to
                 <CheckCircle2 size={24} />
                 <div>
                   <strong>Variation approved</strong>
-                  <span>HubFlo has been notified and office can proceed.</span>
+                  <span>Verrova has been notified and office can proceed.</span>
                 </div>
               </div>
             ) : record.status === "Declined" ? (

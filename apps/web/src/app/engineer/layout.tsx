@@ -144,11 +144,11 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
           }
         }
       `}</style>
-      <header className="engineer-brand-bar" aria-label="Errol Watson Group engineer app">
-        <img src="/ewg-logo.png" alt="Errol Watson Group" />
+      <header className="engineer-brand-bar" aria-label="Verrova engineer app">
+        <span className="verrova-mark" aria-hidden="true">V</span>
         <div className="engineer-brand-copy">
-          <strong>Errol Watson Group</strong>
-          <span>Engineer HubFlo</span>
+          <strong>Verrova</strong>
+          <span>Field command</span>
         </div>
       </header>
       {children}

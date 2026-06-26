@@ -20,13 +20,13 @@ const pilotMessages = [
   {
     audience: "Client visible",
     title: "Approval link",
-    message: "Variation V-004 is ready to review. Open the secure HubFlo link to approve before works proceed.",
+    message: "Variation V-004 is ready to review. Open the secure Verrova link to approve before works proceed.",
     outcome: "Logs viewed/approved and alerts engineer to proceed.",
   },
   {
     audience: "Supplier + office",
     title: "Material request",
-    message: "Please price materials for J-1052. Reply with PDF quote or use the HubFlo supplier link.",
+    message: "Please price materials for J-1052. Reply with PDF quote or use the Verrova supplier link.",
     outcome: "Links supplier quote to job/cost centre privately.",
   },
 ];
@@ -40,7 +40,7 @@ function interpretWhatsAppReply(reply: string) {
     return {
       type: "Waiting for reply",
       visibility: "Engineer private",
-      detail: "Type a WhatsApp-style reply to see what HubFlo would create.",
+      detail: "Type a WhatsApp-style reply to see what Verrova would create.",
     };
   }
 
@@ -127,7 +127,7 @@ export default function WhatsAppPilotPage() {
         setSendResult(body.error || "WhatsApp test could not be sent.");
       }
     } catch {
-      setSendResult("WhatsApp test could not reach the HubFlo API.");
+      setSendResult("WhatsApp test could not reach the Verrova API.");
     } finally {
       setIsSending(false);
     }
@@ -140,7 +140,7 @@ export default function WhatsAppPilotPage() {
       <section className="office-hero whatsapp-pilot-hero">
         <p className="eyebrow">WhatsApp pilot</p>
         <h1>Use what we already use</h1>
-        <p>We will pilot with you first. WhatsApp is the doorway; HubFlo keeps the job record, permissions, approvals, times and audit trail.</p>
+        <p>We will pilot with you first. WhatsApp is the doorway; Verrova keeps the job record, permissions, approvals, times and audit trail.</p>
         <div className="office-summary-grid">
           <div><strong>1</strong><span>Test pilot</span></div>
           <div><strong>4</strong><span>Message flows</span></div>
@@ -161,7 +161,7 @@ export default function WhatsAppPilotPage() {
         <div className="whatsapp-pilot-grid">
           <label>
             Pilot name
-            <input defaultValue="Kerr / Errol Watson Group" />
+            <input defaultValue="Kerr / Verrova" />
           </label>
           <label>
             WhatsApp number
@@ -192,7 +192,7 @@ export default function WhatsAppPilotPage() {
         <div className="engineer-section-heading">
           <div>
             <p className="eyebrow">Behaviour test</p>
-            <h2>Messages HubFlo will try first</h2>
+            <h2>Messages Verrova will try first</h2>
           </div>
           <MessageCircle size={22} />
         </div>
@@ -220,7 +220,7 @@ export default function WhatsAppPilotPage() {
         </div>
         <div className="whatsapp-sim-thread">
           <div className="whatsapp-sim-message hubflo">
-            <span>HubFlo to {selectedMessage.audience}</span>
+            <span>Verrova to {selectedMessage.audience}</span>
             <p>{selectedMessage.message}</p>
           </div>
           <div className="whatsapp-sim-message reply">
@@ -236,7 +236,7 @@ export default function WhatsAppPilotPage() {
             </p>
           </div>
           <div className="whatsapp-sim-message structured">
-            <span>HubFlo creates</span>
+            <span>Verrova creates</span>
             <p>{selectedMessage.outcome}</p>
           </div>
         </div>
@@ -287,7 +287,7 @@ export default function WhatsAppPilotPage() {
           <ShieldCheck size={22} />
         </div>
         <div className="whatsapp-safety-list">
-          <div><CheckCircle2 size={16} /><span>HubFlo stores the real job timeline and audit log.</span></div>
+          <div><CheckCircle2 size={16} /><span>Verrova stores the real job timeline and audit log.</span></div>
           <div><CheckCircle2 size={16} /><span>Client messages are sent as separate approval links, not internal group chatter.</span></div>
           <div><CheckCircle2 size={16} /><span>Engineer time checks stay private to that engineer and the office.</span></div>
           <div><CheckCircle2 size={16} /><span>Costs, margin and supplier prices stay office-only unless deliberately sent.</span></div>

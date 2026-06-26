@@ -41,7 +41,7 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
         <div className="engineer-section-heading compact">
           <div>
             <p className="eyebrow">Job chat</p>
-            <h2>HubFlo timeline</h2>
+            <h2>Verrova timeline</h2>
           </div>
           <MessageCircle size={21} />
         </div>
@@ -55,10 +55,10 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
         <div className="engineer-chat-thread">
           <div className="engineer-chat-message office">
             <span>Internal · Office</span>
-            <p>Any issues on site, send them here. HubFlo will link it back to {job.jobRef}.</p>
+            <p>Any issues on site, send them here. Verrova will link it back to {job.jobRef}.</p>
           </div>
           <div className="engineer-chat-message system">
-            <span>Engineer private · HubFlo</span>
+            <span>Engineer private · Verrova</span>
             <p>Choose what you need and I&apos;ll ask one thing at a time.</p>
           </div>
           <div className="engineer-chat-message engineer">
@@ -83,7 +83,7 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
         <div className="engineer-section-heading compact">
           <div>
             <p className="eyebrow">WhatsApp doorway</p>
-            <h2>Messages HubFlo would send</h2>
+            <h2>Messages Verrova would send</h2>
           </div>
           <MessageCircle size={21} />
         </div>
@@ -101,7 +101,7 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
           <article>
             <span>Client visible</span>
             <strong>Approval link</strong>
-            <p>Variation V-004 is ready to review. Open secure HubFlo link to approve before works proceed.</p>
+            <p>Variation V-004 is ready to review. Open secure Verrova link to approve before works proceed.</p>
           </article>
           <article>
             <span>Supplier + office</span>
@@ -205,7 +205,7 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
 
         <div className="engineer-chat-thread variation-chat">
           <div className="engineer-chat-message system">
-            <span>HubFlo</span>
+            <span>Verrova</span>
             <p>Tell me what changed. I&apos;ll turn it into a draft variation quote for the office.</p>
           </div>
           <div className="engineer-chat-message engineer">
@@ -213,7 +213,7 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
             <p>Extra pipe route needed because existing route cannot be reused.</p>
           </div>
           <div className="engineer-chat-message system">
-            <span>HubFlo</span>
+            <span>Verrova</span>
             <p>I&apos;ll ask for reason, hours, materials, photos and whether approval is needed before you proceed.</p>
           </div>
         </div>

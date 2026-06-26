@@ -48,7 +48,7 @@ export default function EngineerTimeCheckPage() {
           </div>
           <TriangleAlert size={21} />
         </div>
-        <p className="engineer-muted-copy">HubFlo found a 30 minute gap between scheduled jobs. Assign it to an existing job/cost centre, or create a reactive job if work came in before the office could schedule it.</p>
+        <p className="engineer-muted-copy">Verrova found a 30 minute gap between scheduled jobs. Assign it to an existing job/cost centre, or create a reactive job if work came in before the office could schedule it.</p>
         <div className="engineer-gap-options">
           <button type="button">Assign to job and cost centre</button>
           <button type="button">Create reactive job</button>

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "HubFlo",
-  description: "Work, job and service operations in one controlled flow.",
+  title: "Verrova",
+  description: "The command platform for modern business operations.",
 };
 
 export default function RootLayout({

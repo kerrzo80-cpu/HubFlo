@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 
@@ -108,7 +107,10 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
     <main className="client-portal-shell">
       <section className="client-portal-card">
         <header>
-          <Image src="/ewg-logo.png" alt="Errol Watson Group" width={120} height={68} priority />
+          <span className="verrova-client-lockup">
+            <span className="verrova-mark" aria-hidden="true">V</span>
+            <strong>Verrova</strong>
+          </span>
           <span>Online quote review</span>
         </header>
 
@@ -141,7 +143,7 @@ export default function ClientQuotePortal({ params }: { params: Promise<{ token:
                 <CheckCircle2 size={24} />
                 <div>
                   <strong>Quote accepted</strong>
-                  <span>{jobRef ? `HubFlo has created pending job ${jobRef}.` : "The office has been notified."}</span>
+                  <span>{jobRef ? `Verrova has created pending job ${jobRef}.` : "The office has been notified."}</span>
                 </div>
               </div>
             ) : quote.status === "Declined" ? (

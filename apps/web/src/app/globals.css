@@ -9201,3 +9201,569 @@ button.office-alert-card {
     position: static;
   }
 }
+
+/* Verrova premium brand layer */
+:root {
+  --charcoal-950: #070809;
+  --charcoal-900: #0a0a0c;
+  --charcoal-800: #111316;
+  --charcoal-700: #1a1a1d;
+  --ink: #f2f2ee;
+  --muted: #aaa6a0;
+  --subtle: #7f7a72;
+  --line: rgba(212, 175, 55, 0.22);
+  --line-soft: rgba(242, 242, 238, 0.08);
+  --canvas: #070809;
+  --surface: #101113;
+  --blue: #0d6efd;
+  --blue-dark: #0b5cd5;
+  --blue-deep: #0d6efd;
+  --blue-soft: rgba(13, 110, 253, 0.12);
+  --green: #22c55e;
+  --green-soft: rgba(34, 197, 94, 0.12);
+  --amber: #d4af37;
+  --amber-soft: rgba(212, 175, 55, 0.14);
+  --red: #ef4444;
+  --red-soft: rgba(239, 68, 68, 0.13);
+  --champagne: #d4af37;
+  --graphite: #1a1a1d;
+  --obsidian: #0a0a0c;
+  --ivory: #f2f2ee;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.34);
+}
+
+body {
+  background:
+    radial-gradient(circle at 8% -8%, rgba(212, 175, 55, 0.16), transparent 28rem),
+    radial-gradient(circle at 90% 0%, rgba(13, 110, 253, 0.12), transparent 25rem),
+    linear-gradient(180deg, #050506 0%, #0a0a0c 54%, #070809 100%);
+  color: var(--ivory);
+  font-family: Sora, Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.platform {
+  background:
+    linear-gradient(180deg, rgba(212, 175, 55, 0.045), transparent 18rem),
+    var(--obsidian);
+}
+
+.global-header {
+  background:
+    linear-gradient(90deg, rgba(7, 8, 9, 0.98), rgba(16, 17, 19, 0.96)),
+    var(--obsidian);
+  border-bottom: 1px solid rgba(212, 175, 55, 0.28);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.34);
+  color: var(--ivory);
+}
+
+.brand-lockup {
+  gap: 14px;
+}
+
+.brand-lockup img {
+  display: none;
+}
+
+.verrova-mark {
+  align-items: center;
+  background:
+    linear-gradient(145deg, #ffe797 0%, #d4af37 42%, #8d6a18 100%);
+  border: 1px solid rgba(255, 231, 151, 0.36);
+  clip-path: polygon(50% 0, 100% 18%, 66% 100%, 50% 74%, 34% 100%, 0 18%);
+  color: #08090a;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 27px;
+  font-weight: 900;
+  height: 48px;
+  justify-content: center;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28);
+  width: 48px;
+}
+
+.product-name {
+  border-left-color: rgba(212, 175, 55, 0.28);
+  padding-left: 14px;
+}
+
+.product-name strong {
+  color: var(--ivory);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+}
+
+.product-name span,
+.role-switch span,
+.employee-switch span,
+.breadcrumb,
+.sidebar-label,
+.metric-topline,
+.client-portal-card header span,
+.client-portal-heading span,
+.client-portal-total span,
+.simpro-record-titlebar span,
+.form-header span {
+  color: var(--champagne);
+  letter-spacing: 0.16em;
+}
+
+.global-search,
+.role-switch select,
+.employee-switch select,
+.create-menu,
+.module-submenu,
+.form-body input,
+.form-body select,
+.form-body textarea,
+.simpro-filter-band input,
+.simpro-section-create input,
+.simpro-cost-centre-add input,
+.simpro-cost-centre-add select,
+.simpro-inline-form input,
+.simpro-service-form input,
+.simpro-service-form select,
+.simpro-labour-add select,
+.simpro-parts-header select,
+.simpro-editor-header select,
+.simpro-billable-row input,
+.simpro-billable-row select,
+.ai-form-grid input,
+.ai-form-grid select,
+.quote-line-row input,
+.estimate-line-row input {
+  background: rgba(18, 19, 21, 0.92);
+  border-color: rgba(212, 175, 55, 0.22);
+  color: var(--ivory);
+}
+
+.global-search:focus-within,
+.form-body input:focus,
+.form-body select:focus,
+.form-body textarea:focus,
+.simpro-filter-band input:focus,
+.simpro-section-create input:focus,
+.simpro-cost-centre-add input:focus,
+.simpro-cost-centre-add select:focus,
+.simpro-inline-form input:focus,
+.simpro-service-form input:focus,
+.simpro-service-form select:focus,
+.ai-form-grid input:focus,
+.ai-form-grid select:focus {
+  border-color: rgba(212, 175, 55, 0.72);
+  box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.16);
+}
+
+.global-search input,
+.global-search input::placeholder,
+.form-body input::placeholder,
+.form-body textarea::placeholder {
+  color: #8f8a82;
+}
+
+kbd,
+.counter,
+.account-avatar {
+  background: linear-gradient(145deg, #ffe797, #d4af37);
+  border-color: rgba(255, 231, 151, 0.5);
+  color: #08090a;
+}
+
+.header-icon,
+.account-button,
+.module-more,
+.mobile-menu,
+.employee-config-button,
+.context-title button {
+  color: var(--champagne);
+}
+
+.create-button,
+.primary-button,
+.simpro-blue-button,
+.simpro-save-button,
+.ai-estimate-table-panel header button {
+  background: linear-gradient(145deg, #f6da83 0%, #d4af37 54%, #9b741c 100%);
+  border-color: rgba(255, 231, 151, 0.55);
+  box-shadow: 0 10px 26px rgba(212, 175, 55, 0.16);
+  color: #08090a;
+}
+
+.secondary-button,
+.filter-button,
+.status-filter,
+.simpro-grey-button,
+.simpro-options-button,
+.simpro-kebab-button,
+.employee-tab,
+.module-submenu button,
+.create-menu button {
+  background: rgba(18, 19, 21, 0.82);
+  border-color: rgba(242, 242, 238, 0.11);
+  color: var(--ivory);
+}
+
+.secondary-button:hover,
+.filter-button:hover,
+.simpro-grey-button:hover,
+.simpro-options-button:hover,
+.simpro-kebab-button:hover,
+.context-link:hover,
+.module-link:hover,
+.create-menu button:hover,
+.module-submenu button:hover {
+  background: rgba(212, 175, 55, 0.1);
+  color: var(--ivory);
+}
+
+.module-bar,
+.context-sidebar,
+.lead-schedule-panel {
+  background: rgba(8, 9, 10, 0.96);
+  border-color: rgba(212, 175, 55, 0.18);
+}
+
+.module-link {
+  color: #b6b0a7;
+  letter-spacing: 0.02em;
+}
+
+.module-link.active {
+  border-bottom-color: var(--champagne);
+  color: var(--champagne);
+}
+
+.body-shell {
+  background:
+    radial-gradient(circle at 72% 0%, rgba(13, 110, 253, 0.08), transparent 24rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 18rem);
+}
+
+.context-title,
+.context-link,
+.context-link.active,
+.breadcrumb strong,
+.workspace-header h1,
+.workspace-header p,
+.metric > strong,
+.quote-row,
+.lead-row,
+.lead-source,
+.lead-summary-grid strong,
+.quote-record-banner h2,
+.quote-record-stats strong,
+.workflow-stage strong,
+.client-record-stats strong,
+.employee-record-stats strong,
+.client-info-card dd,
+.employee-card,
+.simpro-record-titlebar strong,
+.simpro-section-heading h3,
+.simpro-cost-centre-row strong,
+.simpro-summary-panel h2,
+.simpro-summary-panel h3,
+.form-header h2,
+.client-portal-heading h1,
+.client-portal-total strong,
+.ai-surveyor-topline h1 {
+  color: var(--ivory);
+}
+
+.workspace-header p,
+.quote-site,
+.quote-row.table-header,
+.lead-row.table-header,
+.lead-survey-cell small,
+.empty-copy,
+.quote-record-banner p,
+.workflow-stage small,
+.client-portal-heading p,
+.client-portal-total small,
+.client-portal-confirmation span,
+.client-directory-card p,
+.client-site-card p,
+.client-history-item p,
+.client-info-card p,
+.employee-directory-card p,
+.simpro-cost-centre-row small,
+.simpro-activity-panel p,
+.simpro-editor-header span,
+.form-body label,
+.ai-surveyor-topline p,
+.account-copy small,
+.support-panel small {
+  color: #aaa6a0;
+}
+
+.metric-strip,
+.workflow-board,
+.quote-panel,
+.lead-workspace,
+.quote-record-banner,
+.workflow-tracker,
+.quote-record-stats div,
+.client-record-banner,
+.client-record-stats div,
+.client-info-card,
+.client-site-card,
+.client-history-item,
+.employee-record-banner,
+.employee-record-stats div,
+.employee-record-panel,
+.employee-directory-card,
+.client-directory-card,
+.employee-card,
+.job-scheduling-panel,
+.simpro-record-shell,
+.simpro-estimate-page,
+.simpro-section-card,
+.simpro-summary-panel,
+.simpro-activity-panel,
+.simpro-timeline-card,
+.simpro-editor-card,
+.simpro-parts-page,
+.documents-workspace,
+.engineer-flow-workspace,
+.setup-workspace,
+.form-header,
+.form-body,
+.form-footer,
+.client-portal-card,
+.ai-estimate-table-panel,
+.ai-handoff-panel,
+.ai-mini-table,
+.ai-boq-table,
+.office-alert-card,
+.office-summary-card,
+.office-review-context,
+.whatsapp-live-test,
+.whatsapp-reply-tester,
+.whatsapp-structured-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.018)),
+    rgba(16, 17, 19, 0.94);
+  border-color: rgba(212, 175, 55, 0.18);
+  box-shadow: var(--shadow);
+  color: var(--ivory);
+}
+
+.queue-card,
+.lead-summary-grid article,
+.quote-row.table-header,
+.lead-row.table-header,
+.workflow-stage,
+.workflow-stage.current,
+.client-portal-total,
+.employee-empty-panel,
+.simpro-cost-centre-row,
+.simpro-cost-centre-row.quote,
+.simpro-summary-table .table-head,
+.simpro-summary-table .table-row,
+.simpro-breakdown-table div,
+.simpro-billable-row,
+.quote-line-row,
+.estimate-line-row,
+.job-row,
+.ai-mini-table > div,
+.ai-boq-table > div,
+.ai-estimate-table .table-head,
+.ai-estimate-table > div {
+  background: rgba(255, 255, 255, 0.035);
+  border-color: rgba(242, 242, 238, 0.08);
+  color: var(--ivory);
+}
+
+.quote-row.clickable:hover,
+.lead-row.clickable:hover,
+.queue-card:hover,
+.employee-card:hover,
+.client-directory-card:hover,
+.employee-directory-card:hover,
+.simpro-cost-centre-row:hover {
+  background: rgba(212, 175, 55, 0.08);
+  border-color: rgba(212, 175, 55, 0.36);
+}
+
+.queue-card.blue,
+.queue-card.green,
+.queue-card.amber,
+.queue-card.red {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.queue-card.active,
+.employee-card.active,
+.employee-tab.active,
+.simpro-tab.active,
+.simpro-sub-tabs button.active {
+  background: rgba(212, 175, 55, 0.12);
+  border-color: rgba(212, 175, 55, 0.48);
+  box-shadow: inset 0 0 0 1px rgba(212, 175, 55, 0.28);
+  color: var(--champagne);
+}
+
+.status-dot.amber,
+.status-pill.amber {
+  background: rgba(212, 175, 55, 0.16);
+  color: #f5cf61;
+}
+
+.status-dot.blue,
+.status-pill.blue {
+  background: rgba(13, 110, 253, 0.18);
+  color: #66a6ff;
+}
+
+.status-dot.green,
+.status-pill.green {
+  background: rgba(34, 197, 94, 0.16);
+  color: #54d783;
+}
+
+.status-dot.red,
+.status-pill.red {
+  background: rgba(239, 68, 68, 0.16);
+  color: #ff7373;
+}
+
+.section-notice {
+  background: rgba(13, 110, 253, 0.12);
+  border-color: rgba(13, 110, 253, 0.32);
+  color: #b7d3ff;
+}
+
+.section-error {
+  background: rgba(212, 175, 55, 0.12);
+  border-color: rgba(212, 175, 55, 0.38);
+  color: #f7d66f;
+}
+
+.support-panel {
+  border-color: rgba(212, 175, 55, 0.16);
+}
+
+.support-panel strong {
+  color: #7ee19d;
+}
+
+.client-portal-shell {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(212, 175, 55, 0.16), transparent 26rem),
+    linear-gradient(180deg, #050506, #0a0a0c);
+}
+
+.client-portal-card {
+  border-radius: 8px;
+  max-width: 760px;
+}
+
+.verrova-client-lockup {
+  align-items: center;
+  color: var(--ivory);
+  display: inline-flex;
+  gap: 12px;
+}
+
+.verrova-client-lockup .verrova-mark {
+  height: 40px;
+  width: 40px;
+  font-size: 22px;
+}
+
+.verrova-client-lockup strong {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.client-portal-confirmation,
+.client-portal-state {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.28);
+  color: #62df8b;
+}
+
+.client-portal-confirmation.declined,
+.client-portal-state.error {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #ff7373;
+}
+
+.engineer-brand-bar {
+  background:
+    linear-gradient(180deg, rgba(18, 19, 21, 0.95), rgba(8, 9, 10, 0.95)) !important;
+  border-color: rgba(212, 175, 55, 0.22) !important;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.38) !important;
+  color: var(--ivory) !important;
+}
+
+.engineer-brand-bar .verrova-mark {
+  height: 42px;
+  width: 42px;
+  font-size: 23px;
+}
+
+.engineer-brand-copy strong {
+  color: var(--ivory) !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase;
+}
+
+.engineer-brand-copy span {
+  color: var(--champagne) !important;
+}
+
+.engineer-shell {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(212, 175, 55, 0.14), transparent 26rem),
+    linear-gradient(180deg, #050506 0%, #0a0a0c 100%) !important;
+  color: var(--ivory) !important;
+}
+
+.engineer-hero,
+.engineer-job-detail-hero,
+.engineer-secondary-action,
+.engineer-timeline,
+.engineer-panel,
+.engineer-contact-card,
+.engineer-job-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02)),
+    rgba(16, 17, 19, 0.94) !important;
+  border-color: rgba(212, 175, 55, 0.18) !important;
+  color: var(--ivory) !important;
+}
+
+.engineer-primary-action,
+.engineer-po-form button,
+.engineer-outcome-bar button {
+  background: linear-gradient(145deg, #f6da83, #d4af37 54%, #9b741c) !important;
+  color: #08090a !important;
+}
+
+.engineer-hero h1,
+.engineer-job-detail-hero h1,
+.engineer-hero p,
+.engineer-job-detail-hero p {
+  color: var(--ivory) !important;
+}
+
+.engineer-hero .eyebrow,
+.engineer-job-detail-hero .eyebrow {
+  color: var(--champagne) !important;
+}
+
+@media (max-width: 980px) {
+  .global-header {
+    background: var(--obsidian);
+  }
+
+  .product-name strong {
+    font-size: 18px;
+    letter-spacing: 0.22em;
+  }
+}

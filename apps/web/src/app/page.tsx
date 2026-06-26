@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ComponentType, type MouseEvent } from "react";
 import {
   AlertTriangle,
@@ -664,7 +663,7 @@ function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null): 
     to: client?.email ?? "",
     cc: "",
     subject: `${invoice.ref} - ${invoice.title}`,
-    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.\n\nKind regards,\nErrol Watson Group`,
+    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.\n\nKind regards,\nVerrova`,
     attachPdf: true,
   };
 }
@@ -754,7 +753,7 @@ type JobDeliveryEvent = {
   clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   status?: string;
   portalToken?: string;
-  source: "HubFlo" | "WhatsApp" | "Engineer app";
+  source: "Verrova" | "WhatsApp" | "Engineer app";
 };
 
 type JobDeliveryDraft = {
@@ -3266,7 +3265,7 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteE
     to: client?.email ?? "",
     cc: "",
     subject: `${quote.ref} - ${quote.description}`,
-    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nErrol Watson Group`,
+    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nVerrova`,
     layout: "quote",
     attachPdf: true,
   };
@@ -4068,7 +4067,7 @@ export default function Dashboard() {
         if (stopped) return;
 
         if (hasOfflineFallback) {
-          setSectionError("Some HubFlo workflows are currently using local workspace data.");
+          setSectionError("Some Verrova workflows are currently using local workspace data.");
         } else {
           setSectionError(null);
         }
@@ -5045,7 +5044,7 @@ export default function Dashboard() {
     const created = makeInvoiceFromQuote(quote, client, sourceCentres, invoices);
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: "created",
       recordType: "invoice",
       recordId: created.id,
@@ -5086,7 +5085,7 @@ export default function Dashboard() {
 
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: "created",
       recordType: "invoice",
       recordId: created.id,
@@ -5113,7 +5112,7 @@ export default function Dashboard() {
       ),
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: status.toLowerCase(),
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -5173,17 +5172,17 @@ export default function Dashboard() {
       );
     }
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: "emailed",
       recordType: "invoice",
       recordId: selectedInvoice.id,
-      summary: `Invoice ${selectedInvoice.ref} emailed from HubFlo via Outlook to ${selectedInvoiceEmailDraft.to}.`,
+      summary: `Invoice ${selectedInvoice.ref} emailed from Verrova via Outlook to ${selectedInvoiceEmailDraft.to}.`,
       source: "outlook draft",
       importance: "high",
     });
     if (sourceJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "invoiced",
         recordType: "job",
         recordId: sourceJob.id,
@@ -5313,11 +5312,11 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: "emailed",
       recordType: "quote",
       recordId: selectedQuote.id,
-      summary: `${selectedQuote.ref} emailed from HubFlo via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
+      summary: `${selectedQuote.ref} emailed from Verrova via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
@@ -5336,7 +5335,7 @@ export default function Dashboard() {
       status: "Sent",
     });
 
-    showNotice("Quote sent from HubFlo and captured against the quote.");
+    showNotice("Quote sent from Verrova and captured against the quote.");
   }
 
   async function logQuotePortalViewed() {
@@ -5578,7 +5577,7 @@ export default function Dashboard() {
         return;
       }
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "approved",
         recordType: "job",
         recordId: selectedJob.id,
@@ -5788,7 +5787,7 @@ export default function Dashboard() {
         kind: "po",
         actor: created.requestedBy,
         summary: `${created.item} from ${created.supplier}`,
-        source: "HubFlo",
+        source: "Verrova",
         costValue: created.estimatedCost,
         status: created.status,
       });
@@ -5864,7 +5863,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "scheduled",
         recordType: "job",
         recordId: updated.id,
@@ -5890,7 +5889,7 @@ export default function Dashboard() {
       jobId: selectedJob.id,
       jobRef: selectedJob.ref,
       kind: "attendance",
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       summary: `Attendance confirmation requested from ${selectedJob.manager} for ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}.`,
       source: "WhatsApp",
       status: "Requested",
@@ -6009,11 +6008,11 @@ export default function Dashboard() {
         kind: "attendance",
         actor: updated.manager,
         summary: `${updated.manager} started ${updated.ref} from the schedule control.`,
-        source: "HubFlo",
+        source: "Verrova",
         status: "Arrived",
       });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "started",
         recordType: "job",
         recordId: updated.id,
@@ -6040,7 +6039,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "completed",
         recordType: "job",
         recordId: updated.id,
@@ -6064,7 +6063,7 @@ export default function Dashboard() {
     });
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: "reviewed",
       recordType: "job",
       recordId: selectedJob.id,
@@ -6090,7 +6089,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "approved",
         recordType: "job",
         recordId: updated.id,
@@ -6308,7 +6307,7 @@ export default function Dashboard() {
       ),
     }));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo",
+      actor: activeEmployee?.name ?? "Verrova",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -6343,7 +6342,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo",
+        actor: activeEmployee?.name ?? "Verrova",
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -6481,7 +6480,7 @@ export default function Dashboard() {
     }));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo",
+      actor: activeEmployee?.name ?? "Verrova",
       action: "calculated",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -6565,7 +6564,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo",
+        actor: activeEmployee?.name ?? "Verrova",
         action: "sent",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -6614,7 +6613,7 @@ export default function Dashboard() {
 
         if (selectedQuote) {
           logAuditEvent({
-            actor: activeEmployee?.name ?? "HubFlo",
+            actor: activeEmployee?.name ?? "Verrova",
             action: "uploaded",
             recordType: "quote",
             recordId: selectedQuote.id,
@@ -6660,7 +6659,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo",
+        actor: activeEmployee?.name ?? "Verrova",
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -6704,7 +6703,7 @@ export default function Dashboard() {
     }));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo",
+      actor: activeEmployee?.name ?? "Verrova",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -7003,7 +7002,7 @@ export default function Dashboard() {
     );
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "HubFlo user",
+      actor: activeEmployee?.name ?? "Verrova user",
       action: "updated",
       recordType: "employee",
       recordId: editingEmployeeId,
@@ -7206,7 +7205,7 @@ export default function Dashboard() {
         email: draft.email.trim(),
         address: draft.address.trim(),
         source,
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
       }),
     });
 
@@ -7273,7 +7272,7 @@ export default function Dashboard() {
       surveyor: newLead.surveyor,
       surveyDate: newLead.surveyDate,
       surveyTime: newLead.surveyTime,
-      createdBy: newLead.createdBy || activeEmployee?.name || "HubFlo user",
+      createdBy: newLead.createdBy || activeEmployee?.name || "Verrova user",
       next: hasSurveyBooking ? `Survey booked and notification sent to ${newLead.surveyor}.` : "Check diary and book survey appointment.",
     };
 
@@ -7327,7 +7326,7 @@ export default function Dashboard() {
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
-        actor: newLead.createdBy || activeEmployee?.name || "HubFlo user",
+        actor: newLead.createdBy || activeEmployee?.name || "Verrova user",
         action: "created",
         recordType: "lead",
         recordId: result.lead.id,
@@ -7337,7 +7336,7 @@ export default function Dashboard() {
       });
       if (result.lead.status === "Survey booked") {
         logAuditEvent({
-          actor: "HubFlo",
+          actor: "Verrova",
           action: "notified",
           recordType: "lead",
           recordId: result.lead.id,
@@ -7430,7 +7429,7 @@ export default function Dashboard() {
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
-        actor: newLead.createdBy || activeEmployee?.name || "HubFlo user",
+        actor: newLead.createdBy || activeEmployee?.name || "Verrova user",
         action: "created",
         recordType: "lead",
         recordId: createdLead.id,
@@ -7440,7 +7439,7 @@ export default function Dashboard() {
       });
       if (createdLead.status === "Survey booked") {
         logAuditEvent({
-          actor: "HubFlo",
+          actor: "Verrova",
           action: "notified",
           recordType: "lead",
           recordId: createdLead.id,
@@ -7536,7 +7535,7 @@ export default function Dashboard() {
     if (updated.ok) {
       setLeads((current) => current.map((item) => (item.id === updated.lead.id ? updated.lead : item)));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "booked",
         recordType: "lead",
         recordId: lead.id,
@@ -7619,7 +7618,7 @@ export default function Dashboard() {
       return;
     }
 
-    const actor = activeEmployee?.name ?? "HubFlo user";
+    const actor = activeEmployee?.name ?? "Verrova user";
     const leadDraft: LeadDraft = {
       customerMode: "new",
       clientId: lead.clientId,
@@ -7808,7 +7807,7 @@ export default function Dashboard() {
       setShowCreateQuote(false);
       setNewQuote(blankQuote);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "created",
         recordType: "quote",
         recordId: created.id,
@@ -7890,7 +7889,7 @@ export default function Dashboard() {
       setShowCreateJob(false);
       setNewJob(blankJob);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "created",
         recordType: "job",
         recordId: created.id,
@@ -7913,7 +7912,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
-          actor: activeEmployee?.name ?? "HubFlo user",
+          actor: activeEmployee?.name ?? "Verrova user",
           chargeValue: quote.id === selectedQuote?.id && selectedQuoteTotals.sell > 0 ? selectedQuoteTotals.sell : undefined,
         }),
       });
@@ -7939,7 +7938,7 @@ export default function Dashboard() {
         ...current.filter((event) => !result.auditEvents.some((created) => created.id === event.id)),
       ]);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo",
+        actor: activeEmployee?.name ?? "Verrova",
         action: "converted",
         recordType: "job",
         recordId: result.job.id,
@@ -7980,7 +7979,7 @@ export default function Dashboard() {
       setPurchaseDraft(blankPurchaseRequest);
       setShowPurchaseForm(false);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: "created",
         recordType: "purchase_request",
         recordId: created.id,
@@ -8009,7 +8008,7 @@ export default function Dashboard() {
         current.map((request) => (request.id === updated.id ? updated : request)),
       );
       logAuditEvent({
-        actor: activeEmployee?.name ?? "HubFlo user",
+        actor: activeEmployee?.name ?? "Verrova user",
         action: status === "Approved" ? "approved" : "updated",
         recordType: "purchase_request",
         recordId: updated.id,
@@ -8212,17 +8211,17 @@ export default function Dashboard() {
     <div className="platform">
       <header className="global-header">
         <div className="brand-lockup">
-          <Image src="/ewg-logo.png" alt="Errol Watson Group" width={200} height={111} priority />
+          <span className="verrova-mark" aria-hidden="true">V</span>
           <div className="product-name">
-            <strong>HubFlo</strong>
-            <span>Operations</span>
+            <strong>Verrova</strong>
+            <span>Control every moving part.</span>
           </div>
         </div>
 
         <label className="global-search">
           <Search size={17} />
           <input
-            aria-label="Search HubFlo"
+            aria-label="Search Verrova"
             placeholder="Search customers, jobs, quotes, assets..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -8269,10 +8268,10 @@ export default function Dashboard() {
             </button>
           </div>
           <button className="account-button" aria-label="Account menu" onClick={() => showNotice("Account panel is coming soon.")}>
-            <span className="account-avatar">EW</span>
+            <span className="account-avatar">V</span>
             <span className="account-copy">
               <strong>{activeEmployee?.name ?? "Employee"}</strong>
-              <small>Errol Watson Group</small>
+              <small>Verrova workspace</small>
             </span>
             <ChevronDown size={14} />
           </button>
@@ -8443,7 +8442,7 @@ export default function Dashboard() {
           ) : null}
 
           <div className="support-panel">
-            <span>EWG workspace</span>
+            <span>Verrova workspace</span>
             <strong>All systems operational</strong>
             <small>Last sync 2 minutes ago</small>
           </div>
@@ -8453,7 +8452,7 @@ export default function Dashboard() {
           <div className="workspace-header">
             <div>
               <div className="breadcrumb">
-                <span>EWG Operations</span>
+                <span>Verrova Operations</span>
                 <ChevronRight size={13} />
                 <strong>
                   {homeView === "employee-card"
@@ -8546,9 +8545,9 @@ export default function Dashboard() {
                   : homeView === "client-record"
                     ? `${activeClient?.primaryContact || "No contact"} · ${activeClient?.email || "No email on file"}`
                     : homeView === "clients"
-                      ? `${clients.length} client accounts and ${clientSites.length} live sites in HubFlo`
+                      ? `${clients.length} client accounts and ${clientSites.length} live sites in Verrova`
                   : homeView === "employees"
-                    ? `${employees.length} employees onboarded in HubFlo`
+                    ? `${employees.length} employees onboarded in Verrova`
                     : "Monday, 22 June 2026 · Live business position"}
               </p>
             </div>
@@ -8698,7 +8697,7 @@ export default function Dashboard() {
                       activeClient
                         ? (() => {
                             logAuditEvent({
-                              actor: activeEmployee?.name ?? "HubFlo user",
+                              actor: activeEmployee?.name ?? "Verrova user",
                               action: "reviewed",
                               recordType: "client",
                               recordId: activeClient.id,
@@ -8839,7 +8838,7 @@ export default function Dashboard() {
                     <section className="ai-quote-review-panel">
                       <header>
                         <div>
-                          <span><Sparkles size={15} /> HubFlo AI review</span>
+                          <span><Sparkles size={15} /> Verrova AI review</span>
                           <h2>Questions before this quote goes out</h2>
                         </div>
                         <button
@@ -9470,7 +9469,7 @@ export default function Dashboard() {
                       <p><AlertTriangle size={16} /> No one is scheduled or assigned to this quote cost centre.</p>
                       <h3>Timeline</h3>
                       <div className="simpro-timeline-card">
-                        <strong>{activeEmployee?.name ?? "HubFlo"} - Note</strong>
+                        <strong>{activeEmployee?.name ?? "Verrova"} - Note</strong>
                         <span>{selectedQuoteCostCentre.name} estimate opened.</span>
                       </div>
                     </aside>
@@ -11208,7 +11207,7 @@ export default function Dashboard() {
                       <p><AlertTriangle size={16} /> No one is scheduled or assigned to this cost centre.</p>
                       <h3>Timeline</h3>
                       <div className="simpro-timeline-card">
-                        <strong>{activeEmployee?.name ?? "HubFlo"} - Note</strong>
+                        <strong>{activeEmployee?.name ?? "Verrova"} - Note</strong>
                         <span>{selectedCostCentre.name} estimate opened.</span>
                       </div>
                     </aside>
@@ -11973,13 +11972,13 @@ export default function Dashboard() {
                             );
                           })}
                         </div>
-                        <p>When the appointment is booked, HubFlo logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
+                        <p>When the appointment is booked, Verrova logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
                         <button
                           className="secondary-button"
                           disabled={selectedLead.status !== "Survey booked"}
                           onClick={() => {
                             logAuditEvent({
-                              actor: "HubFlo",
+                              actor: "Verrova",
                               action: "notified",
                               recordType: "lead",
                               recordId: selectedLead.id,
@@ -12105,7 +12104,7 @@ export default function Dashboard() {
             <section className="setup-workspace">
               <div className="panel-header">
                 <div>
-                  <h2>HubFlo setup</h2>
+                  <h2>Verrova setup</h2>
                   <p>Default folders, visibility and engineer stop/go flows that records inherit across leads, quotes and jobs.</p>
                 </div>
               </div>
@@ -12551,7 +12550,7 @@ export default function Dashboard() {
                           className="secondary-button"
                           onClick={() => {
                             logAuditEvent({
-                              actor: activeEmployee?.name ?? "HubFlo user",
+                              actor: activeEmployee?.name ?? "Verrova user",
                               action: "updated",
                               recordType: "client",
                               recordId: activeClient.id,
@@ -12581,7 +12580,7 @@ export default function Dashboard() {
                               className="secondary-button"
                               onClick={() => {
                                 logAuditEvent({
-                                  actor: activeEmployee?.name ?? "HubFlo user",
+                                  actor: activeEmployee?.name ?? "Verrova user",
                                   action: "reviewed",
                                   recordType: "site",
                                   recordId: site.id,
@@ -13099,7 +13098,7 @@ export default function Dashboard() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Permission controls</span>
                         <span className="employee-access-note">
-                          Configure what this employee can see and change inside HubFlo.
+                          Configure what this employee can see and change inside Verrova.
                         </span>
                       </div>
                       <div className="employee-permissions-grid">
