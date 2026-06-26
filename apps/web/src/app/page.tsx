@@ -121,8 +121,84 @@ function normalizeClientIdentity(value: string) {
   return value.trim().toLowerCase();
 }
 
+type LeadCustomerMatch = {
+  client: ClientRecord;
+  matchScore: number;
+  matchReason: string;
+};
+
 function normalizePhone(value: string) {
   return value.replace(/[^\d]/g, "");
+}
+
+function buildLeadCustomerMatches(draft: LeadDraft, clients: ClientRecord[], sites: ClientSite[]): LeadCustomerMatch[] {
+  if (draft.clientId) return [];
+
+  const draftName = normalizeClientIdentity(draft.customerName);
+  const draftEmail = normalizeClientIdentity(draft.email);
+  const draftPhone = normalizePhone(draft.phone);
+  const draftAddress = normalizeClientIdentity(draft.address);
+
+  if (![draftName, draftEmail, draftPhone, draftAddress].some((value) => value.length >= 2)) return [];
+
+  const clientMatches = clients
+    .map((client) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      const clientName = normalizeClientIdentity(client.name);
+      const clientEmail = normalizeClientIdentity(client.email);
+      const clientPhone = normalizePhone(client.phone);
+      const billingAddress = normalizeClientIdentity(client.billingAddress);
+
+      if (draftEmail && clientEmail === draftEmail) {
+        score += 100;
+        reasons.push("email");
+      }
+
+      if (draftPhone && clientPhone && clientPhone === draftPhone) {
+        score += 95;
+        reasons.push("phone");
+      }
+
+      if (draftName) {
+        if (clientName === draftName) {
+          score += 90;
+          reasons.push("exact name");
+        } else if (clientName.includes(draftName) || draftName.includes(clientName)) {
+          score += 55;
+          reasons.push("partial name");
+        }
+      }
+
+      if (draftAddress && billingAddress && billingAddress.includes(draftAddress)) {
+        score += 25;
+        reasons.push("billing address");
+      }
+
+      if (draftAddress) {
+        const siteMatch = sites.find(
+          (site) => site.clientId === client.id && normalizeClientIdentity(site.address).includes(draftAddress),
+        );
+        if (siteMatch) {
+          score += 30;
+          reasons.push(`site: ${siteMatch.name}`);
+        }
+      }
+
+      if (score < 30) return null;
+
+      return {
+        client,
+        matchScore: score,
+        matchReason: reasons.join(", "),
+      };
+    })
+    .filter((item): item is LeadCustomerMatch => item !== null)
+    .sort((first, second) => second.matchScore - first.matchScore)
+    .slice(0, 8);
+
+  return clientMatches;
 }
 
 function makeClientReference(existingClients: ClientRecord[]) {
@@ -227,6 +303,16 @@ function resolveLeadSiteFromDraft(
         }
       : undefined)
   );
+}
+
+function leadMapEmbedUrl(address: string) {
+  const query = encodeURIComponent(address.trim());
+  return `https://www.google.com/maps?q=${query}&output=embed`;
+}
+
+function leadMapSearchUrl(address: string) {
+  const query = encodeURIComponent(address.trim());
+  return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
 type HomeView =
@@ -3824,16 +3910,8 @@ export default function Dashboard() {
   );
 
   const leadCustomerMatches = useMemo(() => {
-    const query = newLead.customerName.trim().toLowerCase();
-    if (query.length < 2 || newLead.clientId) return [];
-    return clients
-      .filter((client) =>
-        [client.name, client.primaryContact, client.email, client.phone, client.billingAddress].some((value) =>
-          value.toLowerCase().includes(query),
-        ),
-      )
-      .slice(0, 5);
-  }, [clients, newLead.clientId, newLead.customerName]);
+    return buildLeadCustomerMatches(newLead, clients, clientSites);
+  }, [clientSites, clients, newLead.clientId, newLead.customerName, newLead.email, newLead.phone, newLead.address]);
 
   const leadAddressMatches = useMemo(() => {
     const query = leadPostcodeSearch.trim().toLowerCase();
@@ -5344,6 +5422,7 @@ export default function Dashboard() {
       const matchedClient =
         (newLead.clientId ? clients.find((client) => client.id === newLead.clientId) : undefined) ??
         resolveLeadCustomer(newLead, clients) ??
+        buildLeadCustomerMatches(newLead, clients, clientSites)[0]?.client ??
         clients.find((client) => normalizeClientIdentity(client.name) === trimName || trimName.includes(normalizeClientIdentity(client.name)));
 
       const { newClient, newSite } = matchedClient ? { newClient: undefined, newSite: undefined } : buildClientFromLead(newLead, clients);
@@ -10841,10 +10920,13 @@ export default function Dashboard() {
                   </div>
                 ) : leadCustomerMatches.length > 0 ? (
                   <div className="lead-match-list" aria-label="Existing customer matches">
-                    {leadCustomerMatches.map((client) => (
-                      <button type="button" key={client.id} onClick={() => setLeadExistingClient(client.id)}>
-                        <strong>{client.name}</strong>
-                        <span>{client.primaryContact} · {client.phone} · {client.billingAddress}</span>
+                    {leadCustomerMatches.map((match) => (
+                      <button type="button" key={match.client.id} onClick={() => setLeadExistingClient(match.client.id)}>
+                        <strong>{match.client.name}</strong>
+                        <span>
+                          {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
+                        </span>
+                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
@@ -10913,12 +10995,37 @@ export default function Dashboard() {
               <div className="full-field lead-address-map-grid">
                 <label>
                   Address
-                  <input value={newLead.address} onChange={(event) => setNewLead((current) => ({ ...current, address: event.target.value }))} />
+                  <input
+                    value={newLead.address}
+                    onChange={(event) => setNewLead((current) => ({ ...current, address: event.target.value }))}
+                  />
                 </label>
                 <div className="lead-map-preview" aria-label="Selected address map preview">
-                  <MapPin size={22} />
-                  <strong>{newLead.address || "Select an address"}</strong>
-                  <span>{newLead.address ? "Map preview for selected address" : "Postcode lookup will place the lead here"}</span>
+                  {newLead.address ? (
+                    <>
+                      <iframe
+                        title="Lead map preview"
+                        src={leadMapEmbedUrl(newLead.address)}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        allowFullScreen
+                      />
+                      <a
+                        href={leadMapSearchUrl(newLead.address)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="lead-map-link"
+                      >
+                        Open in maps
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin size={22} />
+                      <strong>Select an address</strong>
+                      <span>Postcode lookup will place the lead here</span>
+                    </>
+                  )}
                 </div>
               </div>
               <label className="full-field">
