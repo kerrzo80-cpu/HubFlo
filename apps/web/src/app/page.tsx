@@ -361,6 +361,9 @@ type QuoteDraft = {
   clientId: string;
   siteId: string;
   customer: string;
+  phone: string;
+  email: string;
+  address: string;
   owner: string;
   description: string;
   status: QuoteStatus;
@@ -373,6 +376,9 @@ type JobDraft = {
   clientId: string;
   siteId: string;
   customer: string;
+  phone: string;
+  email: string;
+  address: string;
   site: string;
   description: string;
   manager: string;
@@ -1924,6 +1930,9 @@ const blankQuote: QuoteDraft = {
   clientId: "",
   siteId: "",
   customer: "",
+  phone: "",
+  email: "",
+  address: "",
   owner: "Errol Watson",
   description: "",
   status: "Draft",
@@ -1936,6 +1945,9 @@ const blankJob: JobDraft = {
   clientId: "",
   siteId: "",
   customer: "",
+  phone: "",
+  email: "",
+  address: "",
   site: "",
   description: "",
   manager: "Errol Watson",
@@ -2978,13 +2990,35 @@ export default function Dashboard() {
   );
 
   const quoteCustomerMatches = useMemo(
-    () => buildLeadCustomerMatches({ clientId: newQuote.clientId, customerName: newQuote.customer }, clients, clientSites),
-    [clientSites, clients, newQuote.clientId, newQuote.customer],
+    () =>
+      buildLeadCustomerMatches(
+        {
+          clientId: newQuote.clientId,
+          customerName: newQuote.customer,
+          email: newQuote.email,
+          phone: newQuote.phone,
+          address: newQuote.address,
+        },
+        clients,
+        clientSites,
+      ),
+    [clientSites, clients, newQuote.address, newQuote.clientId, newQuote.customer, newQuote.email, newQuote.phone],
   );
 
   const jobCustomerMatches = useMemo(
-    () => buildLeadCustomerMatches({ clientId: newJob.clientId, customerName: newJob.customer }, clients, clientSites),
-    [clientSites, clients, newJob.clientId, newJob.customer],
+    () =>
+      buildLeadCustomerMatches(
+        {
+          clientId: newJob.clientId,
+          customerName: newJob.customer,
+          email: newJob.email,
+          phone: newJob.phone,
+          address: newJob.address,
+        },
+        clients,
+        clientSites,
+      ),
+    [clientSites, clients, newJob.address, newJob.clientId, newJob.customer, newJob.email, newJob.phone],
   );
 
   const selectedQuote = useMemo(
@@ -5323,13 +5357,18 @@ export default function Dashboard() {
       clientId,
       siteId: site?.id ?? "",
       customer: client.name,
+      phone: client.phone,
+      email: client.email,
+      address: site?.address ?? client.billingAddress,
     }));
   }
 
   function setQuoteExistingSite(siteId: string) {
+    const site = clientSites.find((item) => item.id === siteId);
     setNewQuote((current) => ({
       ...current,
       siteId,
+      address: site?.address ?? current.address,
     }));
   }
 
@@ -5339,6 +5378,9 @@ export default function Dashboard() {
       clientId: "",
       siteId: "",
       customer: "",
+      phone: "",
+      email: "",
+      address: "",
     }));
   }
 
@@ -5351,6 +5393,9 @@ export default function Dashboard() {
       clientId,
       siteId: site?.id ?? "",
       customer: client.name,
+      phone: client.phone,
+      email: client.email,
+      address: site?.address ?? client.billingAddress,
       site: site?.address ?? current.site,
     }));
   }
@@ -5360,6 +5405,7 @@ export default function Dashboard() {
     setNewJob((current) => ({
       ...current,
       siteId,
+      address: site?.address ?? current.address,
       site: site?.address ?? current.site,
     }));
   }
@@ -5370,8 +5416,64 @@ export default function Dashboard() {
       clientId: "",
       siteId: "",
       customer: "",
+      phone: "",
+      email: "",
+      address: "",
       site: "",
     }));
+  }
+
+  async function createCustomerFromDraft(source: string, draft: { customer: string; phone: string; email: string; address: string }) {
+    if (!draft.customer.trim()) {
+      showNotice("Add the customer name before creating the customer record.");
+      return null;
+    }
+    if (!draft.address.trim()) {
+      showNotice("Add the site address before creating the customer record.");
+      return null;
+    }
+
+    type ClientCreateResponse = {
+      client: ClientRecord;
+      site?: ClientSite;
+      clients: ClientRecord[];
+      clientSites: ClientSite[];
+    };
+
+    const response = await fetch("/api/clients", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: draft.customer.trim(),
+        primaryContact: draft.customer.trim(),
+        phone: draft.phone.trim(),
+        email: draft.email.trim(),
+        address: draft.address.trim(),
+        source,
+        actor: activeEmployee?.name ?? "HubFlo user",
+      }),
+    });
+
+    const result = (await response.json()) as Partial<ClientCreateResponse> & { error?: string };
+    if (!response.ok || !result.client) {
+      throw new Error(result.error || "Unable to create customer");
+    }
+
+    const createdClient = result.client;
+    const createdSite = result.site;
+
+    setClients((current) => {
+      const map = new Map<string, ClientRecord>(current.map((client) => [client.id, client]));
+      (result.clients ?? [createdClient]).forEach((client) => map.set(client.id, client));
+      return Array.from(map.values());
+    });
+    setClientSites((current) => {
+      const map = new Map<string, ClientSite>(current.map((site) => [site.id, site]));
+      (result.clientSites ?? (createdSite ? [createdSite] : [])).forEach((site) => map.set(site.id, site));
+      return Array.from(map.values());
+    });
+
+    return { client: createdClient, site: createdSite };
   }
 
   function selectLeadAddress(address: string, postcode: string) {
@@ -5896,11 +5998,20 @@ export default function Dashboard() {
   }
 
   async function submitQuote() {
-    const client = clients.find((item) => item.id === newQuote.clientId);
-    const site = clientSites.find((item) => item.id === newQuote.siteId);
+    let client = clients.find((item) => item.id === newQuote.clientId);
+    let site = clientSites.find((item) => item.id === newQuote.siteId);
     if (!client) {
-      showNotice("Select an existing customer before creating the quote.");
-      return;
+      try {
+        const createdCustomer = await createCustomerFromDraft("quote intake", newQuote);
+        if (!createdCustomer) return;
+        client = createdCustomer.client;
+        site = createdCustomer.site;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create customer before quote.";
+        setSectionError(message);
+        showNotice(message);
+        return;
+      }
     }
     if (!newQuote.description.trim()) {
       showNotice("Add a quote description before creating the quote.");
@@ -5942,18 +6053,27 @@ export default function Dashboard() {
         source: "web",
         importance: "normal",
       });
-      showNotice("Quote created.");
+      showNotice(`Quote ${created.ref} created for ${created.customer}.`);
     } catch {
       setSectionError("Unable to create quote right now.");
     }
   }
 
   async function createJob() {
-    const client = clients.find((item) => item.id === newJob.clientId);
-    const site = clientSites.find((item) => item.id === newJob.siteId);
+    let client = clients.find((item) => item.id === newJob.clientId);
+    let site = clientSites.find((item) => item.id === newJob.siteId);
     if (!client) {
-      showNotice("Select an existing customer before creating the job.");
-      return;
+      try {
+        const createdCustomer = await createCustomerFromDraft("reactive job intake", newJob);
+        if (!createdCustomer) return;
+        client = createdCustomer.client;
+        site = createdCustomer.site;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create customer before job.";
+        setSectionError(message);
+        showNotice(message);
+        return;
+      }
     }
     if (!newJob.description.trim()) {
       showNotice("Add a job description before creating the job.");
@@ -11230,9 +11350,26 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : newQuote.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. Create a lead first to save a new customer record.</p>
+                  <p className="lead-match-empty">No existing customer found. This quote can save a new customer record.</p>
                 ) : null}
               </div>
+              {!newQuote.clientId && newQuote.customer.trim().length >= 2 ? (
+                <div className="full-field quick-customer-fields">
+                  <span className="permission-heading">New customer details</span>
+                  <label>
+                    Phone
+                    <input value={newQuote.phone} onChange={(event) => setNewQuote((current) => ({ ...current, phone: event.target.value }))} />
+                  </label>
+                  <label>
+                    Email
+                    <input value={newQuote.email} onChange={(event) => setNewQuote((current) => ({ ...current, email: event.target.value }))} />
+                  </label>
+                  <label className="full-field">
+                    Site address
+                    <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
+                  </label>
+                </div>
+              ) : null}
               {newQuote.clientId ? (
                 <label className="full-field">
                   Site
@@ -11347,9 +11484,26 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : newJob.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. Create a lead first to save a new customer record.</p>
+                  <p className="lead-match-empty">No existing customer found. This job can save a new customer record.</p>
                 ) : null}
               </div>
+              {!newJob.clientId && newJob.customer.trim().length >= 2 ? (
+                <div className="full-field quick-customer-fields">
+                  <span className="permission-heading">New customer details</span>
+                  <label>
+                    Phone
+                    <input value={newJob.phone} onChange={(event) => setNewJob((current) => ({ ...current, phone: event.target.value }))} />
+                  </label>
+                  <label>
+                    Email
+                    <input value={newJob.email} onChange={(event) => setNewJob((current) => ({ ...current, email: event.target.value }))} />
+                  </label>
+                  <label className="full-field">
+                    Site address
+                    <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value }))} />
+                  </label>
+                </div>
+              ) : null}
               {newJob.clientId ? (
                 <label className="full-field">
                   Site

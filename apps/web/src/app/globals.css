@@ -4905,6 +4905,20 @@ h1 {
   margin-left: auto;
 }
 
+.quick-customer-fields {
+  background: #f8fbfc;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 12px;
+}
+
+.quick-customer-fields > span,
+.quick-customer-fields > .full-field {
+  grid-column: 1 / -1;
+}
+
 .lead-address-map-grid {
   display: grid;
   gap: 12px;
