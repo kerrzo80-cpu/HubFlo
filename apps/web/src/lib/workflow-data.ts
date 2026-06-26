@@ -1,10 +1,11 @@
 import {
   appendAuditEvent,
-  seedClients,
-  seedClientSites,
+  getClientSites,
+  getClients,
   type AuditEvent,
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
+import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export type JobHealth = "red" | "amber" | "green" | "blue";
 export type QuoteStatus = "Draft" | "Sent" | "Accepted" | "Declined" | "Converted" | "Lost";
@@ -228,15 +229,17 @@ export const quoteStatuses: QuoteStatus[] = [
   "Lost",
 ];
 
-const globalStore = globalThis as typeof globalThis & {
-  __hubfloWorkflowStore?: WorkflowStore;
-};
-
 const defaultStore: WorkflowStore = {
   jobs: [...seedJobs],
   quotes: [...seedQuotes],
   purchaseRequests: [...seedPurchaseRequests],
 };
+
+const workflowStore = loadServerStore("workflow-store", defaultStore);
+
+function persistWorkflowStore() {
+  writeServerStore("workflow-store", workflowStore);
+}
 
 function clone<T>(value: T): T {
   if (value === undefined || value === null) {
@@ -246,10 +249,7 @@ function clone<T>(value: T): T {
 }
 
 function getStore(): WorkflowStore {
-  if (!globalStore.__hubfloWorkflowStore) {
-    globalStore.__hubfloWorkflowStore = clone(defaultStore);
-  }
-  return globalStore.__hubfloWorkflowStore;
+  return workflowStore;
 }
 
 function deriveJobHealth(status: string): JobHealth {
@@ -276,23 +276,25 @@ function determineNextQuoteRef(quotes: Quote[]): string {
 }
 
 function findClient(clientId?: string, customer?: string) {
+  const peopleClients = getClients();
   if (clientId) {
-    const match = seedClients.find((client) => client.id === clientId);
+    const match = peopleClients.find((client) => client.id === clientId);
     if (match) return match;
   }
 
-  return seedClients.find(
+  return peopleClients.find(
     (client) => customer && client.name.toLowerCase() === customer.toLowerCase(),
   );
 }
 
 function findSite(siteId?: string, clientId?: string, siteName?: string) {
+  const peopleSites = getClientSites();
   if (siteId) {
-    const match = seedClientSites.find((site) => site.id === siteId);
+    const match = peopleSites.find((site) => site.id === siteId);
     if (match) return match;
   }
 
-  return seedClientSites.find((site) => {
+  return peopleSites.find((site) => {
     if (clientId && site.clientId !== clientId) return false;
     if (!siteName) return true;
     return (
@@ -325,9 +327,11 @@ export function saveJob(job: Job): Job {
   const current = store.jobs.find((existing) => existing.id === job.id);
   if (current) {
     Object.assign(current, job);
+    persistWorkflowStore();
     return clone(current);
   }
   store.jobs = [...store.jobs, job];
+  persistWorkflowStore();
   return clone(job);
 }
 
@@ -345,6 +349,7 @@ export function updateJob(id: string, patch: Partial<Job>): Job | null {
     health: nextHealth,
   };
   store.jobs[index] = updated;
+  persistWorkflowStore();
   return clone(updated);
 }
 
@@ -352,7 +357,11 @@ export function removeJob(id: string): boolean {
   const store = getStore();
   const currentCount = store.jobs.length;
   store.jobs = store.jobs.filter((job) => job.id !== id);
-  return store.jobs.length < currentCount;
+  if (store.jobs.length < currentCount) {
+    persistWorkflowStore();
+    return true;
+  }
+  return false;
 }
 
 export function createJob(
@@ -399,6 +408,7 @@ export function createQuote(payload: Omit<Quote, "id">): Quote {
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
   store.quotes = [...store.quotes, created];
+  persistWorkflowStore();
   return clone(created);
 }
 
@@ -414,6 +424,7 @@ export function updateQuoteStatus(id: string, status: QuoteStatus): Quote | null
     status,
   };
   store.quotes[index] = updated;
+  persistWorkflowStore();
   return clone(updated);
 }
 
@@ -460,6 +471,7 @@ export function convertQuoteToJob(
   const updatedIndex = store.quotes.findIndex((current) => current.id === id);
   if (updatedIndex >= 0) {
     store.quotes[updatedIndex] = updatedQuote;
+    persistWorkflowStore();
   }
 
   const auditEvents = [
@@ -540,6 +552,7 @@ export function createPurchaseRequest(
   };
   const store = getStore();
   store.purchaseRequests = [created, ...store.purchaseRequests];
+  persistWorkflowStore();
   return clone(created);
 }
 
@@ -563,5 +576,6 @@ export function updatePurchaseRequestStatus(
     status,
     poNumber: generatedPoNumber,
   };
+  persistWorkflowStore();
   return clone(store.purchaseRequests[index]);
 }

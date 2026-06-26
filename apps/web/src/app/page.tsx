@@ -42,7 +42,7 @@ import {
   type AuditEvent,
   type ClientRecord,
   type ClientSite,
-} from "@/lib/people-data";
+} from "@/lib/people-seed-data";
 import {
   employeeHeaderName,
   getAccessProfile,
@@ -2802,6 +2802,7 @@ export default function Dashboard() {
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
+  const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const activeEmployee = useMemo(
@@ -3311,6 +3312,26 @@ export default function Dashboard() {
     jobEstimateCostCentres,
     hasHydratedLocalData,
   ]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || handledInitialRoute || typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+    const quoteParam = params.get("quote");
+    if (!quoteParam) {
+      setHandledInitialRoute(true);
+      return;
+    }
+
+    const targetQuote = quotes.find((quote) => quote.id === quoteParam || quote.ref === quoteParam);
+    if (!targetQuote) return;
+
+    openQuoteDrawer(targetQuote.id);
+    setQuoteStatusFilter("All quotes");
+    showNotice(`${targetQuote.ref} opened from AI Surveyor handoff.`);
+    setHandledInitialRoute(true);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [handledInitialRoute, hasHydratedLocalData, quotes]);
 
   useEffect(() => {
     return () => {
@@ -9347,6 +9368,38 @@ export default function Dashboard() {
                   <p>Default folders, visibility and engineer stop/go flows that records inherit across leads, quotes and jobs.</p>
                 </div>
               </div>
+
+              <section className="setup-panel setup-readiness">
+                <div className="documents-toolbar">
+                  <div>
+                    <span className="permission-heading">Live readiness</span>
+                    <h2>Core systems</h2>
+                  </div>
+                  <span className="setup-status-label">Build status: on track</span>
+                </div>
+                <div className="setup-readiness-grid">
+                  <article>
+                    <span>Data persistence</span>
+                    <strong>Quotes, jobs, leads and POs persist to workspace</strong>
+                    <small>Stored in .hubflo-runtime files for repeatable sessions.</small>
+                  </article>
+                  <article>
+                    <span>Audit trail</span>
+                    <strong>History retained across app restarts</strong>
+                    <small>Create, linked and status-change events are preserved.</small>
+                  </article>
+                  <article>
+                    <span>Engineer path</span>
+                    <strong>Routes and job actions remain active</strong>
+                    <small>WhatsApp capture is ready for test profile, then production keys.</small>
+                  </article>
+                  <article>
+                    <span>Client registry</span>
+                    <strong>New customers and sites can be reused across leads and quotes</strong>
+                    <small>No duplicate creation for repeated enquiries from the same contact.</small>
+                  </article>
+                </div>
+              </section>
 
               <section className="setup-panel">
                 <div className="documents-toolbar">

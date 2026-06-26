@@ -3631,6 +3631,50 @@ h1 {
   padding: 18px;
 }
 
+.setup-readiness-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-readiness article {
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  display: grid;
+  gap: 6px;
+  min-height: 116px;
+  padding: 12px;
+}
+
+.setup-readiness article span {
+  color: #4d5963;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.setup-readiness article strong {
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.setup-readiness article small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.setup-status-label {
+  align-items: center;
+  background: #e6f7ed;
+  border-radius: 999px;
+  color: #1f7a40;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 12px;
+}
+
 .documents-toolbar {
   align-items: center;
   display: flex;
@@ -7438,6 +7482,32 @@ h1 {
   background: var(--blue-deep);
   border-color: var(--blue-deep);
   color: #fff;
+}
+
+.ai-handoff-panel {
+  border-left: 4px solid var(--green);
+}
+
+.ai-handoff-panel > div {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.ai-handoff-panel strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.ai-handoff-panel p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.ai-handoff-panel .primary-button {
+  justify-self: start;
+  text-decoration: none;
 }
 
 .ai-draft-list button {

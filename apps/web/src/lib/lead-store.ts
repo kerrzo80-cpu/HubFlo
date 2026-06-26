@@ -1,4 +1,13 @@
-import { appendAuditEvent, seedClients, seedClientSites, type ClientRecord, type ClientSite } from "@/lib/people-data";
+import {
+  addClientRecord,
+  addClientSiteRecord,
+  appendAuditEvent,
+  getClientSites as getPeopleClientSites,
+  getClients as getPeopleClients,
+  type ClientRecord,
+  type ClientSite,
+} from "@/lib/people-data";
+import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
 export type LeadStatus = "New enquiry" | "Needs scheduling" | "Survey booked" | "Quoted" | "Lost";
@@ -103,17 +112,25 @@ export const seedLeads: LeadRecord[] = [
 ];
 
 type LeadStoreState = {
-  clients: ClientRecord[];
-  clientSites: ClientSite[];
   leads: LeadRecord[];
 };
 
-const globalStore = globalThis as typeof globalThis & {
-  __hubfloLeadStore?: LeadStoreState;
+const defaultLeadStore: LeadStoreState = {
+  leads: seedLeads,
 };
+
+const leadStore = loadServerStore("lead-store", defaultLeadStore);
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function persistLeadStore() {
+  writeServerStore("lead-store", leadStore);
+}
+
+function getStore(): LeadStoreState {
+  return leadStore;
 }
 
 function normalizeClientIdentity(value: string) {
@@ -142,17 +159,6 @@ function determineNextLeadRef(leads: LeadRecord[]) {
 
 function makeLeadSiteId() {
   return `site-${Date.now()}-${Math.round(Math.random() * 1000)}`;
-}
-
-function getStore(): LeadStoreState {
-  if (!globalStore.__hubfloLeadStore) {
-    globalStore.__hubfloLeadStore = {
-      clients: clone(seedClients),
-      clientSites: clone(seedClientSites),
-      leads: clone(seedLeads),
-    };
-  }
-  return globalStore.__hubfloLeadStore;
 }
 
 function timestamp() {
@@ -219,9 +225,9 @@ function buildClientFromLead(draft: LeadDraftFromClient, existingClients: Client
 
 function resolveLeadSite(draft: LeadDraftFromClient, client?: ClientRecord, sites: ClientSite[] = []) {
   if (draft.siteId) {
-    const explicitSite = sites.find((site) =>
-      site.id === draft.siteId &&
-      (!client || site.clientId === client.id),
+    const explicitSite = sites.find(
+      (site) => site.id === draft.siteId &&
+        (!client || site.clientId === client.id),
     );
     if (explicitSite) return explicitSite;
   }
@@ -246,11 +252,11 @@ function resolveLeadSite(draft: LeadDraftFromClient, client?: ClientRecord, site
 }
 
 export function getClients() {
-  return clone(getStore().clients);
+  return getPeopleClients();
 }
 
 export function getClientSites() {
-  return clone(getStore().clientSites);
+  return getPeopleClientSites();
 }
 
 export function getLeads() {
@@ -263,17 +269,23 @@ export function getLead(id: string) {
 
 export function createLead(payload: LeadDraftFromClient, actor: string): LeadCreationResult {
   const store = getStore();
+  const clients = getPeopleClients();
+  const sites = getPeopleClientSites();
   const matchedClient =
-    payload.clientId ? store.clients.find((client) => client.id === payload.clientId) : resolveLeadCustomer(payload, store.clients);
+    payload.clientId ? clients.find((client) => client.id === payload.clientId) : resolveLeadCustomer(payload, clients);
 
   const { newClient, newSite } = matchedClient
     ? { newClient: undefined, newSite: undefined }
-    : buildClientFromLead(payload, store.clients);
+    : buildClientFromLead(payload, clients);
   const selectedClient = matchedClient ?? newClient;
-  const selectedSite = resolveLeadSite(payload, selectedClient, store.clientSites);
+  const selectedSite = resolveLeadSite(payload, selectedClient, sites);
+
+  let createdClient = false;
+  let createdSite = false;
 
   if (newClient) {
-    store.clients = [newClient, ...store.clients];
+    addClientRecord(newClient);
+    createdClient = true;
     appendAuditEvent({
       actor,
       action: "created",
@@ -286,8 +298,9 @@ export function createLead(payload: LeadDraftFromClient, actor: string): LeadCre
   }
 
   const siteToPersist = selectedSite;
-  if (siteToPersist && !store.clientSites.find((site) => site.id === siteToPersist.id)) {
-    store.clientSites = [siteToPersist, ...store.clientSites];
+  if (siteToPersist && !sites.find((site) => site.id === siteToPersist.id)) {
+    addClientSiteRecord(siteToPersist);
+    createdSite = true;
     appendAuditEvent({
       actor,
       action: "created",
@@ -320,6 +333,7 @@ export function createLead(payload: LeadDraftFromClient, actor: string): LeadCre
   };
 
   store.leads = [createdLead, ...store.leads];
+  persistLeadStore();
 
   appendAuditEvent({
     actor,
@@ -333,8 +347,8 @@ export function createLead(payload: LeadDraftFromClient, actor: string): LeadCre
 
   return {
     lead: clone(createdLead),
-    createdClient: Boolean(newClient),
-    createdSite: Boolean(newSite),
+    createdClient,
+    createdSite: createdSite || Boolean(newSite),
   };
 }
 
@@ -354,6 +368,7 @@ export function updateLead(id: string, patch: LeadPatchPayload, actor = "HubFlo 
     createdAt: current.createdAt,
   };
   store.leads[index] = clone(next);
+  persistLeadStore();
 
   const statusChanged = patch.status && patch.status !== current.status;
   const bookingDone = patch.status === "Survey booked" && patch.surveyDate && patch.surveyTime;
