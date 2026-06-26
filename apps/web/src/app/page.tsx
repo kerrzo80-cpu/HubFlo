@@ -977,6 +977,18 @@ type JobReadinessItem = {
   optional?: boolean;
 };
 
+type HubDetailStatePayload = {
+  documentFolderTemplates?: DocumentFolderTemplate[];
+  engineerFlowTemplate?: EngineerFlowTemplate;
+  flowStepCompletion?: Record<string, boolean>;
+  quoteCostCentres?: Record<string, QuoteCostCentre[]>;
+  jobCostCentres?: Record<string, EstimateCostCentre[]>;
+  jobReviews?: Record<string, JobReviewState>;
+  jobDeliveryEvents?: JobDeliveryEvent[];
+  communications?: CommunicationRecord[];
+  invoices?: Invoice[];
+};
+
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
 type EmployeeDocumentDraft = EmployeeDocument & { id: string };
 type EmployeeEmergencyContactDraft = EmployeeEmergencyContact & { id: string };
@@ -3516,6 +3528,7 @@ export default function Dashboard() {
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
   const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
+  const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -4234,13 +4247,14 @@ export default function Dashboard() {
     const loadLiveData = async () => {
       let hasOfflineFallback = false;
       try {
-        const [clientsResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse] = await Promise.all([
+        const [clientsResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
           fetch("/api/clients", { headers: requestHeaders }),
           fetch("/api/leads", { headers: requestHeaders }),
           fetch("/api/jobs", { headers: requestHeaders }),
           fetch("/api/quotes", { headers: requestHeaders }),
           fetch("/api/purchase-requests", { headers: requestHeaders }),
           fetch("/api/audit", { headers: requestHeaders }),
+          fetch("/api/hub-state", { headers: requestHeaders }),
         ]);
 
         if (stopped) return;
@@ -4277,6 +4291,22 @@ export default function Dashboard() {
 
         if (auditResponse.ok) {
           setAuditEvents((await auditResponse.json()) as AuditEvent[]);
+        } else {
+          hasOfflineFallback = true;
+        }
+
+        if (hubStateResponse.ok) {
+          const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+          if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
+          if (hubState.engineerFlowTemplate) setEngineerFlowTemplate(hubState.engineerFlowTemplate);
+          if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
+          if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
+          if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
+          if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
+          if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
+          if (hubState.communications) setCommunicationRecords(hubState.communications);
+          if (hubState.invoices) setInvoices(hubState.invoices);
+          setHasLoadedHubDetailState(true);
         } else {
           hasOfflineFallback = true;
         }
@@ -4327,6 +4357,39 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
     safeSaveStoredJson(STORAGE_KEYS.communications, communicationRecords);
+
+    if (!hasLoadedHubDetailState) return;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const payload: HubDetailStatePayload = {
+        documentFolderTemplates,
+        engineerFlowTemplate,
+        flowStepCompletion,
+        quoteCostCentres,
+        jobCostCentres: jobEstimateCostCentres,
+        jobReviews: jobReviewApprovals,
+        jobDeliveryEvents,
+        communications: communicationRecords,
+        invoices,
+      };
+
+      fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }).catch(() => {
+        if (!controller.signal.aborted) {
+          setSectionError("Could not save shared hub detail state, so local fallback is being used.");
+        }
+      });
+    }, 700);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [
     clients,
     clientSites,
@@ -4345,6 +4408,8 @@ export default function Dashboard() {
     jobDeliveryEvents,
     communicationRecords,
     hasHydratedLocalData,
+    hasLoadedHubDetailState,
+    requestHeaders,
   ]);
 
   useEffect(() => {
