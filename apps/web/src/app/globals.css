@@ -1785,6 +1785,116 @@ h1 {
   text-align: right;
 }
 
+.job-readiness-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.job-readiness-panel header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.job-readiness-panel h2 {
+  font-size: 16px;
+  margin: 4px 0 0;
+}
+
+.job-readiness-panel header > strong {
+  color: var(--navy);
+  font-size: 22px;
+  line-height: 1;
+  text-align: right;
+}
+
+.job-readiness-panel header > strong span {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 850;
+  margin-top: 4px;
+  text-transform: uppercase;
+}
+
+.job-readiness-list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.job-readiness-item {
+  align-items: flex-start;
+  background: #fffaf2;
+  border: 1px solid #f2d8a4;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  min-height: 82px;
+  padding: 12px;
+}
+
+.job-readiness-item.complete {
+  background: #f4fbf7;
+  border-color: #bfdfcb;
+}
+
+.job-readiness-item > span {
+  align-items: center;
+  background: #fff;
+  border: 1px solid rgba(151, 112, 33, 0.25);
+  border-radius: 999px;
+  color: #9c7823;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.job-readiness-item.complete > span {
+  border-color: rgba(34, 197, 94, 0.28);
+  color: #188546;
+}
+
+.job-readiness-item div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.job-readiness-item strong {
+  color: var(--navy);
+  font-size: 12px;
+}
+
+.job-readiness-item small {
+  color: #667085;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.job-readiness-item em {
+  color: #9c7823;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+@media (max-width: 920px) {
+  .job-readiness-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .job-review-panel {
   background: #fff;
   border: 1px solid var(--line);

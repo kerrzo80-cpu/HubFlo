@@ -970,6 +970,13 @@ type SurveyPackCentre = {
   surveyAssets?: SurveyAsset[];
 };
 
+type JobReadinessItem = {
+  label: string;
+  detail: string;
+  complete: boolean;
+  optional?: boolean;
+};
+
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
 type EmployeeDocumentDraft = EmployeeDocument & { id: string };
 type EmployeeEmergencyContactDraft = EmployeeEmergencyContact & { id: string };
@@ -4039,6 +4046,91 @@ export default function Dashboard() {
       projectedMargin: totalCharge > 0 ? Math.round((projectedProfit / totalCharge) * 100) : 0,
     };
   }, [selectedJob, selectedJobEstimateCostCentres, selectedJobBillableVariations]);
+
+  const selectedJobReadiness = useMemo(() => {
+    if (!selectedJob) {
+      return {
+        items: [] as JobReadinessItem[],
+        completeCount: 0,
+        requiredCount: 0,
+      };
+    }
+
+    const lineCount = selectedJobEstimateCostCentres.reduce(
+      (total, centre) => total + centre.materials.length + centre.labour.length,
+      0,
+    );
+    const briefedCentres = selectedJobEstimateCostCentres.filter(
+      (centre) => centre.engineerDescription.trim().length > 0,
+    ).length;
+    const openPurchaseRequests = selectedJobPurchaseRequests.filter(
+      (request) => !["Approved", "Issued"].includes(request.status),
+    ).length;
+    const communicationEvents = selectedJobDeliveryEvents.filter(
+      (event) => event.kind === "whatsapp" || event.kind === "attendance",
+    ).length;
+
+    const items: JobReadinessItem[] = [
+      {
+        label: "Schedule booked",
+        detail:
+          selectedJob.scheduledDate && selectedJob.scheduledTime
+            ? `${selectedJob.manager} · ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}`
+            : "Choose engineer, date and time before starting.",
+        complete: Boolean(selectedJob.scheduledDate && selectedJob.scheduledTime),
+      },
+      {
+        label: "Cost centres priced",
+        detail: `${selectedJobEstimateCostCentres.length} cost centres · ${lineCount} material/labour lines`,
+        complete: selectedJobEstimateCostCentres.length > 0 && lineCount > 0,
+      },
+      {
+        label: "Engineer instructions",
+        detail: `${briefedCentres}/${selectedJobEstimateCostCentres.length} cost centres have engineer notes`,
+        complete:
+          selectedJobEstimateCostCentres.length > 0 &&
+          briefedCentres === selectedJobEstimateCostCentres.length,
+      },
+      {
+        label: "Survey pack",
+        detail:
+          selectedJobSurveyPack.assets.length > 0
+            ? `${selectedJobSurveyPack.assets.length} scans, photos or concept records handed over`
+            : "No quote survey records have been handed into this job.",
+        complete: selectedJobSurveyPack.assets.length > 0,
+      },
+      {
+        label: "PO / supplier readiness",
+        detail:
+          selectedJobPurchaseRequests.length > 0
+            ? `${selectedJobPurchaseRequests.length} requests · ${openPurchaseRequests} still waiting`
+            : "No purchase requests raised yet.",
+        complete: openPurchaseRequests === 0,
+        optional: selectedJobPurchaseRequests.length === 0,
+      },
+      {
+        label: "Communication doorway",
+        detail:
+          communicationEvents > 0
+            ? `${communicationEvents} confirmations or site messages captured`
+            : "Request confirmation or capture the first site update.",
+        complete: communicationEvents > 0,
+      },
+    ];
+    const requiredItems = items.filter((item) => !item.optional);
+
+    return {
+      items,
+      completeCount: requiredItems.filter((item) => item.complete).length,
+      requiredCount: requiredItems.length,
+    };
+  }, [
+    selectedJob,
+    selectedJobDeliveryEvents,
+    selectedJobEstimateCostCentres,
+    selectedJobPurchaseRequests,
+    selectedJobSurveyPack,
+  ]);
 
   useEffect(() => {
     if (!editingEmployeeId || !activeEditingEmployee) return;
@@ -10672,6 +10764,33 @@ export default function Dashboard() {
                       ) : (
                         <small>No survey records were handed over from the quote yet.</small>
                       )}
+                    </section>
+                    <section className="job-readiness-panel">
+                      <header>
+                        <div>
+                          <span className="permission-heading">Ready to start</span>
+                          <h2>Pre-start control checklist</h2>
+                        </div>
+                        <strong>
+                          {selectedJobReadiness.completeCount}/{selectedJobReadiness.requiredCount}
+                          <span> required</span>
+                        </strong>
+                      </header>
+                      <div className="job-readiness-list">
+                        {selectedJobReadiness.items.map((item) => (
+                          <article
+                            className={item.complete ? "job-readiness-item complete" : "job-readiness-item"}
+                            key={item.label}
+                          >
+                            <span>{item.complete ? <Check size={15} /> : <AlertTriangle size={15} />}</span>
+                            <div>
+                              <strong>{item.label}</strong>
+                              <small>{item.detail}</small>
+                            </div>
+                            {item.optional ? <em>Optional</em> : null}
+                          </article>
+                        ))}
+                      </div>
                     </section>
                     <section className="job-scheduling-panel">
                       <header>
