@@ -10757,7 +10757,6 @@ export default function Dashboard() {
                               <span>Markup</span>
                               <span>Sell Price</span>
                               <span>Qty</span>
-                              <span>Supplier</span>
                               <span>Total</span>
                               <span />
                             </div>
@@ -10805,14 +10804,6 @@ export default function Dashboard() {
                                   value={line.quantity}
                                   onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
                                 />
-                                <label className="quote-supplier-toggle">
-                                  <input
-                                    checked={Boolean(line.supplierRequired)}
-                                    type="checkbox"
-                                    onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { supplierRequired: event.target.checked })}
-                                  />
-                                  <span>{line.supplierRequired ? "Yes" : "No"}</span>
-                                </label>
                                 <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
                                 <div className="quote-line-actions">
                                   <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
@@ -10825,7 +10816,6 @@ export default function Dashboard() {
                               <div className="simpro-billable-row parts empty">
                                 <span />
                                 <strong>No material lines yet. Add a catalogue item, one-off material, or apply the radiator schedule above.</strong>
-                                <span />
                                 <span />
                                 <span />
                                 <span />

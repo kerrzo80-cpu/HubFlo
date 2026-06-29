@@ -3264,8 +3264,8 @@ h1 {
 }
 
 .simpro-billable-row.parts {
-  grid-template-columns: 34px minmax(280px, 1.6fr) 82px 96px 90px 104px 72px 96px 112px minmax(190px, auto);
-  min-width: 1220px;
+  grid-template-columns: 54px minmax(280px, 1.6fr) 82px 96px 90px 104px 72px 112px minmax(190px, auto);
+  min-width: 1120px;
 }
 
 .simpro-billable-row.labour {
@@ -3305,16 +3305,6 @@ h1 {
   white-space: pre-wrap;
 }
 
-.quote-supplier-toggle {
-  align-items: center;
-  display: flex;
-  gap: 6px;
-}
-
-.quote-supplier-toggle input {
-  width: 15px;
-}
-
 .quote-line-actions {
   display: flex;
   flex-wrap: wrap;
@@ -3335,7 +3325,7 @@ h1 {
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
-  min-width: 1220px;
+  min-width: 1120px;
   padding: 10px 0 2px;
 }
 
