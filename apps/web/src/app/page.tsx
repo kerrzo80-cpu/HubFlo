@@ -350,7 +350,7 @@ type LeadTab = "details" | "survey" | "documents" | "logs";
 type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" | "variations" | "logs";
 type QuoteDetailTab = "setup" | "cost-build" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
-type CostCentreTab = "summary" | "info" | "parts-labour" | "schedule" | "assets";
+type CostCentreTab = "summary" | "info" | "parts-labour" | "options" | "variations" | "schedule" | "assets";
 type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
@@ -399,6 +399,14 @@ type JobDraft = {
   value: string;
   next: string;
   due: string;
+};
+
+type OneOffMaterialDraft = {
+  description: string;
+  unitCost: string;
+  markupPercent: string;
+  unitSell: string;
+  quantity: string;
 };
 
 type JobScheduleDraft = {
@@ -1085,7 +1093,6 @@ const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
   { key: "cost-centres", label: "Cost Centre List" },
   { key: "engineer-flow", label: "Engineer Flow" },
   { key: "documents", label: "Documents" },
-  { key: "variations", label: "Variations" },
   { key: "logs", label: "Logs" },
 ];
 
@@ -1111,10 +1118,20 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "invoice", label: "Invoice", detail: "Final billing layout using approved job or quote totals." },
 ];
 
-const costCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
+const quoteCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "info", label: "Info" },
   { key: "parts-labour", label: "Parts & Labour" },
+  { key: "options", label: "Options" },
+  { key: "schedule", label: "Schedule" },
+  { key: "assets", label: "Customer Assets" },
+];
+
+const jobCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
+  { key: "summary", label: "Summary" },
+  { key: "info", label: "Info" },
+  { key: "parts-labour", label: "Parts & Labour" },
+  { key: "variations", label: "Variations" },
   { key: "schedule", label: "Schedule" },
   { key: "assets", label: "Customer Assets" },
 ];
@@ -2167,6 +2184,14 @@ const blankJob: JobDraft = {
   due: "Today",
 };
 
+const blankOneOffMaterialDraft: OneOffMaterialDraft = {
+  description: "",
+  unitCost: "",
+  markupPercent: "30",
+  unitSell: "",
+  quantity: "1",
+};
+
 const blankLead: LeadDraft = {
   customerMode: "new",
   clientId: undefined,
@@ -3070,14 +3095,18 @@ async function parseTakeoffRowsFromUpload(
   return { rows: parsedRows, status: "parsed", notes };
 }
 
-function makeOneOffQuoteMaterialLine(): QuoteCostLine {
+function makeOneOffQuoteMaterialLine(draft: OneOffMaterialDraft = blankOneOffMaterialDraft): QuoteCostLine {
+  const unitCost = Number(draft.unitCost) || 0;
+  const markupPercent = Number(draft.markupPercent) || 0;
+  const unitSell = Number(draft.unitSell) || (unitCost > 0 ? lineSellFromMarkup(unitCost, markupPercent) : 0);
+
   return {
     id: `one-off-material-${Date.now()}-${Math.round(Math.random() * 1000)}`,
     catalogItemId: "one-off-material",
-    description: "One-off material",
-    quantity: 1,
-    unitCost: 0,
-    unitSell: 0,
+    description: draft.description.trim() || "One-off material",
+    quantity: Number(draft.quantity) || 1,
+    unitCost,
+    unitSell,
     supplierRequired: true,
   };
 }
@@ -3531,6 +3560,8 @@ export default function Dashboard() {
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
   const [catalogueFolderDrafts, setCatalogueFolderDrafts] = useState<Record<string, string>>({});
+  const [oneOffMaterialCentreId, setOneOffMaterialCentreId] = useState<string | null>(null);
+  const [oneOffMaterialDraft, setOneOffMaterialDraft] = useState<OneOffMaterialDraft>(blankOneOffMaterialDraft);
   const [activeInvoiceTab, setActiveInvoiceTab] = useState<InvoiceTab>("summary");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
@@ -7308,7 +7339,12 @@ export default function Dashboard() {
     }));
   }
 
-  function addOneOffQuoteMaterialLine(centreId: string) {
+  function openOneOffMaterialModal(centreId: string) {
+    setOneOffMaterialCentreId(centreId);
+    setOneOffMaterialDraft(blankOneOffMaterialDraft);
+  }
+
+  function addOneOffQuoteMaterialLine(centreId: string, draft: OneOffMaterialDraft = blankOneOffMaterialDraft) {
     if (!selectedQuote) return;
 
     setQuoteCostCentres((current) => ({
@@ -7317,12 +7353,21 @@ export default function Dashboard() {
         centre.id === centreId
           ? {
               ...centre,
-              lines: [...centre.lines, makeOneOffQuoteMaterialLine()],
+              lines: [...centre.lines, makeOneOffQuoteMaterialLine(draft)],
             }
           : centre,
       ),
     }));
-    showNotice("One-off material line added. Enter the description, cost, markup and quantity.");
+    showNotice("One-off material line added.");
+  }
+
+  function saveOneOffMaterialModal() {
+    if (!oneOffMaterialCentreId) return;
+    addOneOffQuoteMaterialLine(oneOffMaterialCentreId, oneOffMaterialDraft);
+    setOneOffMaterialCentreId(null);
+    setOneOffMaterialDraft(blankOneOffMaterialDraft);
+    setActiveQuoteBuildTab("one-off");
+    scrollWorkspaceToTop();
   }
 
   function updateQuoteLine(centreId: string, lineId: string, patch: Partial<QuoteCostLine>) {
@@ -10113,7 +10158,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="simpro-main-tabs" role="tablist" aria-label="Quote cost centre sections">
-                  {costCentreTabs.map((tab) => (
+                  {quoteCostCentreTabs.map((tab) => (
                     <button
                       key={tab.key}
                       type="button"
@@ -10567,7 +10612,7 @@ export default function Dashboard() {
                                 className="simpro-blue-button"
                                 type="button"
                                 onClick={() => {
-                                  addOneOffQuoteMaterialLine(selectedQuoteCostCentre.id);
+                                  openOneOffMaterialModal(selectedQuoteCostCentre.id);
                                   setActiveQuoteBuildTab("one-off");
                                   scrollWorkspaceToTop();
                                 }}
@@ -10639,7 +10684,7 @@ export default function Dashboard() {
                           <span>Use this for skips, fittings, sundries or anything picked up manually.</span>
                         </div>
                         <div className="simpro-parts-actions">
-                          <button className="simpro-blue-button" type="button" onClick={() => addOneOffQuoteMaterialLine(selectedQuoteCostCentre.id)}>
+                          <button className="simpro-blue-button" type="button" onClick={() => openOneOffMaterialModal(selectedQuoteCostCentre.id)}>
                             ONE-OFF MATERIAL
                           </button>
                         </div>
@@ -11257,6 +11302,13 @@ export default function Dashboard() {
                     </div>
                     </>
                     ) : null}
+                  </section>
+                ) : null}
+
+                {activeCostCentreTab === "options" ? (
+                  <section className="simpro-empty-workspace">
+                    <h2>Options</h2>
+                    <p>Quote options will sit here so a customer can choose between alternatives such as boiler models before online acceptance creates the final cost centre.</p>
                   </section>
                 ) : null}
 
@@ -12130,7 +12182,7 @@ export default function Dashboard() {
                 </div>
 
                 <div className="simpro-main-tabs" role="tablist" aria-label="Cost centre sections">
-                  {costCentreTabs.map((tab) => (
+                  {jobCostCentreTabs.map((tab) => (
                     <button
                       key={tab.key}
                       type="button"
@@ -12468,6 +12520,109 @@ export default function Dashboard() {
                           </div>
                         );
                       })}
+                    </div>
+                  </section>
+                ) : null}
+
+                {activeCostCentreTab === "variations" ? (
+                  <section className="quote-record-panel">
+                    <div className="variation-list">
+                      {selectedJobVariations.length === 0 ? (
+                        <div className="employee-empty-panel">
+                          <strong>No variations logged</strong>
+                          <span>Variations raised while this job is in progress will appear here for office review and client approval.</span>
+                        </div>
+                      ) : null}
+                      {selectedJobVariations.map((variation) => (
+                        <article className="variation-card" key={variation.id}>
+                          <header>
+                            <div>
+                              <strong>{variation.reference}</strong>
+                              <span>{variation.title}</span>
+                            </div>
+                            <span className="status-pill amber">{variation.status}</span>
+                          </header>
+                          <p className="variation-description">{variation.description}</p>
+                          <div className="variation-detail-grid">
+                            <div>
+                              <span>Raised by</span>
+                              <strong>{variation.engineerName ?? "Engineer"}</strong>
+                            </div>
+                            <div>
+                              <span>Hours</span>
+                              <strong>{variation.labourHours ? `${variation.labourHours} hrs` : "TBC"}</strong>
+                            </div>
+                            <div>
+                              <span>Materials</span>
+                              <strong>{variation.materialsUsed ?? "No materials recorded yet."}</strong>
+                            </div>
+                            <div>
+                              <span>Client approval</span>
+                              <strong>{variation.requiresClientApproval ? variation.clientApprovalStatus ?? "Not sent" : "Not required"}</strong>
+                            </div>
+                          </div>
+                          <div className="variation-money">
+                            <div>
+                              <span>Cost</span>
+                              <strong>{currency(variation.costValue)}</strong>
+                            </div>
+                            <div>
+                              <span>Charge</span>
+                              <strong>{currency(variation.sellValue)}</strong>
+                            </div>
+                            <div>
+                              <span>Profit</span>
+                              <strong>{currency(variation.sellValue - variation.costValue)}</strong>
+                            </div>
+                          </div>
+                          <div className="variation-approval-panel">
+                            <div>
+                              <span>Variation quote</span>
+                              <strong>{variation.reference} · {currency(variation.sellValue)}</strong>
+                              <small>
+                                {variation.requiresClientApproval
+                                  ? "Send to client for online approval before works proceed."
+                                  : "Captured after works; office can approve for billing."}
+                              </small>
+                            </div>
+                            <div className="variation-actions">
+                              <button className="simpro-grey-button" type="button" onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}>
+                                Preview
+                              </button>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                disabled={
+                                  variation.source === "seed" ||
+                                  variation.requiresClientApproval === false ||
+                                  variation.status === "Client approved" ||
+                                  variation.status === "Approved" ||
+                                  variation.status === "Proceed"
+                                }
+                                onClick={() => sendSelectedJobVariationForApproval(variation.id)}
+                              >
+                                Send for approval
+                              </button>
+                              <button className="simpro-grey-button" type="button" disabled={!variation.portalToken} onClick={() => copySelectedJobVariationPortalLink(variation.id)}>
+                                Copy approval link
+                              </button>
+                              <button
+                                className="simpro-save-button"
+                                type="button"
+                                disabled={
+                                  variation.source === "seed" ||
+                                  (variation.requiresClientApproval
+                                    ? variation.status !== "Sent for approval"
+                                    : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed")
+                                }
+                                onClick={() => approveSelectedJobVariation(variation.id)}
+                              >
+                                Mark approved / proceed
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
                     </div>
                   </section>
                 ) : null}
@@ -14631,6 +14786,106 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {oneOffMaterialCentreId ? (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal one-off-material-modal" role="dialog" aria-modal="true" aria-labelledby="one-off-material-title">
+            <div className="form-header">
+              <div>
+                <span>One-off item</span>
+                <h2 id="one-off-material-title">Create one-off material</h2>
+              </div>
+              <button
+                aria-label="Close one-off material"
+                onClick={() => {
+                  setOneOffMaterialCentreId(null);
+                  setOneOffMaterialDraft(blankOneOffMaterialDraft);
+                }}
+              >
+                <ChevronRight size={19} />
+              </button>
+            </div>
+            <div className="one-off-material-body">
+              <label className="one-off-material-description">
+                Description
+                <textarea
+                  autoFocus
+                  value={oneOffMaterialDraft.description}
+                  onChange={(event) => setOneOffMaterialDraft((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Describe the material, radiator, fitting, skip, sundry item or allowance clearly..."
+                />
+              </label>
+              <div className="one-off-material-grid">
+                <label>
+                  Cost price
+                  <input
+                    inputMode="decimal"
+                    placeholder="TBC"
+                    value={oneOffMaterialDraft.unitCost}
+                    onChange={(event) => {
+                      const unitCost = event.target.value;
+                      const markupPercent = Number(oneOffMaterialDraft.markupPercent) || 0;
+                      setOneOffMaterialDraft((current) => ({
+                        ...current,
+                        unitCost,
+                        unitSell: unitCost ? String(Math.round(lineSellFromMarkup(Number(unitCost) || 0, markupPercent) * 100) / 100) : current.unitSell,
+                      }));
+                    }}
+                  />
+                </label>
+                <label>
+                  Markup %
+                  <input
+                    inputMode="decimal"
+                    value={oneOffMaterialDraft.markupPercent}
+                    onChange={(event) => {
+                      const markupPercent = event.target.value;
+                      const unitCost = Number(oneOffMaterialDraft.unitCost) || 0;
+                      setOneOffMaterialDraft((current) => ({
+                        ...current,
+                        markupPercent,
+                        unitSell: unitCost > 0 ? String(Math.round(lineSellFromMarkup(unitCost, Number(markupPercent) || 0) * 100) / 100) : current.unitSell,
+                      }));
+                    }}
+                  />
+                </label>
+                <label>
+                  Sell price
+                  <input
+                    inputMode="decimal"
+                    placeholder="TBC"
+                    value={oneOffMaterialDraft.unitSell}
+                    onChange={(event) => setOneOffMaterialDraft((current) => ({ ...current, unitSell: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Qty
+                  <input
+                    inputMode="decimal"
+                    value={oneOffMaterialDraft.quantity}
+                    onChange={(event) => setOneOffMaterialDraft((current) => ({ ...current, quantity: event.target.value }))}
+                  />
+                </label>
+              </div>
+            </div>
+            <div className="form-footer">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setOneOffMaterialCentreId(null);
+                  setOneOffMaterialDraft(blankOneOffMaterialDraft);
+                }}
+              >
+                Cancel
+              </button>
+              <button className="primary-button" type="button" onClick={saveOneOffMaterialModal}>
+                Add item
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {catalogueFolderModalCentreId ? (
         (() => {
