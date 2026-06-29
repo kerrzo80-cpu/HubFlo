@@ -3490,6 +3490,72 @@ h1 {
   padding: 18px 14px;
 }
 
+.catalog-folder-modal {
+  max-width: 760px;
+}
+
+.catalog-folder-modal-body {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.catalog-folder-modal-body p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+.catalog-folder-assignment-head,
+.catalog-folder-assignment-row {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+}
+
+.catalog-folder-assignment-head {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  padding: 0 2px;
+  text-transform: uppercase;
+}
+
+.catalog-folder-assignment-row {
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.catalog-folder-assignment-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.catalog-folder-assignment-row strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.catalog-folder-assignment-row span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.catalog-folder-assignment-row select {
+  background: #fff;
+  border: 1px solid #c8cdd1;
+  border-radius: 4px;
+  color: var(--ink);
+  font: inherit;
+  height: 36px;
+  padding: 0 10px;
+}
+
 .simpro-billable-row.empty strong {
   color: var(--muted);
   font-size: 12px;
@@ -11507,6 +11573,11 @@ kbd,
   .quote-catalogue-toolbar,
   .quote-catalogue-layout,
   .supplier-return-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .catalog-folder-assignment-head,
+  .catalog-folder-assignment-row {
     grid-template-columns: 1fr;
   }
 

@@ -3529,6 +3529,8 @@ export default function Dashboard() {
   const [activeQuoteBuildTab, setActiveQuoteBuildTab] = useState<QuoteBuildTab>("summary");
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
   const [catalogueSearch, setCatalogueSearch] = useState("");
+  const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
+  const [catalogueFolderDrafts, setCatalogueFolderDrafts] = useState<Record<string, string>>({});
   const [activeInvoiceTab, setActiveInvoiceTab] = useState<InvoiceTab>("summary");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
@@ -6998,7 +7000,25 @@ export default function Dashboard() {
     showNotice(`${lines.length} selected supplier item(s) staged in the request form.`);
   }
 
-  function addSelectedQuoteLinesToCatalog(centre: QuoteCostCentre) {
+  function openSelectedQuoteLinesCatalogFolderModal(centre: QuoteCostCentre) {
+    if (!selectedQuote) return;
+    const lines = selectedQuoteMaterialLinesForCentre(centre);
+    if (!lines.length) {
+      showNotice("Select the one-off or material items you want to save to the catalogue.");
+      return;
+    }
+
+    setCatalogueFolderDrafts((current) => {
+      const next = { ...current };
+      lines.forEach((line) => {
+        next[line.id] = next[line.id] ?? inferCatalogFolder({ name: line.description, type: "Material", category: undefined });
+      });
+      return next;
+    });
+    setCatalogueFolderModalCentreId(centre.id);
+  }
+
+  function saveSelectedQuoteLinesToCatalog(centre: QuoteCostCentre) {
     if (!selectedQuote) return;
     const lines = selectedQuoteMaterialLinesForCentre(centre);
     if (!lines.length) {
@@ -7011,6 +7031,7 @@ export default function Dashboard() {
     const nextCustomItems: CatalogItem[] = [];
     let skippedBlank = 0;
     let reusedCount = 0;
+    const savedFolders = new Set<string>();
 
     lines.forEach((line, index) => {
       const name = line.description.trim();
@@ -7018,10 +7039,15 @@ export default function Dashboard() {
         skippedBlank += 1;
         return;
       }
+      const category = catalogueFolderDrafts[line.id] ?? inferCatalogFolder({ name, type: "Material" as const, category: undefined });
+      savedFolders.add(category);
 
       const existing =
         [...catalogPool, ...nextCustomItems].find(
-          (item) => item.name.trim().toLowerCase() === name.toLowerCase() && item.type !== "Labour",
+          (item) =>
+            item.name.trim().toLowerCase() === name.toLowerCase() &&
+            item.type !== "Labour" &&
+            inferCatalogFolder(item) === category,
         ) ?? null;
       if (existing) {
         lineCatalogUpdates[line.id] = existing.id;
@@ -7036,7 +7062,7 @@ export default function Dashboard() {
         unit: "item",
         costRate: line.unitCost,
         sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
-        category: inferCatalogFolder({ name, type: "Material" as const, category: undefined }),
+        category,
       };
       nextCustomItems.push(nextItem);
       lineCatalogUpdates[line.id] = nextItem.id;
@@ -7069,6 +7095,13 @@ export default function Dashboard() {
     showNotice(
       `${nextCustomItems.length} item(s) added to the catalogue${reusedCount ? `, ${reusedCount} matched existing items` : ""}${skippedBlank ? `, ${skippedBlank} skipped without descriptions` : ""}.`,
     );
+    setCatalogueFolderModalCentreId(null);
+    const firstSavedFolder = Array.from(savedFolders)[0];
+    if (firstSavedFolder) {
+      setActiveCatalogueFolder(firstSavedFolder);
+      setActiveQuoteBuildTab("catalogue");
+      scrollWorkspaceToTop();
+    }
   }
 
   function supplierLineMatchState(centre: QuoteCostCentre, line: QuoteCostLine) {
@@ -10571,7 +10604,7 @@ export default function Dashboard() {
 
                               <div className="quote-catalogue-items">
                                 <div className="quote-catalogue-head">
-                                  <strong>{activeCatalogueFolder}</strong>
+                                  <strong>{activeCatalogueFolder} items</strong>
                                   <span>{visibleCatalogItems.length} matching item(s)</span>
                                 </div>
                                 {visibleCatalogItems.map((item) => (
@@ -10955,7 +10988,7 @@ export default function Dashboard() {
                                 <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => stageSelectedSupplierRequestLines(selectedQuoteCostCentre)}>
                                   Send to supplier request form
                                 </button>
-                                <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => addSelectedQuoteLinesToCatalog(selectedQuoteCostCentre)}>
+                                <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => openSelectedQuoteLinesCatalogFolderModal(selectedQuoteCostCentre)}>
                                   Add items to catalog
                                 </button>
                               </div>
@@ -14598,6 +14631,66 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {catalogueFolderModalCentreId ? (
+        (() => {
+          const centre = selectedQuoteCostCentres.find((item) => item.id === catalogueFolderModalCentreId) ?? null;
+          if (!centre) return null;
+          const lines = selectedQuoteMaterialLinesForCentre(centre);
+
+          return (
+            <div className="modal-backdrop" role="presentation">
+              <section className="modal catalog-folder-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-folder-title">
+                <div className="form-header">
+                  <div>
+                    <span>Catalogue</span>
+                    <h2 id="catalog-folder-title">Choose folders for selected items</h2>
+                  </div>
+                  <button aria-label="Close catalogue folder chooser" onClick={() => setCatalogueFolderModalCentreId(null)}>
+                    <ChevronRight size={19} />
+                  </button>
+                </div>
+                <div className="catalog-folder-modal-body">
+                  <p>Each selected item must be saved into a catalogue group so the catalogue stays tidy.</p>
+                  <div className="catalog-folder-assignment-head">
+                    <span>Item</span>
+                    <span>Catalogue folder</span>
+                  </div>
+                  {lines.map((line) => (
+                    <div className="catalog-folder-assignment-row" key={line.id}>
+                      <div>
+                        <strong>{line.description || "Untitled item"}</strong>
+                        <span>{line.quantity.toFixed(2)} item(s) · {line.unitCost > 0 ? currency(line.unitCost) : "Cost TBC"}</span>
+                      </div>
+                      <select
+                        value={catalogueFolderDrafts[line.id] ?? inferCatalogFolder({ name: line.description, type: "Material", category: undefined })}
+                        onChange={(event) =>
+                          setCatalogueFolderDrafts((current) => ({
+                            ...current,
+                            [line.id]: event.target.value,
+                          }))
+                        }
+                      >
+                        {quoteCatalogFolders.map((folder) => (
+                          <option key={folder} value={folder}>{folder}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <div className="form-footer">
+                  <button className="secondary-button" type="button" onClick={() => setCatalogueFolderModalCentreId(null)}>
+                    Cancel
+                  </button>
+                  <button className="primary-button" type="button" onClick={() => saveSelectedQuoteLinesToCatalog(centre)}>
+                    Save to catalogue
+                  </button>
+                </div>
+              </section>
+            </div>
+          );
+        })()
+      ) : null}
 
       {showCreateLead ? (
         <div className="modal-backdrop" role="presentation">
