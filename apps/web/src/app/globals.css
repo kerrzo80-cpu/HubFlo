@@ -10766,6 +10766,11 @@ kbd,
   padding: 16px;
 }
 
+.ai-survey-tools-panel,
+.ai-takeoff-panel {
+  margin-bottom: 16px;
+}
+
 .survey-tool-icon {
   align-items: center;
   background: #fff9ea;

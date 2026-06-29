@@ -5,11 +5,14 @@ import {
   ArrowLeft,
   Bot,
   Calculator,
+  Camera,
+  ChevronRight,
   ClipboardList,
   FilePlus2,
   FileText,
   Link2,
   ListChecks,
+  MapPin,
   Plus,
   Save,
   Send,
@@ -61,6 +64,18 @@ type UploadedFileSummary = {
   type: string;
   size: number;
   uploadedAt: string;
+};
+
+type SurveyAssetKind = "Room scan" | "Survey photo" | "Concept look";
+
+type SurveyAsset = {
+  id: string;
+  kind: SurveyAssetKind;
+  title: string;
+  detail: string;
+  status: "Draft" | "Review" | "Ready";
+  clientVisible: boolean;
+  createdAt: string;
 };
 
 type EstimateLine = {
@@ -538,6 +553,7 @@ function responseWithEditedLines(response: AiResponse | null, job: JobDetails, l
 export default function AiSurveyorPage() {
   const [jobDetails, setJobDetails] = useState<JobDetails>(defaultJobDetails);
   const [files, setFiles] = useState<UploadedFileSummary[]>([]);
+  const [surveyAssets, setSurveyAssets] = useState<SurveyAsset[]>([]);
   const [instruction, setInstruction] = useState("Price this job from the photos and notes");
   const [estimateLines, setEstimateLines] = useState<EstimateLine[]>([]);
   const [aiResponse, setAiResponse] = useState<AiResponse | null>(null);
@@ -646,6 +662,36 @@ export default function AiSurveyorPage() {
     }));
     setFiles((current) => [...current, ...summaries]);
     event.target.value = "";
+  }
+
+  function addSurveyAsset(kind: SurveyAssetKind) {
+    const titles: Record<SurveyAssetKind, string> = {
+      "Room scan": "Room scan capture",
+      "Survey photo": "Survey evidence",
+      "Concept look": "Concept option",
+    };
+    const details: Record<SurveyAssetKind, string> = {
+      "Room scan": "Room dimensions, openings and ceiling height ready for review.",
+      "Survey photo": "Photo/evidence record linked to the survey pack.",
+      "Concept look": "Visual option placeholder for customer review.",
+    };
+    const asset: SurveyAsset = {
+      id: makeId("survey"),
+      kind,
+      title: titles[kind],
+      detail: details[kind],
+      status: kind === "Concept look" ? "Draft" : "Review",
+      clientVisible: kind === "Concept look",
+      createdAt: new Date().toISOString(),
+    };
+    setSurveyAssets((current) => [asset, ...current]);
+    setNotice(`${kind} added to the Surveyor tools pack.`);
+  }
+
+  function toggleSurveyAssetClientVisible(assetId: string) {
+    setSurveyAssets((current) =>
+      current.map((asset) => (asset.id === assetId ? { ...asset, clientVisible: !asset.clientVisible } : asset)),
+    );
   }
 
   function selectHubRecord(recordId: string) {
@@ -800,8 +846,8 @@ export default function AiSurveyorPage() {
         <div className="brand-lockup">
           <span className="verrova-mark" aria-hidden="true">V</span>
           <div className="product-name">
-            <strong>AI Surveyor</strong>
-            <span>Estimator / Takeoff</span>
+            <strong>Verrova Takeoff</strong>
+            <span>Surveyor tools</span>
           </div>
         </div>
       </header>
@@ -813,7 +859,7 @@ export default function AiSurveyorPage() {
         </a>
         <a className="module-link active" href="/ai-surveyor">
           <Sparkles size={16} />
-          <span>AI Surveyor</span>
+          <span>Takeoff</span>
         </a>
       </nav>
 
@@ -822,10 +868,10 @@ export default function AiSurveyorPage() {
           <div>
             <div className="breadcrumb">
               <span>Verrova Operations</span>
-              <strong>AI Surveyor / Estimator</strong>
+              <strong>Verrova Takeoff / Surveyor Tools</strong>
             </div>
-            <h1>AI Surveyor / Estimator</h1>
-            <p>Chat-style estimating for surveys, takeoffs, BOQs, materials lists and simPRO-ready draft quotes.</p>
+            <h1>Verrova Takeoff / Surveyor Tools</h1>
+            <p>Survey capture, takeoff, BOQ import, materials lists and Verrova-ready quote handoff.</p>
           </div>
           <button className="primary-button" type="button" onClick={() => runAssistant("Analyse Job")}>
             <Sparkles size={16} />
@@ -838,6 +884,171 @@ export default function AiSurveyorPage() {
         <div className="ai-warning">
           AI estimates, takeoffs and BOQs are draft outputs and must be reviewed before issue, especially where drawings, scale, hidden services, structural works or site conditions are unclear.
         </div>
+
+        <section className="survey-tools-panel ai-survey-tools-panel">
+          <div className="simpro-parts-header">
+            <div>
+              <h2>Survey tools</h2>
+              <h3>Room scans, photos, concept looks and survey evidence before the quote is built</h3>
+              <span>Capture here first, then push reviewed outputs into Verrova Core as quote cost centres, documents and client-visible records.</span>
+            </div>
+            <div className="simpro-parts-actions">
+              <button className="simpro-grey-button" type="button" onClick={() => addSurveyAsset("Room scan")}>
+                <MapPin size={14} />
+                ROOM SCAN
+              </button>
+              <button className="simpro-grey-button" type="button" onClick={() => addSurveyAsset("Survey photo")}>
+                <Camera size={14} />
+                ADD PHOTO
+              </button>
+              <button className="simpro-blue-button" type="button" onClick={() => addSurveyAsset("Concept look")}>
+                <Sparkles size={14} />
+                CREATE CONCEPTS
+              </button>
+            </div>
+          </div>
+
+          <div className="survey-tool-grid">
+            <article className="survey-tool-card">
+              <span className="survey-tool-icon"><MapPin size={18} /></span>
+              <div>
+                <strong>Room scan</strong>
+                <p>iPad RoomPlan/LiDAR capture can later feed dimensions, openings and heights into takeoff and heat loss reviews.</p>
+              </div>
+              <small>{surveyAssets.filter((asset) => asset.kind === "Room scan").length} scan record(s)</small>
+            </article>
+            <article className="survey-tool-card">
+              <span className="survey-tool-icon"><Camera size={18} /></span>
+              <div>
+                <strong>Survey evidence</strong>
+                <p>Photos and site notes sit with the survey pack before selected records are made visible to the client or engineers.</p>
+              </div>
+              <small>{surveyAssets.filter((asset) => asset.kind === "Survey photo").length} photo/evidence record(s)</small>
+            </article>
+            <article className="survey-tool-card">
+              <span className="survey-tool-icon"><Sparkles size={18} /></span>
+              <div>
+                <strong>Concept looks</strong>
+                <p>Create option images or visual notes for bathrooms, radiators, finishes or layout choices.</p>
+              </div>
+              <small>{surveyAssets.filter((asset) => asset.kind === "Concept look").length} concept option(s)</small>
+            </article>
+            <article className="survey-tool-card">
+              <span className="survey-tool-icon"><ListChecks size={18} /></span>
+              <div>
+                <strong>Core handoff</strong>
+                <p>Reviewed survey records, BOQ rows and supplier-needed items become structured Verrova quote data.</p>
+              </div>
+              <small>{surveyAssets.filter((asset) => asset.clientVisible).length} client-visible item(s)</small>
+            </article>
+          </div>
+
+          <div className="survey-flow-strip">
+            <div>
+              <span>Capture</span>
+              <strong>Scan rooms + upload evidence</strong>
+            </div>
+            <ChevronRight size={16} />
+            <div>
+              <span>Measure</span>
+              <strong>Create takeoff and BOQ rows</strong>
+            </div>
+            <ChevronRight size={16} />
+            <div>
+              <span>Review</span>
+              <strong>Confirm assumptions and supplier list</strong>
+            </div>
+            <ChevronRight size={16} />
+            <div>
+              <span>Handoff</span>
+              <strong>Create Verrova quote cost centres</strong>
+            </div>
+          </div>
+
+          <div className="survey-asset-list">
+            <div className="survey-asset-head">
+              <strong>Survey records</strong>
+              <span>{surveyAssets.filter((asset) => asset.clientVisible).length} client-visible item(s)</span>
+            </div>
+            {surveyAssets.length ? (
+              surveyAssets.map((asset) => (
+                <article className="survey-asset-row" key={asset.id}>
+                  <div>
+                    <span>{asset.kind}</span>
+                    <strong>{asset.title}</strong>
+                    <small>{asset.detail}</small>
+                  </div>
+                  <b>{asset.status}</b>
+                  <label>
+                    <input
+                      checked={asset.clientVisible}
+                      type="checkbox"
+                      onChange={() => toggleSurveyAssetClientVisible(asset.id)}
+                    />
+                    Client visible
+                  </label>
+                </article>
+              ))
+            ) : (
+              <div className="survey-empty-state">
+                <strong>No survey records yet</strong>
+                <span>Add a room scan, survey photo or concept look before creating the quote handoff.</span>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="takeoff-review-panel ai-takeoff-panel">
+          <div className="simpro-parts-header">
+            <div>
+              <h2>Takeoff / BOQ workbench</h2>
+              <h3>Upload drawings, specifications or contractor BOQs before pushing structured data to Core</h3>
+              <span>The cost centre screen now consumes reviewed output from here instead of being the takeoff workspace.</span>
+            </div>
+            <div className="simpro-parts-actions">
+              <button className="simpro-grey-button" type="button" onClick={() => runAssistant("Create Takeoff")}>
+                CREATE TAKEOFF
+              </button>
+              <button className="simpro-blue-button" type="button" onClick={() => runAssistant("Create BOQ")}>
+                CREATE BOQ
+              </button>
+            </div>
+          </div>
+          <div className="takeoff-upload-grid">
+            <label className="takeoff-upload-card">
+              <span>Drawings</span>
+              <strong>Upload plans to scan pipe runs, radiator positions and fittings</strong>
+              <small>PDFs/images are kept in the survey pack and interpreted as provisional takeoff inputs.</small>
+              <input accept="application/pdf,image/*,.dwg,.dxf" type="file" multiple onChange={addFiles} />
+            </label>
+            <label className="takeoff-upload-card">
+              <span>Specification</span>
+              <strong>Upload specs to pull named products, exclusions and install requirements</strong>
+              <small>Specifications help the AI questions and supplier request list.</small>
+              <input accept=".pdf,.doc,.docx,.txt,.rtf" type="file" multiple onChange={addFiles} />
+            </label>
+            <label className="takeoff-upload-card">
+              <span>Contractor BOQ</span>
+              <strong>Upload BOQ files to create draft sections, quantities and supplier lists</strong>
+              <small>CSV/TXT/Excel-style uploads become reviewed BOQ rows before handoff.</small>
+              <input accept=".csv,.txt,.tsv,.xls,.xlsx,.pdf" type="file" multiple onChange={addFiles} />
+            </label>
+          </div>
+          <div className="takeoff-summary-strip">
+            <div>
+              <span>Files uploaded</span>
+              <strong>{files.length}</strong>
+            </div>
+            <div>
+              <span>Takeoff rows</span>
+              <strong>{editedResponse?.takeoff_lines.length ?? 0}</strong>
+            </div>
+            <div>
+              <span>BOQ lines</span>
+              <strong>{editedResponse?.boq_lines.length ?? 0}</strong>
+            </div>
+          </div>
+        </section>
 
         <section className="ai-chat-layout">
           <div className="ai-input-column">

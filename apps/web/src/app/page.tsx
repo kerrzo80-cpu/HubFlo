@@ -1117,8 +1117,6 @@ const costCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
 
 const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
-  { key: "survey-tools", label: "Survey tools" },
-  { key: "takeoff", label: "Takeoff" },
   { key: "catalogue", label: "Catalogue" },
   { key: "one-off", label: "One-off items" },
   { key: "heat-loss", label: "Heat loss calculator" },
@@ -9994,8 +9992,8 @@ export default function Dashboard() {
                               <div className="simpro-parts-header">
                                 <div>
                                   <h2>Scope summary</h2>
-                                  <h3>Pull-through from takeoff, catalogue, one-off items, heat loss and labour</h3>
-                                  <span>Review everything before sending the supplier request or final quote.</span>
+                                  <h3>Pull-through from catalogue, one-off items, heat loss, labour and Takeoff handoff</h3>
+                                  <span>Takeoff and survey capture now live in Verrova Takeoff. This cost centre consumes the reviewed output.</span>
                                 </div>
                               </div>
                               <div className="quote-build-summary-grid">
@@ -10015,7 +10013,7 @@ export default function Dashboard() {
                                   <small>{supplierQuoteDrafts[selectedQuoteCostCentre.id]?.fileName || "Request not sent yet"}</small>
                                 </div>
                                 <div>
-                                  <span>Takeoff sources</span>
+                                  <span>Takeoff handoff</span>
                                   <strong>{(selectedQuoteCostCentre.takeoffDocuments ?? []).length}</strong>
                                   <small>{(selectedQuoteCostCentre.takeoffRows ?? []).length} draft row(s)</small>
                                 </div>
@@ -11894,7 +11892,7 @@ export default function Dashboard() {
                   <section className="simpro-parts-page">
                     <div className="simpro-sub-tabs" role="tablist" aria-label="Parts and labour sections">
                       <button className="active" type="button">Scope build</button>
-                      <button type="button">Takeoff</button>
+                      <button type="button">Takeoff handoff</button>
                       <button type="button">Assemblies</button>
                       <button type="button">Catalogue</button>
                       <button type="button">Stock</button>
