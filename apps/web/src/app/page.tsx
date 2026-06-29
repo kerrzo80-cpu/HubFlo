@@ -347,10 +347,11 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
-type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" | "variations" | "logs";
+type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" | "logs";
 type QuoteDetailTab = "setup" | "cost-build" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
-type CostCentreTab = "summary" | "info" | "parts-labour" | "options" | "variations" | "schedule" | "assets";
+type CostCentreTab = "summary" | "info" | "parts-labour" | "options" | "schedule" | "assets";
+type JobCostCentreListTab = "base" | "variations";
 type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
@@ -1131,7 +1132,6 @@ const jobCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "info", label: "Info" },
   { key: "parts-labour", label: "Parts & Labour" },
-  { key: "variations", label: "Variations" },
   { key: "schedule", label: "Schedule" },
   { key: "assets", label: "Customer Assets" },
 ];
@@ -3555,6 +3555,7 @@ export default function Dashboard() {
   const [activeJobTab, setActiveJobTab] = useState<JobDetailTab>("summary");
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteDetailTab>("setup");
   const [activeCostCentreTab, setActiveCostCentreTab] = useState<CostCentreTab>("summary");
+  const [activeJobCostCentreListTab, setActiveJobCostCentreListTab] = useState<JobCostCentreListTab>("base");
   const [activeQuoteBuildTab, setActiveQuoteBuildTab] = useState<QuoteBuildTab>("summary");
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
   const [catalogueSearch, setCatalogueSearch] = useState("");
@@ -11796,256 +11797,289 @@ export default function Dashboard() {
                 {activeJobTab === "cost-centres" ? (
                   <section className="simpro-estimate-page">
                     <div className="simpro-sub-tabs" role="tablist" aria-label="Cost centre categories">
-                      <button className="active" type="button">Base scope <span>{selectedJobEstimateCostCentres.length}</span></button>
-                      <button type="button">Options</button>
+                      <button
+                        className={activeJobCostCentreListTab === "base" ? "active" : ""}
+                        type="button"
+                        onClick={() => {
+                          setActiveJobCostCentreListTab("base");
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Base scope <span>{selectedJobEstimateCostCentres.length}</span>
+                      </button>
+                      <button
+                        className={activeJobCostCentreListTab === "variations" ? "active" : ""}
+                        type="button"
+                        onClick={() => {
+                          setActiveJobCostCentreListTab("variations");
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Variations <span>{selectedJobVariations.length}</span>
+                      </button>
                     </div>
 
-                    <h2 className="simpro-page-title">Base Scope Cost Centres</h2>
+                    {activeJobCostCentreListTab === "base" ? (
+                      <>
+                        <h2 className="simpro-page-title">Base Scope Cost Centres</h2>
 
-                    <div className="simpro-filter-band">
-                      <label>
-                        Filter By Name/ID
-                        <input aria-label="Filter cost centres by name or ID" />
-                      </label>
-                    </div>
+                        <div className="simpro-filter-band">
+                          <label>
+                            Filter By Name/ID
+                            <input aria-label="Filter cost centres by name or ID" />
+                          </label>
+                        </div>
 
-                    <div className="simpro-section-heading">
-                      <h3>Sections</h3>
-                      <button className="simpro-grey-button" type="button">SECTIONS <ChevronDown size={14} /></button>
-                    </div>
+                        <div className="simpro-section-heading">
+                          <h3>Sections</h3>
+                          <button className="simpro-grey-button" type="button">SECTIONS <ChevronDown size={14} /></button>
+                        </div>
 
-                    <div className="simpro-section-create">
-                      <label>
-                        Name
-                        <input />
-                      </label>
-                      <label>
-                        Description <span>(Optional)</span>
-                        <input placeholder="Enter a description..." />
-                      </label>
-                      <button className="simpro-blue-button" type="button">ADD</button>
-                    </div>
+                        <div className="simpro-section-create">
+                          <label>
+                            Name
+                            <input />
+                          </label>
+                          <label>
+                            Description <span>(Optional)</span>
+                            <input placeholder="Enter a description..." />
+                          </label>
+                          <button className="simpro-blue-button" type="button">ADD</button>
+                        </div>
 
-                    <section className="simpro-section-card">
-                      <header>
-                        <span className="simpro-drag-handle" aria-hidden="true" />
-                        <strong>Bathroom refurbishment</strong>
-                        <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
-                          Options <ChevronDown size={13} />
-                        </button>
-                      </header>
-
-                      <div className="simpro-cost-centre-add">
-                        <label>
-                          Default category
-                          <select
-                            value={jobCostCentreTemplateDraft}
-                            onChange={(event) => setJobCostCentreTemplateDraft(event.target.value)}
-                          >
-                            {costCentreTemplates.map((template) => (
-                              <option key={template} value={template}>{template}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Cost Centre Name <span>(Optional)</span>
-                          <input
-                            placeholder="Enter Name here..."
-                            value={jobCostCentreNameDraft}
-                            onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
-                          />
-                        </label>
-                        <button className="simpro-blue-button" type="button" onClick={addJobCostCentre}>ADD</button>
-                        <button className="simpro-grey-button align-right" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
-                      </div>
-
-                      <div className="simpro-cost-centre-list">
-                      {selectedJobEstimateCostCentres.map((centre) => {
-                        const totals = estimateCostCentreTotals(centre);
-                        return (
-                          <div
-                            className="simpro-cost-centre-row"
-                            key={centre.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openCostCentreRecord(centre.id)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                openCostCentreRecord(centre.id);
-                              }
-                            }}
-                          >
+                        <section className="simpro-section-card">
+                          <header>
                             <span className="simpro-drag-handle" aria-hidden="true" />
-                            <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
-                            <strong className="simpro-row-title">
-                              {centre.name}
-                              <small>{centre.templateName ?? "Uncategorised"}</small>
-                              {(centre.surveyAssets?.length ?? 0) > 0 ? (
-                                <small>{centre.surveyAssets?.length} survey records handed over</small>
-                              ) : null}
-                            </strong>
-                            <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
-                            <div className="simpro-row-actions">
-                              <button
-                                className="simpro-options-button"
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setCostCentreActionMenu((current) =>
-                                    current?.scope === "job" && current.id === centre.id ? null : { scope: "job", id: centre.id },
-                                  );
+                            <strong>Bathroom refurbishment</strong>
+                            <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
+                              Options <ChevronDown size={13} />
+                            </button>
+                          </header>
+
+                          <div className="simpro-cost-centre-add">
+                            <label>
+                              Default category
+                              <select
+                                value={jobCostCentreTemplateDraft}
+                                onChange={(event) => setJobCostCentreTemplateDraft(event.target.value)}
+                              >
+                                {costCentreTemplates.map((template) => (
+                                  <option key={template} value={template}>{template}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Cost Centre Name <span>(Optional)</span>
+                              <input
+                                placeholder="Enter Name here..."
+                                value={jobCostCentreNameDraft}
+                                onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
+                              />
+                            </label>
+                            <button className="simpro-blue-button" type="button" onClick={addJobCostCentre}>ADD</button>
+                            <button className="simpro-grey-button align-right" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
+                          </div>
+
+                          <div className="simpro-cost-centre-list">
+                          {selectedJobEstimateCostCentres.map((centre) => {
+                            const totals = estimateCostCentreTotals(centre);
+                            return (
+                              <div
+                                className="simpro-cost-centre-row"
+                                key={centre.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openCostCentreRecord(centre.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openCostCentreRecord(centre.id);
+                                  }
                                 }}
                               >
-                                Options <ChevronDown size={13} />
-                              </button>
-                              {costCentreActionMenu?.scope === "job" && costCentreActionMenu.id === centre.id ? (
-                                <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
-                                  <button type="button" onClick={() => startRenameCostCentre("job", centre)}>Rename display name</button>
-                                  <button type="button" onClick={() => openCostCentreRecord(centre.id)}>Open cost centre</button>
+                                <span className="simpro-drag-handle" aria-hidden="true" />
+                                <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
+                                <strong className="simpro-row-title">
+                                  {centre.name}
+                                  <small>{centre.templateName ?? "Uncategorised"}</small>
+                                  {(centre.surveyAssets?.length ?? 0) > 0 ? (
+                                    <small>{centre.surveyAssets?.length} survey records handed over</small>
+                                  ) : null}
+                                </strong>
+                                <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
+                                <div className="simpro-row-actions">
+                                  <button
+                                    className="simpro-options-button"
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setCostCentreActionMenu((current) =>
+                                        current?.scope === "job" && current.id === centre.id ? null : { scope: "job", id: centre.id },
+                                      );
+                                    }}
+                                  >
+                                    Options <ChevronDown size={13} />
+                                  </button>
+                                  {costCentreActionMenu?.scope === "job" && costCentreActionMenu.id === centre.id ? (
+                                    <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
+                                      <button type="button" onClick={() => startRenameCostCentre("job", centre)}>Rename display name</button>
+                                      <button type="button" onClick={() => openCostCentreRecord(centre.id)}>Open cost centre</button>
+                                    </div>
+                                  ) : null}
                                 </div>
-                              ) : null}
-                            </div>
-                            <button className="simpro-kebab-button" type="button" onClick={(event) => { event.stopPropagation(); showNotice("More cost centre actions are next to wire up."); }}>
-                              <MoreHorizontal size={16} />
-                            </button>
-                            {renamingCostCentre?.scope === "job" && renamingCostCentre.id === centre.id ? (
-                              <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
-                                <label>
-                                  Display name
-                                  <input value={renameCostCentreDraft} onChange={(event) => setRenameCostCentreDraft(event.target.value)} />
-                                </label>
-                                <button className="simpro-blue-button" type="button" onClick={saveRenameCostCentre}>Save</button>
-                                <button className="simpro-grey-button" type="button" onClick={cancelRenameCostCentre}>Cancel</button>
+                                <button className="simpro-kebab-button" type="button" onClick={(event) => { event.stopPropagation(); showNotice("More cost centre actions are next to wire up."); }}>
+                                  <MoreHorizontal size={16} />
+                                </button>
+                                {renamingCostCentre?.scope === "job" && renamingCostCentre.id === centre.id ? (
+                                  <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
+                                    <label>
+                                      Display name
+                                      <input value={renameCostCentreDraft} onChange={(event) => setRenameCostCentreDraft(event.target.value)} />
+                                    </label>
+                                    <button className="simpro-blue-button" type="button" onClick={saveRenameCostCentre}>Save</button>
+                                    <button className="simpro-grey-button" type="button" onClick={cancelRenameCostCentre}>Cancel</button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                          </div>
+                        </section>
+                      </>
+                    ) : null}
+
+                    {activeJobCostCentreListTab === "variations" ? (
+                      <>
+                        <h2 className="simpro-page-title">Variation Cost Centres</h2>
+
+                        <div className="simpro-filter-band">
+                          <label>
+                            Filter By Name/ID
+                            <input aria-label="Filter variations by name or ID" />
+                          </label>
+                        </div>
+
+                        <section className="quote-record-panel">
+                          <div className="variation-list job-variation-list">
+                            {selectedJobVariations.length === 0 ? (
+                              <div className="employee-empty-panel">
+                                <strong>No variations logged</strong>
+                                <span>Variations raised while this job is in progress will appear here for office review and client approval.</span>
                               </div>
                             ) : null}
+                            {selectedJobVariations.map((variation) => (
+                              <article className="variation-card" key={variation.id}>
+                                <header>
+                                  <div>
+                                    <strong>{variation.reference}</strong>
+                                    <span>{variation.title}</span>
+                                  </div>
+                                  <span className="status-pill amber">{variation.status}</span>
+                                </header>
+                                <p className="variation-description">{variation.description}</p>
+                                <div className="variation-detail-grid">
+                                  <div>
+                                    <span>Raised by</span>
+                                    <strong>{variation.engineerName ?? "Engineer"}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Reason</span>
+                                    <strong>{variation.reason ?? "Not recorded"}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Hours</span>
+                                    <strong>{variation.labourHours ? `${variation.labourHours} hrs` : "TBC"}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Client approval</span>
+                                    <strong>{variation.requiresClientApproval ? variation.clientApprovalStatus ?? "Not sent" : "Not required"}</strong>
+                                  </div>
+                                </div>
+                                <div className="variation-materials">
+                                  <span>Materials / engineer note</span>
+                                  <strong>{variation.materialsUsed ?? "No materials recorded yet."}</strong>
+                                </div>
+                                <div className="variation-money">
+                                  <div>
+                                    <span>Cost</span>
+                                    <strong>{currency(variation.costValue)}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Charge</span>
+                                    <strong>{currency(variation.sellValue)}</strong>
+                                  </div>
+                                  <div>
+                                    <span>Profit</span>
+                                    <strong>{currency(variation.sellValue - variation.costValue)}</strong>
+                                  </div>
+                                </div>
+                                <div className="variation-approval-panel">
+                                  <div>
+                                    <span>Variation quote</span>
+                                    <strong>{variation.reference} · {currency(variation.sellValue)}</strong>
+                                    <small>
+                                      {variation.requiresClientApproval
+                                        ? "Send to client for online approval before works proceed."
+                                        : "Captured after works; office can approve for billing."}
+                                    </small>
+                                  </div>
+                                  <div className="variation-actions">
+                                    <button
+                                      className="simpro-grey-button"
+                                      type="button"
+                                      onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}
+                                    >
+                                      Preview
+                                    </button>
+                                    <button
+                                      className="simpro-blue-button"
+                                      type="button"
+                                      disabled={
+                                        variation.source === "seed" ||
+                                        variation.requiresClientApproval === false ||
+                                        variation.status === "Client approved" ||
+                                        variation.status === "Approved" ||
+                                        variation.status === "Proceed"
+                                      }
+                                      onClick={() => sendSelectedJobVariationForApproval(variation.id)}
+                                    >
+                                      Send for approval
+                                    </button>
+                                    <button
+                                      className="simpro-grey-button"
+                                      type="button"
+                                      disabled={!variation.portalToken}
+                                      onClick={() => copySelectedJobVariationPortalLink(variation.id)}
+                                    >
+                                      Copy approval link
+                                    </button>
+                                    <button
+                                      className="simpro-save-button"
+                                      type="button"
+                                      disabled={
+                                        variation.source === "seed" ||
+                                        (variation.requiresClientApproval
+                                          ? variation.status !== "Sent for approval"
+                                          : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed")
+                                      }
+                                      onClick={() => approveSelectedJobVariation(variation.id)}
+                                    >
+                                      Mark approved / proceed
+                                    </button>
+                                  </div>
+                                </div>
+                              </article>
+                            ))}
                           </div>
-                        );
-                      })}
-                      </div>
-                    </section>
+                        </section>
+                      </>
+                    ) : null}
                   </section>
                 ) : null}
 
                 {activeJobTab === "engineer-flow" ? renderEngineerFlowWorkspace(selectedJob) : null}
 
                 {activeJobTab === "documents" ? renderDocumentWorkspace("job", selectedJob.ref) : null}
-
-                {activeJobTab === "variations" ? (
-                  <section className="quote-record-panel">
-                    <div className="variation-list">
-                      {selectedJobVariations.length === 0 ? (
-                        <div className="employee-empty-panel">
-                          <strong>No variations logged</strong>
-                          <span>Priced and approved variations will appear here.</span>
-                        </div>
-                      ) : null}
-                      {selectedJobVariations.map((variation) => (
-                        <article className="variation-card" key={variation.id}>
-                          <header>
-                            <div>
-                              <strong>{variation.reference}</strong>
-                              <span>{variation.title}</span>
-                            </div>
-                            <span className="status-pill amber">{variation.status}</span>
-                          </header>
-                          <p className="variation-description">{variation.description}</p>
-                          <div className="variation-detail-grid">
-                            <div>
-                              <span>Raised by</span>
-                              <strong>{variation.engineerName ?? "Engineer"}</strong>
-                            </div>
-                            <div>
-                              <span>Reason</span>
-                              <strong>{variation.reason ?? "Not recorded"}</strong>
-                            </div>
-                            <div>
-                              <span>Hours</span>
-                              <strong>{variation.labourHours ? `${variation.labourHours} hrs` : "TBC"}</strong>
-                            </div>
-                            <div>
-                              <span>Client approval</span>
-                              <strong>{variation.requiresClientApproval ? variation.clientApprovalStatus ?? "Not sent" : "Not required"}</strong>
-                            </div>
-                          </div>
-                          <div className="variation-materials">
-                            <span>Materials / engineer note</span>
-                            <strong>{variation.materialsUsed ?? "No materials recorded yet."}</strong>
-                          </div>
-                          <div className="variation-money">
-                            <div>
-                              <span>Cost</span>
-                              <strong>{currency(variation.costValue)}</strong>
-                            </div>
-                            <div>
-                              <span>Charge</span>
-                              <strong>{currency(variation.sellValue)}</strong>
-                            </div>
-                            <div>
-                              <span>Profit</span>
-                              <strong>{currency(variation.sellValue - variation.costValue)}</strong>
-                            </div>
-                          </div>
-                          <div className="variation-approval-panel">
-                            <div>
-                              <span>Variation quote</span>
-                              <strong>{variation.reference} · {currency(variation.sellValue)}</strong>
-                              <small>
-                                {variation.requiresClientApproval
-                                  ? "Send to client for online approval before works proceed."
-                                  : "Captured after works; office can approve for billing."}
-                              </small>
-                            </div>
-                            <div className="variation-actions">
-                              <button
-                                className="simpro-grey-button"
-                                type="button"
-                                onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}
-                              >
-                                Preview
-                              </button>
-                              <button
-                                className="simpro-blue-button"
-                                type="button"
-                                disabled={
-                                  variation.source === "seed" ||
-                                  variation.requiresClientApproval === false ||
-                                  variation.status === "Client approved" ||
-                                  variation.status === "Approved" ||
-                                  variation.status === "Proceed"
-                                }
-                                onClick={() => sendSelectedJobVariationForApproval(variation.id)}
-                              >
-                                Send for approval
-                              </button>
-                              <button
-                                className="simpro-grey-button"
-                                type="button"
-                                disabled={!variation.portalToken}
-                                onClick={() => copySelectedJobVariationPortalLink(variation.id)}
-                              >
-                                Copy approval link
-                              </button>
-                              <button
-                                className="simpro-save-button"
-                                type="button"
-                                disabled={
-                                  variation.source === "seed" ||
-                                  (variation.requiresClientApproval
-                                    ? variation.status !== "Sent for approval"
-                                    : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed")
-                                }
-                                onClick={() => approveSelectedJobVariation(variation.id)}
-                              >
-                                Mark approved / proceed
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
 
                 {activeJobTab === "logs" ? (
                   <section className="quote-logs-panel">
@@ -12520,109 +12554,6 @@ export default function Dashboard() {
                           </div>
                         );
                       })}
-                    </div>
-                  </section>
-                ) : null}
-
-                {activeCostCentreTab === "variations" ? (
-                  <section className="quote-record-panel">
-                    <div className="variation-list">
-                      {selectedJobVariations.length === 0 ? (
-                        <div className="employee-empty-panel">
-                          <strong>No variations logged</strong>
-                          <span>Variations raised while this job is in progress will appear here for office review and client approval.</span>
-                        </div>
-                      ) : null}
-                      {selectedJobVariations.map((variation) => (
-                        <article className="variation-card" key={variation.id}>
-                          <header>
-                            <div>
-                              <strong>{variation.reference}</strong>
-                              <span>{variation.title}</span>
-                            </div>
-                            <span className="status-pill amber">{variation.status}</span>
-                          </header>
-                          <p className="variation-description">{variation.description}</p>
-                          <div className="variation-detail-grid">
-                            <div>
-                              <span>Raised by</span>
-                              <strong>{variation.engineerName ?? "Engineer"}</strong>
-                            </div>
-                            <div>
-                              <span>Hours</span>
-                              <strong>{variation.labourHours ? `${variation.labourHours} hrs` : "TBC"}</strong>
-                            </div>
-                            <div>
-                              <span>Materials</span>
-                              <strong>{variation.materialsUsed ?? "No materials recorded yet."}</strong>
-                            </div>
-                            <div>
-                              <span>Client approval</span>
-                              <strong>{variation.requiresClientApproval ? variation.clientApprovalStatus ?? "Not sent" : "Not required"}</strong>
-                            </div>
-                          </div>
-                          <div className="variation-money">
-                            <div>
-                              <span>Cost</span>
-                              <strong>{currency(variation.costValue)}</strong>
-                            </div>
-                            <div>
-                              <span>Charge</span>
-                              <strong>{currency(variation.sellValue)}</strong>
-                            </div>
-                            <div>
-                              <span>Profit</span>
-                              <strong>{currency(variation.sellValue - variation.costValue)}</strong>
-                            </div>
-                          </div>
-                          <div className="variation-approval-panel">
-                            <div>
-                              <span>Variation quote</span>
-                              <strong>{variation.reference} · {currency(variation.sellValue)}</strong>
-                              <small>
-                                {variation.requiresClientApproval
-                                  ? "Send to client for online approval before works proceed."
-                                  : "Captured after works; office can approve for billing."}
-                              </small>
-                            </div>
-                            <div className="variation-actions">
-                              <button className="simpro-grey-button" type="button" onClick={() => showNotice(`${variation.reference} variation quote preview opened.`)}>
-                                Preview
-                              </button>
-                              <button
-                                className="simpro-blue-button"
-                                type="button"
-                                disabled={
-                                  variation.source === "seed" ||
-                                  variation.requiresClientApproval === false ||
-                                  variation.status === "Client approved" ||
-                                  variation.status === "Approved" ||
-                                  variation.status === "Proceed"
-                                }
-                                onClick={() => sendSelectedJobVariationForApproval(variation.id)}
-                              >
-                                Send for approval
-                              </button>
-                              <button className="simpro-grey-button" type="button" disabled={!variation.portalToken} onClick={() => copySelectedJobVariationPortalLink(variation.id)}>
-                                Copy approval link
-                              </button>
-                              <button
-                                className="simpro-save-button"
-                                type="button"
-                                disabled={
-                                  variation.source === "seed" ||
-                                  (variation.requiresClientApproval
-                                    ? variation.status !== "Sent for approval"
-                                    : variation.status === "Approved" || variation.status === "Client approved" || variation.status === "Proceed")
-                                }
-                                onClick={() => approveSelectedJobVariation(variation.id)}
-                              >
-                                Mark approved / proceed
-                              </button>
-                            </div>
-                          </div>
-                        </article>
-                      ))}
                     </div>
                   </section>
                 ) : null}
