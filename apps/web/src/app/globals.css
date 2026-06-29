@@ -2541,6 +2541,7 @@ h1 {
 .simpro-inline-form label,
 .simpro-service-form label,
 .supplier-quote-controls label,
+.supplier-return-panel label,
 .heat-loss-grid label {
   color: #4e5358;
   display: flex;
@@ -2558,6 +2559,7 @@ h1 {
 .simpro-service-form input,
 .simpro-service-form select,
 .supplier-quote-controls input,
+.supplier-return-panel input,
 .heat-loss-grid input,
 .heat-loss-grid select,
 .heat-loss-room-head input,
@@ -3351,6 +3353,143 @@ h1 {
   opacity: 0.45;
 }
 
+.quote-catalogue-workspace {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin: 18px 14px;
+  overflow: hidden;
+}
+
+.quote-catalogue-toolbar {
+  align-items: end;
+  background: #f8fbfc;
+  border-bottom: 1px solid var(--line-soft);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(240px, 1fr) minmax(220px, 340px) 132px 120px;
+  padding: 16px;
+}
+
+.quote-catalogue-toolbar h2 {
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.quote-catalogue-toolbar span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quote-catalogue-search {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #c8cdd1;
+  border-radius: 4px;
+  display: flex;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+}
+
+.quote-catalogue-search input {
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.quote-catalogue-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) minmax(0, 1fr);
+  min-height: 360px;
+}
+
+.quote-catalogue-groups,
+.quote-catalogue-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.quote-catalogue-groups {
+  border-right: 1px solid var(--line-soft);
+}
+
+.quote-catalogue-head {
+  align-items: center;
+  border-bottom: 2px solid #98a2b3;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+.quote-catalogue-head strong {
+  color: var(--ink);
+}
+
+.quote-catalogue-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.quote-catalogue-groups button,
+.quote-catalogue-item-row {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  display: grid;
+  gap: 12px;
+  min-height: 52px;
+  padding: 8px 14px;
+  text-align: left;
+}
+
+.quote-catalogue-groups button {
+  cursor: pointer;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+}
+
+.quote-catalogue-groups button:hover,
+.quote-catalogue-groups button.active {
+  background: #fffaf0;
+  color: var(--navy);
+}
+
+.quote-catalogue-groups button span {
+  font-weight: 800;
+}
+
+.quote-catalogue-groups button small,
+.quote-catalogue-item-row span,
+.quote-catalogue-empty span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.quote-catalogue-item-row {
+  grid-template-columns: minmax(0, 1fr) 78px;
+}
+
+.quote-catalogue-item-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.quote-catalogue-empty {
+  display: grid;
+  gap: 5px;
+  padding: 18px 14px;
+}
+
 .simpro-billable-row.empty strong {
   color: var(--muted);
   font-size: 12px;
@@ -3422,7 +3561,7 @@ h1 {
   align-items: end;
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(170px, 1fr) minmax(190px, 1fr) minmax(220px, 1.2fr) minmax(90px, 0.35fr) 86px 86px;
+  grid-template-columns: minmax(190px, 1fr) minmax(220px, 1fr) 96px;
   padding: 16px;
 }
 
@@ -3447,6 +3586,32 @@ h1 {
   min-height: 82px;
   padding: 8px;
   resize: vertical;
+}
+
+.supplier-return-panel {
+  align-items: end;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(240px, 1.2fr) minmax(220px, 1fr) minmax(90px, 0.4fr) 180px;
+  padding: 14px;
+}
+
+.supplier-return-panel > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.supplier-return-panel strong {
+  color: var(--ink);
+}
+
+.supplier-return-panel span {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .quote-scope-summary {
@@ -11225,6 +11390,27 @@ kbd,
   color: var(--navy);
 }
 
+.global-header {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+
+.module-bar {
+  position: sticky;
+  top: 72px;
+  z-index: 55;
+}
+
+.context-sidebar {
+  align-self: start;
+  max-height: calc(100vh - 121px);
+  overflow-y: auto;
+  position: sticky;
+  top: 121px;
+  z-index: 30;
+}
+
 .context-link:hover {
   background: #fffaf0;
   color: var(--navy);
@@ -11315,6 +11501,19 @@ kbd,
 .simpro-tab.active span,
 .simpro-sub-tabs button.active span {
   color: var(--navy);
+}
+
+@media (max-width: 980px) {
+  .quote-catalogue-toolbar,
+  .quote-catalogue-layout,
+  .supplier-return-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .supplier-quote-controls,
+  .supplier-email-panel {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 760px) {

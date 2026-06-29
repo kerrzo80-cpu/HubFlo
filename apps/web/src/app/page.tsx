@@ -3527,6 +3527,8 @@ export default function Dashboard() {
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteDetailTab>("setup");
   const [activeCostCentreTab, setActiveCostCentreTab] = useState<CostCentreTab>("summary");
   const [activeQuoteBuildTab, setActiveQuoteBuildTab] = useState<QuoteBuildTab>("summary");
+  const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
+  const [catalogueSearch, setCatalogueSearch] = useState("");
   const [activeInvoiceTab, setActiveInvoiceTab] = useState<InvoiceTab>("summary");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
@@ -5247,17 +5249,20 @@ export default function Dashboard() {
   function returnToClientsDirectory() {
     setHomeView("clients");
     setActiveClientTab("overview");
+    scrollWorkspaceToTop();
   }
 
   function returnToLeadsDirectory() {
     setHomeView("leads");
     setActiveLeadTab("details");
+    scrollWorkspaceToTop();
   }
 
   function returnToDashboard() {
     setHomeView("dashboard");
     clearEmployeeEditingState();
     setActiveClientTab("overview");
+    scrollWorkspaceToTop();
   }
 
   function goToPeopleSection(item: string) {
@@ -5265,11 +5270,13 @@ export default function Dashboard() {
     if (item === "Employees") {
       clearEmployeeEditingState();
       setHomeView("employees");
+      scrollWorkspaceToTop();
       return;
     }
     if (item === "Clients") {
       setHomeView("clients");
       setActiveClientTab("overview");
+      scrollWorkspaceToTop();
       return;
     }
     showNotice(`${item} module is coming soon in this build.`);
@@ -8917,6 +8924,7 @@ export default function Dashboard() {
                 } else {
                   showNotice(`${module.label} module is coming soon in this build.`);
                 }
+                scrollWorkspaceToTop();
               }}
             >
               <Icon size={16} strokeWidth={1.8} />
@@ -9459,7 +9467,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeQuoteTab === tab.key}
                       className={activeQuoteTab === tab.key ? "simpro-tab active" : "simpro-tab"}
-                      onClick={() => setActiveQuoteTab(tab.key)}
+                      onClick={() => {
+                        setActiveQuoteTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -10076,7 +10087,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeCostCentreTab === tab.key}
                       className={activeCostCentreTab === tab.key ? "simpro-tab active" : "simpro-tab"}
-                      onClick={() => setActiveCostCentreTab(tab.key)}
+                      onClick={() => {
+                        setActiveCostCentreTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -10210,7 +10224,10 @@ export default function Dashboard() {
                           className={activeQuoteBuildTab === tab.key ? "active" : ""}
                           key={tab.key}
                           type="button"
-                          onClick={() => setActiveQuoteBuildTab(tab.key)}
+                          onClick={() => {
+                            setActiveQuoteBuildTab(tab.key);
+                            scrollWorkspaceToTop();
+                          }}
                         >
                           {tab.label}
                         </button>
@@ -10488,41 +10505,97 @@ export default function Dashboard() {
                     ) : null}
 
                     {activeQuoteBuildTab === "catalogue" ? (
-                      <div className="simpro-parts-header">
-                        <div>
-                          <h2>Catalogue</h2>
-                          <h3>Add known materials, plant or subcontract items</h3>
-                          <span>Catalogue items pull through to the scope summary immediately.</span>
-                        </div>
-                        <div className="simpro-parts-actions">
-                          <select
-                            aria-label="Add catalogue item to cost centre"
-                            defaultValue=""
-                            onChange={(event) => {
-                              addQuoteLine(selectedQuoteCostCentre.id, event.target.value);
-                              event.currentTarget.value = "";
-                            }}
-                          >
-                            <option value="" disabled>Add from catalogue</option>
-                            {quoteCatalogFolders.map((folder) => {
-                              const folderItems = availableQuoteCatalog
-                                .filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder)
-                                .sort((first, second) => first.name.localeCompare(second.name));
-                              if (!folderItems.length) return null;
+                      (() => {
+                        const visibleCatalogItems = availableQuoteCatalog
+                          .filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === activeCatalogueFolder)
+                          .filter((item) => item.name.toLowerCase().includes(catalogueSearch.trim().toLowerCase()))
+                          .sort((first, second) => first.name.localeCompare(second.name));
 
-                              return (
-                                <optgroup key={folder} label={folder}>
-                                  {folderItems.map((item) => (
-                                    <option key={item.id} value={item.id}>
-                                      {item.type}: {item.name}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              );
-                            })}
-                          </select>
-                        </div>
-                      </div>
+                        return (
+                          <div className="quote-catalogue-workspace">
+                            <div className="quote-catalogue-toolbar">
+                              <div>
+                                <h2>Catalogue</h2>
+                                <span>Open a group, add existing items, or create new catalogue items for reuse.</span>
+                              </div>
+                              <label className="quote-catalogue-search">
+                                <Search size={15} />
+                                <input
+                                  aria-label="Search catalogue"
+                                  placeholder="Search catalogue..."
+                                  value={catalogueSearch}
+                                  onChange={(event) => setCatalogueSearch(event.target.value)}
+                                />
+                              </label>
+                              <button className="simpro-grey-button" type="button" onClick={() => showNotice("Catalogue group setup will live in Settings so every quote uses the same folders.")}>
+                                CREATE GROUP
+                              </button>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                onClick={() => {
+                                  addOneOffQuoteMaterialLine(selectedQuoteCostCentre.id);
+                                  setActiveQuoteBuildTab("one-off");
+                                  scrollWorkspaceToTop();
+                                }}
+                              >
+                                CREATE ITEM
+                              </button>
+                            </div>
+
+                            <div className="quote-catalogue-layout">
+                              <div className="quote-catalogue-groups">
+                                <div className="quote-catalogue-head">
+                                  <strong>Groups</strong>
+                                  <span>Group name</span>
+                                </div>
+                                {quoteCatalogFolders.map((folder) => {
+                                  const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
+                                  return (
+                                    <button
+                                      className={activeCatalogueFolder === folder ? "active" : ""}
+                                      key={folder}
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveCatalogueFolder(folder);
+                                        scrollWorkspaceToTop();
+                                      }}
+                                    >
+                                      <span>{folder}</span>
+                                      <small>{folderCount} item(s)</small>
+                                      <MoreHorizontal size={15} />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="quote-catalogue-items">
+                                <div className="quote-catalogue-head">
+                                  <strong>{activeCatalogueFolder}</strong>
+                                  <span>{visibleCatalogItems.length} matching item(s)</span>
+                                </div>
+                                {visibleCatalogItems.map((item) => (
+                                  <div className="quote-catalogue-item-row" key={item.id}>
+                                    <div>
+                                      <strong>{item.name}</strong>
+                                      <span>{item.type} · {item.unit} · Cost {currency(item.costRate)} · Sell {currency(item.sellRate)}</span>
+                                    </div>
+                                    <button className="simpro-options-button" type="button" onClick={() => addQuoteLine(selectedQuoteCostCentre.id, item.id)}>
+                                      ADD
+                                    </button>
+                                  </div>
+                                ))}
+                                {!visibleCatalogItems.length ? (
+                                  <div className="quote-catalogue-empty">
+                                    <strong>No items in this group yet</strong>
+                                    <span>Create an item or save selected one-off rows into this catalogue folder.</span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()
                     ) : null}
 
                     {activeQuoteBuildTab === "one-off" ? (
@@ -10930,30 +11003,6 @@ export default function Dashboard() {
                             onChange={(event) => updateSupplierQuoteDraft(selectedQuoteCostCentre.id, { contactEmail: event.target.value })}
                           />
                         </label>
-                        <label>
-                          Supplier Quote
-                          <input
-                            accept=".pdf,.csv,.txt,.tsv"
-                            type="file"
-                            onChange={(event) => handleSupplierQuoteUpload(selectedQuoteCostCentre, event)}
-                          />
-                        </label>
-                        <label>
-                          Markup %
-                          <input
-                            inputMode="decimal"
-                            value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? 30}
-                            onChange={(event) => updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, Number(event.target.value) || 0)}
-                          />
-                        </label>
-                        <button
-                          className="simpro-blue-button"
-                          disabled={!supplierQuoteDrafts[selectedQuoteCostCentre.id]?.lines.length}
-                          type="button"
-                          onClick={() => applySupplierQuoteImport(selectedQuoteCostCentre.id)}
-                        >
-                          APPLY
-                        </button>
                         <button
                           className="simpro-grey-button"
                           type="button"
@@ -10988,7 +11037,7 @@ export default function Dashboard() {
                           return (
                             <div className="supplier-request-empty">
                               <strong>No supplier request items selected yet.</strong>
-                              <span>Go to the Summary, Catalogue or One-off tab, tick Supplier on the items you want priced, then stage them here.</span>
+                              <span>Go to the Summary, Catalogue or One-off tab, tick the left-hand boxes for the items you want priced, then send them to the supplier request form.</span>
                             </div>
                           );
                         }
@@ -11059,6 +11108,37 @@ export default function Dashboard() {
                               <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
                               <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
                               <span>{pricedCount === requestLines.length && requestLines.length > 0 ? "Ready to apply into quote summary" : "Waiting for all supplier prices"}</span>
+                            </div>
+
+                            <div className="supplier-return-panel">
+                              <div>
+                                <strong>Returned supplier quote</strong>
+                                <span>Upload the supplier PDF/CSV after they reply, then apply the matched cost prices into the quote.</span>
+                              </div>
+                              <label>
+                                Supplier Quote
+                                <input
+                                  accept=".pdf,.csv,.txt,.tsv"
+                                  type="file"
+                                  onChange={(event) => handleSupplierQuoteUpload(selectedQuoteCostCentre, event)}
+                                />
+                              </label>
+                              <label>
+                                Markup %
+                                <input
+                                  inputMode="decimal"
+                                  value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? 30}
+                                  onChange={(event) => updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, Number(event.target.value) || 0)}
+                                />
+                              </label>
+                              <button
+                                className="simpro-blue-button"
+                                disabled={!supplierQuoteDrafts[selectedQuoteCostCentre.id]?.lines.length}
+                                type="button"
+                                onClick={() => applySupplierQuoteImport(selectedQuoteCostCentre.id)}
+                              >
+                                APPLY RETURNED QUOTE
+                              </button>
                             </div>
                           </div>
                         );
@@ -11197,7 +11277,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeJobTab === tab.key}
                       className={activeJobTab === tab.key ? "simpro-tab active" : "simpro-tab"}
-                      onClick={() => setActiveJobTab(tab.key)}
+                      onClick={() => {
+                        setActiveJobTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -12021,7 +12104,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeCostCentreTab === tab.key}
                       className={activeCostCentreTab === tab.key ? "simpro-tab active" : "simpro-tab"}
-                      onClick={() => setActiveCostCentreTab(tab.key)}
+                      onClick={() => {
+                        setActiveCostCentreTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -12816,7 +12902,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeLeadTab === tab.key}
                       className={activeLeadTab === tab.key ? "employee-tab active" : "employee-tab"}
-                      onClick={() => setActiveLeadTab(tab.key)}
+                      onClick={() => {
+                        setActiveLeadTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -13455,7 +13544,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeClientTab === tab.key}
                       className={activeClientTab === tab.key ? "employee-tab active" : "employee-tab"}
-                      onClick={() => setActiveClientTab(tab.key)}
+                      onClick={() => {
+                        setActiveClientTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
@@ -13673,7 +13765,10 @@ export default function Dashboard() {
                       role="tab"
                       aria-selected={activeEmployeeTab === tab.key}
                       className={activeEmployeeTab === tab.key ? "employee-tab active" : "employee-tab"}
-                      onClick={() => setActiveEmployeeTab(tab.key)}
+                      onClick={() => {
+                        setActiveEmployeeTab(tab.key);
+                        scrollWorkspaceToTop();
+                      }}
                     >
                       {tab.label}
                     </button>
