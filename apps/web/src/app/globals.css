@@ -3327,6 +3327,36 @@ h1 {
   padding: 0 9px;
 }
 
+.quote-bulk-action-bar {
+  align-items: center;
+  background: #fff;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 1220px;
+  padding: 10px 0 2px;
+}
+
+.quote-bulk-action-bar span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin-right: auto;
+}
+
+.quote-bulk-action-bar .simpro-options-button {
+  height: 30px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+.quote-bulk-action-bar .simpro-options-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .simpro-billable-row.empty strong {
   color: var(--muted);
   font-size: 12px;

@@ -3521,6 +3521,7 @@ export default function Dashboard() {
   const [quoteCostCentres, setQuoteCostCentres] = useState<Record<string, QuoteCostCentre[]>>(defaultQuoteCostCentres);
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
+  const [selectedQuoteMaterialLineIds, setSelectedQuoteMaterialLineIds] = useState<Record<string, string[]>>({});
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
@@ -6880,11 +6881,61 @@ export default function Dashboard() {
     return selectedSupplierRequestLinesForCentre(centre);
   }
 
+  function selectedQuoteMaterialLinesForCentre(centre: QuoteCostCentre) {
+    const selectedIds = new Set(selectedQuoteMaterialLineIds[centre.id] ?? []);
+    return quoteCostCentreTotals(centre).materialLines.filter((line) => selectedIds.has(line.id));
+  }
+
+  function toggleQuoteMaterialLineSelection(centreId: string, lineId: string, checked: boolean) {
+    setSelectedQuoteMaterialLineIds((current) => {
+      const currentIds = new Set(current[centreId] ?? []);
+      if (checked) {
+        currentIds.add(lineId);
+      } else {
+        currentIds.delete(lineId);
+      }
+
+      return {
+        ...current,
+        [centreId]: Array.from(currentIds),
+      };
+    });
+  }
+
+  function toggleAllQuoteMaterialLineSelection(centre: QuoteCostCentre) {
+    const materialLines = quoteCostCentreTotals(centre).materialLines;
+    const selectedIds = new Set(selectedQuoteMaterialLineIds[centre.id] ?? []);
+    const allSelected = materialLines.length > 0 && materialLines.every((line) => selectedIds.has(line.id));
+
+    setSelectedQuoteMaterialLineIds((current) => ({
+      ...current,
+      [centre.id]: allSelected ? [] : materialLines.map((line) => line.id),
+    }));
+  }
+
   function stageSelectedSupplierRequestLines(centre: QuoteCostCentre) {
-    const lines = selectedSupplierRequestLinesForCentre(centre);
+    const lines = selectedQuoteMaterialLinesForCentre(centre).map((line) => ({
+      ...line,
+      supplierRequired: true,
+    }));
     if (!lines.length) {
-      showNotice("Tick Supplier on the items you want priced before staging the supplier request.");
+      showNotice("Select the items you want priced before staging the supplier request.");
       return;
+    }
+
+    if (selectedQuote) {
+      const selectedIds = new Set(lines.map((line) => line.id));
+      setQuoteCostCentres((current) => ({
+        ...current,
+        [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
+          item.id === centre.id
+            ? {
+                ...item,
+                lines: item.lines.map((line) => (selectedIds.has(line.id) ? { ...line, supplierRequired: true } : line)),
+              }
+            : item,
+        ),
+      }));
     }
 
     setSupplierQuoteDrafts((current) => ({
@@ -6902,6 +6953,78 @@ export default function Dashboard() {
     }));
     setActiveQuoteBuildTab("supplier-request");
     showNotice(`${lines.length} selected supplier item(s) staged in the request form.`);
+  }
+
+  function addSelectedQuoteLinesToCatalog(centre: QuoteCostCentre) {
+    if (!selectedQuote) return;
+    const lines = selectedQuoteMaterialLinesForCentre(centre);
+    if (!lines.length) {
+      showNotice("Select the one-off or material items you want to save to the catalogue.");
+      return;
+    }
+
+    const catalogPool: CatalogItem[] = [...quoteCatalog, ...customQuoteCatalog];
+    const lineCatalogUpdates: Record<string, string> = {};
+    const nextCustomItems: CatalogItem[] = [];
+    let skippedBlank = 0;
+    let reusedCount = 0;
+
+    lines.forEach((line, index) => {
+      const name = line.description.trim();
+      if (!name) {
+        skippedBlank += 1;
+        return;
+      }
+
+      const existing =
+        [...catalogPool, ...nextCustomItems].find(
+          (item) => item.name.trim().toLowerCase() === name.toLowerCase() && item.type !== "Labour",
+        ) ?? null;
+      if (existing) {
+        lineCatalogUpdates[line.id] = existing.id;
+        reusedCount += 1;
+        return;
+      }
+
+      const nextItem: CatalogItem = {
+        id: `custom-material-${Date.now()}-${index}`,
+        type: "Material",
+        name,
+        unit: "item",
+        costRate: line.unitCost,
+        sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
+      };
+      nextCustomItems.push(nextItem);
+      lineCatalogUpdates[line.id] = nextItem.id;
+    });
+
+    if (!nextCustomItems.length && !Object.keys(lineCatalogUpdates).length) {
+      showNotice("Add descriptions before saving selected items to the catalogue.");
+      return;
+    }
+
+    if (nextCustomItems.length) {
+      setCustomQuoteCatalog((current) => [...nextCustomItems, ...current]);
+    }
+
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
+        item.id === centre.id
+          ? {
+              ...item,
+              lines: item.lines.map((line) => {
+                const catalogItemId = lineCatalogUpdates[line.id];
+                return catalogItemId ? { ...line, catalogItemId } : line;
+              }),
+            }
+          : item,
+      ),
+    }));
+
+    showNotice(
+      `${nextCustomItems.length} item(s) added to the catalogue${reusedCount ? `, ${reusedCount} matched existing items` : ""}${skippedBlank ? `, ${skippedBlank} skipped without descriptions` : ""}.`,
+    );
   }
 
   function supplierLineMatchState(centre: QuoteCostCentre, line: QuoteCostLine) {
@@ -7182,6 +7305,10 @@ export default function Dashboard() {
             }
           : centre,
       ),
+    }));
+    setSelectedQuoteMaterialLineIds((current) => ({
+      ...current,
+      [centreId]: (current[centreId] ?? []).filter((id) => id !== lineId),
     }));
   }
 
@@ -10064,11 +10191,6 @@ export default function Dashboard() {
                                   <h3>Pull-through from catalogue, one-off items, heat loss, labour and Takeoff handoff</h3>
                                   <span>Takeoff and survey capture now live in Verrova Takeoff. This cost centre consumes the reviewed output.</span>
                                 </div>
-                                <div className="simpro-parts-actions">
-                                  <button className="simpro-grey-button" type="button" onClick={() => stageSelectedSupplierRequestLines(selectedQuoteCostCentre)}>
-                                    ADD SELECTED TO SUPPLIER REQUEST
-                                  </button>
-                                </div>
                               </div>
                               <div className="quote-build-summary-grid">
                                 <div>
@@ -10619,94 +10741,116 @@ export default function Dashboard() {
                     ) : null}
 
                     {["summary", "catalogue", "one-off"].includes(activeQuoteBuildTab) ? (
-                    <div className="simpro-billable-table">
-                      <div className="simpro-billable-row table-head parts">
-                        <span />
-                        <span>Description</span>
-                        <span>Time (hrs)</span>
-                        <span>Price</span>
-                        <span>Markup</span>
-                        <span>Sell Price</span>
-                        <span>Qty</span>
-                        <span>Supplier</span>
-                        <span>Total</span>
-                        <span />
-                      </div>
-                      {quoteCostCentreTotals(selectedQuoteCostCentre).materialLines.map((line) => (
-                        <div className="simpro-billable-row parts" key={line.id}>
-                          <input type="checkbox" aria-label={`Select ${line.description}`} />
-                          <textarea
-                            className="quote-line-description"
-                            value={line.description}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
-                          />
-                          <input value={0} readOnly />
-                          <input
-                            inputMode="decimal"
-                            placeholder="TBC"
-                            value={line.unitCost || ""}
-                            onChange={(event) => {
-                              const unitCost = Number(event.target.value) || 0;
-                              const markupPercent = quoteLineMarkupPercent(line) || 30;
-                              updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
-                                unitCost,
-                                unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                              });
-                            }}
-                          />
-                          <input
-                            inputMode="decimal"
-                            placeholder="TBC"
-                            value={line.unitCost > 0 ? quoteLineMarkupPercent(line) : ""}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + ((Number(event.target.value) || 0) / 100)) })}
-                          />
-                          <input
-                            inputMode="decimal"
-                            placeholder="TBC"
-                            value={line.unitSell || ""}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: Number(event.target.value) || 0 })}
-                          />
-                          <input
-                            inputMode="decimal"
-                            value={line.quantity}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
-                          />
-                          <label className="quote-supplier-toggle">
-                            <input
-                              checked={Boolean(line.supplierRequired)}
-                              type="checkbox"
-                              onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { supplierRequired: event.target.checked })}
-                            />
-                            <span>{line.supplierRequired ? "Yes" : "No"}</span>
-                          </label>
-                          <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
-                          <div className="quote-line-actions">
-                            {line.catalogItemId === "one-off-material" ? (
-                              <button className="simpro-options-button" type="button" onClick={() => convertQuoteLineToCatalogItem(selectedQuoteCostCentre.id, line)}>
-                                Save catalogue
-                              </button>
-                            ) : null}
-                            <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
-                              Remove <ChevronDown size={13} />
-                            </button>
+                      (() => {
+                        const materialLines = quoteCostCentreTotals(selectedQuoteCostCentre).materialLines;
+                        const selectedIds = new Set(selectedQuoteMaterialLineIds[selectedQuoteCostCentre.id] ?? []);
+                        const selectedCount = materialLines.filter((line) => selectedIds.has(line.id)).length;
+                        const allSelected = materialLines.length > 0 && selectedCount === materialLines.length;
+
+                        return (
+                          <div className="simpro-billable-table">
+                            <div className="simpro-billable-row table-head parts">
+                              <span>Select</span>
+                              <span>Description</span>
+                              <span>Time (hrs)</span>
+                              <span>Price</span>
+                              <span>Markup</span>
+                              <span>Sell Price</span>
+                              <span>Qty</span>
+                              <span>Supplier</span>
+                              <span>Total</span>
+                              <span />
+                            </div>
+                            {materialLines.map((line) => (
+                              <div className="simpro-billable-row parts" key={line.id}>
+                                <input
+                                  checked={selectedIds.has(line.id)}
+                                  type="checkbox"
+                                  aria-label={`Select ${line.description}`}
+                                  onChange={(event) => toggleQuoteMaterialLineSelection(selectedQuoteCostCentre.id, line.id, event.target.checked)}
+                                />
+                                <textarea
+                                  className="quote-line-description"
+                                  value={line.description}
+                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
+                                />
+                                <input value={0} readOnly />
+                                <input
+                                  inputMode="decimal"
+                                  placeholder="TBC"
+                                  value={line.unitCost || ""}
+                                  onChange={(event) => {
+                                    const unitCost = Number(event.target.value) || 0;
+                                    const markupPercent = quoteLineMarkupPercent(line) || 30;
+                                    updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                      unitCost,
+                                      unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                    });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  placeholder="TBC"
+                                  value={line.unitCost > 0 ? quoteLineMarkupPercent(line) : ""}
+                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + ((Number(event.target.value) || 0) / 100)) })}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  placeholder="TBC"
+                                  value={line.unitSell || ""}
+                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: Number(event.target.value) || 0 })}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={line.quantity}
+                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
+                                />
+                                <label className="quote-supplier-toggle">
+                                  <input
+                                    checked={Boolean(line.supplierRequired)}
+                                    type="checkbox"
+                                    onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { supplierRequired: event.target.checked })}
+                                  />
+                                  <span>{line.supplierRequired ? "Yes" : "No"}</span>
+                                </label>
+                                <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
+                                <div className="quote-line-actions">
+                                  <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
+                                    Remove <ChevronDown size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                            {materialLines.length === 0 ? (
+                              <div className="simpro-billable-row parts empty">
+                                <span />
+                                <strong>No material lines yet. Add a catalogue item, one-off material, or apply the radiator schedule above.</strong>
+                                <span />
+                                <span />
+                                <span />
+                                <span />
+                                <span />
+                                <span />
+                                <span />
+                                <span />
+                              </div>
+                            ) : (
+                              <div className="quote-bulk-action-bar">
+                                <span>{selectedCount} selected</span>
+                                <button className="simpro-options-button" type="button" onClick={() => toggleAllQuoteMaterialLineSelection(selectedQuoteCostCentre)}>
+                                  {allSelected ? "Clear selection" : "Select all"}
+                                </button>
+                                <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => stageSelectedSupplierRequestLines(selectedQuoteCostCentre)}>
+                                  Send to supplier request form
+                                </button>
+                                <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => addSelectedQuoteLinesToCatalog(selectedQuoteCostCentre)}>
+                                  Add items to catalog
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-                      ))}
-                      {quoteCostCentreTotals(selectedQuoteCostCentre).materialLines.length === 0 ? (
-                        <div className="simpro-billable-row parts empty">
-                          <span />
-                          <strong>No material lines yet. Add a catalogue item, one-off material, or apply the radiator schedule above.</strong>
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                          <span />
-                        </div>
-                      ) : null}
-                    </div>
+                        );
+                      })()
                     ) : null}
 
                     {activeQuoteBuildTab === "summary" ? (
