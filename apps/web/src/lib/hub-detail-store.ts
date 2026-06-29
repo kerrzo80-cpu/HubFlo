@@ -5,6 +5,7 @@ export type HubDetailState = {
   engineerFlowTemplate?: unknown;
   flowStepCompletion?: Record<string, unknown>;
   quoteCostCentres?: Record<string, unknown>;
+  customQuoteCatalog?: unknown[];
   jobCostCentres?: Record<string, unknown>;
   jobReviews?: Record<string, unknown>;
   jobDeliveryEvents?: unknown[];

@@ -96,6 +96,7 @@ const STORAGE_KEYS = {
   jobDeliveryEvents: "hubflo:job-delivery-events:v1",
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
+  customCatalog: "hubflo:custom-catalog:v1",
 } as const;
 
 function safeLoadStoredJson<T>(key: string, fallback: T): T {
@@ -803,6 +804,7 @@ type QuoteCostLine = {
   quantity: number;
   unitCost: number;
   unitSell: number;
+  supplierRequired?: boolean;
 };
 
 type SupplierQuoteDraft = {
@@ -983,6 +985,7 @@ type HubDetailStatePayload = {
   engineerFlowTemplate?: EngineerFlowTemplate;
   flowStepCompletion?: Record<string, boolean>;
   quoteCostCentres?: Record<string, QuoteCostCentre[]>;
+  customQuoteCatalog?: CatalogItem[];
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
   jobReviews?: Record<string, JobReviewState>;
   jobDeliveryEvents?: JobDeliveryEvent[];
@@ -3052,6 +3055,7 @@ function makeOneOffQuoteMaterialLine(): QuoteCostLine {
     quantity: 1,
     unitCost: 0,
     unitSell: 0,
+    supplierRequired: true,
   };
 }
 
@@ -3515,6 +3519,7 @@ export default function Dashboard() {
   const [renamingCostCentre, setRenamingCostCentre] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renameCostCentreDraft, setRenameCostCentreDraft] = useState("");
   const [quoteCostCentres, setQuoteCostCentres] = useState<Record<string, QuoteCostCentre[]>>(defaultQuoteCostCentres);
+  const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
@@ -3549,6 +3554,11 @@ export default function Dashboard() {
   const activeClientSites = useMemo(
     () => clientSites.filter((site) => site.clientId === activeClientId),
     [activeClientId, clientSites],
+  );
+
+  const availableQuoteCatalog = useMemo(
+    () => [...quoteCatalog, ...customQuoteCatalog],
+    [customQuoteCatalog],
   );
 
   const selectedLead = useMemo(
@@ -4231,6 +4241,7 @@ export default function Dashboard() {
     setEngineerFlowTemplate(safeLoadStoredJson(STORAGE_KEYS.engineerFlow, defaultBoilerFlowTemplate));
     setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
     setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, defaultQuoteCostCentres));
+    setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
     setJobDeliveryEvents(safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
@@ -4300,6 +4311,7 @@ export default function Dashboard() {
           if (hubState.engineerFlowTemplate) setEngineerFlowTemplate(hubState.engineerFlowTemplate);
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
           if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
+          if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
           if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
@@ -4352,6 +4364,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.engineerFlow, engineerFlowTemplate);
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
+    safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
@@ -4366,6 +4379,7 @@ export default function Dashboard() {
         engineerFlowTemplate,
         flowStepCompletion,
         quoteCostCentres,
+        customQuoteCatalog,
         jobCostCentres: jobEstimateCostCentres,
         jobReviews: jobReviewApprovals,
         jobDeliveryEvents,
@@ -4402,6 +4416,7 @@ export default function Dashboard() {
     engineerFlowTemplate,
     flowStepCompletion,
     quoteCostCentres,
+    customQuoteCatalog,
     jobEstimateCostCentres,
     jobReviewApprovals,
     jobDeliveryEvents,
@@ -6857,10 +6872,11 @@ export default function Dashboard() {
     const takeoffSupplierLines = (centre.takeoffRows ?? [])
       .filter((row) => row.supplierRequired)
       .map(makeTakeoffQuoteLine);
-    const calculatedSupplierLines = [...heatLossLines, ...takeoffSupplierLines];
+    const materialLines = quoteCostCentreTotals(centre).materialLines;
+    const flaggedSupplierLines = materialLines.filter((line) => line.supplierRequired);
+    const calculatedSupplierLines = [...heatLossLines, ...takeoffSupplierLines, ...flaggedSupplierLines];
     if (calculatedSupplierLines.length) return calculatedSupplierLines;
 
-    const materialLines = quoteCostCentreTotals(centre).materialLines;
     const awaitingSupplierLines = materialLines.filter((line) => line.unitCost === 0 || line.unitSell === 0);
     return awaitingSupplierLines.length ? awaitingSupplierLines : materialLines;
   }
@@ -7053,7 +7069,7 @@ export default function Dashboard() {
 
   function addQuoteLine(centreId: string, catalogItemId: string) {
     if (!selectedQuote) return;
-    const item = quoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId) ?? quoteCatalog[0];
+    const item = availableQuoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId) ?? availableQuoteCatalog[0];
     if (!item) return;
 
     setQuoteCostCentres((current) => ({
@@ -7099,6 +7115,36 @@ export default function Dashboard() {
           : centre,
       ),
     }));
+  }
+
+  function convertQuoteLineToCatalogItem(centreId: string, line: QuoteCostLine) {
+    if (!selectedQuote) return;
+    const name = line.description.trim();
+    if (!name) {
+      showNotice("Add a description before saving this item to the catalogue.");
+      return;
+    }
+
+    const existing = availableQuoteCatalog.find(
+      (item) => item.name.trim().toLowerCase() === name.toLowerCase() && item.type !== "Labour",
+    );
+    const nextItem: CatalogItem =
+      existing ??
+      {
+        id: `custom-material-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+        type: "Material",
+        name,
+        unit: "item",
+        costRate: line.unitCost,
+        sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
+      };
+
+    if (!existing) {
+      setCustomQuoteCatalog((current) => [nextItem, ...current]);
+    }
+
+    updateQuoteLine(centreId, line.id, { catalogItemId: nextItem.id });
+    showNotice(existing ? `${existing.name} already exists in the catalogue.` : `${nextItem.name} saved to the reusable catalogue.`);
   }
 
   function removeQuoteLine(centreId: string, lineId: string) {
@@ -10270,7 +10316,7 @@ export default function Dashboard() {
                             }}
                           >
                             <option value="" disabled>Add from catalogue</option>
-                            {quoteCatalog.filter((item) => item.type !== "Labour").map((item) => (
+                            {availableQuoteCatalog.filter((item) => item.type !== "Labour").map((item) => (
                               <option key={item.id} value={item.id}>
                                 {item.type}: {item.name}
                               </option>
@@ -10554,13 +10600,15 @@ export default function Dashboard() {
                         <span>Markup</span>
                         <span>Sell Price</span>
                         <span>Qty</span>
+                        <span>Supplier</span>
                         <span>Total</span>
                         <span />
                       </div>
                       {quoteCostCentreTotals(selectedQuoteCostCentre).materialLines.map((line) => (
                         <div className="simpro-billable-row parts" key={line.id}>
                           <input type="checkbox" aria-label={`Select ${line.description}`} />
-                          <input
+                          <textarea
+                            className="quote-line-description"
                             value={line.description}
                             onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
                           />
@@ -10595,16 +10643,32 @@ export default function Dashboard() {
                             value={line.quantity}
                             onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
                           />
+                          <label className="quote-supplier-toggle">
+                            <input
+                              checked={Boolean(line.supplierRequired)}
+                              type="checkbox"
+                              onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { supplierRequired: event.target.checked })}
+                            />
+                            <span>{line.supplierRequired ? "Yes" : "No"}</span>
+                          </label>
                           <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
-                          <button className="simpro-options-button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
-                            Options <ChevronDown size={13} />
-                          </button>
+                          <div className="quote-line-actions">
+                            {line.catalogItemId === "one-off-material" ? (
+                              <button className="simpro-options-button" type="button" onClick={() => convertQuoteLineToCatalogItem(selectedQuoteCostCentre.id, line)}>
+                                Save catalogue
+                              </button>
+                            ) : null}
+                            <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
+                              Remove <ChevronDown size={13} />
+                            </button>
+                          </div>
                         </div>
                       ))}
                       {quoteCostCentreTotals(selectedQuoteCostCentre).materialLines.length === 0 ? (
                         <div className="simpro-billable-row parts empty">
                           <span />
                           <strong>No material lines yet. Add a catalogue item, one-off material, or apply the radiator schedule above.</strong>
+                          <span />
                           <span />
                           <span />
                           <span />
@@ -10805,7 +10869,7 @@ export default function Dashboard() {
                         }}
                       >
                         <option value="" disabled>0 Selected</option>
-                        {quoteCatalog.filter((item) => item.type === "Labour").map((item) => (
+                        {availableQuoteCatalog.filter((item) => item.type === "Labour").map((item) => (
                           <option key={item.id} value={item.id}>
                             {item.name}
                           </option>

@@ -3264,8 +3264,8 @@ h1 {
 }
 
 .simpro-billable-row.parts {
-  grid-template-columns: 34px minmax(220px, 1.4fr) 82px 96px 90px 104px 72px 112px 84px;
-  min-width: 980px;
+  grid-template-columns: 34px minmax(280px, 1.6fr) 82px 96px 90px 104px 72px 96px 112px minmax(190px, auto);
+  min-width: 1220px;
 }
 
 .simpro-billable-row.labour {
@@ -3281,14 +3281,50 @@ h1 {
 }
 
 .simpro-billable-row input,
-.simpro-billable-row select {
+.simpro-billable-row select,
+.simpro-billable-row textarea {
   border: 1px solid #c8cdd1;
   border-radius: 3px;
   color: #111;
   font: inherit;
-  height: 34px;
   min-width: 0;
   padding: 0 8px;
+}
+
+.simpro-billable-row input,
+.simpro-billable-row select {
+  height: 34px;
+}
+
+.quote-line-description {
+  line-height: 1.35;
+  min-height: 46px;
+  padding-bottom: 7px;
+  padding-top: 7px;
+  resize: vertical;
+  white-space: pre-wrap;
+}
+
+.quote-supplier-toggle {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.quote-supplier-toggle input {
+  width: 15px;
+}
+
+.quote-line-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.quote-line-actions .simpro-options-button {
+  min-width: 0;
+  padding: 0 9px;
 }
 
 .simpro-billable-row.empty strong {
