@@ -3264,8 +3264,11 @@ h1 {
 }
 
 .simpro-billable-row.parts {
-  grid-template-columns: 54px minmax(280px, 1.6fr) 82px 96px 90px 104px 72px 112px minmax(190px, auto);
-  min-width: 1120px;
+  grid-template-columns:
+    48px minmax(180px, 1.7fr) minmax(58px, 0.42fr) minmax(76px, 0.56fr)
+    minmax(68px, 0.5fr) minmax(78px, 0.58fr) minmax(58px, 0.42fr)
+    minmax(94px, 0.72fr) minmax(92px, 0.7fr);
+  min-width: 0;
 }
 
 .simpro-billable-row.labour {
@@ -3315,6 +3318,7 @@ h1 {
 .quote-line-actions .simpro-options-button {
   min-width: 0;
   padding: 0 9px;
+  white-space: nowrap;
 }
 
 .quote-bulk-action-bar {
@@ -3324,8 +3328,8 @@ h1 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  justify-content: flex-end;
-  min-width: 1120px;
+  justify-content: flex-start;
+  min-width: 0;
   padding: 10px 0 2px;
 }
 
@@ -3333,7 +3337,7 @@ h1 {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
-  margin-right: auto;
+  margin-right: 8px;
 }
 
 .quote-bulk-action-bar .simpro-options-button {
@@ -11276,6 +11280,41 @@ kbd,
 .lead-row.clickable:hover small,
 .simpro-cost-centre-row:hover small {
   color: var(--muted);
+}
+
+.module-link:hover,
+.employee-tab:hover,
+.simpro-tab:hover,
+.simpro-sub-tabs button:hover {
+  background: #fffaf0;
+  border-color: rgba(212, 175, 55, 0.34);
+  color: var(--navy);
+}
+
+.module-link:hover svg,
+.module-link:hover span,
+.employee-tab:hover,
+.employee-tab:hover span,
+.simpro-tab:hover,
+.simpro-tab:hover span,
+.simpro-sub-tabs button:hover,
+.simpro-sub-tabs button:hover span {
+  color: var(--navy);
+}
+
+.module-link.active,
+.employee-tab.active,
+.simpro-tab.active,
+.simpro-sub-tabs button.active {
+  color: var(--navy);
+}
+
+.module-link.active svg,
+.module-link.active span,
+.employee-tab.active span,
+.simpro-tab.active span,
+.simpro-sub-tabs button.active span {
+  color: var(--navy);
 }
 
 @media (max-width: 760px) {

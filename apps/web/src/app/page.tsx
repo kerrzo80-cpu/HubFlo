@@ -795,6 +795,7 @@ type CatalogItem = {
   unit: string;
   costRate: number;
   sellRate: number;
+  category?: string;
 };
 
 type QuoteCostLine = {
@@ -1779,15 +1780,37 @@ const today = [
   { time: "15:30", title: "Boiler service", detail: "J-1060 · Scott", tone: "blue" },
 ];
 
+const quoteCatalogFolders = [
+  "Boiler parts",
+  "Bathroom items",
+  "Pipework and fittings",
+  "Consumables",
+  "Plant and access",
+  "Subcontractors",
+  "General materials",
+];
+
+function inferCatalogFolder(item: Pick<CatalogItem, "name" | "type" | "category">) {
+  if (item.category) return item.category;
+  const name = item.name.toLowerCase();
+  if (item.type === "Plant") return "Plant and access";
+  if (item.type === "Subcontractor") return "Subcontractors";
+  if (name.includes("boiler")) return "Boiler parts";
+  if (name.includes("bath") || name.includes("shower") || name.includes("toilet") || name.includes("basin")) return "Bathroom items";
+  if (name.includes("pipe") || name.includes("fitting") || name.includes("valve")) return "Pipework and fittings";
+  if (name.includes("consumable") || name.includes("skip") || name.includes("sundr")) return "Consumables";
+  return "General materials";
+}
+
 const quoteCatalog: CatalogItem[] = [
-  { id: "labour-engineer", type: "Labour", name: "Engineer labour", unit: "hour", costRate: 34, sellRate: 58 },
-  { id: "labour-apprentice", type: "Labour", name: "Apprentice labour", unit: "hour", costRate: 18, sellRate: 34 },
-  { id: "labour-manager", type: "Labour", name: "Manager review", unit: "hour", costRate: 42, sellRate: 74 },
-  { id: "material-boiler-kit", type: "Material", name: "Boiler install kit", unit: "each", costRate: 1180, sellRate: 1560 },
-  { id: "material-pipe-fittings", type: "Material", name: "Pipe and fittings pack", unit: "pack", costRate: 220, sellRate: 340 },
-  { id: "material-consumables", type: "Material", name: "Consumables allowance", unit: "allowance", costRate: 95, sellRate: 145 },
-  { id: "plant-access", type: "Plant", name: "Access equipment", unit: "day", costRate: 86, sellRate: 125 },
-  { id: "subcontract-testing", type: "Subcontractor", name: "Commissioning support", unit: "visit", costRate: 320, sellRate: 455 },
+  { id: "labour-engineer", type: "Labour", name: "Engineer labour", unit: "hour", costRate: 34, sellRate: 58, category: "Labour" },
+  { id: "labour-apprentice", type: "Labour", name: "Apprentice labour", unit: "hour", costRate: 18, sellRate: 34, category: "Labour" },
+  { id: "labour-manager", type: "Labour", name: "Manager review", unit: "hour", costRate: 42, sellRate: 74, category: "Labour" },
+  { id: "material-boiler-kit", type: "Material", name: "Boiler install kit", unit: "each", costRate: 1180, sellRate: 1560, category: "Boiler parts" },
+  { id: "material-pipe-fittings", type: "Material", name: "Pipe and fittings pack", unit: "pack", costRate: 220, sellRate: 340, category: "Pipework and fittings" },
+  { id: "material-consumables", type: "Material", name: "Consumables allowance", unit: "allowance", costRate: 95, sellRate: 145, category: "Consumables" },
+  { id: "plant-access", type: "Plant", name: "Access equipment", unit: "day", costRate: 86, sellRate: 125, category: "Plant and access" },
+  { id: "subcontract-testing", type: "Subcontractor", name: "Commissioning support", unit: "visit", costRate: 320, sellRate: 455, category: "Subcontractors" },
 ];
 
 const heatLossRoomTypes = [
@@ -5264,10 +5287,19 @@ export default function Dashboard() {
     clearEmployeeEditingState();
   }
 
+  function scrollWorkspaceToTop() {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      document.querySelector(".workspace")?.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+    });
+  }
+
   function openClientRecordView(clientId: string) {
     setActiveClientId(clientId);
     setActiveClientTab("overview");
     setHomeView("client-record");
+    scrollWorkspaceToTop();
   }
 
   function openLeadRecord(leadId: string) {
@@ -5277,6 +5309,7 @@ export default function Dashboard() {
     setSelectedLeadId(leadId);
     setActiveLeadTab("details");
     setHomeView("lead-record");
+    scrollWorkspaceToTop();
   }
 
   function closeDetailDrawers() {
@@ -5295,6 +5328,7 @@ export default function Dashboard() {
     setSelectedQuoteId(quoteId);
     setActiveQuoteTab("setup");
     setHomeView("quote-record");
+    scrollWorkspaceToTop();
   }
 
   function openJobDrawer(jobId: string) {
@@ -5306,12 +5340,14 @@ export default function Dashboard() {
     setSelectedCostCentreId(null);
     setActiveJobTab("summary");
     setHomeView("job-record");
+    scrollWorkspaceToTop();
   }
 
   function openInvoiceRecord(invoiceId: string) {
     setSelectedInvoiceId(invoiceId);
     setActiveInvoiceTab("summary");
     setHomeView("invoice-record");
+    scrollWorkspaceToTop();
   }
 
   function buildVariationsForJob(job: Job) {
@@ -6993,6 +7029,7 @@ export default function Dashboard() {
         unit: "item",
         costRate: line.unitCost,
         sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
+        category: inferCatalogFolder({ name, type: "Material" as const, category: undefined }),
       };
       nextCustomItems.push(nextItem);
       lineCatalogUpdates[line.id] = nextItem.id;
@@ -7283,6 +7320,7 @@ export default function Dashboard() {
         unit: "item",
         costRate: line.unitCost,
         sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
+        category: inferCatalogFolder({ name, type: "Material" as const, category: undefined }),
       };
 
     if (!existing) {
@@ -10466,11 +10504,22 @@ export default function Dashboard() {
                             }}
                           >
                             <option value="" disabled>Add from catalogue</option>
-                            {availableQuoteCatalog.filter((item) => item.type !== "Labour").map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.type}: {item.name}
-                              </option>
-                            ))}
+                            {quoteCatalogFolders.map((folder) => {
+                              const folderItems = availableQuoteCatalog
+                                .filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder)
+                                .sort((first, second) => first.name.localeCompare(second.name));
+                              if (!folderItems.length) return null;
+
+                              return (
+                                <optgroup key={folder} label={folder}>
+                                  {folderItems.map((item) => (
+                                    <option key={item.id} value={item.id}>
+                                      {item.type}: {item.name}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
                           </select>
                         </div>
                       </div>
