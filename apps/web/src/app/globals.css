@@ -1039,6 +1039,166 @@ kbd {
   padding: 10px 12px;
 }
 
+.addon-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 1540px;
+}
+
+.addon-hero {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  gap: 22px;
+  justify-content: space-between;
+  padding: 20px;
+}
+
+.addon-hero h2 {
+  color: var(--navy);
+  font-size: 22px;
+  margin: 4px 0 8px;
+}
+
+.addon-hero p {
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+  max-width: 720px;
+}
+
+.addon-core-badge {
+  background: linear-gradient(135deg, #071d3a, #0b2d5d);
+  border-radius: 8px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 260px;
+  padding: 18px;
+}
+
+.addon-core-badge strong {
+  font-size: 22px;
+}
+
+.addon-core-badge span {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.addon-card-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.addon-product-card {
+  align-items: flex-start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: inherit;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  min-height: 190px;
+  padding: 18px;
+  text-decoration: none;
+}
+
+.addon-product-card:hover {
+  border-color: rgba(212, 175, 55, 0.5);
+  box-shadow: 0 16px 36px rgba(8, 29, 58, 0.08);
+  transform: translateY(-1px);
+}
+
+.addon-icon {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #d9e2ec;
+  border-radius: 8px;
+  color: var(--navy);
+  display: inline-flex;
+  height: 42px;
+  justify-content: center;
+  width: 42px;
+}
+
+.addon-product-card strong {
+  color: var(--navy);
+  font-size: 16px;
+}
+
+.addon-product-card p {
+  color: #344054;
+  line-height: 1.45;
+  margin: 8px 0;
+}
+
+.addon-product-card small {
+  color: #667085;
+  display: block;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.addon-flow-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+
+.addon-flow {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+.addon-flow div {
+  background: #f8fafc;
+  border: 1px solid #e4e7ec;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 14px;
+}
+
+.addon-flow strong {
+  color: var(--navy);
+  font-size: 13px;
+}
+
+.addon-flow span {
+  color: #667085;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .addon-hero {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .addon-card-grid,
+  .addon-flow {
+    grid-template-columns: 1fr;
+  }
+
+  .addon-core-badge {
+    min-width: 0;
+  }
+}
+
 .workspace-header {
   align-items: flex-end;
   display: flex;

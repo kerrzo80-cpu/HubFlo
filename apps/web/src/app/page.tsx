@@ -331,6 +331,7 @@ type HomeView =
   | "lead-record"
   | "schedule"
   | "settings"
+  | "addons"
   | "employees"
   | "employee-card"
   | "clients"
@@ -1016,12 +1017,12 @@ type EmployeeProfileDraft = {
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
-  { label: "AI Surveyor", icon: Sparkles },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: CircleDollarSign },
+  { label: "Add-ons", icon: Sparkles },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Suppliers"] },
   { label: "Setup", icon: Settings },
 ];
@@ -8624,9 +8625,12 @@ export default function Dashboard() {
           const isActiveModule =
             (module.label === "Dashboard" && homeView === "dashboard") ||
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
+            (module.label === "Quotes" && ["quote-record", "quote-cost-centre-record"].includes(homeView)) ||
+            (module.label === "Jobs" && ["job-record", "cost-centre-record"].includes(homeView)) ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
+            (module.label === "Add-ons" && homeView === "addons") ||
             (module.label === "People" && ["employees", "employee-card", "clients", "client-record"].includes(homeView));
 
           if (module.subItems?.length) {
@@ -8668,8 +8672,6 @@ export default function Dashboard() {
                 event.preventDefault();
                 if (module.label === "Dashboard") {
                   returnToDashboard();
-                } else if (module.label === "AI Surveyor") {
-                  window.location.href = "/ai-surveyor";
                 } else if (module.label === "Leads") {
                   setHomeView("leads");
                 } else if (module.label === "Schedules") {
@@ -8678,6 +8680,8 @@ export default function Dashboard() {
                   setHomeView("settings");
                 } else if (module.label === "Invoices") {
                   setHomeView("invoices");
+                } else if (module.label === "Add-ons") {
+                  setHomeView("addons");
                 } else {
                   showNotice(`${module.label} module is coming soon in this build.`);
                 }
@@ -8717,6 +8721,8 @@ export default function Dashboard() {
                   ? "Schedules"
                 : homeView === "settings"
                   ? "Setup"
+                : homeView === "addons"
+                  ? "Add-ons"
                 : homeView === "clients" || homeView === "client-record"
                   ? "Clients"
                   : homeView === "employees"
@@ -8753,7 +8759,15 @@ export default function Dashboard() {
           <p className="sidebar-label">Quick access</p>
           <a href="/ai-surveyor" className="context-link">
             <Sparkles size={17} />
-            <span>AI Surveyor</span>
+            <span>Verrova Takeoff</span>
+          </a>
+          <a href="/engineer" className="context-link">
+            <HardHat size={17} />
+            <span>Verrova Field</span>
+          </a>
+          <a href="/office/whatsapp-pilot" className="context-link">
+            <Inbox size={17} />
+            <span>Verrova Connect</span>
           </a>
           <a href="/office/alerts" className="context-link">
             <Bell size={17} />
@@ -8816,6 +8830,8 @@ export default function Dashboard() {
                       ? "Schedules"
                     : homeView === "settings"
                       ? "Setup"
+                    : homeView === "addons"
+                      ? "Add-ons"
                     : homeView === "client-record"
                       ? "Client record"
                       : homeView === "clients"
@@ -8848,6 +8864,8 @@ export default function Dashboard() {
                     ? "Scheduler"
                   : homeView === "settings"
                     ? "Setup"
+                  : homeView === "addons"
+                    ? "Verrova add-ons"
                   : homeView === "client-record"
                     ? activeClient?.name || "Client record"
                     : homeView === "clients"
@@ -8879,6 +8897,8 @@ export default function Dashboard() {
                     ? `${bookingsForSelectedDate.length} appointments booked · availability for ${surveyorOptions.join(", ")}`
                   : homeView === "settings"
                     ? `${documentFolderTemplates.length} document folders · ${engineerFlowTemplate.steps.length} engineer stop/go checks`
+                  : homeView === "addons"
+                    ? "Takeoff, Field and Connect feed structured work back into Verrova Core"
                   : homeView === "client-record"
                     ? `${activeClient?.primaryContact || "No contact"} · ${activeClient?.email || "No email on file"}`
                     : homeView === "clients"
@@ -9023,6 +9043,16 @@ export default function Dashboard() {
                     Add folder
                   </button>
                 </>
+              ) : homeView === "addons" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to Core
+                  </button>
+                  <a className="primary-button" href="/ai-surveyor">
+                    <Sparkles size={16} />
+                    Open Takeoff
+                  </a>
+                </>
               ) : homeView === "client-record" ? (
                 <>
                   <button className="secondary-button" onClick={returnToClientsDirectory}>
@@ -9088,7 +9118,72 @@ export default function Dashboard() {
             </>
           ) : null}
 
-          {homeView === "quote-record" ? (
+          {homeView === "addons" ? (
+            <section className="addon-workspace">
+              <div className="addon-hero">
+                <div>
+                  <span className="permission-heading">Product suite</span>
+                  <h2>Verrova Core stays the hub</h2>
+                  <p>
+                    Specialist add-ons can do the heavy work, then push clean leads, quotes, cost centres,
+                    job events, documents and audit logs back into Core.
+                  </p>
+                </div>
+                <div className="addon-core-badge">
+                  <strong>Core</strong>
+                  <span>Clients · Leads · Quotes · Jobs · Invoices</span>
+                </div>
+              </div>
+
+              <div className="addon-card-grid">
+                <a className="addon-product-card" href="/ai-surveyor">
+                  <span className="addon-icon"><Sparkles size={20} /></span>
+                  <div>
+                    <strong>Verrova Takeoff</strong>
+                    <p>Drawings, specifications, BOQs, heat loss and supplier lists.</p>
+                    <small>Outputs quote cost centres, BOQ lines, supplier requests and documents.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+                <a className="addon-product-card" href="/engineer">
+                  <span className="addon-icon"><HardHat size={20} /></span>
+                  <div>
+                    <strong>Verrova Field</strong>
+                    <p>Engineer packs, stop/go checks, photos, forms, timesheets and variations.</p>
+                    <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+                <a className="addon-product-card" href="/office/whatsapp-pilot">
+                  <span className="addon-icon"><Inbox size={20} /></span>
+                  <div>
+                    <strong>Verrova Connect</strong>
+                    <p>Outlook, WhatsApp, suppliers, Checkatrade, accounting and API intake.</p>
+                    <small>Outputs communications, approvals, supplier costs and audit events.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+              </div>
+
+              <section className="addon-flow-panel">
+                <span className="permission-heading">How the data moves</span>
+                <div className="addon-flow">
+                  <div>
+                    <strong>1. Capture</strong>
+                    <span>Takeoff, Field or Connect receives information from the real world.</span>
+                  </div>
+                  <div>
+                    <strong>2. Structure</strong>
+                    <span>The add-on turns it into cost centres, events, documents or messages.</span>
+                  </div>
+                  <div>
+                    <strong>3. Feed Core</strong>
+                    <span>Verrova Core controls the quote, job, approval, invoice and audit trail.</span>
+                  </div>
+                </div>
+              </section>
+            </section>
+          ) : homeView === "quote-record" ? (
             selectedQuote ? (
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
