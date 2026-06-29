@@ -6864,21 +6864,44 @@ export default function Dashboard() {
     showNotice(`${lines.length} radiator line(s) staged in the supplier request preview.`);
   }
 
-  function supplierRequestLinesForCentre(centre: QuoteCostCentre) {
-    const stagedLines = supplierQuoteDrafts[centre.id]?.lines ?? [];
-    if (stagedLines.length) return stagedLines;
-
-    const heatLossLines = heatLossLinesForCentre(centre);
+  function selectedSupplierRequestLinesForCentre(centre: QuoteCostCentre) {
     const takeoffSupplierLines = (centre.takeoffRows ?? [])
       .filter((row) => row.supplierRequired)
       .map(makeTakeoffQuoteLine);
     const materialLines = quoteCostCentreTotals(centre).materialLines;
     const flaggedSupplierLines = materialLines.filter((line) => line.supplierRequired);
-    const calculatedSupplierLines = [...heatLossLines, ...takeoffSupplierLines, ...flaggedSupplierLines];
-    if (calculatedSupplierLines.length) return calculatedSupplierLines;
+    return [...takeoffSupplierLines, ...flaggedSupplierLines];
+  }
 
-    const awaitingSupplierLines = materialLines.filter((line) => line.unitCost === 0 || line.unitSell === 0);
-    return awaitingSupplierLines.length ? awaitingSupplierLines : materialLines;
+  function supplierRequestLinesForCentre(centre: QuoteCostCentre) {
+    const stagedLines = supplierQuoteDrafts[centre.id]?.lines ?? [];
+    if (stagedLines.length) return stagedLines;
+
+    return selectedSupplierRequestLinesForCentre(centre);
+  }
+
+  function stageSelectedSupplierRequestLines(centre: QuoteCostCentre) {
+    const lines = selectedSupplierRequestLinesForCentre(centre);
+    if (!lines.length) {
+      showNotice("Tick Supplier on the items you want priced before staging the supplier request.");
+      return;
+    }
+
+    setSupplierQuoteDrafts((current) => ({
+      ...current,
+      [centre.id]: {
+        supplier: current[centre.id]?.supplier ?? "",
+        contactEmail: current[centre.id]?.contactEmail ?? "",
+        subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} supplier quote request - ${centre.name}`,
+        message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
+        fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
+        markupPercent: current[centre.id]?.markupPercent ?? 30,
+        lines,
+        sentAt: current[centre.id]?.sentAt,
+      },
+    }));
+    setActiveQuoteBuildTab("supplier-request");
+    showNotice(`${lines.length} selected supplier item(s) staged in the request form.`);
   }
 
   function supplierLineMatchState(centre: QuoteCostCentre, line: QuoteCostLine) {
@@ -10041,6 +10064,11 @@ export default function Dashboard() {
                                   <h3>Pull-through from catalogue, one-off items, heat loss, labour and Takeoff handoff</h3>
                                   <span>Takeoff and survey capture now live in Verrova Takeoff. This cost centre consumes the reviewed output.</span>
                                 </div>
+                                <div className="simpro-parts-actions">
+                                  <button className="simpro-grey-button" type="button" onClick={() => stageSelectedSupplierRequestLines(selectedQuoteCostCentre)}>
+                                    ADD SELECTED TO SUPPLIER REQUEST
+                                  </button>
+                                </div>
                               </div>
                               <div className="quote-build-summary-grid">
                                 <div>
@@ -10773,7 +10801,14 @@ export default function Dashboard() {
                         const requestTotal = requestLines.reduce((total, line) => total + quoteLineSell(line), 0);
                         const pricedCount = requestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
                         const matchedCount = requestLines.filter((line) => supplierLineMatchState(selectedQuoteCostCentre, line) === "Matched").length;
-                        if (!requestLines.length) return null;
+                        if (!requestLines.length) {
+                          return (
+                            <div className="supplier-request-empty">
+                              <strong>No supplier request items selected yet.</strong>
+                              <span>Go to the Summary, Catalogue or One-off tab, tick Supplier on the items you want priced, then stage them here.</span>
+                            </div>
+                          );
+                        }
 
                         return (
                           <div className="supplier-request-pack">
