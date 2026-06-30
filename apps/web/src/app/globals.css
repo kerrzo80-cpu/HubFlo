@@ -2641,11 +2641,33 @@ h1 {
 .variation-section-create,
 .variation-cost-centre-create {
   border-bottom: 0;
+  gap: 14px;
   margin: 0;
+  padding: 12px 16px 16px;
+}
+
+.variation-section-create {
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) 118px;
 }
 
 .variation-cost-centre-create {
-  grid-template-columns: minmax(160px, 0.28fr) minmax(240px, 1fr) 140px 130px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+}
+
+.variation-cost-centre-create label {
+  min-width: 0;
+}
+
+.variation-cost-centre-create .simpro-blue-button,
+.variation-cost-centre-create .simpro-grey-button {
+  line-height: 1.05;
+  min-width: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.variation-cost-centre-create .simpro-blue-button {
+  white-space: normal;
 }
 
 .variation-cost-centre-board {
