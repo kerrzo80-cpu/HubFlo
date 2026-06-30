@@ -675,7 +675,7 @@ function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null): 
     to: client?.email ?? "",
     cc: "",
     subject: `${invoice.ref} - ${invoice.title}`,
-    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.\n\nKind regards,\nVerrova`,
+    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.\n\nKind regards,\nNeXa`,
     attachPdf: true,
   };
 }
@@ -765,7 +765,7 @@ type JobDeliveryEvent = {
   clientApprovalStatus?: "Not sent" | "Sent" | "Viewed" | "Approved" | "Declined";
   status?: string;
   portalToken?: string;
-  source: "Verrova" | "WhatsApp" | "Engineer app";
+  source: "NeXa" | "WhatsApp" | "Engineer app";
 };
 
 type JobDeliveryDraft = {
@@ -3436,7 +3436,7 @@ function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteE
     to: client?.email ?? "",
     cc: "",
     subject: `${quote.ref} - ${quote.description}`,
-    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nVerrova`,
+    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nNeXa`,
     layout: "quote",
     attachPdf: true,
   };
@@ -4471,7 +4471,7 @@ export default function Dashboard() {
         if (stopped) return;
 
         if (hasOfflineFallback) {
-          setSectionError("Some Verrova workflows are currently using local workspace data.");
+          setSectionError("Some NeXa workflows are currently using local workspace data.");
         } else {
           setSectionError(null);
         }
@@ -5577,7 +5577,7 @@ export default function Dashboard() {
     const created = makeInvoiceFromQuote(quote, client, sourceCentres, invoices);
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "created",
       recordType: "invoice",
       recordId: created.id,
@@ -5618,7 +5618,7 @@ export default function Dashboard() {
 
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "created",
       recordType: "invoice",
       recordId: created.id,
@@ -5645,7 +5645,7 @@ export default function Dashboard() {
       ),
     );
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: status.toLowerCase(),
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -5705,17 +5705,17 @@ export default function Dashboard() {
       );
     }
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "emailed",
       recordType: "invoice",
       recordId: selectedInvoice.id,
-      summary: `Invoice ${selectedInvoice.ref} emailed from Verrova via Outlook to ${selectedInvoiceEmailDraft.to}.`,
+      summary: `Invoice ${selectedInvoice.ref} emailed from NeXa via Outlook to ${selectedInvoiceEmailDraft.to}.`,
       source: "outlook draft",
       importance: "high",
     });
     if (sourceJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "invoiced",
         recordType: "job",
         recordId: sourceJob.id,
@@ -5749,7 +5749,7 @@ export default function Dashboard() {
     }
 
     const subject = `Application for payment - ${selectedInvoice.sourceName}`;
-    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nVerrova`;
+    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nNeXa`;
     const messageId = `outlook-valuation-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
 
     addCommunicationRecord({
@@ -5768,7 +5768,7 @@ export default function Dashboard() {
     });
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "valuation submitted",
       recordType: "invoice",
       recordId: selectedInvoice.id,
@@ -5779,7 +5779,7 @@ export default function Dashboard() {
 
     if (selectedInvoiceSourceJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "valuation submitted",
         recordType: "job",
         recordId: selectedInvoiceSourceJob.id,
@@ -5897,11 +5897,11 @@ export default function Dashboard() {
     }
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "emailed",
       recordType: "quote",
       recordId: selectedQuote.id,
-      summary: `${selectedQuote.ref} emailed from Verrova via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
+      summary: `${selectedQuote.ref} emailed from NeXa via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
@@ -5920,7 +5920,7 @@ export default function Dashboard() {
       status: "Sent",
     });
 
-    showNotice("Quote sent from Verrova and captured against the quote.");
+    showNotice("Quote sent from NeXa and captured against the quote.");
   }
 
   async function logQuotePortalViewed() {
@@ -6008,7 +6008,7 @@ export default function Dashboard() {
           kind: "variation",
           actor: quote.customer,
           summary: `${quote.ref}: ${quote.description}`,
-          source: "Verrova",
+          source: "NeXa",
           costValue: 0,
           sellValue: quote.value,
           reason: "Online variation quote accepted",
@@ -6256,7 +6256,7 @@ export default function Dashboard() {
         return;
       }
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "approved",
         recordType: "job",
         recordId: selectedJob.id,
@@ -6466,7 +6466,7 @@ export default function Dashboard() {
         kind: "po",
         actor: created.requestedBy,
         summary: `${created.item} from ${created.supplier}`,
-        source: "Verrova",
+        source: "NeXa",
         costValue: created.estimatedCost,
         status: created.status,
       });
@@ -6542,7 +6542,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "scheduled",
         recordType: "job",
         recordId: updated.id,
@@ -6568,7 +6568,7 @@ export default function Dashboard() {
       jobId: selectedJob.id,
       jobRef: selectedJob.ref,
       kind: "attendance",
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       summary: `Attendance confirmation requested from ${selectedJob.manager} for ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}.`,
       source: "WhatsApp",
       status: "Requested",
@@ -6687,11 +6687,11 @@ export default function Dashboard() {
         kind: "attendance",
         actor: updated.manager,
         summary: `${updated.manager} started ${updated.ref} from the schedule control.`,
-        source: "Verrova",
+        source: "NeXa",
         status: "Arrived",
       });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "started",
         recordType: "job",
         recordId: updated.id,
@@ -6718,7 +6718,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "completed",
         recordType: "job",
         recordId: updated.id,
@@ -6742,7 +6742,7 @@ export default function Dashboard() {
     });
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "reviewed",
       recordType: "job",
       recordId: selectedJob.id,
@@ -6768,7 +6768,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "approved",
         recordType: "job",
         recordId: updated.id,
@@ -6802,7 +6802,7 @@ export default function Dashboard() {
       );
       if (!updated) return;
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "closed",
         recordType: "job",
         recordId: updated.id,
@@ -6853,7 +6853,7 @@ export default function Dashboard() {
     setJobVariationSectionNameDraft("");
     setJobVariationSectionDescriptionDraft("");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "created",
       recordType: "job",
       recordId: selectedJob.id,
@@ -6881,7 +6881,7 @@ export default function Dashboard() {
     });
     setJobVariationCostCentreNameDraft("");
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "created",
       recordType: "job",
       recordId: selectedJob.id,
@@ -6946,7 +6946,7 @@ export default function Dashboard() {
       kind: "variation",
       actor: activeEmployee?.name ?? selectedJob.manager,
       summary: `${created.ref}: ${name}`,
-      source: "Verrova",
+      source: "NeXa",
       costValue: 0,
       sellValue: 0,
       reason: "Office variation quote",
@@ -6955,7 +6955,7 @@ export default function Dashboard() {
       status: "Quote drafted",
     });
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "created",
       recordType: "quote",
       recordId: created.id,
@@ -7087,7 +7087,7 @@ export default function Dashboard() {
 
     if (selectedJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova",
+        actor: activeEmployee?.name ?? "NeXa",
         action: "sent",
         recordType: "job",
         recordId: selectedJob.id,
@@ -7139,7 +7139,7 @@ export default function Dashboard() {
 
     if (selectedJob) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova",
+        actor: activeEmployee?.name ?? "NeXa",
         action: "uploaded",
         recordType: "job",
         recordId: selectedJob.id,
@@ -7204,7 +7204,7 @@ export default function Dashboard() {
           jobRef: selectedJob.ref,
           costCentreId: centre.id,
           costCentreName: centre.name,
-          requestedBy: activeEmployee?.name ?? "Verrova user",
+          requestedBy: activeEmployee?.name ?? "NeXa user",
           supplier,
           item: lines.map((line) => `${line.quantity} x ${line.description}`).join("; "),
           estimatedCost,
@@ -7232,7 +7232,7 @@ export default function Dashboard() {
         poIssuedAt: workflowTimestamp(),
       });
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "po issued",
         recordType: "purchase_request",
         recordId: approved.id,
@@ -7453,7 +7453,7 @@ export default function Dashboard() {
       ),
     }));
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova",
+      actor: activeEmployee?.name ?? "NeXa",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -7488,7 +7488,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova",
+        actor: activeEmployee?.name ?? "NeXa",
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -7626,7 +7626,7 @@ export default function Dashboard() {
     }));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova",
+      actor: activeEmployee?.name ?? "NeXa",
       action: "calculated",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -7888,7 +7888,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova",
+        actor: activeEmployee?.name ?? "NeXa",
         action: "sent",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -7937,7 +7937,7 @@ export default function Dashboard() {
 
         if (selectedQuote) {
           logAuditEvent({
-            actor: activeEmployee?.name ?? "Verrova",
+            actor: activeEmployee?.name ?? "NeXa",
             action: "uploaded",
             recordType: "quote",
             recordId: selectedQuote.id,
@@ -7983,7 +7983,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova",
+        actor: activeEmployee?.name ?? "NeXa",
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
@@ -8027,7 +8027,7 @@ export default function Dashboard() {
     }));
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova",
+      actor: activeEmployee?.name ?? "NeXa",
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
@@ -8375,7 +8375,7 @@ export default function Dashboard() {
     );
 
     logAuditEvent({
-      actor: activeEmployee?.name ?? "Verrova user",
+      actor: activeEmployee?.name ?? "NeXa user",
       action: "updated",
       recordType: "employee",
       recordId: editingEmployeeId,
@@ -8579,7 +8579,7 @@ export default function Dashboard() {
         email: draft.email.trim(),
         address: draft.address.trim(),
         source,
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
       }),
     });
 
@@ -8650,7 +8650,7 @@ export default function Dashboard() {
       surveyor: newLead.surveyor,
       surveyDate: newLead.surveyDate,
       surveyTime: newLead.surveyTime,
-      createdBy: newLead.createdBy || activeEmployee?.name || "Verrova user",
+      createdBy: newLead.createdBy || activeEmployee?.name || "NeXa user",
       next: hasSurveyBooking ? `Survey booked and notification sent to ${newLead.surveyor}.` : "Check diary and book survey appointment.",
     };
 
@@ -8706,7 +8706,7 @@ export default function Dashboard() {
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
-        actor: newLead.createdBy || activeEmployee?.name || "Verrova user",
+        actor: newLead.createdBy || activeEmployee?.name || "NeXa user",
         action: "created",
         recordType: "lead",
         recordId: result.lead.id,
@@ -8716,7 +8716,7 @@ export default function Dashboard() {
       });
       if (result.lead.status === "Survey booked") {
         logAuditEvent({
-          actor: "Verrova",
+          actor: "NeXa",
           action: "notified",
           recordType: "lead",
           recordId: result.lead.id,
@@ -8813,7 +8813,7 @@ export default function Dashboard() {
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
-        actor: newLead.createdBy || activeEmployee?.name || "Verrova user",
+        actor: newLead.createdBy || activeEmployee?.name || "NeXa user",
         action: "created",
         recordType: "lead",
         recordId: createdLead.id,
@@ -8823,7 +8823,7 @@ export default function Dashboard() {
       });
       if (createdLead.status === "Survey booked") {
         logAuditEvent({
-          actor: "Verrova",
+          actor: "NeXa",
           action: "notified",
           recordType: "lead",
           recordId: createdLead.id,
@@ -8919,7 +8919,7 @@ export default function Dashboard() {
     if (updated.ok) {
       setLeads((current) => current.map((item) => (item.id === updated.lead.id ? updated.lead : item)));
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "booked",
         recordType: "lead",
         recordId: lead.id,
@@ -9002,7 +9002,7 @@ export default function Dashboard() {
       return;
     }
 
-    const actor = activeEmployee?.name ?? "Verrova user";
+    const actor = activeEmployee?.name ?? "NeXa user";
     const leadDraft: LeadDraft = {
       customerMode: "new",
       clientId: lead.clientId,
@@ -9191,7 +9191,7 @@ export default function Dashboard() {
       setShowCreateQuote(false);
       setNewQuote(blankQuote);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "created",
         recordType: "quote",
         recordId: created.id,
@@ -9273,7 +9273,7 @@ export default function Dashboard() {
       setShowCreateJob(false);
       setNewJob(blankJob);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "created",
         recordType: "job",
         recordId: created.id,
@@ -9296,7 +9296,7 @@ export default function Dashboard() {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
-          actor: activeEmployee?.name ?? "Verrova user",
+          actor: activeEmployee?.name ?? "NeXa user",
           chargeValue: quote.id === selectedQuote?.id && selectedQuoteTotals.sell > 0 ? selectedQuoteTotals.sell : undefined,
         }),
       });
@@ -9322,7 +9322,7 @@ export default function Dashboard() {
         ...current.filter((event) => !result.auditEvents.some((created) => created.id === event.id)),
       ]);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova",
+        actor: activeEmployee?.name ?? "NeXa",
         action: "converted",
         recordType: "job",
         recordId: result.job.id,
@@ -9363,7 +9363,7 @@ export default function Dashboard() {
       setPurchaseDraft(blankPurchaseRequest);
       setShowPurchaseForm(false);
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: "created",
         recordType: "purchase_request",
         recordId: created.id,
@@ -9392,7 +9392,7 @@ export default function Dashboard() {
         current.map((request) => (request.id === updated.id ? updated : request)),
       );
       logAuditEvent({
-        actor: activeEmployee?.name ?? "Verrova user",
+        actor: activeEmployee?.name ?? "NeXa user",
         action: status === "Approved" ? "approved" : "updated",
         recordType: "purchase_request",
         recordId: updated.id,
@@ -9595,17 +9595,13 @@ export default function Dashboard() {
     <div className="platform">
       <header className="global-header">
         <div className="brand-lockup">
-          <span className="verrova-mark" aria-hidden="true">V</span>
-          <div className="product-name">
-            <strong>Verrova</strong>
-            <span>Control every moving part.</span>
-          </div>
+          <img src="/brand/nexa-command-lockup-dark.svg" alt="NeXa - Bound into one command center" />
         </div>
 
         <label className="global-search">
           <Search size={17} />
           <input
-            aria-label="Search Verrova"
+            aria-label="Search NeXa"
             placeholder="Search customers, jobs, quotes, assets..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -9652,10 +9648,10 @@ export default function Dashboard() {
             </button>
           </div>
           <button className="account-button" aria-label="Account menu" onClick={() => showNotice("Account panel is coming soon.")}>
-            <span className="account-avatar">V</span>
+            <span className="account-avatar">N</span>
             <span className="account-copy">
               <strong>{activeEmployee?.name ?? "Employee"}</strong>
-              <small>Verrova workspace</small>
+              <small>NeXa workspace</small>
             </span>
             <ChevronDown size={14} />
           </button>
@@ -9806,15 +9802,15 @@ export default function Dashboard() {
           <p className="sidebar-label">Quick access</p>
           <a href="/ai-surveyor" className="context-link">
             <Sparkles size={17} />
-            <span>Verrova Takeoff</span>
+            <span>NeXa Takeoff</span>
           </a>
           <a href="/engineer" className="context-link">
             <HardHat size={17} />
-            <span>Verrova Field</span>
+            <span>NeXa Field</span>
           </a>
           <a href="/office/whatsapp-pilot" className="context-link">
             <Inbox size={17} />
-            <span>Verrova Connect</span>
+            <span>NeXa Connect</span>
           </a>
           <a href="/office/alerts" className="context-link">
             <Bell size={17} />
@@ -9840,7 +9836,7 @@ export default function Dashboard() {
           ) : null}
 
           <div className="support-panel">
-            <span>Verrova workspace</span>
+            <span>NeXa workspace</span>
             <strong>All systems operational</strong>
             <small>Last sync 2 minutes ago</small>
           </div>
@@ -9850,7 +9846,7 @@ export default function Dashboard() {
           <div className="workspace-header">
             <div>
               <div className="breadcrumb">
-                <span>Verrova Operations</span>
+                <span>NeXa Operations</span>
                 <ChevronRight size={13} />
                 <strong>
                   {homeView === "employee-card"
@@ -9912,7 +9908,7 @@ export default function Dashboard() {
                   : homeView === "settings"
                     ? "Setup"
                   : homeView === "addons"
-                    ? "Verrova add-ons"
+                    ? "NeXa add-ons"
                   : homeView === "client-record"
                     ? activeClient?.name || "Client record"
                     : homeView === "clients"
@@ -9945,13 +9941,13 @@ export default function Dashboard() {
                   : homeView === "settings"
                     ? `${documentFolderTemplates.length} document folders · ${engineerFlowTemplate.steps.length} engineer stop/go checks`
                   : homeView === "addons"
-                    ? "Takeoff, Field and Connect feed structured work back into Verrova Core"
+                    ? "Takeoff, Field and Connect feed structured work back into NeXa Core"
                   : homeView === "client-record"
                     ? `${activeClient?.primaryContact || "No contact"} · ${activeClient?.email || "No email on file"}`
                     : homeView === "clients"
-                      ? `${clients.length} client accounts and ${clientSites.length} live sites in Verrova`
+                      ? `${clients.length} client accounts and ${clientSites.length} live sites in NeXa`
                   : homeView === "employees"
-                    ? `${employees.length} employees onboarded in Verrova`
+                    ? `${employees.length} employees onboarded in NeXa`
                     : "Monday, 22 June 2026 · Live business position"}
               </p>
             </div>
@@ -10116,7 +10112,7 @@ export default function Dashboard() {
                       activeClient
                         ? (() => {
                             logAuditEvent({
-                              actor: activeEmployee?.name ?? "Verrova user",
+                              actor: activeEmployee?.name ?? "NeXa user",
                               action: "reviewed",
                               recordType: "client",
                               recordId: activeClient.id,
@@ -10184,7 +10180,7 @@ export default function Dashboard() {
               <div className="addon-hero">
                 <div>
                   <span className="permission-heading">Product suite</span>
-                  <h2>Verrova Core stays the hub</h2>
+                  <h2>NeXa Core stays the hub</h2>
                   <p>
                     Specialist add-ons can do the heavy work, then push clean leads, quotes, cost centres,
                     job events, documents and audit logs back into Core.
@@ -10200,7 +10196,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/ai-surveyor">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
-                    <strong>Verrova Takeoff</strong>
+                    <strong>NeXa Takeoff</strong>
                     <p>Drawings, specifications, BOQs, heat loss and supplier lists.</p>
                     <small>Outputs quote cost centres, BOQ lines, supplier requests and documents.</small>
                   </div>
@@ -10209,7 +10205,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/engineer">
                   <span className="addon-icon"><HardHat size={20} /></span>
                   <div>
-                    <strong>Verrova Field</strong>
+                    <strong>NeXa Field</strong>
                     <p>Engineer packs, stop/go checks, photos, forms, timesheets and variations.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
                   </div>
@@ -10218,7 +10214,7 @@ export default function Dashboard() {
                 <a className="addon-product-card" href="/office/whatsapp-pilot">
                   <span className="addon-icon"><Inbox size={20} /></span>
                   <div>
-                    <strong>Verrova Connect</strong>
+                    <strong>NeXa Connect</strong>
                     <p>Outlook, WhatsApp, suppliers, Checkatrade, accounting and API intake.</p>
                     <small>Outputs communications, approvals, supplier costs and audit events.</small>
                   </div>
@@ -10239,7 +10235,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <strong>3. Feed Core</strong>
-                    <span>Verrova Core controls the quote, job, approval, invoice and audit trail.</span>
+                    <span>NeXa Core controls the quote, job, approval, invoice and audit trail.</span>
                   </div>
                 </div>
               </section>
@@ -10334,7 +10330,7 @@ export default function Dashboard() {
                     <section className="ai-quote-review-panel">
                       <header>
                         <div>
-                          <span><Sparkles size={15} /> Verrova AI review</span>
+                          <span><Sparkles size={15} /> NeXa AI review</span>
                           <h2>Questions before this quote goes out</h2>
                         </div>
                         <button
@@ -10998,7 +10994,7 @@ export default function Dashboard() {
                       <p><AlertTriangle size={16} /> No one is scheduled or assigned to this quote cost centre.</p>
                       <h3>Timeline</h3>
                       <div className="simpro-timeline-card">
-                        <strong>{activeEmployee?.name ?? "Verrova"} - Note</strong>
+                        <strong>{activeEmployee?.name ?? "NeXa"} - Note</strong>
                         <span>{selectedQuoteCostCentre.name} estimate opened.</span>
                       </div>
                     </aside>
@@ -11065,7 +11061,7 @@ export default function Dashboard() {
                                 <div>
                                   <h2>Scope summary</h2>
                                   <h3>Pull-through from catalogue, one-off items, heat loss, labour and Takeoff handoff</h3>
-                                  <span>Takeoff and survey capture now live in Verrova Takeoff. This cost centre consumes the reviewed output.</span>
+                                  <span>Takeoff and survey capture now live in NeXa Takeoff. This cost centre consumes the reviewed output.</span>
                                 </div>
                               </div>
                               <div className="quote-build-summary-grid">
@@ -11107,7 +11103,7 @@ export default function Dashboard() {
                           <div>
                             <h2>Survey tools</h2>
                             <h3>iPad room scans, survey photos, concept looks and takeoff outputs</h3>
-                            <span>Capture the room once, then let Verrova feed the quote, heat loss, supplier request and client-facing visuals.</span>
+                            <span>Capture the room once, then let NeXa feed the quote, heat loss, supplier request and client-facing visuals.</span>
                           </div>
                           <div className="simpro-parts-actions">
                             <button className="simpro-grey-button" type="button" onClick={() => addSurveyAssetToQuoteCentre(selectedQuoteCostCentre, "Room scan")}>
@@ -13142,7 +13138,7 @@ export default function Dashboard() {
                       <p><AlertTriangle size={16} /> No one is scheduled or assigned to this cost centre.</p>
                       <h3>Timeline</h3>
                       <div className="simpro-timeline-card">
-                        <strong>{activeEmployee?.name ?? "Verrova"} - Note</strong>
+                        <strong>{activeEmployee?.name ?? "NeXa"} - Note</strong>
                         <span>{selectedCostCentre.name} estimate opened.</span>
                       </div>
                     </aside>
@@ -14294,13 +14290,13 @@ export default function Dashboard() {
                             );
                           })}
                         </div>
-                        <p>When the appointment is booked, Verrova logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
+                        <p>When the appointment is booked, NeXa logs it and notifies the assigned surveyor with the customer, address, source and description.</p>
                         <button
                           className="secondary-button"
                           disabled={selectedLead.status !== "Survey booked"}
                           onClick={() => {
                             logAuditEvent({
-                              actor: "Verrova",
+                              actor: "NeXa",
                               action: "notified",
                               recordType: "lead",
                               recordId: selectedLead.id,
@@ -14426,7 +14422,7 @@ export default function Dashboard() {
             <section className="setup-workspace">
               <div className="panel-header">
                 <div>
-                  <h2>Verrova setup</h2>
+                  <h2>NeXa setup</h2>
                   <p>Default folders, visibility and engineer stop/go flows that records inherit across leads, quotes and jobs.</p>
                 </div>
               </div>
@@ -14875,7 +14871,7 @@ export default function Dashboard() {
                           className="secondary-button"
                           onClick={() => {
                             logAuditEvent({
-                              actor: activeEmployee?.name ?? "Verrova user",
+                              actor: activeEmployee?.name ?? "NeXa user",
                               action: "updated",
                               recordType: "client",
                               recordId: activeClient.id,
@@ -14905,7 +14901,7 @@ export default function Dashboard() {
                               className="secondary-button"
                               onClick={() => {
                                 logAuditEvent({
-                                  actor: activeEmployee?.name ?? "Verrova user",
+                                  actor: activeEmployee?.name ?? "NeXa user",
                                   action: "reviewed",
                                   recordType: "site",
                                   recordId: site.id,
@@ -15426,7 +15422,7 @@ export default function Dashboard() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Permission controls</span>
                         <span className="employee-access-note">
-                          Configure what this employee can see and change inside Verrova.
+                          Configure what this employee can see and change inside NeXa.
                         </span>
                       </div>
                       <div className="employee-permissions-grid">

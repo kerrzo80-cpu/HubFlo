@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Verrova",
-  description: "The command platform for modern business operations.",
+  title: "NeXa",
+  description: "Bound into one command center for service operations.",
+  icons: {
+    icon: "/brand/nexa-favicon.svg",
+  },
 };
 
 export default function RootLayout({

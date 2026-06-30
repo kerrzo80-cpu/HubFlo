@@ -1,0 +1,1610 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeXa Brand System Template</title>
+    <style>
+      :root {
+        --obsidian: #050608;
+        --black: #0a0a0c;
+        --graphite: #181a1d;
+        --graphite-2: #22262b;
+        --line: rgba(218, 175, 55, .28);
+        --line-soft: rgba(255, 255, 255, .11);
+        --brass: #8E743E;
+        --brass-2: #B8A06A;
+        --ink: #f2f0ea;
+        --muted: #b8b7b1;
+        --steel: #747b86;
+        --cyan: #2E8C7D;
+        --green: #22c55e;
+        --amber: #f5c04a;
+        --red: #ef4444;
+        --blue: #2E8C7D;
+        --shadow: 0 24px 80px rgba(0, 0, 0, .42);
+        --font-display: Sora, "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
+        --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        background: var(--obsidian);
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 18% 8%, rgba(46, 140, 125, .07), transparent 28%),
+          radial-gradient(circle at 82% 34%, rgba(46, 140, 125, .06), transparent 32%),
+          linear-gradient(180deg, #020304 0%, #0a0a0c 100%);
+        font-family: var(--font-ui);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .deck {
+        width: min(1800px, calc(100vw - 32px));
+        margin: 16px auto 40px;
+        border: 1px solid rgba(142, 116, 62, .24);
+        background: rgba(5, 6, 8, .96);
+        box-shadow: var(--shadow);
+      }
+
+      .board {
+        min-height: 900px;
+        border-bottom: 1px solid var(--line);
+        padding: 42px 58px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .board:last-child {
+        border-bottom: 0;
+      }
+
+      .board:before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        opacity: .45;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, .025) 1px, transparent 1px);
+        background-size: 80px 80px;
+        mask-image: linear-gradient(180deg, black, transparent 92%);
+      }
+
+      .board > * {
+        position: relative;
+        z-index: 1;
+      }
+
+      .eyebrow,
+      .small-label {
+        color: var(--brass-2);
+        font-family: var(--font-display);
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: .28em;
+        text-transform: uppercase;
+      }
+
+      .rule {
+        width: 42px;
+        height: 2px;
+        margin-top: 18px;
+        background: linear-gradient(90deg, var(--brass-2), transparent);
+      }
+
+      .top-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1.05fr .62fr;
+        gap: 44px;
+        align-items: center;
+        padding-top: 36px;
+      }
+
+      .hero-logo {
+        display: grid;
+        grid-template-columns: 210px 1fr;
+        gap: 44px;
+        align-items: center;
+      }
+
+      .divider {
+        width: 1px;
+        height: 168px;
+        background: var(--line);
+      }
+
+      .hero-word {
+        font-family: var(--font-display);
+        font-size: clamp(58px, 6vw, 104px);
+        font-weight: 760;
+        letter-spacing: -0.015em;
+        line-height: 1;
+      }
+
+      .hero-word .x {
+        color: var(--brass-2);
+        text-shadow: 0 0 24px rgba(142, 116, 62, .18);
+      }
+
+      .hero-tag {
+        margin-top: 24px;
+        color: var(--brass-2);
+        font-family: var(--font-display);
+        font-size: 28px;
+        letter-spacing: .2em;
+        text-transform: uppercase;
+      }
+
+      .statement {
+        border-left: 1px solid var(--line);
+        padding-left: 42px;
+      }
+
+      .statement p,
+      .body-copy {
+        margin: 22px 0 0;
+        color: var(--ink);
+        font-size: 21px;
+        line-height: 1.65;
+      }
+
+      .mini-mark {
+        border-left: 1px solid var(--line);
+        padding-left: 38px;
+      }
+
+      .monogram {
+        width: 142px;
+        height: 142px;
+      }
+
+      .info-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0;
+        margin: 44px -58px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .info-card {
+        min-height: 230px;
+        padding: 34px 58px;
+        border-right: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.012));
+      }
+
+      .info-card:last-child {
+        border-right: 0;
+      }
+
+      .info-icon {
+        width: 38px;
+        height: 38px;
+        color: var(--brass-2);
+        margin-bottom: 26px;
+      }
+
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h2 {
+        font-family: var(--font-display);
+        letter-spacing: .18em;
+        text-transform: uppercase;
+      }
+
+      h3 {
+        color: var(--brass-2);
+        font-family: var(--font-display);
+        font-size: 16px;
+        letter-spacing: .22em;
+        text-transform: uppercase;
+      }
+
+      .info-card p,
+      .panel p,
+      .caption,
+      .muted {
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.55;
+      }
+
+      .value-list {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        color: var(--ink);
+        font-size: 17px;
+      }
+
+      .value-list li {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(142, 116, 62, .18);
+      }
+
+      .lower-grid {
+        display: grid;
+        grid-template-columns: .92fr 1fr;
+        gap: 50px;
+        margin-top: 40px;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 24px;
+      }
+
+      .palette {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 28px;
+      }
+
+      .swatch {
+        display: grid;
+        gap: 14px;
+      }
+
+      .swatch-box {
+        height: 124px;
+        border: 1px solid rgba(255,255,255,.24);
+        border-radius: 8px;
+        box-shadow: inset 0 1px 1px rgba(255,255,255,.16);
+      }
+
+      .swatch strong {
+        display: block;
+        color: var(--ink);
+        font-size: 14px;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+      }
+
+      .swatch span {
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.018)),
+          #08090b;
+        padding: 28px;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      }
+
+      .type-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 42px;
+      }
+
+      .type-name {
+        font-family: var(--font-display);
+        font-size: 50px;
+        letter-spacing: .36em;
+      }
+
+      .scale {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 20px;
+        margin-top: 22px;
+      }
+
+      .scale strong {
+        display: block;
+        color: var(--ink);
+        font-size: 34px;
+      }
+
+      .scale span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .footer-strip {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 24px;
+        border-top: 1px solid var(--line);
+        margin: 38px -58px -42px;
+        padding: 24px 58px;
+        color: var(--brass-2);
+        font-family: var(--font-display);
+        font-size: 13px;
+        letter-spacing: .34em;
+        text-transform: uppercase;
+      }
+
+      .component-layout {
+        display: grid;
+        grid-template-columns: 310px 1fr;
+        gap: 34px;
+        margin-top: 30px;
+      }
+
+      .sidebar-brand {
+        min-height: 100%;
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: linear-gradient(180deg, rgba(214,174,69,.08), rgba(255,255,255,.02));
+      }
+
+      .sidebar-brand .big-title {
+        margin: 32px 0 16px;
+        font-family: var(--font-display);
+        font-size: 34px;
+        letter-spacing: .18em;
+        line-height: 1.22;
+        text-transform: uppercase;
+      }
+
+      .token-list {
+        display: grid;
+        gap: 14px;
+        margin-top: 28px;
+      }
+
+      .mini-swatch {
+        display: grid;
+        grid-template-columns: 34px 1fr;
+        gap: 12px;
+        align-items: center;
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+
+      .mini-swatch i {
+        display: block;
+        width: 34px;
+        height: 28px;
+        border: 1px solid rgba(255,255,255,.22);
+        border-radius: 4px;
+      }
+
+      .component-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 14px;
+      }
+
+      .component-grid .panel {
+        min-height: 170px;
+        padding: 18px;
+      }
+
+      .wide {
+        grid-column: span 2;
+      }
+
+      .full {
+        grid-column: 1 / -1;
+      }
+
+      .button-row,
+      .field-row,
+      .chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        align-items: center;
+        margin-top: 18px;
+      }
+
+      .btn {
+        height: 38px;
+        padding: 0 18px;
+        border: 1px solid rgba(142, 116, 62, .28);
+        border-radius: 6px;
+        background: rgba(255,255,255,.035);
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .btn.primary {
+        color: #111;
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--brass-2), var(--brass));
+        box-shadow: 0 10px 30px rgba(142, 116, 62, .14);
+      }
+
+      .btn.danger {
+        color: #ffd9d9;
+        border-color: rgba(239, 68, 68, .45);
+        background: rgba(239, 68, 68, .12);
+      }
+
+      .input,
+      .select {
+        width: 100%;
+        height: 42px;
+        border: 1px solid rgba(255,255,255,.12);
+        border-radius: 6px;
+        background: rgba(255,255,255,.045);
+        color: var(--steel);
+        padding: 0 14px;
+        font-size: 13px;
+      }
+
+      .input.focus {
+        border-color: rgba(142, 116, 62, .72);
+        color: var(--ink);
+        box-shadow: 0 0 0 3px rgba(46, 140, 125, .07);
+      }
+
+      .input.error {
+        border-color: rgba(239, 68, 68, .8);
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 0 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .draft { background: #2b2f36; color: #d5d9df; }
+      .pending { background: rgba(245,192,74,.16); color: #f6ca69; }
+      .approved { background: rgba(34,197,94,.14); color: #4ade80; }
+      .risk { background: rgba(249,115,22,.16); color: #fb923c; }
+      .complete { background: rgba(31,122,255,.16); color: #60a5fa; }
+      .overdue { background: rgba(239,68,68,.16); color: #ff7b7b; }
+
+      .nav-list {
+        display: grid;
+        gap: 7px;
+        margin-top: 20px;
+      }
+
+      .nav-item {
+        display: grid;
+        grid-template-columns: 22px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        min-height: 38px;
+        padding: 0 12px;
+        border-radius: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .nav-item.active {
+        color: var(--brass-2);
+        background: rgba(214,174,69,.1);
+      }
+
+      .card-row {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 14px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 10px;
+        font-size: 30px;
+        font-weight: 500;
+      }
+
+      .spark {
+        width: 100%;
+        height: 42px;
+        margin-top: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid rgba(255,255,255,.08);
+        padding: 13px 12px;
+        text-align: left;
+      }
+
+      th {
+        color: var(--ink);
+        font-size: 11px;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .mobile-header {
+        text-align: center;
+        margin-bottom: 28px;
+      }
+
+      .mobile-header h1 {
+        margin: 6px 0 0;
+        font-family: var(--font-display);
+        font-size: 46px;
+        font-weight: 500;
+        letter-spacing: .18em;
+        text-transform: uppercase;
+      }
+
+      .phone-row {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 24px;
+        align-items: start;
+      }
+
+      .phone-block {
+        display: grid;
+        gap: 18px;
+      }
+
+      .phone {
+        aspect-ratio: 9 / 19.5;
+        border: 2px solid #393c41;
+        border-radius: 36px;
+        padding: 13px;
+        background: #050608;
+        box-shadow: 0 20px 50px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.08);
+      }
+
+      .screen {
+        height: 100%;
+        border-radius: 26px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 100% 0, rgba(214,174,69,.1), transparent 28%),
+          linear-gradient(180deg, #101216, #060709);
+        padding: 18px 14px;
+        position: relative;
+      }
+
+      .notch {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 88px;
+        height: 22px;
+        border-radius: 0 0 16px 16px;
+        background: #050608;
+      }
+
+      .statusbar {
+        display: flex;
+        justify-content: space-between;
+        color: var(--ink);
+        font-size: 10px;
+        margin-bottom: 20px;
+      }
+
+      .mobile-card {
+        border: 1px solid rgba(255,255,255,.08);
+        border-radius: 12px;
+        background: rgba(255,255,255,.045);
+        padding: 12px;
+        margin-top: 10px;
+      }
+
+      .mobile-card strong {
+        display: block;
+        font-size: 18px;
+        font-weight: 500;
+      }
+
+      .mobile-card small,
+      .phone-caption {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .bottom-nav {
+        position: absolute;
+        left: 14px;
+        right: 14px;
+        bottom: 14px;
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 6px;
+        color: var(--muted);
+        font-size: 9px;
+        text-align: center;
+      }
+
+      .plus {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        margin: -10px auto 0;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--brass-2), var(--brass));
+        color: #111;
+        font-size: 22px;
+      }
+
+      .phone-caption strong {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--brass-2);
+        font-family: var(--font-display);
+        font-size: 15px;
+        letter-spacing: .14em;
+        text-transform: uppercase;
+      }
+
+      .principles {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 24px;
+        margin-top: 36px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 24px 30px;
+      }
+
+      .principle {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 18px;
+      }
+
+      .principle svg {
+        color: var(--brass-2);
+      }
+
+      .options-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 22px;
+        margin-top: 34px;
+      }
+
+      .logo-option {
+        min-height: 430px;
+        display: grid;
+        align-content: space-between;
+      }
+
+      .logo-display {
+        display: grid;
+        place-items: center;
+        min-height: 210px;
+        border-radius: 8px;
+        background: radial-gradient(circle, rgba(214,174,69,.09), rgba(255,255,255,.02));
+      }
+
+      .logo-display svg {
+        width: 154px;
+        height: 154px;
+      }
+
+      .recommend {
+        display: inline-flex;
+        width: fit-content;
+        padding: 6px 10px;
+        border: 1px solid rgba(214,174,69,.44);
+        border-radius: 999px;
+        color: var(--brass-2);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }
+
+      .logo-lockups {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 22px;
+        margin-top: 30px;
+      }
+
+      .lockup-demo {
+        min-height: 210px;
+        display: grid;
+        place-items: center;
+      }
+
+      .word-demo {
+        font-family: var(--font-display);
+        font-size: 62px;
+        font-weight: 760;
+        letter-spacing: -0.015em;
+      }
+
+      .word-demo span {
+        color: var(--brass-2);
+      }
+
+      /* Light executive theme: premium without the heavy black-board feel. */
+      :root {
+        --obsidian: #E7ECEF;
+        --black: #ffffff;
+        --graphite: #edf0f3;
+        --graphite-2: #d9dee5;
+        --line: rgba(158, 127, 45, .24);
+        --line-soft: rgba(15, 23, 42, .11);
+        --brass: #5E4A24;
+        --brass-2: #8E743E;
+        --ink: #202A36;
+        --muted: #5D6673;
+        --steel: #778193;
+        --shadow: 0 24px 80px rgba(16, 24, 39, .14);
+      }
+
+      html {
+        background: #E7ECEF;
+      }
+
+      body {
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 14% 6%, rgba(46, 140, 125, .08), transparent 30%),
+          radial-gradient(circle at 84% 30%, rgba(46, 140, 125, .06), transparent 34%),
+          linear-gradient(180deg, #F7F8F8 0%, #eef2f6 100%);
+      }
+
+      .deck {
+        border-color: rgba(158, 127, 45, .22);
+        background: rgba(255, 255, 255, .96);
+        box-shadow: var(--shadow);
+      }
+
+      .board:before {
+        opacity: .32;
+        background-image:
+          linear-gradient(rgba(16, 24, 39, .035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(16, 24, 39, .025) 1px, transparent 1px);
+      }
+
+      .eyebrow,
+      .small-label,
+      h3,
+      .info-icon,
+      .hero-word .x,
+      .hero-tag,
+      .footer-strip,
+      .nav-item.active,
+      .phone-caption strong,
+      .principle svg,
+      .recommend,
+      .word-demo span {
+        color: var(--brass);
+      }
+
+      .hero-word .x {
+        text-shadow: none;
+      }
+
+      .rule {
+        background: linear-gradient(90deg, var(--brass), transparent);
+      }
+
+      .statement p,
+      .body-copy,
+      .value-list,
+      .swatch strong,
+      .scale strong,
+      th,
+      .statusbar {
+        color: var(--ink);
+      }
+
+      .info-card {
+        background: linear-gradient(180deg, rgba(184, 138, 36, .06), rgba(255, 255, 255, .72));
+      }
+
+      .value-list li {
+        border-bottom-color: rgba(184, 138, 36, .22);
+      }
+
+      .swatch-box {
+        border-color: rgba(16, 24, 39, .14);
+        box-shadow: inset 0 1px 1px rgba(255, 255, 255, .5);
+      }
+
+      .panel {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, .94), rgba(231, 236, 239, .74)),
+          #ffffff;
+        box-shadow: 0 14px 34px rgba(16, 24, 39, .08), inset 0 1px 0 rgba(255, 255, 255, .88);
+      }
+
+      .sidebar-brand {
+        background: linear-gradient(180deg, rgba(255, 255, 255, .92), rgba(251, 248, 241, .78));
+      }
+
+      .mini-swatch i {
+        border-color: rgba(16, 24, 39, .18);
+      }
+
+      .btn {
+        background: rgba(16, 24, 39, .035);
+        color: var(--ink);
+      }
+
+      .btn.danger {
+        color: #9f1d1d;
+        background: rgba(239, 68, 68, .08);
+      }
+
+      .input,
+      .select {
+        border-color: rgba(16, 24, 39, .12);
+        background: rgba(255, 255, 255, .78);
+      }
+
+      .draft {
+        background: #e5e7eb;
+        color: #374151;
+      }
+
+      .pending {
+        color: #9a6b00;
+      }
+
+      .approved {
+        color: #15803d;
+      }
+
+      .risk {
+        color: #c2410c;
+      }
+
+      .complete {
+        color: #1d4ed8;
+      }
+
+      .overdue {
+        color: #b91c1c;
+      }
+
+      .nav-item.active {
+        background: rgba(184, 138, 36, .1);
+      }
+
+      td {
+        border-bottom-color: rgba(16, 24, 39, .08);
+      }
+
+      .phone {
+        border-color: #d7dce3;
+        background: #E7ECEF;
+        box-shadow: 0 20px 50px rgba(16, 24, 39, .18), inset 0 0 0 1px rgba(255, 255, 255, .72);
+      }
+
+      .screen {
+        background:
+          radial-gradient(circle at 100% 0, rgba(46, 140, 125, .07), transparent 28%),
+          linear-gradient(180deg, #ffffff, #f1f4f7);
+      }
+
+      .notch {
+        background: #202A36;
+      }
+
+      .mobile-card {
+        border-color: rgba(16, 24, 39, .08);
+        background: rgba(255, 255, 255, .82);
+      }
+
+      .logo-display {
+        background: radial-gradient(circle, rgba(46, 140, 125, .07), rgba(255, 255, 255, .88));
+      }
+
+      /* Balanced command theme: warmer, richer and less binary than pure black or pure white. */
+      :root {
+        --obsidian: #E5EAED;
+        --black: #202A36;
+        --graphite: #232a35;
+        --graphite-2: #384252;
+        --line: rgba(148, 111, 38, .28);
+        --line-soft: rgba(23, 32, 51, .14);
+        --brass: #5E4A24;
+        --brass-2: #A99562;
+        --ink: #202A36;
+        --muted: #5d6675;
+        --steel: #7b8492;
+        --shadow: 0 28px 90px rgba(40, 32, 20, .18);
+      }
+
+      html {
+        background: #E5EAED;
+      }
+
+      body {
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% 10%, rgba(142, 116, 62, .14), transparent 28%),
+          radial-gradient(circle at 88% 18%, rgba(46, 140, 125, .08), transparent 30%),
+          linear-gradient(135deg, #F1F4F5 0%, #E5EAED 48%, #DEE7E6 100%);
+      }
+
+      .deck {
+        border-color: rgba(148, 111, 38, .34);
+        background: rgba(247, 249, 249, .96);
+        box-shadow: var(--shadow);
+      }
+
+      .board {
+        background:
+          linear-gradient(135deg, rgba(255, 255, 255, .64), rgba(229, 234, 237, .82) 52%, rgba(226, 234, 232, .7));
+      }
+
+      .board:before {
+        opacity: .26;
+      }
+
+      .hero-logo,
+      .statement,
+      .mini-mark,
+      .panel,
+      .sidebar-brand,
+      .phone .screen,
+      .principles {
+        border-color: rgba(142, 116, 62, .22);
+      }
+
+      .hero-logo {
+        grid-template-columns: 170px 1fr;
+        padding: 28px 34px;
+        border: 1px solid rgba(142, 116, 62, .22);
+        border-radius: 10px;
+        background:
+          radial-gradient(circle at 20% 0%, rgba(142, 116, 62, .12), transparent 34%),
+          linear-gradient(135deg, #202A36 0%, #202838 64%, #2d3441 100%);
+        box-shadow: 0 22px 64px rgba(23, 32, 51, .22);
+      }
+
+      .hero-logo .hero-word,
+      .hero-logo .body-copy,
+      .hero-logo .muted {
+        color: #f6f1e8;
+      }
+
+      .hero-tag {
+        color: #A99562;
+      }
+
+      .statement,
+      .mini-mark {
+        border-left: 0;
+        border: 1px solid rgba(142, 116, 62, .2);
+        border-radius: 10px;
+        padding: 30px 34px;
+        background: rgba(255, 255, 255, .5);
+        box-shadow: 0 14px 38px rgba(40, 32, 20, .08);
+      }
+
+      .statement p {
+        color: #273143;
+      }
+
+      .info-card {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.64), rgba(245,238,224,.46)),
+          rgba(255,255,255,.38);
+      }
+
+      .panel,
+      .sidebar-brand {
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(231, 236, 239, .58)),
+          rgba(255, 255, 255, .42);
+        box-shadow: 0 16px 44px rgba(40, 32, 20, .09), inset 0 1px 0 rgba(255,255,255,.74);
+      }
+
+      #component-system .panel,
+      #logo-options .panel.logo-option {
+        background:
+          radial-gradient(circle at 18% 0%, rgba(142, 116, 62, .09), transparent 28%),
+          linear-gradient(180deg, #202838, #161d2b);
+        color: #f6f1e8;
+        border-color: rgba(142, 116, 62, .22);
+        box-shadow: 0 20px 58px rgba(23, 32, 51, .2);
+      }
+
+      #component-system .panel p,
+      #component-system .panel .muted,
+      #logo-options .panel.logo-option p {
+        color: #c5c0b6;
+      }
+
+      #component-system .panel h3,
+      #logo-options .panel.logo-option h2,
+      #logo-options .panel.logo-option h3 {
+        color: #A99562;
+      }
+
+      #component-system .panel th,
+      #component-system .panel .metric strong,
+      #component-system .panel .value-list,
+      #component-system .panel .nav-item,
+      #component-system .panel .input.focus,
+      #logo-options .panel.logo-option .recommend {
+        color: #f6f1e8;
+      }
+
+      #component-system .input,
+      #component-system .select {
+        background: rgba(255,255,255,.07);
+        border-color: rgba(255,255,255,.13);
+        color: #aeb5bf;
+      }
+
+      #component-system .btn {
+        background: rgba(255,255,255,.07);
+        color: #f6f1e8;
+      }
+
+      #component-system .btn.primary,
+      .plus {
+        color: #161d2b;
+      }
+
+      #component-system .metric[style*="239,68,68"],
+      .alert-surface {
+        background:
+          radial-gradient(circle at 100% 0%, rgba(239, 68, 68, .32), transparent 34%),
+          linear-gradient(180deg, rgba(90, 24, 30, .96), rgba(43, 18, 24, .96)) !important;
+        border-color: rgba(239, 68, 68, .42) !important;
+        color: #ffe7e7;
+      }
+
+      #component-system .metric[style*="239,68,68"] p,
+      .alert-surface p {
+        color: #ffc4c4;
+      }
+
+      .phone {
+        border-color: rgba(23, 32, 51, .42);
+        background: #202A36;
+        box-shadow: 0 24px 58px rgba(23,32,51,.24), inset 0 0 0 1px rgba(255,255,255,.12);
+      }
+
+      .screen {
+        background:
+          radial-gradient(circle at 100% 0, rgba(216,177,90,.18), transparent 28%),
+          linear-gradient(180deg, #f9f6ef 0%, #e8edf0 100%);
+      }
+
+      .mobile-card {
+        background: rgba(255,255,255,.7);
+        border-color: rgba(23,32,51,.1);
+      }
+
+      .logo-display {
+        background:
+          radial-gradient(circle at 50% 22%, rgba(216,177,90,.18), transparent 34%),
+          linear-gradient(180deg, rgba(255,255,255,.24), rgba(255,255,255,.06));
+      }
+
+      .lockup-demo {
+        background:
+          linear-gradient(180deg, rgba(255,255,255,.72), rgba(245,238,224,.46)),
+          rgba(255,255,255,.38);
+      }
+
+      @media (max-width: 1180px) {
+        .board {
+          padding: 32px 24px;
+        }
+
+        .top-grid,
+        .lower-grid,
+        .component-layout,
+        .phone-row {
+          grid-template-columns: 1fr;
+        }
+
+        .info-grid,
+        .palette,
+        .component-grid,
+        .card-row,
+        .principles,
+        .options-grid,
+        .logo-lockups {
+          grid-template-columns: 1fr;
+        }
+
+        .info-grid,
+        .footer-strip {
+          margin-left: -24px;
+          margin-right: -24px;
+        }
+
+        .phone {
+          max-width: 300px;
+          margin: 0 auto;
+        }
+      }
+
+      @media print {
+        body {
+          background: var(--obsidian);
+        }
+
+        .deck {
+          width: 100%;
+          margin: 0;
+          border: 0;
+        }
+
+        .board {
+          min-height: 100vh;
+          break-after: page;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="deck">
+      <section class="board" id="brand-system">
+        <div class="eyebrow">NeXa Brand System</div>
+        <div class="rule"></div>
+
+        <div class="top-grid">
+          <div class="hero-logo">
+            <svg class="monogram" viewBox="0 0 160 160" aria-hidden="true">
+              <defs>
+                <linearGradient id="BrassMark" x1="28" y1="12" x2="136" y2="148" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#B8A06A"/>
+                  <stop offset=".55" stop-color="#8E743E"/>
+                  <stop offset="1" stop-color="#5E4A24"/>
+                </linearGradient>
+              </defs>
+              <path d="M34 30L68 66M126 30L92 66M34 130L68 94M126 130L92 94" stroke="url(#BrassMark)" stroke-width="18" stroke-linecap="round"/>
+              <rect x="62" y="62" width="36" height="36" rx="9" fill="#B8A06A" transform="rotate(45 80 80)"/>
+              <rect x="73" y="73" width="14" height="14" rx="3.5" fill="#202A36" transform="rotate(45 80 80)"/>
+            </svg>
+            <div>
+              <div class="hero-word">Ne<span class="x">X</span>a</div>
+              <div class="hero-tag">Bound into one command center.</div>
+            </div>
+          </div>
+
+          <div class="statement">
+            <h3>Brand Statement</h3>
+            <p>NeXa is the command platform for modern service operations. We bind every quote, job, engineer, message, document and invoice into one clear operational view, so nothing is loose and every decision moves forward.</p>
+          </div>
+
+          <div class="mini-mark">
+            <h3>Monogram</h3>
+            <svg class="monogram" viewBox="0 0 160 160" aria-hidden="true">
+              <defs>
+                <linearGradient id="miniBrass" x1="28" y1="12" x2="136" y2="148" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#B8A06A"/>
+                  <stop offset=".55" stop-color="#8E743E"/>
+                  <stop offset="1" stop-color="#5E4A24"/>
+                </linearGradient>
+              </defs>
+              <g id="miniNexaMark">
+                <path d="M34 30L68 66M126 30L92 66M34 130L68 94M126 130L92 94" stroke="url(#miniBrass)" stroke-width="18" stroke-linecap="round"/>
+                <rect x="62" y="62" width="36" height="36" rx="9" fill="#B8A06A" transform="rotate(45 80 80)"/>
+                <rect x="73" y="73" width="14" height="14" rx="3.5" fill="#202A36" transform="rotate(45 80 80)"/>
+              </g>
+            </svg>
+          </div>
+        </div>
+
+        <div class="info-grid">
+          <article class="info-card">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l8 4.5v9L12 22l-8-6.5v-9L12 2z"/><path d="M8 11l3 3 5-6"/></svg>
+            <h3>Brand Essence</h3>
+            <p>Control. Clarity. Connection. NeXa brings order to operational complexity and helps teams run with authority.</p>
+          </article>
+          <article class="info-card">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8z"/><path d="M8 9h8M8 13h5"/></svg>
+            <h3>Tone Of Voice</h3>
+            <p>Executive, calm and exact. NeXa speaks with confidence and removes noise rather than adding more of it.</p>
+          </article>
+          <article class="info-card">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+            <h3>Our Mission</h3>
+            <p>Bind the full job lifecycle into one command center: enquiry, quote, schedule, delivery, invoice and review.</p>
+          </article>
+          <article class="info-card">
+            <svg class="info-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-4z"/></svg>
+            <h3>Our Values</h3>
+            <ul class="value-list">
+              <li>Control</li>
+              <li>Clarity</li>
+              <li>Reliability</li>
+              <li>Security</li>
+              <li>Excellence</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="lower-grid">
+          <section>
+            <div class="section-head">
+              <h2>Colour Palette</h2>
+            </div>
+            <div class="palette">
+              <div class="swatch"><div class="swatch-box" style="background:linear-gradient(135deg,#B8A06A,#8E743E 55%,#5E4A24)"></div><div><strong>Muted Brass</strong><span>#8E743E</span></div></div>
+              <div class="swatch"><div class="swatch-box" style="background:#202A36"></div><div><strong>Executive Slate</strong><span>#202A36</span></div></div>
+              <div class="swatch"><div class="swatch-box" style="background:#ffffff"></div><div><strong>Control White</strong><span>#FFFFFF</span></div></div>
+              <div class="swatch"><div class="swatch-box" style="background:#E7ECEF"></div><div><strong>Porcelain Mist</strong><span>#E7ECEF</span></div></div>
+              <div class="swatch"><div class="swatch-box" style="background:#2E8C7D"></div><div><strong>Verdigris</strong><span>#2E8C7D</span></div></div>
+            </div>
+            <p class="body-copy" style="font-size:16px;color:var(--muted);margin-top:26px;">Primary palette: porcelain mist, control white, executive slate and muted brass. Verdigris is reserved for links, live signals and interactive workflow states.</p>
+          </section>
+
+          <section class="panel">
+            <h2>Typography</h2>
+            <div class="type-row">
+              <div>
+                <h3>Primary Typeface</h3>
+                <div class="type-name">SORA</div>
+                <p>ABCDEFGHIJKLMNOPQRSTUVWXYZ<br>abcdefghijklmnopqrstuvwxyz<br>0123456789</p>
+                <p>Clean. Modern. Geometric. Built for clarity and control.</p>
+              </div>
+              <div>
+                <h3>Wordmark</h3>
+                <div class="word-demo">Ne<span>X</span>a</div>
+                <p>Mixed case with the X acting as the binding point. Use generous space and calm hierarchy.</p>
+                <div class="scale">
+                  <div><strong>H1</strong><span>48/56 Bold</span></div>
+                  <div><strong>H2</strong><span>32/40 SemiBold</span></div>
+                  <div><strong>H3</strong><span>24/32 SemiBold</span></div>
+                  <div><strong>Body</strong><span>16/24 Regular</span></div>
+                  <div><strong>Cap</strong><span>12/16 Regular</span></div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="footer-strip">
+          <span>NeXa</span>
+          <span>The executive command center for service operations.</span>
+          <span>v1.0</span>
+        </div>
+      </section>
+
+      <section class="board" id="logo-options">
+        <div class="eyebrow">NeXa Logo Options</div>
+        <div class="rule"></div>
+        <p class="body-copy" style="max-width:940px;">Three directions for the same idea: bind, command and control. Option B is now the primary recommendation because it expresses the core NeXa idea most clearly: separate workstreams fastened into one command node.</p>
+
+        <div class="options-grid">
+          <article class="panel logo-option">
+            <div>
+              <h2 style="margin-top:18px;">Option A - Command V</h2>
+              <p>A sharper executive mark. It implies authority, verification and forward motion, but is less literal to the binding idea.</p>
+            </div>
+            <div class="logo-display">
+              <svg viewBox="0 0 160 160" aria-hidden="true">
+                <defs><linearGradient id="optA" x1="28" y1="12" x2="136" y2="148"><stop stop-color="#B8A06A"/><stop offset=".55" stop-color="#8E743E"/><stop offset="1" stop-color="#5E4A24"/></linearGradient></defs>
+                <path d="M26 24L70 132L80 106L49 44L72 52L92 94L134 24L110 32L83 82L64 42L26 24Z" fill="url(#optA)"/>
+                <path d="M54 76L80 136L107 76L94 86L80 112L66 86L54 76Z" fill="#B8A06A"/>
+              </svg>
+            </div>
+          </article>
+
+          <article class="panel logo-option">
+            <div>
+              <span class="recommend">Recommended</span>
+              <h2 style="margin-top:18px;">Option B - Bound X</h2>
+              <p>The primary NeXa mark. Four workflow arms lock into a central node, representing quote, schedule, field and finance bound into one command center.</p>
+            </div>
+            <div class="logo-display">
+              <svg viewBox="0 0 160 160" aria-hidden="true">
+                <defs><linearGradient id="optB" x1="20" y1="18" x2="140" y2="142"><stop stop-color="#2E8C7D"/><stop offset="1" stop-color="#8E743E"/></linearGradient></defs>
+                <path d="M38 34L68 64M122 34L92 64M38 126L68 96M122 126L92 96" stroke="url(#optB)" stroke-width="18" stroke-linecap="round"/>
+                <rect x="66" y="66" width="28" height="28" rx="6" fill="#B8A06A" transform="rotate(45 80 80)"/>
+                <rect x="74" y="74" width="12" height="12" rx="3" fill="#050608" transform="rotate(45 80 80)"/>
+              </svg>
+            </div>
+          </article>
+
+          <article class="panel logo-option">
+            <div>
+              <h2>Option C - Executive Node</h2>
+              <p>A quieter enterprise mark. The ring shows a command perimeter, with an X-node forming the controlled center.</p>
+            </div>
+            <div class="logo-display">
+              <svg viewBox="0 0 160 160" aria-hidden="true">
+                <defs><linearGradient id="optC" x1="24" y1="24" x2="136" y2="136"><stop stop-color="#B8A06A"/><stop offset="1" stop-color="#2E8C7D"/></linearGradient></defs>
+                <circle cx="80" cy="80" r="52" fill="none" stroke="rgba(214,174,69,.42)" stroke-width="8"/>
+                <path d="M54 48L106 112M106 48L54 112" stroke="url(#optC)" stroke-width="16" stroke-linecap="round"/>
+                <circle cx="80" cy="80" r="12" fill="#f2f0ea"/>
+              </svg>
+            </div>
+          </article>
+        </div>
+
+        <div class="logo-lockups">
+          <article class="panel lockup-demo">
+            <div>
+              <div class="word-demo">Ne<span>X</span>a</div>
+              <p class="muted">Primary wordmark - mixed case with capital X as the binding point.</p>
+            </div>
+          </article>
+          <article class="panel lockup-demo" style="background:#f2f0ea;color:#050608;">
+            <div>
+              <div class="word-demo" style="color:#050608;">Ne<span style="color:#b58a24;">X</span>a</div>
+              <p style="color:#5f5f5f;">Light environment lockup for proposals, invoices and printed material.</p>
+            </div>
+          </article>
+        </div>
+
+        <div class="footer-strip">
+          <span>Logo rules</span>
+          <span>Use the mark only where the name NeXa already appears nearby.</span>
+          <span>01</span>
+        </div>
+      </section>
+
+      <section class="board" id="component-system">
+        <div class="eyebrow">Design System + Components</div>
+        <div class="rule"></div>
+
+        <div class="component-layout">
+          <aside class="sidebar-brand">
+            <svg class="monogram" viewBox="0 0 160 160" aria-hidden="true">
+              <defs><linearGradient id="sideBrass" x1="28" y1="12" x2="136" y2="148"><stop stop-color="#B8A06A"/><stop offset=".55" stop-color="#8E743E"/><stop offset="1" stop-color="#5E4A24"/></linearGradient></defs>
+              <path d="M34 30L68 66M126 30L92 66M34 130L68 94M126 130L92 94" stroke="url(#sideBrass)" stroke-width="18" stroke-linecap="round"/>
+              <rect x="62" y="62" width="36" height="36" rx="9" fill="#B8A06A" transform="rotate(45 80 80)"/>
+              <rect x="73" y="73" width="14" height="14" rx="3.5" fill="#202A36" transform="rotate(45 80 80)"/>
+            </svg>
+            <div class="big-title">Design System + Components</div>
+            <p class="muted">A unified system for premium, accessible operational software.</p>
+
+            <div class="token-list">
+              <div class="mini-swatch"><i style="background:#8E743E"></i><span>Muted Brass<br>#8E743E</span></div>
+              <div class="mini-swatch"><i style="background:#202A36"></i><span>Executive Slate<br>#202A36</span></div>
+              <div class="mini-swatch"><i style="background:#ffffff"></i><span>Control White<br>#FFFFFF</span></div>
+              <div class="mini-swatch"><i style="background:#E7ECEF"></i><span>Porcelain Mist<br>#E7ECEF</span></div>
+              <div class="mini-swatch"><i style="background:#2E8C7D"></i><span>Verdigris<br>#2E8C7D</span></div>
+            </div>
+          </aside>
+
+          <section class="component-grid">
+            <article class="panel wide">
+              <h3>Buttons</h3>
+              <div class="button-row">
+                <button class="btn primary">Primary</button>
+                <button class="btn">Secondary</button>
+                <button class="btn">Ghost</button>
+                <button class="btn danger">Danger</button>
+              </div>
+              <div class="button-row">
+                <button class="btn primary" style="filter:brightness(1.14)">Hover</button>
+                <button class="btn" style="border-color:rgba(214,174,69,.7)">Focus</button>
+                <button class="btn" style="opacity:.42">Disabled</button>
+              </div>
+            </article>
+
+            <article class="panel">
+              <h3>Input Fields</h3>
+              <div class="field-row"><div class="input">Enter text...</div></div>
+              <div class="field-row"><div class="input focus">Focused field</div></div>
+              <div class="field-row"><div class="input error">Input error</div></div>
+            </article>
+
+            <article class="panel">
+              <h3>Status Chips</h3>
+              <div class="chip-row">
+                <span class="chip draft">Draft</span>
+                <span class="chip pending">Pending</span>
+                <span class="chip approved">Approved</span>
+                <span class="chip risk">At Risk</span>
+                <span class="chip complete">Complete</span>
+                <span class="chip overdue">Overdue</span>
+              </div>
+            </article>
+
+            <article class="panel">
+              <h3>Side Navigation</h3>
+              <div class="nav-list">
+                <div class="nav-item active"><span>⌂</span><span>Command</span><small>12</small></div>
+                <div class="nav-item"><span>◎</span><span>Capture</span><small></small></div>
+                <div class="nav-item"><span>↗</span><span>Flow</span><small>3</small></div>
+                <div class="nav-item"><span>◌</span><span>Signal</span><small></small></div>
+                <div class="nav-item"><span>□</span><span>Finance</span><small></small></div>
+              </div>
+            </article>
+
+            <article class="panel wide">
+              <h3>Cards</h3>
+              <div class="card-row">
+                <div class="panel metric"><h3>Active Jobs</h3><strong>128</strong><p>+12% vs last 7 days</p></div>
+                <div class="panel metric"><h3>Open Tasks</h3><strong>46</strong><p>+8% vs last 7 days</p></div>
+                <div class="panel metric"><h3>Unread Messages</h3><strong>23</strong><p>-5% vs last 7 days</p></div>
+                <div class="panel metric"><h3>Pending Approvals</h3><strong>17</strong><p>+11% vs last 7 days</p></div>
+                <div class="panel metric alert-surface"><h3>At Risk</h3><strong>8</strong><p>Requires review</p></div>
+              </div>
+            </article>
+
+            <article class="panel wide">
+              <h3>KPIs / Metric Tiles</h3>
+              <svg class="spark" viewBox="0 0 320 60" aria-hidden="true">
+                <path d="M0 45L35 28L70 38L105 18L140 31L175 12L210 24L245 8L280 22L320 5" fill="none" stroke="#8E743E" stroke-width="3"/>
+                <path d="M0 60L0 45L35 28L70 38L105 18L140 31L175 12L210 24L245 8L280 22L320 5L320 60Z" fill="rgba(214,174,69,.12)"/>
+              </svg>
+              <p>Use metric cards for live operational state, not decoration.</p>
+            </article>
+
+            <article class="panel full">
+              <h3>Data Tables</h3>
+              <table>
+                <thead><tr><th>ID</th><th>Item</th><th>Owner</th><th>Status</th><th>Priority</th><th>Updated</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td>JOB-1287</td><td>Plant room upgrade</td><td>John Smith</td><td><span class="chip complete">In progress</span></td><td>High</td><td>2m ago</td><td>£12,450</td></tr>
+                  <tr><td>JOB-1286</td><td>Service contract</td><td>Sarah Parker</td><td><span class="chip pending">Pending</span></td><td>Medium</td><td>15m ago</td><td>£8,900</td></tr>
+                  <tr><td>JOB-1285</td><td>System audit</td><td>Mike Johnson</td><td><span class="chip approved">Approved</span></td><td>High</td><td>1h ago</td><td>£6,600</td></tr>
+                </tbody>
+              </table>
+            </article>
+          </section>
+        </div>
+
+        <div class="footer-strip">
+          <span>Components</span>
+          <span>Premium interface patterns for operational clarity.</span>
+          <span>02</span>
+        </div>
+      </section>
+
+      <section class="board" id="mobile-ui">
+        <div class="mobile-header">
+          <div class="eyebrow">Field App - Mobile UI</div>
+          <h1>Built for speed. Designed for clarity. Made for the field.</h1>
+        </div>
+
+        <div class="phone-row">
+          <article class="phone-block">
+            <div class="phone">
+              <div class="screen">
+                <div class="notch"></div>
+                <div class="statusbar"><span>9:41</span><span>5G 100%</span></div>
+                <h3>Command</h3>
+                <p class="muted">Welcome back, John</p>
+                <div class="mobile-card"><small>Jobs</small><strong>12</strong></div>
+                <div class="mobile-card"><small>Tasks</small><strong>7</strong></div>
+                <div class="mobile-card"><small>Pipeline Value</small><strong>£284,750</strong></div>
+                <div class="mobile-card"><small>Up Next</small><strong>Site Visit</strong><small>11:00am - On site</small></div>
+                <div class="bottom-nav"><span>Command</span><span>Capture</span><span class="plus">+</span><span>Signal</span><span>More</span></div>
+              </div>
+            </div>
+            <p class="phone-caption"><strong>01 Dashboard</strong>At-a-glance overview of priorities, pipeline and what is next.</p>
+          </article>
+
+          <article class="phone-block">
+            <div class="phone">
+              <div class="screen">
+                <div class="notch"></div>
+                <div class="statusbar"><span>9:41</span><span>5G 100%</span></div>
+                <h3>Job Detail</h3>
+                <p class="muted">Pump Station Upgrade</p>
+                <div class="mobile-card"><small>Progress</small><strong>66%</strong></div>
+                <div class="mobile-card"><small>Schedule</small><strong>Mar 10 - Apr 2</strong></div>
+                <div class="mobile-card"><small>Team</small><strong>JS MK AC +2</strong></div>
+                <div class="bottom-nav"><span>Command</span><span>Capture</span><span class="plus">+</span><span>Signal</span><span>More</span></div>
+              </div>
+            </div>
+            <p class="phone-caption"><strong>02 Job Detail</strong>Deep job context, progress, key documents and required actions.</p>
+          </article>
+
+          <article class="phone-block">
+            <div class="phone">
+              <div class="screen">
+                <div class="notch"></div>
+                <div class="statusbar"><span>9:41</span><span>5G 100%</span></div>
+                <h3>Capture</h3>
+                <div class="mobile-card" style="height:210px;display:grid;place-items:center;background:linear-gradient(135deg,rgba(214,174,69,.24),rgba(255,255,255,.04));"><strong>Photo</strong></div>
+                <div class="mobile-card"><small>Asset</small><strong>Control Panel</strong></div>
+                <div class="mobile-card"><small>Task</small><strong>Install Telemetry Unit</strong></div>
+                <div class="bottom-nav"><span>Command</span><span>Capture</span><span class="plus">✓</span><span>Signal</span><span>More</span></div>
+              </div>
+            </div>
+            <p class="phone-caption"><strong>03 Capture</strong>Fast guided capture with required fields to keep records complete.</p>
+          </article>
+
+          <article class="phone-block">
+            <div class="phone">
+              <div class="screen">
+                <div class="notch"></div>
+                <div class="statusbar"><span>9:41</span><span>5G 100%</span></div>
+                <h3>Approvals</h3>
+                <div class="mobile-card"><small>Method Statement</small><strong>Pending</strong><div class="button-row"><button class="btn">Reject</button><button class="btn primary">Approve</button></div></div>
+                <div class="mobile-card"><small>Change Order #3</small><strong>Pending</strong><div class="button-row"><button class="btn">Reject</button><button class="btn primary">Approve</button></div></div>
+                <div class="bottom-nav"><span>Command</span><span>Capture</span><span class="plus">+</span><span>Signal</span><span>More</span></div>
+              </div>
+            </div>
+            <p class="phone-caption"><strong>04 Approvals</strong>Review critical items on the go with clear context and one-tap actions.</p>
+          </article>
+
+          <article class="phone-block">
+            <div class="phone">
+              <div class="screen">
+                <div class="notch"></div>
+                <div class="statusbar"><span>9:41</span><span>5G 100%</span></div>
+                <h3>Signal</h3>
+                <div class="input">Search messages...</div>
+                <div class="mobile-card"><strong>Sarah Lewis</strong><small>Can you confirm the panel spec?</small></div>
+                <div class="mobile-card"><strong>Mike K.</strong><small>Site update: panel installed and tested.</small></div>
+                <div class="mobile-card"><strong>NeXa Team</strong><small>Daily brief: safety check at 08:00.</small></div>
+                <div class="bottom-nav"><span>Command</span><span>Capture</span><span class="plus">+</span><span>Signal</span><span>More</span></div>
+              </div>
+            </div>
+            <p class="phone-caption"><strong>05 Messages</strong>Real-time communication with team and clients, bound to the job.</p>
+          </article>
+
+          <article class="phone-block">
+            <div class="phone">
+              <div class="screen">
+                <div class="notch"></div>
+                <div class="statusbar"><span>9:41</span><span>5G 100%</span></div>
+                <h3>Schedule</h3>
+                <p class="muted">Today - Tuesday, Mar 11</p>
+                <div class="mobile-card"><small>11:00am</small><strong>Site Visit</strong><small>On site</small></div>
+                <div class="mobile-card"><small>2:00pm</small><strong>Client Call</strong><small>Online</small></div>
+                <div class="mobile-card"><small>4:00pm</small><strong>Safety Check</strong><small>Pending</small></div>
+                <div class="bottom-nav"><span>Command</span><span>Capture</span><span class="plus">+</span><span>Signal</span><span>More</span></div>
+              </div>
+            </div>
+            <p class="phone-caption"><strong>06 Schedule</strong>Plan the day. See tasks, locations and status at a glance.</p>
+          </article>
+        </div>
+
+        <div class="principles">
+          <div class="principle">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 2L3 14h8l-1 8 11-14h-8l0-6z"/></svg>
+            <div><h3>Fast Capture</h3><p>Capture in seconds with smart defaults, offline support and auto-sync.</p></div>
+          </div>
+          <div class="principle">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M10 18h4"/></svg>
+            <div><h3>Field-First Flow</h3><p>Designed for real teams moving from site to signal to sign-off.</p></div>
+          </div>
+          <div class="principle">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>
+            <div><h3>Clear Progress</h3><p>Know what is next, what is pending and what gets done.</p></div>
+          </div>
+          <div class="principle">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 2l9 7-9 13L3 9l9-7z"/><path d="M3 9h18M8 9l4 13 4-13"/></svg>
+            <div><h3>Premium Simplicity</h3><p>High contrast, minimal steps and clarity in every interaction.</p></div>
+          </div>
+        </div>
+
+        <div class="footer-strip">
+          <span>NeXa Field</span>
+          <span>Built for speed. Bound to the command center.</span>
+          <span>03</span>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

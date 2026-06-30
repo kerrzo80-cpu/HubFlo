@@ -106,8 +106,8 @@ export default function ClientVariationPortal({ params }: { params: Promise<{ to
       <section className="client-portal-card">
         <header>
           <span className="verrova-client-lockup">
-            <span className="verrova-mark" aria-hidden="true">V</span>
-            <strong>Verrova</strong>
+            <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
+            <strong>NeXa</strong>
           </span>
           <span>Online variation approval</span>
         </header>
@@ -146,7 +146,7 @@ export default function ClientVariationPortal({ params }: { params: Promise<{ to
                 <CheckCircle2 size={24} />
                 <div>
                   <strong>Variation approved</strong>
-                  <span>Verrova has been notified and office can proceed.</span>
+                  <span>NeXa has been notified and office can proceed.</span>
                 </div>
               </div>
             ) : record.status === "Declined" ? (

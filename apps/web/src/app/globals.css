@@ -9970,7 +9970,7 @@ button.office-alert-card {
   }
 }
 
-/* Verrova premium brand layer */
+/* NeXa premium brand layer */
 :root {
   --charcoal-950: #070809;
   --charcoal-900: #0a0a0c;
@@ -10536,7 +10536,7 @@ kbd,
   }
 }
 
-/* Verrova light refinement: keep the premium mark, restore the calmer workspace feel. */
+/* NeXa light refinement: keep the premium mark, restore the calmer workspace feel. */
 :root {
   --charcoal-950: #1c1b1d;
   --charcoal-900: #252326;
@@ -10952,7 +10952,7 @@ kbd,
   }
 }
 
-/* Verrova white + navy executive brand */
+/* NeXa white + navy executive brand */
 :root {
   --navy: #081d3a;
   --navy-900: #06162d;
@@ -11813,5 +11813,336 @@ kbd,
     grid-column: auto;
     justify-content: flex-start;
     text-align: left;
+  }
+}
+
+/* NeXa command-center brand layer */
+:root {
+  --nexa-slate: #202a36;
+  --nexa-slate-900: #151d26;
+  --nexa-slate-800: #2b3542;
+  --nexa-brass: #8e743e;
+  --nexa-brass-light: #b8a06a;
+  --nexa-brass-dark: #5e4a24;
+  --nexa-porcelain: #e7ecef;
+  --nexa-white: #ffffff;
+  --nexa-steel: #5d6673;
+  --nexa-verdigris: #2e8c7d;
+  --nexa-verdigris-soft: #e7f5f2;
+  --navy: var(--nexa-slate);
+  --navy-900: var(--nexa-slate-900);
+  --navy-800: var(--nexa-slate-800);
+  --charcoal-900: var(--nexa-slate);
+  --ink: #17212b;
+  --muted: var(--nexa-steel);
+  --subtle: #7b8490;
+  --line: #d9dee5;
+  --line-soft: #edf1f4;
+  --canvas: var(--nexa-porcelain);
+  --surface: var(--nexa-white);
+  --blue: var(--nexa-verdigris);
+  --blue-dark: #237567;
+  --blue-deep: var(--nexa-verdigris);
+  --blue-soft: var(--nexa-verdigris-soft);
+  --champagne: var(--nexa-brass);
+  --amber: #f6b23c;
+  --amber-soft: #fff7e8;
+  --green: #22c55e;
+  --green-soft: #e9f9ef;
+  --red: #e5484d;
+  --red-soft: #fff0f1;
+  --shadow: 0 12px 34px rgba(32, 42, 54, 0.09);
+}
+
+body {
+  background:
+    radial-gradient(circle at 92% -12%, rgba(46, 140, 125, 0.1), transparent 25rem),
+    linear-gradient(180deg, #ffffff 0%, var(--nexa-porcelain) 100%);
+  color: var(--ink);
+}
+
+.platform {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(184, 160, 106, 0.11), transparent 24rem),
+    var(--canvas);
+}
+
+.global-header {
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid rgba(142, 116, 62, 0.2);
+  box-shadow: 0 8px 24px rgba(32, 42, 54, 0.07);
+  color: var(--ink);
+}
+
+.brand-lockup {
+  gap: 14px;
+}
+
+.brand-lockup img {
+  background: transparent;
+  border: 0;
+  height: 48px;
+  object-fit: contain;
+  padding: 0;
+  width: 168px;
+}
+
+.ai-surveyor-header .brand-lockup img {
+  height: 44px;
+  width: 44px;
+}
+
+.product-name {
+  border-left-color: rgba(142, 116, 62, 0.28);
+}
+
+.product-name strong,
+.engineer-brand-copy strong,
+.verrova-client-lockup strong {
+  color: var(--nexa-slate) !important;
+  font-family: Sora, "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif !important;
+  font-weight: 760 !important;
+  letter-spacing: 0 !important;
+}
+
+.product-name span,
+.engineer-brand-copy span,
+.breadcrumb,
+.metric-topline,
+.client-portal-card header span,
+.client-portal-heading span,
+.client-portal-total span,
+.simpro-record-titlebar span,
+.form-header span,
+.permission-heading {
+  color: var(--nexa-brass) !important;
+}
+
+.global-search {
+  background: #fff;
+  border-color: rgba(93, 102, 115, 0.24);
+  border-radius: 6px;
+  color: var(--nexa-steel);
+}
+
+.global-search:focus-within {
+  border-color: rgba(46, 140, 125, 0.72);
+  box-shadow: 0 0 0 3px rgba(46, 140, 125, 0.1);
+}
+
+.create-button,
+.primary-button,
+.simpro-blue-button,
+.simpro-save-button,
+.ai-estimate-table-panel header button,
+.engineer-primary-action,
+.engineer-po-form button,
+.engineer-outcome-bar button {
+  background: linear-gradient(135deg, var(--nexa-slate) 0%, var(--nexa-slate-800) 100%) !important;
+  border-color: var(--nexa-slate) !important;
+  box-shadow: 0 14px 26px rgba(32, 42, 54, 0.16) !important;
+  color: #fff !important;
+}
+
+.create-button:hover,
+.primary-button:hover,
+.simpro-blue-button:hover,
+.simpro-save-button:hover {
+  background: linear-gradient(135deg, var(--nexa-slate-800) 0%, var(--nexa-verdigris) 100%) !important;
+}
+
+.header-icon,
+.account-button,
+.employee-config-button,
+.module-link {
+  color: var(--nexa-slate);
+}
+
+.account-avatar,
+kbd,
+.counter {
+  background: var(--nexa-verdigris-soft);
+  border-color: rgba(46, 140, 125, 0.22);
+  color: var(--nexa-slate);
+}
+
+.module-bar {
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom-color: var(--line);
+}
+
+.module-link.active {
+  border-bottom-color: var(--nexa-brass-light);
+  color: var(--nexa-slate);
+}
+
+.module-link:hover,
+.employee-tab:hover,
+.simpro-tab:hover,
+.simpro-sub-tabs button:hover {
+  background: #f9f6ee;
+  border-color: rgba(142, 116, 62, 0.32);
+  color: var(--nexa-slate);
+}
+
+.context-sidebar {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(184, 160, 106, 0.16), transparent 18rem),
+    linear-gradient(180deg, var(--nexa-slate) 0%, var(--nexa-slate-900) 100%);
+  box-shadow: 12px 0 30px rgba(32, 42, 54, 0.12);
+}
+
+.context-link.active {
+  background: rgba(255, 255, 255, 0.12);
+  border-left-color: var(--nexa-brass-light);
+  color: #fff;
+}
+
+.context-link:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: #fff;
+}
+
+.support-panel strong {
+  color: var(--nexa-brass-light);
+}
+
+.workspace {
+  background:
+    radial-gradient(circle at 90% -12%, rgba(46, 140, 125, 0.09), transparent 24rem),
+    transparent;
+}
+
+.metric-strip,
+.workflow-board,
+.quote-panel,
+.lead-workspace,
+.quote-record-banner,
+.workflow-tracker,
+.quote-record-stats div,
+.client-record-banner,
+.client-record-stats div,
+.client-info-card,
+.client-site-card,
+.client-history-item,
+.employee-record-banner,
+.employee-record-stats div,
+.employee-record-panel,
+.employee-directory-card,
+.client-directory-card,
+.employee-card,
+.job-scheduling-panel,
+.simpro-record-shell,
+.simpro-estimate-page,
+.simpro-section-card,
+.simpro-summary-panel,
+.simpro-activity-panel,
+.simpro-timeline-card,
+.simpro-editor-card,
+.simpro-parts-page,
+.documents-workspace,
+.engineer-flow-workspace,
+.setup-workspace,
+.form-header,
+.form-body,
+.form-footer,
+.client-portal-card,
+.ai-estimate-table-panel,
+.ai-handoff-panel,
+.ai-mini-table,
+.ai-boq-table,
+.office-alert-card,
+.office-summary-card,
+.office-review-context,
+.whatsapp-live-test,
+.whatsapp-reply-tester,
+.whatsapp-structured-card {
+  background: var(--surface);
+  border-color: var(--line);
+  box-shadow: var(--shadow);
+}
+
+.queue-card.active,
+.employee-card.active,
+.employee-tab.active,
+.simpro-tab.active,
+.simpro-sub-tabs button.active {
+  background: var(--nexa-verdigris-soft);
+  border-color: rgba(46, 140, 125, 0.28);
+  color: var(--nexa-slate);
+}
+
+.quote-row.clickable:hover,
+.job-row.clickable:hover,
+.lead-row.clickable:hover,
+.queue-card:hover,
+.employee-card:hover,
+.client-directory-card:hover,
+.employee-directory-card:hover,
+.simpro-cost-centre-row:hover {
+  background: #f9f6ee;
+  border-color: rgba(142, 116, 62, 0.34);
+  color: var(--ink);
+}
+
+.quote-row.clickable:hover a,
+.job-row.clickable:hover a,
+.lead-row.clickable:hover a,
+.simpro-cost-centre-row:hover a {
+  color: var(--nexa-verdigris);
+}
+
+.verrova-mark {
+  background: linear-gradient(135deg, var(--nexa-brass-light) 0%, var(--nexa-brass) 55%, var(--nexa-brass-dark) 100%);
+  color: var(--nexa-slate);
+}
+
+.verrova-client-lockup img,
+.engineer-brand-bar img {
+  border-radius: 8px;
+  height: 34px;
+  object-fit: contain;
+  width: 34px;
+}
+
+.client-portal-shell,
+.ai-surveyor-platform,
+.ai-surveyor-workspace,
+.office-shell,
+.engineer-shell {
+  background:
+    radial-gradient(circle at 88% -18%, rgba(46, 140, 125, 0.1), transparent 24rem),
+    linear-gradient(180deg, #ffffff 0%, var(--nexa-porcelain) 100%) !important;
+}
+
+.survey-flow-strip {
+  background: linear-gradient(90deg, var(--nexa-slate) 0%, var(--nexa-verdigris) 100%);
+}
+
+.survey-flow-strip span,
+.survey-asset-row span,
+.quote-survey-pack-preview span {
+  color: var(--nexa-brass-light);
+}
+
+@media (max-width: 760px) {
+  .brand-lockup img {
+    height: 42px;
+    width: 132px;
+  }
+
+  .context-sidebar {
+    background: #fff;
+  }
+
+  .context-title,
+  .context-sidebar .sidebar-label,
+  .context-link {
+    color: var(--ink);
+  }
+
+  .context-link.active {
+    background: var(--nexa-verdigris-soft);
+    color: var(--nexa-slate);
   }
 }

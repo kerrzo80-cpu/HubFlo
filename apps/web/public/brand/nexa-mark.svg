@@ -1,0 +1,17 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">NeXa mark</title>
+  <desc id="desc">Four connected strokes bound into a central command node.</desc>
+  <rect width="512" height="512" rx="112" fill="#202A36"/>
+  <path d="M139 137L220 218" stroke="url(#bind)" stroke-width="42" stroke-linecap="round"/>
+  <path d="M373 137L292 218" stroke="url(#bind)" stroke-width="42" stroke-linecap="round"/>
+  <path d="M139 375L220 294" stroke="url(#bind)" stroke-width="42" stroke-linecap="round"/>
+  <path d="M373 375L292 294" stroke="url(#bind)" stroke-width="42" stroke-linecap="round"/>
+  <rect x="219" y="219" width="74" height="74" rx="18" fill="#F7F4EE" transform="rotate(45 256 256)"/>
+  <rect x="238" y="238" width="36" height="36" rx="10" fill="#202A36" transform="rotate(45 256 256)"/>
+  <defs>
+    <linearGradient id="bind" x1="118" y1="115" x2="394" y2="397" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E8C7D"/>
+      <stop offset="1" stop-color="#8E743E"/>
+    </linearGradient>
+  </defs>
+</svg>

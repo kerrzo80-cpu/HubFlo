@@ -212,7 +212,7 @@ const defaultJobDetails: JobDetails = {
 };
 
 const ewgSystemPrompt =
-  "You are the Verrova AI Surveyor and Estimator for Verrova. You help price UK plumbing, heating, bathroom, joinery and small construction works. You can analyse typed notes, survey sheets, handwritten notes, photos, drawings, specifications, emails and tender documents. Your job is to produce realistic estimates, takeoffs, BOQs, material lists, labour allowances, RFQs and simPRO-ready quote descriptions.\n\nAlways separate labour and materials. Use £70/hr labour rate, 30% material markup and 20% VAT unless the user changes these values. Break multi-trade work into clear sections. Make sensible assumptions where information is missing and clearly list those assumptions. Ask only essential questions where missing information would materially affect the price. For drawings and takeoffs, clearly state if quantities are provisional because scale, dimensions or details are unclear. Always include exclusions and qualifications suitable for a customer quote or tender submission.";
+  "You are the NeXa AI Surveyor and Estimator for NeXa. You help price UK plumbing, heating, bathroom, joinery and small construction works. You can analyse typed notes, survey sheets, handwritten notes, photos, drawings, specifications, emails and tender documents. Your job is to produce realistic estimates, takeoffs, BOQs, material lists, labour allowances, RFQs and simPRO-ready quote descriptions.\n\nAlways separate labour and materials. Use £70/hr labour rate, 30% material markup and 20% VAT unless the user changes these values. Break multi-trade work into clear sections. Make sensible assumptions where information is missing and clearly list those assumptions. Ask only essential questions where missing information would materially affect the price. For drawings and takeoffs, clearly state if quantities are provisional because scale, dimensions or details are unclear. Always include exclusions and qualifications suitable for a customer quote or tender submission.";
 
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -817,7 +817,7 @@ export default function AiSurveyorPage() {
       saveQuoteCostCentreHandoff(created.id, jobDetails, estimateLines, response, linkedRecord);
       saveDraft({ linkedQuoteRef: created.ref });
       setCreatedQuote(created);
-      setNotice(`${created.ref} created as a draft quote${linkedRecord ? ` from ${linkedRecord.kind} ${linkedRecord.ref}` : ""}. Review it in Verrova before sending.`);
+      setNotice(`${created.ref} created as a draft quote${linkedRecord ? ` from ${linkedRecord.kind} ${linkedRecord.ref}` : ""}. Review it in NeXa before sending.`);
     } catch {
       setNotice("Unable to create the simPRO draft quote right now. The AI draft is still saved locally.");
       saveDraft();
@@ -841,12 +841,12 @@ export default function AiSurveyorPage() {
       <header className="global-header ai-surveyor-header">
         <a className="ai-back-link" href="/">
           <ArrowLeft size={17} />
-          <span>Verrova</span>
+          <span>NeXa</span>
         </a>
         <div className="brand-lockup">
-          <span className="verrova-mark" aria-hidden="true">V</span>
+          <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
           <div className="product-name">
-            <strong>Verrova Takeoff</strong>
+            <strong>NeXa Takeoff</strong>
             <span>Surveyor tools</span>
           </div>
         </div>
@@ -855,7 +855,7 @@ export default function AiSurveyorPage() {
       <nav className="module-bar ai-module-bar" aria-label="Main modules">
         <a className="module-link" href="/">
           <FileText size={16} />
-          <span>Verrova</span>
+          <span>NeXa</span>
         </a>
         <a className="module-link active" href="/ai-surveyor">
           <Sparkles size={16} />
@@ -867,11 +867,11 @@ export default function AiSurveyorPage() {
         <div className="ai-surveyor-topline">
           <div>
             <div className="breadcrumb">
-              <span>Verrova Operations</span>
-              <strong>Verrova Takeoff / Surveyor Tools</strong>
+              <span>NeXa Operations</span>
+              <strong>NeXa Takeoff / Surveyor Tools</strong>
             </div>
-            <h1>Verrova Takeoff / Surveyor Tools</h1>
-            <p>Survey capture, takeoff, BOQ import, materials lists and Verrova-ready quote handoff.</p>
+            <h1>NeXa Takeoff / Surveyor Tools</h1>
+            <p>Survey capture, takeoff, BOQ import, materials lists and NeXa-ready quote handoff.</p>
           </div>
           <button className="primary-button" type="button" onClick={() => runAssistant("Analyse Job")}>
             <Sparkles size={16} />
@@ -890,7 +890,7 @@ export default function AiSurveyorPage() {
             <div>
               <h2>Survey tools</h2>
               <h3>Room scans, photos, concept looks and survey evidence before the quote is built</h3>
-              <span>Capture here first, then push reviewed outputs into Verrova Core as quote cost centres, documents and client-visible records.</span>
+              <span>Capture here first, then push reviewed outputs into NeXa Core as quote cost centres, documents and client-visible records.</span>
             </div>
             <div className="simpro-parts-actions">
               <button className="simpro-grey-button" type="button" onClick={() => addSurveyAsset("Room scan")}>
@@ -937,7 +937,7 @@ export default function AiSurveyorPage() {
               <span className="survey-tool-icon"><ListChecks size={18} /></span>
               <div>
                 <strong>Core handoff</strong>
-                <p>Reviewed survey records, BOQ rows and supplier-needed items become structured Verrova quote data.</p>
+                <p>Reviewed survey records, BOQ rows and supplier-needed items become structured NeXa quote data.</p>
               </div>
               <small>{surveyAssets.filter((asset) => asset.clientVisible).length} client-visible item(s)</small>
             </article>
@@ -961,7 +961,7 @@ export default function AiSurveyorPage() {
             <ChevronRight size={16} />
             <div>
               <span>Handoff</span>
-              <strong>Create Verrova quote cost centres</strong>
+              <strong>Create NeXa quote cost centres</strong>
             </div>
           </div>
 
@@ -1054,7 +1054,7 @@ export default function AiSurveyorPage() {
           <div className="ai-input-column">
             <section className="ai-panel">
               <header>
-                <span><Link2 size={15} /> Link to Verrova</span>
+                <span><Link2 size={15} /> Link to NeXa</span>
               </header>
               <div className="ai-record-linker">
                 <label>
@@ -1066,7 +1066,7 @@ export default function AiSurveyorPage() {
                   />
                 </label>
                 <label>
-                  Select Verrova record
+                  Select NeXa record
                   <select
                     value={linkedRecord ? `${linkedRecord.kind}:${linkedRecord.id}` : ""}
                     onChange={(event) => selectHubRecord(event.target.value)}
@@ -1088,7 +1088,7 @@ export default function AiSurveyorPage() {
                       type="button"
                       onClick={() => {
                         setLinkedRecord(null);
-                        setNotice("AI Surveyor draft is no longer linked to a Verrova record.");
+                        setNotice("AI Surveyor draft is no longer linked to a NeXa record.");
                       }}
                     >
                       Clear link
@@ -1197,20 +1197,20 @@ export default function AiSurveyorPage() {
               </button>
               <button type="button" className="primary-action" onClick={createSimproDraftQuote} disabled={isCreatingQuote}>
                 <Send size={16} />
-                Create Verrova Draft Quote
+                Create NeXa Draft Quote
               </button>
             </section>
 
             {createdQuote ? (
               <section className="ai-panel ai-handoff-panel">
                 <header>
-                  <span><Link2 size={15} /> Verrova quote ready</span>
+                  <span><Link2 size={15} /> NeXa quote ready</span>
                 </header>
                 <div>
                   <strong>{createdQuote.ref}</strong>
                   <p>Quote created with AI Surveyor cost centre, takeoff rows and supplier-request lines ready for office review.</p>
                   <a className="primary-button" href={`/?quote=${createdQuote.id}`}>
-                    Open quote in Verrova
+                    Open quote in NeXa
                   </a>
                 </div>
               </section>

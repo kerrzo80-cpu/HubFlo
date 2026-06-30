@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeXa Brand Assets</title>
+    <style>
+      :root {
+        --command: #08111f;
+        --ink: #111827;
+        --cyan: #2e8c7d;
+        --green: #8e743e;
+        --mist: #e7ecef;
+        --line: #d7e1ea;
+      }
+
+      body {
+        margin: 0;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: #f8fbfd;
+      }
+
+      main {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 56px 24px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 42px;
+        line-height: 1.05;
+      }
+
+      p {
+        margin: 0;
+        color: #5d6673;
+        font-size: 17px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+        margin-top: 36px;
+      }
+
+      .template-link {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        margin-top: 24px;
+        padding: 0 18px;
+        border-radius: 8px;
+        background: var(--command);
+        color: white;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        background: white;
+        border-radius: 8px;
+        padding: 24px;
+      }
+
+      .panel.dark {
+        background: var(--command);
+      }
+
+      .panel img {
+        width: 100%;
+        height: auto;
+        display: block;
+      }
+
+      .mark {
+        max-width: 180px;
+      }
+
+      .caption {
+        display: block;
+        margin-top: 18px;
+        color: #5d6673;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: .06em;
+        text-transform: uppercase;
+      }
+
+      .dark .caption {
+        color: #a8b3c1;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>NeXa Brand Assets</h1>
+      <p>Inspired by nectere: to bind or fasten together. Built as an executive command center for service operations.</p>
+      <a class="template-link" href="./nexa-brand-template.html">Open full brand template</a>
+
+      <section class="grid">
+        <article class="panel">
+          <img src="../../apps/web/public/brand/nexa-lockup-dark.svg" alt="NeXa dark lockup">
+          <span class="caption">Lockup on light</span>
+        </article>
+        <article class="panel dark">
+          <img src="../../apps/web/public/brand/nexa-lockup-light.svg" alt="NeXa light lockup">
+          <span class="caption">Lockup on dark</span>
+        </article>
+        <article class="panel">
+          <img class="mark" src="../../apps/web/public/brand/nexa-mark.svg" alt="NeXa mark">
+          <span class="caption">App mark</span>
+        </article>
+        <article class="panel">
+          <img src="../../apps/web/public/brand/nexa-wordmark.svg" alt="NeXa wordmark">
+          <span class="caption">Wordmark</span>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

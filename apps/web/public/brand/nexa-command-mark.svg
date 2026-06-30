@@ -1,0 +1,15 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">NeXa Bound X command mark</title>
+  <desc id="desc">Four workflow arms bound into a central command node.</desc>
+  <rect width="512" height="512" rx="112" fill="#202A36"/>
+  <path d="M112 96L216 208M400 96L296 208M112 416L216 304M400 416L296 304" stroke="url(#Brass)" stroke-width="58" stroke-linecap="round"/>
+  <rect x="198" y="198" width="116" height="116" rx="28" fill="#B8A06A" transform="rotate(45 256 256)"/>
+  <rect x="235" y="235" width="42" height="42" rx="11" fill="#202A36" transform="rotate(45 256 256)"/>
+  <defs>
+    <linearGradient id="Brass" x1="96" y1="80" x2="416" y2="432" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B8A06A"/>
+      <stop offset=".55" stop-color="#8E743E"/>
+      <stop offset="1" stop-color="#5E4A24"/>
+    </linearGradient>
+  </defs>
+</svg>

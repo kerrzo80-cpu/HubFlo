@@ -144,10 +144,10 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
           }
         }
       `}</style>
-      <header className="engineer-brand-bar" aria-label="Verrova engineer app">
-        <span className="verrova-mark" aria-hidden="true">V</span>
+      <header className="engineer-brand-bar" aria-label="NeXa engineer app">
+        <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
         <div className="engineer-brand-copy">
-          <strong>Verrova</strong>
+          <strong>NeXa</strong>
           <span>Field command</span>
         </div>
       </header>

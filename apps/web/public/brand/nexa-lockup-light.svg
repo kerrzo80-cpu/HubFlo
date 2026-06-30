@@ -1,0 +1,24 @@
+<svg width="760" height="220" viewBox="0 0 760 220" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">NeXa logo for dark backgrounds</title>
+  <desc id="desc">NeXa horizontal lockup with mark and wordmark for dark backgrounds.</desc>
+  <rect x="18" y="24" width="172" height="172" rx="38" fill="#F7F4EE"/>
+  <path d="M63 70L90 97" stroke="url(#bind)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M145 70L118 97" stroke="url(#bind)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M63 150L90 123" stroke="url(#bind)" stroke-width="14" stroke-linecap="round"/>
+  <path d="M145 150L118 123" stroke="url(#bind)" stroke-width="14" stroke-linecap="round"/>
+  <rect x="91" y="97" width="26" height="26" rx="7" fill="#202A36" transform="rotate(45 104 110)"/>
+  <text x="226" y="126" font-family="Sora, Inter, Arial, sans-serif" font-size="92" font-weight="760" letter-spacing="-2">
+    <tspan fill="#F7F4EE">Ne</tspan><tspan fill="#2E8C7D">X</tspan><tspan fill="#F7F4EE">a</tspan>
+  </text>
+  <text x="230" y="164" fill="#AFA79A" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="600" letter-spacing="2.4">BOUND INTO ONE COMMAND CENTER</text>
+  <defs>
+    <linearGradient id="bind" x1="52" y1="59" x2="156" y2="161" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E8C7D"/>
+      <stop offset="1" stop-color="#8E743E"/>
+    </linearGradient>
+    <linearGradient id="xgrad" x1="0" y1="0" x2="96" y2="104" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2E8C7D"/>
+      <stop offset="1" stop-color="#8E743E"/>
+    </linearGradient>
+  </defs>
+</svg>
