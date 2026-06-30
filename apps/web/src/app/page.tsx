@@ -354,6 +354,7 @@ type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
 type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
+type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
 
@@ -957,6 +958,7 @@ type EstimateMaterialLine = {
   quantity: number;
   unitCost: number;
   markupPercent: number;
+  supplierRequired?: boolean;
 };
 
 type EstimateLabourLine = {
@@ -1150,6 +1152,14 @@ const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "catalogue", label: "Catalogue" },
   { key: "one-off", label: "One-off items" },
   { key: "heat-loss", label: "Heat loss calculator" },
+  { key: "labour", label: "Labour" },
+  { key: "supplier-request", label: "Supplier request" },
+];
+
+const jobBuildTabs: Array<{ key: JobBuildTab; label: string }> = [
+  { key: "summary", label: "Scope summary" },
+  { key: "catalogue", label: "Catalogue" },
+  { key: "one-off", label: "One-off items" },
   { key: "labour", label: "Labour" },
   { key: "supplier-request", label: "Supplier request" },
 ];
@@ -3505,6 +3515,18 @@ function makeEstimateMaterialLine(item: CatalogItem): EstimateMaterialLine {
   };
 }
 
+function makeOneOffEstimateMaterialLine(description = "One-off material"): EstimateMaterialLine {
+  return {
+    id: `one-off-material-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+    catalogItemId: "one-off-material",
+    description,
+    quantity: 1,
+    unitCost: 0,
+    markupPercent: 30,
+    supplierRequired: true,
+  };
+}
+
 function makeEstimateLabourLine(role = "Plumber labour"): EstimateLabourLine {
   return {
     id: `labour-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -3566,6 +3588,7 @@ export default function Dashboard() {
   const [activeCostCentreTab, setActiveCostCentreTab] = useState<CostCentreTab>("summary");
   const [activeJobCostCentreListTab, setActiveJobCostCentreListTab] = useState<JobCostCentreListTab>("base");
   const [activeQuoteBuildTab, setActiveQuoteBuildTab] = useState<QuoteBuildTab>("summary");
+  const [activeJobBuildTab, setActiveJobBuildTab] = useState<JobBuildTab>("summary");
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
@@ -5633,6 +5656,7 @@ export default function Dashboard() {
   function openCostCentreRecord(centreId: string) {
     setSelectedCostCentreId(centreId);
     setActiveCostCentreTab("summary");
+    setActiveJobBuildTab("summary");
     setHomeView("cost-centre-record");
   }
 
@@ -6785,6 +6809,17 @@ export default function Dashboard() {
     );
   }
 
+  function addOneOffEstimateMaterialLine(centreId: string) {
+    setJobCentresForSelected((centres) =>
+      centres.map((centre) =>
+        centre.id === centreId
+          ? { ...centre, materials: [...centre.materials, makeOneOffEstimateMaterialLine()] }
+          : centre,
+      ),
+    );
+    setActiveJobBuildTab("one-off");
+  }
+
   function updateEstimateMaterialLine(centreId: string, lineId: string, patch: Partial<EstimateMaterialLine>) {
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
@@ -6796,6 +6831,10 @@ export default function Dashboard() {
           : centre,
       ),
     );
+  }
+
+  function toggleEstimateMaterialSupplierRequest(centreId: string, lineId: string, checked: boolean) {
+    updateEstimateMaterialLine(centreId, lineId, { supplierRequired: checked });
   }
 
   function removeEstimateMaterialLine(centreId: string, lineId: string) {
@@ -12805,176 +12844,382 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "parts-labour" ? (
                   <section className="simpro-parts-page">
-                    <div className="simpro-parts-header">
-                      <div>
-                        <h2>Parts & Labour</h2>
-                        <h3>Parts</h3>
-                        <span>Net prices before VAT</span>
-                      </div>
-                      <select
-                        aria-label="Add material item"
-                        defaultValue=""
-                        onChange={(event) => {
-                          addEstimateMaterialLine(selectedCostCentre.id, event.target.value);
-                          event.currentTarget.value = "";
-                        }}
-                      >
-                        <option value="" disabled>Add from catalog</option>
-                        {quoteCatalog.filter((item) => item.type !== "Labour").map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.type}: {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="simpro-billable-table">
-                      <div className="simpro-billable-row table-head parts">
-                        <span />
-                        <span>Description</span>
-                        <span>Time (hrs)</span>
-                        <span>Price</span>
-                        <span>Markup</span>
-                        <span>Sell Price</span>
-                        <span>Qty</span>
-                        <span>Total</span>
-                        <span />
-                      </div>
-                      {selectedCostCentre.materials.map((line) => {
-                        const unitSell = lineSellFromMarkup(line.unitCost, line.markupPercent);
-                        return (
-                          <div className="simpro-billable-row parts" key={line.id}>
-                            <input type="checkbox" aria-label={`Select ${line.description}`} />
-                            <input
-                              value={line.description}
-                              onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { description: event.target.value })}
-                            />
-                            <input value={0} readOnly />
-                            <input
-                              inputMode="decimal"
-                              value={line.unitCost}
-                              onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { unitCost: Number(event.target.value) || 0 })}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={line.markupPercent}
-                              onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Number(event.target.value) || 0 })}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={Math.round(unitSell * 100) / 100}
-                              onChange={(event) => {
-                                const sell = Number(event.target.value) || 0;
-                                const markup = line.unitCost > 0 ? ((sell - line.unitCost) / line.unitCost) * 100 : 0;
-                                updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
-                              }}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={line.quantity}
-                              onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
-                            />
-                            <strong>{currency(estimateMaterialSell(line))}</strong>
-                            <button className="simpro-options-button" onClick={() => removeEstimateMaterialLine(selectedCostCentre.id, line.id)}>
-                              Options <ChevronDown size={13} />
-                            </button>
-                          </div>
-                        );
-                      })}
+                    <div className="simpro-sub-tabs" role="tablist" aria-label="Job parts and labour sections">
+                      {jobBuildTabs.map((tab) => (
+                        <button
+                          className={activeJobBuildTab === tab.key ? "active" : ""}
+                          key={tab.key}
+                          type="button"
+                          onClick={() => {
+                            setActiveJobBuildTab(tab.key);
+                            scrollWorkspaceToTop();
+                          }}
+                        >
+                          {tab.label}
+                        </button>
+                      ))}
                     </div>
 
-                    <div className="simpro-service-form">
-                      <label>
-                        Call out / Service Fee
-                        <select defaultValue="none">
-                          <option value="none">Not Selected</option>
-                        </select>
-                      </label>
-                      <button className="simpro-blue-button" type="button">ADD</button>
-                      <label>
-                        Supplier
-                        <input placeholder="Select supplier" />
-                      </label>
-                      <label>
-                        Supplier Quote
-                        <select defaultValue="0">
-                          <option value="0">0 Selected</option>
-                        </select>
-                      </label>
-                      <button className="simpro-blue-button" type="button">APPLY</button>
-                    </div>
+                    {activeJobBuildTab === "summary" ? (
+                      <div className="quote-scope-summary">
+                        {(() => {
+                          const totals = estimateCostCentreTotals(selectedCostCentre);
+                          const supplierLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
+                          return (
+                            <>
+                              <div className="simpro-parts-header">
+                                <div>
+                                  <h2>Scope summary</h2>
+                                  <h3>Pull-through from catalogue, one-off items, labour and supplier requests</h3>
+                                  <span>Job and variation cost centres use the same build flow as quotes, without takeoff/survey tools.</span>
+                                </div>
+                              </div>
+                              <div className="quote-build-summary-grid">
+                                <div>
+                                  <span>Materials</span>
+                                  <strong>{currency(totals.materialSell)}</strong>
+                                  <small>{selectedCostCentre.materials.length} item(s)</small>
+                                </div>
+                                <div>
+                                  <span>Labour</span>
+                                  <strong>{currency(totals.labourSell)}</strong>
+                                  <small>{selectedCostCentre.labour.reduce((sum, line) => sum + line.hours, 0).toFixed(2)} hrs</small>
+                                </div>
+                                <div>
+                                  <span>Supplier request</span>
+                                  <strong>{supplierLines.length}</strong>
+                                  <small>{supplierLines.length ? "Ready to send" : "No items selected"}</small>
+                                </div>
+                                <div className={totals.profit >= 0 ? "profit-positive" : "profit-negative"}>
+                                  <span>Potential profit</span>
+                                  <strong>{currency(totals.profit)}</strong>
+                                  <small>{totals.margin}% margin</small>
+                                </div>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
 
-                    <div className="simpro-labour-heading">
-                      <div>
-                        <h3>Labour</h3>
-                        <span>Net rates before VAT</span>
+                    {activeJobBuildTab === "catalogue" ? (
+                      <div className="catalogue-picker-panel">
+                        <div className="simpro-parts-header">
+                          <div>
+                            <h2>Catalogue</h2>
+                            <h3>Add saved materials into this cost centre</h3>
+                            <span>Catalogue folders and saved items will be managed in Setup later.</span>
+                          </div>
+                          <select
+                            aria-label="Add catalogue material"
+                            defaultValue=""
+                            onChange={(event) => {
+                              addEstimateMaterialLine(selectedCostCentre.id, event.target.value);
+                              event.currentTarget.value = "";
+                            }}
+                          >
+                            <option value="" disabled>Add catalogue item</option>
+                            {quoteCatalog.filter((item) => item.type !== "Labour").map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.type}: {item.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="catalogue-folder-list">
+                          {quoteCatalogFolders.map((folder) => {
+                            const folderCount = quoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
+                            return (
+                              <button
+                                className={activeCatalogueFolder === folder ? "active" : ""}
+                                key={folder}
+                                type="button"
+                                onClick={() => setActiveCatalogueFolder(folder)}
+                              >
+                                <strong>{folder}</strong>
+                                <span>{folderCount} item(s)</span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                      <div>
-                        <strong>Estimated Time: 0.00 hrs</strong>
-                        <strong>Time Billed: {selectedCostCentre.labour.reduce((sum, line) => sum + line.hours, 0).toFixed(2)} hrs</strong>
+                    ) : null}
+
+                    {activeJobBuildTab === "one-off" ? (
+                      <div className="one-off-picker-panel">
+                        <div className="simpro-parts-header">
+                          <div>
+                            <h2>One-off items</h2>
+                            <h3>Add materials that are not yet in the catalogue</h3>
+                            <span>Use this for ad-hoc fittings, sundries, specialist parts or supplier-priced items.</span>
+                          </div>
+                          <button className="simpro-blue-button" type="button" onClick={() => addOneOffEstimateMaterialLine(selectedCostCentre.id)}>
+                            ONE-OFF MATERIAL
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                    <div className="simpro-labour-add">
-                      <select defaultValue="0">
-                        <option value="0">0 Selected</option>
-                        <option value="plumber">Plumbing rate</option>
-                        <option value="joiner">Joinery Labour</option>
-                      </select>
-                      <button className="primary-button" onClick={() => addEstimateLabourLine(selectedCostCentre.id)}>
-                        ADD
-                      </button>
-                    </div>
-                    <div className="simpro-billable-table">
-                      <div className="simpro-billable-row table-head labour">
-                        <span />
-                        <span>Labour Type</span>
-                        <span>Cost Rate</span>
-                        <span>Markup</span>
-                        <span>Sell Price</span>
-                        <span>Time (hrs)</span>
-                        <span>Total</span>
-                        <span />
-                      </div>
-                      {selectedCostCentre.labour.map((line) => {
-                        const sellRate = lineSellFromMarkup(line.costRate, line.markupPercent);
-                        return (
-                          <div className="simpro-billable-row labour" key={line.id}>
-                            <input type="checkbox" aria-label={`Select ${line.role}`} />
-                            <input
-                              value={line.role}
-                              onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { role: event.target.value })}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={line.costRate}
-                              onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { costRate: Number(event.target.value) || 0 })}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={line.markupPercent}
-                              onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Number(event.target.value) || 0 })}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={Math.round(sellRate * 100) / 100}
-                              onChange={(event) => {
-                                const sell = Number(event.target.value) || 0;
-                                const markup = line.costRate > 0 ? ((sell - line.costRate) / line.costRate) * 100 : 0;
-                                updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                    ) : null}
+
+                    {["summary", "catalogue", "one-off"].includes(activeJobBuildTab) ? (
+                      <div className="simpro-billable-table">
+                        <div className="simpro-billable-row table-head parts">
+                          <span />
+                          <span>Description</span>
+                          <span>Time (hrs)</span>
+                          <span>Price</span>
+                          <span>Markup</span>
+                          <span>Sell Price</span>
+                          <span>Qty</span>
+                          <span>Total</span>
+                          <span />
+                        </div>
+                        {selectedCostCentre.materials.map((line) => {
+                          const unitSell = lineSellFromMarkup(line.unitCost, line.markupPercent);
+                          return (
+                            <div className="simpro-billable-row parts" key={line.id}>
+                              <input
+                                checked={Boolean(line.supplierRequired)}
+                                type="checkbox"
+                                aria-label={`Select ${line.description} for supplier request`}
+                                onChange={(event) => toggleEstimateMaterialSupplierRequest(selectedCostCentre.id, line.id, event.target.checked)}
+                              />
+                              <input
+                                value={line.description}
+                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { description: event.target.value })}
+                              />
+                              <input value={0} readOnly />
+                              <input
+                                inputMode="decimal"
+                                value={line.unitCost}
+                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { unitCost: Number(event.target.value) || 0 })}
+                              />
+                              <input
+                                inputMode="decimal"
+                                value={line.markupPercent}
+                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Number(event.target.value) || 0 })}
+                              />
+                              <input
+                                inputMode="decimal"
+                                value={Math.round(unitSell * 100) / 100}
+                                onChange={(event) => {
+                                  const sell = Number(event.target.value) || 0;
+                                  const markup = line.unitCost > 0 ? ((sell - line.unitCost) / line.unitCost) * 100 : 0;
+                                  updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                }}
+                              />
+                              <input
+                                inputMode="decimal"
+                                value={line.quantity}
+                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
+                              />
+                              <strong>{currency(estimateMaterialSell(line))}</strong>
+                              <button className="simpro-options-button" onClick={() => removeEstimateMaterialLine(selectedCostCentre.id, line.id)}>
+                                Remove <ChevronDown size={13} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {selectedCostCentre.materials.length === 0 ? (
+                          <div className="simpro-billable-row parts empty">
+                            <span />
+                            <strong>No material lines yet. Add a catalogue item or one-off material.</strong>
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                          </div>
+                        ) : (
+                          <div className="quote-bulk-action-bar">
+                            <span>{selectedCostCentre.materials.filter((line) => line.supplierRequired).length} selected</span>
+                            <button
+                              className="simpro-options-button"
+                              type="button"
+                              onClick={() => {
+                                selectedCostCentre.materials.forEach((line) => toggleEstimateMaterialSupplierRequest(selectedCostCentre.id, line.id, true));
                               }}
-                            />
-                            <input
-                              inputMode="decimal"
-                              value={line.hours}
-                              onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { hours: Number(event.target.value) || 0 })}
-                            />
-                            <strong>{currency(estimateLabourSell(line))}</strong>
-                            <button className="simpro-options-button" onClick={() => removeEstimateLabourLine(selectedCostCentre.id, line.id)}>
-                              Options <ChevronDown size={13} />
+                            >
+                              Select all for supplier
+                            </button>
+                            <button className="simpro-options-button" type="button" onClick={() => setActiveJobBuildTab("supplier-request")}>
+                              Send to supplier request form
                             </button>
                           </div>
-                        );
-                      })}
-                    </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {activeJobBuildTab === "supplier-request" ? (
+                      <div className="supplier-quote-import">
+                        <div className="supplier-quote-import-head">
+                          <div>
+                            <strong>Supplier quote / request</strong>
+                            <span>Send selected job or variation materials to a supplier, then update returned costs into this cost centre.</span>
+                          </div>
+                          <FileText size={20} />
+                        </div>
+                        {(() => {
+                          const requestLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
+                          const requestTotal = requestLines.reduce((total, line) => total + estimateMaterialSell(line), 0);
+                          if (!requestLines.length) {
+                            return (
+                              <div className="supplier-request-empty">
+                                <strong>No supplier request items selected yet.</strong>
+                                <span>Go to Summary, Catalogue or One-off items, tick the left-hand boxes, then return to Supplier request.</span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div className="supplier-request-pack">
+                              <div className="supplier-document-preview">
+                                <div>
+                                  <span>Supplier request preview</span>
+                                  <h3>{selectedJob.ref} supplier quote request - {selectedCostCentre.name}</h3>
+                                  <p>Please price the selected items for {selectedCostCentre.name}. Quantities and notes are included below.</p>
+                                </div>
+                                <div className="supplier-document-meta">
+                                  <span>To</span>
+                                  <strong>Supplier not selected</strong>
+                                  <span>Email</span>
+                                  <strong>Not entered</strong>
+                                  <span>Items</span>
+                                  <strong>{requestLines.length}</strong>
+                                </div>
+                              </div>
+                              <div className="supplier-match-summary">
+                                <div>
+                                  <span>Requested lines</span>
+                                  <strong>{requestLines.length}</strong>
+                                </div>
+                                <div>
+                                  <span>Known cost</span>
+                                  <strong>{currency(requestLines.reduce((total, line) => total + line.unitCost * line.quantity, 0))}</strong>
+                                </div>
+                                <div>
+                                  <span>Current sell</span>
+                                  <strong>{requestTotal > 0 ? currency(requestTotal) : "Awaiting price"}</strong>
+                                </div>
+                                <div>
+                                  <span>Status</span>
+                                  <strong>Draft request</strong>
+                                </div>
+                              </div>
+                              <div className="supplier-quote-preview">
+                                <div className="supplier-quote-preview-head">
+                                  <span>Requested item</span>
+                                  <span>Qty</span>
+                                  <span>Cost</span>
+                                  <span>Markup</span>
+                                  <strong>Sell</strong>
+                                  <span>Match</span>
+                                </div>
+                                {requestLines.map((line) => (
+                                  <div className="supplier-quote-preview-row" key={line.id}>
+                                    <span>{line.description}</span>
+                                    <span>{line.quantity.toFixed(2)}</span>
+                                    <span>{line.unitCost > 0 ? currency(line.unitCost) : "TBC"}</span>
+                                    <span>{line.unitCost > 0 ? `${line.markupPercent}%` : "TBC"}</span>
+                                    <strong>{line.unitCost > 0 ? currency(estimateMaterialSell(line)) : "Awaiting price"}</strong>
+                                    <span className={`supplier-match-pill ${line.unitCost > 0 ? "matched" : "awaiting-price"}`}>{line.unitCost > 0 ? "Matched" : "Awaiting price"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="supplier-return-panel">
+                                <div>
+                                  <strong>Returned supplier quote</strong>
+                                  <span>Upload parsing for job cost centres will share the quote supplier engine once the backend schema is added.</span>
+                                </div>
+                                <button className="simpro-grey-button" type="button" onClick={() => showNotice("Supplier request email will be wired to Outlook next.")}>
+                                  SEND REQUEST
+                                </button>
+                                <button className="simpro-blue-button" type="button" onClick={() => showNotice("Returned supplier quote import is next to wire into job cost centres.")}>
+                                  APPLY RETURNED QUOTE
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ) : null}
+
+                    {activeJobBuildTab === "labour" ? (
+                      <>
+                        <div className="simpro-labour-heading">
+                          <div>
+                            <h3>Labour</h3>
+                            <span>Net rates before VAT</span>
+                          </div>
+                          <div>
+                            <strong>Estimated Time: 0.00 hrs</strong>
+                            <strong>Time Billed: {selectedCostCentre.labour.reduce((sum, line) => sum + line.hours, 0).toFixed(2)} hrs</strong>
+                          </div>
+                        </div>
+                        <div className="simpro-labour-add">
+                          <select defaultValue="0">
+                            <option value="0">0 Selected</option>
+                            <option value="plumber">Plumbing rate</option>
+                            <option value="joiner">Joinery Labour</option>
+                          </select>
+                          <button className="primary-button" onClick={() => addEstimateLabourLine(selectedCostCentre.id)}>
+                            ADD
+                          </button>
+                        </div>
+                        <div className="simpro-billable-table">
+                          <div className="simpro-billable-row table-head labour">
+                            <span />
+                            <span>Labour Type</span>
+                            <span>Cost Rate</span>
+                            <span>Markup</span>
+                            <span>Sell Price</span>
+                            <span>Time (hrs)</span>
+                            <span>Total</span>
+                            <span />
+                          </div>
+                          {selectedCostCentre.labour.map((line) => {
+                            const sellRate = lineSellFromMarkup(line.costRate, line.markupPercent);
+                            return (
+                              <div className="simpro-billable-row labour" key={line.id}>
+                                <input type="checkbox" aria-label={`Select ${line.role}`} />
+                                <input
+                                  value={line.role}
+                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { role: event.target.value })}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={line.costRate}
+                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { costRate: Number(event.target.value) || 0 })}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={line.markupPercent}
+                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Number(event.target.value) || 0 })}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={Math.round(sellRate * 100) / 100}
+                                  onChange={(event) => {
+                                    const sell = Number(event.target.value) || 0;
+                                    const markup = line.costRate > 0 ? ((sell - line.costRate) / line.costRate) * 100 : 0;
+                                    updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={line.hours}
+                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { hours: Number(event.target.value) || 0 })}
+                                />
+                                <strong>{currency(estimateLabourSell(line))}</strong>
+                                <button className="simpro-options-button" onClick={() => removeEstimateLabourLine(selectedCostCentre.id, line.id)}>
+                                  Remove <ChevronDown size={13} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    ) : null}
                   </section>
                 ) : null}
 
