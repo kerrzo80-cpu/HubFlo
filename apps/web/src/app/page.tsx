@@ -5779,6 +5779,22 @@ export default function Dashboard() {
     const linkedJob = jobs.find((job) => job.id === quote.convertedJobId);
     if (!linkedJob) return false;
     const sourceCentres = quoteCostCentres[quote.id] ?? [];
+    setJobVariationSections((current) => {
+      const existing = current[linkedJob.id] ?? [];
+      const sectionId = `${linkedJob.id}-variation-section-from-${quote.id}`;
+      if (existing.some((section) => section.id === sectionId)) return current;
+      return {
+        ...current,
+        [linkedJob.id]: [
+          ...existing,
+          {
+            id: sectionId,
+            name: `${quote.ref} - ${quote.description}`,
+            description: `Accepted online and linked back to ${linkedJob.ref}.`,
+          },
+        ],
+      };
+    });
     if (sourceCentres.length > 0) {
       setJobEstimateCostCentres((current) => {
         const existing = current[linkedJob.id] ?? makeDefaultEstimateCostCentres(linkedJob);
