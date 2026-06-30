@@ -37,6 +37,8 @@ export async function POST(request: Request) {
   const created = createPurchaseRequest({
     jobId: payload.jobId,
     jobRef: payload.jobRef,
+    costCentreId: payload.costCentreId,
+    costCentreName: payload.costCentreName,
     requestedBy: payload.requestedBy ?? "Engineer",
     supplier: payload.supplier,
     item: payload.item,

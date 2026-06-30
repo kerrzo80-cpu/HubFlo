@@ -988,6 +988,9 @@ type JobSupplierRequestDraft = {
   fileName: string;
   markupPercent: number;
   lines: EstimateMaterialLine[];
+  poNumber?: string;
+  poRequestId?: string;
+  poIssuedAt?: string;
   sentAt?: string;
 };
 
@@ -6971,7 +6974,7 @@ export default function Dashboard() {
   }
 
   function addEstimateMaterialLine(centreId: string, catalogItemId: string) {
-    const item = quoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId) ?? quoteCatalog[0];
+    const item = availableQuoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId);
     if (!item) return;
 
     setJobCentresForSelected((centres) =>
@@ -7173,6 +7176,75 @@ export default function Dashboard() {
     );
 
     showNotice(`Supplier prices applied into ${selectedCostCentre?.name ?? "the cost centre"}.`);
+  }
+
+  async function issueJobCostCentrePurchaseOrder(centre: EstimateCostCentre) {
+    if (!selectedJob) return;
+    const draft = jobSupplierRequestDrafts[centre.id];
+    const supplier = draft?.supplier?.trim();
+    if (!supplier) {
+      showNotice("Add the supplier before issuing a PO number.");
+      return;
+    }
+
+    const lines = draft?.lines.length ? draft.lines : centre.materials.filter((line) => line.supplierRequired);
+    if (!lines.length) {
+      showNotice("Select supplier request items before issuing a PO.");
+      return;
+    }
+
+    const estimatedCost = lines.reduce((total, line) => total + estimateMaterialCost(line), 0);
+    try {
+      const createResponse = await fetch("/api/purchase-requests", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: selectedJob.id,
+          jobRef: selectedJob.ref,
+          costCentreId: centre.id,
+          costCentreName: centre.name,
+          requestedBy: activeEmployee?.name ?? "Verrova user",
+          supplier,
+          item: lines.map((line) => `${line.quantity} x ${line.description}`).join("; "),
+          estimatedCost,
+          reason: `Supplier quote accepted for ${centre.name}`,
+        }),
+      });
+      if (!createResponse.ok) throw new Error("Unable to create PO request");
+      const created = (await createResponse.json()) as PurchaseRequest;
+
+      const approveResponse = await fetch(`/api/purchase-requests/${created.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Approved" }),
+      });
+      if (!approveResponse.ok) throw new Error("Unable to issue PO number");
+      const approved = (await approveResponse.json()) as PurchaseRequest;
+
+      setPurchaseRequests((current) => [
+        approved,
+        ...current.filter((request) => request.id !== approved.id),
+      ]);
+      updateJobSupplierRequestDraft(centre.id, {
+        poNumber: approved.poNumber,
+        poRequestId: approved.id,
+        poIssuedAt: workflowTimestamp(),
+      });
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "Verrova user",
+        action: "po issued",
+        recordType: "purchase_request",
+        recordId: approved.id,
+        summary: `${approved.poNumber} issued to ${supplier} for ${selectedJob.ref} / ${centre.name}.`,
+        source: "cost centre supplier request",
+        importance: "high",
+      });
+      showNotice(`${approved.poNumber} issued to ${supplier} against ${centre.name}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to issue PO number for this cost centre.";
+      setSectionError(message);
+      showNotice(message);
+    }
   }
 
   function removeEstimateMaterialLine(centreId: string, lineId: string) {
@@ -11270,11 +11342,7 @@ export default function Dashboard() {
                               <button
                                 className="simpro-blue-button"
                                 type="button"
-                                onClick={() => {
-                                  openOneOffMaterialModal(selectedQuoteCostCentre.id);
-                                  setActiveQuoteBuildTab("one-off");
-                                  scrollWorkspaceToTop();
-                                }}
+                                onClick={() => showNotice("New catalogue items will be created in Settings so they can be assigned to a catalogue group before use.")}
                               >
                                 CREATE ITEM
                               </button>
@@ -11308,7 +11376,7 @@ export default function Dashboard() {
 
                               <div className="quote-catalogue-items">
                                 <div className="quote-catalogue-head">
-                                  <strong>{activeCatalogueFolder} items</strong>
+                                  <strong>Items menu - {activeCatalogueFolder}</strong>
                                   <span>{visibleCatalogItems.length} matching item(s)</span>
                                 </div>
                                 {visibleCatalogItems.map((item) => (
@@ -12245,7 +12313,7 @@ export default function Dashboard() {
                       <header>
                         <div>
                           <span className="permission-heading">Project management</span>
-                          <h2>WhatsApp, timesheets, POs and variations</h2>
+                          <h2>WhatsApp updates and timesheets</h2>
                         </div>
                         <span className="status-pill blue">{selectedJobDeliveryEvents.length} events</span>
                       </header>
@@ -12260,13 +12328,23 @@ export default function Dashboard() {
                           <strong>{selectedJobTimesheetHours.toFixed(1)}h</strong>
                         </article>
                         <article>
-                          <span>PO requests</span>
+                          <span>Cost-centre POs</span>
                           <strong>{selectedJobPurchaseRequests.length}</strong>
                         </article>
                         <article>
-                          <span>Variations</span>
+                          <span>Cost-centre variations</span>
                           <strong>{selectedJobVariations.length}</strong>
                         </article>
+                      </div>
+                      <div className="job-readiness-item">
+                        <span><FileText size={15} /></span>
+                        <div>
+                          <strong>Variations and purchase orders are controlled from cost centres</strong>
+                          <small>Use Cost Centre List for variation quotes. Use Parts & Labour / Supplier request inside a cost centre to request supplier prices, upload the quote and issue a PO number against that cost centre.</small>
+                        </div>
+                        <button className="secondary-button" type="button" onClick={() => setActiveJobTab("cost-centres")}>
+                          Open cost centres
+                        </button>
                       </div>
 
                       <div className="job-delivery-grid">
@@ -12322,109 +12400,6 @@ export default function Dashboard() {
                           </button>
                         </article>
 
-                        <article className="job-delivery-card wide">
-                          <header>
-                            <strong>Variation</strong>
-                            <small>Creates an office review draft before client approval</small>
-                          </header>
-                          <label>
-                            Work description
-                            <textarea
-                              value={selectedJobDeliveryDraft.variationDescription}
-                              onChange={(event) => updateSelectedJobDeliveryDraft({ variationDescription: event.target.value })}
-                              placeholder="Describe the extra works and why they are needed."
-                            />
-                          </label>
-                          <div className="job-delivery-four-col">
-                            <label>
-                              Labour hrs
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={selectedJobDeliveryDraft.variationHours}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationHours: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Materials
-                              <input
-                                value={selectedJobDeliveryDraft.variationMaterials}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationMaterials: event.target.value })}
-                                placeholder="Pipe, fittings, valves"
-                              />
-                            </label>
-                            <label>
-                              Cost
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={selectedJobDeliveryDraft.variationCost}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationCost: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Sell
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={selectedJobDeliveryDraft.variationSell}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ variationSell: event.target.value })}
-                              />
-                            </label>
-                          </div>
-                          <button className="primary-button" type="button" onClick={raiseSelectedJobVariation}>
-                            Raise variation
-                          </button>
-                        </article>
-
-                        <article className="job-delivery-card wide">
-                          <header>
-                            <strong>Purchase order</strong>
-                            <small>Request materials for this job</small>
-                          </header>
-                          <div className="job-delivery-four-col">
-                            <label>
-                              Supplier
-                              <input
-                                value={selectedJobDeliveryDraft.poSupplier}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ poSupplier: event.target.value })}
-                                placeholder="City Plumbing"
-                              />
-                            </label>
-                            <label>
-                              Item
-                              <input
-                                value={selectedJobDeliveryDraft.poItem}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ poItem: event.target.value })}
-                                placeholder="Radiators, valves, copper..."
-                              />
-                            </label>
-                            <label>
-                              Estimated cost
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={selectedJobDeliveryDraft.poEstimatedCost}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ poEstimatedCost: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Reason
-                              <input
-                                value={selectedJobDeliveryDraft.poReason}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ poReason: event.target.value })}
-                                placeholder="Needed for first fix"
-                              />
-                            </label>
-                          </div>
-                          <button className="secondary-button" type="button" onClick={requestSelectedJobPurchaseOrder}>
-                            Request PO
-                          </button>
-                        </article>
                       </div>
 
                       <div className="job-delivery-list">
@@ -13288,11 +13263,7 @@ export default function Dashboard() {
                               <button
                                 className="simpro-blue-button"
                                 type="button"
-                                onClick={() => {
-                                  addOneOffEstimateMaterialLine(selectedCostCentre.id);
-                                  setActiveJobBuildTab("one-off");
-                                  scrollWorkspaceToTop();
-                                }}
+                                onClick={() => showNotice("New catalogue items will be created in Settings so they can be assigned to a catalogue group before use.")}
                               >
                                 CREATE ITEM
                               </button>
@@ -13326,7 +13297,7 @@ export default function Dashboard() {
 
                               <div className="quote-catalogue-items">
                                 <div className="quote-catalogue-head">
-                                  <strong>{activeCatalogueFolder} items</strong>
+                                  <strong>Items menu - {activeCatalogueFolder}</strong>
                                   <span>{visibleCatalogItems.length} matching item(s)</span>
                                 </div>
                                 {visibleCatalogItems.map((item) => (
@@ -13601,6 +13572,7 @@ export default function Dashboard() {
                                 <strong>Supplier document trail</strong>
                                 <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
                                 <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
+                                <span>{supplierDraft?.poNumber ? `PO ${supplierDraft.poNumber} issued against ${selectedCostCentre.name}` : "PO number not issued yet"}</span>
                                 <span>{pricedCount === requestLines.length && requestLines.length > 0 ? "Ready to apply into cost centre" : "Waiting for all supplier prices"}</span>
                               </div>
                               <div className="supplier-return-panel">
@@ -13631,6 +13603,20 @@ export default function Dashboard() {
                                   onClick={() => applyJobSupplierQuoteImport(selectedCostCentre.id)}
                                 >
                                   APPLY RETURNED QUOTE
+                                </button>
+                                <button
+                                  className="simpro-grey-button"
+                                  disabled={
+                                    !jobSupplierRequestDrafts[selectedCostCentre.id]?.lines.length ||
+                                    !jobSupplierRequestDrafts[selectedCostCentre.id]?.fileName ||
+                                    Boolean(jobSupplierRequestDrafts[selectedCostCentre.id]?.poNumber)
+                                  }
+                                  type="button"
+                                  onClick={() => issueJobCostCentrePurchaseOrder(selectedCostCentre)}
+                                >
+                                  {jobSupplierRequestDrafts[selectedCostCentre.id]?.poNumber
+                                    ? `PO ${jobSupplierRequestDrafts[selectedCostCentre.id]?.poNumber}`
+                                    : "ISSUE / SEND PO NUMBER"}
                                 </button>
                               </div>
                             </div>
@@ -15821,7 +15807,7 @@ export default function Dashboard() {
                           <div className="po-item" key={request.id}>
                             <div>
                               <strong>{request.jobRef}</strong>
-                              <small>{request.supplier} · {request.createdAt}</small>
+                              <small>{request.supplier} · {request.costCentreName ?? "No cost centre"} · {request.createdAt}</small>
                               <span>{request.item}</span>
                             </div>
                             <div className="po-item-actions">

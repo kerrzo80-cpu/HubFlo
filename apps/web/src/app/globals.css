@@ -6226,20 +6226,20 @@ h1 {
   background: rgba(20, 29, 34, 0.42);
   inset: 0;
   position: fixed;
-  z-index: 50;
+  z-index: 120;
 }
 
 .modal-backdrop {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   justify-content: center;
-  padding: 20px;
+  padding: 92px 20px 24px;
 }
 
 .modal {
   background: #fff;
   box-shadow: 0 24px 80px rgba(17, 28, 34, 0.24);
-  max-height: calc(100vh - 40px);
+  max-height: calc(100vh - 116px);
   max-width: 720px;
   overflow: auto;
   width: 100%;
@@ -7785,12 +7785,12 @@ h1 {
   }
 
   .modal-backdrop {
-    align-items: flex-end;
-    padding: 0;
+    align-items: flex-start;
+    padding: 76px 10px 10px;
   }
 
   .modal {
-    max-height: 92vh;
+    max-height: calc(100vh - 86px);
   }
 
   .two-column-form {

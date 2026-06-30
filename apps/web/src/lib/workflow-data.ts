@@ -59,6 +59,8 @@ export interface PurchaseRequest {
   id: string;
   jobId: string;
   jobRef: string;
+  costCentreId?: string;
+  costCentreName?: string;
   requestedBy: string;
   supplier: string;
   item: string;
@@ -591,6 +593,8 @@ export function createPurchaseRequest(
     item: payload.item,
     jobId: payload.jobId,
     jobRef: payload.jobRef,
+    costCentreId: payload.costCentreId,
+    costCentreName: payload.costCentreName,
     reason: payload.reason,
     requestedBy: payload.requestedBy,
     supplier: payload.supplier,
