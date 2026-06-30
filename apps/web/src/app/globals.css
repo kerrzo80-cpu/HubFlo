@@ -12170,10 +12170,53 @@ kbd,
 }
 
 .brand-lockup .company-logo {
+  display: block !important;
   height: 54px;
+  max-width: none;
   object-fit: contain;
   object-position: left center;
   width: 184px;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+.platform {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.global-header,
+.module-bar {
+  flex: 0 0 auto;
+}
+
+.body-shell {
+  flex: 1 1 auto;
+  height: calc(100vh - 121px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.context-sidebar {
+  height: 100%;
+  max-height: none;
+  min-height: 0;
+  overflow-y: auto;
+  position: sticky;
+  top: 0;
+}
+
+.workspace {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .ops-dashboard {
