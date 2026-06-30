@@ -35,7 +35,6 @@ import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domai
 import { getOfficeAlerts, getOfficePoRequests } from "@/lib/engineer-data";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
 import {
-  seedAuditEvents,
   seedClients,
   seedClientSites,
   type AuditEvent,
@@ -2029,6 +2028,15 @@ const defaultQuoteCostCentres: Record<string, QuoteCostCentre[]> = {
   ],
 };
 
+const retainedWorkflowDemoExamples = {
+  seedJobs,
+  seedQuotes,
+  seedLeads,
+  seedPurchaseRequests,
+  defaultQuoteCostCentres,
+};
+void retainedWorkflowDemoExamples;
+
 function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
   const base = Math.max(job.value, 1000);
   return [
@@ -3552,7 +3560,7 @@ export default function Dashboard() {
   const [employees, setEmployees] = useState<EmployeeCard[]>(seedEmployees);
   const [clients, setClients] = useState<ClientRecord[]>(seedClients);
   const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(seedAuditEvents);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [activeEmployeeId, setActiveEmployeeId] = useState(seedEmployees[0]?.id ?? "");
   const [activeClientId, setActiveClientId] = useState(seedClients[0]?.id ?? "");
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
@@ -3561,10 +3569,10 @@ export default function Dashboard() {
   const [employeeProfileDraft, setEmployeeProfileDraft] = useState<EmployeeProfileDraft>(
     createBlankEmployeeProfileDraft(),
   );
-  const [jobs, setJobs] = useState<Job[]>(seedJobs);
-  const [quotes, setQuotes] = useState<Quote[]>(seedQuotes);
-  const [leads, setLeads] = useState<Lead[]>(seedLeads);
-  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>(seedPurchaseRequests);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
@@ -3620,7 +3628,7 @@ export default function Dashboard() {
   const [costCentreActionMenu, setCostCentreActionMenu] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renamingCostCentre, setRenamingCostCentre] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renameCostCentreDraft, setRenameCostCentreDraft] = useState("");
-  const [quoteCostCentres, setQuoteCostCentres] = useState<Record<string, QuoteCostCentre[]>>(defaultQuoteCostCentres);
+  const [quoteCostCentres, setQuoteCostCentres] = useState<Record<string, QuoteCostCentre[]>>({});
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
@@ -4362,17 +4370,17 @@ export default function Dashboard() {
 
     setClients(storedClients);
     setClientSites(safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
-    setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, seedAuditEvents));
+    setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? seedClients[0]?.id ?? "");
-    setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, seedJobs));
-    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, seedQuotes));
-    setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, seedLeads));
-    setPurchaseRequests(safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, seedPurchaseRequests));
+    setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, []));
+    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, []));
+    setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, []));
+    setPurchaseRequests(safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
     setInvoices(safeLoadStoredJson(STORAGE_KEYS.invoices, []));
     setDocumentFolderTemplates(safeLoadStoredJson(STORAGE_KEYS.documentFolders, defaultDocumentFolderTemplates));
     setEngineerFlowTemplate(safeLoadStoredJson(STORAGE_KEYS.engineerFlow, defaultBoilerFlowTemplate));
     setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
-    setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, defaultQuoteCostCentres));
+    setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {}));
     setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
@@ -4889,6 +4897,13 @@ export default function Dashboard() {
     [jobs, leads, purchaseRequests, quotes],
   );
 
+  const workflowIsClean =
+    leads.length === 0 &&
+    quotes.length === 0 &&
+    jobs.length === 0 &&
+    invoices.length === 0 &&
+    purchaseRequests.length === 0;
+
   const pendingPORequests = useMemo(
     () => purchaseRequests.filter((request) => request.status === "Requested"),
     [purchaseRequests],
@@ -5376,6 +5391,69 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
+  async function resetWorkflowForEndToEndTest() {
+    if (typeof window !== "undefined") {
+      [
+        STORAGE_KEYS.leads,
+        STORAGE_KEYS.jobs,
+        STORAGE_KEYS.quotes,
+        STORAGE_KEYS.purchaseRequests,
+        STORAGE_KEYS.auditEvents,
+        STORAGE_KEYS.invoices,
+        STORAGE_KEYS.flowCompletion,
+        STORAGE_KEYS.quoteCostCentres,
+        STORAGE_KEYS.jobCostCentres,
+        STORAGE_KEYS.jobReviews,
+        STORAGE_KEYS.jobDeliveryEvents,
+        STORAGE_KEYS.jobVariationSections,
+        STORAGE_KEYS.communications,
+      ].forEach((key) => window.localStorage.removeItem(key));
+    }
+
+    setLeads([]);
+    setQuotes([]);
+    setJobs([]);
+    setPurchaseRequests([]);
+    setInvoices([]);
+    setAuditEvents([]);
+    setQuoteCostCentres({});
+    setJobEstimateCostCentres({});
+    setJobReviewApprovals({});
+    setJobDeliveryEvents([]);
+    setJobVariationSections({});
+    setCommunicationRecords([]);
+    setFlowStepCompletion({});
+    setQuoteEmailDrafts({});
+    setInvoiceEmailDrafts({});
+    setJobScheduleDrafts({});
+    setJobDeliveryDrafts({});
+    setSupplierQuoteDrafts({});
+    setJobSupplierRequestDrafts({});
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedQuoteCostCentreId(null);
+    setSelectedJobId(null);
+    setSelectedCostCentreId(null);
+    setSelectedInvoiceId(null);
+    setHomeView("dashboard");
+    setSectionError(null);
+    scrollWorkspaceToTop();
+
+    try {
+      const response = await fetch("/api/workflow-reset", {
+        method: "POST",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to reset shared workflow data.");
+      setHasLoadedHubDetailState(true);
+      showNotice("Workflow cleared. Start with + Create > Lead, then follow it through quote, job, valuation and invoice.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Workflow reset is local only because the API did not respond.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
   function goToPeopleSection(item: string) {
     setOpenModuleMenu(null);
     if (item === "Employees") {
@@ -5657,6 +5735,57 @@ export default function Dashboard() {
       status: "Sent",
     });
     showNotice(sourceJob ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.` : `Invoice ${selectedInvoice.ref} sent and logged.`);
+  }
+
+  function submitSelectedValuation() {
+    if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
+    if (!selectedInvoiceEmailDraft.to.trim()) {
+      showNotice("Add a recipient before submitting the valuation.");
+      return;
+    }
+
+    const subject = `Application for payment - ${selectedInvoice.sourceName}`;
+    const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nVerrova`;
+    const messageId = `outlook-valuation-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+
+    addCommunicationRecord({
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+      direction: "outbound",
+      channel: "Outlook",
+      subject,
+      body,
+      from: "accounts@errolwatsongroup.co.uk",
+      to: selectedInvoiceEmailDraft.to.trim(),
+      cc: selectedInvoiceEmailDraft.cc.trim(),
+      messageId,
+      status: "Sent",
+    });
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "Verrova user",
+      action: "valuation submitted",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `Application for payment submitted for ${selectedInvoice.sourceName} to ${selectedInvoiceEmailDraft.to}.`,
+      source: "outlook draft",
+      importance: "high",
+    });
+
+    if (selectedInvoiceSourceJob) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "Verrova user",
+        action: "valuation submitted",
+        recordType: "job",
+        recordId: selectedInvoiceSourceJob.id,
+        summary: `Application for payment submitted from ${selectedInvoice.ref}.`,
+        source: "invoice record",
+        importance: "high",
+      });
+    }
+
+    showNotice("Application for payment submitted and logged.");
   }
 
   function openQuoteCostCentreRecord(centreId: string) {
@@ -6646,6 +6775,39 @@ export default function Dashboard() {
       openInvoiceForJob(updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
+  async function closeSelectedJobToCompleteFolder() {
+    if (!selectedJob) return;
+    if (!["Invoiced", "Closed"].includes(selectedJob.status)) {
+      showNotice("Send the invoice before moving the job into the complete folder.");
+      return;
+    }
+
+    try {
+      const updated = await patchSelectedJob(
+        {
+          status: "Closed",
+          next: "Archived in complete folder.",
+          due: "Complete",
+        },
+        `${selectedJob.ref} moved into the complete folder.`,
+      );
+      if (!updated) return;
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "Verrova user",
+        action: "closed",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${updated.ref} moved into the complete folder after invoice issue.`,
+        source: "completion folder",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to move job into the complete folder.";
       setSectionError(message);
       showNotice(message);
     }
@@ -9792,6 +9954,11 @@ export default function Dashboard() {
                       Create invoice
                     </button>
                   ) : null}
+                  {homeView === "job-record" && selectedJob?.status === "Invoiced" ? (
+                    <button className="primary-button" onClick={closeSelectedJobToCompleteFolder}>
+                      Move to complete folder
+                    </button>
+                  ) : null}
                   {homeView === "quote-record" && selectedQuote?.status === "Accepted" && access.canCreateJob ? (
                     <button className="primary-button" onClick={() => convertQuoteToJob(selectedQuote)}>
                       Convert to job
@@ -9882,19 +10049,28 @@ export default function Dashboard() {
                   </button>
                 </>
               ) : (
-                <button
-                  className="secondary-button"
-                  onClick={() =>
-                    showNotice(
-                      access.canCustomize
-                        ? "Customise is planned as a per-user dashboard layout."
-                        : "Customise is restricted for this role in this build.",
-                    )
-                  }
-                >
-                  <SlidersHorizontal size={16} />
-                  Customise
-                </button>
+                <>
+                  <button className="secondary-button" onClick={resetWorkflowForEndToEndTest}>
+                    Reset workflow
+                  </button>
+                  <button className="primary-button" onClick={createLead}>
+                    <Plus size={16} />
+                    New lead
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() =>
+                      showNotice(
+                        access.canCustomize
+                          ? "Customise is planned as a per-user dashboard layout."
+                          : "Customise is restricted for this role in this build.",
+                      )
+                    }
+                  >
+                    <SlidersHorizontal size={16} />
+                    Customise
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -13820,6 +13996,10 @@ export default function Dashboard() {
                                 ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
                                 : "Not sent yet"}
                           </small>
+                          <button className="secondary-button" type="button" onClick={submitSelectedValuation}>
+                            <FileText size={15} />
+                            Submit valuation
+                          </button>
                           <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
                             <Mail size={15} />
                             Email invoice
@@ -15322,6 +15502,46 @@ export default function Dashboard() {
                 </div>
               </section>
 
+              {workflowIsClean ? (
+                <section className="workflow-board fresh-workflow-panel" aria-label="Fresh workflow test">
+                  <div className="panel-header">
+                    <div>
+                      <h2>Fresh workflow test</h2>
+                      <p>Start from a lead and prove the full route before adding more features.</p>
+                    </div>
+                    <button className="primary-button" type="button" onClick={createLead}>
+                      <Plus size={16} />
+                      Create first lead
+                    </button>
+                  </div>
+                  <div className="queue-grid fresh-workflow-steps">
+                    {[
+                      "Lead intake",
+                      "Convert to quote",
+                      "Build and email quote",
+                      "Online acceptance",
+                      "Pending job",
+                      "Schedule engineer",
+                      "Variations / POs",
+                      "Valuation and invoice",
+                      "Complete folder",
+                    ].map((step, index) => (
+                      <article className="queue-card blue" key={step}>
+                        <span className="queue-card-top">
+                          <strong>{step}</strong>
+                          <span>{index + 1}</span>
+                        </span>
+                        <span>
+                          {index === 0
+                            ? "Use the real lead form with customer, site and description."
+                            : "Walk this stage from the record that the previous step creates."}
+                        </span>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
               {access.showQuotes ? (
                 <section className="quote-panel">
                   <div className="panel-header">
@@ -15427,6 +15647,13 @@ export default function Dashboard() {
                       </div>
                     );
                   })}
+                  {filteredQuotes.length === 0 ? (
+                    <div className="empty-state">
+                      <FileText size={20} />
+                      <strong>No quotes yet</strong>
+                      <span>Create a lead first, then convert it into the first quote.</span>
+                    </div>
+                  ) : null}
                 </section>
               ) : null}
 
@@ -15514,6 +15741,13 @@ export default function Dashboard() {
                       </div>
                       );
                     })}
+                    {filteredJobs.length === 0 ? (
+                      <div className="empty-state">
+                        <Wrench size={20} />
+                        <strong>No jobs yet</strong>
+                        <span>Accepted quotes will create pending jobs here ready to schedule.</span>
+                      </div>
+                    ) : null}
                   </div>
                 </section>
 

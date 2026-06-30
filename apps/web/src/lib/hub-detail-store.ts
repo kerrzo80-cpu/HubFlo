@@ -38,3 +38,11 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
   writeServerStore("hub-detail-store", hubDetailState);
   return clone(hubDetailState);
 }
+
+export function resetHubDetailState(): HubDetailState {
+  Object.keys(hubDetailState).forEach((key) => {
+    delete hubDetailState[key as keyof HubDetailState];
+  });
+  writeServerStore("hub-detail-store", hubDetailState);
+  return clone(hubDetailState);
+}

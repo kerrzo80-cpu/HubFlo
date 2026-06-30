@@ -116,7 +116,7 @@ type LeadStoreState = {
 };
 
 const defaultLeadStore: LeadStoreState = {
-  leads: seedLeads,
+  leads: [],
 };
 
 const leadStore = loadServerStore("lead-store", defaultLeadStore);
@@ -261,6 +261,13 @@ export function getClientSites() {
 
 export function getLeads() {
   return clone(getStore().leads);
+}
+
+export function resetLeadStore() {
+  const store = getStore();
+  store.leads = [];
+  persistLeadStore();
+  return clone(store);
 }
 
 export function getLead(id: string) {

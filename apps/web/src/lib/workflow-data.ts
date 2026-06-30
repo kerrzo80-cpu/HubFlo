@@ -236,10 +236,14 @@ export const quoteStatuses: QuoteStatus[] = [
 ];
 
 const defaultStore: WorkflowStore = {
-  jobs: [...seedJobs],
-  quotes: [...seedQuotes],
-  purchaseRequests: [...seedPurchaseRequests],
+  jobs: [],
+  quotes: [],
+  purchaseRequests: [],
 };
+
+void seedJobs;
+void seedQuotes;
+void seedPurchaseRequests;
 
 const workflowStore = loadServerStore("workflow-store", defaultStore);
 
@@ -320,6 +324,15 @@ function nextPoNumber(existing: PurchaseRequest[]): string {
 
 export function getJobs(): Job[] {
   return clone(getStore().jobs);
+}
+
+export function resetWorkflowStore(): WorkflowStore {
+  const store = getStore();
+  store.jobs = [];
+  store.quotes = [];
+  store.purchaseRequests = [];
+  persistWorkflowStore();
+  return clone(store);
 }
 
 export function getJob(id: string): Job | undefined {

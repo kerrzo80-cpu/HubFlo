@@ -1,6 +1,5 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import {
-  seedAuditEvents,
   seedClientSites,
   seedClients,
   type AuditEvent,
@@ -11,7 +10,7 @@ import {
 } from "@/lib/people-seed-data";
 
 export type { AuditEvent, AuditEventInput, ClientRecord, ClientSite, ClientStatus };
-export { seedAuditEvents, seedClientSites, seedClients };
+export { seedClientSites, seedClients };
 
 type PeopleStore = {
   clients: ClientRecord[];
@@ -38,7 +37,7 @@ function timestamp() {
 const seedPeopleStore: PeopleStore = {
   clients: clone(seedClients),
   clientSites: clone(seedClientSites),
-  auditEvents: clone(seedAuditEvents),
+  auditEvents: [],
 };
 
 const peopleStore: PeopleStore = loadServerStore("people-store", seedPeopleStore);
@@ -91,4 +90,10 @@ export function appendAuditEvent(input: AuditEventInput): AuditEvent {
   peopleStore.auditEvents = [event, ...peopleStore.auditEvents];
   persistPeopleStore();
   return clone(event);
+}
+
+export function resetWorkflowAuditEvents(): AuditEvent[] {
+  peopleStore.auditEvents = [];
+  persistPeopleStore();
+  return clone(peopleStore.auditEvents);
 }
