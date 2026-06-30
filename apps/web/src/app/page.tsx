@@ -9595,7 +9595,7 @@ export default function Dashboard() {
     <div className="platform">
       <header className="global-header">
         <div className="brand-lockup">
-          <img src="/brand/nexa-command-lockup-dark.svg" alt="NeXa - Bound into one command center" />
+          <img src="/ewg-logo.png" alt="Errol Watson Group" />
         </div>
 
         <label className="global-search">
@@ -9836,9 +9836,8 @@ export default function Dashboard() {
           ) : null}
 
           <div className="support-panel">
-            <span>NeXa workspace</span>
-            <strong>All systems operational</strong>
-            <small>Last sync 2 minutes ago</small>
+            <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa - Bound into one command center" />
+            <small>Service command center</small>
           </div>
         </aside>
 

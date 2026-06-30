@@ -11881,10 +11881,10 @@ body {
 .brand-lockup img {
   background: transparent;
   border: 0;
-  height: 48px;
+  height: 50px;
   object-fit: contain;
   padding: 0;
-  width: 168px;
+  width: 156px;
 }
 
 .ai-surveyor-header .brand-lockup img {
@@ -12005,6 +12005,28 @@ kbd,
 
 .support-panel strong {
   color: var(--nexa-brass-light);
+}
+
+.support-panel {
+  align-items: flex-start;
+  border-top-color: rgba(255, 255, 255, 0.12);
+  gap: 8px;
+  padding-top: 18px;
+}
+
+.support-panel img {
+  display: block;
+  height: auto;
+  max-width: 156px;
+  width: 100%;
+}
+
+.support-panel small {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .workspace {
