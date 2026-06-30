@@ -94,6 +94,7 @@ const STORAGE_KEYS = {
   jobCostCentres: "hubflo:job-cost-centres:v1",
   jobReviews: "hubflo:job-reviews:v1",
   jobDeliveryEvents: "hubflo:job-delivery-events:v1",
+  jobVariationSections: "hubflo:job-variation-sections:v1",
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
@@ -970,11 +971,18 @@ type EstimateCostCentre = {
   id: string;
   name: string;
   templateName?: string;
+  variation?: boolean;
   clientDescription: string;
   engineerDescription: string;
   materials: EstimateMaterialLine[];
   labour: EstimateLabourLine[];
   surveyAssets?: SurveyAsset[];
+};
+
+type JobVariationSection = {
+  id: string;
+  name: string;
+  description: string;
 };
 
 type SurveyPackCentre = {
@@ -999,6 +1007,7 @@ type HubDetailStatePayload = {
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
   jobReviews?: Record<string, JobReviewState>;
   jobDeliveryEvents?: JobDeliveryEvent[];
+  jobVariationSections?: Record<string, JobVariationSection[]>;
   communications?: CommunicationRecord[];
   invoices?: Invoice[];
 };
@@ -3585,6 +3594,11 @@ export default function Dashboard() {
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
+  const [jobVariationSections, setJobVariationSections] = useState<Record<string, JobVariationSection[]>>({});
+  const [jobVariationSectionNameDraft, setJobVariationSectionNameDraft] = useState("");
+  const [jobVariationSectionDescriptionDraft, setJobVariationSectionDescriptionDraft] = useState("");
+  const [jobVariationCostCentreNameDraft, setJobVariationCostCentreNameDraft] = useState("");
+  const [jobVariationCostCentreTemplateDraft, setJobVariationCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
@@ -3936,6 +3950,29 @@ export default function Dashboard() {
         ? selectedJobEstimateCostCentres.find((centre) => centre.id === selectedCostCentreId) ?? null
         : null,
     [selectedCostCentreId, selectedJobEstimateCostCentres],
+  );
+
+  const selectedJobBaseCostCentres = useMemo(
+    () => selectedJobEstimateCostCentres.filter((centre) => !centre.variation),
+    [selectedJobEstimateCostCentres],
+  );
+
+  const selectedJobVariationCostCentres = useMemo(
+    () => selectedJobEstimateCostCentres.filter((centre) => centre.variation),
+    [selectedJobEstimateCostCentres],
+  );
+
+  const selectedJobVariationSections = useMemo(
+    () => (selectedJob ? jobVariationSections[selectedJob.id] ?? [] : []),
+    [jobVariationSections, selectedJob],
+  );
+
+  const selectedJobLinkedVariationQuotes = useMemo(
+    () =>
+      selectedJob
+        ? quotes.filter((quote) => quote.convertedJobId === selectedJob.id && quote.id !== selectedJob.sourceQuoteId)
+        : [],
+    [quotes, selectedJob],
   );
 
   const selectedJobVariations = useMemo(
@@ -4305,6 +4342,7 @@ export default function Dashboard() {
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
     setJobDeliveryEvents(safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
+    setJobVariationSections(safeLoadStoredJson(STORAGE_KEYS.jobVariationSections, {}));
     setCommunicationRecords(safeLoadStoredJson(STORAGE_KEYS.communications, []));
     setHasHydratedLocalData(true);
   }, []);
@@ -4375,6 +4413,7 @@ export default function Dashboard() {
           if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
+          if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
           if (hubState.communications) setCommunicationRecords(hubState.communications);
           if (hubState.invoices) setInvoices(hubState.invoices);
           setHasLoadedHubDetailState(true);
@@ -4428,6 +4467,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
+    safeSaveStoredJson(STORAGE_KEYS.jobVariationSections, jobVariationSections);
     safeSaveStoredJson(STORAGE_KEYS.communications, communicationRecords);
 
     if (!hasLoadedHubDetailState) return;
@@ -4443,6 +4483,7 @@ export default function Dashboard() {
         jobCostCentres: jobEstimateCostCentres,
         jobReviews: jobReviewApprovals,
         jobDeliveryEvents,
+        jobVariationSections,
         communications: communicationRecords,
         invoices,
       };
@@ -4480,6 +4521,7 @@ export default function Dashboard() {
     jobEstimateCostCentres,
     jobReviewApprovals,
     jobDeliveryEvents,
+    jobVariationSections,
     communicationRecords,
     hasHydratedLocalData,
     hasLoadedHubDetailState,
@@ -5732,6 +5774,79 @@ export default function Dashboard() {
     showNotice("Client portal view logged on the quote timeline.");
   }
 
+  function applyLinkedVariationQuoteToJob(quote: Quote) {
+    if (!quote.convertedJobId) return false;
+    const linkedJob = jobs.find((job) => job.id === quote.convertedJobId);
+    if (!linkedJob) return false;
+    const sourceCentres = quoteCostCentres[quote.id] ?? [];
+    if (sourceCentres.length > 0) {
+      setJobEstimateCostCentres((current) => {
+        const existing = current[linkedJob.id] ?? makeDefaultEstimateCostCentres(linkedJob);
+        const existingIds = new Set(existing.map((centre) => centre.id));
+        const imported = estimateCostCentresFromQuote(linkedJob, sourceCentres).map((centre) => ({
+          ...centre,
+          id: `${linkedJob.id}-variation-from-${quote.id}-${centre.id}`,
+          name: `${quote.ref} - ${centre.name}`,
+          variation: true,
+        }));
+        return {
+          ...current,
+          [linkedJob.id]: [
+            ...existing,
+            ...imported.filter((centre) => !existingIds.has(centre.id)),
+          ],
+        };
+      });
+    }
+
+    let matchedExistingEvent = false;
+    setJobDeliveryEvents((current) => {
+      const updated = current.map((event) => {
+        if (event.jobId === linkedJob.id && event.kind === "variation" && event.summary.includes(quote.ref)) {
+          matchedExistingEvent = true;
+          return {
+            ...event,
+            status: "Client approved",
+            clientApprovalStatus: "Approved" as const,
+            sellValue: quote.value,
+          };
+        }
+        return event;
+      });
+      if (matchedExistingEvent) return updated;
+      return [
+        {
+          id: `delivery-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+          createdAt: workflowTimestamp(),
+          jobId: linkedJob.id,
+          jobRef: linkedJob.ref,
+          kind: "variation",
+          actor: quote.customer,
+          summary: `${quote.ref}: ${quote.description}`,
+          source: "Verrova",
+          costValue: 0,
+          sellValue: quote.value,
+          reason: "Online variation quote accepted",
+          requiresClientApproval: true,
+          clientApprovalStatus: "Approved",
+          status: "Client approved",
+        },
+        ...updated,
+      ];
+    });
+
+    logAuditEvent({
+      actor: quote.customer,
+      action: "variation accepted",
+      recordType: "job",
+      recordId: linkedJob.id,
+      summary: `${quote.ref} accepted online and copied into ${linkedJob.ref} variations.`,
+      source: "client portal",
+      importance: "high",
+    });
+    return true;
+  }
+
   async function respondToQuoteOnline(status: Extract<QuoteStatus, "Accepted" | "Declined">) {
     if (!selectedQuote) return;
     const respondedAt = workflowTimestamp();
@@ -5760,6 +5875,11 @@ export default function Dashboard() {
     });
     if (status === "Accepted" && !updatedQuote.convertedJobId) {
       await convertQuoteToJob(updatedQuote);
+      return;
+    }
+    if (status === "Accepted" && updatedQuote.convertedJobId) {
+      const applied = applyLinkedVariationQuoteToJob(updatedQuote);
+      showNotice(applied ? "Variation quote accepted and copied into the linked job." : "Variation quote accepted online and logged.");
       return;
     }
     showNotice(status === "Accepted" ? "Quote accepted online and logged." : "Quote declined online and logged.");
@@ -6497,6 +6617,137 @@ export default function Dashboard() {
       makeEstimateCostCentre(selectedJob.id, centres.length, jobCostCentreNameDraft, jobCostCentreTemplateDraft),
     ]);
     setJobCostCentreNameDraft("");
+  }
+
+  function addJobVariationSection() {
+    if (!selectedJob) return;
+    const name = jobVariationSectionNameDraft.trim() || `Variation section ${selectedJobVariationSections.length + 1}`;
+    const description = jobVariationSectionDescriptionDraft.trim();
+    const section: JobVariationSection = {
+      id: `${selectedJob.id}-variation-section-${Date.now()}`,
+      name,
+      description,
+    };
+    setJobVariationSections((current) => ({
+      ...current,
+      [selectedJob.id]: [...(current[selectedJob.id] ?? []), section],
+    }));
+    setJobVariationSectionNameDraft("");
+    setJobVariationSectionDescriptionDraft("");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "Verrova user",
+      action: "created",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `Variation section ${name} created on ${selectedJob.ref}.`,
+      source: "variation cost centre list",
+      importance: "normal",
+    });
+    showNotice(`Variation section ${name} added.`);
+  }
+
+  function addJobVariationCostCentre() {
+    if (!selectedJob) return;
+    const name = jobVariationCostCentreNameDraft.trim() || `Variation cost centre ${selectedJobVariationCostCentres.length + 1}`;
+    setJobCentresForSelected((centres) => {
+      const centre = makeEstimateCostCentre(selectedJob.id, centres.length, name, jobVariationCostCentreTemplateDraft);
+      return [
+        ...centres,
+        {
+          ...centre,
+          variation: true,
+          clientDescription: "Variation works to be reviewed and approved before proceeding.",
+          engineerDescription: "Do not proceed until the office confirms client approval.",
+        },
+      ];
+    });
+    setJobVariationCostCentreNameDraft("");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "Verrova user",
+      action: "created",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `Variation cost centre ${name} created on ${selectedJob.ref}.`,
+      source: "variation cost centre list",
+      importance: "high",
+    });
+    showNotice(`Variation cost centre ${name} added.`);
+  }
+
+  async function createLinkedVariationQuote() {
+    if (!selectedJob) return;
+    const name = jobVariationCostCentreNameDraft.trim() || `Variation for ${selectedJob.ref}`;
+    const ref = createRef();
+    const payload: Omit<Quote, "id"> = {
+      ref,
+      clientId: selectedJob.clientId,
+      siteId: selectedJob.siteId,
+      convertedJobId: selectedJob.id,
+      convertedJobRef: selectedJob.ref,
+      customer: selectedJob.customer,
+      description: `${name} - ${selectedJob.description}`,
+      owner: activeEmployee?.name ?? selectedJob.manager,
+      status: "Draft",
+      value: 0,
+      next: "Build variation quote and send for online approval",
+      due: "Today",
+    };
+
+    let created: Quote = {
+      ...payload,
+      id: `quote-variation-${Date.now()}`,
+    };
+
+    try {
+      const response = await fetch("/api/quotes", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (response.ok) {
+        created = { ...((await response.json()) as Quote), convertedJobId: selectedJob.id, convertedJobRef: selectedJob.ref };
+      }
+    } catch {
+      // The local state below keeps the prototype usable while offline.
+    }
+
+    setQuotes((current) => [created, ...current.filter((quote) => quote.id !== created.id)]);
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [created.id]: [
+        {
+          ...makeQuoteCostCentre(created.id, 0, name, jobVariationCostCentreTemplateDraft),
+          clientDescription: "Variation works requiring client approval before the site team proceeds.",
+          engineerDescription: "Proceed only once this variation is approved online and released by the office.",
+        },
+      ],
+    }));
+    addJobDeliveryEvent({
+      jobId: selectedJob.id,
+      jobRef: selectedJob.ref,
+      kind: "variation",
+      actor: activeEmployee?.name ?? selectedJob.manager,
+      summary: `${created.ref}: ${name}`,
+      source: "Verrova",
+      costValue: 0,
+      sellValue: 0,
+      reason: "Office variation quote",
+      requiresClientApproval: true,
+      clientApprovalStatus: "Not sent",
+      status: "Quote drafted",
+    });
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "Verrova user",
+      action: "created",
+      recordType: "quote",
+      recordId: created.id,
+      summary: `Linked variation quote ${created.ref} created from ${selectedJob.ref}.`,
+      source: "variation cost centre list",
+      importance: "high",
+    });
+    setJobVariationCostCentreNameDraft("");
+    openQuoteDrawer(created.id);
+    showNotice(`Linked variation quote ${created.ref} created. Build it, then send from Send & Forms.`);
   }
 
   function updateEstimateCostCentre(centreId: string, patch: Partial<EstimateCostCentre>) {
@@ -11805,7 +12056,7 @@ export default function Dashboard() {
                           scrollWorkspaceToTop();
                         }}
                       >
-                        Base scope <span>{selectedJobEstimateCostCentres.length}</span>
+                        Base scope <span>{selectedJobBaseCostCentres.length}</span>
                       </button>
                       <button
                         className={activeJobCostCentreListTab === "variations" ? "active" : ""}
@@ -11815,7 +12066,7 @@ export default function Dashboard() {
                           scrollWorkspaceToTop();
                         }}
                       >
-                        Variations <span>{selectedJobVariations.length}</span>
+                        Variations <span>{selectedJobVariations.length + selectedJobVariationCostCentres.length}</span>
                       </button>
                     </div>
 
@@ -11881,7 +12132,7 @@ export default function Dashboard() {
                           </div>
 
                           <div className="simpro-cost-centre-list">
-                          {selectedJobEstimateCostCentres.map((centre) => {
+                          {selectedJobBaseCostCentres.map((centre) => {
                             const totals = estimateCostCentreTotals(centre);
                             return (
                               <div
@@ -11958,6 +12209,167 @@ export default function Dashboard() {
                             <input aria-label="Filter variations by name or ID" />
                           </label>
                         </div>
+
+                        <div className="variation-workspace-actions">
+                          <section className="variation-action-panel">
+                            <h3>Add variation section</h3>
+                            <div className="simpro-section-create variation-section-create">
+                              <label>
+                                Name
+                                <input
+                                  value={jobVariationSectionNameDraft}
+                                  onChange={(event) => setJobVariationSectionNameDraft(event.target.value)}
+                                  placeholder="Client requested extras"
+                                />
+                              </label>
+                              <label>
+                                Description <span>(Optional)</span>
+                                <input
+                                  value={jobVariationSectionDescriptionDraft}
+                                  onChange={(event) => setJobVariationSectionDescriptionDraft(event.target.value)}
+                                  placeholder="Group related variation items together..."
+                                />
+                              </label>
+                              <button className="simpro-blue-button" type="button" onClick={addJobVariationSection}>ADD SECTION</button>
+                            </div>
+                          </section>
+
+                          <section className="variation-action-panel">
+                            <h3>Add variation cost centre or quote</h3>
+                            <div className="simpro-cost-centre-add variation-cost-centre-create">
+                              <label>
+                                Default category
+                                <select
+                                  value={jobVariationCostCentreTemplateDraft}
+                                  onChange={(event) => setJobVariationCostCentreTemplateDraft(event.target.value)}
+                                >
+                                  {costCentreTemplates.map((template) => (
+                                    <option key={template} value={template}>{template}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                Cost Centre / Quote Name <span>(Optional)</span>
+                                <input
+                                  value={jobVariationCostCentreNameDraft}
+                                  onChange={(event) => setJobVariationCostCentreNameDraft(event.target.value)}
+                                  placeholder="Additional pipework route"
+                                />
+                              </label>
+                              <button className="simpro-blue-button" type="button" onClick={addJobVariationCostCentre}>ADD COST CENTRE</button>
+                              <button className="simpro-grey-button" type="button" onClick={() => { createLinkedVariationQuote().catch(() => showNotice("Unable to create linked variation quote.")); }}>
+                                LINKED QUOTE
+                              </button>
+                            </div>
+                          </section>
+                        </div>
+
+                        <section className="variation-cost-centre-board">
+                          <header>
+                            <strong>Variation sections</strong>
+                            <span>{selectedJobVariationSections.length} section{selectedJobVariationSections.length === 1 ? "" : "s"}</span>
+                          </header>
+                          {selectedJobVariationSections.length === 0 ? (
+                            <div className="employee-empty-panel">
+                              <strong>No variation sections yet</strong>
+                              <span>Add a section when you need to group multiple variation cost centres or linked quotes.</span>
+                            </div>
+                          ) : (
+                            <div className="variation-section-list">
+                              {selectedJobVariationSections.map((section) => (
+                                <article key={section.id}>
+                                  <strong>{section.name}</strong>
+                                  <span>{section.description || "No description added yet."}</span>
+                                </article>
+                              ))}
+                            </div>
+                          )}
+                        </section>
+
+                        <section className="variation-cost-centre-board">
+                          <header>
+                            <strong>Variation cost centres</strong>
+                            <span>{selectedJobVariationCostCentres.length} cost centre{selectedJobVariationCostCentres.length === 1 ? "" : "s"}</span>
+                          </header>
+                          {selectedJobVariationCostCentres.length === 0 ? (
+                            <div className="employee-empty-panel">
+                              <strong>No variation cost centres yet</strong>
+                              <span>Add a cost centre for works that are approved or need building up inside the job.</span>
+                            </div>
+                          ) : (
+                            <div className="simpro-cost-centre-list">
+                              {selectedJobVariationCostCentres.map((centre) => {
+                                const totals = estimateCostCentreTotals(centre);
+                                return (
+                                  <div
+                                    className="simpro-cost-centre-row"
+                                    key={centre.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => openCostCentreRecord(centre.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openCostCentreRecord(centre.id);
+                                      }
+                                    }}
+                                  >
+                                    <span className="simpro-drag-handle" aria-hidden="true" />
+                                    <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
+                                    <strong className="simpro-row-title">
+                                      {centre.name}
+                                      <small>{centre.templateName ?? "Variation"}</small>
+                                    </strong>
+                                    <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
+                                    <div className="simpro-row-actions">
+                                      <button
+                                        className="simpro-options-button"
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setCostCentreActionMenu((current) =>
+                                            current?.scope === "job" && current.id === centre.id ? null : { scope: "job", id: centre.id },
+                                          );
+                                        }}
+                                      >
+                                        Options <ChevronDown size={13} />
+                                      </button>
+                                      {costCentreActionMenu?.scope === "job" && costCentreActionMenu.id === centre.id ? (
+                                        <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
+                                          <button type="button" onClick={() => startRenameCostCentre("job", centre)}>Rename display name</button>
+                                          <button type="button" onClick={() => openCostCentreRecord(centre.id)}>Open cost centre</button>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </section>
+
+                        <section className="variation-cost-centre-board">
+                          <header>
+                            <strong>Linked variation quotes</strong>
+                            <span>{selectedJobLinkedVariationQuotes.length} quote{selectedJobLinkedVariationQuotes.length === 1 ? "" : "s"}</span>
+                          </header>
+                          {selectedJobLinkedVariationQuotes.length === 0 ? (
+                            <div className="employee-empty-panel">
+                              <strong>No linked quotes yet</strong>
+                              <span>Create a linked quote when the client must approve a variation before the works proceed.</span>
+                            </div>
+                          ) : (
+                            <div className="linked-variation-quote-list">
+                              {selectedJobLinkedVariationQuotes.map((quote) => (
+                                <button key={quote.id} type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                                  <strong>{quote.ref}</strong>
+                                  <span>{quote.description}</span>
+                                  <b className={`status-pill ${quote.status === "Accepted" ? "green" : quote.status === "Sent" ? "blue" : "amber"}`}>{quote.status}</b>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </section>
 
                         <section className="quote-record-panel">
                           <div className="variation-list job-variation-list">

@@ -2419,6 +2419,8 @@ h1 {
   margin: 0 auto;
   max-width: 1540px;
   min-height: 680px;
+  overflow-x: hidden;
+  width: 100%;
 }
 
 .simpro-record-titlebar {
@@ -2609,6 +2611,112 @@ h1 {
 .simpro-section-create span,
 .simpro-cost-centre-add span {
   color: #969da3;
+}
+
+.variation-workspace-actions,
+.variation-cost-centre-board {
+  margin: 0 20px 18px;
+}
+
+.variation-workspace-actions {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.variation-action-panel,
+.variation-cost-centre-board {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.variation-action-panel h3 {
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 14px;
+  margin: 0;
+  padding: 14px 16px;
+}
+
+.variation-section-create,
+.variation-cost-centre-create {
+  border-bottom: 0;
+  margin: 0;
+}
+
+.variation-cost-centre-create {
+  grid-template-columns: minmax(160px, 0.28fr) minmax(240px, 1fr) 140px 130px;
+}
+
+.variation-cost-centre-board {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.variation-cost-centre-board > header {
+  align-items: center;
+  background: #f8fbfc;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.variation-cost-centre-board > header strong {
+  font-size: 13px;
+}
+
+.variation-cost-centre-board > header span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.variation-section-list,
+.linked-variation-quote-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.variation-section-list article,
+.linked-variation-quote-list button {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr) auto;
+  min-height: 58px;
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.variation-section-list article {
+  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
+}
+
+.variation-section-list article:last-child,
+.linked-variation-quote-list button:last-child {
+  border-bottom: 0;
+}
+
+.linked-variation-quote-list button:hover {
+  background: #f5f8fb;
+}
+
+.variation-section-list strong,
+.linked-variation-quote-list strong {
+  font-size: 12px;
+}
+
+.variation-section-list span,
+.linked-variation-quote-list span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .simpro-section-card {

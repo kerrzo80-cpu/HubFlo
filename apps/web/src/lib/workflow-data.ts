@@ -404,6 +404,8 @@ export function createQuote(payload: Omit<Quote, "id">): Quote {
     siteId: payload.siteId ?? site?.id,
     sourceLeadId: payload.sourceLeadId,
     sourceLeadRef: payload.sourceLeadRef,
+    convertedJobId: payload.convertedJobId,
+    convertedJobRef: payload.convertedJobRef,
     customer: client?.name ?? payload.customer,
     description: payload.description,
     owner: payload.owner,
