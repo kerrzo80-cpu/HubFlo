@@ -12634,7 +12634,7 @@ export default function Dashboard() {
               <section className="simpro-record-shell">
                 <div className="simpro-record-titlebar">
                   <div>
-                    <span>Quotes /</span>
+                    <span>Jobs /</span>
                     <strong>{selectedJob.sourceQuoteId ? selectedJobSourceQuote?.ref ?? selectedJob.ref : selectedJob.ref} - {selectedCostCentre.name}</strong>
                   </div>
                   <div className="simpro-title-actions">
@@ -12805,17 +12805,9 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "parts-labour" ? (
                   <section className="simpro-parts-page">
-                    <div className="simpro-sub-tabs" role="tablist" aria-label="Parts and labour sections">
-                      <button className="active" type="button">Scope build</button>
-                      <button type="button">Takeoff handoff</button>
-                      <button type="button">Assemblies</button>
-                      <button type="button">Catalogue</button>
-                      <button type="button">Stock</button>
-                      <button type="button">One-off items</button>
-                    </div>
                     <div className="simpro-parts-header">
                       <div>
-                        <h2>Scope build</h2>
+                        <h2>Parts & Labour</h2>
                         <h3>Parts</h3>
                         <span>Net prices before VAT</span>
                       </div>
