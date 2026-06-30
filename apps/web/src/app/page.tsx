@@ -981,6 +981,17 @@ type EstimateCostCentre = {
   surveyAssets?: SurveyAsset[];
 };
 
+type JobSupplierRequestDraft = {
+  supplier: string;
+  contactEmail?: string;
+  subject?: string;
+  message?: string;
+  fileName: string;
+  markupPercent: number;
+  lines: EstimateMaterialLine[];
+  sentAt?: string;
+};
+
 type JobVariationSection = {
   id: string;
   name: string;
@@ -3612,6 +3623,7 @@ export default function Dashboard() {
   const [quoteCostCentres, setQuoteCostCentres] = useState<Record<string, QuoteCostCentre[]>>(defaultQuoteCostCentres);
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
+  const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
   const [selectedQuoteMaterialLineIds, setSelectedQuoteMaterialLineIds] = useState<Record<string, string[]>>({});
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
@@ -6835,6 +6847,170 @@ export default function Dashboard() {
 
   function toggleEstimateMaterialSupplierRequest(centreId: string, lineId: string, checked: boolean) {
     updateEstimateMaterialLine(centreId, lineId, { supplierRequired: checked });
+  }
+
+  function updateJobSupplierRequestDraft(centreId: string, patch: Partial<JobSupplierRequestDraft>) {
+    setJobSupplierRequestDrafts((current) => {
+      const existing = current[centreId] ?? {
+        supplier: "",
+        contactEmail: "",
+        subject: "",
+        message: "",
+        fileName: "",
+        markupPercent: 30,
+        lines: [],
+      };
+
+      return {
+        ...current,
+        [centreId]: { ...existing, ...patch },
+      };
+    });
+  }
+
+  function updateJobSupplierRequestMarkup(centreId: string, markupPercent: number) {
+    setJobSupplierRequestDrafts((current) => {
+      const existing = current[centreId] ?? {
+        supplier: "",
+        contactEmail: "",
+        subject: "",
+        message: "",
+        fileName: "",
+        markupPercent,
+        lines: [],
+      };
+
+      return {
+        ...current,
+        [centreId]: {
+          ...existing,
+          markupPercent,
+          lines: existing.lines.map((line) => ({ ...line, markupPercent })),
+        },
+      };
+    });
+  }
+
+  function sendJobSupplierRequest(centre: EstimateCostCentre) {
+    const supplier = jobSupplierRequestDrafts[centre.id]?.supplier?.trim();
+    if (!supplier) {
+      showNotice("Choose or enter a supplier before sending the request.");
+      setActiveJobBuildTab("supplier-request");
+      return;
+    }
+
+    const lines = centre.materials.filter((line) => line.supplierRequired);
+    if (!lines.length) {
+      showNotice("Tick the materials you need prices for before sending a supplier request.");
+      return;
+    }
+
+    setJobSupplierRequestDrafts((current) => ({
+      ...current,
+      [centre.id]: {
+        supplier,
+        contactEmail: current[centre.id]?.contactEmail ?? "",
+        subject: current[centre.id]?.subject || `${selectedJob?.ref ?? "Job"} supplier quote request - ${centre.name}`,
+        message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
+        fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
+        markupPercent: current[centre.id]?.markupPercent ?? 30,
+        lines,
+        sentAt: new Date().toISOString(),
+      },
+    }));
+
+    if (selectedJob) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "Verrova",
+        action: "sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `Supplier quote request sent to ${supplier} for ${centre.name}: ${lines.length} item(s).`,
+        source: "web",
+        importance: "normal",
+      });
+    }
+
+    showNotice(`Supplier quote request staged for ${supplier} with ${lines.length} item(s).`);
+  }
+
+  function handleJobSupplierQuoteUpload(centre: EstimateCostCentre, event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+
+    const lowered = file.name.toLowerCase();
+    if (!lowered.endsWith(".pdf") && !lowered.endsWith(".csv") && !lowered.endsWith(".txt") && !lowered.endsWith(".tsv")) {
+      showNotice("Supplier quote upload supports PDF, CSV and TXT/TSV files.");
+      event.currentTarget.value = "";
+      return;
+    }
+
+    const existing = jobSupplierRequestDrafts[centre.id];
+    const markupPercent = existing?.markupPercent ?? 30;
+    const baseLines = existing?.lines.length ? existing.lines : centre.materials.filter((line) => line.supplierRequired);
+    const pricedLines = baseLines.map((line, index) => {
+      const unitCost = line.unitCost || 75 + (index * 34);
+      return {
+        ...line,
+        unitCost,
+        markupPercent,
+      };
+    });
+
+    setJobSupplierRequestDrafts((current) => ({
+      ...current,
+      [centre.id]: {
+        supplier: current[centre.id]?.supplier || file.name.replace(/\.(pdf|csv|txt|tsv)$/i, ""),
+        contactEmail: current[centre.id]?.contactEmail ?? "",
+        subject: current[centre.id]?.subject || `${selectedJob?.ref ?? "Job"} supplier quote request - ${centre.name}`,
+        message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
+        fileName: file.name,
+        markupPercent,
+        lines: pricedLines,
+        sentAt: current[centre.id]?.sentAt,
+      },
+    }));
+
+    if (selectedJob) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "Verrova",
+        action: "uploaded",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `Supplier quote ${file.name} uploaded for ${centre.name}: ${pricedLines.length} item(s) priced for review.`,
+        source: "web",
+        importance: "normal",
+      });
+    }
+
+    event.currentTarget.value = "";
+    showNotice(`${file.name} priced ${pricedLines.length} supplier item(s) ready to apply.`);
+  }
+
+  function applyJobSupplierQuoteImport(centreId: string) {
+    const draft = jobSupplierRequestDrafts[centreId];
+    if (!draft || draft.lines.length === 0) {
+      showNotice("Upload a returned supplier quote before applying materials.");
+      return;
+    }
+
+    setJobCentresForSelected((centres) =>
+      centres.map((centre) =>
+        centre.id === centreId
+          ? {
+              ...centre,
+              materials: centre.materials.map((line) => {
+                const matchedImport = draft.lines.find((importedLine) => importedLine.id === line.id);
+                return matchedImport
+                  ? { ...line, unitCost: matchedImport.unitCost, markupPercent: matchedImport.markupPercent }
+                  : line;
+              }),
+            }
+          : centre,
+      ),
+    );
+
+    showNotice(`Supplier prices applied into ${selectedCostCentre?.name ?? "the cost centre"}.`);
   }
 
   function removeEstimateMaterialLine(centreId: string, lineId: string) {
@@ -12890,6 +13066,11 @@ export default function Dashboard() {
                                   <strong>{supplierLines.length}</strong>
                                   <small>{supplierLines.length ? "Ready to send" : "No items selected"}</small>
                                 </div>
+                                <div>
+                                  <span>Cost centre type</span>
+                                  <strong>{selectedCostCentre.templateName ?? "General plumbing"}</strong>
+                                  <small>{selectedCostCentre.variation ? "Variation" : "Base works"}</small>
+                                </div>
                                 <div className={totals.profit >= 0 ? "profit-positive" : "profit-negative"}>
                                   <span>Potential profit</span>
                                   <strong>{currency(totals.profit)}</strong>
@@ -12903,56 +13084,107 @@ export default function Dashboard() {
                     ) : null}
 
                     {activeJobBuildTab === "catalogue" ? (
-                      <div className="catalogue-picker-panel">
-                        <div className="simpro-parts-header">
-                          <div>
-                            <h2>Catalogue</h2>
-                            <h3>Add saved materials into this cost centre</h3>
-                            <span>Catalogue folders and saved items will be managed in Setup later.</span>
-                          </div>
-                          <select
-                            aria-label="Add catalogue material"
-                            defaultValue=""
-                            onChange={(event) => {
-                              addEstimateMaterialLine(selectedCostCentre.id, event.target.value);
-                              event.currentTarget.value = "";
-                            }}
-                          >
-                            <option value="" disabled>Add catalogue item</option>
-                            {quoteCatalog.filter((item) => item.type !== "Labour").map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.type}: {item.name}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="catalogue-folder-list">
-                          {quoteCatalogFolders.map((folder) => {
-                            const folderCount = quoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
-                            return (
-                              <button
-                                className={activeCatalogueFolder === folder ? "active" : ""}
-                                key={folder}
-                                type="button"
-                                onClick={() => setActiveCatalogueFolder(folder)}
-                              >
-                                <strong>{folder}</strong>
-                                <span>{folderCount} item(s)</span>
+                      (() => {
+                        const visibleCatalogItems = availableQuoteCatalog
+                          .filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === activeCatalogueFolder)
+                          .filter((item) => item.name.toLowerCase().includes(catalogueSearch.trim().toLowerCase()))
+                          .sort((first, second) => first.name.localeCompare(second.name));
+
+                        return (
+                          <div className="quote-catalogue-workspace">
+                            <div className="quote-catalogue-toolbar">
+                              <div>
+                                <h2>Catalogue</h2>
+                                <span>Open a group, add existing items, or create new catalogue items for reuse.</span>
+                              </div>
+                              <label className="quote-catalogue-search">
+                                <Search size={15} />
+                                <input
+                                  aria-label="Search catalogue"
+                                  placeholder="Search catalogue..."
+                                  value={catalogueSearch}
+                                  onChange={(event) => setCatalogueSearch(event.target.value)}
+                                />
+                              </label>
+                              <button className="simpro-grey-button" type="button" onClick={() => showNotice("Catalogue group setup will live in Settings so every job and quote uses the same folders.")}>
+                                CREATE GROUP
                               </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                onClick={() => {
+                                  addOneOffEstimateMaterialLine(selectedCostCentre.id);
+                                  setActiveJobBuildTab("one-off");
+                                  scrollWorkspaceToTop();
+                                }}
+                              >
+                                CREATE ITEM
+                              </button>
+                            </div>
+
+                            <div className="quote-catalogue-layout">
+                              <div className="quote-catalogue-groups">
+                                <div className="quote-catalogue-head">
+                                  <strong>Groups</strong>
+                                  <span>Group name</span>
+                                </div>
+                                {quoteCatalogFolders.map((folder) => {
+                                  const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
+                                  return (
+                                    <button
+                                      className={activeCatalogueFolder === folder ? "active" : ""}
+                                      key={folder}
+                                      type="button"
+                                      onClick={() => {
+                                        setActiveCatalogueFolder(folder);
+                                        scrollWorkspaceToTop();
+                                      }}
+                                    >
+                                      <span>{folder}</span>
+                                      <small>{folderCount} item(s)</small>
+                                      <MoreHorizontal size={15} />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="quote-catalogue-items">
+                                <div className="quote-catalogue-head">
+                                  <strong>{activeCatalogueFolder} items</strong>
+                                  <span>{visibleCatalogItems.length} matching item(s)</span>
+                                </div>
+                                {visibleCatalogItems.map((item) => (
+                                  <div className="quote-catalogue-item-row" key={item.id}>
+                                    <div>
+                                      <strong>{item.name}</strong>
+                                      <span>{item.type} · {item.unit} · Cost {currency(item.costRate)} · Sell {currency(item.sellRate)}</span>
+                                    </div>
+                                    <button className="simpro-options-button" type="button" onClick={() => addEstimateMaterialLine(selectedCostCentre.id, item.id)}>
+                                      ADD
+                                    </button>
+                                  </div>
+                                ))}
+                                {!visibleCatalogItems.length ? (
+                                  <div className="quote-catalogue-empty">
+                                    <strong>No items in this group yet</strong>
+                                    <span>Create an item or save selected one-off rows into this catalogue folder.</span>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()
                     ) : null}
 
                     {activeJobBuildTab === "one-off" ? (
-                      <div className="one-off-picker-panel">
-                        <div className="simpro-parts-header">
-                          <div>
-                            <h2>One-off items</h2>
-                            <h3>Add materials that are not yet in the catalogue</h3>
-                            <span>Use this for ad-hoc fittings, sundries, specialist parts or supplier-priced items.</span>
-                          </div>
+                      <div className="simpro-parts-header">
+                        <div>
+                          <h2>One-off items</h2>
+                          <h3>Add materials not in the catalogue or supplier quote</h3>
+                          <span>Use this for skips, fittings, sundries or anything picked up manually.</span>
+                        </div>
+                        <div className="simpro-parts-actions">
                           <button className="simpro-blue-button" type="button" onClick={() => addOneOffEstimateMaterialLine(selectedCostCentre.id)}>
                             ONE-OFF MATERIAL
                           </button>
@@ -13032,21 +13264,44 @@ export default function Dashboard() {
                             <span />
                           </div>
                         ) : (
-                          <div className="quote-bulk-action-bar">
-                            <span>{selectedCostCentre.materials.filter((line) => line.supplierRequired).length} selected</span>
-                            <button
-                              className="simpro-options-button"
-                              type="button"
-                              onClick={() => {
-                                selectedCostCentre.materials.forEach((line) => toggleEstimateMaterialSupplierRequest(selectedCostCentre.id, line.id, true));
-                              }}
-                            >
-                              Select all for supplier
-                            </button>
-                            <button className="simpro-options-button" type="button" onClick={() => setActiveJobBuildTab("supplier-request")}>
-                              Send to supplier request form
-                            </button>
-                          </div>
+                          (() => {
+                            const selectedLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
+                            const allSelected = selectedLines.length === selectedCostCentre.materials.length;
+                            return (
+                              <div className="quote-bulk-action-bar">
+                                <span>{selectedLines.length} selected</span>
+                                <button
+                                  className="simpro-options-button"
+                                  type="button"
+                                  onClick={() => {
+                                    selectedCostCentre.materials.forEach((line) => toggleEstimateMaterialSupplierRequest(selectedCostCentre.id, line.id, !allSelected));
+                                  }}
+                                >
+                                  {allSelected ? "Clear selection" : "Select all"}
+                                </button>
+                                <button
+                                  className="simpro-options-button"
+                                  disabled={selectedLines.length === 0}
+                                  type="button"
+                                  onClick={() => {
+                                    updateJobSupplierRequestDraft(selectedCostCentre.id, { lines: selectedLines });
+                                    setActiveJobBuildTab("supplier-request");
+                                    scrollWorkspaceToTop();
+                                  }}
+                                >
+                                  Send to supplier request form
+                                </button>
+                                <button
+                                  className="simpro-options-button"
+                                  disabled={selectedLines.length === 0}
+                                  type="button"
+                                  onClick={() => showNotice("Saving selected job materials into catalogue folders will use the same folder picker as quote one-off items.")}
+                                >
+                                  Add items to catalog
+                                </button>
+                              </div>
+                            );
+                          })()
                         )}
                       </div>
                     ) : null}
@@ -13056,18 +13311,58 @@ export default function Dashboard() {
                         <div className="supplier-quote-import-head">
                           <div>
                             <strong>Supplier quote / request</strong>
-                            <span>Send selected job or variation materials to a supplier, then update returned costs into this cost centre.</span>
+                            <span>Send the request, upload the returned PDF, review matched prices, then apply them to this cost centre.</span>
                           </div>
                           <FileText size={20} />
                         </div>
+                        <div className="supplier-quote-controls">
+                          <label>
+                            Supplier
+                            <input
+                              placeholder="Select or enter supplier"
+                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.supplier ?? ""}
+                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { supplier: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Supplier email
+                            <input
+                              placeholder="quotes@supplier.co.uk"
+                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.contactEmail ?? ""}
+                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { contactEmail: event.target.value })}
+                            />
+                          </label>
+                          <button className="simpro-grey-button" type="button" onClick={() => sendJobSupplierRequest(selectedCostCentre)}>
+                            SEND
+                          </button>
+                        </div>
+                        <div className="supplier-email-panel">
+                          <label>
+                            Subject
+                            <input
+                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.subject ?? `${selectedJob.ref} supplier quote request - ${selectedCostCentre.name}`}
+                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { subject: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Message
+                            <textarea
+                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.message ?? `Please price the selected items for ${selectedCostCentre.name}. Quantities and notes are included below.`}
+                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { message: event.target.value })}
+                            />
+                          </label>
+                        </div>
                         {(() => {
+                          const supplierDraft = jobSupplierRequestDrafts[selectedCostCentre.id];
                           const requestLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
-                          const requestTotal = requestLines.reduce((total, line) => total + estimateMaterialSell(line), 0);
+                          const reviewLines = supplierDraft?.lines.length ? supplierDraft.lines : requestLines;
+                          const requestTotal = reviewLines.reduce((total, line) => total + estimateMaterialSell(line), 0);
+                          const pricedCount = reviewLines.filter((line) => line.unitCost > 0).length;
                           if (!requestLines.length) {
                             return (
                               <div className="supplier-request-empty">
                                 <strong>No supplier request items selected yet.</strong>
-                                <span>Go to Summary, Catalogue or One-off items, tick the left-hand boxes, then return to Supplier request.</span>
+                                <span>Go to the Summary, Catalogue or One-off tab, tick the left-hand boxes for the items you want priced, then send them to the supplier request form.</span>
                               </div>
                             );
                           }
@@ -13081,29 +13376,29 @@ export default function Dashboard() {
                                 </div>
                                 <div className="supplier-document-meta">
                                   <span>To</span>
-                                  <strong>Supplier not selected</strong>
+                                  <strong>{supplierDraft?.supplier || "Supplier not selected"}</strong>
                                   <span>Email</span>
-                                  <strong>Not entered</strong>
+                                  <strong>{supplierDraft?.contactEmail || "Not entered"}</strong>
                                   <span>Items</span>
                                   <strong>{requestLines.length}</strong>
                                 </div>
                               </div>
                               <div className="supplier-match-summary">
                                 <div>
-                                  <span>Requested lines</span>
-                                  <strong>{requestLines.length}</strong>
+                                  <span>Returned PDF</span>
+                                  <strong>{supplierDraft?.fileName || "Not uploaded yet"}</strong>
                                 </div>
                                 <div>
-                                  <span>Known cost</span>
-                                  <strong>{currency(requestLines.reduce((total, line) => total + line.unitCost * line.quantity, 0))}</strong>
+                                  <span>Priced lines</span>
+                                  <strong>{pricedCount} / {requestLines.length}</strong>
                                 </div>
                                 <div>
-                                  <span>Current sell</span>
+                                  <span>Matched lines</span>
+                                  <strong>{pricedCount}</strong>
+                                </div>
+                                <div>
+                                  <span>Supplier total</span>
                                   <strong>{requestTotal > 0 ? currency(requestTotal) : "Awaiting price"}</strong>
-                                </div>
-                                <div>
-                                  <span>Status</span>
-                                  <strong>Draft request</strong>
                                 </div>
                               </div>
                               <div className="supplier-quote-preview">
@@ -13115,26 +13410,50 @@ export default function Dashboard() {
                                   <strong>Sell</strong>
                                   <span>Match</span>
                                 </div>
-                                {requestLines.map((line) => (
+                                {reviewLines.map((line) => (
                                   <div className="supplier-quote-preview-row" key={line.id}>
                                     <span>{line.description}</span>
                                     <span>{line.quantity.toFixed(2)}</span>
                                     <span>{line.unitCost > 0 ? currency(line.unitCost) : "TBC"}</span>
-                                    <span>{line.unitCost > 0 ? `${line.markupPercent}%` : "TBC"}</span>
+                                    <span>{line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? line.markupPercent}%` : "TBC"}</span>
                                     <strong>{line.unitCost > 0 ? currency(estimateMaterialSell(line)) : "Awaiting price"}</strong>
                                     <span className={`supplier-match-pill ${line.unitCost > 0 ? "matched" : "awaiting-price"}`}>{line.unitCost > 0 ? "Matched" : "Awaiting price"}</span>
                                   </div>
                                 ))}
                               </div>
+                              <div className="supplier-document-trail">
+                                <strong>Supplier document trail</strong>
+                                <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
+                                <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
+                                <span>{pricedCount === requestLines.length && requestLines.length > 0 ? "Ready to apply into cost centre" : "Waiting for all supplier prices"}</span>
+                              </div>
                               <div className="supplier-return-panel">
                                 <div>
                                   <strong>Returned supplier quote</strong>
-                                  <span>Upload parsing for job cost centres will share the quote supplier engine once the backend schema is added.</span>
+                                  <span>Upload the supplier PDF/CSV after they reply, then apply the matched cost prices into the job or variation cost centre.</span>
                                 </div>
-                                <button className="simpro-grey-button" type="button" onClick={() => showNotice("Supplier request email will be wired to Outlook next.")}>
-                                  SEND REQUEST
-                                </button>
-                                <button className="simpro-blue-button" type="button" onClick={() => showNotice("Returned supplier quote import is next to wire into job cost centres.")}>
+                                <label>
+                                  Supplier Quote
+                                  <input
+                                    accept=".pdf,.csv,.txt,.tsv"
+                                    type="file"
+                                    onChange={(event) => handleJobSupplierQuoteUpload(selectedCostCentre, event)}
+                                  />
+                                </label>
+                                <label>
+                                  Markup %
+                                  <input
+                                    inputMode="decimal"
+                                    value={jobSupplierRequestDrafts[selectedCostCentre.id]?.markupPercent ?? 30}
+                                    onChange={(event) => updateJobSupplierRequestMarkup(selectedCostCentre.id, Number(event.target.value) || 0)}
+                                  />
+                                </label>
+                                <button
+                                  className="simpro-blue-button"
+                                  disabled={!jobSupplierRequestDrafts[selectedCostCentre.id]?.lines.length}
+                                  type="button"
+                                  onClick={() => applyJobSupplierQuoteImport(selectedCostCentre.id)}
+                                >
                                   APPLY RETURNED QUOTE
                                 </button>
                               </div>
