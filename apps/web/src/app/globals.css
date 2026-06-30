@@ -6897,6 +6897,15 @@ h1 {
   padding: 15px 22px;
 }
 
+.lead-form-error {
+  color: #b42318;
+  flex: 1 1 240px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.4;
+  margin: 0;
+}
+
 .drawer-backdrop {
   display: flex;
   justify-content: flex-end;

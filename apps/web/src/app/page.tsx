@@ -3592,6 +3592,7 @@ export default function Dashboard() {
   const [showCreateQuote, setShowCreateQuote] = useState(false);
   const [showCreateJob, setShowCreateJob] = useState(false);
   const [newLead, setNewLead] = useState<LeadDraft>(blankLead);
+  const [leadFormError, setLeadFormError] = useState("");
   const [leadPostcodeSearch, setLeadPostcodeSearch] = useState("");
   const [newQuote, setNewQuote] = useState<QuoteDraft>(blankQuote);
   const [newJob, setNewJob] = useState<JobDraft>(blankJob);
@@ -8401,6 +8402,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
+    setLeadFormError("");
     setLeadPostcodeSearch("");
     setShowCreateLead(true);
   }
@@ -8622,14 +8624,18 @@ export default function Dashboard() {
 
   async function submitLead() {
     if (!newLead.customerName.trim() || !newLead.address.trim() || !newLead.description.trim()) {
-      showNotice("Add the customer name, address and work description before saving the lead.");
+      const message = "Add the customer name, address and work description before saving the lead.";
+      setLeadFormError(message);
+      showNotice(message);
       return;
     }
     const hasSurveyBooking = Boolean(newLead.surveyDate && newLead.surveyTime);
     if (hasSurveyBooking && newLeadScheduleWarning) {
+      setLeadFormError(newLeadScheduleWarning);
       showNotice(newLeadScheduleWarning);
       return;
     }
+    setLeadFormError("");
 
     const payload = {
       source: newLead.source,
@@ -8668,6 +8674,7 @@ export default function Dashboard() {
       if (response.status === 409) {
         const conflict = (await response.json()) as LeadScheduleConflict;
         const warning = conflict.message || "Selected slot is already taken.";
+        setLeadFormError(warning);
         showNotice(warning);
         setSectionError(warning);
         return;
@@ -8695,6 +8702,7 @@ export default function Dashboard() {
       });
       setLeads((current) => [result.lead, ...current.filter((lead) => lead.id !== result.lead.id)]);
       setShowCreateLead(false);
+      setLeadFormError("");
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
@@ -8725,6 +8733,7 @@ export default function Dashboard() {
       return;
     } catch {
       if (hasSurveyBooking && newLeadScheduleWarning) {
+        setLeadFormError(newLeadScheduleWarning);
         showNotice(newLeadScheduleWarning);
         return;
       }
@@ -8739,7 +8748,9 @@ export default function Dashboard() {
       const { newClient, newSite } = matchedClient ? { newClient: undefined, newSite: undefined } : buildClientFromLead(newLead, clients);
       const selectedClient = matchedClient ?? newClient;
       if (!selectedClient) {
-        showNotice("Add a customer before saving the lead.");
+        const message = "Add a customer before saving the lead.";
+        setLeadFormError(message);
+        showNotice(message);
         return;
       }
 
@@ -8798,6 +8809,7 @@ export default function Dashboard() {
 
       setLeads((current) => [createdLead, ...current]);
       setShowCreateLead(false);
+      setLeadFormError("");
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
       logAuditEvent({
@@ -16090,7 +16102,14 @@ export default function Dashboard() {
                 <span>Leads</span>
                 <h2 id="create-lead-title">Create new lead</h2>
               </div>
-              <button aria-label="Close create lead" onClick={() => setShowCreateLead(false)}>
+              <button
+                aria-label="Close create lead"
+                type="button"
+                onClick={() => {
+                  setLeadFormError("");
+                  setShowCreateLead(false);
+                }}
+              >
                 <ChevronRight size={19} />
               </button>
             </div>
@@ -16281,10 +16300,22 @@ export default function Dashboard() {
               ) : null}
             </div>
             <div className="form-footer">
-              <button className="secondary-button" onClick={() => setShowCreateLead(false)}>
+              {leadFormError ? (
+                <p className="lead-form-error" role="alert">
+                  {leadFormError}
+                </p>
+              ) : null}
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => {
+                  setLeadFormError("");
+                  setShowCreateLead(false);
+                }}
+              >
                 Cancel
               </button>
-              <button className="primary-button" disabled={Boolean(newLeadScheduleWarning)} onClick={submitLead}>
+              <button className="primary-button" type="button" onClick={submitLead}>
                 <Bell size={16} />
                 Save lead and notify
               </button>
