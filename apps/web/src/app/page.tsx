@@ -1781,6 +1781,7 @@ const surveyorAvailability: Record<string, EmployeeAvailability> = {
 };
 
 const schedulerDays = [
+  { date: "2026-06-22", label: "Mon 22 Jun" },
   { date: "2026-06-23", label: "Tue 23 Jun" },
   { date: "2026-06-24", label: "Wed 24 Jun" },
   { date: "2026-06-25", label: "Thu 25 Jun" },
@@ -4913,6 +4914,39 @@ export default function Dashboard() {
     [purchaseRequests],
   );
 
+  const dashboardVariationApprovals = useMemo(
+    () =>
+      jobs.flatMap((job) =>
+        buildJobVariations(job)
+          .filter(
+            (variation) =>
+              variation.requiresClientApproval &&
+              !["Client approved", "Approved", "Proceed"].includes(variation.status),
+          )
+          .map((variation) => ({ job, variation })),
+      ),
+    [jobs],
+  );
+
+  const approvedQuotesAwaitingScheduling = useMemo(
+    () =>
+      quotes.filter((quote) => {
+        if (quote.status !== "Accepted") return false;
+        const linkedJob = getQuoteJob(quote);
+        return !linkedJob || !linkedJob.scheduledDate || !linkedJob.scheduledTime;
+      }),
+    [getQuoteJob, quotes],
+  );
+
+  const overdueTimesheetJobs = useMemo(
+    () =>
+      jobs.filter((job) => {
+        if (!["Scheduled", "In progress", "Waiting on parts", "Approval required"].includes(job.status)) return false;
+        return !jobDeliveryEvents.some((event) => event.jobId === job.id && event.kind === "timesheet");
+      }),
+    [jobDeliveryEvents, jobs],
+  );
+
   const officeAlerts = useMemo(() => getOfficeAlerts(), []);
   const officePoRequests = useMemo(() => getOfficePoRequests(), []);
   const highPriorityOfficeAlerts = officeAlerts.filter((alert) => alert.priority === "High").length;
@@ -5000,6 +5034,62 @@ export default function Dashboard() {
           type: "Job" as const,
         })),
     [jobs],
+  );
+
+  const dashboardScheduleEntries = useMemo(() => {
+    const datedLeadEntries = leadSurveyBookings.map((lead) => ({
+      id: `lead-${lead.id}`,
+      date: lead.date,
+      time: lead.time,
+      person: lead.surveyor,
+      ref: lead.ref,
+      title: lead.description || "Lead survey",
+      detail: lead.customerName,
+      tone: "amber",
+      type: "Survey",
+      open: () => openLeadRecord(lead.id),
+    }));
+
+    const datedJobEntries = scheduledJobs.map((job) => ({
+      id: `job-${job.id}`,
+      date: job.date,
+      time: job.time,
+      person: job.manager,
+      ref: job.ref,
+      title: job.description,
+      detail: job.customer,
+      tone: "blue",
+      type: "Job",
+      open: () => openJobDrawer(job.id),
+    }));
+
+    const unscheduledDueWork = jobs
+      .filter((job) => !job.scheduledDate && ["Today", "Tomorrow"].includes(job.due))
+      .map((job) => ({
+        id: `due-${job.id}`,
+        date: job.due === "Today" ? schedulerDays[1]?.date ?? "2026-06-23" : schedulerDays[2]?.date ?? "2026-06-24",
+        time: "TBC",
+        person: job.manager,
+        ref: job.ref,
+        title: job.next,
+        detail: job.customer,
+        tone: job.health,
+        type: "Needs booking",
+        open: () => openJobDrawer(job.id),
+      }));
+
+    return [...datedLeadEntries, ...datedJobEntries, ...unscheduledDueWork].sort((first, second) =>
+      first.time.localeCompare(second.time),
+    );
+  }, [jobs, leadSurveyBookings, scheduledJobs]);
+
+  const dashboardWeekSchedule = useMemo(
+    () =>
+      schedulerDays.map((day) => ({
+        ...day,
+        entries: dashboardScheduleEntries.filter((entry) => entry.date === day.date),
+      })),
+    [dashboardScheduleEntries],
   );
 
   const jobScheduleBookings = useMemo(
@@ -9585,6 +9675,235 @@ export default function Dashboard() {
     );
   }
 
+  function renderOperationsDashboard() {
+    const actionTotal =
+      pendingPORequests.length +
+      dashboardVariationApprovals.length +
+      approvedQuotesAwaitingScheduling.length +
+      overdueTimesheetJobs.length;
+
+    return (
+      <section className="ops-dashboard" aria-label="Operations dashboard">
+        <div className="ops-dashboard-grid">
+          <section className="weekly-schedule-panel">
+            <div className="panel-header">
+              <div>
+                <h2>Weekly schedule</h2>
+                <p>Everyone&apos;s surveys, site visits and jobs for the week</p>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setHomeView("schedule")}>
+                <CalendarDays size={15} />
+                Open scheduler
+              </button>
+            </div>
+
+            <div className="weekly-schedule-grid">
+              {dashboardWeekSchedule.map((day) => (
+                <article className="schedule-day-card" key={day.date}>
+                  <header>
+                    <strong>{day.label}</strong>
+                    <span>{day.entries.length} item{day.entries.length === 1 ? "" : "s"}</span>
+                  </header>
+                  <div className="schedule-day-list">
+                    {day.entries.length > 0 ? (
+                      day.entries.map((entry) => (
+                        <button className="schedule-entry" key={entry.id} type="button" onClick={entry.open}>
+                          <StatusDot tone={entry.tone} />
+                          <time>{entry.time}</time>
+                          <span>
+                            <strong>{entry.person}</strong>
+                            <b>{entry.ref} · {entry.title}</b>
+                            <small>{entry.type} · {entry.detail}</small>
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="schedule-empty">No bookings</div>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <aside className="notification-panel">
+            <div className="panel-header compact">
+              <div>
+                <h2>Action notifications</h2>
+                <p>Office queues that need a decision</p>
+              </div>
+              <span className="notification-total">{actionTotal}</span>
+            </div>
+
+            <div className="notification-stack">
+              <button className="notification-card amber" type="button" onClick={() => showNotice("PO requests are shown below.")}>
+                <ClipboardCheck size={18} />
+                <span>
+                  <strong>{pendingPORequests.length}</strong>
+                  <b>PO requests</b>
+                  <small>Supplier and materials approvals</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => showNotice("Variation approvals are shown below.")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{dashboardVariationApprovals.length}</strong>
+                  <b>Variations awaiting approval</b>
+                  <small>Review before work proceeds</small>
+                </span>
+              </button>
+              <button className="notification-card green" type="button" onClick={() => showNotice("Accepted quotes awaiting scheduling are shown below.")}>
+                <Check size={18} />
+                <span>
+                  <strong>{approvedQuotesAwaitingScheduling.length}</strong>
+                  <b>Quotes approved awaiting scheduling</b>
+                  <small>Ready to become booked work</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => showNotice("Overdue timesheets are shown below.")}>
+                <Clock3 size={18} />
+                <span>
+                  <strong>{overdueTimesheetJobs.length}</strong>
+                  <b>Timesheets overdue</b>
+                  <small>Jobs missing labour records</small>
+                </span>
+              </button>
+            </div>
+          </aside>
+        </div>
+
+        <div className="ops-queue-grid">
+          <section className="ops-queue-panel">
+            <header>
+              <div>
+                <h3>PO Requests</h3>
+                <p>{pendingPORequests.length} awaiting approval</p>
+              </div>
+              <ClipboardCheck size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {pendingPORequests.length > 0 ? (
+                pendingPORequests.slice(0, 4).map((request) => (
+                  <article className="ops-queue-item" key={request.id}>
+                    <button type="button" onClick={() => openJobDrawer(request.jobId)}>
+                      <strong>{request.jobRef}</strong>
+                      <span>{request.supplier} · {request.costCentreName ?? "No cost centre"}</span>
+                      <small>{request.item}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <b>{currency(request.estimatedCost)}</b>
+                      <button className="secondary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Rejected")}>
+                        Reject
+                      </button>
+                      <button className="primary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Approved")}>
+                        Approve
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No PO requests waiting.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="ops-queue-panel">
+            <header>
+              <div>
+                <h3>Variations</h3>
+                <p>{dashboardVariationApprovals.length} need approval or issue</p>
+              </div>
+              <AlertTriangle size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {dashboardVariationApprovals.length > 0 ? (
+                dashboardVariationApprovals.slice(0, 4).map(({ job, variation }) => (
+                  <article className="ops-queue-item" key={`${job.id}-${variation.id}`}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{variation.reference} · {job.ref}</strong>
+                      <span>{variation.title}</span>
+                      <small>{variation.clientApprovalStatus ?? variation.status} · {variation.engineerName ?? job.manager}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <b>{currency(variation.sellValue)}</b>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Review
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No variations waiting for approval.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="ops-queue-panel">
+            <header>
+              <div>
+                <h3>Approved Quotes</h3>
+                <p>{approvedQuotesAwaitingScheduling.length} awaiting schedule</p>
+              </div>
+              <CalendarDays size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {approvedQuotesAwaitingScheduling.length > 0 ? (
+                approvedQuotesAwaitingScheduling.slice(0, 4).map((quote) => (
+                  <article className="ops-queue-item" key={quote.id}>
+                    <button type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                      <strong>{quote.ref}</strong>
+                      <span>{quote.customer}</span>
+                      <small>{quote.description}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <b>{currency(quote.value)}</b>
+                      <button className="secondary-button" type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                        Book
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No approved quotes waiting to schedule.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="ops-queue-panel">
+            <header>
+              <div>
+                <h3>Timesheets</h3>
+                <p>{overdueTimesheetJobs.length} overdue</p>
+              </div>
+              <Clock3 size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {overdueTimesheetJobs.length > 0 ? (
+                overdueTimesheetJobs.slice(0, 4).map((job) => (
+                  <article className="ops-queue-item" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref}</strong>
+                      <span>{job.manager}</span>
+                      <small>{job.description} · {job.due}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className={`status-pill ${job.health}`}>{job.status}</span>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Chase
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No overdue timesheets.</div>
+              )}
+            </div>
+          </section>
+        </div>
+      </section>
+    );
+  }
+
   const createMenuItems = [
     { label: "New lead", icon: Mail, onClick: createLead },
     { label: "New quote", icon: FileText, onClick: createQuote },
@@ -9595,7 +9914,7 @@ export default function Dashboard() {
     <div className="platform">
       <header className="global-header">
         <div className="brand-lockup">
-          <img src="/ewg-logo.png" alt="Errol Watson Group" />
+          <img className="company-logo" src="/ewg-logo.png" alt="Errol Watson Group" />
         </div>
 
         <label className="global-search">
@@ -15454,477 +15773,7 @@ export default function Dashboard() {
               </section>
             ) : null
           ) : (
-            <>
-              <section className="metric-strip" aria-label="Business metrics">
-                {metrics.map((metric) => (
-                  <article className="metric" key={metric.label}>
-                    <div className="metric-topline">
-                      <span>{metric.label}</span>
-                      <StatusDot tone={metric.tone} />
-                    </div>
-                    <strong>{metric.value}</strong>
-                    <div className="metric-detail">
-                      <span>{metric.detail}</span>
-                      <b className={metric.tone}>{metric.trend}</b>
-                    </div>
-                  </article>
-                ))}
-              </section>
-
-              <section className="workflow-board" aria-label="Workflow queues">
-                <div className="panel-header">
-                  <div>
-                    <h2>Workflow queues</h2>
-                    <p>One place for quotes, scheduling, delivery and finance status</p>
-                  </div>
-                  <button className="link-button" onClick={() => showNotice("Workflow filters will expand next.")}>
-                    Clear filter
-                  </button>
-                </div>
-                <div className="queue-grid">
-                  {workflowBuckets.map((bucket) => (
-                    <button key={bucket.key} className={`queue-card ${bucket.tone}`} onClick={() => showNotice(`${bucket.label} view is next to wire up.`)}>
-                      <span className="queue-card-top">
-                        <strong>{bucket.label}</strong>
-                        <StatusDot tone={bucket.tone} />
-                      </span>
-                      <strong className="queue-count">{bucket.count}</strong>
-                      <span>{bucket.detail}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              {workflowIsClean ? (
-                <section className="workflow-board fresh-workflow-panel" aria-label="Fresh workflow test">
-                  <div className="panel-header">
-                    <div>
-                      <h2>Fresh workflow test</h2>
-                      <p>Start from a lead and prove the full route before adding more features.</p>
-                    </div>
-                    <button className="primary-button" type="button" onClick={createLead}>
-                      <Plus size={16} />
-                      Create first lead
-                    </button>
-                  </div>
-                  <div className="queue-grid fresh-workflow-steps">
-                    {[
-                      "Lead intake",
-                      "Convert to quote",
-                      "Build and email quote",
-                      "Online acceptance",
-                      "Pending job",
-                      "Schedule engineer",
-                      "Variations / POs",
-                      "Valuation and invoice",
-                      "Complete folder",
-                    ].map((step, index) => (
-                      <article className="queue-card blue" key={step}>
-                        <span className="queue-card-top">
-                          <strong>{step}</strong>
-                          <span>{index + 1}</span>
-                        </span>
-                        <span>
-                          {index === 0
-                            ? "Use the real lead form with customer, site and description."
-                            : "Walk this stage from the record that the previous step creates."}
-                        </span>
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              {access.showQuotes ? (
-                <section className="quote-panel">
-                  <div className="panel-header">
-                    <div>
-                      <h2>Quote pipeline</h2>
-                      <p>Draft / sent / accepted and action-ready</p>
-                    </div>
-                    <label className="status-filter">
-                      <select value={quoteStatusFilter} onChange={(event) => setQuoteStatusFilter(event.target.value)} aria-label="Filter quotes by status">
-                        <option>All quotes</option>
-                        {quoteStatuses.map((status) => (
-                          <option key={status}>{status}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="quote-row table-header">
-                    <span>Quote / customer</span>
-                    <span>Site</span>
-                    <span>Owner</span>
-                    <span>Status</span>
-                    <span>Value</span>
-                    <span>Workflow</span>
-                  </div>
-                  {filteredQuotes.map((quote) => {
-                    const site = clientSites.find((item) => item.id === quote.siteId);
-                    const linkedInvoice = invoiceSourceMap.byQuote.get(quote.id) ?? null;
-                    const linkedJob = getQuoteJob(quote);
-                    return (
-                      <div
-                        className="quote-row clickable"
-                        key={quote.ref}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openQuoteDrawer(quote.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openQuoteDrawer(quote.id);
-                          }
-                        }}
-                      >
-                        <div className="job-identity">
-                          <div>
-                            <StatusDot tone={quote.status === "Accepted" || quote.status === "Converted" ? "green" : quote.status === "Declined" ? "red" : "blue"} />
-                            <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openQuoteDrawer(quote.id); }}>
-                              {quote.ref}
-                            </a>
-                            <span>{quote.customer}</span>
-                          </div>
-                          <strong>{quote.description}</strong>
-                        </div>
-                        <span className="quote-site">{site?.name ?? "Site to confirm"}</span>
-                        <span className="manager">{quote.owner}</span>
-                        <span className={`status-pill ${quote.status === "Declined" ? "red" : quote.status === "Accepted" || quote.status === "Converted" ? "green" : "blue"}`}>
-                          {quote.status}
-                        </span>
-                        <strong className="value">{currency(quote.value)}</strong>
-                        <span className="next-action quote-workflow-action">
-                          <strong>{quote.convertedJobRef ?? quote.next}</strong>
-                          <small>{quote.convertedJobRef ? "Linked job" : quote.due}</small>
-                          {linkedJob ? (
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openJobDrawer(linkedJob.id);
-                              }}
-                            >
-                              Open linked job
-                            </button>
-                          ) : null}
-                          {linkedInvoice ? (
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openInvoiceRecord(linkedInvoice.id);
-                              }}
-                            >
-                              Open invoice
-                            </button>
-                          ) : quote.status === "Accepted" || quote.status === "Converted" ? (
-                            <button
-                              className="primary-button"
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openInvoiceForQuote(quote);
-                              }}
-                            >
-                              Create invoice
-                            </button>
-                          ) : null}
-                          {quote.status === "Accepted" && !quote.convertedJobId && access.canCreateJob ? (
-                            <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); convertQuoteToJob(quote); }}>
-                              Convert to job
-                            </button>
-                          ) : null}
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {filteredQuotes.length === 0 ? (
-                    <div className="empty-state">
-                      <FileText size={20} />
-                      <strong>No quotes yet</strong>
-                      <span>Create a lead first, then convert it into the first quote.</span>
-                    </div>
-                  ) : null}
-                </section>
-              ) : null}
-
-              <div className="dashboard-grid">
-                <section className="work-panel">
-                  <div className="panel-header">
-                    <div>
-                      <h2>Jobs requiring attention</h2>
-                      <p>Prioritised by operational risk and due date</p>
-                    </div>
-                    <div className="panel-controls">
-                      <label className="status-filter">
-                        <SlidersHorizontal size={14} />
-                        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter jobs by status">
-                          <option>All statuses</option>
-                          {jobStatuses.map((status) => (
-                            <option key={status}>{status}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <button className="link-button" onClick={() => showNotice("Jobs list reflects the current search and status filter.")}>
-                        {filteredJobs.length} jobs <ChevronRight size={15} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="job-table" role="table" aria-label="Jobs requiring attention">
-                    <div className="job-row table-header" role="row">
-                      <span>Job / customer</span>
-                      <span>Manager</span>
-                      <span>Status</span>
-                      {access.showFinance ? <span>Value</span> : null}
-                      <span>Next action</span>
-                      <span />
-                    </div>
-                    {filteredJobs.map((job) => {
-                      const linkedInvoice = invoiceSourceMap.byJob.get(job.id) ?? null;
-                      return (
-                      <div
-                        className="job-row clickable"
-                        role="row"
-                        key={job.ref}
-                        tabIndex={0}
-                        onClick={() => openJobDrawer(job.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openJobDrawer(job.id);
-                          }
-                        }}
-                      >
-                        <div className="job-identity">
-                          <div>
-                            <StatusDot tone={job.health} />
-                            <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openJobDrawer(job.id); }}>
-                              {job.ref}
-                            </a>
-                            <span>{job.customer}</span>
-                          </div>
-                          <strong>{job.description}</strong>
-                          <small>{job.site}</small>
-                        </div>
-                        <span className="manager">{job.manager}</span>
-                        <span className={`status-pill ${job.health}`}>{job.status}</span>
-                        {access.showFinance ? <strong className="value">{currency(job.value)}</strong> : null}
-                        <div className="next-action">
-                          <strong>{job.next}</strong>
-                          <small>{job.due}</small>
-                          {linkedInvoice ? (
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                openInvoiceRecord(linkedInvoice.id);
-                              }}
-                            >
-                              Open invoice
-                            </button>
-                          ) : null}
-                        </div>
-                        <button className="row-menu" aria-label={`Open ${job.ref}`} onClick={(event) => { event.stopPropagation(); openJobDrawer(job.id); }}>
-                          <ChevronRight size={17} />
-                        </button>
-                      </div>
-                      );
-                    })}
-                    {filteredJobs.length === 0 ? (
-                      <div className="empty-state">
-                        <Wrench size={20} />
-                        <strong>No jobs yet</strong>
-                        <span>Accepted quotes will create pending jobs here ready to schedule.</span>
-                      </div>
-                    ) : null}
-                  </div>
-                </section>
-
-                <aside className="right-column">
-                  <section className="side-panel office-exceptions-panel">
-                    <div className="panel-header compact">
-                      <div>
-                        <h2>Office exceptions</h2>
-                        <p>{officeAlerts.length} alerts · {highPriorityOfficeAlerts} high priority</p>
-                      </div>
-                      <a className="calendar-button" aria-label="Open office alerts" href="/office/alerts">
-                        <Bell size={17} />
-                      </a>
-                    </div>
-                    <div className="office-exception-list">
-                      {officeExceptionCards.map((item) => (
-                        <a className={`office-exception-card ${item.tone}`} href={item.href} key={item.label}>
-                          <span>{item.label}</span>
-                          <strong>{item.title}</strong>
-                          <small>{item.detail}</small>
-                        </a>
-                      ))}
-                    </div>
-                    <div className="office-exception-actions">
-                      <a href="/office/alerts">Open alerts queue</a>
-                      <a href="/engineer">Engineer view</a>
-                    </div>
-                  </section>
-
-                  <section className="side-panel schedule-panel">
-                    <div className="panel-header compact">
-                      <div>
-                        <h2>Today&apos;s schedule</h2>
-                        <p>8 visits · 6 engineers</p>
-                      </div>
-                      <button className="calendar-button" aria-label="Open schedule" onClick={() => setHomeView("schedule")}>
-                        <CalendarDays size={17} />
-                      </button>
-                    </div>
-                    <div className="schedule-list">
-                      {scheduleVisits.map((visit) => (
-                        <div className="visit" key={`${visit.time}-${visit.title}`}>
-                          <time>{visit.time}</time>
-                          <span className={`visit-line ${visit.tone}`} />
-                          <div>
-                            <strong>{visit.title}</strong>
-                            <small>{visit.detail}</small>
-                          </div>
-                          <ChevronRight size={15} />
-                        </div>
-                      ))}
-                    </div>
-                    <button className="full-width-link" onClick={() => setHomeView("schedule")}>
-                      Open scheduler
-                    </button>
-                  </section>
-
-                  {access.canApprovePurchase ? (
-                    <section className="side-panel po-approvals">
-                      <div className="panel-header compact">
-                        <div>
-                          <h2>PO approvals</h2>
-                          <p>{pendingPORequests.length} waiting for office action</p>
-                        </div>
-                        <button className="calendar-button" aria-label="Refresh PO list" onClick={() => showNotice("PO queue refreshed.")}>
-                          <ClipboardCheck size={17} />
-                        </button>
-                      </div>
-                      <div className="po-list">
-                        {pendingPORequests.map((request) => (
-                          <div className="po-item" key={request.id}>
-                            <div>
-                              <strong>{request.jobRef}</strong>
-                              <small>{request.supplier} · {request.costCentreName ?? "No cost centre"} · {request.createdAt}</small>
-                              <span>{request.item}</span>
-                            </div>
-                            <div className="po-item-actions">
-                              <span className="status-pill amber">{request.status}</span>
-                              <div className="po-action-buttons">
-                                <button className="secondary-button" onClick={() => markPurchaseRequestStatus(request.id, "Rejected")}>
-                                  Reject
-                                </button>
-                                <button className="primary-button" onClick={() => markPurchaseRequestStatus(request.id, "Approved")}>
-                                  Approve
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        {pendingPORequests.length === 0 ? (
-                          <div className="empty-state">
-                            <CircleDollarSign size={20} />
-                            <strong>No pending approvals</strong>
-                            <span>PO requests are already being processed.</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {access.canEditInvoice ? (
-                    <section className="side-panel gate-panel">
-                      <div className="panel-header compact">
-                        <div>
-                          <h2>Invoice control</h2>
-                          <p>J-1048 · Hopetoun Court</p>
-                        </div>
-                        <span className="blocked-badge">Blocked</span>
-                      </div>
-                      <div className="gate-progress">
-                        <div>
-                          <strong>{invoiceReadiness.completedChecks}</strong>
-                          <span>of {invoiceReadiness.totalChecks} checks passed</span>
-                        </div>
-                        <div className="progress">
-                          <span style={{ width: `${(invoiceReadiness.completedChecks / invoiceReadiness.totalChecks) * 100}%` }} />
-                        </div>
-                      </div>
-                      <div className="gate-reasons">
-                        {invoiceReadiness.reasons.slice(0, 3).map((reason) => (
-                          <div key={reason.code}>
-                            <AlertTriangle size={15} />
-                            <span>
-                              <strong>{reason.title}</strong>
-                              <small>{reason.detail}</small>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <button className="full-width-link" onClick={() => showNotice("Invoice gate panel is in progress.")}>
-                        Review invoice gate
-                      </button>
-                    </section>
-                  ) : null}
-                </aside>
-              </div>
-
-              <section className="activity-band">
-                <div className="activity-heading">
-                  <h2>Live activity</h2>
-                  <span>Updated now</span>
-                </div>
-                <div className="activity-item">
-                  <span className="activity-icon blue">
-                    <Wrench size={15} />
-                  </span>
-                  <p>
-                    <strong>Engineer arrived on site</strong>
-                    <span>Scott M. started J-1052 at Queen&apos;s Road</span>
-                  </p>
-                  <time>14 min ago</time>
-                </div>
-                <div className="activity-item">
-                  <span className="activity-icon green">
-                    <Check size={15} />
-                  </span>
-                  <p>
-                    <strong>Timesheet submitted</strong>
-                    <span>7.5 hours posted against J-1041</span>
-                  </p>
-                  <time>26 min ago</time>
-                </div>
-                <div className="activity-item">
-                  <span className="activity-icon amber">
-                    <AlertTriangle size={15} />
-                  </span>
-                  <p>
-                    <strong>Variation needs review</strong>
-                    <span>Additional pipework recorded on J-1056</span>
-                  </p>
-                  <time>32 min ago</time>
-                </div>
-                <div className="activity-item">
-                  <span className="activity-icon charcoal">
-                    <Building2 size={15} />
-                  </span>
-                  <p>
-                    <strong>Customer updated</strong>
-                    <span>Northfield Properties notified of parts delay</span>
-                  </p>
-                  <time>48 min ago</time>
-                </div>
-              </section>
-            </>
+            renderOperationsDashboard()
           )}
         </main>
       </div>
