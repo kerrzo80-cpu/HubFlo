@@ -4,6 +4,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { resetHubDetailState } from "@/lib/hub-detail-store";
 import { resetLeadStore } from "@/lib/lead-store";
 import { resetWorkflowAuditEvents } from "@/lib/people-data";
+import { resetTakeoffStore } from "@/lib/takeoff-data";
 import { resetWorkflowStore } from "@/lib/workflow-data";
 
 export async function POST(request: Request) {
@@ -15,12 +16,14 @@ export async function POST(request: Request) {
   const workflow = resetWorkflowStore();
   const leads = resetLeadStore();
   const hubState = resetHubDetailState();
+  const takeoff = resetTakeoffStore();
   const auditEvents = resetWorkflowAuditEvents();
 
   return NextResponse.json({
     workflow,
     leads: leads.leads,
     hubState,
+    takeoff: takeoff.projects,
     auditEvents,
   });
 }

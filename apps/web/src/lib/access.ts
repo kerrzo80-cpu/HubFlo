@@ -88,6 +88,13 @@ export type EmployeeProfile = {
   };
 };
 
+export type EmployeeLogin = {
+  username: string;
+  password: string;
+  enabled: boolean;
+  lastLoginAt?: string;
+};
+
 export const roleAccess: Record<HubRole, AccessProfile> = {
   "Owner/Admin": {
     showCustomers: true,
@@ -205,6 +212,7 @@ export type Employee = {
   role: HubRole;
   permissions: AccessOverride;
   profile?: EmployeeProfile;
+  login?: EmployeeLogin;
 };
 
 export const roleChoices: HubRole[] = [

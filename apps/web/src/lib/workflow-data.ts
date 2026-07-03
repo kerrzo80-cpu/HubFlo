@@ -471,6 +471,17 @@ export function updateQuote(id: string, patch: Partial<Quote>): Quote | null {
   return clone(updated);
 }
 
+export function removeQuote(id: string): boolean {
+  const store = getStore();
+  const currentCount = store.quotes.length;
+  store.quotes = store.quotes.filter((quote) => quote.id !== id);
+  if (store.quotes.length < currentCount) {
+    persistWorkflowStore();
+    return true;
+  }
+  return false;
+}
+
 export function convertQuoteToJob(
   id: string,
   actor = "HubFlo user",

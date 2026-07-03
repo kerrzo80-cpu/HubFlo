@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: nexa-pilot
+    runtime: node
+    region: frankfurt
+    plan: starter
+    autoDeploy: false
+    healthCheckPath: /api/health
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm --filter @hubflo/web build
+    startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
+    disk:
+      name: nexa-pilot-data
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.0
+      - key: NEXA_STORE_PATH
+        value: /var/data/nexa-pilot.sqlite
+      - key: NEXA_PILOT_USER
+        value: nexa
+      - key: NEXA_PILOT_PIN
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        value: https://nexa-pilot.onrender.com

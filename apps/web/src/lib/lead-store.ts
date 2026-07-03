@@ -399,3 +399,14 @@ export function updateLead(id: string, patch: LeadPatchPayload, actor = "HubFlo 
 
   return clone(next);
 }
+
+export function removeLead(id: string): boolean {
+  const store = getStore();
+  const currentCount = store.leads.length;
+  store.leads = store.leads.filter((lead) => lead.id !== id);
+  if (store.leads.length < currentCount) {
+    persistLeadStore();
+    return true;
+  }
+  return false;
+}

@@ -8,6 +8,7 @@ const pilotStoreNames = [
   "lead-store",
   "workflow-store",
   "hub-detail-store",
+  "takeoff-store",
   "variation-portal-store",
 ];
 

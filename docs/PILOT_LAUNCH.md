@@ -11,11 +11,19 @@ This is the working prototype launch plan for a short internal stress test befor
 
 ## Data Persistence
 
-The pilot currently saves operational data into server-side JSON stores under:
+For local development, the pilot saves operational data into server-side JSON stores under:
 
 ```text
 apps/web/.hubflo-runtime/
 ```
+
+For hosted stress testing, set `NEXA_STORE_PATH` to a persistent SQLite database path. The Render blueprint mounts a disk at `/var/data` and stores the pilot database here:
+
+```text
+/var/data/nexa-pilot.sqlite
+```
+
+This keeps lead, quote, job, setup, takeoff and audit data available across app restarts and deploys.
 
 The active stores are:
 
@@ -23,6 +31,7 @@ The active stores are:
 - `lead-store.json`: lead intake and survey bookings.
 - `workflow-store.json`: quotes, jobs and purchase requests.
 - `hub-detail-store.json`: setup, forms, cost centres, checklists, invoices and detailed quote/job build data.
+- `takeoff-store.json`: separate Takeoff / BOQ add-on projects, documents, measurements, allowances, review state and quote handoff status.
 - `variation-portal-store.json`: client-facing variation approvals.
 
 The browser also keeps a local fallback copy so a refresh does not throw away work if an API call fails.
@@ -47,6 +56,27 @@ NEXA_PILOT_USER=nexa NEXA_PILOT_PIN=change-this-pin pnpm --filter @hubflo/web st
 
 If `NEXA_PILOT_PIN` is not set, the app runs without the extra gate for local development.
 
+## Hosted Pilot Deployment
+
+The repo includes `render.yaml` for a Render-hosted pilot with:
+
+- a permanent `onrender.com` URL;
+- a persistent SQLite store mounted on `/var/data`;
+- `/api/health` for hosting health checks;
+- the same shared pilot password gate used for public tunnel testing.
+
+Set these Render environment values before the first deploy:
+
+```text
+NEXA_PILOT_USER=nexa
+NEXA_PILOT_PIN=<choose-a-shared-pilot-pin>
+NEXA_STORE_PATH=/var/data/nexa-pilot.sqlite
+NEXT_PUBLIC_APP_URL=https://<your-render-service>.onrender.com
+NODE_VERSION=24.14.0
+```
+
+Keep `autoDeploy` off for the pilot so half-finished local feature work does not automatically replace the version the team is stress testing.
+
 ## Stress-Test Workflow
 
 Run the same workflow repeatedly and note where it feels slow, confusing or missing a handoff:
@@ -69,3 +99,9 @@ Keep takeoff/BOQ as a separate NeXa add-on app. It should feed clean outputs int
 - the add-on creates rooms, measurements, BOQ items and supplier request lines;
 - approved takeoff outputs push into a NeXa quote as cost centres, materials, labour and supplier-request items;
 - the core quote/job workflow remains clean and does not become overloaded with estimating tools.
+
+The pilot Takeoff / BOQ add-on is available at:
+
+```text
+/takeoff
+```

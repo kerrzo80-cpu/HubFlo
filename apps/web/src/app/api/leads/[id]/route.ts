@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { employeeHeaderName } from "@/lib/access";
-import { getLead, getLeads, type LeadPatchPayload, type LeadRecord, updateLead } from "@/lib/lead-store";
+import { getLead, getLeads, removeLead, type LeadPatchPayload, type LeadRecord, updateLead } from "@/lib/lead-store";
 import { getJobs, type Job } from "@/lib/workflow-data";
 import { parseJsonRequestBody } from "@/lib/http";
 
@@ -128,4 +128,19 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: "Lead not found" }, { status: 404 });
   }
   return NextResponse.json(updated);
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const access = getAccessProfileFromHeaders(request.headers);
+  if (!access.canCreateLead) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const params = await context.params;
+  const removed = removeLead(params.id);
+  if (!removed) {
+    return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ success: true });
 }

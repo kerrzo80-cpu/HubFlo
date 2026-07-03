@@ -20,6 +20,7 @@ function parseBasicAuth(value: string | null) {
 }
 
 export function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === "/api/health") return NextResponse.next();
   if (!pilotPin) return NextResponse.next();
 
   const credentials = parseBasicAuth(request.headers.get("authorization"));

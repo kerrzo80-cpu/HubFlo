@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ComponentType, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ComponentType, type FormEvent, type MouseEvent } from "react";
 import {
   AlertTriangle,
   Bell,
@@ -16,8 +16,10 @@ import {
   Gauge,
   HardHat,
   Inbox,
+  KeyRound,
   LayoutDashboard,
   ListChecks,
+  LogOut,
   Mail,
   MapPin,
   Menu,
@@ -28,6 +30,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
+  UserCheck,
   Users,
   Wrench,
 } from "lucide-react";
@@ -79,6 +82,8 @@ type ModuleItem = {
 };
 
 const STORAGE_KEYS = {
+  employees: "hubflo:employees:v1",
+  activeEmployeeSession: "hubflo:active-employee-session:v1",
   clients: "hubflo:clients:v1",
   clientSites: "hubflo:client-sites:v1",
   jobs: "hubflo:jobs:v1",
@@ -355,7 +360,7 @@ type HomeView =
   | "job-record"
   | "quote-cost-centre-record"
   | "cost-centre-record";
-type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions";
+type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
@@ -368,6 +373,7 @@ type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one
 type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
+type DirectoryRecordScope = "lead" | "quote" | "job" | "invoice";
 type SetupCategory =
   | "overview"
   | "business"
@@ -1085,6 +1091,7 @@ type JobReadinessItem = {
 };
 
 type HubDetailStatePayload = {
+  employees?: EmployeeCard[];
   businessSettings?: BusinessSettings;
   formTemplates?: FormTemplate[];
   activeFormTemplateId?: string;
@@ -1113,6 +1120,9 @@ type EmployeeEmergencyContactDraft = EmployeeEmergencyContact & { id: string };
 
 type EmployeeProfileDraft = {
   name: string;
+  loginUsername: string;
+  loginPassword: string;
+  loginEnabled: boolean;
   email: string;
   phone: string;
   address: string;
@@ -1130,6 +1140,11 @@ type EmployeeProfileDraft = {
   availability: EmployeeAvailability;
   bankSortCode: string;
   bankAccountNumber: string;
+};
+
+type LoginDraft = {
+  username: string;
+  password: string;
 };
 
 const modules: ModuleItem[] = [
@@ -1178,6 +1193,7 @@ const employeeTabs: Array<{ key: EmployeeTab; label: string }> = [
   { key: "emergency", label: "Emergency" },
   { key: "availability", label: "Availability" },
   { key: "permissions", label: "Access" },
+  { key: "login", label: "Login" },
 ];
 
 const clientTabs: Array<{ key: ClientTab; label: string }> = [
@@ -1658,6 +1674,48 @@ const blankEmployeeAvailability = weekDays.reduce((acc, day) => {
   acc[day] = { active: false, from: "09:00", to: "17:00" };
   return acc;
 }, {} as EmployeeAvailability);
+
+function normalizeLoginInput(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function getEmployeeInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "N";
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("");
+}
+
+function makeDefaultEmployeeUsername(employee: Pick<EmployeeCard, "name" | "profile">) {
+  const emailUser = employee.profile?.email?.split("@")[0];
+  if (emailUser?.trim()) return normalizeLoginInput(emailUser);
+  return normalizeLoginInput(employee.name).replace(/[^a-z0-9]+/g, ".");
+}
+
+function makeDefaultEmployeeLogin(employee: EmployeeCard) {
+  return {
+    username: makeDefaultEmployeeUsername(employee),
+    password: "EWG2026",
+    enabled: true,
+  };
+}
+
+function withDefaultEmployeeLogin(employee: EmployeeCard): EmployeeCard {
+  const defaultLogin = makeDefaultEmployeeLogin(employee);
+  return {
+    ...employee,
+    login: {
+      ...defaultLogin,
+      ...(employee.login ?? {}),
+      username: employee.login?.username?.trim() || defaultLogin.username,
+      password: employee.login?.password ?? defaultLogin.password,
+      enabled: employee.login?.enabled ?? defaultLogin.enabled,
+    },
+  };
+}
+
+function normalizeEmployeeCards(records: EmployeeCard[]) {
+  return records.map(withDefaultEmployeeLogin);
+}
 
 const seedEmployees: EmployeeCard[] = [
   {
@@ -2720,6 +2778,9 @@ const blankPurchaseRequest = {
 
 const blankEmployeeProfileTemplate: EmployeeProfileDraft = {
   name: "",
+  loginUsername: "",
+  loginPassword: "",
+  loginEnabled: true,
   email: "",
   phone: "",
   address: "",
@@ -2751,8 +2812,12 @@ function createBlankEmployeeProfileDraft(): EmployeeProfileDraft {
 
 function makeEmployeeProfileDraft(employee?: EmployeeCard | null): EmployeeProfileDraft {
   const profile = employee?.profile;
+  const login = employee ? withDefaultEmployeeLogin(employee).login : undefined;
   return {
     name: employee?.name ?? "",
+    loginUsername: login?.username ?? "",
+    loginPassword: login?.password ?? "",
+    loginEnabled: login?.enabled ?? true,
     email: profile?.email ?? "",
     phone: profile?.phone ?? "",
     address: profile?.address ?? "",
@@ -4051,11 +4116,14 @@ function makeEstimateLabourLine(role = "Plumber labour"): EstimateLabourLine {
 }
 
 export default function Dashboard() {
-  const [employees, setEmployees] = useState<EmployeeCard[]>(seedEmployees);
+  const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
   const [clients, setClients] = useState<ClientRecord[]>(seedClients);
   const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [activeEmployeeId, setActiveEmployeeId] = useState(seedEmployees[0]?.id ?? "");
+  const [loggedInEmployeeId, setLoggedInEmployeeId] = useState<string | null>(null);
+  const [loginDraft, setLoginDraft] = useState<LoginDraft>({ username: "", password: "" });
+  const [loginError, setLoginError] = useState("");
   const [activeClientId, setActiveClientId] = useState(seedClients[0]?.id ?? "");
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [employeePermissionDraft, setEmployeePermissionDraft] = useState<AccessOverride>({});
@@ -4107,6 +4175,7 @@ export default function Dashboard() {
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
+  const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
   const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
   const [homeView, setHomeView] = useState<HomeView>("dashboard");
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>("details");
@@ -4168,6 +4237,11 @@ export default function Dashboard() {
   const activeEmployee = useMemo(
     () => employees.find((employee) => employee.id === activeEmployeeId) ?? employees[0],
     [employees, activeEmployeeId],
+  );
+
+  const isEmployeeLoggedIn = useMemo(
+    () => Boolean(loggedInEmployeeId && employees.some((employee) => employee.id === loggedInEmployeeId)),
+    [employees, loggedInEmployeeId],
   );
 
   const activeEditingEmployee = useMemo(
@@ -4917,8 +4991,16 @@ export default function Dashboard() {
   }, [editingEmployeeId, activeEditingEmployee]);
 
   useEffect(() => {
+    const storedEmployees = normalizeEmployeeCards(
+      safeLoadStoredJson(STORAGE_KEYS.employees, normalizeEmployeeCards(seedEmployees)),
+    );
+    const storedEmployeeSession = safeLoadStoredJson<string | null>(STORAGE_KEYS.activeEmployeeSession, null);
+    const storedSessionEmployee = storedEmployees.find((employee) => employee.id === storedEmployeeSession);
     const storedClients = safeLoadStoredJson(STORAGE_KEYS.clients, seedClients);
 
+    setEmployees(storedEmployees);
+    setLoggedInEmployeeId(storedSessionEmployee?.id ?? null);
+    setActiveEmployeeId(storedSessionEmployee?.id ?? storedEmployees[0]?.id ?? "");
     setClients(storedClients);
     setClientSites(safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
     setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
@@ -5027,6 +5109,19 @@ export default function Dashboard() {
 
         if (hubStateResponse.ok) {
           const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+          if (hubState.employees?.length) {
+            const nextEmployees = normalizeEmployeeCards(hubState.employees);
+            setEmployees(nextEmployees);
+            setLoggedInEmployeeId((current) => {
+              if (current && nextEmployees.some((employee) => employee.id === current)) return current;
+              return null;
+            });
+            setActiveEmployeeId((current) =>
+              nextEmployees.some((employee) => employee.id === current)
+                ? current
+                : nextEmployees[0]?.id ?? "",
+            );
+          }
           if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
           if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
           if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
@@ -5119,6 +5214,8 @@ export default function Dashboard() {
   useEffect(() => {
     if (!hasHydratedLocalData) return;
 
+    safeSaveStoredJson(STORAGE_KEYS.employees, employees);
+    safeSaveStoredJson(STORAGE_KEYS.activeEmployeeSession, loggedInEmployeeId);
     safeSaveStoredJson(STORAGE_KEYS.clients, clients);
     safeSaveStoredJson(STORAGE_KEYS.clientSites, clientSites);
     safeSaveStoredJson(STORAGE_KEYS.leads, leads);
@@ -5152,6 +5249,7 @@ export default function Dashboard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload: HubDetailStatePayload = {
+        employees,
         businessSettings,
         formTemplates,
         activeFormTemplateId,
@@ -5191,6 +5289,8 @@ export default function Dashboard() {
       controller.abort();
     };
   }, [
+    employees,
+    loggedInEmployeeId,
     clients,
     clientSites,
     leads,
@@ -6405,6 +6505,386 @@ export default function Dashboard() {
       .catch(() => {});
   }
 
+  function formatSessionTimestamp() {
+    return new Date().toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).replace(",", "");
+  }
+
+  function findEmployeeForLogin(username: string, password: string) {
+    const normalizedUsername = normalizeLoginInput(username);
+    return employees.find((employee) => {
+      const login = withDefaultEmployeeLogin(employee).login;
+      return (
+        login?.enabled &&
+        normalizeLoginInput(login.username) === normalizedUsername &&
+        login.password === password
+      );
+    });
+  }
+
+  function handleEmployeeLogin(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const employee = findEmployeeForLogin(loginDraft.username, loginDraft.password);
+    if (!employee) {
+      setLoginError("Username or password is not recognised for an enabled employee card.");
+      return;
+    }
+
+    const signedInAt = formatSessionTimestamp();
+    setLoginError("");
+    setLoggedInEmployeeId(employee.id);
+    setActiveEmployeeId(employee.id);
+    setLoginDraft({ username: "", password: "" });
+    setEmployees((current) =>
+      current.map((item) =>
+        item.id === employee.id
+          ? {
+              ...item,
+              login: {
+                ...makeDefaultEmployeeLogin(item),
+                ...(item.login ?? {}),
+                lastLoginAt: signedInAt,
+              },
+            }
+          : item,
+      ),
+    );
+    logAuditEvent({
+      actor: employee.name,
+      action: "signed in",
+      recordType: "employee",
+      recordId: employee.id,
+      summary: `${employee.name} signed in to NeXa.`,
+      source: "login",
+      importance: "normal",
+    });
+    showNotice(`Signed in as ${employee.name}.`);
+  }
+
+  function signOutEmployee() {
+    if (activeEmployee) {
+      logAuditEvent({
+        actor: activeEmployee.name,
+        action: "signed out",
+        recordType: "employee",
+        recordId: activeEmployee.id,
+        summary: `${activeEmployee.name} signed out of NeXa.`,
+        source: "login",
+        importance: "normal",
+      });
+    }
+    setLoggedInEmployeeId(null);
+    setLoginDraft({ username: "", password: "" });
+    setLoginError("");
+    showNotice("Signed out. Please sign in to continue.");
+  }
+
+  function closeDirectoryActionMenu() {
+    setOpenDirectoryActionMenu(null);
+  }
+
+  function directoryActionKey(scope: DirectoryRecordScope, id: string) {
+    return `${scope}:${id}`;
+  }
+
+  function toggleDirectoryActionMenu(scope: DirectoryRecordScope, id: string) {
+    setOpenDirectoryActionMenu((current) =>
+      current && current.scope === scope && current.id === id ? null : { scope, id },
+    );
+  }
+
+  function shouldShowDirectoryActionMenu(scope: DirectoryRecordScope, id: string) {
+    return openDirectoryActionMenu?.scope === scope && openDirectoryActionMenu.id === id;
+  }
+
+  function confirmPilotDelete(label: string) {
+    if (typeof window === "undefined") return true;
+    return window.confirm(`Delete ${label} from the pilot data? This cannot be undone from the screen.`);
+  }
+
+  function updateInvoiceStatus(invoice: Invoice, status: InvoiceStatus) {
+    closeDirectoryActionMenu();
+    if (invoice.status === status) return;
+    setInvoices((current) =>
+      current.map((item) => (item.id === invoice.id ? { ...item, status } : item)),
+    );
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: status.toLowerCase(),
+      recordType: "invoice",
+      recordId: invoice.id,
+      summary: `${invoice.ref} status changed to ${status}.`,
+      source: "directory actions",
+      importance: status === "Paid" ? "high" : "normal",
+    });
+    showNotice(`${invoice.ref} moved to ${status}.`);
+  }
+
+  function deleteInvoiceFromDirectory(invoice: Invoice) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(invoice.ref)) return;
+    setInvoices((current) => current.filter((item) => item.id !== invoice.id));
+    if (selectedInvoiceId === invoice.id) {
+      setSelectedInvoiceId(null);
+      setHomeView("invoices");
+    }
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "deleted",
+      recordType: "invoice",
+      recordId: invoice.id,
+      summary: `${invoice.ref} deleted from the pilot invoice list.`,
+      source: "directory actions",
+      importance: "high",
+    });
+    showNotice(`${invoice.ref} deleted from pilot data.`);
+  }
+
+  async function updateLeadStatusFromDirectory(lead: Lead, status: LeadStatus) {
+    closeDirectoryActionMenu();
+    if (lead.status === status) return;
+    const previous = lead;
+    const nextLead = {
+      ...lead,
+      status,
+      next: status === "Lost" ? "Archived as lost." : status === "Quoted" ? "Marked as quoted." : lead.next,
+    };
+    setLeads((current) => current.map((item) => (item.id === lead.id ? nextLead : item)));
+
+    const result = await syncLead(lead.id, { status, next: nextLead.next });
+    if (!result.ok) {
+      setLeads((current) => current.map((item) => (item.id === lead.id ? previous : item)));
+      showNotice(result.error || `Unable to update ${lead.ref}.`);
+      return;
+    }
+
+    setLeads((current) => current.map((item) => (item.id === result.lead.id ? result.lead : item)));
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: status.toLowerCase(),
+      recordType: "lead",
+      recordId: lead.id,
+      summary: `${lead.ref} status changed to ${status}.`,
+      source: "directory actions",
+      importance: status === "Lost" ? "high" : "normal",
+    });
+    showNotice(`${lead.ref} moved to ${status}.`);
+  }
+
+  async function deleteLeadFromDirectory(lead: Lead) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(lead.ref)) return;
+    const previous = leads;
+    setLeads((current) => current.filter((item) => item.id !== lead.id));
+
+    try {
+      const response = await fetch(`/api/leads/${lead.id}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete lead");
+      if (selectedLeadId === lead.id) {
+        setSelectedLeadId(null);
+        setHomeView("leads");
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "deleted",
+        recordType: "lead",
+        recordId: lead.id,
+        summary: `${lead.ref} deleted from the pilot lead list.`,
+        source: "directory actions",
+        importance: "high",
+      });
+      showNotice(`${lead.ref} deleted from pilot data.`);
+    } catch {
+      setLeads(previous);
+      showNotice(`Unable to delete ${lead.ref}.`);
+    }
+  }
+
+  async function updateQuoteFromDirectory(quote: Quote, patch: Partial<Quote>, message: string) {
+    closeDirectoryActionMenu();
+    const previous = quote;
+    const optimistic = { ...quote, ...patch };
+    setQuotes((current) => current.map((item) => (item.id === quote.id ? optimistic : item)));
+
+    try {
+      const response = await fetch(`/api/quotes/${quote.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) throw new Error("Unable to update quote");
+      const updated = (await response.json()) as Quote;
+      setQuotes((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: patch.status ? String(patch.status).toLowerCase() : "updated",
+        recordType: "quote",
+        recordId: quote.id,
+        summary: `${quote.ref} updated from directory actions.`,
+        source: "directory actions",
+        importance: patch.status === "Accepted" || patch.status === "Lost" ? "high" : "normal",
+      });
+      showNotice(message);
+    } catch {
+      setQuotes((current) => current.map((item) => (item.id === quote.id ? previous : item)));
+      showNotice(`Unable to update ${quote.ref}.`);
+    }
+  }
+
+  async function deleteQuoteFromDirectory(quote: Quote) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(quote.ref)) return;
+    const previousQuotes = quotes;
+    const previousCentres = quoteCostCentres;
+    setQuotes((current) => current.filter((item) => item.id !== quote.id));
+    setQuoteCostCentres((current) => {
+      const next = { ...current };
+      delete next[quote.id];
+      return next;
+    });
+
+    try {
+      const response = await fetch(`/api/quotes/${quote.id}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete quote");
+      if (selectedQuoteId === quote.id) {
+        setSelectedQuoteId(null);
+        setHomeView("quotes");
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "deleted",
+        recordType: "quote",
+        recordId: quote.id,
+        summary: `${quote.ref} deleted from the pilot quote list.`,
+        source: "directory actions",
+        importance: "high",
+      });
+      showNotice(`${quote.ref} deleted from pilot data.`);
+    } catch {
+      setQuotes(previousQuotes);
+      setQuoteCostCentres(previousCentres);
+      showNotice(`Unable to delete ${quote.ref}.`);
+    }
+  }
+
+  async function updateJobFromDirectory(job: Job, patch: Partial<Job>, message: string) {
+    closeDirectoryActionMenu();
+    const previous = job;
+    setJobs((current) => current.map((item) => (item.id === job.id ? { ...item, ...patch } : item)));
+
+    try {
+      const response = await fetch(`/api/jobs/${job.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!response.ok) throw new Error("Unable to update job");
+      const updated = (await response.json()) as Job;
+      setJobs((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: patch.status ? String(patch.status).toLowerCase() : "updated",
+        recordType: "job",
+        recordId: job.id,
+        summary: `${job.ref} updated from directory actions.`,
+        source: "directory actions",
+        importance: patch.status === "Closed" || patch.status === "Ready to invoice" ? "high" : "normal",
+      });
+      showNotice(message);
+    } catch {
+      setJobs((current) => current.map((item) => (item.id === job.id ? previous : item)));
+      showNotice(`Unable to update ${job.ref}.`);
+    }
+  }
+
+  async function deleteJobFromDirectory(job: Job) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(job.ref)) return;
+    const previousJobs = jobs;
+    const previousCentres = jobEstimateCostCentres;
+    setJobs((current) => current.filter((item) => item.id !== job.id));
+    setJobEstimateCostCentres((current) => {
+      const next = { ...current };
+      delete next[job.id];
+      return next;
+    });
+
+    try {
+      const response = await fetch(`/api/jobs/${job.id}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete job");
+      if (selectedJobId === job.id) {
+        setSelectedJobId(null);
+        setHomeView("jobs");
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "deleted",
+        recordType: "job",
+        recordId: job.id,
+        summary: `${job.ref} deleted from the pilot job list.`,
+        source: "directory actions",
+        importance: "high",
+      });
+      showNotice(`${job.ref} deleted from pilot data.`);
+    } catch {
+      setJobs(previousJobs);
+      setJobEstimateCostCentres(previousCentres);
+      showNotice(`Unable to delete ${job.ref}.`);
+    }
+  }
+
+  function renderDirectoryActionMenu(
+    scope: DirectoryRecordScope,
+    id: string,
+    actions: Array<{ label: string; onClick: () => void; danger?: boolean; disabled?: boolean }>,
+  ) {
+    const isOpen = shouldShowDirectoryActionMenu(scope, id);
+    return (
+      <span className="directory-actions" onClick={(event) => event.stopPropagation()}>
+        <button
+          className="directory-actions-trigger"
+          type="button"
+          aria-expanded={isOpen}
+          aria-haspopup="menu"
+          aria-label="Record options"
+          onClick={() => toggleDirectoryActionMenu(scope, id)}
+        >
+          <MoreHorizontal size={16} />
+        </button>
+        {isOpen ? (
+          <span className="directory-actions-menu" role="menu" aria-label="Record actions">
+            {actions.map((action) => (
+              <button
+                className={action.danger ? "danger" : ""}
+                disabled={action.disabled}
+                key={`${directoryActionKey(scope, id)}:${action.label}`}
+                type="button"
+                role="menuitem"
+                onClick={action.onClick}
+              >
+                {action.label}
+              </button>
+            ))}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+
   function communicationDraftKey(recordType: CommunicationRecordType, recordId: string) {
     return `${recordType}:${recordId}`;
   }
@@ -6739,7 +7219,6 @@ export default function Dashboard() {
   }
 
   function openEmployeeCardView(employeeId: string) {
-    setActiveEmployeeId(employeeId);
     setEditingEmployeeId(employeeId);
     setActiveEmployeeTab("details");
     setHomeView("employee-card");
@@ -9613,16 +10092,35 @@ export default function Dashboard() {
       (document) => document.label.trim() || document.fileName.trim(),
     );
 
+    const savedEmployeeName = employeeProfileDraft.name.trim() || activeEditingEmployee?.name || "Employee";
+    const savedEmployeeEmail = employeeProfileDraft.email.trim();
+    const savedLoginUsername =
+      normalizeLoginInput(employeeProfileDraft.loginUsername) ||
+      makeDefaultEmployeeUsername({
+        name: savedEmployeeName,
+        profile: savedEmployeeEmail ? { email: savedEmployeeEmail } : undefined,
+      });
+    const savedLoginPassword =
+      employeeProfileDraft.loginPassword.trim() ||
+      activeEditingEmployee?.login?.password ||
+      "EWG2026";
+
     setEmployees((current) =>
       current.map((employee) =>
         employee.id === editingEmployeeId
           ? {
               ...employee,
-              name: employeeProfileDraft.name.trim() || employee.name,
+              name: savedEmployeeName,
               role: employeeRoleDraft,
               permissions: { ...employeePermissionDraft },
+              login: {
+                username: savedLoginUsername,
+                password: savedLoginPassword,
+                enabled: employeeProfileDraft.loginEnabled,
+                lastLoginAt: employee.login?.lastLoginAt,
+              },
               profile: {
-                email: employeeProfileDraft.email.trim() || undefined,
+                email: savedEmployeeEmail || undefined,
                 phone: employeeProfileDraft.phone.trim() || undefined,
                 address: employeeProfileDraft.address.trim() || undefined,
                 startDate: employeeProfileDraft.startDate.trim() || undefined,
@@ -11188,6 +11686,100 @@ export default function Dashboard() {
     { label: "New job", icon: Wrench, onClick: createJobFromMenu },
   ];
 
+  if (!hasHydratedLocalData) {
+    return (
+      <div className="employee-login-shell">
+        <section className="employee-login-card loading">
+          <img src="/ewg-logo.png" alt="Errol Watson Group" />
+          <strong>Loading NeXa workspace...</strong>
+        </section>
+      </div>
+    );
+  }
+
+  if (!isEmployeeLoggedIn) {
+    const enabledEmployeeLogins = employees
+      .map(withDefaultEmployeeLogin)
+      .filter((employee) => employee.login?.enabled);
+
+    return (
+      <div className="employee-login-shell">
+        <section className="employee-login-card">
+          <div className="employee-login-brand">
+            <img src="/ewg-logo.png" alt="Errol Watson Group" />
+            <span>
+              <strong>NeXa</strong>
+              <small>Service command center</small>
+            </span>
+          </div>
+          <div>
+            <span className="permission-heading">Employee login</span>
+            <h1>Sign in to continue</h1>
+            <p>Actions inside NeXa will be logged against the employee card you use here.</p>
+          </div>
+          <form className="employee-login-form" onSubmit={handleEmployeeLogin}>
+            <label>
+              Username
+              <input
+                autoComplete="username"
+                value={loginDraft.username}
+                onChange={(event) =>
+                  setLoginDraft((current) => ({
+                    ...current,
+                    username: normalizeLoginInput(event.target.value),
+                  }))
+                }
+              />
+            </label>
+            <label>
+              Password
+              <input
+                autoComplete="current-password"
+                type="password"
+                value={loginDraft.password}
+                onChange={(event) =>
+                  setLoginDraft((current) => ({
+                    ...current,
+                    password: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            {loginError ? <p className="employee-login-error">{loginError}</p> : null}
+            <button className="primary-button" type="submit">
+              <UserCheck size={16} />
+              Sign in
+            </button>
+          </form>
+          <div className="employee-login-roster">
+            <span className="permission-heading">Enabled employee cards</span>
+            <div>
+              {enabledEmployeeLogins.map((employee) => (
+                <button
+                  key={employee.id}
+                  type="button"
+                  onClick={() =>
+                    setLoginDraft((current) => ({
+                      ...current,
+                      username: employee.login?.username ?? "",
+                    }))
+                  }
+                >
+                  <span className="account-avatar">{getEmployeeInitials(employee.name)}</span>
+                  <strong>{employee.name}</strong>
+                  <small>{employee.login?.username}</small>
+                </button>
+              ))}
+            </div>
+            <small className="employee-login-hint">
+              Default pilot password is EWG2026 unless it has been changed on the employee card.
+            </small>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="platform">
       <header className="global-header">
@@ -11228,12 +11820,15 @@ export default function Dashboard() {
               scrollWorkspaceToTop();
             }}
           >
-            <span className="account-avatar">N</span>
+            <span className="account-avatar">{getEmployeeInitials(activeEmployee?.name ?? "NeXa")}</span>
             <span className="account-copy">
               <strong>{activeEmployee?.name ?? "Employee"}</strong>
               <small>NeXa workspace</small>
             </span>
             <ChevronDown size={14} />
+          </button>
+          <button className="header-icon sign-out-button" aria-label="Sign out" title="Sign out" onClick={signOutEmployee}>
+            <LogOut size={18} />
           </button>
         </div>
       </header>
@@ -11408,7 +12003,7 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/ai-surveyor" className="context-link" aria-label="NeXa Takeoff" title="NeXa Takeoff">
+          <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" title="NeXa Takeoff">
             <Sparkles size={17} />
             <span>NeXa Takeoff</span>
           </a>
@@ -11769,7 +12364,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to Core
                   </button>
-                  <a className="primary-button" href="/ai-surveyor">
+                  <a className="primary-button" href="/takeoff">
                     <Sparkles size={16} />
                     Open Takeoff
                   </a>
@@ -12031,6 +12626,7 @@ export default function Dashboard() {
                           <span>Status</span>
                           <span>Value</span>
                           <span>Next action</span>
+                          <span>Options</span>
                         </div>
                         {group.items.map((quote) => {
                           const linkedJob = getQuoteJob(quote);
@@ -12077,6 +12673,48 @@ export default function Dashboard() {
                                   </button>
                                 ) : null}
                               </span>
+                              {renderDirectoryActionMenu("quote", quote.id, [
+                                { label: "Open quote", onClick: () => openQuoteDrawer(quote.id) },
+                                {
+                                  label: "Mark sent",
+                                  onClick: () =>
+                                    updateQuoteFromDirectory(
+                                      quote,
+                                      {
+                                        status: "Sent",
+                                        sentAt: quote.sentAt ?? new Date().toISOString(),
+                                        next: "Await customer response",
+                                      },
+                                      `${quote.ref} moved to sent.`,
+                                    ),
+                                  disabled: quote.status === "Sent",
+                                },
+                                {
+                                  label: "Mark accepted",
+                                  onClick: () =>
+                                    updateQuoteFromDirectory(
+                                      quote,
+                                      {
+                                        status: "Accepted",
+                                        respondedAt: quote.respondedAt ?? new Date().toISOString(),
+                                        next: "Create job and schedule",
+                                      },
+                                      `${quote.ref} accepted.`,
+                                    ),
+                                  disabled: quote.status === "Accepted",
+                                },
+                                {
+                                  label: "Archive as lost",
+                                  onClick: () =>
+                                    updateQuoteFromDirectory(
+                                      quote,
+                                      { status: "Lost", next: "Archived as lost." },
+                                      `${quote.ref} archived as lost.`,
+                                    ),
+                                  disabled: quote.status === "Lost",
+                                },
+                                { label: "Delete", onClick: () => deleteQuoteFromDirectory(quote), danger: true },
+                              ])}
                             </article>
                           );
                         })}
@@ -12136,6 +12774,7 @@ export default function Dashboard() {
                           <span>Status</span>
                           <span>Value</span>
                           <span>Next action</span>
+                          <span>Options</span>
                         </div>
                         {group.items.map((job) => (
                           <article
@@ -12173,6 +12812,50 @@ export default function Dashboard() {
                                 Open job
                               </button>
                             </span>
+                            {renderDirectoryActionMenu("job", job.id, [
+                              { label: "Open job", onClick: () => openJobDrawer(job.id) },
+                              {
+                                label: "Move to pending",
+                                onClick: () =>
+                                  updateJobFromDirectory(
+                                    job,
+                                    { status: "Pending", next: "Schedule staff and first visit.", health: "amber" },
+                                    `${job.ref} moved to pending.`,
+                                  ),
+                                disabled: job.status === "Pending",
+                              },
+                              {
+                                label: "Move in progress",
+                                onClick: () =>
+                                  updateJobFromDirectory(
+                                    job,
+                                    { status: "In progress", next: "Track delivery, POs and variations.", health: "blue" },
+                                    `${job.ref} moved in progress.`,
+                                  ),
+                                disabled: job.status === "In progress",
+                              },
+                              {
+                                label: "Ready to invoice",
+                                onClick: () =>
+                                  updateJobFromDirectory(
+                                    job,
+                                    { status: "Ready to invoice", next: "Raise and email final invoice.", health: "green" },
+                                    `${job.ref} ready to invoice.`,
+                                  ),
+                                disabled: job.status === "Ready to invoice",
+                              },
+                              {
+                                label: "Archive closed",
+                                onClick: () =>
+                                  updateJobFromDirectory(
+                                    job,
+                                    { status: "Closed", next: "Archived in complete folder.", due: "Complete", health: "green" },
+                                    `${job.ref} closed.`,
+                                  ),
+                                disabled: job.status === "Closed",
+                              },
+                              { label: "Delete", onClick: () => deleteJobFromDirectory(job), danger: true },
+                            ])}
                           </article>
                         ))}
                       </>
@@ -12199,7 +12882,7 @@ export default function Dashboard() {
               </div>
 
               <div className="addon-card-grid">
-                <a className="addon-product-card" href="/ai-surveyor">
+                <a className="addon-product-card" href="/takeoff">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
                     <strong>NeXa Takeoff</strong>
@@ -15794,6 +16477,7 @@ export default function Dashboard() {
                           <span>Status</span>
                           <span>Amount</span>
                           <span>Due</span>
+                          <span>Options</span>
                         </div>
                         {group.items.map((invoice) => {
                           const source =
@@ -15854,6 +16538,25 @@ export default function Dashboard() {
                                   Open {invoice.sourceType}
                                 </button>
                               </span>
+                              {renderDirectoryActionMenu("invoice", invoice.id, [
+                                { label: "Open invoice", onClick: () => openInvoiceRecord(invoice.id) },
+                                {
+                                  label: "Mark sent",
+                                  onClick: () => updateInvoiceStatus(invoice, "Sent"),
+                                  disabled: invoice.status === "Sent",
+                                },
+                                {
+                                  label: "Mark paid",
+                                  onClick: () => updateInvoiceStatus(invoice, "Paid"),
+                                  disabled: invoice.status === "Paid",
+                                },
+                                {
+                                  label: "Cancel / archive",
+                                  onClick: () => updateInvoiceStatus(invoice, "Cancelled"),
+                                  disabled: invoice.status === "Cancelled",
+                                },
+                                { label: "Delete", onClick: () => deleteInvoiceFromDirectory(invoice), danger: true },
+                              ])}
                             </article>
                           );
                         })}
@@ -16560,7 +17263,7 @@ export default function Dashboard() {
                         <article>
                           <span>Data persistence</span>
                           <strong>Quotes, jobs, leads and POs persist to workspace</strong>
-                          <small>Stored in .hubflo-runtime files for repeatable sessions.</small>
+                          <small>Stored in the hosted pilot database or local JSON files.</small>
                         </article>
                         <article>
                           <span>Audit trail</span>
@@ -17261,6 +17964,7 @@ export default function Dashboard() {
                     <span>Survey</span>
                     <span>Status</span>
                     <span>Next action</span>
+                    <span>Options</span>
                   </div>
                   {filteredLeads.map((lead) => {
                     const linkedQuote = getLeadQuote(lead);
@@ -17312,6 +18016,30 @@ export default function Dashboard() {
                           </button>
                         ) : null}
                       </div>
+                      {renderDirectoryActionMenu("lead", lead.id, [
+                        { label: "Open lead", onClick: () => openLeadRecord(lead.id) },
+                        {
+                          label: "Create quote",
+                          onClick: () => markLeadQuoted(lead),
+                          disabled: Boolean(linkedQuote),
+                        },
+                        {
+                          label: "Needs scheduling",
+                          onClick: () => updateLeadStatusFromDirectory(lead, "Needs scheduling"),
+                          disabled: lead.status === "Needs scheduling",
+                        },
+                        {
+                          label: "Survey booked",
+                          onClick: () => updateLeadStatusFromDirectory(lead, "Survey booked"),
+                          disabled: lead.status === "Survey booked",
+                        },
+                        {
+                          label: "Archive as lost",
+                          onClick: () => updateLeadStatusFromDirectory(lead, "Lost"),
+                          disabled: lead.status === "Lost",
+                        },
+                        { label: "Delete", onClick: () => deleteLeadFromDirectory(lead), danger: true },
+                      ])}
                     </article>
                     );
                   })}
@@ -17580,6 +18308,9 @@ export default function Dashboard() {
                     </p>
                     <p className="employee-directory-meta">
                       Role title: {employee.profile?.roleLabel || "Not set"}
+                    </p>
+                    <p className="employee-directory-meta">
+                      Login: {withDefaultEmployeeLogin(employee).login?.enabled ? withDefaultEmployeeLogin(employee).login?.username : "Disabled"}
                     </p>
                     <button
                       className="primary-button"
@@ -18025,6 +18756,68 @@ export default function Dashboard() {
                             <span>{permission.label}</span>
                           </label>
                         ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activeEmployeeTab === "login" ? (
+                    <div className="form-body employee-page-form two-column-form">
+                      <div className="full-field employee-login-summary">
+                        <span className="employee-login-icon">
+                          <KeyRound size={18} />
+                        </span>
+                        <div>
+                          <strong>Employee login</strong>
+                          <small>
+                            This pilot login controls who the audit log records as the active user.
+                          </small>
+                        </div>
+                        <label className="employee-login-toggle">
+                          <input
+                            type="checkbox"
+                            checked={employeeProfileDraft.loginEnabled}
+                            onChange={(event) =>
+                              setEmployeeProfileDraft((current) => ({
+                                ...current,
+                                loginEnabled: event.target.checked,
+                              }))
+                            }
+                          />
+                          Enabled
+                        </label>
+                      </div>
+                      <label>
+                        Username
+                        <input
+                          autoComplete="username"
+                          value={employeeProfileDraft.loginUsername}
+                          onChange={(event) =>
+                            setEmployeeProfileDraft((current) => ({
+                              ...current,
+                              loginUsername: normalizeLoginInput(event.target.value),
+                            }))
+                          }
+                        />
+                      </label>
+                      <label>
+                        Pilot password
+                        <input
+                          autoComplete="new-password"
+                          type="text"
+                          value={employeeProfileDraft.loginPassword}
+                          onChange={(event) =>
+                            setEmployeeProfileDraft((current) => ({
+                              ...current,
+                              loginPassword: event.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                      <div className="full-field employee-empty-panel">
+                        <strong>Activity trace</strong>
+                        <span>
+                          Last sign-in: {activeEditingEmployee.login?.lastLoginAt ?? "No login recorded yet"}
+                        </span>
                       </div>
                     </div>
                   ) : null}
