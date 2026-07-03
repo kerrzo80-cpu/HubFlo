@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFile, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -9,7 +12,6 @@ import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   applyTakeoffExtractionDraft,
   getTakeoffProject,
-  runTakeoffDraftExtraction,
   type TakeoffDocument,
   type TakeoffExtractionDraft,
   type TakeoffMeasurement,
@@ -19,11 +21,11 @@ import {
 
 export const runtime = "nodejs";
 
-type ExtractPayload = {
+type SurveyDraftPayload = {
   actor?: string;
 };
 
-class TakeoffExtractionInputError extends Error {}
+class SurveyDraftInputError extends Error {}
 
 type OpenAiTextContent = { type: "input_text"; text: string };
 type OpenAiInputContent =
@@ -31,7 +33,7 @@ type OpenAiInputContent =
   | { type: "input_image"; image_url: string; detail: "high" }
   | { type: "input_file"; file_data: string; filename: string; detail: "high" };
 
-type OpenAiTakeoffPayload = {
+type OpenAiSurveyPayload = {
   summary: string;
   confidence: "Low" | "Medium" | "High";
   rooms: Array<{
@@ -42,6 +44,7 @@ type OpenAiTakeoffPayload = {
     heightM: number;
     areaM2: number;
     heatLoadWatts: number;
+    visibleEvidence: string;
     notes: string;
   }>;
   measurements: Array<{
@@ -49,7 +52,6 @@ type OpenAiTakeoffPayload = {
     label: string;
     quantity: number;
     unit: string;
-    source: TakeoffMeasurement["source"];
   }>;
   pipeRuns: Array<{
     roomName: string;
@@ -100,7 +102,9 @@ type OpenAiTakeoffPayload = {
 };
 
 const OPENAI_FILE_LIMIT_BYTES = 20 * 1024 * 1024;
-const OPENAI_FILE_LIMIT_COUNT = 8;
+const OPENAI_FILE_LIMIT_COUNT = 12;
+const OPENAI_CONVERTED_IMAGE_MAX_EDGE = 2400;
+const execFileAsync = promisify(execFile);
 const serviceOptions: TakeoffPipeRun["service"][] = [
   "Heating flow/return",
   "Hot water",
@@ -110,9 +114,8 @@ const serviceOptions: TakeoffPipeRun["service"][] = [
   "Condensate",
   "Other",
 ];
-const measurementSources: TakeoffMeasurement["source"][] = ["Drawing", "Spec", "BOQ", "Manual"];
 
-const takeoffExtractionSchema = {
+const surveyQuoteSchema = {
   type: "object",
   additionalProperties: false,
   required: [
@@ -136,7 +139,7 @@ const takeoffExtractionSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["name", "level", "lengthM", "widthM", "heightM", "areaM2", "heatLoadWatts", "notes"],
+        required: ["name", "level", "lengthM", "widthM", "heightM", "areaM2", "heatLoadWatts", "visibleEvidence", "notes"],
         properties: {
           name: { type: "string" },
           level: { type: "string" },
@@ -145,6 +148,7 @@ const takeoffExtractionSchema = {
           heightM: { type: "number" },
           areaM2: { type: "number" },
           heatLoadWatts: { type: "number" },
+          visibleEvidence: { type: "string" },
           notes: { type: "string" },
         },
       },
@@ -154,13 +158,12 @@ const takeoffExtractionSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["roomName", "label", "quantity", "unit", "source"],
+        required: ["roomName", "label", "quantity", "unit"],
         properties: {
           roomName: { type: "string" },
           label: { type: "string" },
           quantity: { type: "number" },
           unit: { type: "string" },
-          source: { type: "string", enum: measurementSources },
         },
       },
     },
@@ -276,63 +279,67 @@ function roomIdForName(roomIds: Map<string, string>, roomName: string) {
   return roomIds.get(roomName.trim().toLowerCase());
 }
 
-function normalizeOpenAiPayload(project: TakeoffProject, payload: OpenAiTakeoffPayload): TakeoffExtractionDraft {
-  const rooms = (Array.isArray(payload.rooms) ? payload.rooms : []).slice(0, 60).map((room, index) => {
+function normalizeOpenAiPayload(project: TakeoffProject, payload: OpenAiSurveyPayload): TakeoffExtractionDraft {
+  const rooms = (Array.isArray(payload.rooms) ? payload.rooms : []).slice(0, 40).map((room, index) => {
     const lengthM = asNumber(room.lengthM);
     const widthM = asNumber(room.widthM);
     const heightM = asNumber(room.heightM);
     const measuredArea = lengthM > 0 && widthM > 0 ? Number((lengthM * widthM).toFixed(2)) : 0;
+    const evidence = asText(room.visibleEvidence, "");
+    const notes = [asText(room.notes, "Survey AI draft; office review required."), evidence ? `Evidence: ${evidence}` : ""]
+      .filter(Boolean)
+      .join(" ");
 
     return {
-      id: `openai-room-${project.id}-${index}`,
-      name: asText(room.name, `Room ${index + 1}`),
+      id: `openai-survey-room-${project.id}-${index}`,
+      name: asText(room.name, `Survey room ${index + 1}`),
       level: asText(room.level, "To confirm"),
       lengthM,
       widthM,
       heightM,
       areaM2: asNumber(room.areaM2, measuredArea) || measuredArea,
       heatLoadWatts: asNumber(room.heatLoadWatts),
-      notes: asText(room.notes, "OpenAI draft; office review required."),
+      notes,
     };
   });
   const roomIds = new Map(rooms.map((room) => [room.name.trim().toLowerCase(), room.id]));
 
   return {
     rooms,
-    measurements: (Array.isArray(payload.measurements) ? payload.measurements : []).slice(0, 120).map((measurement, index) => ({
-      id: `openai-measure-${project.id}-${index}`,
+    measurements: (Array.isArray(payload.measurements) ? payload.measurements : []).slice(0, 80).map((measurement, index): TakeoffMeasurement => ({
+      id: `openai-survey-measure-${project.id}-${index}`,
       roomId: roomIdForName(roomIds, measurement.roomName),
-      label: asText(measurement.label, `Measurement ${index + 1}`),
+      label: asText(measurement.label, `Survey measurement ${index + 1}`),
       quantity: asNumber(measurement.quantity),
       unit: asText(measurement.unit, "item"),
-      source: measurementSources.includes(measurement.source) ? measurement.source : "Manual",
+      source: "Manual",
     })),
-    pipeRuns: (Array.isArray(payload.pipeRuns) ? payload.pipeRuns : []).slice(0, 80).map((run, index) => ({
-      id: `openai-pipe-${project.id}-${index}`,
+    pipeRuns: (Array.isArray(payload.pipeRuns) ? payload.pipeRuns : []).slice(0, 60).map((run, index) => ({
+      id: `openai-survey-pipe-${project.id}-${index}`,
       roomId: roomIdForName(roomIds, run.roomName),
       service: serviceOptions.includes(run.service) ? run.service : "Other",
-      route: asText(run.route, `Route ${index + 1}`),
+      route: asText(run.route, `Survey route ${index + 1}`),
       diameter: asText(run.diameter, "TBC"),
       material: asText(run.material, "TBC"),
       lengthM: asNumber(run.lengthM),
       fittings: asNumber(run.fittings),
       insulation: asBoolean(run.insulation),
-      notes: asText(run.notes, "OpenAI draft; confirm against latest drawing."),
+      notes: asText(run.notes, "Survey AI draft; confirm visible route and access."),
     })),
-    radiators: (Array.isArray(payload.radiators) ? payload.radiators : []).slice(0, 80).map((radiator, index) => ({
-      id: `openai-radiator-${project.id}-${index}`,
+    radiators: (Array.isArray(payload.radiators) ? payload.radiators : []).slice(0, 60).map((radiator, index) => ({
+      id: `openai-survey-radiator-${project.id}-${index}`,
       roomId: roomIdForName(roomIds, radiator.roomName),
       roomName: asText(radiator.roomName, "Room to confirm"),
       outputWatts: asNumber(radiator.outputWatts),
-      model: asText(radiator.model, "Radiator model to confirm"),
+      model: asText(radiator.model, "Radiator size/model to confirm"),
       quantity: asNumber(radiator.quantity, 1),
       supplierRequired: asBoolean(radiator.supplierRequired),
-      notes: asText(radiator.notes, "OpenAI draft; supplier to confirm output and size."),
+      notes: asText(radiator.notes, "Survey AI draft; supplier to confirm output and size."),
     })),
-    materialAllowances: (Array.isArray(payload.materialAllowances) ? payload.materialAllowances : []).slice(0, 140).map((material, index) => ({
-      id: `openai-material-${project.id}-${index}`,
-      section: asText(material.section, "Materials"),
-      description: asText(material.description, `Material allowance ${index + 1}`),
+    materialAllowances: (Array.isArray(payload.materialAllowances) ? payload.materialAllowances : []).slice(0, 120).map((material, index) => ({
+      id: `openai-survey-material-${project.id}-${index}`,
+      section: asText(material.section, "Survey quote materials"),
+      description: asText(material.description, `Survey material allowance ${index + 1}`),
       quantity: asNumber(material.quantity, 1),
       unit: asText(material.unit, "item"),
       unitCost: asNumber(material.unitCost),
@@ -341,18 +348,18 @@ function normalizeOpenAiPayload(project: TakeoffProject, payload: OpenAiTakeoffP
       preferredSupplier: asText(material.preferredSupplier, ""),
     })),
     labourAllowances: (Array.isArray(payload.labourAllowances) ? payload.labourAllowances : []).slice(0, 40).map((labour, index) => ({
-      id: `openai-labour-${project.id}-${index}`,
-      section: asText(labour.section, "Labour"),
+      id: `openai-survey-labour-${project.id}-${index}`,
+      section: asText(labour.section, "Survey quote labour"),
       role: asText(labour.role, "Engineer labour"),
       hours: asNumber(labour.hours),
       costRate: asNumber(labour.costRate, 38),
       markupPercent: asNumber(labour.markupPercent, 45),
-      notes: asText(labour.notes, "OpenAI draft labour allowance."),
+      notes: asText(labour.notes, "Survey AI draft labour allowance."),
     })),
-    supplierRequests: (Array.isArray(payload.supplierRequests) ? payload.supplierRequests : []).slice(0, 80).map((request, index) => ({
-      id: `openai-supplier-${project.id}-${index}`,
+    supplierRequests: (Array.isArray(payload.supplierRequests) ? payload.supplierRequests : []).slice(0, 60).map((request, index) => ({
+      id: `openai-survey-supplier-${project.id}-${index}`,
       supplier: asText(request.supplier, ""),
-      description: asText(request.description, `Supplier request ${index + 1}`),
+      description: asText(request.description, `Survey supplier request ${index + 1}`),
       quantity: asNumber(request.quantity, 1),
       unit: asText(request.unit, "item"),
       notes: asText(request.notes, "Confirm price, availability, exclusions and lead time."),
@@ -360,6 +367,87 @@ function normalizeOpenAiPayload(project: TakeoffProject, payload: OpenAiTakeoffP
     riskFlags: listOfText(payload.riskFlags, 30),
     questions: listOfText(payload.questions, 30),
   };
+}
+
+function isSurveyDocument(document: TakeoffDocument) {
+  return document.kind === "Survey note" || document.kind === "Survey photo";
+}
+
+function fileExtension(fileName: string) {
+  return path.extname(fileName).toLowerCase();
+}
+
+function imageMimeTypeFromFileName(fileName: string) {
+  const extension = fileExtension(fileName);
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".png") return "image/png";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  if (extension === ".heic") return "image/heic";
+  if (extension === ".heif") return "image/heif";
+  if (extension === ".dng") return "image/x-adobe-dng";
+  if (extension === ".tif" || extension === ".tiff") return "image/tiff";
+  return undefined;
+}
+
+function imageMimeTypeForDocument(document: TakeoffDocument) {
+  return document.mimeType || imageMimeTypeFromFileName(document.fileName);
+}
+
+function isDirectOpenAiImage(document: TakeoffDocument) {
+  const mimeType = imageMimeTypeForDocument(document);
+  return mimeType === "image/jpeg"
+    || mimeType === "image/png"
+    || mimeType === "image/webp"
+    || mimeType === "image/gif";
+}
+
+function shouldConvertToJpeg(document: TakeoffDocument) {
+  const extension = fileExtension(document.fileName);
+  const mimeType = imageMimeTypeForDocument(document);
+  return isSurveyDocument(document)
+    && (
+      extension === ".dng"
+      || extension === ".jpg"
+      || extension === ".jpeg"
+      || extension === ".heic"
+      || extension === ".heif"
+      || extension === ".png"
+      || extension === ".tif"
+      || extension === ".tiff"
+      || mimeType === "image/x-adobe-dng"
+      || mimeType === "image/jpeg"
+      || mimeType === "image/heic"
+      || mimeType === "image/heif"
+      || mimeType === "image/png"
+      || mimeType === "image/tiff"
+    );
+}
+
+async function convertImageToJpeg(filePath: string, documentId: string) {
+  const outputPath = path.join(os.tmpdir(), `${documentId}-survey-ai.jpg`);
+  await execFileAsync(
+    "/usr/bin/sips",
+    [
+      "-s",
+      "format",
+      "jpeg",
+      "-s",
+      "formatOptions",
+      "75",
+      "-Z",
+      String(OPENAI_CONVERTED_IMAGE_MAX_EDGE),
+      filePath,
+      "--out",
+      outputPath,
+    ],
+    { timeout: 60000 },
+  );
+  try {
+    return await readFile(outputPath);
+  } finally {
+    await rm(outputPath, { force: true }).catch(() => {});
+  }
 }
 
 function storedFilePath(document: TakeoffDocument) {
@@ -389,6 +477,7 @@ function getOutputText(response: unknown) {
 }
 
 async function buildOpenAiContent(project: TakeoffProject) {
+  const surveyDocuments = project.documents.filter(isSurveyDocument).slice(0, OPENAI_FILE_LIMIT_COUNT);
   const skipped: string[] = [];
   const intro: OpenAiTextContent = {
     type: "input_text",
@@ -397,31 +486,50 @@ async function buildOpenAiContent(project: TakeoffProject) {
       `Customer: ${project.customer}`,
       `Site: ${project.site}`,
       `Scope: ${project.description}`,
-      `Documents: ${project.documents.map((document) => `${document.kind}: ${document.fileName}`).join("; ") || "None"}`,
-      "Extract a heating/plumbing takeoff for office review. For each room/area, capture lengthM, widthM and heightM from the drawing/spec if visible. If only area is visible, set areaM2 and leave missing dimensions as 0. If scale or dimensions are unclear, use 0 and add a question instead of guessing.",
+      `Survey evidence: ${surveyDocuments.map((document) => `${document.kind}: ${document.fileName}`).join("; ") || "None"}`,
+      `Existing rooms in project: ${project.rooms.map((room) => `${room.name} (${room.areaM2}m2, ${room.heatLoadWatts}W)`).join("; ") || "None"}`,
+      "Create a conservative draft quote from handwritten site notes and room photos for office review.",
+      "Read visible handwriting and labels where possible. If dimensions are written down, populate lengthM, widthM, heightM and areaM2. If a dimension is not visible, use 0 and add a question instead of guessing.",
+      "Include likely plumbing/heating materials, radiator allowances, labour hours, supplier-request items, exclusions and access risks. Unit costs are draft allowances only.",
     ].join("\n"),
   };
   const content: OpenAiInputContent[] = [intro];
 
   let sourceFiles = 0;
-  for (const document of project.documents.slice(0, OPENAI_FILE_LIMIT_COUNT)) {
+  for (const document of surveyDocuments) {
     const filePath = storedFilePath(document);
     if (!filePath) {
       skipped.push(`${document.fileName} was uploaded before file storage was enabled`);
       continue;
     }
-    if ((document.size ?? 0) > OPENAI_FILE_LIMIT_BYTES) {
+    const shouldConvertImage = shouldConvertToJpeg(document);
+    if ((document.size ?? 0) > OPENAI_FILE_LIMIT_BYTES && !shouldConvertImage) {
       skipped.push(`${document.fileName} is over the OpenAI pilot scan limit`);
       continue;
     }
 
     try {
-      const buffer = await readFile(filePath);
-      const mimeType = document.mimeType || "application/octet-stream";
-      const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
-      if (mimeType.startsWith("image/")) {
+      const mimeType = imageMimeTypeForDocument(document) || "application/octet-stream";
+      if (shouldConvertImage) {
+        try {
+          const jpegBuffer = await convertImageToJpeg(filePath, document.id);
+          if (jpegBuffer.length > OPENAI_FILE_LIMIT_BYTES) {
+            skipped.push(`${document.fileName} converted for AI but is still too large. Export it as a smaller JPG/PNG and re-upload if this repeats.`);
+            continue;
+          }
+          const dataUrl = `data:image/jpeg;base64,${jpegBuffer.toString("base64")}`;
+          content.push({ type: "input_image", image_url: dataUrl, detail: "high" });
+        } catch {
+          skipped.push(`${document.fileName} could not be converted to JPEG for AI. Export it as JPG/PNG and re-upload if this repeats.`);
+          continue;
+        }
+      } else if (isDirectOpenAiImage(document)) {
+        const buffer = await readFile(filePath);
+        const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
         content.push({ type: "input_image", image_url: dataUrl, detail: "high" });
       } else {
+        const buffer = await readFile(filePath);
+        const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
         content.push({ type: "input_file", file_data: dataUrl, filename: document.fileName, detail: "high" });
       }
       sourceFiles += 1;
@@ -434,15 +542,16 @@ async function buildOpenAiContent(project: TakeoffProject) {
     intro.text = `${intro.text}\nSkipped files: ${skipped.join("; ")}`;
   }
 
-  return { content, sourceFiles };
+  return { content, sourceFiles, surveyDocuments };
 }
 
-async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKey: string, model: string) {
-  const { content, sourceFiles } = await buildOpenAiContent(project);
+async function runOpenAiSurveyDraft(project: TakeoffProject, actor: string, apiKey: string, model: string) {
+  const { content, sourceFiles, surveyDocuments } = await buildOpenAiContent(project);
+  if (surveyDocuments.length === 0) {
+    throw new SurveyDraftInputError("Upload handwritten notes or room photos in Survey quote before drafting.");
+  }
   if (sourceFiles === 0) {
-    throw new TakeoffExtractionInputError(
-      "OpenAI is connected, but no AI-ready source files are stored for this project. Re-upload the drawings/specs/BOQs in Intake, then run AI scan again.",
-    );
+    throw new SurveyDraftInputError("OpenAI is connected, but no AI-ready survey files are stored. Re-upload the notes/photos, then run AI draft quote again.");
   }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -458,7 +567,7 @@ async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKe
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK mechanical estimating assistant for NeXa Takeoff. Return conservative draft BOQ/takeoff data for office review only. Never claim the output is final or measured if the document evidence is unclear.",
+            text: "You are a UK plumbing and heating estimating assistant for NeXa. Turn site survey notes/photos into a conservative draft quote for office review. Never present uncertain photo-based quantities as final measurements. Put uncertainty into riskFlags and questions.",
           }],
         },
         {
@@ -469,25 +578,25 @@ async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKe
       text: {
         format: {
           type: "json_schema",
-          name: "nexa_takeoff_extraction",
+          name: "nexa_survey_quote_draft",
           strict: true,
-          schema: takeoffExtractionSchema,
+          schema: surveyQuoteSchema,
         },
       },
     }),
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI extraction failed (${response.status}). Check OPENAI_API_KEY and NEXA_TAKEOFF_OPENAI_MODEL.`);
+    throw new Error(`OpenAI survey draft failed (${response.status}). Check OPENAI_API_KEY and NEXA_TAKEOFF_OPENAI_MODEL.`);
   }
 
   const body = await response.json();
   const outputText = getOutputText(body);
   if (!outputText) {
-    throw new Error("OpenAI did not return extraction JSON.");
+    throw new Error("OpenAI did not return survey quote JSON.");
   }
 
-  const payload = JSON.parse(outputText) as OpenAiTakeoffPayload;
+  const payload = JSON.parse(outputText) as OpenAiSurveyPayload;
   const draft = normalizeOpenAiPayload(project, payload);
   return applyTakeoffExtractionDraft(project.id, draft, {
     actor,
@@ -495,7 +604,7 @@ async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKe
     model,
     summary: payload.summary,
     confidence: payload.confidence,
-    documentNote: "OpenAI extraction drafted from stored source files; office review still required.",
+    documentNote: "OpenAI survey quote draft created from stored notes/photos; office review still required.",
     sourceFiles,
   });
 }
@@ -509,21 +618,21 @@ export async function POST(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const body = await parseJsonRequestBody<ExtractPayload>(request);
+  const body = await parseJsonRequestBody<SurveyDraftPayload>(request);
   const { id } = await params;
-  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Takeoff";
+  const actor = body?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Survey quote";
   const openAiConfig = getTakeoffOpenAiConfig();
   const project = getTakeoffProject(id);
 
   if (!project) {
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
+  if (!openAiConfig.apiKey) {
+    return NextResponse.json({ error: "Connect OpenAI before running a survey quote draft." }, { status: 400 });
+  }
 
   try {
-    const result = openAiConfig.apiKey
-      ? await runOpenAiExtraction(project, actor, openAiConfig.apiKey, openAiConfig.model)
-      : runTakeoffDraftExtraction(id, actor);
-
+    const result = await runOpenAiSurveyDraft(project, actor, openAiConfig.apiKey, openAiConfig.model);
     if (!result) {
       return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
     }
@@ -531,8 +640,8 @@ export async function POST(
     return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to run OpenAI extraction" },
-      { status: error instanceof TakeoffExtractionInputError ? 400 : 502 },
+      { error: error instanceof Error ? error.message : "Unable to run OpenAI survey quote draft" },
+      { status: error instanceof SurveyDraftInputError ? 400 : 502 },
     );
   }
 }

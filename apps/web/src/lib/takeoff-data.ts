@@ -4,7 +4,7 @@ import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
-export type TakeoffDocumentKind = "Drawing" | "Specification" | "Contractor BOQ";
+export type TakeoffDocumentKind = "Drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo";
 export type TakeoffDocumentStatus = "Uploaded" | "Parsed" | "Needs review";
 
 export type TakeoffDocument = {
@@ -13,6 +13,7 @@ export type TakeoffDocument = {
   fileName: string;
   mimeType?: string;
   size?: number;
+  storageKey?: string;
   uploadedAt: string;
   status: TakeoffDocumentStatus;
   notes: string[];
@@ -22,6 +23,9 @@ export type TakeoffRoom = {
   id: string;
   name: string;
   level: string;
+  lengthM?: number;
+  widthM?: number;
+  heightM?: number;
   areaM2: number;
   heatLoadWatts: number;
   notes: string;
@@ -105,10 +109,25 @@ export type TakeoffReview = {
 
 export type TakeoffExtractionSummary = {
   status: "Not run" | "Draft extracted";
+  provider?: "Pilot" | "OpenAI";
+  model?: string;
   requestedAt?: string;
   completedAt?: string;
   confidence: "Low" | "Medium" | "High";
   summary: string;
+  questions: string[];
+  sourceFiles?: number;
+};
+
+export type TakeoffExtractionDraft = {
+  rooms: TakeoffRoom[];
+  measurements: TakeoffMeasurement[];
+  pipeRuns: TakeoffPipeRun[];
+  radiators: TakeoffRadiator[];
+  materialAllowances: TakeoffMaterialAllowance[];
+  labourAllowances: TakeoffLabourAllowance[];
+  supplierRequests: TakeoffSupplierRequestItem[];
+  riskFlags: string[];
   questions: string[];
 };
 
@@ -164,12 +183,32 @@ type QuoteTakeoffRow = {
 
 type QuoteTakeoffDocument = {
   id: string;
-  kind: "Drawings" | "Specification" | "Contractor BOQ";
+  kind: "Drawings" | "Specification" | "Contractor BOQ" | "Survey evidence";
   fileName: string;
   status: "Uploaded" | "Draft extracted" | "Needs review";
   confidence: "High" | "Medium" | "Low";
   extractedAt: string;
   questions: string[];
+};
+
+type QuoteHeatLossRoom = {
+  id: string;
+  name: string;
+  roomType: string;
+  length: string | number;
+  width: string | number;
+  height: string | number;
+  exteriorWalls: number;
+  wallType: string;
+  glazingType: string;
+  windowArea: string | number;
+  floorType: string;
+  ceilingType: string;
+  heatingSystemType: "Hydronic" | "Electric";
+  meanWaterTemperature: string | number;
+  preferredRange: string;
+  selectedRadiatorId?: string;
+  markupPercent: string | number;
 };
 
 type QuoteCostCentre = {
@@ -181,12 +220,14 @@ type QuoteCostCentre = {
   lines: QuoteCostLine[];
   takeoffRows?: QuoteTakeoffRow[];
   takeoffDocuments?: QuoteTakeoffDocument[];
+  heatLossRooms?: QuoteHeatLossRoom[];
 };
 
 export type TakeoffPushResult = {
   project: TakeoffProject;
   quote: Quote;
   costCentre: QuoteCostCentre;
+  costCentres: QuoteCostCentre[];
   auditEvent: AuditEvent;
 };
 
@@ -242,6 +283,9 @@ const seedProject: TakeoffProject = {
       id: "takeoff-room-plant",
       name: "Plant room",
       level: "Ground",
+      lengthM: 4,
+      widthM: 3,
+      heightM: 2.4,
       areaM2: 12,
       heatLoadWatts: 0,
       notes: "Existing wall-hung boiler position with limited clearance.",
@@ -250,6 +294,9 @@ const seedProject: TakeoffProject = {
       id: "takeoff-room-office",
       name: "Open office",
       level: "First",
+      lengthM: 8,
+      widthM: 8,
+      heightM: 2.6,
       areaM2: 64,
       heatLoadWatts: 6200,
       notes: "Radiator outputs to be checked against latest room layout.",
@@ -431,7 +478,12 @@ function inferTemplateName(project: TakeoffProject) {
 }
 
 function quoteDocumentKind(kind: TakeoffDocumentKind): QuoteTakeoffDocument["kind"] {
+  if (kind === "Survey note" || kind === "Survey photo") return "Survey evidence";
   return kind === "Drawing" ? "Drawings" : kind;
+}
+
+function documentNeedsOfficeReview(kind: TakeoffDocumentKind) {
+  return kind === "Drawing" || kind === "Survey note" || kind === "Survey photo";
 }
 
 function quoteDocumentStatus(status: TakeoffDocumentStatus): QuoteTakeoffDocument["status"] {
@@ -477,8 +529,20 @@ function buildEngineerDescription(project: TakeoffProject) {
   ].filter(Boolean).join(" ");
 }
 
-function buildTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
-  const materialRows = project.materialAllowances.map((line) => ({
+function buildQuoteTakeoffDocuments(project: TakeoffProject): QuoteTakeoffDocument[] {
+  return project.documents.map((document) => ({
+    id: document.id,
+    kind: quoteDocumentKind(document.kind),
+    fileName: document.fileName,
+    status: quoteDocumentStatus(document.status),
+    confidence: document.status === "Parsed" ? "High" : document.status === "Needs review" ? "Medium" : "Low",
+    extractedAt: document.uploadedAt,
+    questions: document.notes,
+  }));
+}
+
+function buildMaterialTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
+  return project.materialAllowances.map((line) => ({
     id: `takeoff-row-${line.id}`,
     source: "BOQ" as const,
     section: line.section,
@@ -489,8 +553,10 @@ function buildTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
     unitCost: line.unitCost,
     markupPercent: line.markupPercent,
   }));
+}
 
-  const pipeRows = project.pipeRuns.map((run) => ({
+function buildPipeTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
+  return project.pipeRuns.map((run) => ({
     id: `takeoff-row-${run.id}`,
     source: "Takeoff" as const,
     section: roomName(project, run.roomId) ?? "Pipe runs",
@@ -501,8 +567,10 @@ function buildTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
     unitCost: 0,
     markupPercent: 30,
   }));
+}
 
-  const radiatorRows = project.radiators.map((radiator) => ({
+function buildRadiatorTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
+  return project.radiators.map((radiator) => ({
     id: `takeoff-row-${radiator.id}`,
     source: "Takeoff" as const,
     section: radiator.roomName || "Radiator schedule",
@@ -513,12 +581,24 @@ function buildTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
     unitCost: 0,
     markupPercent: 30,
   }));
-
-  return [...materialRows, ...pipeRows, ...radiatorRows];
 }
 
-function buildQuoteLines(project: TakeoffProject): QuoteCostLine[] {
-  const materialLines = project.materialAllowances.map((line) => ({
+function buildSupplierTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
+  return project.supplierRequests.map((line) => ({
+    id: `takeoff-row-${line.id}`,
+    source: "Takeoff" as const,
+    section: line.supplier || "Supplier request",
+    description: line.description,
+    quantity: line.quantity,
+    unit: line.unit,
+    supplierRequired: true,
+    unitCost: 0,
+    markupPercent: 30,
+  }));
+}
+
+function buildQuoteMaterialLines(project: TakeoffProject): QuoteCostLine[] {
+  return project.materialAllowances.map((line) => ({
     id: `takeoff-material-line-${line.id}`,
     catalogItemId: "takeoff-boq",
     description: `${line.section} - ${line.description}`,
@@ -527,8 +607,10 @@ function buildQuoteLines(project: TakeoffProject): QuoteCostLine[] {
     unitSell: lineSellFromMarkup(line.unitCost, line.markupPercent),
     supplierRequired: line.supplierRequired,
   }));
+}
 
-  const radiatorLines = project.radiators.map((radiator) => ({
+function buildQuoteRadiatorLines(project: TakeoffProject): QuoteCostLine[] {
+  return project.radiators.map((radiator) => ({
     id: `takeoff-radiator-line-${radiator.id}`,
     catalogItemId: "takeoff-boq",
     description: `${radiator.roomName || "Radiator schedule"} - ${radiator.model}`,
@@ -537,8 +619,10 @@ function buildQuoteLines(project: TakeoffProject): QuoteCostLine[] {
     unitSell: 0,
     supplierRequired: radiator.supplierRequired,
   }));
+}
 
-  const labourLines = project.labourAllowances.map((line) => ({
+function buildQuoteLabourLines(project: TakeoffProject): QuoteCostLine[] {
+  return project.labourAllowances.map((line) => ({
     id: `takeoff-labour-line-${line.id}`,
     catalogItemId: "labour-engineer",
     description: `${line.section} - ${line.role}`,
@@ -546,29 +630,125 @@ function buildQuoteLines(project: TakeoffProject): QuoteCostLine[] {
     unitCost: line.costRate,
     unitSell: lineSellFromMarkup(line.costRate, line.markupPercent),
   }));
-
-  return [...materialLines, ...radiatorLines, ...labourLines];
 }
 
-function buildQuoteCostCentre(project: TakeoffProject, quoteId: string): QuoteCostCentre {
+function roomAreaDimensions(areaM2: number) {
+  const safeArea = Math.max(0, areaM2);
+  if (!safeArea) return { length: "", width: "" };
+  const length = Math.sqrt(safeArea * 1.35);
+  const width = safeArea / length;
   return {
-    id: `${quoteId}-takeoff-${project.id}`,
+    length: Number(length.toFixed(2)),
+    width: Number(width.toFixed(2)),
+  };
+}
+
+function buildQuoteHeatLossRooms(project: TakeoffProject): QuoteHeatLossRoom[] {
+  return project.rooms
+    .filter((room) => room.heatLoadWatts > 0 || project.radiators.some((radiator) => radiator.roomId === room.id))
+    .map((room) => {
+      const dimensions = roomAreaDimensions(room.areaM2);
+      return {
+        id: `takeoff-heat-${room.id}`,
+        name: room.name,
+        roomType: /bath|wc/i.test(room.name) ? "Bathroom" : /bed/i.test(room.name) ? "Bedroom" : "Living Room",
+        length: room.lengthM || dimensions.length,
+        width: room.widthM || dimensions.width,
+        height: room.heightM || 2.4,
+        exteriorWalls: 1,
+        wallType: "Brick cavity wall",
+        glazingType: "Wood/PVCu Double Glazed",
+        windowArea: "",
+        floorType: "Heated room",
+        ceilingType: "Heated room",
+        heatingSystemType: "Hydronic",
+        meanWaterTemperature: 70,
+        preferredRange: "Any range",
+        markupPercent: 30,
+      };
+    });
+}
+
+function buildSplitQuoteCostCentre(
+  quoteId: string,
+  project: TakeoffProject,
+  key: string,
+  name: string,
+  lines: QuoteCostLine[],
+  takeoffRows: QuoteTakeoffRow[] = [],
+  heatLossRooms: QuoteHeatLossRoom[] = [],
+): QuoteCostCentre | null {
+  if (!lines.length && !takeoffRows.length && !heatLossRooms.length) return null;
+
+  return {
+    id: `${quoteId}-takeoff-${project.id}-${key}`,
+    name,
+    templateName: inferTemplateName(project),
+    clientDescription: buildClientDescription(project),
+    engineerDescription: buildEngineerDescription(project),
+    lines,
+    takeoffRows,
+    takeoffDocuments: buildQuoteTakeoffDocuments(project),
+    heatLossRooms,
+  };
+}
+
+function buildQuoteCostCentres(project: TakeoffProject, quoteId: string): QuoteCostCentre[] {
+  const centres = [
+    buildSplitQuoteCostCentre(
+      quoteId,
+      project,
+      "materials",
+      `BOQ / Materials - ${project.name}`,
+      buildQuoteMaterialLines(project),
+      buildMaterialTakeoffRows(project),
+    ),
+    buildSplitQuoteCostCentre(
+      quoteId,
+      project,
+      "pipework",
+      `Pipework - ${project.name}`,
+      [],
+      buildPipeTakeoffRows(project),
+    ),
+    buildSplitQuoteCostCentre(
+      quoteId,
+      project,
+      "radiators",
+      `Radiators / Heat emitters - ${project.name}`,
+      buildQuoteRadiatorLines(project),
+      buildRadiatorTakeoffRows(project),
+      buildQuoteHeatLossRooms(project),
+    ),
+    buildSplitQuoteCostCentre(
+      quoteId,
+      project,
+      "labour",
+      `Labour - ${project.name}`,
+      buildQuoteLabourLines(project),
+    ),
+    buildSplitQuoteCostCentre(
+      quoteId,
+      project,
+      "supplier-requests",
+      `Supplier requests - ${project.name}`,
+      [],
+      buildSupplierTakeoffRows(project),
+    ),
+  ].filter((centre): centre is QuoteCostCentre => Boolean(centre));
+
+  if (centres.length) return centres;
+
+  return [{
+    id: `${quoteId}-takeoff-${project.id}-summary`,
     name: `Takeoff / BOQ - ${project.name}`,
     templateName: inferTemplateName(project),
     clientDescription: buildClientDescription(project),
     engineerDescription: buildEngineerDescription(project),
-    lines: buildQuoteLines(project),
-    takeoffRows: buildTakeoffRows(project),
-    takeoffDocuments: project.documents.map((document) => ({
-      id: document.id,
-      kind: quoteDocumentKind(document.kind),
-      fileName: document.fileName,
-      status: quoteDocumentStatus(document.status),
-      confidence: document.status === "Parsed" ? "High" : document.status === "Needs review" ? "Medium" : "Low",
-      extractedAt: document.uploadedAt,
-      questions: document.notes,
-    })),
-  };
+    lines: [],
+    takeoffRows: [],
+    takeoffDocuments: buildQuoteTakeoffDocuments(project),
+  }];
 }
 
 function quoteCentreSell(centre: QuoteCostCentre) {
@@ -586,7 +766,7 @@ function mergeById<T extends { id: string }>(current: T[], generated: T[]) {
   return Array.from(merged.values());
 }
 
-function buildDraftExtraction(project: TakeoffProject) {
+function buildDraftExtraction(project: TakeoffProject): TakeoffExtractionDraft {
   const generatedRooms: TakeoffRoom[] = [];
   const generatedMeasurements: TakeoffMeasurement[] = [];
   const generatedPipeRuns: TakeoffPipeRun[] = [];
@@ -608,6 +788,9 @@ function buildDraftExtraction(project: TakeoffProject) {
         id: drawingRoomId,
         name: roomName,
         level: /first|1st/i.test(baseName) ? "First" : "Ground",
+        lengthM: /office/i.test(baseName) ? 8 : 4.5,
+        widthM: /office/i.test(baseName) ? 6 : 4,
+        heightM: 2.4,
         areaM2: /office/i.test(baseName) ? 48 : 18,
         heatLoadWatts: /office|radiator|heating/i.test(baseName) ? 4200 : 0,
         notes: `Draft room created from ${document.fileName}.`,
@@ -845,26 +1028,52 @@ export function resetTakeoffStore(): TakeoffStore {
   return clone(takeoffStore);
 }
 
-export function runTakeoffDraftExtraction(
+type TakeoffExtractionApplyOptions = {
+  actor?: string;
+  provider?: "Pilot" | "OpenAI";
+  model?: string;
+  summary?: string;
+  confidence?: "Low" | "Medium" | "High";
+  documentNote?: string;
+  sourceFiles?: number;
+};
+
+function extractionCounts(draft: TakeoffExtractionDraft) {
+  return {
+    rooms: draft.rooms.length,
+    measurements: draft.measurements.length,
+    pipeRuns: draft.pipeRuns.length,
+    radiators: draft.radiators.length,
+    materialAllowances: draft.materialAllowances.length,
+    labourAllowances: draft.labourAllowances.length,
+    supplierRequests: draft.supplierRequests.length,
+  };
+}
+
+export function applyTakeoffExtractionDraft(
   projectId: string,
-  actor = "NeXa Takeoff",
+  draft: TakeoffExtractionDraft,
+  options: TakeoffExtractionApplyOptions = {},
 ): TakeoffExtractionResult | null {
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
   const extractedAt = nowIso();
-  const draft = buildDraftExtraction(project);
+  const provider = options.provider ?? "Pilot";
+  const documentNote = options.documentNote
+    ?? (provider === "OpenAI"
+      ? "OpenAI extraction drafted; confirm measurements, scale and exclusions before approval."
+      : "Draft measurements extracted; confirm scale before approval.");
+  const riskFlags = Array.from(new Set([...project.review.riskFlags, ...draft.riskFlags]));
   const updated = updateTakeoffProject(project.id, {
     status: "In review",
     documents: project.documents.map((document) => ({
       ...document,
-      status: document.kind === "Drawing" ? "Needs review" : "Parsed",
+      status: documentNeedsOfficeReview(document.kind) ? "Needs review" : "Parsed",
       notes: Array.from(
         new Set([
           ...document.notes,
-          document.kind === "Drawing"
-            ? "Draft measurements extracted; confirm scale before approval."
-            : "Draft BOQ/spec lines extracted for review.",
+          documentNote,
         ]),
       ),
     })),
@@ -877,43 +1086,54 @@ export function runTakeoffDraftExtraction(
     supplierRequests: mergeById(project.supplierRequests, draft.supplierRequests),
     review: {
       ...project.review,
-      riskFlags: draft.riskFlags,
+      riskFlags,
       officeNotes: project.review.officeNotes || "Draft extraction ready for office review.",
     },
     extraction: {
       status: "Draft extracted",
+      provider,
+      model: options.model,
       requestedAt: extractedAt,
       completedAt: extractedAt,
-      confidence: project.documents.some((document) => document.kind === "Drawing") ? "Medium" : "High",
-      summary: `${draft.measurements.length} measurement row(s), ${draft.pipeRuns.length} pipe run(s), ${draft.materialAllowances.length} material allowance(s), ${draft.labourAllowances.length} labour allowance(s) drafted.`,
+      confidence: options.confidence ?? (project.documents.some((document) => document.kind === "Drawing") ? "Medium" : "High"),
+      summary: options.summary
+        ?? `${draft.measurements.length} measurement row(s), ${draft.pipeRuns.length} pipe run(s), ${draft.materialAllowances.length} material allowance(s), ${draft.labourAllowances.length} labour allowance(s) drafted.`,
       questions: draft.questions,
+      sourceFiles: options.sourceFiles,
     },
   });
 
   if (!updated) return null;
 
   appendAuditEvent({
-    actor,
+    actor: options.actor ?? "NeXa Takeoff",
     action: "extracted",
     recordType: "takeoff_project",
     recordId: project.id,
-    summary: `${project.reference} draft extraction generated from ${project.documents.length} document(s).`,
+    summary: `${project.reference} ${provider} extraction generated from ${project.documents.length} document(s).`,
     source: "takeoff add-on",
     importance: "normal",
   });
 
   return {
     project: updated,
-    generated: {
-      rooms: draft.rooms.length,
-      measurements: draft.measurements.length,
-      pipeRuns: draft.pipeRuns.length,
-      radiators: draft.radiators.length,
-      materialAllowances: draft.materialAllowances.length,
-      labourAllowances: draft.labourAllowances.length,
-      supplierRequests: draft.supplierRequests.length,
-    },
+    generated: extractionCounts(draft),
   };
+}
+
+export function runTakeoffDraftExtraction(
+  projectId: string,
+  actor = "NeXa Takeoff",
+): TakeoffExtractionResult | null {
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!project) return null;
+
+  const draft = buildDraftExtraction(project);
+  return applyTakeoffExtractionDraft(project.id, draft, {
+    actor,
+    provider: "Pilot",
+    sourceFiles: project.documents.length,
+  });
 }
 
 export function pushTakeoffProjectToQuote(
@@ -931,15 +1151,20 @@ export function pushTakeoffProjectToQuote(
     return null;
   }
 
-  const costCentre = buildQuoteCostCentre(project, quote.id);
+  const costCentres = buildQuoteCostCentres(project, quote.id);
+  const costCentre = costCentres[0];
+  if (!costCentre) return null;
+
   const hubState = getHubDetailState();
   const currentQuoteCostCentres = (hubState.quoteCostCentres ?? {}) as Record<string, unknown>;
   const existingCentres = Array.isArray(currentQuoteCostCentres[quote.id])
     ? (currentQuoteCostCentres[quote.id] as QuoteCostCentre[])
     : [];
+  const splitCentreIds = new Set(costCentres.map((centre) => centre.id));
+  const legacyCentreId = `${quote.id}-takeoff-${project.id}`;
   const nextQuoteCentres = [
-    ...existingCentres.filter((centre) => centre.id !== costCentre.id),
-    costCentre,
+    ...existingCentres.filter((centre) => !splitCentreIds.has(centre.id) && centre.id !== legacyCentreId),
+    ...costCentres,
   ];
   const nextQuoteCostCentres = {
     ...currentQuoteCostCentres,
@@ -977,7 +1202,7 @@ export function pushTakeoffProjectToQuote(
     action: "pushed",
     recordType: "quote",
     recordId: quote.id,
-    summary: `${project.reference} Takeoff / BOQ pushed into ${quote.ref}: ${costCentre.lines.length} line(s), ${project.supplierRequests.length} supplier request item(s).`,
+    summary: `${project.reference} Takeoff / BOQ pushed into ${quote.ref}: ${costCentres.length} cost centre(s), ${costCentres.reduce((sum, centre) => sum + centre.lines.length, 0)} line(s), ${project.supplierRequests.length} supplier request item(s).`,
     source: "takeoff add-on",
     importance: "high",
   });
@@ -986,6 +1211,7 @@ export function pushTakeoffProjectToQuote(
     project: updatedProject,
     quote: updatedQuote,
     costCentre,
+    costCentres,
     auditEvent,
   };
 }

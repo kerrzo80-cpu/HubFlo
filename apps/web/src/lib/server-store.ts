@@ -146,3 +146,8 @@ export function readServerStoreSnapshot(name: string): unknown | null {
 export function getServerStoreBackend() {
   return getSqliteStore() ? "sqlite" : "json";
 }
+
+export function getServerStoreDirectory() {
+  ensureStoreDirectory();
+  return STORE_DIR;
+}

@@ -27,7 +27,6 @@ import {
 import { roleHeaderName } from "@/lib/access";
 import type { Quote } from "@/lib/workflow-data";
 import type {
-  TakeoffDocument,
   TakeoffDocumentKind,
   TakeoffLabourAllowance,
   TakeoffMaterialAllowance,
@@ -39,7 +38,7 @@ import type {
   TakeoffSupplierRequestItem,
 } from "@/lib/takeoff-data";
 
-type TakeoffTab = "intake" | "rooms" | "runs" | "boq" | "review";
+type TakeoffTab = "intake" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 
 type NewProjectDraft = {
   name: string;
@@ -49,10 +48,34 @@ type NewProjectDraft = {
   linkedQuoteId: string;
 };
 
+type TakeoffAiStatus = {
+  connected: boolean;
+  model: string;
+  keyName: string;
+  source?: "env" | "local" | "none";
+  updatedAt?: string;
+};
+
+type HeatCalcDraft = {
+  roomId: string;
+  roomType: "Living Room" | "Bedroom" | "Bathroom" | "Kitchen" | "Hall" | "Office";
+  lengthM: string;
+  widthM: string;
+  heightM: string;
+  construction: "Modern / insulated" | "Average" | "Older / exposed";
+  glazing: "Double glazed" | "Single glazed" | "Large glazing";
+  outsideWalls: string;
+  windowAreaM2: string;
+  waterTempC: string;
+  upliftPercent: string;
+};
+
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
   { key: "intake", label: "Intake", icon: Upload },
+  { key: "survey", label: "Survey quote", icon: ClipboardList },
   { key: "rooms", label: "Rooms", icon: Ruler },
-  { key: "runs", label: "Pipe / radiators", icon: ThermometerSun },
+  { key: "heat", label: "Heat loss", icon: ThermometerSun },
+  { key: "runs", label: "Pipework", icon: Wrench },
   { key: "boq", label: "BOQ", icon: PackageSearch },
   { key: "review", label: "Review", icon: CheckCircle2 },
 ];
@@ -68,6 +91,51 @@ const blankNewProject: NewProjectDraft = {
   description: "",
   linkedQuoteId: "",
 };
+
+const blankHeatCalc: HeatCalcDraft = {
+  roomId: "",
+  roomType: "Living Room",
+  lengthM: "",
+  widthM: "",
+  heightM: "2.4",
+  construction: "Average",
+  glazing: "Double glazed",
+  outsideWalls: "1",
+  windowAreaM2: "",
+  waterTempC: "70",
+  upliftPercent: "10",
+};
+
+const heatCalcRoomTypes: Array<{ id: HeatCalcDraft["roomType"]; targetTemp: number }> = [
+  { id: "Living Room", targetTemp: 21 },
+  { id: "Bedroom", targetTemp: 21 },
+  { id: "Bathroom", targetTemp: 22 },
+  { id: "Kitchen", targetTemp: 21 },
+  { id: "Hall", targetTemp: 20 },
+  { id: "Office", targetTemp: 21 },
+];
+
+const heatCalcConstruction: Array<{ id: HeatCalcDraft["construction"]; wattsPerM2: number }> = [
+  { id: "Modern / insulated", wattsPerM2: 55 },
+  { id: "Average", wattsPerM2: 75 },
+  { id: "Older / exposed", wattsPerM2: 100 },
+];
+
+const heatCalcGlazing: Array<{ id: HeatCalcDraft["glazing"]; uplift: number }> = [
+  { id: "Double glazed", uplift: 0 },
+  { id: "Single glazed", uplift: 0.14 },
+  { id: "Large glazing", uplift: 0.18 },
+];
+
+const takeoffRadiatorCatalogue = [
+  { range: "Classic Compact", model: "K1 600 x 800", outputWatts: 740 },
+  { range: "Classic Compact", model: "P+ 600 x 1000", outputWatts: 1180 },
+  { range: "Classic Compact", model: "K2 600 x 1000", outputWatts: 1680 },
+  { range: "Classic Compact", model: "K2 600 x 1200", outputWatts: 2010 },
+  { range: "Softline Compact", model: "K2 600 x 1400", outputWatts: 2275 },
+  { range: "Classic Compact", model: "K3 600 x 1200", outputWatts: 2720 },
+  { range: "Vertical", model: "K2 1800 x 600", outputWatts: 2095 },
+];
 
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
@@ -95,6 +163,89 @@ function lineSell(unitCost: number, markupPercent: number) {
   return unitCost * (1 + markupPercent / 100);
 }
 
+function selectedHeatOption<T extends { id: string }>(options: T[], id: string) {
+  return options.find((option) => option.id === id) ?? options[0];
+}
+
+function inferHeatRoomType(name: string): HeatCalcDraft["roomType"] {
+  if (/bath|wc|ensuite|en suite/i.test(name)) return "Bathroom";
+  if (/bed/i.test(name)) return "Bedroom";
+  if (/kitchen/i.test(name)) return "Kitchen";
+  if (/hall|landing/i.test(name)) return "Hall";
+  if (/office|study/i.test(name)) return "Office";
+  return "Living Room";
+}
+
+function heatDraftFromRoom(room: TakeoffRoom, current: HeatCalcDraft = blankHeatCalc): HeatCalcDraft {
+  const squareLength = room.areaM2 > 0 ? Math.sqrt(room.areaM2) : 0;
+  return {
+    ...current,
+    roomId: room.id,
+    roomType: inferHeatRoomType(room.name),
+    lengthM: room.lengthM ? String(room.lengthM) : squareLength ? squareLength.toFixed(2) : current.lengthM,
+    widthM: room.widthM ? String(room.widthM) : squareLength ? squareLength.toFixed(2) : current.widthM,
+    heightM: room.heightM ? String(room.heightM) : current.heightM,
+  };
+}
+
+function calculateHeatRequirement(draft: HeatCalcDraft) {
+  const lengthM = numberFromInput(draft.lengthM);
+  const widthM = numberFromInput(draft.widthM);
+  const heightM = numberFromInput(draft.heightM || "2.4") || 2.4;
+  const areaM2 = Math.max(0, lengthM * widthM);
+  const volumeM3 = areaM2 * heightM;
+  const roomType = selectedHeatOption(heatCalcRoomTypes, draft.roomType);
+  const construction = selectedHeatOption(heatCalcConstruction, draft.construction);
+  const glazing = selectedHeatOption(heatCalcGlazing, draft.glazing);
+  const outsideWalls = Math.max(0, numberFromInput(draft.outsideWalls));
+  const windowAreaM2 = Math.max(0, numberFromInput(draft.windowAreaM2));
+  const upliftPercent = Math.max(0, numberFromInput(draft.upliftPercent));
+  const waterTempC = numberFromInput(draft.waterTempC || "70") || 70;
+  const targetTemp = roomType?.targetTemp ?? 21;
+  const heightFactor = Math.max(0.7, heightM / 2.4);
+  const exposureFactor = 1 + outsideWalls * 0.06 + Math.min(0.24, windowAreaM2 * 0.025);
+  const targetFactor = 1 + Math.max(-0.08, (targetTemp - 21) * 0.04);
+  const watts = Math.round(areaM2 * (construction?.wattsPerM2 ?? 75) * heightFactor * exposureFactor * targetFactor * (1 + (glazing?.uplift ?? 0)) * (1 + upliftPercent / 100));
+  const deltaT = Math.max(1, waterTempC - targetTemp);
+  const correctionFactor = Math.max(0.25, Math.pow(deltaT / 50, 1.3));
+  const radiatorOutputWatts = Math.round(watts / correctionFactor);
+  const defaultRadiator = takeoffRadiatorCatalogue[0];
+  if (!defaultRadiator) {
+    return {
+      areaM2,
+      volumeM3,
+      watts,
+      btu: Math.round(watts * 3.412),
+      radiatorOutputWatts,
+      radiatorBtu: Math.round(radiatorOutputWatts * 3.412),
+      deltaT,
+      targetTemp,
+      recommended: null,
+      quantity: 1,
+    };
+  }
+  const largestRadiator = takeoffRadiatorCatalogue.reduce((largest, radiator) => (
+    radiator.outputWatts > largest.outputWatts ? radiator : largest
+  ), defaultRadiator);
+  const recommended = takeoffRadiatorCatalogue
+    .filter((radiator) => radiator.outputWatts >= radiatorOutputWatts)
+    .sort((first, second) => first.outputWatts - second.outputWatts)[0] ?? largestRadiator;
+  const quantity = recommended ? Math.max(1, Math.ceil(radiatorOutputWatts / recommended.outputWatts)) : 1;
+
+  return {
+    areaM2,
+    volumeM3,
+    watts,
+    btu: Math.round(watts * 3.412),
+    radiatorOutputWatts,
+    radiatorBtu: Math.round(radiatorOutputWatts * 3.412),
+    deltaT,
+    targetTemp,
+    recommended,
+    quantity,
+  };
+}
+
 function formatDate(value?: string) {
   if (!value) return "Not recorded";
   const date = new Date(value);
@@ -118,93 +269,6 @@ function quoteLabel(quote: Quote) {
   return `${quote.ref} - ${quote.customer} - ${quote.description}`;
 }
 
-function documentDrafts(kind: TakeoffDocumentKind, fileName: string, documentId: string) {
-  if (kind === "Contractor BOQ") {
-    const materialId = makeId("takeoff-material");
-    return {
-      materialAllowances: [
-        {
-          id: materialId,
-          section: "Contractor BOQ",
-          description: fileName.replace(/\.[^.]+$/, "") || "Contractor BOQ material allowance",
-          quantity: 1,
-          unit: "allowance",
-          unitCost: 0,
-          markupPercent: 30,
-          supplierRequired: true,
-          preferredSupplier: "",
-          sourceDocumentId: documentId,
-        } satisfies TakeoffMaterialAllowance,
-      ],
-      supplierRequests: [
-        {
-          id: makeId("takeoff-supplier"),
-          supplier: "",
-          description: `Price BOQ allowance from ${fileName}`,
-          quantity: 1,
-          unit: "allowance",
-          linkedMaterialId: materialId,
-          notes: "Confirm quantities, exclusions and lead time.",
-        } satisfies TakeoffSupplierRequestItem,
-      ],
-      measurements: [] as TakeoffMeasurement[],
-      pipeRuns: [] as TakeoffPipeRun[],
-      riskFlags: ["Contractor BOQ quantities need office check"],
-    };
-  }
-
-  if (kind === "Specification") {
-    return {
-      materialAllowances: [
-        {
-          id: makeId("takeoff-material"),
-          section: "Specification",
-          description: "Specified valves, controls and accessories",
-          quantity: 1,
-          unit: "allowance",
-          unitCost: 0,
-          markupPercent: 30,
-          supplierRequired: true,
-          preferredSupplier: "",
-          sourceDocumentId: documentId,
-        } satisfies TakeoffMaterialAllowance,
-      ],
-      supplierRequests: [] as TakeoffSupplierRequestItem[],
-      measurements: [] as TakeoffMeasurement[],
-      pipeRuns: [] as TakeoffPipeRun[],
-      riskFlags: ["Named manufacturers and equal-approved options need review"],
-    };
-  }
-
-  return {
-    materialAllowances: [] as TakeoffMaterialAllowance[],
-    supplierRequests: [] as TakeoffSupplierRequestItem[],
-    measurements: [
-      {
-        id: makeId("takeoff-measure"),
-        label: "Measured pipe route from drawing",
-        quantity: 0,
-        unit: "m",
-        source: "Drawing",
-      } satisfies TakeoffMeasurement,
-    ],
-    pipeRuns: [
-      {
-        id: makeId("takeoff-pipe"),
-        service: "Heating flow/return",
-        route: fileName.replace(/\.[^.]+$/, "") || "Drawing route",
-        diameter: "22mm",
-        material: "Copper",
-        lengthM: 0,
-        fittings: 0,
-        insulation: false,
-        notes: "Confirm scale and route before final pricing.",
-      } satisfies TakeoffPipeRun,
-    ],
-    riskFlags: ["Drawing scale and revision need confirmation"],
-  };
-}
-
 function replaceById<T extends { id: string }>(items: T[], id: string, patch: Partial<T>) {
   return items.map((item) => (item.id === id ? { ...item, ...patch } : item));
 }
@@ -223,8 +287,14 @@ export default function TakeoffPage() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isUploadingDocs, setIsUploadingDocs] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isSurveyDrafting, setIsSurveyDrafting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
+  const [aiStatus, setAiStatus] = useState<TakeoffAiStatus | null>(null);
+  const [openAiKeyDraft, setOpenAiKeyDraft] = useState("");
+  const [isSavingAiKey, setIsSavingAiKey] = useState(false);
+  const [heatCalc, setHeatCalc] = useState<HeatCalcDraft>(blankHeatCalc);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -235,6 +305,58 @@ export default function TakeoffPage() {
     () => quotes.find((quote) => quote.id === selectedProject?.linkedQuoteId) ?? null,
     [quotes, selectedProject],
   );
+
+  const aiReadyDocumentCount = useMemo(
+    () => selectedProject?.documents.filter((document) => document.storageKey).length ?? 0,
+    [selectedProject],
+  );
+
+  const surveyDocuments = useMemo(
+    () => selectedProject?.documents.filter((document) => document.kind === "Survey note" || document.kind === "Survey photo") ?? [],
+    [selectedProject],
+  );
+
+  const surveyAiReadyDocumentCount = useMemo(
+    () => surveyDocuments.filter((document) => document.storageKey).length,
+    [surveyDocuments],
+  );
+
+  const selectedHeatCalcRoom = useMemo(
+    () => selectedProject?.rooms.find((room) => room.id === heatCalc.roomId) ?? null,
+    [heatCalc.roomId, selectedProject],
+  );
+
+  const heatCalcResult = useMemo(() => calculateHeatRequirement(heatCalc), [heatCalc]);
+
+  const heatLossSchedule = useMemo(() => {
+    if (!selectedProject) return [];
+
+    return selectedProject.rooms.map((room) => {
+      const calculated = calculateHeatRequirement(heatDraftFromRoom(room));
+      const heatWatts = room.heatLoadWatts > 0 ? room.heatLoadWatts : calculated.watts;
+      const radiators = selectedProject.radiators.filter((radiator) => radiator.roomId === room.id);
+      const radiatorOutputWatts = radiators.reduce((sum, radiator) => sum + radiator.outputWatts * radiator.quantity, 0);
+      const dimensions = room.lengthM && room.widthM
+        ? `${room.lengthM} x ${room.widthM} x ${room.heightM ?? 2.4}m`
+        : room.areaM2
+          ? `${room.areaM2}m2`
+          : "Not measured";
+
+      return {
+        room,
+        dimensions,
+        heatWatts,
+        heatBtu: Math.round(heatWatts * 3.412),
+        radiators,
+        radiatorSummary: radiators.length
+          ? radiators.map((radiator) => `${radiator.quantity} x ${radiator.model}`).join("; ")
+          : "No radiator selected",
+        radiatorOutputWatts,
+        radiatorOutputBtu: Math.round(radiatorOutputWatts * 3.412),
+        coverageWatts: radiatorOutputWatts - heatWatts,
+      };
+    });
+  }, [selectedProject]);
 
   const projectTotals = useMemo(() => {
     if (!selectedProject) {
@@ -311,15 +433,18 @@ export default function TakeoffPage() {
         fetch("/api/takeoff-projects", { headers: requestHeaders }),
         fetch("/api/quotes", { headers: requestHeaders }),
       ]);
+      const aiResponse = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
 
       if (!projectResponse.ok) throw new Error("Unable to load Takeoff projects");
       if (!quoteResponse.ok) throw new Error("Unable to load quotes");
 
       const nextProjects = (await projectResponse.json()) as TakeoffProject[];
       const nextQuotes = (await quoteResponse.json()) as Quote[];
+      const nextAiStatus = aiResponse.ok ? ((await aiResponse.json()) as TakeoffAiStatus) : null;
 
       setProjects(nextProjects);
       setQuotes(nextQuotes);
+      setAiStatus(nextAiStatus);
       setSelectedProjectId((current) =>
         current && nextProjects.some((project) => project.id === current)
           ? current
@@ -405,65 +530,88 @@ export default function TakeoffPage() {
     }
   }
 
-  function addDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
+  async function saveOpenAiKey() {
+    const apiKey = openAiKeyDraft.trim();
+    if (!apiKey) {
+      setError("Paste your OpenAI API key before saving.");
+      return;
+    }
+
+    setIsSavingAiKey(true);
+    setError("");
+    try {
+      const response = await fetch("/api/takeoff-ai/config", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey,
+          model: aiStatus?.model || "gpt-5.5",
+        }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to save OpenAI key");
+      }
+      const status = (await response.json()) as TakeoffAiStatus;
+      setAiStatus(status);
+      setOpenAiKeyDraft("");
+      setNotice("OpenAI connected. Re-upload the files you want scanned, then click AI scan.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save OpenAI key");
+    } finally {
+      setIsSavingAiKey(false);
+    }
+  }
+
+  async function addDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
     if (!selectedProject) return;
-    const files = Array.from(event.currentTarget.files ?? []);
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
     if (!files.length) return;
 
-    let nextDocuments = [...selectedProject.documents];
-    let nextMeasurements = [...selectedProject.measurements];
-    let nextPipeRuns = [...selectedProject.pipeRuns];
-    let nextMaterials = [...selectedProject.materialAllowances];
-    let nextSupplierRequests = [...selectedProject.supplierRequests];
-    const nextRiskFlags = new Set(selectedProject.review.riskFlags);
+    const formData = new FormData();
+    formData.append("kind", kind);
+    files.forEach((file) => formData.append("files", file));
 
-    files.forEach((file) => {
-      const documentId = makeId("takeoff-doc");
-      const document: TakeoffDocument = {
-        id: documentId,
-        kind,
-        fileName: file.name,
-        mimeType: file.type || undefined,
-        size: file.size,
-        uploadedAt: new Date().toISOString(),
-        status: kind === "Contractor BOQ" ? "Parsed" : "Needs review",
-        notes: kind === "Drawing"
-          ? ["Confirm scale and revision."]
-          : kind === "Specification"
-            ? ["Confirm named manufacturer requirements."]
-            : ["Check provisional sums and exclusions."],
-      };
-      const drafts = documentDrafts(kind, file.name, documentId);
-      nextDocuments = [document, ...nextDocuments];
-      nextMeasurements = [...nextMeasurements, ...drafts.measurements];
-      nextPipeRuns = [...nextPipeRuns, ...drafts.pipeRuns];
-      nextMaterials = [...nextMaterials, ...drafts.materialAllowances];
-      nextSupplierRequests = [...nextSupplierRequests, ...drafts.supplierRequests];
-      drafts.riskFlags.forEach((flag) => nextRiskFlags.add(flag));
-    });
-
-    updateProject(
-      {
-        status: selectedProject.status === "Draft" ? "In review" : selectedProject.status,
-        documents: nextDocuments,
-        measurements: nextMeasurements,
-        pipeRuns: nextPipeRuns,
-        materialAllowances: nextMaterials,
-        supplierRequests: nextSupplierRequests,
-        review: {
-          ...selectedProject.review,
-          riskFlags: Array.from(nextRiskFlags),
-        },
-      },
-      `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} registered.`,
-    );
-    event.currentTarget.value = "";
+    setIsUploadingDocs(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
+        method: "POST",
+        headers: requestHeaders,
+        body: formData,
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        let body: { error?: string } = {};
+        if (text) {
+          try {
+            body = JSON.parse(text) as { error?: string };
+          } catch {
+            body = {};
+          }
+        }
+        throw new Error(body.error ?? (text || `Unable to upload Takeoff documents (${response.status})`));
+      }
+      const result = (await response.json()) as { project: TakeoffProject };
+      replaceProject(result.project);
+      setNotice(`${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Unable to upload Takeoff documents");
+    } finally {
+      setIsUploadingDocs(false);
+      input.value = "";
+    }
   }
 
   async function runAiExtraction() {
     if (!selectedProject) return;
     if (!selectedProject.documents.length) {
       setError("Upload drawings, specs or BOQs before running extraction.");
+      return;
+    }
+    if (aiStatus?.connected && aiReadyDocumentCount === 0) {
+      setError("OpenAI is connected, but these files were uploaded before live file scanning was enabled. Re-upload the drawing/spec/BOQ in Intake, then click AI scan again.");
       return;
     }
 
@@ -493,13 +641,65 @@ export default function TakeoffPage() {
       };
       replaceProject(result.project);
       setActiveTab("boq");
+      const provider = result.project.extraction?.provider ?? "Pilot";
       setNotice(
-        `Draft extraction complete: ${result.generated.measurements} measurement row(s), ${result.generated.materialAllowances} material allowance(s), ${result.generated.labourAllowances} labour allowance(s).`,
+        `${provider} extraction complete: ${result.generated.measurements} measurement row(s), ${result.generated.materialAllowances} material allowance(s), ${result.generated.labourAllowances} labour allowance(s).`,
       );
     } catch (extractError) {
       setError(extractError instanceof Error ? extractError.message : "Unable to run extraction");
     } finally {
       setIsExtracting(false);
+    }
+  }
+
+  async function runSurveyDraft() {
+    if (!selectedProject) return;
+    if (!aiStatus?.connected) {
+      setError("Connect OpenAI in Intake before running a survey quote draft.");
+      return;
+    }
+    if (!surveyDocuments.length) {
+      setError("Upload handwritten notes or room photos before running a survey quote draft.");
+      return;
+    }
+    if (surveyAiReadyDocumentCount === 0) {
+      setError("OpenAI is connected, but these survey files are not AI-ready. Re-upload notes/photos in Survey quote, then click AI draft quote again.");
+      return;
+    }
+
+    setIsSurveyDrafting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/survey-draft`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ actor: "Office survey review" }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to draft survey quote");
+      }
+      const result = (await response.json()) as {
+        project: TakeoffProject;
+        generated: {
+          rooms: number;
+          measurements: number;
+          pipeRuns: number;
+          radiators: number;
+          materialAllowances: number;
+          labourAllowances: number;
+          supplierRequests: number;
+        };
+      };
+      replaceProject(result.project);
+      setActiveTab("boq");
+      setNotice(
+        `Survey quote draft complete: ${result.generated.materialAllowances} material line(s), ${result.generated.labourAllowances} labour line(s), ${result.generated.supplierRequests} supplier request(s).`,
+      );
+    } catch (draftError) {
+      setError(draftError instanceof Error ? draftError.message : "Unable to draft survey quote");
+    } finally {
+      setIsSurveyDrafting(false);
     }
   }
 
@@ -509,6 +709,9 @@ export default function TakeoffPage() {
       id: makeId("takeoff-room"),
       name: "New room",
       level: "Ground",
+      lengthM: 0,
+      widthM: 0,
+      heightM: 2.4,
       areaM2: 0,
       heatLoadWatts: 0,
       notes: "",
@@ -519,6 +722,22 @@ export default function TakeoffPage() {
   function updateRoom(id: string, patch: Partial<TakeoffRoom>) {
     if (!selectedProject) return;
     updateProject({ rooms: replaceById(selectedProject.rooms, id, patch) });
+  }
+
+  function updateRoomDimension(id: string, key: "lengthM" | "widthM" | "heightM", value: string) {
+    if (!selectedProject) return;
+    const room = selectedProject.rooms.find((item) => item.id === id);
+    if (!room) return;
+    const numericValue = numberFromInput(value);
+    const nextLength = key === "lengthM" ? numericValue : room.lengthM ?? 0;
+    const nextWidth = key === "widthM" ? numericValue : room.widthM ?? 0;
+    const patch: Partial<TakeoffRoom> = {
+      [key]: numericValue,
+    };
+    if (nextLength > 0 && nextWidth > 0) {
+      patch.areaM2 = Number((nextLength * nextWidth).toFixed(2));
+    }
+    updateRoom(id, patch);
   }
 
   function addMeasurement() {
@@ -580,6 +799,66 @@ export default function TakeoffPage() {
       ? { ...patch, roomName: selectedProject.rooms.find((room) => room.id === patch.roomId)?.name ?? patch.roomName ?? "" }
       : patch;
     updateProject({ radiators: replaceById(selectedProject.radiators, id, enrichedPatch) });
+  }
+
+  function updateHeatCalc(patch: Partial<HeatCalcDraft>) {
+    setHeatCalc((current) => ({ ...current, ...patch }));
+  }
+
+  function loadRoomIntoHeatCalc(roomId: string) {
+    const room = selectedProject?.rooms.find((item) => item.id === roomId);
+    if (!room) {
+      updateHeatCalc({ roomId });
+      return;
+    }
+
+    setHeatCalc((current) => heatDraftFromRoom(room, current));
+  }
+
+  function applyHeatCalculation() {
+    if (!selectedProject || !selectedHeatCalcRoom) {
+      setError("Choose a room before applying the heat calculation.");
+      return;
+    }
+
+    if (!heatCalcResult.watts || !heatCalcResult.recommended) {
+      setError("Enter room dimensions before applying the heat calculation.");
+      return;
+    }
+
+    const radiatorModel = `${heatCalcResult.recommended.range} ${heatCalcResult.recommended.model}`;
+    const existingRadiator = selectedProject.radiators.find((radiator) => radiator.roomId === selectedHeatCalcRoom.id);
+    const radiator: TakeoffRadiator = {
+      id: existingRadiator?.id ?? makeId("takeoff-radiator"),
+      roomId: selectedHeatCalcRoom.id,
+      roomName: selectedHeatCalcRoom.name,
+      outputWatts: heatCalcResult.recommended.outputWatts,
+      model: radiatorModel,
+      quantity: heatCalcResult.quantity,
+      supplierRequired: true,
+      notes: `${heatCalcResult.watts}W / ${heatCalcResult.btu} BTU room heat load. Requires ${heatCalcResult.radiatorOutputWatts}W at Delta T50.`,
+    };
+    const nextRadiators = existingRadiator
+      ? replaceById(selectedProject.radiators, existingRadiator.id, radiator)
+      : [...selectedProject.radiators, radiator];
+    const nextRooms = replaceById(selectedProject.rooms, selectedHeatCalcRoom.id, {
+      lengthM: numberFromInput(heatCalc.lengthM),
+      widthM: numberFromInput(heatCalc.widthM),
+      heightM: numberFromInput(heatCalc.heightM || "2.4") || 2.4,
+      areaM2: Number(heatCalcResult.areaM2.toFixed(2)),
+      heatLoadWatts: heatCalcResult.watts,
+      notes: selectedHeatCalcRoom.notes
+        ? `${selectedHeatCalcRoom.notes} Heat calc: ${heatCalcResult.watts}W / ${heatCalcResult.btu} BTU.`
+        : `Heat calc: ${heatCalcResult.watts}W / ${heatCalcResult.btu} BTU.`,
+    });
+
+    updateProject(
+      {
+        rooms: nextRooms,
+        radiators: nextRadiators,
+      },
+      `${selectedHeatCalcRoom.name} heat load applied and radiator schedule updated.`,
+    );
   }
 
   function addMaterial() {
@@ -681,10 +960,10 @@ export default function TakeoffPage() {
         const body = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error ?? "Unable to push Takeoff output");
       }
-      const result = (await response.json()) as { project: TakeoffProject; quote: Quote };
+      const result = (await response.json()) as { project: TakeoffProject; quote: Quote; costCentres?: Array<{ id: string }> };
       replaceProject(result.project);
       setQuotes((current) => current.map((quote) => (quote.id === result.quote.id ? result.quote : quote)));
-      setNotice(`${result.project.reference} pushed into ${result.quote.ref}.`);
+      setNotice(`${result.project.reference} pushed into ${result.quote.ref} as ${result.costCentres?.length ?? 1} cost centre(s).`);
     } catch (pushError) {
       setError(pushError instanceof Error ? pushError.message : "Unable to push Takeoff output");
     } finally {
@@ -890,7 +1169,11 @@ export default function TakeoffPage() {
                   </article>
 
                   <article className="takeoff-panel">
-                    <PanelTitle icon={FileText} title="Documents" action={`${selectedProject.documents.length} files`}>
+                    <PanelTitle
+                      icon={FileText}
+                      title="Documents"
+                      action={isUploadingDocs ? "Uploading..." : `${selectedProject.documents.length} files`}
+                    >
                       <button
                         className="takeoff-small-button"
                         type="button"
@@ -902,16 +1185,54 @@ export default function TakeoffPage() {
                       </button>
                     </PanelTitle>
                     <div className="takeoff-upload-strip">
-                      <UploadButton kind="Drawing" label="Drawings" onUpload={addDocuments} />
-                      <UploadButton kind="Specification" label="Specs" onUpload={addDocuments} />
-                      <UploadButton kind="Contractor BOQ" label="BOQs" onUpload={addDocuments} />
+                      <UploadButton kind="Drawing" label="Drawings" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Specification" label="Specs" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Contractor BOQ" label="BOQs" disabled={isUploadingDocs} onUpload={addDocuments} />
+                    </div>
+                    <div className={`takeoff-ai-status ${aiStatus?.connected ? "connected" : "missing"}`}>
+                      <Sparkles size={15} />
+                      <span>
+                        <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected yet"}</strong>
+                        <small>
+                          {aiStatus?.connected
+                            ? `AI scan will use ${aiStatus.model}${aiStatus.source === "local" ? " from local pilot settings" : ""}. ${aiReadyDocumentCount} of ${selectedProject.documents.length} file(s) are AI-ready.`
+                            : "Paste an OpenAI Platform API key below, then re-upload files for a live scan."}
+                        </small>
+                      </span>
+                      {!aiStatus?.connected ? (
+                        <div className="takeoff-ai-connect">
+                          <input
+                            aria-label="OpenAI API key"
+                            autoComplete="off"
+                            placeholder="sk-..."
+                            type="password"
+                            value={openAiKeyDraft}
+                            onChange={(event) => setOpenAiKeyDraft(event.target.value)}
+                          />
+                          <button
+                            className="takeoff-small-button"
+                            disabled={isSavingAiKey}
+                            type="button"
+                            onClick={saveOpenAiKey}
+                          >
+                            {isSavingAiKey ? "Saving" : "Connect"}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                     {selectedProject.extraction ? (
                       <div className="takeoff-extraction-strip">
                         <Sparkles size={15} />
                         <span>
-                          <strong>{selectedProject.extraction.status}</strong>
-                          <small>{selectedProject.extraction.summary}</small>
+                          <strong>
+                            {selectedProject.extraction.provider
+                              ? `${selectedProject.extraction.provider} ${selectedProject.extraction.status.toLowerCase()}`
+                              : selectedProject.extraction.status}
+                          </strong>
+                          <small>
+                            {selectedProject.extraction.model ? `${selectedProject.extraction.model} - ` : ""}
+                            {selectedProject.extraction.summary}
+                          </small>
                         </span>
                         <b>{selectedProject.extraction.confidence}</b>
                       </div>
@@ -922,7 +1243,10 @@ export default function TakeoffPage() {
                           <FileSpreadsheet size={16} />
                           <span>
                             <strong>{document.fileName}</strong>
-                            <small>{document.kind} - {document.status} - {fileSizeLabel(document.size)}</small>
+                            <small>
+                              {document.kind} - {document.status} - {fileSizeLabel(document.size)}
+                              {aiStatus?.connected ? ` - ${document.storageKey ? "AI-ready" : "Re-upload for OpenAI"}` : ""}
+                            </small>
                           </span>
                           <button
                             type="button"
@@ -941,6 +1265,164 @@ export default function TakeoffPage() {
                 </section>
               ) : null}
 
+              {activeTab === "survey" ? (
+                <section className="takeoff-grid two">
+                  <article className="takeoff-panel">
+                    <PanelTitle icon={ClipboardList} title="Survey evidence" action={`${surveyDocuments.length} files`}>
+                      <button
+                        className="takeoff-small-button"
+                        type="button"
+                        disabled={isSurveyDrafting || surveyDocuments.length === 0 || !aiStatus?.connected}
+                        onClick={runSurveyDraft}
+                      >
+                        <Sparkles size={14} />
+                        {isSurveyDrafting ? "Drafting" : "AI draft quote"}
+                      </button>
+                    </PanelTitle>
+                    <div className="takeoff-upload-strip">
+                      <UploadButton
+                        kind="Survey note"
+                        label="Notes"
+                        disabled={isUploadingDocs}
+                        onUpload={addDocuments}
+                      />
+                      <UploadButton
+                        kind="Survey photo"
+                        label="Photos"
+                        disabled={isUploadingDocs}
+                        onUpload={addDocuments}
+                      />
+                    </div>
+                    <div className={`takeoff-ai-status ${aiStatus?.connected ? "connected" : "missing"}`}>
+                      <Sparkles size={15} />
+                      <span>
+                        <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected yet"}</strong>
+                        <small>
+                          {aiStatus?.connected
+                            ? `${surveyAiReadyDocumentCount} of ${surveyDocuments.length} survey file(s) are AI-ready.`
+                            : "Connect an OpenAI Platform key before drafting from notes/photos."}
+                        </small>
+                      </span>
+                      {!aiStatus?.connected ? (
+                        <div className="takeoff-ai-connect">
+                          <input
+                            aria-label="OpenAI API key"
+                            autoComplete="off"
+                            placeholder="sk-..."
+                            type="password"
+                            value={openAiKeyDraft}
+                            onChange={(event) => setOpenAiKeyDraft(event.target.value)}
+                          />
+                          <button
+                            className="takeoff-small-button"
+                            disabled={isSavingAiKey}
+                            type="button"
+                            onClick={saveOpenAiKey}
+                          >
+                            {isSavingAiKey ? "Saving" : "Connect"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="takeoff-document-list">
+                      {surveyDocuments.map((document) => (
+                        <article key={document.id}>
+                          <FileText size={16} />
+                          <span>
+                            <strong>{document.fileName}</strong>
+                            <small>
+                              {document.kind} - {document.status} - {fileSizeLabel(document.size)}
+                              {aiStatus?.connected ? ` - ${document.storageKey ? "AI-ready" : "Re-upload for OpenAI"}` : ""}
+                            </small>
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${document.fileName}`}
+                            onClick={() => updateProject({ documents: removeById(selectedProject.documents, document.id) })}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </article>
+                      ))}
+                      {!surveyDocuments.length ? (
+                        <div className="takeoff-empty">No handwritten notes or room photos uploaded.</div>
+                      ) : null}
+                    </div>
+                  </article>
+
+                  <article className="takeoff-panel">
+                    <PanelTitle
+                      icon={Sparkles}
+                      title="Draft quote output"
+                      action={selectedProject.extraction?.completedAt ? formatDate(selectedProject.extraction.completedAt) : "Not drafted"}
+                    />
+                    <div className="takeoff-survey-summary">
+                      <div>
+                        <span>Rooms</span>
+                        <strong>{selectedProject.rooms.length}</strong>
+                      </div>
+                      <div>
+                        <span>Materials</span>
+                        <strong>{selectedProject.materialAllowances.length}</strong>
+                      </div>
+                      <div>
+                        <span>Labour</span>
+                        <strong>{projectTotals.labourHours.toFixed(1)} hrs</strong>
+                      </div>
+                      <div>
+                        <span>Supplier</span>
+                        <strong>{selectedProject.supplierRequests.length}</strong>
+                      </div>
+                    </div>
+                    {selectedProject.extraction ? (
+                      <div className="takeoff-extraction-strip">
+                        <Sparkles size={15} />
+                        <span>
+                          <strong>{selectedProject.extraction.provider ?? "AI"} draft</strong>
+                          <small>{selectedProject.extraction.summary}</small>
+                        </span>
+                        <b>{selectedProject.extraction.confidence}</b>
+                      </div>
+                    ) : null}
+                    <div className="takeoff-table boq-preview survey-preview">
+                      <div className="takeoff-table-head">
+                        <span>Type</span>
+                        <span>Section</span>
+                        <span>Description</span>
+                        <span>Qty</span>
+                        <span>Unit</span>
+                        <span>Total</span>
+                        <span>RFQ</span>
+                      </div>
+                      {boqPreviewRows.slice(0, 8).map((line) => (
+                        <div className="takeoff-table-row readonly" key={`survey-${line.type}-${line.id}`}>
+                          <span>{line.type}</span>
+                          <span>{line.section}</span>
+                          <strong>{line.description}</strong>
+                          <span>{line.quantity}</span>
+                          <span>{line.unit}</span>
+                          <span>{money(line.total)}</span>
+                          <span>{line.supplierRequired ? "Yes" : "No"}</span>
+                        </div>
+                      ))}
+                      {!boqPreviewRows.length ? (
+                        <div className="takeoff-empty">No draft quote lines yet.</div>
+                      ) : null}
+                    </div>
+                    <div className="takeoff-review-actions">
+                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("boq")}>
+                        <PackageSearch size={15} />
+                        Review BOQ
+                      </button>
+                      <button className="takeoff-primary-button" type="button" onClick={() => setActiveTab("review")}>
+                        <CheckCircle2 size={15} />
+                        Review / push
+                      </button>
+                    </div>
+                  </article>
+                </section>
+              ) : null}
+
               {activeTab === "rooms" ? (
                 <section className="takeoff-grid two">
                   <article className="takeoff-panel">
@@ -954,6 +1436,9 @@ export default function TakeoffPage() {
                       <div className="takeoff-table-head">
                         <span>Room</span>
                         <span>Level</span>
+                        <span>L m</span>
+                        <span>W m</span>
+                        <span>H m</span>
                         <span>Area</span>
                         <span>Heat</span>
                         <span>Notes</span>
@@ -963,6 +1448,9 @@ export default function TakeoffPage() {
                         <div className="takeoff-table-row" key={room.id}>
                           <input value={room.name} onChange={(event) => updateRoom(room.id, { name: event.target.value })} />
                           <input value={room.level} onChange={(event) => updateRoom(room.id, { level: event.target.value })} />
+                          <input type="number" value={room.lengthM ?? 0} onChange={(event) => updateRoomDimension(room.id, "lengthM", event.target.value)} />
+                          <input type="number" value={room.widthM ?? 0} onChange={(event) => updateRoomDimension(room.id, "widthM", event.target.value)} />
+                          <input type="number" value={room.heightM ?? 0} onChange={(event) => updateRoomDimension(room.id, "heightM", event.target.value)} />
                           <input type="number" value={room.areaM2} onChange={(event) => updateRoom(room.id, { areaM2: numberFromInput(event.target.value) })} />
                           <input type="number" value={room.heatLoadWatts} onChange={(event) => updateRoom(room.id, { heatLoadWatts: numberFromInput(event.target.value) })} />
                           <input value={room.notes} onChange={(event) => updateRoom(room.id, { notes: event.target.value })} />
@@ -1012,6 +1500,132 @@ export default function TakeoffPage() {
                           </button>
                         </div>
                       ))}
+                    </div>
+                  </article>
+                </section>
+              ) : null}
+
+              {activeTab === "heat" ? (
+                <section className="takeoff-grid">
+                  <article className="takeoff-panel">
+                    <PanelTitle icon={ThermometerSun} title="Heat loss schedule" action={`${heatLossSchedule.length} rooms`} />
+                    <div className="takeoff-table heat-loss">
+                      <div className="takeoff-table-head">
+                        <span>Room</span>
+                        <span>Dimensions</span>
+                        <span>Heat loss</span>
+                        <span>Radiators</span>
+                        <span>Output</span>
+                        <span>Coverage</span>
+                        <span />
+                      </div>
+                      {heatLossSchedule.map((row) => (
+                        <div className="takeoff-table-row readonly" key={row.room.id}>
+                          <strong>{row.room.name}</strong>
+                          <span>{row.dimensions}</span>
+                          <span>{row.heatWatts}W / {row.heatBtu} BTU</span>
+                          <span>{row.radiatorSummary}</span>
+                          <span>{row.radiatorOutputWatts}W / {row.radiatorOutputBtu} BTU</span>
+                          <span className={row.coverageWatts >= 0 ? "takeoff-coverage-ok" : "takeoff-coverage-low"}>
+                            {row.coverageWatts >= 0 ? "+" : ""}{row.coverageWatts}W
+                          </span>
+                          <button type="button" aria-label={`Load ${row.room.name} heat calculation`} onClick={() => loadRoomIntoHeatCalc(row.room.id)}>
+                            <Ruler size={15} />
+                          </button>
+                        </div>
+                      ))}
+                      {!heatLossSchedule.length ? (
+                        <div className="takeoff-empty">No rooms to calculate yet.</div>
+                      ) : null}
+                    </div>
+                  </article>
+
+                  <article className="takeoff-panel">
+                    <PanelTitle icon={ThermometerSun} title="Heat calculator" action={selectedHeatCalcRoom?.name ?? "Select room"}>
+                      <button className="takeoff-small-button" type="button" onClick={applyHeatCalculation}>
+                        <CheckCircle2 size={14} />
+                        Apply
+                      </button>
+                    </PanelTitle>
+                    <div className="takeoff-heat-summary">
+                      <div>
+                        <span>Room heat load</span>
+                        <strong>{heatCalcResult.watts}W</strong>
+                        <small>{heatCalcResult.btu} BTU</small>
+                      </div>
+                      <div>
+                        <span>Radiator output</span>
+                        <strong>{heatCalcResult.radiatorOutputWatts}W</strong>
+                        <small>Delta T50</small>
+                      </div>
+                      <div>
+                        <span>Recommended</span>
+                        <strong>{heatCalcResult.recommended ? `${heatCalcResult.quantity} x ${heatCalcResult.recommended.model}` : "-"}</strong>
+                        <small>{heatCalcResult.recommended?.range ?? "No match"}</small>
+                      </div>
+                    </div>
+                    <div className="takeoff-form-grid heat">
+                      <label>
+                        Room
+                        <select value={heatCalc.roomId} onChange={(event) => loadRoomIntoHeatCalc(event.target.value)}>
+                          <option value="">Choose room</option>
+                          {selectedProject.rooms.map((room) => (
+                            <option value={room.id} key={room.id}>{room.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Room type
+                        <select value={heatCalc.roomType} onChange={(event) => updateHeatCalc({ roomType: event.target.value as HeatCalcDraft["roomType"] })}>
+                          {heatCalcRoomTypes.map((option) => (
+                            <option value={option.id} key={option.id}>{option.id}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Length m
+                        <input type="number" value={heatCalc.lengthM} onChange={(event) => updateHeatCalc({ lengthM: event.target.value })} />
+                      </label>
+                      <label>
+                        Width m
+                        <input type="number" value={heatCalc.widthM} onChange={(event) => updateHeatCalc({ widthM: event.target.value })} />
+                      </label>
+                      <label>
+                        Height m
+                        <input type="number" value={heatCalc.heightM} onChange={(event) => updateHeatCalc({ heightM: event.target.value })} />
+                      </label>
+                      <label>
+                        Construction
+                        <select value={heatCalc.construction} onChange={(event) => updateHeatCalc({ construction: event.target.value as HeatCalcDraft["construction"] })}>
+                          {heatCalcConstruction.map((option) => (
+                            <option value={option.id} key={option.id}>{option.id}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Glazing
+                        <select value={heatCalc.glazing} onChange={(event) => updateHeatCalc({ glazing: event.target.value as HeatCalcDraft["glazing"] })}>
+                          {heatCalcGlazing.map((option) => (
+                            <option value={option.id} key={option.id}>{option.id}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Outside walls
+                        <input type="number" value={heatCalc.outsideWalls} onChange={(event) => updateHeatCalc({ outsideWalls: event.target.value })} />
+                      </label>
+                      <label>
+                        Window area m2
+                        <input type="number" value={heatCalc.windowAreaM2} onChange={(event) => updateHeatCalc({ windowAreaM2: event.target.value })} />
+                      </label>
+                      <label>
+                        Mean water C
+                        <input type="number" value={heatCalc.waterTempC} onChange={(event) => updateHeatCalc({ waterTempC: event.target.value })} />
+                      </label>
+                      <label>
+                        Uplift %
+                        <input type="number" value={heatCalc.upliftPercent} onChange={(event) => updateHeatCalc({ upliftPercent: event.target.value })} />
+                      </label>
                     </div>
                   </article>
                 </section>
@@ -1313,19 +1927,25 @@ export default function TakeoffPage() {
 function UploadButton({
   kind,
   label,
+  accept,
+  disabled = false,
   onUpload,
 }: {
   kind: TakeoffDocumentKind;
   label: string;
-  onUpload: (kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) => void;
+  accept?: string;
+  disabled?: boolean;
+  onUpload: (kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) => void | Promise<void>;
 }) {
   return (
-    <label className="takeoff-upload-button">
+    <label className={`takeoff-upload-button${disabled ? " disabled" : ""}`}>
       <Upload size={15} />
       {label}
       <input
         type="file"
         multiple
+        accept={accept}
+        disabled={disabled}
         onChange={(event) => onUpload(kind, event)}
       />
     </label>

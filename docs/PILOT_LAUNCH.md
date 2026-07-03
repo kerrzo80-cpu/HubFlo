@@ -96,7 +96,9 @@ Run the same workflow repeatedly and note where it feels slow, confusing or miss
 Keep takeoff/BOQ as a separate NeXa add-on app. It should feed clean outputs into the core NeXa command centre:
 
 - drawings and specs go into the takeoff add-on;
+- handwritten survey notes and room photos go into the separate Survey quote layer in the same add-on;
 - the add-on creates rooms, measurements, BOQ items and supplier request lines;
+- survey quote drafts create editable materials, labour, radiator and supplier request allowances for office review;
 - approved takeoff outputs push into a NeXa quote as cost centres, materials, labour and supplier-request items;
 - the core quote/job workflow remains clean and does not become overloaded with estimating tools.
 

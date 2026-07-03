@@ -12917,6 +12917,26 @@ kbd,
   color: #fff;
 }
 
+.context-sidebar .context-link:hover,
+.context-sidebar .context-link:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  outline: 0;
+}
+
+.context-sidebar .context-link:hover svg,
+.context-sidebar .context-link:hover span,
+.context-sidebar .context-link:focus-visible svg,
+.context-sidebar .context-link:focus-visible span {
+  color: #fff;
+}
+
+.context-sidebar .context-link:hover b,
+.context-sidebar .context-link:focus-visible b {
+  background: rgba(212, 175, 55, 0.24);
+  color: #fff;
+}
+
 .support-panel strong {
   color: var(--nexa-brass-light);
 }
@@ -14579,6 +14599,11 @@ body {
   padding: 0 9px;
 }
 
+.takeoff-upload-button.disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .takeoff-shell {
   display: grid;
   flex: 1 1 auto;
@@ -14738,6 +14763,7 @@ body {
   min-width: 0;
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-gutter: stable;
 }
 
 .takeoff-project-hero {
@@ -14871,8 +14897,15 @@ body {
   border-radius: 8px;
   display: flex;
   gap: 5px;
+  height: 48px;
+  min-height: 48px;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 6px;
+  position: sticky;
+  scrollbar-gutter: stable;
+  top: 0;
+  z-index: 4;
 }
 
 .takeoff-tabs button {
@@ -14882,11 +14915,16 @@ body {
   border-radius: 5px;
   color: var(--muted);
   display: inline-flex;
-  flex: 0 0 auto;
   font-weight: 800;
+  flex: 0 0 132px;
   gap: 7px;
+  height: 34px;
+  justify-content: center;
+  min-width: 0;
   min-height: 34px;
   padding: 0 12px;
+  white-space: nowrap;
+  width: 100%;
 }
 
 .takeoff-tabs button.active {
@@ -14967,6 +15005,59 @@ body {
   grid-column: 1 / -1;
 }
 
+.takeoff-form-grid.heat {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.takeoff-heat-summary,
+.takeoff-survey-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.takeoff-survey-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.takeoff-heat-summary div,
+.takeoff-survey-summary div {
+  background: #f7fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  padding: 10px;
+}
+
+.takeoff-heat-summary span,
+.takeoff-heat-summary small,
+.takeoff-survey-summary span,
+.takeoff-survey-summary small {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.takeoff-heat-summary strong,
+.takeoff-survey-summary strong {
+  color: var(--ink);
+  display: block;
+  font-size: 16px;
+  margin: 4px 0;
+}
+
+.takeoff-coverage-ok {
+  color: var(--green);
+  font-weight: 900;
+}
+
+.takeoff-coverage-low {
+  color: #a64a1a;
+  font-weight: 900;
+}
+
 .takeoff-upload-strip {
   display: flex;
   flex-wrap: wrap;
@@ -14985,6 +15076,55 @@ body {
   pointer-events: none;
   position: absolute;
   width: 1px;
+}
+
+.takeoff-ai-status {
+  align-items: center;
+  border-radius: 7px;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  margin-bottom: 10px;
+  padding: 10px 11px;
+}
+
+.takeoff-ai-status.connected {
+  background: #eef8f2;
+  border: 1px solid #bfe2c9;
+  color: #23633c;
+}
+
+.takeoff-ai-status.missing {
+  background: #fff8eb;
+  border: 1px solid #ecd39d;
+  color: #7a5515;
+}
+
+.takeoff-ai-status span {
+  display: grid;
+  gap: 3px;
+}
+
+.takeoff-ai-status strong,
+.takeoff-ai-status small {
+  display: block;
+}
+
+.takeoff-ai-status small {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.takeoff-ai-connect {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-column: 2;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.takeoff-ai-connect input {
+  min-height: 32px;
 }
 
 .takeoff-extraction-strip {
@@ -15105,7 +15245,7 @@ body {
 
 .takeoff-table.rooms .takeoff-table-head,
 .takeoff-table.rooms .takeoff-table-row {
-  grid-template-columns: minmax(120px, 1fr) 90px 84px 90px minmax(160px, 1.2fr) 32px;
+  grid-template-columns: minmax(120px, 1fr) 82px 68px 68px 68px 78px 86px minmax(160px, 1.2fr) 32px;
 }
 
 .takeoff-table.measurements .takeoff-table-head,
@@ -15122,6 +15262,11 @@ body {
 .takeoff-table.radiators .takeoff-table-head,
 .takeoff-table.radiators .takeoff-table-row {
   grid-template-columns: 150px 90px minmax(220px, 1fr) 70px 46px minmax(170px, 1fr) 32px;
+}
+
+.takeoff-table.heat-loss .takeoff-table-head,
+.takeoff-table.heat-loss .takeoff-table-row {
+  grid-template-columns: 140px 120px 140px minmax(220px, 1fr) 150px 94px 32px;
 }
 
 .takeoff-table.materials .takeoff-table-head,
@@ -15245,6 +15390,14 @@ body {
     padding: 10px;
   }
 
+  .takeoff-tabs {
+    overflow-x: auto;
+  }
+
+  .takeoff-tabs button {
+    flex-basis: 136px;
+  }
+
   .takeoff-project-list {
     flex-direction: column;
   }
@@ -15252,6 +15405,12 @@ body {
   .takeoff-grid.two,
   .takeoff-metrics,
   .takeoff-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-form-grid.heat,
+  .takeoff-heat-summary,
+  .takeoff-survey-summary {
     grid-template-columns: 1fr;
   }
 
