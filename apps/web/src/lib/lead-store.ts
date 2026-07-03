@@ -84,7 +84,7 @@ export const seedLeads: LeadRecord[] = [
     address: "4 Stoneywood Road, Aberdeen, AB21 9JD",
     description: "Boiler replacement enquiry after repeated pressure loss.",
     status: "Needs scheduling",
-    surveyor: "Chris Watson",
+    surveyor: "Chris Lawson",
     surveyDate: "",
     surveyTime: "",
     createdBy: "Carol",

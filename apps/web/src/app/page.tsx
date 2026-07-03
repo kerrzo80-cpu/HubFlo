@@ -78,6 +78,7 @@ type ModuleItem = {
   label: string;
   icon: ComponentType<{ size?: number; strokeWidth?: number }>;
   active?: boolean;
+  href?: string;
   subItems?: string[];
 };
 
@@ -990,7 +991,7 @@ type TakeoffBoqRow = {
   markupPercent: number;
 };
 
-type TakeoffDocumentKind = "Drawings" | "Specification" | "Contractor BOQ";
+type TakeoffDocumentKind = "Drawings" | "Specification" | "Contractor BOQ" | "Survey evidence";
 
 type TakeoffSourceDocument = {
   id: string;
@@ -1151,6 +1152,7 @@ const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
+  { label: "Takeoff", icon: ListChecks, href: "/takeoff" },
   { label: "Jobs", icon: Wrench },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: CircleDollarSign },
@@ -1714,10 +1716,83 @@ function withDefaultEmployeeLogin(employee: EmployeeCard): EmployeeCard {
 }
 
 function normalizeEmployeeCards(records: EmployeeCard[]) {
-  return records.map(withDefaultEmployeeLogin);
+  const normalized = records.map(withDefaultEmployeeLogin);
+  const seedById = new Map(seedEmployees.map((employee) => [employee.id, employee]));
+  const retiredDemoEmployeeIds = new Set(["emp-kerry", "emp-scott", "emp-jamie"]);
+  const retiredDemoEmployeeNames = new Set(["Kerry Watson", "Scott Reid", "Jamie Fox", "Chris Watson"]);
+  const targetIds = new Set(seedEmployees.map((employee) => employee.id));
+
+  const nextEmployees = seedEmployees.map((template) => {
+    const existing = normalized.find((employee) => employee.id === template.id);
+    if (!existing) return withDefaultEmployeeLogin(template);
+
+    return withDefaultEmployeeLogin({
+      ...template,
+      ...existing,
+      id: template.id,
+      name: existing.name.trim() || template.name,
+      role: existing.role || template.role,
+      permissions: existing.permissions ?? template.permissions,
+      profile: {
+        ...template.profile,
+        ...existing.profile,
+      },
+    });
+  });
+
+  normalized.forEach((employee) => {
+    if (targetIds.has(employee.id)) return;
+    if (retiredDemoEmployeeIds.has(employee.id)) return;
+    if (retiredDemoEmployeeNames.has(employee.name)) return;
+    if (seedById.has(employee.id)) return;
+    nextEmployees.push(employee);
+  });
+
+  return nextEmployees;
 }
 
 const seedEmployees: EmployeeCard[] = [
+  {
+    id: "emp-brian",
+    name: "Brian Kerr",
+    role: "Manager",
+    permissions: {},
+    profile: {
+      email: "brian.kerr@errolwatsongroup.com",
+      phone: "07700 900221",
+      address: "Aberdeen, Scotland",
+      startDate: "2026-07-01",
+      payroll: {
+        hourlyRate: 0,
+        overtimeRate: 0,
+        niMultiplier: 0.124,
+        pensionPercent: 3,
+        dailyToolAllowance: 0,
+      },
+      roleLabel: "Pilot Lead",
+      licenses: [],
+      documents: [],
+      emergencyContacts: [],
+      bankDetails: {
+        sortCode: "",
+        accountNumber: "",
+      },
+      availability: {
+        ...blankEmployeeAvailability,
+        Mon: { active: true, from: "08:00", to: "17:00" },
+        Tue: { active: true, from: "08:00", to: "17:00" },
+        Wed: { active: true, from: "08:00", to: "17:00" },
+        Thu: { active: true, from: "08:00", to: "17:00" },
+        Fri: { active: true, from: "08:00", to: "15:00" },
+      },
+      employmentCostNote: "Pilot user and operational reviewer.",
+    },
+    login: {
+      username: "brian.kerr",
+      password: "EWG2026",
+      enabled: true,
+    },
+  },
   {
     id: "emp-errol",
     name: "Errol Watson",
@@ -1779,58 +1854,8 @@ const seedEmployees: EmployeeCard[] = [
     },
   },
   {
-    id: "emp-kerry",
-    name: "Kerry Watson",
-    role: "Finance",
-    permissions: {},
-    profile: {
-      email: "kerry@errolwatsongroup.com",
-      phone: "+44 7481 223344",
-      address: "2 Albyn Place, Aberdeen, AB10 1AH",
-      startDate: "2020-01-06",
-      payroll: {
-        hourlyRate: 0,
-        overtimeRate: 0,
-        niMultiplier: 0.124,
-        pensionPercent: 3,
-        dailyToolAllowance: 0,
-      },
-      roleLabel: "Finance Controller",
-      licenses: [],
-      documents: [
-        {
-          id: "doc-002",
-          label: "Employment contract",
-          fileName: "Kerry-Employment-Contract.pdf",
-          uploadedAt: "2025-07-01",
-        },
-      ],
-      emergencyContacts: [
-        {
-          id: "contact-002",
-          name: "Sam Watson",
-          relationship: "Sibling",
-          phone: "+44 7500 445566",
-        },
-      ],
-      bankDetails: {
-        sortCode: "40-20-10",
-        accountNumber: "11223344",
-      },
-      availability: {
-        ...blankEmployeeAvailability,
-        Mon: { active: true, from: "08:30", to: "17:30" },
-        Tue: { active: true, from: "08:30", to: "17:30" },
-        Wed: { active: true, from: "08:30", to: "17:30" },
-        Thu: { active: true, from: "08:30", to: "17:30" },
-        Fri: { active: true, from: "08:30", to: "16:30" },
-      },
-      employmentCostNote: "Fixed salary role with central cost allocation.",
-    },
-  },
-  {
-    id: "emp-scott",
-    name: "Scott Reid",
+    id: "emp-chris",
+    name: "Chris Lawson",
     role: "Engineer",
     permissions: {
       showQuotes: false,
@@ -1839,8 +1864,8 @@ const seedEmployees: EmployeeCard[] = [
       showStock: false,
     },
     profile: {
-      email: "scott@errolwatsongroup.com",
-      phone: "+44 7700 445544",
+      email: "chris.lawson@errolwatsongroup.com",
+      phone: "07700 445544",
       address: "Aberdeen City, Aberdeen, AB11 5RR",
       startDate: "2022-08-18",
       payroll: {
@@ -1858,7 +1883,7 @@ const seedEmployees: EmployeeCard[] = [
           reference: "GS-5534-22",
           expiresOn: "2026-11-03",
           status: "Current",
-          attachmentFileName: "Scott-Gas-Safe.pdf",
+          attachmentFileName: "Chris-Gas-Safe.pdf",
           attachmentUploadedAt: "2024-08-12",
         },
         {
@@ -1867,7 +1892,7 @@ const seedEmployees: EmployeeCard[] = [
           reference: "IPAF-7721",
           expiresOn: "2027-06-01",
           status: "Current",
-          attachmentFileName: "Scott-IPAF.pdf",
+          attachmentFileName: "Chris-IPAF.pdf",
           attachmentUploadedAt: "2024-08-12",
         },
       ],
@@ -1875,22 +1900,22 @@ const seedEmployees: EmployeeCard[] = [
         {
           id: "doc-003",
           label: "Employment contract",
-          fileName: "Scott-Contract.pdf",
+          fileName: "Chris-Contract.pdf",
           uploadedAt: "2023-01-15",
         },
         {
           id: "doc-004",
           label: "Driving licence",
-          fileName: "Scott-Driving-Licence.pdf",
+          fileName: "Chris-Driving-Licence.pdf",
           uploadedAt: "2024-08-12",
         },
       ],
       emergencyContacts: [
         {
           id: "contact-003",
-          name: "Leigh Reid",
+          name: "",
           relationship: "Partner",
-          phone: "+44 7700 778899",
+          phone: "",
         },
       ],
       bankDetails: {
@@ -1907,57 +1932,10 @@ const seedEmployees: EmployeeCard[] = [
       },
       employmentCostNote: "Site allowance applies for remote jobs.",
     },
-  },
-  {
-    id: "emp-jamie",
-    name: "Jamie Fox",
-    role: "Office",
-    permissions: {
-      showFinance: false,
-    },
-    profile: {
-      email: "jamie@errolwatsongroup.com",
-      phone: "+44 7900 665544",
-      address: "Broughty Ferry, Dundee, DD5 1AA",
-      startDate: "2021-04-01",
-      payroll: {
-        hourlyRate: 28,
-        overtimeRate: 40,
-        niMultiplier: 0.124,
-        pensionPercent: 3,
-        dailyToolAllowance: 12,
-      },
-      roleLabel: "Office Coordinator",
-      licenses: [],
-      documents: [
-        {
-          id: "doc-005",
-          label: "Employment contract",
-          fileName: "Jamie-Contract.pdf",
-          uploadedAt: "2024-03-02",
-        },
-      ],
-      emergencyContacts: [
-        {
-          id: "contact-004",
-          name: "Morgan Fox",
-          relationship: "Sibling",
-          phone: "07800 112233",
-        },
-      ],
-      bankDetails: {
-        sortCode: "20-11-22",
-        accountNumber: "88990011",
-      },
-      availability: {
-        ...blankEmployeeAvailability,
-        Mon: { active: true, from: "08:00", to: "17:00" },
-        Tue: { active: true, from: "08:00", to: "17:00" },
-        Wed: { active: true, from: "08:00", to: "17:00" },
-        Thu: { active: true, from: "08:00", to: "17:00" },
-        Fri: { active: true, from: "08:00", to: "14:00" },
-      },
-      employmentCostNote: "Works across office support and ops admin.",
+    login: {
+      username: "chris.lawson",
+      password: "EWG2026",
+      enabled: true,
     },
   },
 ];
@@ -1986,7 +1964,7 @@ const seedJobs: Job[] = [
     customer: "Morrison & Co.",
     site: "42 Queen's Road, Aberdeen",
     description: "Office heating upgrade",
-    manager: "Kerry Watson",
+    manager: "Brian Kerr",
     scheduledDate: "2026-06-24",
     scheduledTime: "09:00",
     status: "In progress",
@@ -2014,7 +1992,7 @@ const seedJobs: Job[] = [
     customer: "Granite Developments",
     site: "Plot 18, Kings Park",
     description: "First and second fix plumbing",
-    manager: "Kerry Watson",
+    manager: "Brian Kerr",
     status: "Ready to invoice",
     health: "green",
     value: 24760,
@@ -2059,7 +2037,7 @@ const seedQuotes: Quote[] = [
     ref: "Q-2062",
     customer: "Morrison & Co.",
     description: "Office heating balancing",
-    owner: "Kerry Watson",
+    owner: "Brian Kerr",
     status: "Accepted",
     value: 9300,
     next: "Create job and schedule",
@@ -2107,7 +2085,7 @@ const seedLeads: Lead[] = [
     address: "4 Stoneywood Road, Aberdeen, AB21 9JD",
     description: "Boiler replacement enquiry after repeated pressure loss.",
     status: "Needs scheduling",
-    surveyor: "Chris Watson",
+    surveyor: "Chris Lawson",
     surveyDate: "",
     surveyTime: "",
     createdBy: "Carol",
@@ -2242,7 +2220,7 @@ const quoteStatuses: QuoteStatus[] = [
 
 const leadSources: LeadSource[] = ["Phone call", "Checkatrade", "Email", "Website", "Referral"];
 const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"];
-const surveyorOptions = ["Brian Kerr", "Chris Watson", "Errol Watson", "Kerry Watson"];
+const surveyorOptions = ["Brian Kerr", "Errol Watson", "Chris Lawson"];
 const surveyDurationMinutes = 60;
 const currentOperatingDate = "2026-07-01";
 const defaultLeadQuoteGraceDays = 3;
@@ -2276,16 +2254,7 @@ const surveyorAvailability: Record<string, EmployeeAvailability> = {
     Sat: { active: false, from: "00:00", to: "00:00" },
     Sun: { active: false, from: "00:00", to: "00:00" },
   },
-  "Kerry Watson": {
-    Mon: { active: true, from: "08:00", to: "17:00" },
-    Tue: { active: true, from: "08:00", to: "17:00" },
-    Wed: { active: true, from: "08:00", to: "17:00" },
-    Thu: { active: true, from: "08:00", to: "17:00" },
-    Fri: { active: true, from: "08:00", to: "15:00" },
-    Sat: { active: false, from: "00:00", to: "00:00" },
-    Sun: { active: false, from: "00:00", to: "00:00" },
-  },
-  "Chris Watson": {
+  "Chris Lawson": {
     Mon: { active: true, from: "09:00", to: "17:00" },
     Tue: { active: true, from: "09:00", to: "17:00" },
     Wed: { active: true, from: "09:00", to: "17:00" },
@@ -2937,7 +2906,7 @@ function buildJobVariations(job: Job): JobVariation[] {
         materialsUsed: "Copper pipe, fittings, clips, consumables and access protection.",
         requiresClientApproval: true,
         clientApprovalStatus: "Sent",
-        engineerName: "Scott Reid",
+        engineerName: "Chris Lawson",
         source: "seed",
       },
     ];
@@ -2958,7 +2927,7 @@ function buildJobVariations(job: Job): JobVariation[] {
         materialsUsed: "Materials to be confirmed from engineer note/photos.",
         requiresClientApproval: true,
         clientApprovalStatus: "Not sent",
-        engineerName: "Scott Reid",
+        engineerName: "Chris Lawson",
         source: "seed",
       },
     ];
@@ -3364,6 +3333,10 @@ function makeTakeoffDocument(kind: TakeoffDocumentKind, fileName: string): Takeo
     "Contractor BOQ": [
       "Check contractor BOQ quantities against the latest drawing revision.",
       "Confirm if provisional sums should be priced or excluded.",
+    ],
+    "Survey evidence": [
+      "Confirm handwritten notes and visible room evidence before final quantities.",
+      "Check access, exclusions and hidden works before supplier request.",
     ],
   };
 
@@ -11880,12 +11853,15 @@ export default function Dashboard() {
             );
           }
 
+          const moduleHref = module.href ?? "#";
+
           return (
             <a
-              href="#"
+              href={moduleHref}
               key={module.label}
               className={isActiveModule ? "module-link active" : "module-link"}
               onClick={(event) => {
+                if (module.href) return;
                 event.preventDefault();
                 if (module.label === "Dashboard") {
                   returnToDashboard();
@@ -19321,7 +19297,8 @@ export default function Dashboard() {
                 Owner
                 <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
                   <option>Errol Watson</option>
-                  <option>Kerry Watson</option>
+                  <option>Brian Kerr</option>
+                  <option>Chris Lawson</option>
                 </select>
               </label>
               <label className="full-field">

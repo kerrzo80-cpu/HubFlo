@@ -50,7 +50,7 @@ export const seedClients: ClientRecord[] = [
     email: "donna@northfieldproperties.co.uk",
     phone: "+44 1224 555102",
     billingAddress: "12 Albyn Terrace, Aberdeen, AB10 1YP",
-    commercialOwner: "Kerry Watson",
+    commercialOwner: "Brian Kerr",
     notes: "Responsive landlord portfolio client with recurring boiler and maintenance work.",
   },
   {
@@ -74,7 +74,7 @@ export const seedClients: ClientRecord[] = [
     email: "leanne@aberdeenpropertycare.co.uk",
     phone: "+44 1224 700880",
     billingAddress: "8 Rubislaw Den North, Aberdeen, AB15 4AL",
-    commercialOwner: "Kerry Watson",
+    commercialOwner: "Brian Kerr",
     notes: "Service-plan heavy prospect with annual compliance and reactive support demand.",
   },
 ];
@@ -125,7 +125,7 @@ export const seedClientSites: ClientSite[] = [
 export const seedAuditEvents: AuditEvent[] = [
   {
     id: "audit-001",
-    actor: "Kerry Watson",
+    actor: "Brian Kerr",
     action: "updated",
     recordType: "quote",
     recordId: "quote-2062",
@@ -136,7 +136,7 @@ export const seedAuditEvents: AuditEvent[] = [
   },
   {
     id: "audit-002",
-    actor: "Scott Reid",
+    actor: "Chris Lawson",
     action: "created",
     recordType: "purchase_request",
     recordId: "po-02",
