@@ -1152,7 +1152,6 @@ const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
-  { label: "Takeoff", icon: ListChecks, href: "/takeoff" },
   { label: "Jobs", icon: Wrench },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: CircleDollarSign },
