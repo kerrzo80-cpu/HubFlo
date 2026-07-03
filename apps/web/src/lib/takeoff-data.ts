@@ -6,6 +6,42 @@ import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
 export type TakeoffDocumentKind = "Drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo";
 export type TakeoffDocumentStatus = "Uploaded" | "Parsed" | "Needs review";
+export type TakeoffSurveyAnswer = "Yes" | "No" | "Unknown" | "N/A";
+export type TakeoffSurveyStep = "scope" | "stop-go" | "rooms" | "handoff";
+
+export type TakeoffSurveyStopGoItem = {
+  id: string;
+  section: string;
+  question: string;
+  answer: TakeoffSurveyAnswer;
+  blockOn?: TakeoffSurveyAnswer;
+  notes: string;
+};
+
+export type TakeoffSurveyQuestion = {
+  id: string;
+  section: string;
+  question: string;
+  required: boolean;
+  answer: string;
+};
+
+export type TakeoffSurveyWorkflow = {
+  projectType: string;
+  propertyType: string;
+  existingSystem: string;
+  fuelType: string;
+  hotWater: string;
+  occupancy: string;
+  plannedRoomCount: number;
+  scopeNotes: string;
+  step: TakeoffSurveyStep;
+  stopGo: TakeoffSurveyStopGoItem[];
+  aiQuestions: TakeoffSurveyQuestion[];
+  generatedAt?: string;
+  generatedBy?: "Pilot" | "OpenAI";
+  completedAt?: string;
+};
 
 export type TakeoffDocument = {
   id: string;
@@ -26,6 +62,10 @@ export type TakeoffRoom = {
   lengthM?: number;
   widthM?: number;
   heightM?: number;
+  outsideWalls?: number;
+  windowAreaM2?: number;
+  construction?: "Modern / insulated" | "Average" | "Older / exposed";
+  glazing?: "Double glazed" | "Single glazed" | "Large glazing";
   areaM2: number;
   heatLoadWatts: number;
   notes: string;
@@ -149,6 +189,7 @@ export type TakeoffProject = {
   materialAllowances: TakeoffMaterialAllowance[];
   labourAllowances: TakeoffLabourAllowance[];
   supplierRequests: TakeoffSupplierRequestItem[];
+  surveyWorkflow?: TakeoffSurveyWorkflow;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;
@@ -245,6 +286,103 @@ export type TakeoffExtractionResult = {
 };
 
 const seedCreatedAt = "2026-06-24T09:00:00.000Z";
+
+export function createDefaultTakeoffSurveyWorkflow(
+  patch: Partial<TakeoffSurveyWorkflow> = {},
+): TakeoffSurveyWorkflow {
+  return {
+    projectType: "Full heating replacement",
+    propertyType: "House",
+    existingSystem: "Existing wet central heating",
+    fuelType: "Gas",
+    hotWater: "Combination boiler",
+    occupancy: "Occupied",
+    plannedRoomCount: 0,
+    scopeNotes: "",
+    step: "scope",
+    stopGo: [
+      {
+        id: "access",
+        section: "Access",
+        question: "Is there safe access to every room, boiler location, loft/cupboards and external flue route?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "customer-scope",
+        section: "Scope",
+        question: "Has the customer confirmed the required outcome, rooms included and any rooms excluded?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "asbestos",
+        section: "Risk",
+        question: "Is asbestos, fragile material or unsafe fabric suspected where work is needed?",
+        answer: "Unknown",
+        blockOn: "Yes",
+        notes: "",
+      },
+      {
+        id: "isolation",
+        section: "Services",
+        question: "Can the existing heating, water and electrical services be isolated for replacement works?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "flue",
+        section: "Boiler",
+        question: "Is a compliant boiler/flue/condensate route visible or achievable?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "photos",
+        section: "Evidence",
+        question: "Have photos been taken of boiler/cylinder, pipe routes, every room, windows, radiators and access constraints?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+    ],
+    aiQuestions: [
+      {
+        id: "boiler-position",
+        section: "Boiler",
+        question: "Where is the proposed heat source located and what access, flue and condensate constraints are visible?",
+        required: true,
+        answer: "",
+      },
+      {
+        id: "room-schedule",
+        section: "Rooms",
+        question: "List every heated room with length, width, height, window sizes, outside walls and radiator preference.",
+        required: true,
+        answer: "",
+      },
+      {
+        id: "pipe-strategy",
+        section: "Pipework",
+        question: "Will pipework be reused, partially replaced or fully renewed, and what routes are realistic?",
+        required: true,
+        answer: "",
+      },
+      {
+        id: "making-good",
+        section: "Exclusions",
+        question: "What access, joinery, boxing-in, electrical, controls, decorations or making-good items need allowance or exclusion?",
+        required: true,
+        answer: "",
+      },
+    ],
+    ...patch,
+  };
+}
 
 const seedProject: TakeoffProject = {
   id: "takeoff-northfield-hopetoun",
@@ -422,6 +560,11 @@ const seedProject: TakeoffProject = {
       notes: "Confirm outputs and bracket packs.",
     },
   ],
+  surveyWorkflow: createDefaultTakeoffSurveyWorkflow({
+    plannedRoomCount: 2,
+    scopeNotes: "Pilot workflow for a heating replacement survey with office review before quote handoff.",
+    step: "handoff",
+  }),
   review: {
     officeNotes: "Ready for office check before pushing into Q-2061.",
     riskFlags: ["Drawing scale unconfirmed", "Supplier lead times required"],
@@ -976,6 +1119,12 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
     materialAllowances: payload.materialAllowances ?? [],
     labourAllowances: payload.labourAllowances ?? [],
     supplierRequests: payload.supplierRequests ?? [],
+    surveyWorkflow: payload.surveyWorkflow ?? createDefaultTakeoffSurveyWorkflow({
+      projectType: payload.description?.toLowerCase().includes("heating")
+        ? "Full heating replacement"
+        : "Survey to price",
+      scopeNotes: payload.description?.trim() || "",
+    }),
     review: payload.review ?? { officeNotes: "", riskFlags: [] },
     createdAt,
     updatedAt: createdAt,
@@ -1013,6 +1162,14 @@ export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>)
       ...(patch.review ?? {}),
       riskFlags: patch.review?.riskFlags ?? current.review.riskFlags,
     },
+    surveyWorkflow: patch.surveyWorkflow
+      ? {
+          ...createDefaultTakeoffSurveyWorkflow(current.surveyWorkflow),
+          ...patch.surveyWorkflow,
+          stopGo: patch.surveyWorkflow.stopGo ?? current.surveyWorkflow?.stopGo ?? createDefaultTakeoffSurveyWorkflow().stopGo,
+          aiQuestions: patch.surveyWorkflow.aiQuestions ?? current.surveyWorkflow?.aiQuestions ?? createDefaultTakeoffSurveyWorkflow().aiQuestions,
+        }
+      : current.surveyWorkflow ?? createDefaultTakeoffSurveyWorkflow(),
     createdAt: current.createdAt,
     updatedAt: nowIso(),
   };

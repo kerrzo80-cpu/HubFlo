@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   Building2,
   CheckCircle2,
@@ -35,10 +36,14 @@ import type {
   TakeoffProject,
   TakeoffRadiator,
   TakeoffRoom,
+  TakeoffSurveyAnswer,
+  TakeoffSurveyQuestion,
+  TakeoffSurveyStopGoItem,
+  TakeoffSurveyWorkflow,
   TakeoffSupplierRequestItem,
 } from "@/lib/takeoff-data";
 
-type TakeoffTab = "intake" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
+type TakeoffTab = "intake" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 
 type NewProjectDraft = {
   name: string;
@@ -72,6 +77,7 @@ type HeatCalcDraft = {
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
   { key: "intake", label: "Intake", icon: Upload },
+  { key: "surveyor", label: "Surveyor", icon: ListChecks },
   { key: "survey", label: "Survey quote", icon: ClipboardList },
   { key: "rooms", label: "Rooms", icon: Ruler },
   { key: "heat", label: "Heat loss", icon: ThermometerSun },
@@ -105,6 +111,45 @@ const blankHeatCalc: HeatCalcDraft = {
   waterTempC: "70",
   upliftPercent: "10",
 };
+
+const surveyWorkflowSteps: Array<{ key: TakeoffSurveyWorkflow["step"]; label: string }> = [
+  { key: "scope", label: "Scope" },
+  { key: "stop-go", label: "Stop / go" },
+  { key: "rooms", label: "Rooms" },
+  { key: "handoff", label: "Handoff" },
+];
+
+const surveyAnswerOptions: TakeoffSurveyAnswer[] = ["Unknown", "Yes", "No", "N/A"];
+
+const surveyProjectTypes = [
+  "Full heating replacement",
+  "Boiler replacement",
+  "Radiator replacement",
+  "Heat pump survey",
+  "Underfloor heating",
+  "Bathroom heating/plumbing",
+  "Survey to price",
+];
+
+const propertyTypes = ["House", "Flat", "Bungalow", "Commercial unit", "Other"];
+const existingSystemTypes = ["Existing wet central heating", "Combi boiler", "System boiler and cylinder", "Back boiler", "Electric heating", "No existing system", "Unknown"];
+const fuelTypes = ["Gas", "Oil", "LPG", "Electric", "Heat pump", "Unknown"];
+const hotWaterTypes = ["Combination boiler", "Cylinder", "Thermal store", "Electric cylinder", "No hot water changes", "Unknown"];
+const occupancyTypes = ["Occupied", "Vacant", "Tenant occupied", "Commercial hours", "Unknown"];
+const defaultSurveyRoomNames = [
+  "Living room",
+  "Kitchen",
+  "Hall",
+  "Bathroom",
+  "Bedroom 1",
+  "Bedroom 2",
+  "Bedroom 3",
+  "Landing",
+  "Utility",
+  "Dining room",
+  "Office",
+  "Ensuite",
+];
 
 const heatCalcRoomTypes: Array<{ id: HeatCalcDraft["roomType"]; targetTemp: number }> = [
   { id: "Living Room", targetTemp: 21 },
@@ -176,6 +221,101 @@ function inferHeatRoomType(name: string): HeatCalcDraft["roomType"] {
   return "Living Room";
 }
 
+function createDefaultSurveyWorkflow(patch: Partial<TakeoffSurveyWorkflow> = {}): TakeoffSurveyWorkflow {
+  return {
+    projectType: "Full heating replacement",
+    propertyType: "House",
+    existingSystem: "Existing wet central heating",
+    fuelType: "Gas",
+    hotWater: "Combination boiler",
+    occupancy: "Occupied",
+    plannedRoomCount: 0,
+    scopeNotes: "",
+    step: "scope",
+    stopGo: [
+      {
+        id: "access",
+        section: "Access",
+        question: "Is there safe access to every room, boiler location, loft/cupboards and external flue route?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "customer-scope",
+        section: "Scope",
+        question: "Has the customer confirmed the required outcome, rooms included and any rooms excluded?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "asbestos",
+        section: "Risk",
+        question: "Is asbestos, fragile material or unsafe fabric suspected where work is needed?",
+        answer: "Unknown",
+        blockOn: "Yes",
+        notes: "",
+      },
+      {
+        id: "isolation",
+        section: "Services",
+        question: "Can the existing heating, water and electrical services be isolated for replacement works?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "flue",
+        section: "Boiler",
+        question: "Is a compliant boiler/flue/condensate route visible or achievable?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+      {
+        id: "photos",
+        section: "Evidence",
+        question: "Have photos been taken of boiler/cylinder, pipe routes, every room, windows, radiators and access constraints?",
+        answer: "Unknown",
+        blockOn: "No",
+        notes: "",
+      },
+    ],
+    aiQuestions: [
+      {
+        id: "boiler-position",
+        section: "Boiler",
+        question: "Where is the proposed heat source located and what access, flue and condensate constraints are visible?",
+        required: true,
+        answer: "",
+      },
+      {
+        id: "room-schedule",
+        section: "Rooms",
+        question: "List every heated room with length, width, height, window sizes, outside walls and radiator preference.",
+        required: true,
+        answer: "",
+      },
+      {
+        id: "pipe-strategy",
+        section: "Pipework",
+        question: "Will pipework be reused, partially replaced or fully renewed, and what routes are realistic?",
+        required: true,
+        answer: "",
+      },
+      {
+        id: "making-good",
+        section: "Exclusions",
+        question: "What access, joinery, boxing-in, electrical, controls, decorations or making-good items need allowance or exclusion?",
+        required: true,
+        answer: "",
+      },
+    ],
+    ...patch,
+  };
+}
+
 function heatDraftFromRoom(room: TakeoffRoom, current: HeatCalcDraft = blankHeatCalc): HeatCalcDraft {
   const squareLength = room.areaM2 > 0 ? Math.sqrt(room.areaM2) : 0;
   return {
@@ -185,6 +325,10 @@ function heatDraftFromRoom(room: TakeoffRoom, current: HeatCalcDraft = blankHeat
     lengthM: room.lengthM ? String(room.lengthM) : squareLength ? squareLength.toFixed(2) : current.lengthM,
     widthM: room.widthM ? String(room.widthM) : squareLength ? squareLength.toFixed(2) : current.widthM,
     heightM: room.heightM ? String(room.heightM) : current.heightM,
+    construction: room.construction ?? current.construction,
+    glazing: room.glazing ?? current.glazing,
+    outsideWalls: room.outsideWalls !== undefined ? String(room.outsideWalls) : current.outsideWalls,
+    windowAreaM2: room.windowAreaM2 !== undefined ? String(room.windowAreaM2) : current.windowAreaM2,
   };
 }
 
@@ -289,6 +433,7 @@ export default function TakeoffPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploadingDocs, setIsUploadingDocs] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isGeneratingSurveyPlan, setIsGeneratingSurveyPlan] = useState(false);
   const [isSurveyDrafting, setIsSurveyDrafting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [aiStatus, setAiStatus] = useState<TakeoffAiStatus | null>(null);
@@ -320,6 +465,38 @@ export default function TakeoffPage() {
     () => surveyDocuments.filter((document) => document.storageKey).length,
     [surveyDocuments],
   );
+
+  const surveyWorkflow = useMemo(
+    () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
+    [selectedProject],
+  );
+
+  const surveyStats = useMemo(() => {
+    const answeredStopGo = surveyWorkflow.stopGo.filter((item) => item.answer !== "Unknown").length;
+    const blockingItems = surveyWorkflow.stopGo.filter((item) => item.blockOn && item.answer === item.blockOn);
+    const answeredQuestions = surveyWorkflow.aiQuestions.filter((item) => item.answer.trim()).length;
+    const measuredRooms = selectedProject?.rooms.filter((room) => (
+      (room.lengthM ?? 0) > 0
+      && (room.widthM ?? 0) > 0
+      && (room.heightM ?? 0) > 0
+    )).length ?? 0;
+    const roomsNeeded = Math.max(surveyWorkflow.plannedRoomCount || 0, selectedProject?.rooms.length ?? 0);
+    const requiredQuestionCount = surveyWorkflow.aiQuestions.filter((item) => item.required).length;
+    const answeredRequiredQuestions = surveyWorkflow.aiQuestions.filter((item) => item.required && item.answer.trim()).length;
+
+    return {
+      answeredStopGo,
+      blockingItems,
+      answeredQuestions,
+      answeredRequiredQuestions,
+      measuredRooms,
+      roomsNeeded,
+      requiredQuestionCount,
+      stopGoComplete: surveyWorkflow.stopGo.length > 0 && answeredStopGo === surveyWorkflow.stopGo.length,
+      roomsComplete: roomsNeeded > 0 && measuredRooms >= roomsNeeded,
+      questionsComplete: requiredQuestionCount === 0 || answeredRequiredQuestions >= requiredQuestionCount,
+    };
+  }, [selectedProject, surveyWorkflow]);
 
   const selectedHeatCalcRoom = useMemo(
     () => selectedProject?.rooms.find((room) => room.id === heatCalc.roomId) ?? null,
@@ -477,6 +654,14 @@ export default function TakeoffPage() {
           ...(patch.review ?? {}),
           riskFlags: patch.review?.riskFlags ?? currentProject.review.riskFlags,
         },
+        surveyWorkflow: patch.surveyWorkflow
+          ? {
+              ...createDefaultSurveyWorkflow(currentProject.surveyWorkflow),
+              ...patch.surveyWorkflow,
+              stopGo: patch.surveyWorkflow.stopGo ?? currentProject.surveyWorkflow?.stopGo ?? createDefaultSurveyWorkflow().stopGo,
+              aiQuestions: patch.surveyWorkflow.aiQuestions ?? currentProject.surveyWorkflow?.aiQuestions ?? createDefaultSurveyWorkflow().aiQuestions,
+            }
+          : currentProject.surveyWorkflow,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -703,6 +888,130 @@ export default function TakeoffPage() {
     }
   }
 
+  function updateSurveyWorkflow(patch: Partial<TakeoffSurveyWorkflow>, successMessage?: string) {
+    updateProject({
+      surveyWorkflow: {
+        ...surveyWorkflow,
+        ...patch,
+        stopGo: patch.stopGo ?? surveyWorkflow.stopGo,
+        aiQuestions: patch.aiQuestions ?? surveyWorkflow.aiQuestions,
+      },
+    }, successMessage);
+  }
+
+  function updateSurveyStopGo(id: string, patch: Partial<TakeoffSurveyStopGoItem>) {
+    updateSurveyWorkflow({
+      stopGo: surveyWorkflow.stopGo.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    });
+  }
+
+  function updateSurveyQuestion(id: string, patch: Partial<TakeoffSurveyQuestion>) {
+    updateSurveyWorkflow({
+      aiQuestions: surveyWorkflow.aiQuestions.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    });
+  }
+
+  async function generateSurveyPlan() {
+    if (!selectedProject) return;
+
+    setIsGeneratingSurveyPlan(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/survey-plan`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...surveyWorkflow,
+          actor: "Surveyor workflow",
+        }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to generate survey workflow");
+      }
+      const result = (await response.json()) as {
+        project: TakeoffProject;
+        provider: "Pilot" | "OpenAI";
+        generated: { stopGo: number; questions: number };
+      };
+      replaceProject(result.project);
+      setActiveTab("surveyor");
+      setNotice(`${result.provider} survey workflow ready: ${result.generated.stopGo} stop/go check(s), ${result.generated.questions} survey question(s).`);
+    } catch (planError) {
+      setError(planError instanceof Error ? planError.message : "Unable to generate survey workflow");
+    } finally {
+      setIsGeneratingSurveyPlan(false);
+    }
+  }
+
+  function createSurveyRoomRows() {
+    if (!selectedProject) return;
+    const plannedRoomCount = Math.max(1, Math.round(surveyWorkflow.plannedRoomCount || selectedProject.rooms.length || 1));
+    const rooms = [...selectedProject.rooms];
+
+    for (let index = rooms.length; index < plannedRoomCount; index += 1) {
+      rooms.push({
+        id: makeId("takeoff-room"),
+        name: defaultSurveyRoomNames[index] ?? `Room ${index + 1}`,
+        level: index < 4 ? "Ground" : "First",
+        lengthM: 0,
+        widthM: 0,
+        heightM: 2.4,
+        outsideWalls: 1,
+        windowAreaM2: 0,
+        construction: "Average",
+        glazing: "Double glazed",
+        areaM2: 0,
+        heatLoadWatts: 0,
+        notes: "",
+      });
+    }
+
+    updateProject(
+      {
+        rooms,
+        surveyWorkflow: {
+          ...surveyWorkflow,
+          plannedRoomCount,
+          step: "rooms",
+        },
+      },
+      `${plannedRoomCount} room survey row${plannedRoomCount === 1 ? "" : "s"} ready.`,
+    );
+  }
+
+  function completeSurveyWorkflow() {
+    if (!selectedProject) return;
+    if (surveyStats.blockingItems.length) {
+      setError(`Stop/go blocker: ${surveyStats.blockingItems[0]?.question ?? "resolve blockers before handoff."}`);
+      return;
+    }
+    if (!surveyStats.stopGoComplete) {
+      setError("Answer every stop/go question before handoff.");
+      return;
+    }
+    if (!surveyStats.roomsComplete) {
+      setError("Create and measure the planned room rows before handoff.");
+      return;
+    }
+    if (!surveyStats.questionsComplete) {
+      setError("Answer the required survey questions before handoff.");
+      return;
+    }
+
+    updateProject(
+      {
+        status: selectedProject.status === "Draft" ? "In review" : selectedProject.status,
+        surveyWorkflow: {
+          ...surveyWorkflow,
+          step: "handoff",
+          completedAt: new Date().toISOString(),
+        },
+      },
+      "Survey workflow completed. Office can review, run heat loss and draft the BOQ.",
+    );
+  }
+
   function addRoom() {
     if (!selectedProject) return;
     const room: TakeoffRoom = {
@@ -712,6 +1021,10 @@ export default function TakeoffPage() {
       lengthM: 0,
       widthM: 0,
       heightM: 2.4,
+      outsideWalls: 1,
+      windowAreaM2: 0,
+      construction: "Average",
+      glazing: "Double glazed",
       areaM2: 0,
       heatLoadWatts: 0,
       notes: "",
@@ -845,6 +1158,10 @@ export default function TakeoffPage() {
       lengthM: numberFromInput(heatCalc.lengthM),
       widthM: numberFromInput(heatCalc.widthM),
       heightM: numberFromInput(heatCalc.heightM || "2.4") || 2.4,
+      outsideWalls: numberFromInput(heatCalc.outsideWalls),
+      windowAreaM2: numberFromInput(heatCalc.windowAreaM2),
+      construction: heatCalc.construction,
+      glazing: heatCalc.glazing,
       areaM2: Number(heatCalcResult.areaM2.toFixed(2)),
       heatLoadWatts: heatCalcResult.watts,
       notes: selectedHeatCalcRoom.notes
@@ -1261,6 +1578,264 @@ export default function TakeoffPage() {
                         <div className="takeoff-empty">No drawings, specs or BOQs registered.</div>
                       ) : null}
                     </div>
+                  </article>
+                </section>
+              ) : null}
+
+              {activeTab === "surveyor" ? (
+                <section className="takeoff-grid two surveyor">
+                  <article className="takeoff-panel">
+                    <PanelTitle
+                      icon={ListChecks}
+                      title="Surveyor workflow"
+                      action={surveyWorkflow.generatedAt ? `${surveyWorkflow.generatedBy ?? "Pilot"} ${formatDate(surveyWorkflow.generatedAt)}` : "Not generated"}
+                    >
+                      <button
+                        className="takeoff-small-button"
+                        type="button"
+                        disabled={isGeneratingSurveyPlan}
+                        onClick={generateSurveyPlan}
+                      >
+                        <Sparkles size={14} />
+                        {isGeneratingSurveyPlan ? "Generating" : "Generate"}
+                      </button>
+                    </PanelTitle>
+
+                    <div className="takeoff-workflow-steps" aria-label="Survey workflow steps">
+                      {surveyWorkflowSteps.map((step) => (
+                        <button
+                          className={surveyWorkflow.step === step.key ? "active" : ""}
+                          type="button"
+                          key={step.key}
+                          onClick={() => updateSurveyWorkflow({ step: step.key })}
+                        >
+                          {step.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="takeoff-survey-summary">
+                      <div>
+                        <span>Stop/go</span>
+                        <strong>{surveyStats.answeredStopGo}/{surveyWorkflow.stopGo.length}</strong>
+                      </div>
+                      <div>
+                        <span>Blockers</span>
+                        <strong>{surveyStats.blockingItems.length}</strong>
+                      </div>
+                      <div>
+                        <span>Rooms</span>
+                        <strong>{surveyStats.measuredRooms}/{surveyStats.roomsNeeded || surveyWorkflow.plannedRoomCount || 0}</strong>
+                      </div>
+                      <div>
+                        <span>Questions</span>
+                        <strong>{surveyStats.answeredRequiredQuestions}/{surveyStats.requiredQuestionCount}</strong>
+                      </div>
+                    </div>
+
+                    {surveyWorkflow.step === "scope" ? (
+                      <div className="takeoff-form-grid">
+                        <label>
+                          Project
+                          <select value={surveyWorkflow.projectType} onChange={(event) => updateSurveyWorkflow({ projectType: event.target.value })}>
+                            {surveyProjectTypes.map((option) => (
+                              <option value={option} key={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Property
+                          <select value={surveyWorkflow.propertyType} onChange={(event) => updateSurveyWorkflow({ propertyType: event.target.value })}>
+                            {propertyTypes.map((option) => (
+                              <option value={option} key={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Existing system
+                          <select value={surveyWorkflow.existingSystem} onChange={(event) => updateSurveyWorkflow({ existingSystem: event.target.value })}>
+                            {existingSystemTypes.map((option) => (
+                              <option value={option} key={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Fuel
+                          <select value={surveyWorkflow.fuelType} onChange={(event) => updateSurveyWorkflow({ fuelType: event.target.value })}>
+                            {fuelTypes.map((option) => (
+                              <option value={option} key={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Hot water
+                          <select value={surveyWorkflow.hotWater} onChange={(event) => updateSurveyWorkflow({ hotWater: event.target.value })}>
+                            {hotWaterTypes.map((option) => (
+                              <option value={option} key={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Occupancy
+                          <select value={surveyWorkflow.occupancy} onChange={(event) => updateSurveyWorkflow({ occupancy: event.target.value })}>
+                            {occupancyTypes.map((option) => (
+                              <option value={option} key={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Rooms
+                          <input
+                            min="0"
+                            type="number"
+                            value={surveyWorkflow.plannedRoomCount}
+                            onChange={(event) => updateSurveyWorkflow({ plannedRoomCount: numberFromInput(event.target.value) })}
+                          />
+                        </label>
+                        <label className="wide">
+                          Scope notes
+                          <textarea value={surveyWorkflow.scopeNotes} onChange={(event) => updateSurveyWorkflow({ scopeNotes: event.target.value })} />
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {surveyWorkflow.step === "stop-go" ? (
+                      <div className="takeoff-stopgo-list">
+                        {surveyWorkflow.stopGo.map((item) => (
+                          <article className={item.blockOn && item.answer === item.blockOn ? "blocking" : ""} key={item.id}>
+                            <header>
+                              <span>{item.section}</span>
+                              {item.blockOn ? <b>Stop if {item.blockOn}</b> : null}
+                            </header>
+                            <strong>{item.question}</strong>
+                            <div className="takeoff-answer-group">
+                              {surveyAnswerOptions.map((answer) => (
+                                <button
+                                  className={item.answer === answer ? "active" : ""}
+                                  type="button"
+                                  key={answer}
+                                  onClick={() => updateSurveyStopGo(item.id, { answer })}
+                                >
+                                  {answer}
+                                </button>
+                              ))}
+                            </div>
+                            <input
+                              placeholder="Notes"
+                              value={item.notes}
+                              onChange={(event) => updateSurveyStopGo(item.id, { notes: event.target.value })}
+                            />
+                          </article>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {surveyWorkflow.step === "handoff" ? (
+                      <div className="takeoff-handoff-panel">
+                        {surveyStats.blockingItems.length ? (
+                          <div className="takeoff-blocker-alert">
+                            <AlertTriangle size={16} />
+                            <span>{surveyStats.blockingItems[0]?.question}</span>
+                          </div>
+                        ) : null}
+                        <div className="takeoff-handoff-grid">
+                          <div className={surveyStats.stopGoComplete ? "ready" : ""}>
+                            <span>Stop/go</span>
+                            <strong>{surveyStats.stopGoComplete ? "Ready" : "Open"}</strong>
+                          </div>
+                          <div className={surveyStats.roomsComplete ? "ready" : ""}>
+                            <span>Rooms</span>
+                            <strong>{surveyStats.roomsComplete ? "Ready" : "Open"}</strong>
+                          </div>
+                          <div className={surveyStats.questionsComplete ? "ready" : ""}>
+                            <span>Questions</span>
+                            <strong>{surveyStats.questionsComplete ? "Ready" : "Open"}</strong>
+                          </div>
+                        </div>
+                        <div className="takeoff-review-actions">
+                          <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("heat")}>
+                            <ThermometerSun size={15} />
+                            Heat loss
+                          </button>
+                          <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("survey")}>
+                            <Sparkles size={15} />
+                            AI quote
+                          </button>
+                          <button className="takeoff-primary-button strong" type="button" onClick={completeSurveyWorkflow}>
+                            <CheckCircle2 size={15} />
+                            Complete survey
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+
+                  <article className="takeoff-panel">
+                    {surveyWorkflow.step === "rooms" ? (
+                      <>
+                        <PanelTitle icon={Ruler} title="Room survey" action={`${selectedProject.rooms.length} room rows`}>
+                          <button className="takeoff-small-button" type="button" onClick={createSurveyRoomRows}>
+                            <Plus size={14} />
+                            Rooms
+                          </button>
+                        </PanelTitle>
+                        <div className="takeoff-table surveyor-rooms">
+                          <div className="takeoff-table-head">
+                            <span>Room</span>
+                            <span>Level</span>
+                            <span>L</span>
+                            <span>W</span>
+                            <span>H</span>
+                            <span>Window</span>
+                            <span>Walls</span>
+                            <span>Build</span>
+                            <span>Glazing</span>
+                            <span>Notes</span>
+                          </div>
+                          {selectedProject.rooms.map((room) => (
+                            <div className="takeoff-table-row" key={`surveyor-${room.id}`}>
+                              <input value={room.name} onChange={(event) => updateRoom(room.id, { name: event.target.value })} />
+                              <input value={room.level} onChange={(event) => updateRoom(room.id, { level: event.target.value })} />
+                              <input type="number" value={room.lengthM ?? 0} onChange={(event) => updateRoomDimension(room.id, "lengthM", event.target.value)} />
+                              <input type="number" value={room.widthM ?? 0} onChange={(event) => updateRoomDimension(room.id, "widthM", event.target.value)} />
+                              <input type="number" value={room.heightM ?? 0} onChange={(event) => updateRoomDimension(room.id, "heightM", event.target.value)} />
+                              <input type="number" value={room.windowAreaM2 ?? 0} onChange={(event) => updateRoom(room.id, { windowAreaM2: numberFromInput(event.target.value) })} />
+                              <input type="number" value={room.outsideWalls ?? 1} onChange={(event) => updateRoom(room.id, { outsideWalls: numberFromInput(event.target.value) })} />
+                              <select value={room.construction ?? "Average"} onChange={(event) => updateRoom(room.id, { construction: event.target.value as TakeoffRoom["construction"] })}>
+                                {heatCalcConstruction.map((option) => (
+                                  <option value={option.id} key={option.id}>{option.id}</option>
+                                ))}
+                              </select>
+                              <select value={room.glazing ?? "Double glazed"} onChange={(event) => updateRoom(room.id, { glazing: event.target.value as TakeoffRoom["glazing"] })}>
+                                {heatCalcGlazing.map((option) => (
+                                  <option value={option.id} key={option.id}>{option.id}</option>
+                                ))}
+                              </select>
+                              <input value={room.notes} onChange={(event) => updateRoom(room.id, { notes: event.target.value })} />
+                            </div>
+                          ))}
+                          {!selectedProject.rooms.length ? (
+                            <div className="takeoff-empty">No room rows created.</div>
+                          ) : null}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <PanelTitle icon={Sparkles} title="Survey questions" action={`${surveyStats.answeredQuestions}/${surveyWorkflow.aiQuestions.length} answered`} />
+                        <div className="takeoff-survey-question-list">
+                          {surveyWorkflow.aiQuestions.map((item) => (
+                            <article key={item.id}>
+                              <span>{item.section}{item.required ? " *" : ""}</span>
+                              <strong>{item.question}</strong>
+                              <textarea value={item.answer} onChange={(event) => updateSurveyQuestion(item.id, { answer: event.target.value })} />
+                            </article>
+                          ))}
+                          {!surveyWorkflow.aiQuestions.length ? (
+                            <div className="takeoff-empty">No survey questions generated.</div>
+                          ) : null}
+                        </div>
+                      </>
+                    )}
                   </article>
                 </section>
               ) : null}
