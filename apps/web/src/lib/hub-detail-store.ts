@@ -1,14 +1,24 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export type HubDetailState = {
+  businessSettings?: Record<string, unknown>;
+  formTemplates?: unknown[];
+  activeFormTemplateId?: string;
+  workflowRules?: Record<string, unknown>;
+  financeSettings?: Record<string, unknown>;
   documentFolderTemplates?: unknown[];
   engineerFlowTemplate?: unknown;
+  engineerFlowTemplates?: unknown[];
+  activeEngineerFlowTemplateId?: string;
+  costCentreTypes?: unknown[];
+  costCentreFlowAssignmentDrafts?: Record<string, unknown>;
   flowStepCompletion?: Record<string, unknown>;
   quoteCostCentres?: Record<string, unknown>;
   customQuoteCatalog?: unknown[];
   jobCostCentres?: Record<string, unknown>;
   jobReviews?: Record<string, unknown>;
   jobDeliveryEvents?: unknown[];
+  jobVariationSections?: Record<string, unknown>;
   communications?: unknown[];
   invoices?: unknown[];
   updatedAt?: string;

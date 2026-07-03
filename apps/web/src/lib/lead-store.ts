@@ -33,6 +33,7 @@ export type LeadRecord = {
 };
 
 export type LeadStoreApiPayload = Omit<LeadRecord, "id" | "ref" | "createdAt" | "next"> & {
+  id?: string;
   ref?: string;
   next?: string;
   createdAt?: string;
@@ -116,7 +117,7 @@ type LeadStoreState = {
 };
 
 const defaultLeadStore: LeadStoreState = {
-  leads: [],
+  leads: clone(seedLeads),
 };
 
 const leadStore = loadServerStore("lead-store", defaultLeadStore);
@@ -320,7 +321,7 @@ export function createLead(payload: LeadDraftFromClient, actor: string): LeadCre
   }
 
   const createdLead: LeadRecord = {
-    id: `lead-${Date.now()}`,
+    id: payload.id ?? `lead-${Date.now()}`,
     ref: payload.ref ?? determineNextLeadRef(store.leads),
     source: payload.source,
     clientId: selectedClient?.id,

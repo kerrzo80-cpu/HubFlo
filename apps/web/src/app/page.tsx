@@ -88,6 +88,15 @@ const STORAGE_KEYS = {
   auditEvents: "hubflo:audit-events:v1",
   documentFolders: "hubflo:document-folders:v1",
   engineerFlow: "hubflo:engineer-flow:v1",
+  engineerFlowTemplates: "hubflo:engineer-flow-templates:v1",
+  activeEngineerFlowTemplateId: "hubflo:active-engineer-flow-template:v1",
+  costCentreTypes: "hubflo:cost-centre-types:v1",
+  costCentreFlowAssignments: "hubflo:cost-centre-flow-assignments:v1",
+  businessSettings: "hubflo:business-settings:v1",
+  formTemplates: "hubflo:form-templates:v1",
+  activeFormTemplateId: "hubflo:active-form-template:v1",
+  workflowRules: "hubflo:workflow-rules:v1",
+  financeSettings: "hubflo:finance-settings:v1",
   flowCompletion: "hubflo:flow-completion:v1",
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   jobCostCentres: "hubflo:job-cost-centres:v1",
@@ -330,14 +339,17 @@ type HomeView =
   | "dashboard"
   | "leads"
   | "lead-record"
+  | "quotes"
   | "schedule"
   | "settings"
   | "addons"
+  | "profile"
   | "employees"
   | "employee-card"
   | "clients"
   | "client-record"
   | "quote-record"
+  | "jobs"
   | "invoices"
   | "invoice-record"
   | "job-record"
@@ -347,15 +359,25 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
-type JobDetailTab = "summary" | "cost-centres" | "engineer-flow" | "documents" | "logs";
+type JobDetailTab = "summary" | "cost-centres" | "documents" | "logs";
 type QuoteDetailTab = "setup" | "cost-build" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
-type CostCentreTab = "summary" | "info" | "parts-labour" | "options" | "schedule" | "assets";
+type CostCentreTab = "summary" | "info" | "parts-labour" | "engineer-flow" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
 type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
 type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour" | "supplier-request";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
+type SetupCategory =
+  | "overview"
+  | "business"
+  | "forms"
+  | "documents"
+  | "cost-centres"
+  | "engineer-checklists"
+  | "workflow-rules"
+  | "communications"
+  | "finance";
 
 type WorkflowTrackerStage = {
   label: string;
@@ -860,6 +882,55 @@ type QuoteReviewQuestion = {
 
 type QuoteDocumentLayout = "quote" | "job-sheet" | "application-payment" | "invoice";
 
+type BusinessSettings = {
+  companyName: string;
+  tradingName: string;
+  workspaceName: string;
+  contactEmail: string;
+  phone: string;
+  address: string;
+  vatNumber: string;
+  companyNumber: string;
+  defaultFromEmail: string;
+  clientPortalBrandLine: string;
+};
+
+type FormTemplate = {
+  id: string;
+  layout: QuoteDocumentLayout;
+  name: string;
+  title: string;
+  intro: string;
+  footer: string;
+  terms: string;
+  defaultAudience: "Client" | "Engineer" | "Office";
+  includeCostCentreBreakdown: boolean;
+  includePnl: boolean;
+  includeAcceptance: boolean;
+  includeBankDetails: boolean;
+};
+
+type WorkflowRulesSettings = {
+  leadQuoteGraceDays: string;
+  quoteResponseGraceDays: string;
+  invoiceDueDays: string;
+  defaultMarkupPercent: string;
+  poApprovalThreshold: string;
+  autoCreatePendingJobOnAcceptance: boolean;
+  requireCommercialReviewBeforeInvoice: boolean;
+};
+
+type FinanceSettings = {
+  vatRate: string;
+  paymentTermsDays: string;
+  invoicePrefix: string;
+  applicationPrefix: string;
+  bankName: string;
+  accountName: string;
+  sortCode: string;
+  accountNumber: string;
+};
+
 type QuoteEmailDraft = {
   to: string;
   cc: string;
@@ -1014,8 +1085,17 @@ type JobReadinessItem = {
 };
 
 type HubDetailStatePayload = {
+  businessSettings?: BusinessSettings;
+  formTemplates?: FormTemplate[];
+  activeFormTemplateId?: string;
+  workflowRules?: WorkflowRulesSettings;
+  financeSettings?: FinanceSettings;
   documentFolderTemplates?: DocumentFolderTemplate[];
   engineerFlowTemplate?: EngineerFlowTemplate;
+  engineerFlowTemplates?: EngineerFlowTemplate[];
+  activeEngineerFlowTemplateId?: string;
+  costCentreTypes?: string[];
+  costCentreFlowAssignmentDrafts?: Record<string, string>;
   flowStepCompletion?: Record<string, boolean>;
   quoteCostCentres?: Record<string, QuoteCostCentre[]>;
   customQuoteCatalog?: CatalogItem[];
@@ -1116,7 +1196,6 @@ const leadTabs: Array<{ key: LeadTab; label: string }> = [
 const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
   { key: "summary", label: "Details" },
   { key: "cost-centres", label: "Cost Centre List" },
-  { key: "engineer-flow", label: "Engineer Flow" },
   { key: "documents", label: "Documents" },
   { key: "logs", label: "Logs" },
 ];
@@ -1143,6 +1222,78 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "invoice", label: "Invoice", detail: "Final billing layout using approved job or quote totals." },
 ];
 
+const defaultBusinessSettings: BusinessSettings = {
+  companyName: "Errol Watson Group",
+  tradingName: "Errol Watson Group Ltd",
+  workspaceName: "NeXa workspace",
+  contactEmail: "office@errolwatsongroup.co.uk",
+  phone: "01224 000000",
+  address: "Aberdeen, Scotland",
+  vatNumber: "GB000000000",
+  companyNumber: "SC000000",
+  defaultFromEmail: "office@errolwatsongroup.co.uk",
+  clientPortalBrandLine: "Control every moving part.",
+};
+
+const defaultFormTemplates: FormTemplate[] = [
+  {
+    id: "form-template-quote",
+    layout: "quote",
+    name: "Standard client quote",
+    title: "Quotation",
+    intro: "Thank you for asking us to price the following works. This quote sets out the agreed scope, options and total for online acceptance.",
+    footer: "This quote is valid for 30 days unless stated otherwise.",
+    terms: "Works are subject to access, material availability and our standard terms and conditions.",
+    defaultAudience: "Client",
+    includeCostCentreBreakdown: true,
+    includePnl: false,
+    includeAcceptance: true,
+    includeBankDetails: false,
+  },
+  {
+    id: "form-template-job-sheet",
+    layout: "job-sheet",
+    name: "Engineer job sheet",
+    title: "Job Sheet",
+    intro: "Engineer pack containing site details, cost centre scope, required checks and public documents.",
+    footer: "Capture required evidence before leaving site.",
+    terms: "Office-only financial information is hidden from field users.",
+    defaultAudience: "Engineer",
+    includeCostCentreBreakdown: true,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+  },
+  {
+    id: "form-template-application-payment",
+    layout: "application-payment",
+    name: "Application for payment",
+    title: "Application for Payment",
+    intro: "Application for payment based on approved progress, variations and valuations to date.",
+    footer: "Supporting evidence and valuation notes are attached where applicable.",
+    terms: "Payment due in line with agreed contract terms.",
+    defaultAudience: "Client",
+    includeCostCentreBreakdown: true,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: true,
+  },
+  {
+    id: "form-template-invoice",
+    layout: "invoice",
+    name: "Standard invoice",
+    title: "Invoice",
+    intro: "Invoice for completed and approved works.",
+    footer: "Please use the invoice reference when making payment.",
+    terms: "Payment due within stated payment terms.",
+    defaultAudience: "Client",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: true,
+  },
+];
+
 const quoteCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "info", label: "Info" },
@@ -1156,6 +1307,7 @@ const jobCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "info", label: "Info" },
   { key: "parts-labour", label: "Parts & Labour" },
+  { key: "engineer-flow", label: "Engineer Flow" },
   { key: "schedule", label: "Schedule" },
   { key: "assets", label: "Customer Assets" },
 ];
@@ -1185,6 +1337,158 @@ const costCentreTemplates = [
   "Heating remedials",
   "Reactive maintenance",
 ];
+
+const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
+  { key: "overview", label: "Overview", detail: "System readiness and live setup position" },
+  { key: "business", label: "Business profile", detail: "Company details, workspace name and default sender details", subItems: ["Company", "Branding", "Portal"] },
+  { key: "forms", label: "Forms & templates", detail: "Quote, job sheet, application for payment and invoice layouts", subItems: ["Quote", "Job sheet", "Invoice"] },
+  { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
+  { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
+  { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
+  { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
+  { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
+  { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
+];
+
+const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string; focus: string[]; status: string }>> = {
+  overview: {},
+  business: {
+    Company: {
+      summary: "Control the company identity, registered details and default contact details used across forms, emails and portals.",
+      focus: ["Company and trading names", "VAT and company numbers", "Default sender and contact details"],
+      status: "Editable now",
+    },
+    Branding: {
+      summary: "Mockup area for logo placement, brand colours, form headers and client portal styling.",
+      focus: ["Upload company logo", "Set brand colours", "Preview quote and portal headers"],
+      status: "Mockup page",
+    },
+    Portal: {
+      summary: "Mockup area for client portal wording, acceptance pages and customer-facing contact details.",
+      focus: ["Portal welcome text", "Online acceptance wording", "Public contact details"],
+      status: "Mockup page",
+    },
+  },
+  forms: {
+    Quote: {
+      summary: "Edit the quote form layout, wording, cost centre breakdown and online acceptance block.",
+      focus: ["Client-facing quote wording", "Cost centre visibility", "Acceptance button and terms"],
+      status: "Editable now",
+    },
+    "Job sheet": {
+      summary: "Edit the engineer job sheet layout and the information sent into the field pack.",
+      focus: ["Engineer scope wording", "Visible document folders", "Required job information"],
+      status: "Editable now",
+    },
+    Invoice: {
+      summary: "Edit invoice wording, footer text, bank detail visibility and final billing layout.",
+      focus: ["Invoice title and intro", "Payment wording", "Bank detail display"],
+      status: "Editable now",
+    },
+  },
+  documents: {
+    Folders: {
+      summary: "Create and amend the default folders that appear inside leads, quotes, jobs and invoices.",
+      focus: ["Folder names", "Record types", "Default visibility"],
+      status: "Editable now",
+    },
+    Visibility: {
+      summary: "Mockup area for document permissions, including private office files, engineer-visible files and client-visible files.",
+      focus: ["Private by default", "Engineer app visibility", "Client portal visibility"],
+      status: "Mockup page",
+    },
+    "Engineer pack": {
+      summary: "Mockup area for choosing which drawings, photos, forms and specs are pushed into engineer job packs.",
+      focus: ["Allowed folders", "Required site evidence", "Field app document pack"],
+      status: "Mockup page",
+    },
+  },
+  "cost-centres": {
+    Boiler: {
+      summary: "Mockup page for boiler cost centre defaults, linked checklist rules and reporting category setup.",
+      focus: ["Default boiler categories", "Engineer checklist assignment", "Report grouping"],
+      status: "Mockup page",
+    },
+    Bathroom: {
+      summary: "Mockup page for bathroom refurbishment cost centre defaults, sections and engineer workflow assignment.",
+      focus: ["Bathroom work packages", "Default sections", "Field evidence requirements"],
+      status: "Mockup page",
+    },
+    Reactive: {
+      summary: "Mockup page for reactive maintenance defaults, emergency job workflows and reporting categories.",
+      focus: ["Reactive job defaults", "Time and materials rules", "Follow-up checks"],
+      status: "Mockup page",
+    },
+  },
+  "engineer-checklists": {
+    "Boiler service": {
+      summary: "Edit the stop/go checklist engineers complete for boiler service cost centres.",
+      focus: ["Existing boiler checks", "Required photos", "Serial and location fields"],
+      status: "Editable now",
+    },
+    "Boiler replacement": {
+      summary: "Edit the replacement checklist covering existing boiler evidence, new boiler details and commissioning.",
+      focus: ["Existing boiler removal", "New boiler serial numbers", "Commissioning and handover"],
+      status: "Editable now",
+    },
+    "General works": {
+      summary: "Edit the general evidence flow for plumbing, heating remedials and maintenance cost centres.",
+      focus: ["Before photos", "Completion photos", "Engineer notes"],
+      status: "Editable now",
+    },
+  },
+  "workflow-rules": {
+    Leads: {
+      summary: "Configure lead chase rules, including overdue quote prompts after a survey has passed.",
+      focus: ["Survey follow-up timing", "No quote warning", "Office notification rules"],
+      status: "Editable now",
+    },
+    Quotes: {
+      summary: "Configure quote follow-up rules when a sent quote has not been accepted or declined.",
+      focus: ["Follow-up timing", "Call or email prompts", "Accepted quote conversion"],
+      status: "Editable now",
+    },
+    Approvals: {
+      summary: "Configure approval gates for POs, variations, invoices and commercial reviews.",
+      focus: ["PO approval threshold", "Variation approval routing", "Invoice review gates"],
+      status: "Editable now",
+    },
+  },
+  communications: {
+    Outlook: {
+      summary: "Mockup page for Outlook connection, sender defaults and email capture against leads, quotes and jobs.",
+      focus: ["Connect mailbox", "Default sender", "Email capture rules"],
+      status: "Mockup page",
+    },
+    WhatsApp: {
+      summary: "Mockup page for WhatsApp job channels, engineer prompts, timesheets and variation capture.",
+      focus: ["Job channel rules", "Engineer confirmations", "Timesheet prompts"],
+      status: "Mockup page",
+    },
+    "Supplier emails": {
+      summary: "Mockup page for supplier request emails, returned quote PDFs and PO issue settings.",
+      focus: ["Supplier request wording", "Returned PDF matching", "PO email rules"],
+      status: "Mockup page",
+    },
+  },
+  finance: {
+    Invoices: {
+      summary: "Edit default invoice terms, VAT, numbering and bank details used when jobs move to billing.",
+      focus: ["Invoice prefix", "Payment terms", "VAT and bank details"],
+      status: "Editable now",
+    },
+    Valuations: {
+      summary: "Mockup page for applications for payment, progress claims and staged valuation templates.",
+      focus: ["Application prefix", "Valuation layout", "Supporting evidence rules"],
+      status: "Mockup page",
+    },
+    "PO approvals": {
+      summary: "Mockup page for purchase order approval thresholds and cost-centre-level supplier spend controls.",
+      focus: ["Approval thresholds", "Cost centre allocation", "Supplier PO issue rules"],
+      status: "Mockup page",
+    },
+  },
+};
 
 const defaultDocumentFolderTemplates: DocumentFolderTemplate[] = [
   {
@@ -1255,7 +1559,7 @@ const defaultDocumentFolderTemplates: DocumentFolderTemplate[] = [
 const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
   id: "boiler-replacement-flow",
   name: "Boiler replacement stop/go flow",
-  appliesTo: ["Boiler replacement", "Boiler servicing"],
+  appliesTo: ["Boiler replacement"],
   steps: [
     { id: "existing-photo", stage: "Existing Boiler", label: "Upload photos of existing boiler", evidence: "Photo", required: true },
     { id: "existing-make-model", stage: "Existing Boiler", label: "Enter existing boiler make/model", evidence: "Text", required: true },
@@ -1271,6 +1575,84 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
     { id: "customer-handover", stage: "Handover", label: "Customer handover and sign-off", evidence: "Signature", required: true },
   ],
 };
+
+const boilerServiceFlowTemplate: EngineerFlowTemplate = {
+  id: "boiler-service-flow",
+  name: "Boiler servicing stop/go flow",
+  appliesTo: ["Boiler servicing"],
+  steps: [
+    { id: "service-boiler-photo", stage: "Existing Boiler", label: "Upload photos of boiler and surrounding area", evidence: "Photo", required: true },
+    { id: "service-location", stage: "Existing Boiler", label: "Confirm boiler location", evidence: "Text", required: true },
+    { id: "service-make-model", stage: "Existing Boiler", label: "Record boiler make/model", evidence: "Text", required: true },
+    { id: "service-serial", stage: "Existing Boiler", label: "Record boiler serial number", evidence: "Text", required: true },
+    { id: "service-flue", stage: "Commissioning", label: "Complete flue and ventilation checks", evidence: "Checkbox", required: true },
+    { id: "service-readings", stage: "Commissioning", label: "Enter service readings", evidence: "Number", required: true },
+    { id: "service-customer-signoff", stage: "Handover", label: "Customer sign-off after service", evidence: "Signature", required: true },
+  ],
+};
+
+const generalWorksFlowTemplate: EngineerFlowTemplate = {
+  id: "general-works-flow",
+  name: "General works evidence flow",
+  appliesTo: ["Bathroom refurbishment", "General plumbing", "Heating remedials", "Reactive maintenance"],
+  steps: [
+    { id: "general-arrival-photo", stage: "Existing Boiler", label: "Upload before photos", evidence: "Photo", required: true },
+    { id: "general-site-notes", stage: "Existing Boiler", label: "Confirm site notes and access issues", evidence: "Text", required: true },
+    { id: "general-hidden-works", stage: "Commissioning", label: "Capture hidden works / mid-work evidence", evidence: "Photo", required: false },
+    { id: "general-completion-photo", stage: "Handover", label: "Upload completion photos", evidence: "Photo", required: true },
+    { id: "general-customer-signoff", stage: "Handover", label: "Customer or office sign-off", evidence: "Signature", required: true },
+  ],
+};
+
+const defaultEngineerFlowTemplates = [
+  defaultBoilerFlowTemplate,
+  boilerServiceFlowTemplate,
+  generalWorksFlowTemplate,
+];
+
+const costCentreFlowAssignments = costCentreTemplates.map((templateName) => {
+  const flow = defaultEngineerFlowTemplates.find((template) => template.appliesTo.includes(templateName)) ?? generalWorksFlowTemplate;
+  return {
+    templateName,
+    flowId: flow.id,
+    flowName: flow.name,
+  };
+});
+
+const defaultCostCentreFlowAssignmentMap = costCentreFlowAssignments.reduce<Record<string, string>>((assignments, assignment) => {
+  assignments[assignment.templateName] = assignment.flowId;
+  return assignments;
+}, {});
+
+function normalizeEngineerFlowTemplate(template: EngineerFlowTemplate): EngineerFlowTemplate {
+  if (template.id !== defaultBoilerFlowTemplate.id) return template;
+  return {
+    ...template,
+    appliesTo: ["Boiler replacement"],
+  };
+}
+
+function normalizeEngineerFlowTemplates(templates: EngineerFlowTemplate[], legacyTemplate?: EngineerFlowTemplate) {
+  const merged = new Map<string, EngineerFlowTemplate>();
+
+  defaultEngineerFlowTemplates.forEach((template) => merged.set(template.id, template));
+  if (legacyTemplate) {
+    merged.set(legacyTemplate.id, normalizeEngineerFlowTemplate(legacyTemplate));
+  }
+  templates.forEach((template) => merged.set(template.id, normalizeEngineerFlowTemplate(template)));
+
+  return Array.from(merged.values()).filter((template) => template.name.trim() && template.steps.length > 0);
+}
+
+function normalizeCostCentreAssignments(assignments: Record<string, string>, typeOptions: string[]) {
+  return typeOptions.reduce<Record<string, string>>((nextAssignments, typeName) => {
+    nextAssignments[typeName] =
+      assignments[typeName] ??
+      defaultCostCentreFlowAssignmentMap[typeName] ??
+      generalWorksFlowTemplate.id;
+    return nextAssignments;
+  }, {});
+}
 
 const blankEmployeeAvailability = weekDays.reduce((acc, day) => {
   acc[day] = { active: false, from: "09:00", to: "17:00" };
@@ -1526,7 +1908,7 @@ const seedJobs: Job[] = [
   {
     id: "job-1048",
     ref: "J-1048",
-    customer: "Northfield Properties",
+    customer: "Morrison & Co.",
     site: "10 Hopetoun Court, Aberdeen",
     description: "Boiler service and remedial works",
     manager: "Errol Watson",
@@ -1539,10 +1921,16 @@ const seedJobs: Job[] = [
   {
     id: "job-1052",
     ref: "J-1052",
+    clientId: "client-morrison",
+    siteId: "site-queens-road",
+    sourceQuoteId: "quote-2061",
+    sourceQuoteRef: "Q-2061",
     customer: "Morrison & Co.",
     site: "42 Queen's Road, Aberdeen",
     description: "Office heating upgrade",
     manager: "Kerry Watson",
+    scheduledDate: "2026-06-24",
+    scheduledTime: "09:00",
     status: "In progress",
     health: "green",
     value: 18900,
@@ -1594,11 +1982,17 @@ const seedQuotes: Quote[] = [
   {
     id: "quote-2061",
     ref: "Q-2061",
+    clientId: "client-morrison",
+    siteId: "site-queens-road",
+    sourceLeadId: "lead-1001",
+    sourceLeadRef: "L-1001",
+    convertedJobId: "job-1052",
+    convertedJobRef: "J-1052",
     customer: "Northfield Properties",
-    description: "Boiler replacement package",
+    description: "Office heating upgrade",
     owner: "Errol Watson",
     status: "Sent",
-    value: 4200,
+    value: 18900,
     next: "Await customer signature",
     due: "Today",
   },
@@ -1683,6 +2077,57 @@ const seedLeads: Lead[] = [
   },
 ];
 
+const demoLeads: Lead[] = [seedLeads[0]].filter((lead): lead is Lead => Boolean(lead));
+const demoQuotes: Quote[] = [seedQuotes[0]].filter((quote): quote is Quote => Boolean(quote));
+const demoJobs: Job[] = [seedJobs[1]].filter((job): job is Job => Boolean(job));
+
+const demoInvoices: Invoice[] = [
+  {
+    id: "invoice-3001",
+    ref: "INV-3001",
+    status: "Sent",
+    sourceType: "job",
+    sourceId: "job-1052",
+    sourceRef: "J-1052",
+    sourceName: "Job J-1052",
+    customer: "Morrison & Co.",
+    issuedDate: "2026-06-30",
+    dueDate: "2026-07-14",
+    clientId: "client-morrison",
+    siteId: "site-queens-road",
+    title: "Invoice for office heating upgrade",
+    lines: [
+      {
+        id: "invoice-line-3001-materials",
+        description: "Materials and plant for office heating upgrade",
+        category: "Materials",
+        costToUs: 5200,
+        chargeToClient: 7800,
+      },
+      {
+        id: "invoice-line-3001-labour",
+        description: "Labour allowance and commissioning",
+        category: "Labour",
+        costToUs: 4200,
+        chargeToClient: 6900,
+      },
+      {
+        id: "invoice-line-3001-variations",
+        description: "Approved commissioning variation",
+        category: "Variations",
+        costToUs: 900,
+        chargeToClient: 1600,
+      },
+    ],
+    costTotal: 10300,
+    chargeTotal: 16300,
+    vatRate: 20,
+    notes: "Example invoice linked to the in-progress demo job.",
+    sentTo: "accounts@morrison.example",
+    sentAt: "30 Jun 2026 15:20",
+  },
+];
+
 const seedPurchaseRequests: PurchaseRequest[] = [
   {
     id: "po-01",
@@ -1741,6 +2186,28 @@ const leadSources: LeadSource[] = ["Phone call", "Checkatrade", "Email", "Websit
 const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"];
 const surveyorOptions = ["Brian Kerr", "Chris Watson", "Errol Watson", "Kerry Watson"];
 const surveyDurationMinutes = 60;
+const currentOperatingDate = "2026-07-01";
+const defaultLeadQuoteGraceDays = 3;
+const defaultQuoteResponseGraceDays = 3;
+const defaultWorkflowRules: WorkflowRulesSettings = {
+  leadQuoteGraceDays: String(defaultLeadQuoteGraceDays),
+  quoteResponseGraceDays: String(defaultQuoteResponseGraceDays),
+  invoiceDueDays: "14",
+  defaultMarkupPercent: "30",
+  poApprovalThreshold: "500",
+  autoCreatePendingJobOnAcceptance: true,
+  requireCommercialReviewBeforeInvoice: true,
+};
+const defaultFinanceSettings: FinanceSettings = {
+  vatRate: "20",
+  paymentTermsDays: "14",
+  invoicePrefix: "INV",
+  applicationPrefix: "AFP",
+  bankName: "Business Bank",
+  accountName: "Errol Watson Group Ltd",
+  sortCode: "00-00-00",
+  accountNumber: "00000000",
+};
 const surveyorAvailability: Record<string, EmployeeAvailability> = {
   "Brian Kerr": {
     Mon: { active: true, from: "08:00", to: "17:00" },
@@ -1821,13 +2288,6 @@ const postcodeDirectory = [
       "8 Stoneywood Road, Aberdeen, AB21 9JD",
     ],
   },
-];
-
-const today = [
-  { time: "08:00", title: "Boiler installation", detail: "J-1052 · Scott and Jamie", tone: "blue" },
-  { time: "10:30", title: "Landlord safety check", detail: "J-1058 · Mark", tone: "green" },
-  { time: "13:00", title: "Site survey", detail: "Q-2061 · Errol", tone: "amber" },
-  { time: "15:30", title: "Boiler service", detail: "J-1060 · Scott", tone: "blue" },
 ];
 
 const quoteCatalogFolders = [
@@ -3430,6 +3890,36 @@ function timeRangesOverlap(firstStart: string, secondStart: string, durationMinu
   return first < second + durationMinutes && first + durationMinutes > second;
 }
 
+function dateOnlySerial(value: string) {
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    const [, year, month, day] = isoMatch;
+    return Date.UTC(Number(year), Number(month) - 1, Number(day));
+  }
+
+  const shortMonthMatch = value.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+  if (shortMonthMatch) {
+    const [, day, monthName, year] = shortMonthMatch;
+    if (!day || !monthName || !year) return null;
+    const monthIndex = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(monthName.toLowerCase());
+    if (monthIndex >= 0) return Date.UTC(Number(year), monthIndex, Number(day));
+  }
+
+  return null;
+}
+
+function daysSinceDate(value: string, currentDate = currentOperatingDate) {
+  const start = dateOnlySerial(value);
+  const current = dateOnlySerial(currentDate);
+  if (start === null || current === null) return null;
+  return Math.floor((current - start) / 86_400_000);
+}
+
+function numericSetting(value: string | number, fallback: number) {
+  const parsed = Number.parseFloat(String(value).replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
 
@@ -3573,21 +4063,35 @@ export default function Dashboard() {
   const [employeeProfileDraft, setEmployeeProfileDraft] = useState<EmployeeProfileDraft>(
     createBlankEmployeeProfileDraft(),
   );
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
+  const [jobs, setJobs] = useState<Job[]>(demoJobs);
+  const [quotes, setQuotes] = useState<Quote[]>(demoQuotes);
+  const [leads, setLeads] = useState<Lead[]>(demoLeads);
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>(demoInvoices);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [quoteStatusFilter, setQuoteStatusFilter] = useState("All quotes");
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [scheduleDate, setScheduleDate] = useState("2026-06-24");
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
+  const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
+  const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
+  const [workflowRules, setWorkflowRules] = useState<WorkflowRulesSettings>(defaultWorkflowRules);
+  const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(defaultFinanceSettings);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
+  const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
+  const [activeEngineerFlowTemplateId, setActiveEngineerFlowTemplateId] = useState(defaultBoilerFlowTemplate.id);
+  const [costCentreTypeOptions, setCostCentreTypeOptions] = useState<string[]>(costCentreTemplates);
+  const [costCentreFlowAssignmentDrafts, setCostCentreFlowAssignmentDrafts] = useState<Record<string, string>>(defaultCostCentreFlowAssignmentMap);
+  const [activeSetupCategory, setActiveSetupCategory] = useState<SetupCategory>("overview");
+  const [activeSetupSubItem, setActiveSetupSubItem] = useState<string | null>(null);
   const [flowStepCompletion, setFlowStepCompletion] = useState<Record<string, boolean>>({});
   const [newDocumentFolderName, setNewDocumentFolderName] = useState("");
+  const [newCostCentreTypeName, setNewCostCentreTypeName] = useState("");
+  const [newEngineerFlowTemplateName, setNewEngineerFlowTemplateName] = useState("");
+  const [newEngineerFlowStepLabel, setNewEngineerFlowStepLabel] = useState("");
   const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [showCreateLead, setShowCreateLead] = useState(false);
   const [showCreateQuote, setShowCreateQuote] = useState(false);
@@ -3603,6 +4107,7 @@ export default function Dashboard() {
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
+  const [contextSidebarCollapsed, setContextSidebarCollapsed] = useState(true);
   const [homeView, setHomeView] = useState<HomeView>("dashboard");
   const [activeEmployeeTab, setActiveEmployeeTab] = useState<EmployeeTab>("details");
   const [activeClientTab, setActiveClientTab] = useState<ClientTab>("overview");
@@ -3628,8 +4133,10 @@ export default function Dashboard() {
   const [selectedCostCentreId, setSelectedCostCentreId] = useState<string | null>(null);
   const [quoteCostCentreNameDraft, setQuoteCostCentreNameDraft] = useState("");
   const [quoteCostCentreTemplateDraft, setQuoteCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
+  const [showQuoteCostCentreCreate, setShowQuoteCostCentreCreate] = useState(false);
   const [jobCostCentreNameDraft, setJobCostCentreNameDraft] = useState("");
   const [jobCostCentreTemplateDraft, setJobCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
+  const [showJobCostCentreCreate, setShowJobCostCentreCreate] = useState(false);
   const [costCentreActionMenu, setCostCentreActionMenu] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renamingCostCentre, setRenamingCostCentre] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renameCostCentreDraft, setRenameCostCentreDraft] = useState("");
@@ -3682,6 +4189,45 @@ export default function Dashboard() {
     () => [...quoteCatalog, ...customQuoteCatalog],
     [customQuoteCatalog],
   );
+
+  const engineerFlowLibrary = useMemo(
+    () => normalizeEngineerFlowTemplates(engineerFlowTemplates, engineerFlowTemplate),
+    [engineerFlowTemplate, engineerFlowTemplates],
+  );
+
+  const activeEngineerFlowTemplate = useMemo(
+    () =>
+      engineerFlowLibrary.find((template) => template.id === activeEngineerFlowTemplateId) ??
+      engineerFlowLibrary[0] ??
+      defaultBoilerFlowTemplate,
+    [activeEngineerFlowTemplateId, engineerFlowLibrary],
+  );
+
+  function engineerFlowTemplateForCostCentre(centre?: Pick<EstimateCostCentre, "templateName"> | null) {
+    const templateName = centre?.templateName ?? "General plumbing";
+    const assignedFlowId = costCentreFlowAssignmentDrafts[templateName];
+    return (
+      engineerFlowLibrary.find((template) => template.id === assignedFlowId) ??
+      engineerFlowLibrary.find((template) => template.appliesTo.includes(templateName)) ??
+      generalWorksFlowTemplate
+    );
+  }
+
+  const activeSetupCategoryMeta =
+    setupCategories.find((category) => category.key === activeSetupCategory) ??
+    ({ key: "overview", label: "Overview", detail: "System readiness and live setup position" } satisfies (typeof setupCategories)[number]);
+
+  const activeSetupSubItemMeta =
+    activeSetupSubItem ? setupSubItemPages[activeSetupCategory]?.[activeSetupSubItem] ?? null : null;
+
+  const activeFormTemplate =
+    formTemplates.find((template) => template.id === activeFormTemplateId) ??
+    formTemplates[0] ??
+    defaultFormTemplates[0]!;
+
+  const activeChecklistAssignmentCount = costCentreTypeOptions.filter(
+    (typeName) => costCentreFlowAssignmentDrafts[typeName] === activeEngineerFlowTemplate.id,
+  ).length;
 
   const selectedLead = useMemo(
     () => (selectedLeadId ? leads.find((lead) => lead.id === selectedLeadId) ?? null : null),
@@ -4377,13 +4923,38 @@ export default function Dashboard() {
     setClientSites(safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
     setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? seedClients[0]?.id ?? "");
-    setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, []));
-    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, []));
-    setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, []));
+    setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, demoJobs));
+    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes));
+    setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
     setPurchaseRequests(safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
-    setInvoices(safeLoadStoredJson(STORAGE_KEYS.invoices, []));
+    setInvoices(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices));
+    setBusinessSettings(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings));
+    const storedFormTemplates = safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates);
+    setFormTemplates(storedFormTemplates.length ? storedFormTemplates : defaultFormTemplates);
+    setActiveFormTemplateId(
+      safeLoadStoredJson(STORAGE_KEYS.activeFormTemplateId, storedFormTemplates[0]?.id ?? defaultFormTemplates[0]?.id ?? ""),
+    );
+    setWorkflowRules(safeLoadStoredJson(STORAGE_KEYS.workflowRules, defaultWorkflowRules));
+    setFinanceSettings(safeLoadStoredJson(STORAGE_KEYS.financeSettings, defaultFinanceSettings));
     setDocumentFolderTemplates(safeLoadStoredJson(STORAGE_KEYS.documentFolders, defaultDocumentFolderTemplates));
-    setEngineerFlowTemplate(safeLoadStoredJson(STORAGE_KEYS.engineerFlow, defaultBoilerFlowTemplate));
+    const storedLegacyEngineerFlow = normalizeEngineerFlowTemplate(safeLoadStoredJson(STORAGE_KEYS.engineerFlow, defaultBoilerFlowTemplate));
+    const storedEngineerFlows = normalizeEngineerFlowTemplates(
+      safeLoadStoredJson(STORAGE_KEYS.engineerFlowTemplates, defaultEngineerFlowTemplates),
+      storedLegacyEngineerFlow,
+    );
+    const storedCostCentreTypes = safeLoadStoredJson(STORAGE_KEYS.costCentreTypes, costCentreTemplates);
+    setEngineerFlowTemplate(storedLegacyEngineerFlow);
+    setEngineerFlowTemplates(storedEngineerFlows);
+    setActiveEngineerFlowTemplateId(
+      safeLoadStoredJson(STORAGE_KEYS.activeEngineerFlowTemplateId, storedLegacyEngineerFlow.id),
+    );
+    setCostCentreTypeOptions(storedCostCentreTypes);
+    setCostCentreFlowAssignmentDrafts(
+      normalizeCostCentreAssignments(
+        safeLoadStoredJson(STORAGE_KEYS.costCentreFlowAssignments, defaultCostCentreFlowAssignmentMap),
+        storedCostCentreTypes,
+      ),
+    );
     setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
     setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {}));
     setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
@@ -4422,19 +4993,22 @@ export default function Dashboard() {
         }
 
         if (leadsResponse.ok) {
-          setLeads((await leadsResponse.json()) as Lead[]);
+          const nextLeads = (await leadsResponse.json()) as Lead[];
+          setLeads(nextLeads);
         } else {
           hasOfflineFallback = true;
         }
 
         if (jobsResponse.ok) {
-          setJobs((await jobsResponse.json()) as Job[]);
+          const nextJobs = (await jobsResponse.json()) as Job[];
+          setJobs(nextJobs);
         } else {
           hasOfflineFallback = true;
         }
 
         if (quotesResponse.ok) {
-          setQuotes((await quotesResponse.json()) as Quote[]);
+          const nextQuotes = (await quotesResponse.json()) as Quote[];
+          setQuotes(nextQuotes);
         } else {
           hasOfflineFallback = true;
         }
@@ -4453,8 +5027,30 @@ export default function Dashboard() {
 
         if (hubStateResponse.ok) {
           const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+          if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
+          if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
+          if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
+          if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
+          if (hubState.financeSettings) setFinanceSettings({ ...defaultFinanceSettings, ...hubState.financeSettings });
           if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
-          if (hubState.engineerFlowTemplate) setEngineerFlowTemplate(hubState.engineerFlowTemplate);
+          const nextLegacyEngineerFlow = hubState.engineerFlowTemplate
+            ? normalizeEngineerFlowTemplate(hubState.engineerFlowTemplate)
+            : engineerFlowTemplate;
+          const nextEngineerFlows = normalizeEngineerFlowTemplates(
+            hubState.engineerFlowTemplates ?? engineerFlowTemplates,
+            nextLegacyEngineerFlow,
+          );
+          const nextCostCentreTypes = hubState.costCentreTypes?.length ? hubState.costCentreTypes : costCentreTypeOptions;
+          if (hubState.engineerFlowTemplate) setEngineerFlowTemplate(nextLegacyEngineerFlow);
+          setEngineerFlowTemplates(nextEngineerFlows);
+          if (hubState.activeEngineerFlowTemplateId) setActiveEngineerFlowTemplateId(hubState.activeEngineerFlowTemplateId);
+          setCostCentreTypeOptions(nextCostCentreTypes);
+          setCostCentreFlowAssignmentDrafts(
+            normalizeCostCentreAssignments(
+              hubState.costCentreFlowAssignmentDrafts ?? costCentreFlowAssignmentDrafts,
+              nextCostCentreTypes,
+            ),
+          );
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
           if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
           if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
@@ -4499,6 +5095,30 @@ export default function Dashboard() {
   useEffect(() => {
     if (!hasHydratedLocalData) return;
 
+    setJobEstimateCostCentres((current) => {
+      let changed = false;
+      const next = { ...current };
+
+      quotes.forEach((quote) => {
+        if (!quote.convertedJobId) return;
+        const linkedJob = jobs.find((job) => job.id === quote.convertedJobId);
+        const sourceCentres = quoteCostCentres[quote.id] ?? [];
+        if (!linkedJob || sourceCentres.length === 0) return;
+
+        const existingCentres = next[linkedJob.id] ?? [];
+        if (existingCentres.length > 0) return;
+
+        next[linkedJob.id] = estimateCostCentresFromQuote(linkedJob, sourceCentres);
+        changed = true;
+      });
+
+      return changed ? next : current;
+    });
+  }, [hasHydratedLocalData, jobs, quoteCostCentres, quotes]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+
     safeSaveStoredJson(STORAGE_KEYS.clients, clients);
     safeSaveStoredJson(STORAGE_KEYS.clientSites, clientSites);
     safeSaveStoredJson(STORAGE_KEYS.leads, leads);
@@ -4507,8 +5127,17 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.purchaseRequests, purchaseRequests);
     safeSaveStoredJson(STORAGE_KEYS.auditEvents, auditEvents);
     safeSaveStoredJson(STORAGE_KEYS.invoices, invoices);
+    safeSaveStoredJson(STORAGE_KEYS.businessSettings, businessSettings);
+    safeSaveStoredJson(STORAGE_KEYS.formTemplates, formTemplates);
+    safeSaveStoredJson(STORAGE_KEYS.activeFormTemplateId, activeFormTemplateId);
+    safeSaveStoredJson(STORAGE_KEYS.workflowRules, workflowRules);
+    safeSaveStoredJson(STORAGE_KEYS.financeSettings, financeSettings);
     safeSaveStoredJson(STORAGE_KEYS.documentFolders, documentFolderTemplates);
     safeSaveStoredJson(STORAGE_KEYS.engineerFlow, engineerFlowTemplate);
+    safeSaveStoredJson(STORAGE_KEYS.engineerFlowTemplates, engineerFlowTemplates);
+    safeSaveStoredJson(STORAGE_KEYS.activeEngineerFlowTemplateId, activeEngineerFlowTemplateId);
+    safeSaveStoredJson(STORAGE_KEYS.costCentreTypes, costCentreTypeOptions);
+    safeSaveStoredJson(STORAGE_KEYS.costCentreFlowAssignments, costCentreFlowAssignmentDrafts);
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
@@ -4523,8 +5152,17 @@ export default function Dashboard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload: HubDetailStatePayload = {
+        businessSettings,
+        formTemplates,
+        activeFormTemplateId,
+        workflowRules,
+        financeSettings,
         documentFolderTemplates,
         engineerFlowTemplate,
+        engineerFlowTemplates,
+        activeEngineerFlowTemplateId,
+        costCentreTypes: costCentreTypeOptions,
+        costCentreFlowAssignmentDrafts,
         flowStepCompletion,
         quoteCostCentres,
         customQuoteCatalog,
@@ -4561,8 +5199,17 @@ export default function Dashboard() {
     purchaseRequests,
     auditEvents,
     invoices,
+    businessSettings,
+    formTemplates,
+    activeFormTemplateId,
+    workflowRules,
+    financeSettings,
     documentFolderTemplates,
     engineerFlowTemplate,
+    engineerFlowTemplates,
+    activeEngineerFlowTemplateId,
+    costCentreTypeOptions,
+    costCentreFlowAssignmentDrafts,
     flowStepCompletion,
     quoteCostCentres,
     customQuoteCatalog,
@@ -4642,11 +5289,72 @@ export default function Dashboard() {
     return leadQuoteMap.get(lead.id) ?? leadQuoteMap.get(lead.ref);
   }
 
+  function getLeadQuoteFollowUp(lead: Lead) {
+    const linkedQuote = getLeadQuote(lead);
+    if (linkedQuote || ["Quoted", "Lost"].includes(lead.status) || !lead.surveyDate) return null;
+    const graceDays = numericSetting(workflowRules.leadQuoteGraceDays, defaultLeadQuoteGraceDays);
+    const daysPastSurvey = daysSinceDate(lead.surveyDate);
+    if (daysPastSurvey === null || daysPastSurvey < graceDays) return null;
+
+    return {
+      daysPastSurvey,
+      label: "Quote overdue",
+      detail: `${daysPastSurvey} days since survey. Create or chase the quote.`,
+      tone: "red" as const,
+    };
+  }
+
   function getQuoteJob(quote: Quote | null | undefined) {
     if (!quote) return null;
     return quote.convertedJobId
       ? jobs.find((job) => job.id === quote.convertedJobId) ?? null
       : jobs.find((job) => job.sourceQuoteId === quote.id || job.sourceQuoteRef === quote.ref) ?? null;
+  }
+
+  function getQuoteAddress(quote: Quote, linkedJob: Job | null) {
+    const quoteSite = quote.siteId ? clientSites.find((site) => site.id === quote.siteId) : undefined;
+    if (quoteSite?.address) return quoteSite.address;
+    if (linkedJob?.site) return linkedJob.site;
+
+    const sourceLead = quote.sourceLeadId
+      ? leads.find((lead) => lead.id === quote.sourceLeadId)
+      : quote.sourceLeadRef
+        ? leads.find((lead) => lead.ref === quote.sourceLeadRef)
+        : undefined;
+
+    return sourceLead?.address || "Address to confirm";
+  }
+
+  function getInvoiceAddress(invoice: Invoice) {
+    const invoiceSite = invoice.siteId ? clientSites.find((site) => site.id === invoice.siteId) : undefined;
+    if (invoiceSite?.address) return invoiceSite.address;
+
+    if (invoice.sourceType === "job") {
+      const sourceJob = jobs.find((job) => job.id === invoice.sourceId || job.ref === invoice.sourceRef);
+      return sourceJob?.site || "Address to confirm";
+    }
+
+    const sourceQuote = quotes.find((quote) => quote.id === invoice.sourceId || quote.ref === invoice.sourceRef);
+    return sourceQuote ? getQuoteAddress(sourceQuote, getQuoteJob(sourceQuote)) : "Address to confirm";
+  }
+
+  function getQuoteResponseFollowUp(quote: Quote) {
+    if (quote.status !== "Sent" || quote.respondedAt) return null;
+    const linkedJob = getQuoteJob(quote);
+    if (linkedJob) return null;
+
+    const graceDays = numericSetting(workflowRules.quoteResponseGraceDays, defaultQuoteResponseGraceDays);
+    const daysWaiting = quote.sentAt ? daysSinceDate(quote.sentAt) : null;
+    const isOverdue = daysWaiting !== null && daysWaiting >= graceDays;
+
+    return {
+      daysWaiting,
+      label: isOverdue ? "Follow-up overdue" : "Follow up customer",
+      detail: daysWaiting === null
+        ? "No response recorded. Call or email the customer."
+        : `${daysWaiting} day${daysWaiting === 1 ? "" : "s"} since sent. Call or email the customer.`,
+      tone: isOverdue ? "red" as const : "amber" as const,
+    };
   }
 
   function getInvoiceForWorkflow(quote: Quote | null | undefined, job: Job | null | undefined) {
@@ -4753,6 +5461,94 @@ export default function Dashboard() {
       return matchesSearch && matchesStatus;
     });
   }, [invoiceStatusFilter, invoices, search]);
+
+  const quoteDirectoryGroups = useMemo(
+    () => [
+      {
+        key: "incomplete",
+        label: "Incomplete quotes",
+        detail: "Drafts and quotes still being built",
+        tone: "amber",
+        items: filteredQuotes.filter((quote) => quote.status === "Draft"),
+      },
+      {
+        key: "sent",
+        label: "Sent quotes",
+        detail: "Issued to clients and waiting on a decision",
+        tone: "blue",
+        items: filteredQuotes.filter((quote) => quote.status === "Sent"),
+      },
+      {
+        key: "job-ready",
+        label: "Accepted / jobs",
+        detail: "Approved quotes ready to convert or already linked",
+        tone: "green",
+        items: filteredQuotes.filter((quote) => quote.status === "Accepted" || quote.status === "Converted"),
+      },
+    ],
+    [filteredQuotes],
+  );
+
+  const jobDirectoryGroups = useMemo(
+    () => [
+      {
+        key: "pending",
+        label: "Pending jobs",
+        detail: "Accepted work needing schedule or final start checks",
+        tone: "amber",
+        items: filteredJobs.filter((job) => ["Accepted", "Pending", "Scheduled"].includes(job.status)),
+      },
+      {
+        key: "progress",
+        label: "Jobs in progress",
+        detail: "Live work, blocked work and active site control",
+        tone: "blue",
+        items: filteredJobs.filter((job) =>
+          ["In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
+        ),
+      },
+      {
+        key: "review",
+        label: "Ready for review / invoice",
+        detail: "Completed, reviewed or moved into finance",
+        tone: "green",
+        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced", "Closed"].includes(job.status)),
+      },
+    ],
+    [filteredJobs],
+  );
+
+  const invoiceDirectoryGroups = useMemo(() => {
+    const isOverdue = (invoice: Invoice) =>
+      invoice.status !== "Paid" &&
+      invoice.status !== "Cancelled" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
+      invoice.dueDate < "2026-07-01";
+
+    return [
+      {
+        key: "due",
+        label: "Due invoices",
+        detail: "Sent or part-paid invoices inside payment terms",
+        tone: "blue",
+        items: filteredInvoices.filter((invoice) => !isOverdue(invoice) && (invoice.status === "Sent" || invoice.status === "Partially paid")),
+      },
+      {
+        key: "overdue",
+        label: "Overdue invoices",
+        detail: "Needs chasing or finance action",
+        tone: "red",
+        items: filteredInvoices.filter(isOverdue),
+      },
+      {
+        key: "paid",
+        label: "Paid invoices",
+        detail: "Closed billing records",
+        tone: "green",
+        items: filteredInvoices.filter((invoice) => invoice.status === "Paid"),
+      },
+    ];
+  }, [filteredInvoices]);
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -4928,6 +5724,22 @@ export default function Dashboard() {
     [jobs],
   );
 
+  const overdueLeadQuoteFollowUps = useMemo(
+    () =>
+      leads
+        .map((lead) => ({ lead, followUp: getLeadQuoteFollowUp(lead) }))
+        .filter((item): item is { lead: Lead; followUp: NonNullable<ReturnType<typeof getLeadQuoteFollowUp>> } => Boolean(item.followUp)),
+    [getLeadQuoteFollowUp, leads],
+  );
+
+  const quoteResponseFollowUps = useMemo(
+    () =>
+      quotes
+        .map((quote) => ({ quote, followUp: getQuoteResponseFollowUp(quote) }))
+        .filter((item): item is { quote: Quote; followUp: NonNullable<ReturnType<typeof getQuoteResponseFollowUp>> } => Boolean(item.followUp)),
+    [getQuoteResponseFollowUp, quotes],
+  );
+
   const approvedQuotesAwaitingScheduling = useMemo(
     () =>
       quotes.filter((quote) => {
@@ -4982,19 +5794,6 @@ export default function Dashboard() {
       },
     ],
     [officeAlerts, officePoRequests.length, pendingPORequests.length],
-  );
-
-  const scheduledLeadVisits = useMemo(
-    () =>
-      leads
-        .filter((lead) => lead.status !== "Lost" && lead.surveyDate && lead.surveyTime)
-        .map((lead) => ({
-          time: lead.surveyTime,
-          title: "Lead survey",
-          detail: `${lead.ref} · ${lead.surveyor} · ${lead.customerName}`,
-          tone: "amber",
-        })),
-    [leads],
   );
 
   const leadSurveyBookings = useMemo(
@@ -5091,6 +5890,89 @@ export default function Dashboard() {
       })),
     [dashboardScheduleEntries],
   );
+
+  const profileScheduleEntries = useMemo(() => {
+    const employeeName = activeEmployee?.name ?? "";
+    return dashboardScheduleEntries.filter((entry) => entry.person === employeeName);
+  }, [activeEmployee?.name, dashboardScheduleEntries]);
+
+  const profileWeekSchedule = useMemo(
+    () =>
+      schedulerDays.map((day) => ({
+        ...day,
+        entries: profileScheduleEntries.filter((entry) => entry.date === day.date),
+      })),
+    [profileScheduleEntries],
+  );
+
+  const profileSelectedDay =
+    profileWeekSchedule.find((day) => day.date === scheduleDate) ?? profileWeekSchedule[0];
+
+  const profileNotifications = useMemo(() => {
+    const employeeName = activeEmployee?.name ?? "";
+    const canSeeOfficeQueues = activeEmployee?.role !== "Engineer";
+
+    return [
+      ...overdueLeadQuoteFollowUps
+        .filter(({ lead }) => lead.surveyor === employeeName)
+        .map(({ lead, followUp }) => ({
+          id: `lead-follow-up-${lead.id}`,
+          tone: "red" as const,
+          title: followUp.label,
+          detail: `${lead.ref} · ${lead.customerName}`,
+          meta: followUp.detail,
+          open: () => openLeadRecord(lead.id),
+        })),
+      ...quoteResponseFollowUps
+        .filter(({ quote }) => quote.owner === employeeName)
+        .map(({ quote, followUp }) => ({
+          id: `quote-follow-up-${quote.id}`,
+          tone: followUp.tone,
+          title: followUp.label,
+          detail: `${quote.ref} · ${quote.customer}`,
+          meta: followUp.detail,
+          open: () => openQuoteDrawer(quote.id),
+        })),
+      ...overdueTimesheetJobs
+        .filter((job) => job.manager === employeeName)
+        .map((job) => ({
+          id: `timesheet-${job.id}`,
+          tone: "red" as const,
+          title: "Timesheet overdue",
+          detail: `${job.ref} · ${job.customer}`,
+          meta: job.description,
+          open: () => openJobDrawer(job.id),
+        })),
+      ...approvedQuotesAwaitingScheduling
+        .filter((quote) => quote.owner === employeeName || canSeeOfficeQueues)
+        .map((quote) => ({
+          id: `schedule-quote-${quote.id}`,
+          tone: "amber" as const,
+          title: "Quote approved awaiting schedule",
+          detail: `${quote.ref} · ${quote.customer}`,
+          meta: quote.description,
+          open: () => openQuoteDrawer(quote.id),
+        })),
+      ...pendingPORequests
+        .filter((request) => request.requestedBy === employeeName || canSeeOfficeQueues)
+        .map((request) => ({
+          id: `po-${request.id}`,
+          tone: "blue" as const,
+          title: "PO request waiting",
+          detail: `${request.jobRef} · ${request.supplier}`,
+          meta: request.item,
+          open: () => openJobDrawer(request.jobId),
+        })),
+    ].slice(0, 8);
+  }, [
+    activeEmployee?.name,
+    activeEmployee?.role,
+    approvedQuotesAwaitingScheduling,
+    overdueLeadQuoteFollowUps,
+    overdueTimesheetJobs,
+    pendingPORequests,
+    quoteResponseFollowUps,
+  ]);
 
   const jobScheduleBookings = useMemo(
     () =>
@@ -5216,11 +6098,6 @@ export default function Dashboard() {
     return null;
   }
 
-  const scheduleVisits = useMemo(
-    () => [...scheduledLeadVisits, ...today].sort((first, second) => first.time.localeCompare(second.time)),
-    [scheduledLeadVisits],
-  );
-
   const newLeadScheduleWarning = useMemo(
     () =>
       validateLeadSurveyBooking({
@@ -5282,6 +6159,49 @@ export default function Dashboard() {
     return documentFolderTemplates.filter((folder) => folder.recordTypes.includes(recordType));
   }
 
+  function updateBusinessSettings(patch: Partial<BusinessSettings>) {
+    setBusinessSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function updateWorkflowRules(patch: Partial<WorkflowRulesSettings>) {
+    setWorkflowRules((current) => ({ ...current, ...patch }));
+  }
+
+  function updateFinanceSettings(patch: Partial<FinanceSettings>) {
+    setFinanceSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function updateFormTemplate(templateId: string, patch: Partial<FormTemplate>) {
+    setFormTemplates((current) =>
+      current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
+    );
+  }
+
+  function duplicateActiveFormTemplate() {
+    if (!activeFormTemplate) return;
+    const id = `form-template-${Date.now()}`;
+    const copy = {
+      ...activeFormTemplate,
+      id,
+      name: `${activeFormTemplate.name} copy`,
+    };
+    setFormTemplates((current) => [...current, copy]);
+    setActiveFormTemplateId(id);
+    showNotice(`${activeFormTemplate.name} copied.`);
+  }
+
+  function resetActiveFormTemplate() {
+    if (!activeFormTemplate) return;
+    const defaultTemplate = defaultFormTemplates.find((template) => template.layout === activeFormTemplate.layout);
+    if (!defaultTemplate) return;
+    updateFormTemplate(activeFormTemplate.id, {
+      ...defaultTemplate,
+      id: activeFormTemplate.id,
+      name: activeFormTemplate.name,
+    });
+    showNotice(`${activeFormTemplate.name} reset to default wording.`);
+  }
+
   function updateDocumentFolder(folderId: string, patch: Partial<DocumentFolderTemplate>) {
     setDocumentFolderTemplates((current) =>
       current.map((folder) => (folder.id === folderId ? { ...folder, ...patch } : folder)),
@@ -5311,10 +6231,132 @@ export default function Dashboard() {
   }
 
   function updateEngineerFlowStep(stepId: string, patch: Partial<EngineerFlowStep>) {
+    setEngineerFlowTemplates((current) =>
+      current.map((template) =>
+        template.id === activeEngineerFlowTemplate.id
+          ? {
+              ...template,
+              steps: template.steps.map((step) => (step.id === stepId ? { ...step, ...patch } : step)),
+            }
+          : template,
+      ),
+    );
+
+    if (activeEngineerFlowTemplate.id !== engineerFlowTemplate.id) return;
     setEngineerFlowTemplate((current) => ({
       ...current,
       steps: current.steps.map((step) => (step.id === stepId ? { ...step, ...patch } : step)),
     }));
+  }
+
+  function updateEngineerFlowTemplate(templateId: string, patch: Partial<EngineerFlowTemplate>) {
+    setEngineerFlowTemplates((current) =>
+      current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
+    );
+    if (templateId === engineerFlowTemplate.id) {
+      setEngineerFlowTemplate((current) => ({ ...current, ...patch }));
+    }
+  }
+
+  function addEngineerFlowTemplate() {
+    const name = newEngineerFlowTemplateName.trim();
+    if (!name) return;
+    const id = `engineer-flow-${Date.now()}`;
+    const template: EngineerFlowTemplate = {
+      id,
+      name,
+      appliesTo: [],
+      steps: [
+        {
+          id: `${id}-step-1`,
+          stage: "Existing Boiler",
+          label: "Upload before photos",
+          evidence: "Photo",
+          required: true,
+        },
+      ],
+    };
+    setEngineerFlowTemplates((current) => [...current, template]);
+    setActiveEngineerFlowTemplateId(id);
+    setNewEngineerFlowTemplateName("");
+    showNotice(`${name} checklist added.`);
+  }
+
+  function addEngineerFlowStep() {
+    const label = newEngineerFlowStepLabel.trim();
+    if (!label) return;
+    const step: EngineerFlowStep = {
+      id: `${activeEngineerFlowTemplate.id}-step-${Date.now()}`,
+      stage: "Existing Boiler",
+      label,
+      evidence: "Photo",
+      required: true,
+    };
+    updateEngineerFlowTemplate(activeEngineerFlowTemplate.id, {
+      steps: [...activeEngineerFlowTemplate.steps, step],
+    });
+    setNewEngineerFlowStepLabel("");
+    showNotice("Checklist step added.");
+  }
+
+  function removeEngineerFlowStep(stepId: string) {
+    if (activeEngineerFlowTemplate.steps.length <= 1) {
+      showNotice("A checklist needs at least one step.");
+      return;
+    }
+    updateEngineerFlowTemplate(activeEngineerFlowTemplate.id, {
+      steps: activeEngineerFlowTemplate.steps.filter((step) => step.id !== stepId),
+    });
+    showNotice("Checklist step removed.");
+  }
+
+  function addCostCentreTypeOption() {
+    const name = newCostCentreTypeName.trim();
+    if (!name) return;
+    if (costCentreTypeOptions.some((typeName) => typeName.toLowerCase() === name.toLowerCase())) {
+      showNotice(`${name} already exists.`);
+      return;
+    }
+    setCostCentreTypeOptions((current) => [...current, name]);
+    setCostCentreFlowAssignmentDrafts((current) => ({
+      ...current,
+      [name]: generalWorksFlowTemplate.id,
+    }));
+    setNewCostCentreTypeName("");
+    showNotice(`${name} cost centre type added.`);
+  }
+
+  function updateCostCentreTypeOption(oldName: string, nextName: string) {
+    const trimmed = nextName.trim();
+    if (!trimmed) return;
+    setCostCentreTypeOptions((current) => current.map((typeName) => (typeName === oldName ? trimmed : typeName)));
+    setCostCentreFlowAssignmentDrafts((current) => {
+      const next = { ...current };
+      next[trimmed] = next[oldName] ?? generalWorksFlowTemplate.id;
+      if (trimmed !== oldName) delete next[oldName];
+      return next;
+    });
+    setQuoteCostCentreTemplateDraft((current) => (current === oldName ? trimmed : current));
+    setJobCostCentreTemplateDraft((current) => (current === oldName ? trimmed : current));
+    setJobVariationCostCentreTemplateDraft((current) => (current === oldName ? trimmed : current));
+  }
+
+  function removeCostCentreTypeOption(typeName: string) {
+    if (costCentreTypeOptions.length <= 1) {
+      showNotice("Keep at least one cost centre type.");
+      return;
+    }
+    setCostCentreTypeOptions((current) => current.filter((item) => item !== typeName));
+    setCostCentreFlowAssignmentDrafts((current) => {
+      const next = { ...current };
+      delete next[typeName];
+      return next;
+    });
+    const fallback = costCentreTypeOptions.find((item) => item !== typeName) ?? "General plumbing";
+    setQuoteCostCentreTemplateDraft((current) => (current === typeName ? fallback : current));
+    setJobCostCentreTemplateDraft((current) => (current === typeName ? fallback : current));
+    setJobVariationCostCentreTemplateDraft((current) => (current === typeName ? fallback : current));
+    showNotice(`${typeName} removed from setup.`);
   }
 
   function flowCompletionKey(recordId: string, stepId: string) {
@@ -5478,6 +6520,22 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
+  function returnToQuotesDirectory() {
+    setSelectedQuoteId(null);
+    setSelectedQuoteCostCentreId(null);
+    setActiveQuoteTab("setup");
+    setHomeView("quotes");
+    scrollWorkspaceToTop();
+  }
+
+  function returnToJobsDirectory() {
+    setSelectedJobId(null);
+    setSelectedCostCentreId(null);
+    setActiveJobTab("summary");
+    setHomeView("jobs");
+    scrollWorkspaceToTop();
+  }
+
   function returnToDashboard() {
     setHomeView("dashboard");
     clearEmployeeEditingState();
@@ -5562,7 +6620,122 @@ export default function Dashboard() {
       scrollWorkspaceToTop();
       return;
     }
-    showNotice(`${item} module is coming soon in this build.`);
+    if (item === "Suppliers") {
+      setHomeView("settings");
+      setActiveSetupCategory("communications");
+      setActiveSetupSubItem("Supplier emails");
+      scrollWorkspaceToTop();
+      showNotice("Supplier request and communication settings opened.");
+      return;
+    }
+    setHomeView("settings");
+    setActiveSetupSubItem(null);
+    scrollWorkspaceToTop();
+    showNotice(`${item} settings are handled through Setup in this prototype.`);
+  }
+
+  function scrollToWorkspaceSection(sectionId: string) {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        const target = document.getElementById(sectionId);
+        if (target) {
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        } else {
+          scrollWorkspaceToTop();
+        }
+      });
+    });
+  }
+
+  function openDashboardQueue(sectionId?: string) {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedJobId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setHomeView("dashboard");
+    if (sectionId) {
+      scrollToWorkspaceSection(sectionId);
+    } else {
+      scrollWorkspaceToTop();
+    }
+  }
+
+  function openCommunicationsHub() {
+    if (typeof window === "undefined") return;
+    window.location.href = "/office/whatsapp-pilot";
+  }
+
+  function openBlockedJobsQuickView() {
+    setStatusFilter("Approval required");
+    setHomeView("jobs");
+    scrollWorkspaceToTop();
+  }
+
+  function openOverdueTasksQuickView() {
+    setHomeView("profile");
+    scrollWorkspaceToTop();
+  }
+
+  function openDraftQuotesQuickView() {
+    setQuoteStatusFilter("Draft");
+    setHomeView("quotes");
+    scrollWorkspaceToTop();
+  }
+
+  function openInvoiceSourcePicker() {
+    setStatusFilter("Ready to invoice");
+    setHomeView("jobs");
+    scrollWorkspaceToTop();
+    showNotice("Open a ready-to-invoice job, then choose Create invoice.");
+  }
+
+  function handleContextNavClick(label: string) {
+    if (label === "Overview" || label === "Operations") {
+      openDashboardQueue();
+      return;
+    }
+    if (label === "My work") {
+      setHomeView("profile");
+      scrollWorkspaceToTop();
+      return;
+    }
+    if (label === "Communications") {
+      openCommunicationsHub();
+      return;
+    }
+    if (label === "Reports") {
+      setHomeView("settings");
+      setActiveSetupCategory("finance");
+      setActiveSetupSubItem(null);
+      scrollWorkspaceToTop();
+      showNotice("Finance and reporting setup opens from the live workflow data.");
+    }
+  }
+
+  function handleSetupSubItemClick(category: (typeof setupCategories)[number], item: string) {
+    setActiveSetupCategory(category.key);
+    setActiveSetupSubItem(item);
+
+    if (category.key === "forms") {
+      const layoutByItem: Partial<Record<string, QuoteDocumentLayout>> = {
+        Quote: "quote",
+        "Job sheet": "job-sheet",
+        Invoice: "invoice",
+      };
+      const layout = layoutByItem[item];
+      const template = layout ? formTemplates.find((candidate) => candidate.layout === layout) : undefined;
+      if (template) setActiveFormTemplateId(template.id);
+    }
+
+    if (category.key === "engineer-checklists") {
+      const itemKey = item.toLowerCase();
+      const template = engineerFlowTemplates.find((candidate) => candidate.name.toLowerCase().includes(itemKey));
+      if (template) setActiveEngineerFlowTemplateId(template.id);
+    }
+
+    scrollWorkspaceToTop();
   }
 
   function openEmployeeCardView(employeeId: string) {
@@ -6925,6 +8098,7 @@ export default function Dashboard() {
       makeEstimateCostCentre(selectedJob.id, centres.length, jobCostCentreNameDraft, jobCostCentreTemplateDraft),
     ]);
     setJobCostCentreNameDraft("");
+    setShowJobCostCentreCreate(false);
   }
 
   function addJobVariationSection() {
@@ -7382,6 +8556,16 @@ export default function Dashboard() {
   }
 
   function returnFromRecord() {
+    if (homeView === "quote-record") {
+      returnToQuotesDirectory();
+      return;
+    }
+
+    if (homeView === "job-record") {
+      returnToJobsDirectory();
+      return;
+    }
+
     setSelectedQuoteId(null);
     setSelectedJobId(null);
     setSelectedQuoteCostCentreId(null);
@@ -7402,6 +8586,7 @@ export default function Dashboard() {
       };
     });
     setQuoteCostCentreNameDraft("");
+    setShowQuoteCostCentreCreate(false);
   }
 
   function startRenameCostCentre(scope: "quote" | "job", centre: QuoteCostCentre | EstimateCostCentre) {
@@ -9574,7 +10759,17 @@ export default function Dashboard() {
             <span className="permission-heading">Document folders</span>
             <h2>{recordRef} document hub</h2>
           </div>
-          <button className="primary-button" type="button" onClick={() => showNotice("File upload storage is next to connect.")}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={() => {
+              setHomeView("settings");
+              setActiveSetupCategory("documents");
+              setActiveSetupSubItem("Folders");
+              scrollWorkspaceToTop();
+              showNotice("Document folders are editable here; quote and job files appear from the live workflow.");
+            }}
+          >
             <Plus size={15} />
             Add document
           </button>
@@ -9629,17 +10824,20 @@ export default function Dashboard() {
     );
   }
 
-  function renderEngineerFlowWorkspace(job: Job) {
-    const requiredSteps = engineerFlowTemplate.steps.filter((step) => step.required);
-    const completedRequired = requiredSteps.filter((step) => flowStepCompletion[flowCompletionKey(job.id, step.id)]).length;
-    const nextBlockedStep = requiredSteps.find((step) => !flowStepCompletion[flowCompletionKey(job.id, step.id)]);
+  function renderEngineerFlowWorkspace(job: Job, centre?: EstimateCostCentre) {
+    const flowTemplate = centre ? engineerFlowTemplateForCostCentre(centre) : engineerFlowTemplate;
+    const completionRecordId = centre ? `${job.id}:${centre.id}` : job.id;
+    const requiredSteps = flowTemplate.steps.filter((step) => step.required);
+    const completedRequired = requiredSteps.filter((step) => flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]).length;
+    const nextBlockedStep = requiredSteps.find((step) => !flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]);
 
     return (
       <section className="engineer-flow-workspace">
         <div className="documents-toolbar">
           <div>
             <span className="permission-heading">Engineer app stop/go</span>
-            <h2>{engineerFlowTemplate.name}</h2>
+            <h2>{flowTemplate.name}</h2>
+            {centre ? <small>Assigned from cost centre type: {centre.templateName ?? "General plumbing"}</small> : null}
           </div>
           <span className={nextBlockedStep ? "flow-status blocked" : "flow-status ready"}>
             {nextBlockedStep ? "Blocked" : "Ready"}
@@ -9655,11 +10853,11 @@ export default function Dashboard() {
         </div>
 
         <div className="engineer-flow-list">
-          {engineerFlowTemplate.steps.map((step) => {
-            const checked = Boolean(flowStepCompletion[flowCompletionKey(job.id, step.id)]);
+          {flowTemplate.steps.map((step) => {
+            const checked = Boolean(flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]);
             return (
               <label className={checked ? "engineer-flow-step complete" : "engineer-flow-step"} key={step.id}>
-                <input type="checkbox" checked={checked} onChange={() => toggleFlowStep(job.id, step.id)} />
+                <input type="checkbox" checked={checked} onChange={() => toggleFlowStep(completionRecordId, step.id)} />
                 <span>
                   <strong>{step.label}</strong>
                   <small>
@@ -9677,6 +10875,8 @@ export default function Dashboard() {
 
   function renderOperationsDashboard() {
     const actionTotal =
+      overdueLeadQuoteFollowUps.length +
+      quoteResponseFollowUps.length +
       pendingPORequests.length +
       dashboardVariationApprovals.length +
       approvedQuotesAwaitingScheduling.length +
@@ -9726,7 +10926,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <aside className="notification-panel">
+          <aside className="notification-panel" id="dashboard-notifications">
             <div className="panel-header compact">
               <div>
                 <h2>Action notifications</h2>
@@ -9736,7 +10936,7 @@ export default function Dashboard() {
             </div>
 
             <div className="notification-stack">
-              <button className="notification-card amber" type="button" onClick={() => showNotice("PO requests are shown below.")}>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-po-requests")}>
                 <ClipboardCheck size={18} />
                 <span>
                   <strong>{pendingPORequests.length}</strong>
@@ -9744,7 +10944,7 @@ export default function Dashboard() {
                   <small>Supplier and materials approvals</small>
                 </span>
               </button>
-              <button className="notification-card amber" type="button" onClick={() => showNotice("Variation approvals are shown below.")}>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-variations")}>
                 <AlertTriangle size={18} />
                 <span>
                   <strong>{dashboardVariationApprovals.length}</strong>
@@ -9752,7 +10952,23 @@ export default function Dashboard() {
                   <small>Review before work proceeds</small>
                 </span>
               </button>
-              <button className="notification-card green" type="button" onClick={() => showNotice("Accepted quotes awaiting scheduling are shown below.")}>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-lead-followups")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
+                  <b>Survey leads overdue for quote</b>
+                  <small>3 days past survey with no quote</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-quote-followups")}>
+                <Mail size={18} />
+                <span>
+                  <strong>{quoteResponseFollowUps.length}</strong>
+                  <b>Quotes needing follow-up</b>
+                  <small>No customer response recorded</small>
+                </span>
+              </button>
+              <button className="notification-card green" type="button" onClick={() => openDashboardQueue("dashboard-approved-quotes")}>
                 <Check size={18} />
                 <span>
                   <strong>{approvedQuotesAwaitingScheduling.length}</strong>
@@ -9760,7 +10976,7 @@ export default function Dashboard() {
                   <small>Ready to become booked work</small>
                 </span>
               </button>
-              <button className="notification-card red" type="button" onClick={() => showNotice("Overdue timesheets are shown below.")}>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-timesheets")}>
                 <Clock3 size={18} />
                 <span>
                   <strong>{overdueTimesheetJobs.length}</strong>
@@ -9773,7 +10989,69 @@ export default function Dashboard() {
         </div>
 
         <div className="ops-queue-grid">
-          <section className="ops-queue-panel">
+          <section className="ops-queue-panel" id="dashboard-lead-followups">
+            <header>
+              <div>
+                <h3>Lead follow-ups</h3>
+                <p>{overdueLeadQuoteFollowUps.length} survey lead{overdueLeadQuoteFollowUps.length === 1 ? "" : "s"} overdue for quote</p>
+              </div>
+              <AlertTriangle size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {overdueLeadQuoteFollowUps.length > 0 ? (
+                overdueLeadQuoteFollowUps.slice(0, 4).map(({ lead, followUp }) => (
+                  <article className="ops-queue-item attention" key={lead.id}>
+                    <button type="button" onClick={() => openLeadRecord(lead.id)}>
+                      <strong>{lead.ref} · {lead.customerName}</strong>
+                      <span>{lead.description}</span>
+                      <small>{followUp.detail}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{followUp.label}</span>
+                      <button className="secondary-button" type="button" onClick={() => markLeadQuoted(lead)}>
+                        Create quote
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No survey leads are overdue for quoting.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="ops-queue-panel" id="dashboard-quote-followups">
+            <header>
+              <div>
+                <h3>Quote follow-ups</h3>
+                <p>{quoteResponseFollowUps.length} sent quote{quoteResponseFollowUps.length === 1 ? "" : "s"} waiting on a response</p>
+              </div>
+              <Mail size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {quoteResponseFollowUps.length > 0 ? (
+                quoteResponseFollowUps.slice(0, 4).map(({ quote, followUp }) => (
+                  <article className={`ops-queue-item ${followUp.tone === "red" ? "attention" : ""}`} key={quote.id}>
+                    <button type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                      <strong>{quote.ref} · {quote.customer}</strong>
+                      <span>{quote.description}</span>
+                      <small>{followUp.detail}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className={`status-pill ${followUp.tone}`}>{followUp.label}</span>
+                      <button className="secondary-button" type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                        Open quote
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No sent quotes need chasing.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="ops-queue-panel" id="dashboard-po-requests">
             <header>
               <div>
                 <h3>PO Requests</h3>
@@ -9807,7 +11085,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="ops-queue-panel">
+          <section className="ops-queue-panel" id="dashboard-variations">
             <header>
               <div>
                 <h3>Variations</h3>
@@ -9838,7 +11116,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="ops-queue-panel">
+          <section className="ops-queue-panel" id="dashboard-approved-quotes">
             <header>
               <div>
                 <h3>Approved Quotes</h3>
@@ -9869,7 +11147,7 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="ops-queue-panel">
+          <section className="ops-queue-panel" id="dashboard-timesheets">
             <header>
               <div>
                 <h3>Timesheets</h3>
@@ -9929,11 +11207,11 @@ export default function Dashboard() {
         </label>
 
         <div className="header-actions">
-          <button className="header-icon" aria-label="Messages" onClick={() => showNotice("Messages are coming next.")}>
+          <button className="header-icon" aria-label="Messages" onClick={openCommunicationsHub}>
             <Mail size={18} />
             <span className="counter">3</span>
           </button>
-          <button className="header-icon" aria-label="Notifications" onClick={() => showNotice("Notification center is not connected yet.")}>
+          <button className="header-icon" aria-label="Notifications" onClick={() => openDashboardQueue("dashboard-notifications")}>
             <Bell size={18} />
             <span className="alert-dot" />
           </button>
@@ -9942,31 +11220,14 @@ export default function Dashboard() {
             <span>Create</span>
             <ChevronDown size={14} />
           </button>
-          <div className="employee-switch">
-            <span>Employee</span>
-            <select
-              value={activeEmployee?.id ?? seedEmployees[0]?.id ?? ""}
-              aria-label="Select employee"
-              onChange={(event) => setActiveEmployeeId(event.target.value)}
-            >
-              {employees.map((employee) => (
-                <option key={employee.id} value={employee.id}>
-                  {employee.name} ({employee.role})
-                </option>
-              ))}
-            </select>
-            <button
-              className="employee-config-button"
-              type="button"
-              aria-label="Open employee card"
-              onClick={() => {
-                if (activeEmployee?.id) openEmployeeCardView(activeEmployee.id);
-              }}
-            >
-              <Settings size={14} />
-            </button>
-          </div>
-          <button className="account-button" aria-label="Account menu" onClick={() => showNotice("Account panel is coming soon.")}>
+          <button
+            className="account-button"
+            aria-label="Open my profile diary"
+            onClick={() => {
+              setHomeView("profile");
+              scrollWorkspaceToTop();
+            }}
+          >
             <span className="account-avatar">N</span>
             <span className="account-copy">
               <strong>{activeEmployee?.name ?? "Employee"}</strong>
@@ -9978,7 +11239,7 @@ export default function Dashboard() {
       </header>
 
       <nav className="module-bar" aria-label="Main modules">
-        <button className="mobile-menu" aria-label="Open navigation" onClick={() => showNotice("Mobile navigation is not enabled in this preview.")}>
+        <button className="mobile-menu" aria-label="Open navigation" onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}>
           <Menu size={19} />
         </button>
         {visibleModules.map((module) => {
@@ -9986,8 +11247,8 @@ export default function Dashboard() {
           const isActiveModule =
             (module.label === "Dashboard" && homeView === "dashboard") ||
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
-            (module.label === "Quotes" && ["quote-record", "quote-cost-centre-record"].includes(homeView)) ||
-            (module.label === "Jobs" && ["job-record", "cost-centre-record"].includes(homeView)) ||
+            (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
+            (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
@@ -10035,16 +11296,23 @@ export default function Dashboard() {
                   returnToDashboard();
                 } else if (module.label === "Leads") {
                   setHomeView("leads");
+                } else if (module.label === "Quotes") {
+                  returnToQuotesDirectory();
+                } else if (module.label === "Jobs") {
+                  returnToJobsDirectory();
                 } else if (module.label === "Schedules") {
                   setHomeView("schedule");
                 } else if (module.label === "Setup") {
                   setHomeView("settings");
+                  setActiveSetupSubItem(null);
                 } else if (module.label === "Invoices") {
                   setHomeView("invoices");
                 } else if (module.label === "Add-ons") {
                   setHomeView("addons");
                 } else {
-                  showNotice(`${module.label} module is coming soon in this build.`);
+                  setHomeView("settings");
+                  setActiveSetupSubItem(null);
+                  showNotice(`${module.label} configuration opens through Setup in this prototype.`);
                 }
                 scrollWorkspaceToTop();
               }}
@@ -10054,23 +11322,34 @@ export default function Dashboard() {
             </a>
           );
         })}
-        <button className="module-more" aria-label="More modules" onClick={() => showNotice("Assets, stock, reports and settings can sit under More once the core workflow is built.")}>
+        <button
+          className="module-more"
+          aria-label="More modules"
+          onClick={() => {
+            setHomeView("addons");
+            scrollWorkspaceToTop();
+          }}
+        >
           <MoreHorizontal size={18} />
         </button>
       </nav>
 
-      <div className="body-shell">
+      <div className={contextSidebarCollapsed ? "body-shell sidebar-collapsed" : "body-shell"}>
         <aside className="context-sidebar">
           <div className="context-title">
             <span>
               {homeView === "employee-card"
                 ? "Employee card"
-                : homeView === "quote-record"
-                  ? "Quote setup"
+                  : homeView === "quotes"
+                    ? "Quotes"
+                  : homeView === "quote-record"
+                    ? "Quote setup"
                 : homeView === "quote-cost-centre-record"
                   ? "Quote cost centre"
-                : homeView === "job-record"
-                  ? "Job record"
+                  : homeView === "jobs"
+                    ? "Jobs"
+                  : homeView === "job-record"
+                    ? "Job record"
                 : homeView === "cost-centre-record"
                   ? "Cost centre"
                 : homeView === "invoices" || homeView === "invoice-record"
@@ -10085,14 +11364,22 @@ export default function Dashboard() {
                   ? "Setup"
                 : homeView === "addons"
                   ? "Add-ons"
+                : homeView === "profile"
+                  ? "My profile"
                 : homeView === "clients" || homeView === "client-record"
                   ? "Clients"
                   : homeView === "employees"
                     ? "People"
                     : "Dashboard"}
             </span>
-            <button aria-label="Dashboard settings" onClick={() => showNotice("Dashboard settings is not connected yet.")}>
-              <Settings size={15} />
+            <button
+              className="context-collapse-button"
+              type="button"
+              aria-label={contextSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={contextSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {contextSidebarCollapsed ? <ChevronRight size={16} /> : <Menu size={16} />}
             </button>
           </div>
 
@@ -10104,9 +11391,11 @@ export default function Dashboard() {
                   href="#"
                   className={item.active ? "context-link active" : "context-link"}
                   key={item.label}
+                  aria-label={item.label}
+                  title={item.label}
                   onClick={(event) => {
                     event.preventDefault();
-                    showNotice(`${item.label} view is coming soon in this build.`);
+                    handleContextNavClick(item.label);
                   }}
                 >
                   <Icon size={17} />
@@ -10119,35 +11408,35 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/ai-surveyor" className="context-link">
+          <a href="/ai-surveyor" className="context-link" aria-label="NeXa Takeoff" title="NeXa Takeoff">
             <Sparkles size={17} />
             <span>NeXa Takeoff</span>
           </a>
-          <a href="/engineer" className="context-link">
+          <a href="/engineer" className="context-link" aria-label="NeXa Field" title="NeXa Field">
             <HardHat size={17} />
             <span>NeXa Field</span>
           </a>
-          <a href="/office/whatsapp-pilot" className="context-link">
+          <a href="/office/whatsapp-pilot" className="context-link" aria-label="NeXa Connect" title="NeXa Connect">
             <Inbox size={17} />
             <span>NeXa Connect</span>
           </a>
-          <a href="/office/alerts" className="context-link">
+          <a href="/office/alerts" className="context-link" aria-label="Office alerts" title="Office alerts">
             <Bell size={17} />
             <span>Office alerts</span>
             <b className={highPriorityOfficeAlerts ? "danger" : ""}>{officeAlerts.length}</b>
           </a>
-          <a href="#" className="context-link" onClick={(event) => { event.preventDefault(); showNotice("Blocked jobs quick view is not wired yet."); }}>
+          <a href="#" className="context-link" aria-label="Blocked jobs" title="Blocked jobs" onClick={(event) => { event.preventDefault(); openBlockedJobsQuickView(); }}>
             <ShieldAlert size={17} />
             <span>Blocked jobs</span>
             <b className="danger">4</b>
           </a>
-          <a href="#" className="context-link" onClick={(event) => { event.preventDefault(); showNotice("Overdue tasks quick view is not wired yet."); }}>
+          <a href="#" className="context-link" aria-label="Overdue tasks" title="Overdue tasks" onClick={(event) => { event.preventDefault(); openOverdueTasksQuickView(); }}>
             <Clock3 size={17} />
             <span>Overdue tasks</span>
             <b>6</b>
           </a>
           {access.showQuotes ? (
-            <a href="#" className="context-link" onClick={(event) => { event.preventDefault(); showNotice("Draft quotes queue is not wired yet."); }}>
+            <a href="#" className="context-link" aria-label="Draft quotes" title="Draft quotes" onClick={(event) => { event.preventDefault(); openDraftQuotesQuickView(); }}>
               <FileText size={17} />
               <span>Draft quotes</span>
               <b>5</b>
@@ -10160,7 +11449,7 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        <main className="workspace">
+        <main className={homeView === "settings" ? "workspace setup-workspace-host" : "workspace"}>
           <div className="workspace-header">
             <div>
               <div className="breadcrumb">
@@ -10169,10 +11458,14 @@ export default function Dashboard() {
                 <strong>
                   {homeView === "employee-card"
                     ? "Employee card"
+                    : homeView === "quotes"
+                      ? "Quotes"
                     : homeView === "quote-record"
                       ? "Quote"
                     : homeView === "quote-cost-centre-record"
                       ? "Quote cost centre"
+                    : homeView === "jobs"
+                      ? "Jobs"
                     : homeView === "job-record"
                       ? "Job"
                     : homeView === "cost-centre-record"
@@ -10191,6 +11484,8 @@ export default function Dashboard() {
                       ? "Schedules"
                     : homeView === "settings"
                       ? "Setup"
+                    : homeView === "profile"
+                      ? "My profile"
                     : homeView === "addons"
                       ? "Add-ons"
                     : homeView === "client-record"
@@ -10205,14 +11500,20 @@ export default function Dashboard() {
               <h1>
                 {homeView === "employee-card"
                   ? employeeProfileDraft.name || activeEditingEmployee?.name || "Employee card"
+                  : homeView === "quotes"
+                    ? "Quotes"
                   : homeView === "quote-record"
                     ? selectedQuote?.ref ?? "Quote setup"
                   : homeView === "quote-cost-centre-record"
                     ? selectedQuoteCostCentre?.name ?? "Quote cost centre"
+                  : homeView === "jobs"
+                    ? "Jobs"
                   : homeView === "job-record"
                     ? selectedJob?.ref ?? "Job record"
                   : homeView === "cost-centre-record"
                     ? selectedCostCentre?.name ?? "Cost centre"
+                  : homeView === "invoices"
+                    ? "Invoices"
                   : homeView === "invoice-record"
                     ? selectedInvoice?.ref
                       ? `Invoice ${selectedInvoice.ref}`
@@ -10223,8 +11524,10 @@ export default function Dashboard() {
                     ? selectedLead?.ref ?? "Lead record"
                   : homeView === "schedule"
                     ? "Scheduler"
-                  : homeView === "settings"
-                    ? "Setup"
+                    : homeView === "settings"
+                      ? "Setup"
+                    : homeView === "profile"
+                      ? "My profile"
                   : homeView === "addons"
                     ? "NeXa add-ons"
                   : homeView === "client-record"
@@ -10238,10 +11541,14 @@ export default function Dashboard() {
               <p>
                 {homeView === "employee-card"
                   ? `${employeeProfileDraft.roleLabel || activeEditingEmployee?.profile?.roleLabel || activeEditingEmployee?.role || "Employee"} · ${employeeProfileDraft.email || activeEditingEmployee?.profile?.email || "No email on file"}`
+                  : homeView === "quotes"
+                    ? `${filteredQuotes.length} quotes · ${quoteStatusFilter}`
                   : homeView === "quote-record"
                     ? `${selectedQuote?.customer ?? "Quote"} · build costs before creating the job`
                   : homeView === "quote-cost-centre-record"
                     ? `${selectedQuote?.ref ?? "Quote"} · parts and labour inside this cost centre`
+                  : homeView === "jobs"
+                    ? `${filteredJobs.length} jobs · ${statusFilter}`
                   : homeView === "job-record"
                     ? `${selectedJob?.customer ?? "Job"} · summary, cost centres and variations`
                   : homeView === "cost-centre-record"
@@ -10258,6 +11565,8 @@ export default function Dashboard() {
                     ? `${bookingsForSelectedDate.length} appointments booked · availability for ${surveyorOptions.join(", ")}`
                   : homeView === "settings"
                     ? `${documentFolderTemplates.length} document folders · ${engineerFlowTemplate.steps.length} engineer stop/go checks`
+                  : homeView === "profile"
+                    ? `${profileScheduleEntries.length} diary item${profileScheduleEntries.length === 1 ? "" : "s"} · ${profileNotifications.length} notification${profileNotifications.length === 1 ? "" : "s"}`
                   : homeView === "addons"
                     ? "Takeoff, Field and Connect feed structured work back into NeXa Core"
                   : homeView === "client-record"
@@ -10288,13 +11597,33 @@ export default function Dashboard() {
                 <button className="secondary-button" onClick={returnToQuoteRecord}>
                   Back to quote
                 </button>
+              ) : homeView === "quotes" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button className="primary-button" onClick={createQuote}>
+                    <Plus size={16} />
+                    New quote
+                  </button>
+                </>
+              ) : homeView === "jobs" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button className="primary-button" onClick={createJobFromMenu}>
+                    <Plus size={16} />
+                    New job
+                  </button>
+                </>
               ) : homeView === "invoices" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to dashboard
                   </button>
                   {access.canEditInvoice ? (
-                    <button className="primary-button" onClick={() => showNotice("Use quote or job records to create a new invoice quickly.")}>
+                    <button className="primary-button" onClick={openInvoiceSourcePicker}>
                       New invoice from source
                     </button>
                   ) : null}
@@ -10399,6 +11728,32 @@ export default function Dashboard() {
                     Book lead survey
                   </button>
                 </>
+              ) : homeView === "profile" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setHomeView("schedule");
+                      scrollWorkspaceToTop();
+                    }}
+                  >
+                    Open scheduler
+                  </button>
+                  {activeEmployee ? (
+                    <button
+                      className="primary-button"
+                      onClick={() => {
+                        openEmployeeCardView(activeEmployee.id);
+                        scrollWorkspaceToTop();
+                      }}
+                    >
+                      Open employee card
+                    </button>
+                  ) : null}
+                </>
               ) : homeView === "settings" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
@@ -10458,11 +11813,16 @@ export default function Dashboard() {
                   <button
                     className="secondary-button"
                     onClick={() =>
-                      showNotice(
-                        access.canCustomize
-                          ? "Customise is planned as a per-user dashboard layout."
-                          : "Customise is restricted for this role in this build.",
-                      )
+                      (() => {
+                        setHomeView("settings");
+                        setActiveSetupSubItem(null);
+                        scrollWorkspaceToTop();
+                        showNotice(
+                          access.canCustomize
+                            ? "Setup opened. Use the left categories to customise the working prototype."
+                            : "Setup access is restricted for this role.",
+                        );
+                      })()
                     }
                   >
                     <SlidersHorizontal size={16} />
@@ -10493,7 +11853,335 @@ export default function Dashboard() {
             </>
           ) : null}
 
-          {homeView === "addons" ? (
+          {homeView === "profile" ? (
+            <section className="profile-workspace">
+              <section className="profile-hero-panel">
+                <div className="profile-avatar-large">
+                  {(activeEmployee?.name ?? "NeXa")
+                    .split(" ")
+                    .map((part) => part[0])
+                    .join("")
+                    .slice(0, 2)}
+                </div>
+                <div>
+                  <span className="permission-heading">Logged-in profile</span>
+                  <h2>{activeEmployee?.name ?? "NeXa user"}</h2>
+                  <p>{activeEmployee?.profile?.roleLabel ?? activeEmployee?.role ?? "Workspace user"}</p>
+                </div>
+                <div className="profile-hero-stats">
+                  <article>
+                    <span>Diary</span>
+                    <strong>{profileScheduleEntries.length}</strong>
+                  </article>
+                  <article>
+                    <span>Today</span>
+                    <strong>{profileSelectedDay?.entries.length ?? 0}</strong>
+                  </article>
+                  <article>
+                    <span>Alerts</span>
+                    <strong>{profileNotifications.length}</strong>
+                  </article>
+                </div>
+              </section>
+
+              <div className="profile-grid">
+                <section className="profile-calendar-panel">
+                  <div className="panel-header">
+                    <div>
+                      <h2>My diary</h2>
+                    </div>
+                    <div className="profile-date-tabs" role="tablist" aria-label="My diary dates">
+                      {profileWeekSchedule.map((day) => (
+                        <button
+                          className={profileSelectedDay?.date === day.date ? "active" : ""}
+                          key={day.date}
+                          type="button"
+                          onClick={() => setScheduleDate(day.date)}
+                        >
+                          <span>{day.label}</span>
+                          <strong>{day.entries.length}</strong>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="profile-diary-list">
+                    {(profileSelectedDay?.entries ?? []).map((entry) => (
+                      <button className="profile-diary-item" key={entry.id} type="button" onClick={entry.open}>
+                        <StatusDot tone={entry.tone} />
+                        <time>{entry.time}</time>
+                        <span>
+                          <strong>{entry.ref} · {entry.title}</strong>
+                          <small>{entry.type} · {entry.detail}</small>
+                        </span>
+                      </button>
+                    ))}
+                    {(profileSelectedDay?.entries.length ?? 0) === 0 ? (
+                      <div className="profile-empty-state">
+                        <CalendarDays size={18} />
+                        <strong>No diary items on this day</strong>
+                        <span>Lead surveys and scheduled jobs assigned to {activeEmployee?.name ?? "this profile"} will appear here.</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+
+                <aside className="profile-notification-panel">
+                  <div className="panel-header compact">
+                    <div>
+                      <h2>My notifications</h2>
+                    </div>
+                    <span className="notification-total">{profileNotifications.length}</span>
+                  </div>
+                  <div className="profile-notification-list">
+                    {profileNotifications.map((notification) => (
+                      <button className={`profile-notification-item ${notification.tone}`} key={notification.id} type="button" onClick={notification.open}>
+                        <AlertTriangle size={15} />
+                        <span>
+                          <strong>{notification.title}</strong>
+                          <b>{notification.detail}</b>
+                          <small>{notification.meta}</small>
+                        </span>
+                      </button>
+                    ))}
+                    {profileNotifications.length === 0 ? (
+                      <div className="profile-empty-state compact">
+                        <Check size={17} />
+                        <strong>No personal alerts</strong>
+                        <span>Anything assigned to this profile will show here.</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </aside>
+
+                <section className="profile-availability-panel">
+                  <div className="panel-header compact">
+                    <div>
+                      <h2>Availability</h2>
+                    </div>
+                    <button className="secondary-button" type="button" onClick={() => activeEmployee ? openEmployeeCardView(activeEmployee.id) : undefined}>
+                      Edit
+                    </button>
+                  </div>
+                  <div className="profile-availability-grid">
+                    {weekDays.map((day) => {
+                      const availability = activeEmployee?.profile?.availability?.[day];
+                      return (
+                        <article className={availability?.active ? "active" : ""} key={day}>
+                          <strong>{day}</strong>
+                          <span>{availability?.active ? `${availability.from}-${availability.to}` : "Off"}</span>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
+            </section>
+          ) : homeView === "quotes" ? (
+            <section className="quote-panel record-directory workflow-directory quote-directory">
+              <div className="panel-header">
+                <div>
+                  <h2>Quote folders</h2>
+                </div>
+                <div className="panel-controls">
+                  <label className="status-filter">
+                    <select value={quoteStatusFilter} onChange={(event) => setQuoteStatusFilter(event.target.value)} aria-label="Filter quotes by status">
+                      <option>All quotes</option>
+                      {quoteStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="primary-button" onClick={createQuote}>
+                    <Plus size={16} />
+                    New quote
+                  </button>
+                </div>
+              </div>
+
+              <div className="record-folder-grid">
+                {quoteDirectoryGroups.map((group) => (
+                  <article className={`record-folder-card ${group.tone}`} key={group.key}>
+                    <span>{group.label}</span>
+                    <strong>{group.items.length}</strong>
+                  </article>
+                ))}
+                <article className={`record-folder-card ${quoteResponseFollowUps.some((item) => item.followUp.tone === "red") ? "red" : "amber"}`}>
+                  <span>Follow-up due</span>
+                  <strong>{quoteResponseFollowUps.length}</strong>
+                </article>
+              </div>
+
+              <div className="record-folder-stack">
+                {quoteDirectoryGroups.map((group) => (
+                  <section className="record-folder-section" key={group.key}>
+                    <header>
+                      <div>
+                        <h3>{group.label}</h3>
+                      </div>
+                      <span className={`status-pill ${group.tone}`}>{group.items.length} quotes</span>
+                    </header>
+                    {group.items.length === 0 ? (
+                      <div className="record-folder-empty">No quotes in this folder yet.</div>
+                    ) : (
+                      <>
+                        <div className="quote-row table-header">
+                          <span>Quote / description</span>
+                          <span>Client / address</span>
+                          <span>Status</span>
+                          <span>Value</span>
+                          <span>Next action</span>
+                        </div>
+                        {group.items.map((quote) => {
+                          const linkedJob = getQuoteJob(quote);
+                          const quoteAddress = getQuoteAddress(quote, linkedJob);
+                          const followUp = getQuoteResponseFollowUp(quote);
+                          return (
+                            <article
+                              className={`quote-row clickable ${followUp ? "needs-attention" : ""} ${followUp?.tone === "red" ? "red" : ""}`}
+                              key={quote.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => openQuoteDrawer(quote.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  openQuoteDrawer(quote.id);
+                                }
+                              }}
+                            >
+                              <div className="job-identity">
+                                <div>
+                                  <StatusDot tone={quote.status === "Accepted" || quote.status === "Converted" ? "green" : quote.status === "Sent" ? "blue" : quote.status === "Declined" || quote.status === "Lost" ? "red" : "amber"} />
+                                  <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openQuoteDrawer(quote.id); }}>
+                                    {quote.ref}
+                                  </a>
+                                  {linkedJob ? <span>{linkedJob.ref}</span> : quote.sourceLeadRef ? <span>{quote.sourceLeadRef}</span> : null}
+                                </div>
+                                <strong>{quote.description}</strong>
+                              </div>
+                              <span className="record-address-cell">
+                                <strong>{quote.customer}</strong>
+                                <small>{quoteAddress}</small>
+                              </span>
+                              <span className={`status-pill ${quote.status === "Accepted" || quote.status === "Converted" ? "green" : quote.status === "Sent" ? "blue" : quote.status === "Declined" || quote.status === "Lost" ? "red" : "amber"}`}>
+                                {quote.status}
+                              </span>
+                              <strong className="value">{currency(quote.value)}</strong>
+                              <span className="next-action quote-workflow-action">
+                                <strong>{followUp ? followUp.label : quote.next}</strong>
+                                <small>{followUp ? "Call or email customer" : `Due ${quote.due}`}</small>
+                                {linkedJob ? (
+                                  <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openJobDrawer(linkedJob.id); }}>
+                                    Open job
+                                  </button>
+                                ) : null}
+                              </span>
+                            </article>
+                          );
+                        })}
+                      </>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </section>
+          ) : homeView === "jobs" ? (
+            <section className="quote-panel record-directory workflow-directory job-directory">
+              <div className="panel-header">
+                <div>
+                  <h2>Job folders</h2>
+                </div>
+                <div className="panel-controls">
+                  <label className="status-filter">
+                    <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Filter jobs by status">
+                      <option>All statuses</option>
+                      {jobStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button className="primary-button" onClick={createJobFromMenu}>
+                    <Plus size={16} />
+                    New job
+                  </button>
+                </div>
+              </div>
+
+              <div className="record-folder-grid">
+                {jobDirectoryGroups.map((group) => (
+                  <article className={`record-folder-card ${group.tone}`} key={group.key}>
+                    <span>{group.label}</span>
+                    <strong>{group.items.length}</strong>
+                  </article>
+                ))}
+              </div>
+
+              <div className="record-folder-stack">
+                {jobDirectoryGroups.map((group) => (
+                  <section className="record-folder-section" key={group.key}>
+                    <header>
+                      <div>
+                        <h3>{group.label}</h3>
+                      </div>
+                      <span className={`status-pill ${group.tone}`}>{group.items.length} jobs</span>
+                    </header>
+                    {group.items.length === 0 ? (
+                      <div className="record-folder-empty">No jobs in this folder yet.</div>
+                    ) : (
+                      <>
+                        <div className="quote-row table-header">
+                          <span>Job / description</span>
+                          <span>Client / address</span>
+                          <span>Status</span>
+                          <span>Value</span>
+                          <span>Next action</span>
+                        </div>
+                        {group.items.map((job) => (
+                          <article
+                            className="quote-row clickable"
+                            key={job.id}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openJobDrawer(job.id)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openJobDrawer(job.id);
+                              }
+                            }}
+                          >
+                            <div className="job-identity">
+                              <div>
+                                <StatusDot tone={job.health} />
+                                <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openJobDrawer(job.id); }}>
+                                  {job.ref}
+                                </a>
+                              </div>
+                              <strong>{job.description}</strong>
+                            </div>
+                            <span className="record-address-cell">
+                              <strong>{job.customer}</strong>
+                              <small>{job.site}</small>
+                            </span>
+                            <span className={`status-pill ${job.health}`}>{job.status}</span>
+                            <strong className="value">{currency(job.value)}</strong>
+                            <span className="next-action quote-workflow-action">
+                              <strong>{job.next}</strong>
+                              <small>{job.scheduledDate && job.scheduledTime ? `${job.scheduledDate} at ${job.scheduledTime}` : `Due ${job.due}`}</small>
+                              <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openJobDrawer(job.id); }}>
+                                Open job
+                              </button>
+                            </span>
+                          </article>
+                        ))}
+                      </>
+                    )}
+                  </section>
+                ))}
+              </div>
+            </section>
+          ) : homeView === "addons" ? (
             <section className="addon-workspace">
               <div className="addon-hero">
                 <div>
@@ -10820,34 +12508,46 @@ export default function Dashboard() {
                       <header>
                         <span className="simpro-drag-handle" aria-hidden="true" />
                         <strong>{selectedQuote.description || "Bathroom refurbishment"}</strong>
-                        <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
-                          Options <ChevronDown size={13} />
-                        </button>
+                        <div className="simpro-section-actions">
+                          <button className="simpro-grey-button" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
+                          <button
+                            className="simpro-blue-button"
+                            type="button"
+                            aria-expanded={showQuoteCostCentreCreate}
+                            onClick={() => setShowQuoteCostCentreCreate((current) => !current)}
+                          >
+                            {showQuoteCostCentreCreate ? "CLOSE" : "ADD COST CENTRE"}
+                          </button>
+                          <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
+                            Options <ChevronDown size={13} />
+                          </button>
+                        </div>
                       </header>
 
-                      <div className="simpro-cost-centre-add">
-                        <label>
-                          Default category
-                          <select
-                            value={quoteCostCentreTemplateDraft}
-                            onChange={(event) => setQuoteCostCentreTemplateDraft(event.target.value)}
-                          >
-                            {costCentreTemplates.map((template) => (
-                              <option key={template} value={template}>{template}</option>
-                            ))}
-                          </select>
-                        </label>
-                        <label>
-                          Cost Centre Name <span>(Optional)</span>
-                          <input
-                            placeholder="Enter Name here..."
-                            value={quoteCostCentreNameDraft}
-                            onChange={(event) => setQuoteCostCentreNameDraft(event.target.value)}
-                          />
-                        </label>
-                        <button className="simpro-blue-button" type="button" onClick={addQuoteCostCentre}>ADD</button>
-                        <button className="simpro-grey-button align-right" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
-                      </div>
+                      {showQuoteCostCentreCreate ? (
+                        <div className="simpro-cost-centre-add">
+                          <label>
+                            Default category
+                            <select
+                              value={quoteCostCentreTemplateDraft}
+                              onChange={(event) => setQuoteCostCentreTemplateDraft(event.target.value)}
+                            >
+                              {costCentreTypeOptions.map((template) => (
+                                <option key={template} value={template}>{template}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Cost Centre Name <span>(Optional)</span>
+                            <input
+                              placeholder="Enter Name here..."
+                              value={quoteCostCentreNameDraft}
+                              onChange={(event) => setQuoteCostCentreNameDraft(event.target.value)}
+                            />
+                          </label>
+                          <button className="simpro-blue-button" type="button" onClick={addQuoteCostCentre}>ADD</button>
+                        </div>
+                      ) : null}
 
                       <div className="simpro-cost-centre-list">
                       {selectedQuoteCostCentres.map((centre) => {
@@ -12810,34 +14510,46 @@ export default function Dashboard() {
                           <header>
                             <span className="simpro-drag-handle" aria-hidden="true" />
                             <strong>Bathroom refurbishment</strong>
-                            <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
-                              Options <ChevronDown size={13} />
-                            </button>
+                            <div className="simpro-section-actions">
+                              <button className="simpro-grey-button" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                aria-expanded={showJobCostCentreCreate}
+                                onClick={() => setShowJobCostCentreCreate((current) => !current)}
+                              >
+                                {showJobCostCentreCreate ? "CLOSE" : "ADD COST CENTRE"}
+                              </button>
+                              <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
+                                Options <ChevronDown size={13} />
+                              </button>
+                            </div>
                           </header>
 
-                          <div className="simpro-cost-centre-add">
-                            <label>
-                              Default category
-                              <select
-                                value={jobCostCentreTemplateDraft}
-                                onChange={(event) => setJobCostCentreTemplateDraft(event.target.value)}
-                              >
-                                {costCentreTemplates.map((template) => (
-                                  <option key={template} value={template}>{template}</option>
-                                ))}
-                              </select>
-                            </label>
-                            <label>
-                              Cost Centre Name <span>(Optional)</span>
-                              <input
-                                placeholder="Enter Name here..."
-                                value={jobCostCentreNameDraft}
-                                onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
-                              />
-                            </label>
-                            <button className="simpro-blue-button" type="button" onClick={addJobCostCentre}>ADD</button>
-                            <button className="simpro-grey-button align-right" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
-                          </div>
+                          {showJobCostCentreCreate ? (
+                            <div className="simpro-cost-centre-add">
+                              <label>
+                                Default category
+                                <select
+                                  value={jobCostCentreTemplateDraft}
+                                  onChange={(event) => setJobCostCentreTemplateDraft(event.target.value)}
+                                >
+                                  {costCentreTypeOptions.map((template) => (
+                                    <option key={template} value={template}>{template}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                Cost Centre Name <span>(Optional)</span>
+                                <input
+                                  placeholder="Enter Name here..."
+                                  value={jobCostCentreNameDraft}
+                                  onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
+                                />
+                              </label>
+                              <button className="simpro-blue-button" type="button" onClick={addJobCostCentre}>ADD</button>
+                            </div>
+                          ) : null}
 
                           <div className="simpro-cost-centre-list">
                           {selectedJobBaseCostCentres.map((centre) => {
@@ -12951,7 +14663,7 @@ export default function Dashboard() {
                                   value={jobVariationCostCentreTemplateDraft}
                                   onChange={(event) => setJobVariationCostCentreTemplateDraft(event.target.value)}
                                 >
-                                  {costCentreTemplates.map((template) => (
+                                  {costCentreTypeOptions.map((template) => (
                                     <option key={template} value={template}>{template}</option>
                                   ))}
                                 </select>
@@ -13196,8 +14908,6 @@ export default function Dashboard() {
                     ) : null}
                   </section>
                 ) : null}
-
-                {activeJobTab === "engineer-flow" ? renderEngineerFlowWorkspace(selectedJob) : null}
 
                 {activeJobTab === "documents" ? renderDocumentWorkspace("job", selectedJob.ref) : null}
 
@@ -14030,6 +15740,8 @@ export default function Dashboard() {
                   </section>
                 ) : null}
 
+                {activeCostCentreTab === "engineer-flow" ? renderEngineerFlowWorkspace(selectedJob, selectedCostCentre) : null}
+
                 {activeCostCentreTab === "schedule" || activeCostCentreTab === "assets" ? (
                   <section className="simpro-empty-workspace">
                     <h2>{activeCostCentreTab === "schedule" ? "Schedule" : "Customer Assets"}</h2>
@@ -14039,11 +15751,10 @@ export default function Dashboard() {
               </section>
                 ) : null
           ) : homeView === "invoices" ? (
-            <section className="quote-panel">
+            <section className="quote-panel record-directory invoice-directory">
               <div className="panel-header">
                 <div>
                   <h2>Invoices</h2>
-                  <p>Draft, sent, paid and cancelled invoices with quick source linking.</p>
                 </div>
                 <label className="status-filter">
                   <select value={invoiceStatusFilter} onChange={(event) => setInvoiceStatusFilter(event.target.value)} aria-label="Filter invoices by status">
@@ -14054,72 +15765,103 @@ export default function Dashboard() {
                   </select>
                 </label>
               </div>
-              <div className="quote-row table-header">
-                <span>Invoice / title</span>
-                <span>Source</span>
-                <span>Customer</span>
-                <span>Status</span>
-                <span>Amount</span>
-                <span>Due</span>
+              <div className="record-folder-grid">
+                {invoiceDirectoryGroups.map((group) => (
+                  <article className={`record-folder-card ${group.tone}`} key={group.key}>
+                    <span>{group.label}</span>
+                    <strong>{group.items.length}</strong>
+                  </article>
+                ))}
               </div>
-              {filteredInvoices.map((invoice) => {
-                const source =
-                  invoice.sourceType === "quote"
-                    ? quotes.find((item) => item.id === invoice.sourceId)
-                    : jobs.find((item) => item.id === invoice.sourceId);
-                return (
-                  <div
-                    className="quote-row clickable"
-                    key={invoice.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openInvoiceRecord(invoice.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        openInvoiceRecord(invoice.id);
-                      }
-                    }}
-                  >
-                    <div className="job-identity">
+
+              <div className="record-folder-stack">
+                {invoiceDirectoryGroups.map((group) => (
+                  <section className="record-folder-section" key={group.key}>
+                    <header>
                       <div>
-                        <StatusDot tone={invoice.status === "Paid" ? "green" : invoice.status === "Partially paid" ? "amber" : invoice.status === "Cancelled" ? "red" : "blue"} />
-                        <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openInvoiceRecord(invoice.id); }}>
-                          {invoice.ref}
-                        </a>
-                        <span>{invoice.title}</span>
+                        <h3>{group.label}</h3>
                       </div>
-                      <strong>{invoice.notes}</strong>
-                    </div>
-                    <span className="quote-site">{invoice.sourceName}</span>
-                    <span className="manager">{invoice.customer}</span>
-                    <span className={`status-pill ${invoice.status === "Cancelled" ? "red" : invoice.status === "Paid" ? "green" : "blue"}`}>
-                      {invoice.status}
-                    </span>
-                    <strong className="value">{currency(invoice.chargeTotal)}</strong>
-                    <span className="next-action quote-workflow-action">
-                      <strong>Due {invoice.dueDate}</strong>
-                      <small>{source ? (invoice.sourceType === "quote" ? source.next : source.next) : "No source activity"}</small>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          if (invoice.sourceType === "quote") {
-                            const sourceQuote = source as Quote | undefined;
-                            if (sourceQuote) openQuoteDrawer(sourceQuote.id);
-                          } else {
-                            const sourceJob = source as Job | undefined;
-                            if (sourceJob) openJobDrawer(sourceJob.id);
-                          }
-                        }}
-                      >
-                        Open {invoice.sourceType}
-                      </button>
-                    </span>
-                  </div>
-                );
-              })}
+                      <span className={`status-pill ${group.tone}`}>{group.items.length} invoices</span>
+                    </header>
+                    {group.items.length === 0 ? (
+                      <div className="record-folder-empty">No invoices in this folder yet.</div>
+                    ) : (
+                      <>
+                        <div className="quote-row table-header">
+                          <span>Invoice / description</span>
+                          <span>Client / address</span>
+                          <span>Source</span>
+                          <span>Status</span>
+                          <span>Amount</span>
+                          <span>Due</span>
+                        </div>
+                        {group.items.map((invoice) => {
+                          const source =
+                            invoice.sourceType === "quote"
+                              ? quotes.find((item) => item.id === invoice.sourceId)
+                              : jobs.find((item) => item.id === invoice.sourceId);
+                          const invoiceAddress = getInvoiceAddress(invoice);
+                          return (
+                            <article
+                              className="quote-row clickable"
+                              key={invoice.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => openInvoiceRecord(invoice.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  openInvoiceRecord(invoice.id);
+                                }
+                              }}
+                            >
+                              <div className="job-identity">
+                                <div>
+                                  <StatusDot tone={invoice.status === "Paid" ? "green" : invoice.status === "Partially paid" ? "amber" : invoice.status === "Cancelled" ? "red" : "blue"} />
+                                  <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openInvoiceRecord(invoice.id); }}>
+                                    {invoice.ref}
+                                  </a>
+                                  <span>{invoice.sourceRef}</span>
+                                </div>
+                                <strong>{invoice.title}</strong>
+                              </div>
+                              <span className="record-address-cell">
+                                <strong>{invoice.customer}</strong>
+                                <small>{invoiceAddress}</small>
+                              </span>
+                              <span className="quote-site">{invoice.sourceName}</span>
+                              <span className={`status-pill ${invoice.status === "Cancelled" ? "red" : invoice.status === "Paid" ? "green" : "blue"}`}>
+                                {invoice.status}
+                              </span>
+                              <strong className="value">{currency(invoice.chargeTotal)}</strong>
+                              <span className="next-action quote-workflow-action">
+                                <strong>Due {invoice.dueDate}</strong>
+                                <small>{source ? source.next : "No source activity"}</small>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (invoice.sourceType === "quote") {
+                                      const sourceQuote = source as Quote | undefined;
+                                      if (sourceQuote) openQuoteDrawer(sourceQuote.id);
+                                    } else {
+                                      const sourceJob = source as Job | undefined;
+                                      if (sourceJob) openJobDrawer(sourceJob.id);
+                                    }
+                                  }}
+                                >
+                                  Open {invoice.sourceType}
+                                </button>
+                              </span>
+                            </article>
+                          );
+                        })}
+                      </>
+                    )}
+                  </section>
+                ))}
+              </div>
             </section>
           ) : homeView === "invoice-record" ? (
             selectedInvoice ? (
@@ -14737,190 +16479,743 @@ export default function Dashboard() {
               </div>
             </section>
           ) : homeView === "settings" ? (
-            <section className="setup-workspace">
-              <div className="panel-header">
-                <div>
-                  <h2>NeXa setup</h2>
-                  <p>Default folders, visibility and engineer stop/go flows that records inherit across leads, quotes and jobs.</p>
-                </div>
-              </div>
+            <section className="setup-workspace setup-page-shell">
+              <div className="setup-layout">
+                <aside className="setup-category-nav" aria-label="Setup categories">
+                  {setupCategories.map((category) => (
+                    <div className="setup-category-item" key={category.key}>
+                      <button
+                        className={activeSetupCategory === category.key ? "setup-category-trigger active" : "setup-category-trigger"}
+                        type="button"
+                        onClick={() => {
+                          setActiveSetupCategory(category.key);
+                          setActiveSetupSubItem(null);
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        <strong>{category.label}</strong>
+                      </button>
+                      {category.subItems?.length ? (
+                        <div className="setup-category-submenu" role="menu" aria-label={`${category.label} options`}>
+                          {category.subItems.map((item) => (
+                            <button
+                              className={
+                                activeSetupCategory === category.key && activeSetupSubItem === item
+                                  ? "setup-submenu-option active"
+                                  : "setup-submenu-option"
+                              }
+                              key={item}
+                              type="button"
+                              role="menuitem"
+                              onClick={() => handleSetupSubItemClick(category, item)}
+                            >
+                              {item}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </aside>
 
-              <section className="setup-panel setup-readiness">
-                <div className="documents-toolbar">
-                  <div>
-                    <span className="permission-heading">Live readiness</span>
-                    <h2>Core systems</h2>
+                <div className="setup-category-content">
+                  <div className="setup-category-heading">
+                    <span className="permission-heading">
+                      {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
+                    </span>
+                    <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
                   </div>
-                  <span className="setup-status-label">Build status: on track</span>
-                </div>
-                <div className="setup-readiness-grid">
-                  <article>
-                    <span>Data persistence</span>
-                    <strong>Quotes, jobs, leads and POs persist to workspace</strong>
-                    <small>Stored in .hubflo-runtime files for repeatable sessions.</small>
-                  </article>
-                  <article>
-                    <span>Audit trail</span>
-                    <strong>History retained across app restarts</strong>
-                    <small>Create, linked and status-change events are preserved.</small>
-                  </article>
-                  <article>
-                    <span>Engineer path</span>
-                    <strong>Routes and job actions remain active</strong>
-                    <small>WhatsApp capture is ready for test profile, then production keys.</small>
-                  </article>
-                  <article>
-                    <span>Client registry</span>
-                    <strong>New customers and sites can be reused across leads and quotes</strong>
-                    <small>No duplicate creation for repeated enquiries from the same contact.</small>
-                  </article>
-                </div>
-              </section>
 
-              <section className="setup-panel">
-                <div className="documents-toolbar">
-                  <div>
-                    <span className="permission-heading">Documents</span>
-                    <h2>Default folder template</h2>
-                  </div>
-                  <div className="setup-add-folder">
-                    <input
-                      aria-label="New folder name"
-                      placeholder="Add folder name"
-                      value={newDocumentFolderName}
-                      onChange={(event) => setNewDocumentFolderName(event.target.value)}
-                    />
-                    <button className="primary-button" type="button" onClick={addDocumentFolderTemplate}>
-                      <Plus size={15} />
-                      Add folder
-                    </button>
-                  </div>
-                </div>
-
-                <div className="setup-folder-list">
-                  {documentFolderTemplates.map((folder) => (
-                    <article className="setup-folder-row" key={folder.id}>
-                      <label>
-                        Folder name
-                        <input value={folder.name} onChange={(event) => updateDocumentFolder(folder.id, { name: event.target.value })} />
-                      </label>
-                      <label>
-                        Default visibility
-                        <select
-                          value={folder.defaultVisibility}
-                          onChange={(event) =>
-                            updateDocumentFolder(folder.id, { defaultVisibility: event.target.value as DocumentVisibility })
-                          }
-                        >
-                          <option>Private</option>
-                          <option>Engineer</option>
-                          <option>Client</option>
-                        </select>
-                      </label>
-                      <label>
-                        Description
-                        <input value={folder.description} onChange={(event) => updateDocumentFolder(folder.id, { description: event.target.value })} />
-                      </label>
-                      <div className="setup-record-scope" aria-label={`${folder.name} record types`}>
-                        {(["lead", "quote", "job", "invoice"] as RecordDocumentScope[]).map((recordType) => (
-                          <label key={recordType}>
-                            <input
-                              type="checkbox"
-                              checked={folder.recordTypes.includes(recordType)}
-                              onChange={(event) => {
-                                const recordTypes = event.target.checked
-                                  ? Array.from(new Set([...folder.recordTypes, recordType]))
-                                  : folder.recordTypes.filter((type) => type !== recordType);
-                                updateDocumentFolder(folder.id, { recordTypes });
-                              }}
-                            />
-                            {recordType}
-                          </label>
+                  {activeSetupSubItemMeta ? (
+                    <section className="setup-panel setup-subpage-panel">
+                      <div>
+                        <span className="permission-heading">{activeSetupCategoryMeta.label}</span>
+                        <h2>{activeSetupSubItem}</h2>
+                        <p>{activeSetupSubItemMeta.summary}</p>
+                      </div>
+                      <div className="setup-subpage-status">{activeSetupSubItemMeta.status}</div>
+                      <div className="setup-subpage-focus">
+                        {activeSetupSubItemMeta.focus.map((focusItem) => (
+                          <span key={focusItem}>{focusItem}</span>
                         ))}
                       </div>
-                      <button className="secondary-button" type="button" onClick={() => removeDocumentFolderTemplate(folder.id)}>
-                        Remove
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              </section>
+                    </section>
+                  ) : null}
 
-              <section className="setup-panel">
-                <div className="documents-toolbar">
-                  <div>
-                    <span className="permission-heading">Engineer app</span>
-                    <h2>Boiler stop/go flow</h2>
-                  </div>
-                  <span className="setup-flow-count">{engineerFlowTemplate.steps.filter((step) => step.required).length} required checks</span>
-                </div>
+                  {activeSetupCategory === "overview" ? (
+                    <section className="setup-panel setup-readiness">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Live readiness</span>
+                          <h2>Core systems</h2>
+                        </div>
+                        <div className="setup-template-actions">
+                          <a className="secondary-button" href="/api/prototype-backup" download>
+                            Export pilot backup
+                          </a>
+                          <span className="setup-status-label">Build status: on track</span>
+                        </div>
+                      </div>
+                      <div className="setup-readiness-grid">
+                        <article>
+                          <span>Data persistence</span>
+                          <strong>Quotes, jobs, leads and POs persist to workspace</strong>
+                          <small>Stored in .hubflo-runtime files for repeatable sessions.</small>
+                        </article>
+                        <article>
+                          <span>Audit trail</span>
+                          <strong>History retained across app restarts</strong>
+                          <small>Create, linked and status-change events are preserved.</small>
+                        </article>
+                        <article>
+                          <span>Engineer path</span>
+                          <strong>Routes and job actions remain active</strong>
+                          <small>Cost centres can now carry assigned engineer stop/go flows.</small>
+                        </article>
+                        <article>
+                          <span>Client registry</span>
+                          <strong>New customers and sites can be reused across leads and quotes</strong>
+                          <small>No duplicate creation for repeated enquiries from the same contact.</small>
+                        </article>
+                      </div>
+                    </section>
+                  ) : null}
 
-                <div className="setup-template-card">
-                  <label>
-                    Template name
-                    <input
-                      value={engineerFlowTemplate.name}
-                      onChange={(event) => setEngineerFlowTemplate((current) => ({ ...current, name: event.target.value }))}
-                    />
-                  </label>
-                  <div>
-                    <span className="permission-heading">Applies when cost centre category is</span>
-                    <strong>{engineerFlowTemplate.appliesTo.join(", ")}</strong>
-                    <p>Later, Setup can add more flow templates for bathrooms, servicing, drainage and reactive works.</p>
-                  </div>
-                </div>
+                  {activeSetupCategory === "business" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Business profile</span>
+                          <h2>Company and workspace details</h2>
+                        </div>
+                        <span className="setup-status-label">{businessSettings.workspaceName}</span>
+                      </div>
 
-                <div className="setup-flow-list">
-                  {engineerFlowTemplate.steps.map((step) => (
-                    <article className="setup-flow-row" key={step.id}>
-                      <label>
-                        Stage
-                        <select
-                          value={step.stage}
-                          onChange={(event) => updateEngineerFlowStep(step.id, { stage: event.target.value as EngineerFlowStep["stage"] })}
-                        >
-                          <option>Existing Boiler</option>
-                          <option>New Boiler</option>
-                          <option>Commissioning</option>
-                          <option>Handover</option>
-                        </select>
-                      </label>
-                      <label>
-                        Check required
-                        <input value={step.label} onChange={(event) => updateEngineerFlowStep(step.id, { label: event.target.value })} />
-                      </label>
-                      <label>
-                        Evidence
-                        <select
-                          value={step.evidence}
-                          onChange={(event) => updateEngineerFlowStep(step.id, { evidence: event.target.value as EngineerFlowEvidence })}
-                        >
-                          <option>Photo</option>
-                          <option>Text</option>
-                          <option>Number</option>
-                          <option>Signature</option>
-                          <option>Checkbox</option>
-                        </select>
-                      </label>
-                      <label className="setup-required-toggle">
+                      <div className="setup-form-grid">
+                        <label>
+                          Company name
+                          <input value={businessSettings.companyName} onChange={(event) => updateBusinessSettings({ companyName: event.target.value })} />
+                        </label>
+                        <label>
+                          Trading name
+                          <input value={businessSettings.tradingName} onChange={(event) => updateBusinessSettings({ tradingName: event.target.value })} />
+                        </label>
+                        <label>
+                          Workspace name
+                          <input value={businessSettings.workspaceName} onChange={(event) => updateBusinessSettings({ workspaceName: event.target.value })} />
+                        </label>
+                        <label>
+                          Default sender email
+                          <input value={businessSettings.defaultFromEmail} onChange={(event) => updateBusinessSettings({ defaultFromEmail: event.target.value })} />
+                        </label>
+                        <label>
+                          Contact email
+                          <input value={businessSettings.contactEmail} onChange={(event) => updateBusinessSettings({ contactEmail: event.target.value })} />
+                        </label>
+                        <label>
+                          Phone
+                          <input value={businessSettings.phone} onChange={(event) => updateBusinessSettings({ phone: event.target.value })} />
+                        </label>
+                        <label className="span-2">
+                          Address
+                          <input value={businessSettings.address} onChange={(event) => updateBusinessSettings({ address: event.target.value })} />
+                        </label>
+                        <label>
+                          VAT number
+                          <input value={businessSettings.vatNumber} onChange={(event) => updateBusinessSettings({ vatNumber: event.target.value })} />
+                        </label>
+                        <label>
+                          Company number
+                          <input value={businessSettings.companyNumber} onChange={(event) => updateBusinessSettings({ companyNumber: event.target.value })} />
+                        </label>
+                        <label className="span-2">
+                          Client portal brand line
+                          <input value={businessSettings.clientPortalBrandLine} onChange={(event) => updateBusinessSettings({ clientPortalBrandLine: event.target.value })} />
+                        </label>
+                      </div>
+
+                      <div className="setup-preview-card">
+                        <span>Form header preview</span>
+                        <strong>{businessSettings.companyName}</strong>
+                        <p>{businessSettings.clientPortalBrandLine}</p>
+                        <small>{businessSettings.address} · {businessSettings.contactEmail} · VAT {businessSettings.vatNumber}</small>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "forms" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Forms and templates</span>
+                          <h2>Editable output layouts</h2>
+                        </div>
+                        <div className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={duplicateActiveFormTemplate}>
+                            Duplicate
+                          </button>
+                          <button className="secondary-button" type="button" onClick={resetActiveFormTemplate}>
+                            Reset wording
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="form-template-layout">
+                        <div className="form-template-list">
+                          {formTemplates.map((template) => (
+                            <button
+                              className={template.id === activeFormTemplate.id ? "active" : ""}
+                              key={template.id}
+                              type="button"
+                              onClick={() => setActiveFormTemplateId(template.id)}
+                            >
+                              <span>{documentLayouts.find((layout) => layout.key === template.layout)?.label ?? template.layout}</span>
+                              <strong>{template.name}</strong>
+                              <small>{template.defaultAudience} · {template.includeAcceptance ? "Online acceptance" : "No acceptance"}</small>
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="form-template-editor">
+                          <div className="setup-form-grid">
+                            <label>
+                              Template name
+                              <input value={activeFormTemplate.name} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { name: event.target.value })} />
+                            </label>
+                            <label>
+                              Layout type
+                              <select
+                                value={activeFormTemplate.layout}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { layout: event.target.value as QuoteDocumentLayout })}
+                              >
+                                {documentLayouts.map((layout) => (
+                                  <option key={layout.key} value={layout.key}>{layout.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Form title
+                              <input value={activeFormTemplate.title} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { title: event.target.value })} />
+                            </label>
+                            <label>
+                              Default audience
+                              <select
+                                value={activeFormTemplate.defaultAudience}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { defaultAudience: event.target.value as FormTemplate["defaultAudience"] })}
+                              >
+                                <option>Client</option>
+                                <option>Engineer</option>
+                                <option>Office</option>
+                              </select>
+                            </label>
+                            <label className="span-2">
+                              Intro wording
+                              <textarea value={activeFormTemplate.intro} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { intro: event.target.value })} />
+                            </label>
+                            <label className="span-2">
+                              Footer wording
+                              <textarea value={activeFormTemplate.footer} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { footer: event.target.value })} />
+                            </label>
+                            <label className="span-2">
+                              Terms wording
+                              <textarea value={activeFormTemplate.terms} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { terms: event.target.value })} />
+                            </label>
+                          </div>
+
+                          <div className="setup-switch-grid">
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={activeFormTemplate.includeCostCentreBreakdown}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeCostCentreBreakdown: event.target.checked })}
+                              />
+                              Cost centre breakdown
+                            </label>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={activeFormTemplate.includePnl}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includePnl: event.target.checked })}
+                              />
+                              Internal P&L
+                            </label>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={activeFormTemplate.includeAcceptance}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeAcceptance: event.target.checked })}
+                              />
+                              Online acceptance block
+                            </label>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={activeFormTemplate.includeBankDetails}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeBankDetails: event.target.checked })}
+                              />
+                              Bank details
+                            </label>
+                          </div>
+
+                          <div className="setup-form-preview">
+                            <span>{activeFormTemplate.defaultAudience} preview</span>
+                            <h3>{activeFormTemplate.title}</h3>
+                            <p>{activeFormTemplate.intro}</p>
+                            <ul>
+                              {activeFormTemplate.includeCostCentreBreakdown ? <li>Cost centre summary included</li> : null}
+                              {activeFormTemplate.includePnl ? <li>Internal profit/loss visible</li> : null}
+                              {activeFormTemplate.includeAcceptance ? <li>Online acceptance button included</li> : null}
+                              {activeFormTemplate.includeBankDetails ? <li>Bank details included</li> : null}
+                            </ul>
+                            <small>{activeFormTemplate.footer}</small>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "documents" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Documents</span>
+                          <h2>Default folder template</h2>
+                        </div>
+                        <div className="setup-add-folder">
+                          <input
+                            aria-label="New folder name"
+                            placeholder="Add folder name"
+                            value={newDocumentFolderName}
+                            onChange={(event) => setNewDocumentFolderName(event.target.value)}
+                          />
+                          <button className="primary-button" type="button" onClick={addDocumentFolderTemplate}>
+                            <Plus size={15} />
+                            Add folder
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="setup-folder-list">
+                        {documentFolderTemplates.map((folder) => (
+                          <article className="setup-folder-row" key={folder.id}>
+                            <label>
+                              Folder name
+                              <input value={folder.name} onChange={(event) => updateDocumentFolder(folder.id, { name: event.target.value })} />
+                            </label>
+                            <label>
+                              Default visibility
+                              <select
+                                value={folder.defaultVisibility}
+                                onChange={(event) =>
+                                  updateDocumentFolder(folder.id, { defaultVisibility: event.target.value as DocumentVisibility })
+                                }
+                              >
+                                <option>Private</option>
+                                <option>Engineer</option>
+                                <option>Client</option>
+                              </select>
+                            </label>
+                            <label>
+                              Description
+                              <input value={folder.description} onChange={(event) => updateDocumentFolder(folder.id, { description: event.target.value })} />
+                            </label>
+                            <div className="setup-record-scope" aria-label={`${folder.name} record types`}>
+                              {(["lead", "quote", "job", "invoice"] as RecordDocumentScope[]).map((recordType) => (
+                                <label key={recordType}>
+                                  <input
+                                    type="checkbox"
+                                    checked={folder.recordTypes.includes(recordType)}
+                                    onChange={(event) => {
+                                      const recordTypes = event.target.checked
+                                        ? Array.from(new Set([...folder.recordTypes, recordType]))
+                                        : folder.recordTypes.filter((type) => type !== recordType);
+                                      updateDocumentFolder(folder.id, { recordTypes });
+                                    }}
+                                  />
+                                  {recordType}
+                                </label>
+                              ))}
+                            </div>
+                            <button className="secondary-button" type="button" onClick={() => removeDocumentFolderTemplate(folder.id)}>
+                              Remove
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "cost-centres" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Cost centre types</span>
+                          <h2>Assign engineer checklist by type</h2>
+                        </div>
+                        <div className="setup-add-folder">
+                          <input
+                            aria-label="New cost centre type"
+                            placeholder="Add cost centre type"
+                            value={newCostCentreTypeName}
+                            onChange={(event) => setNewCostCentreTypeName(event.target.value)}
+                          />
+                          <button className="primary-button" type="button" onClick={addCostCentreTypeOption}>
+                            <Plus size={15} />
+                            Add type
+                          </button>
+                        </div>
+                        <span className="setup-flow-count">{costCentreTypeOptions.length} types</span>
+                      </div>
+                      <div className="cost-centre-type-grid">
+                        {costCentreTypeOptions.map((templateName) => {
+                          const assignedFlowId = costCentreFlowAssignmentDrafts[templateName] ?? defaultCostCentreFlowAssignmentMap[templateName] ?? generalWorksFlowTemplate.id;
+                          const assignedFlow = engineerFlowLibrary.find((template) => template.id === assignedFlowId) ?? generalWorksFlowTemplate;
+                          return (
+                            <article className="cost-centre-type-card" key={templateName}>
+                              <span>Cost centre type</span>
+                              <label>
+                                Type name
+                                <input
+                                  value={templateName}
+                                  onChange={(event) => updateCostCentreTypeOption(templateName, event.target.value)}
+                                />
+                              </label>
+                              <label>
+                                Assigned engineer checklist
+                                <select
+                                  value={assignedFlow.id}
+                                  onChange={(event) =>
+                                    setCostCentreFlowAssignmentDrafts((current) => ({
+                                      ...current,
+                                      [templateName]: event.target.value,
+                                    }))
+                                  }
+                                >
+                                  {engineerFlowLibrary.map((template) => (
+                                    <option key={template.id} value={template.id}>
+                                      {template.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <div className="setup-card-footer">
+                                <small>{assignedFlow.steps.filter((step) => step.required).length} required stop/go checks</small>
+                                <button className="secondary-button" type="button" onClick={() => removeCostCentreTypeOption(templateName)}>
+                                  Remove
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "engineer-checklists" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Engineer app</span>
+                          <h2>Engineer checklist library</h2>
+                        </div>
+                        <div className="setup-add-folder">
+                          <input
+                            aria-label="New checklist name"
+                            placeholder="Add checklist template"
+                            value={newEngineerFlowTemplateName}
+                            onChange={(event) => setNewEngineerFlowTemplateName(event.target.value)}
+                          />
+                          <button className="primary-button" type="button" onClick={addEngineerFlowTemplate}>
+                            <Plus size={15} />
+                            Add checklist
+                          </button>
+                        </div>
+                        <span className="setup-flow-count">{engineerFlowLibrary.length} templates</span>
+                      </div>
+
+                      <div className="checklist-library-grid">
+                        {engineerFlowLibrary.map((template) => (
+                          <button
+                            className={template.id === activeEngineerFlowTemplate.id ? "active" : ""}
+                            key={template.id}
+                            type="button"
+                            onClick={() => setActiveEngineerFlowTemplateId(template.id)}
+                          >
+                            <span>{template.appliesTo.join(", ")}</span>
+                            <strong>{template.name}</strong>
+                            <small>{template.steps.filter((step) => step.required).length} required checks</small>
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="setup-template-card">
+                        <label>
+                          Template name
+                          <input
+                            value={activeEngineerFlowTemplate.name}
+                            onChange={(event) => updateEngineerFlowTemplate(activeEngineerFlowTemplate.id, { name: event.target.value })}
+                          />
+                        </label>
+                        <div>
+                          <span className="permission-heading">Assigned to</span>
+                          <strong>{activeChecklistAssignmentCount} cost centre type{activeChecklistAssignmentCount === 1 ? "" : "s"}</strong>
+                          <p>Assign this checklist from Cost centre types. Engineers see the selected checklist inside each job cost centre.</p>
+                        </div>
+                      </div>
+
+                      <div className="setup-add-step-row">
                         <input
-                          type="checkbox"
-                          checked={step.required}
-                          onChange={(event) => updateEngineerFlowStep(step.id, { required: event.target.checked })}
+                          aria-label="New checklist step"
+                          placeholder="Add required checklist item"
+                          value={newEngineerFlowStepLabel}
+                          onChange={(event) => setNewEngineerFlowStepLabel(event.target.value)}
                         />
-                        Required stop/go
-                      </label>
-                    </article>
-                  ))}
+                        <button className="primary-button" type="button" onClick={addEngineerFlowStep}>
+                          <Plus size={15} />
+                          Add step
+                        </button>
+                      </div>
+
+                      <div className="setup-flow-list">
+                        {activeEngineerFlowTemplate.steps.map((step) => (
+                          <article className="setup-flow-row" key={step.id}>
+                            <label>
+                              Stage
+                              <select
+                                value={step.stage}
+                                onChange={(event) => updateEngineerFlowStep(step.id, { stage: event.target.value as EngineerFlowStep["stage"] })}
+                              >
+                                <option>Existing Boiler</option>
+                                <option>New Boiler</option>
+                                <option>Commissioning</option>
+                                <option>Handover</option>
+                              </select>
+                            </label>
+                            <label>
+                              Check required
+                              <input value={step.label} onChange={(event) => updateEngineerFlowStep(step.id, { label: event.target.value })} />
+                            </label>
+                            <label>
+                              Evidence
+                              <select
+                                value={step.evidence}
+                                onChange={(event) => updateEngineerFlowStep(step.id, { evidence: event.target.value as EngineerFlowEvidence })}
+                              >
+                                <option>Photo</option>
+                                <option>Text</option>
+                                <option>Number</option>
+                                <option>Signature</option>
+                                <option>Checkbox</option>
+                              </select>
+                            </label>
+                            <label className="setup-required-toggle">
+                              <input
+                                type="checkbox"
+                                checked={step.required}
+                                onChange={(event) => updateEngineerFlowStep(step.id, { required: event.target.checked })}
+                              />
+                              Required stop/go
+                            </label>
+                            <button className="secondary-button" type="button" onClick={() => removeEngineerFlowStep(step.id)}>
+                              Remove
+                            </button>
+                          </article>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "workflow-rules" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Workflow automation</span>
+                          <h2>Default rules and approval gates</h2>
+                        </div>
+                        <span className="setup-status-label">Live rules</span>
+                      </div>
+
+                      <div className="setup-form-grid">
+                        <label>
+                          Lead quote chase after survey
+                          <input
+                            type="number"
+                            min="0"
+                            value={workflowRules.leadQuoteGraceDays}
+                            onChange={(event) => updateWorkflowRules({ leadQuoteGraceDays: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          Sent quote follow-up after
+                          <input
+                            type="number"
+                            min="0"
+                            value={workflowRules.quoteResponseGraceDays}
+                            onChange={(event) => updateWorkflowRules({ quoteResponseGraceDays: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          Default invoice due days
+                          <input
+                            type="number"
+                            min="0"
+                            value={workflowRules.invoiceDueDays}
+                            onChange={(event) => updateWorkflowRules({ invoiceDueDays: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          Default markup %
+                          <input
+                            type="number"
+                            min="0"
+                            value={workflowRules.defaultMarkupPercent}
+                            onChange={(event) => updateWorkflowRules({ defaultMarkupPercent: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          PO approval threshold
+                          <input
+                            type="number"
+                            min="0"
+                            value={workflowRules.poApprovalThreshold}
+                            onChange={(event) => updateWorkflowRules({ poApprovalThreshold: event.target.value })}
+                          />
+                        </label>
+                      </div>
+
+                      <div className="setup-switch-grid">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={workflowRules.autoCreatePendingJobOnAcceptance}
+                            onChange={(event) => updateWorkflowRules({ autoCreatePendingJobOnAcceptance: event.target.checked })}
+                          />
+                          Auto-create pending job when quote is accepted online
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={workflowRules.requireCommercialReviewBeforeInvoice}
+                            onChange={(event) => updateWorkflowRules({ requireCommercialReviewBeforeInvoice: event.target.checked })}
+                          />
+                          Require commercial review before invoice
+                        </label>
+                      </div>
+
+                      <div className="setup-readiness-grid">
+                        <article>
+                          <span>Leads</span>
+                          <strong>{workflowRules.leadQuoteGraceDays} day quote chase</strong>
+                          <small>Surveyed leads without a quote are highlighted once this grace period passes.</small>
+                        </article>
+                        <article>
+                          <span>Quotes</span>
+                          <strong>{workflowRules.quoteResponseGraceDays} day customer follow-up</strong>
+                          <small>Sent quotes without a response stay in the follow-up queue.</small>
+                        </article>
+                        <article>
+                          <span>Approvals</span>
+                          <strong>POs over £{workflowRules.poApprovalThreshold || "0"}</strong>
+                          <small>Threshold is ready to drive supplier approval routing.</small>
+                        </article>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "communications" ? (
+                    <section className="setup-panel setup-readiness">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Communications</span>
+                          <h2>Outlook, WhatsApp and supplier doorways</h2>
+                        </div>
+                        <span className="setup-status-label">Next integration layer</span>
+                      </div>
+                      <div className="setup-readiness-grid">
+                        <article>
+                          <span>Outlook</span>
+                          <strong>Quote, invoice and job emails send from HubFlo/NeXa</strong>
+                          <small>Captured against the lead, quote, job or invoice record.</small>
+                        </article>
+                        <article>
+                          <span>WhatsApp</span>
+                          <strong>Engineer confirmations and site updates can feed the job</strong>
+                          <small>Live Meta keys are still needed before production messaging.</small>
+                        </article>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "finance" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Finance</span>
+                          <h2>Invoices, valuations and approval gates</h2>
+                        </div>
+                        <span className="setup-status-label">{financeSettings.vatRate}% VAT</span>
+                      </div>
+                      <div className="setup-form-grid">
+                        <label>
+                          VAT rate %
+                          <input value={financeSettings.vatRate} onChange={(event) => updateFinanceSettings({ vatRate: event.target.value })} />
+                        </label>
+                        <label>
+                          Payment terms days
+                          <input value={financeSettings.paymentTermsDays} onChange={(event) => updateFinanceSettings({ paymentTermsDays: event.target.value })} />
+                        </label>
+                        <label>
+                          Invoice prefix
+                          <input value={financeSettings.invoicePrefix} onChange={(event) => updateFinanceSettings({ invoicePrefix: event.target.value })} />
+                        </label>
+                        <label>
+                          Application prefix
+                          <input value={financeSettings.applicationPrefix} onChange={(event) => updateFinanceSettings({ applicationPrefix: event.target.value })} />
+                        </label>
+                        <label>
+                          Bank name
+                          <input value={financeSettings.bankName} onChange={(event) => updateFinanceSettings({ bankName: event.target.value })} />
+                        </label>
+                        <label>
+                          Account name
+                          <input value={financeSettings.accountName} onChange={(event) => updateFinanceSettings({ accountName: event.target.value })} />
+                        </label>
+                        <label>
+                          Sort code
+                          <input value={financeSettings.sortCode} onChange={(event) => updateFinanceSettings({ sortCode: event.target.value })} />
+                        </label>
+                        <label>
+                          Account number
+                          <input value={financeSettings.accountNumber} onChange={(event) => updateFinanceSettings({ accountNumber: event.target.value })} />
+                        </label>
+                      </div>
+                      <div className="setup-readiness-grid">
+                        <article>
+                          <span>Invoices</span>
+                          <strong>{financeSettings.invoicePrefix || "INV"} refs · {financeSettings.paymentTermsDays || "0"} day terms</strong>
+                          <small>Invoice forms and due dates can inherit these defaults.</small>
+                        </article>
+                        <article>
+                          <span>Valuations</span>
+                          <strong>{financeSettings.applicationPrefix || "AFP"} applications</strong>
+                          <small>Applications for payment use the same VAT, bank and business profile.</small>
+                        </article>
+                        <article>
+                          <span>Bank details</span>
+                          <strong>{financeSettings.accountName}</strong>
+                          <small>{financeSettings.bankName} · {financeSettings.sortCode} · {financeSettings.accountNumber}</small>
+                        </article>
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
-              </section>
+              </div>
             </section>
           ) : homeView === "leads" ? (
             <section className="lead-workspace">
               <div className="panel-header">
                 <div>
                   <h2>Lead intake</h2>
-                  <p>Office enquiries from phone, Checkatrade, email and referrals before they become quotes.</p>
                 </div>
                 <div className="panel-controls">
                   <label className="status-filter">
@@ -14942,34 +17237,37 @@ export default function Dashboard() {
                 <article>
                   <span>Open enquiries</span>
                   <strong>{leads.filter((lead) => !["Quoted", "Lost"].includes(lead.status)).length}</strong>
-                  <small>Before quote stage</small>
                 </article>
                 <article>
                   <span>Surveys booked</span>
                   <strong>{leads.filter((lead) => lead.status === "Survey booked").length}</strong>
-                  <small>Assigned to {surveyorOptions.join(", ")}</small>
                 </article>
                 <article>
                   <span>Need scheduling</span>
                   <strong>{leads.filter((lead) => lead.status === "Needs scheduling").length}</strong>
-                  <small>Carol to check diary</small>
+                </article>
+                <article className={overdueLeadQuoteFollowUps.length ? "attention" : ""}>
+                  <span>Quote overdue</span>
+                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
                 </article>
               </div>
 
               <div className="lead-layout">
                 <section className="lead-list-panel">
                   <div className="lead-row table-header">
-                    <span>Lead / customer</span>
-                    <span>Source</span>
+                    <span>Lead / description</span>
+                    <span>Address</span>
+                    <span>Client</span>
                     <span>Survey</span>
                     <span>Status</span>
                     <span>Next action</span>
                   </div>
                   {filteredLeads.map((lead) => {
                     const linkedQuote = getLeadQuote(lead);
+                    const followUp = getLeadQuoteFollowUp(lead);
                     return (
                     <article
-                      className="lead-row clickable"
+                      className={`lead-row clickable ${followUp ? "needs-attention red" : ""}`}
                       key={lead.id}
                       role="button"
                       tabIndex={0}
@@ -14987,13 +17285,12 @@ export default function Dashboard() {
                           <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openLeadRecord(lead.id); }}>
                             {lead.ref}
                           </a>
-                          <span>{lead.customerName}</span>
+                          <span>{lead.source}</span>
                         </div>
                         <strong>{lead.description}</strong>
-                        <small>{lead.address}</small>
-                        <small>{lead.phone || "No phone"} · {lead.email || "No email"}</small>
                       </div>
-                      <span className="lead-source">{lead.source}</span>
+                      <span className="record-address-cell">{lead.address}</span>
+                      <span className="lead-source">{lead.customerName}</span>
                       <div className="lead-survey-cell">
                         <strong>{lead.surveyor}</strong>
                         <small>{lead.surveyDate && lead.surveyTime ? `${lead.surveyDate} at ${lead.surveyTime}` : "Not booked"}</small>
@@ -15002,8 +17299,8 @@ export default function Dashboard() {
                         {lead.status}
                       </span>
                       <div className="next-action">
-                        <strong>{lead.next}</strong>
-                        <small>Created by {lead.createdBy} · {lead.createdAt}</small>
+                        <strong>{followUp ? followUp.label : lead.next}</strong>
+                        <small>{followUp ? "Create or chase quote" : lead.createdAt}</small>
                         {lead.status === "Survey booked" && !linkedQuote ? (
                           <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); markLeadQuoted(lead); }}>
                             Create quote
@@ -15019,32 +17316,6 @@ export default function Dashboard() {
                     );
                   })}
                   </section>
-
-                <aside className="lead-schedule-panel">
-                  <div className="panel-header compact">
-                    <div>
-                      <h2>Survey diary</h2>
-                      <p>Booked quote visits from active leads</p>
-                    </div>
-                    <CalendarDays size={18} />
-                  </div>
-                  <div className="schedule-list">
-                    {scheduledLeadVisits.length === 0 ? (
-                      <p className="empty-copy">No lead surveys booked yet.</p>
-                    ) : null}
-                    {scheduledLeadVisits.map((visit) => (
-                      <div className="visit" key={`${visit.time}-${visit.detail}`}>
-                        <time>{visit.time}</time>
-                        <span className={`visit-line ${visit.tone}`} />
-                        <div>
-                          <strong>{visit.title}</strong>
-                          <small>{visit.detail}</small>
-                        </div>
-                        <Bell size={15} />
-                      </div>
-                    ))}
-                  </div>
-                </aside>
               </div>
             </section>
           ) : homeView === "clients" ? (

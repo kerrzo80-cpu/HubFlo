@@ -52,3 +52,15 @@ export function writeServerStore<T>(name: string, value: T) {
     // Keep writes best-effort in sandboxed environments.
   }
 }
+
+export function readServerStoreSnapshot(name: string): unknown | null {
+  try {
+    const file = getStoreFilePath(name);
+    if (!existsSync(file)) return null;
+    const raw = readFileSync(file, "utf8").trim();
+    if (!raw) return null;
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}

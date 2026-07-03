@@ -238,14 +238,10 @@ export const quoteStatuses: QuoteStatus[] = [
 ];
 
 const defaultStore: WorkflowStore = {
-  jobs: [],
-  quotes: [],
-  purchaseRequests: [],
+  jobs: clone(seedJobs),
+  quotes: clone(seedQuotes),
+  purchaseRequests: clone(seedPurchaseRequests),
 };
-
-void seedJobs;
-void seedQuotes;
-void seedPurchaseRequests;
 
 const workflowStore = loadServerStore("workflow-store", defaultStore);
 
@@ -386,14 +382,14 @@ export function removeJob(id: string): boolean {
 }
 
 export function createJob(
-  payload: Omit<Job, "id" | "ref" | "health"> & { ref?: string; health?: JobHealth },
+  payload: Omit<Job, "id" | "ref" | "health"> & { id?: string; ref?: string; health?: JobHealth },
 ): Job {
   const jobs = getStore().jobs;
   const nextRef = payload.ref ?? determineNextJobRef(jobs);
   const client = findClient(payload.clientId, payload.customer);
   const site = findSite(payload.siteId, client?.id ?? payload.clientId, payload.site);
   const created: Job = {
-    id: crypto.randomUUID(),
+    id: payload.id ?? crypto.randomUUID(),
     ...payload,
     clientId: payload.clientId ?? client?.id,
     siteId: payload.siteId ?? site?.id,
@@ -409,12 +405,12 @@ export function getQuotes(): Quote[] {
   return clone(getStore().quotes);
 }
 
-export function createQuote(payload: Omit<Quote, "id">): Quote {
+export function createQuote(payload: Omit<Quote, "id"> & { id?: string }): Quote {
   const store = getStore();
   const client = findClient(payload.clientId, payload.customer);
   const site = findSite(payload.siteId, client?.id ?? payload.clientId);
   const created: Quote = {
-    id: crypto.randomUUID(),
+    id: payload.id ?? crypto.randomUUID(),
     clientId: payload.clientId ?? client?.id,
     siteId: payload.siteId ?? site?.id,
     sourceLeadId: payload.sourceLeadId,
