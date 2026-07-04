@@ -797,6 +797,7 @@ export default function TakeoffPage() {
       setProjects(nextProjects);
       setQuotes(nextQuotes);
       setAiStatus(nextAiStatus);
+      setShowNewProject(nextProjects.length === 0);
       setSelectedProjectId((current) =>
         current && nextProjects.some((project) => project.id === current)
           ? current
@@ -1515,8 +1516,9 @@ export default function TakeoffPage() {
         <aside className="takeoff-sidebar">
           <div className="takeoff-sidebar-title">
             <span>Projects</span>
-            <button type="button" aria-label="Create Takeoff project" onClick={() => setShowNewProject((open) => !open)}>
+            <button className="takeoff-create-project-button" type="button" aria-label="Create Takeoff project" onClick={() => setShowNewProject((open) => !open)}>
               <Plus size={16} />
+              New project
             </button>
           </div>
 
@@ -2728,7 +2730,14 @@ export default function TakeoffPage() {
           ) : (
             <section className="takeoff-panel takeoff-empty-state">
               <Home size={18} />
-              <strong>Create a Takeoff project to begin.</strong>
+              <div>
+                <strong>Create a Takeoff project to begin.</strong>
+                <span>Then upload drawings, BOQs, survey notes, photos or LiDAR/RoomPlan scans.</span>
+              </div>
+              <button className="takeoff-primary-button" type="button" onClick={() => setShowNewProject(true)}>
+                <Plus size={15} />
+                New project
+              </button>
             </section>
           )}
         </section>
