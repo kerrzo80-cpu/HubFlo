@@ -15201,6 +15201,67 @@ body {
   margin-top: 4px;
 }
 
+.takeoff-lidar-card {
+  align-items: center;
+  background: #f7fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.takeoff-lidar-card > svg {
+  color: var(--blue-deep);
+}
+
+.takeoff-lidar-card strong,
+.takeoff-lidar-card small {
+  display: block;
+}
+
+.takeoff-lidar-card strong {
+  color: var(--ink);
+}
+
+.takeoff-lidar-card small {
+  color: var(--muted);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.takeoff-lidar-list {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+
+.takeoff-lidar-list article {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 22px minmax(0, 1fr);
+  padding: 8px 10px;
+}
+
+.takeoff-lidar-list strong,
+.takeoff-lidar-list small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.takeoff-lidar-list small {
+  color: var(--muted);
+  margin-top: 2px;
+}
+
 .takeoff-coverage-ok {
   color: var(--green);
   font-weight: 900;

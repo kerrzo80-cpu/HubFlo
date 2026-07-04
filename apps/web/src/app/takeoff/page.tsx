@@ -421,6 +421,166 @@ function removeById<T extends { id: string }>(items: T[], id: string) {
   return items.filter((item) => item.id !== id);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function stringFromUnknown(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function numberFromUnknown(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/[^\d.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function valueFromKeys(record: Record<string, unknown>, keys: string[]) {
+  return keys.map((key) => record[key]).find((value) => value !== undefined && value !== null);
+}
+
+function numberFromKeys(record: Record<string, unknown>, keys: string[]) {
+  return numberFromUnknown(valueFromKeys(record, keys));
+}
+
+function stringFromKeys(record: Record<string, unknown>, keys: string[]) {
+  return stringFromUnknown(valueFromKeys(record, keys));
+}
+
+function nestedRecord(record: Record<string, unknown>, keys: string[]) {
+  return asRecord(valueFromKeys(record, keys));
+}
+
+function roomArrayFromScanJson(payload: unknown): unknown[] {
+  const root = asRecord(payload);
+  if (!root) return [];
+
+  const directRooms = valueFromKeys(root, ["rooms", "roomPlanRooms", "capturedRooms"]);
+  if (Array.isArray(directRooms)) return directRooms;
+
+  const roomPlan = nestedRecord(root, ["roomPlan", "capturedRoom", "scan", "data"]);
+  if (roomPlan) {
+    const nestedRooms = valueFromKeys(roomPlan, ["rooms", "roomPlanRooms", "capturedRooms"]);
+    if (Array.isArray(nestedRooms)) return nestedRooms;
+  }
+
+  const floors = valueFromKeys(root, ["floors", "levels"]);
+  if (Array.isArray(floors)) {
+    return floors.flatMap((floor) => {
+      const floorRecord = asRecord(floor);
+      const rooms = floorRecord ? valueFromKeys(floorRecord, ["rooms", "spaces"]) : null;
+      return Array.isArray(rooms) ? rooms : [];
+    });
+  }
+
+  return [root];
+}
+
+function windowAreaFromRoomRecord(record: Record<string, unknown>) {
+  const explicit = numberFromKeys(record, ["windowAreaM2", "windowArea", "glazingAreaM2", "glazingArea"]);
+  if (explicit !== undefined) return explicit;
+
+  const windows = valueFromKeys(record, ["windows", "openings"]);
+  if (!Array.isArray(windows)) return undefined;
+
+  return windows.reduce((sum, item) => {
+    const windowRecord = asRecord(item);
+    if (!windowRecord) return sum;
+    const area = numberFromKeys(windowRecord, ["areaM2", "area"]);
+    if (area !== undefined) return sum + area;
+    const width = numberFromKeys(windowRecord, ["widthM", "width"]);
+    const height = numberFromKeys(windowRecord, ["heightM", "height"]);
+    return width && height ? sum + width * height : sum;
+  }, 0);
+}
+
+function roomFromScanRecord(value: unknown, index: number, fileName: string): TakeoffRoom | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const dimensions = nestedRecord(record, ["dimensions", "size", "bounds"]);
+  const lengthM = numberFromKeys(record, ["lengthM", "length", "depthM", "depth"])
+    ?? (dimensions ? numberFromKeys(dimensions, ["lengthM", "length", "z", "depth"]) : undefined);
+  const widthM = numberFromKeys(record, ["widthM", "width"])
+    ?? (dimensions ? numberFromKeys(dimensions, ["widthM", "width", "x"]) : undefined);
+  const heightM = numberFromKeys(record, ["heightM", "height"])
+    ?? (dimensions ? numberFromKeys(dimensions, ["heightM", "height", "y"]) : undefined)
+    ?? 2.4;
+  const explicitArea = numberFromKeys(record, ["areaM2", "area", "floorAreaM2", "floorArea"]);
+  const areaM2 = explicitArea ?? (lengthM && widthM ? Number((lengthM * widthM).toFixed(2)) : 0);
+
+  if (!lengthM && !widthM && !areaM2) return null;
+
+  const name = stringFromKeys(record, ["name", "roomName", "label", "identifier"]) || `LiDAR room ${index + 1}`;
+  const construction = stringFromKeys(record, ["construction", "wallType"]);
+  const glazing = stringFromKeys(record, ["glazing", "glazingType"]);
+
+  return {
+    id: makeId("takeoff-room-lidar"),
+    name,
+    level: stringFromKeys(record, ["level", "floor", "storey"]) || "Ground",
+    lengthM: lengthM ?? 0,
+    widthM: widthM ?? 0,
+    heightM,
+    outsideWalls: numberFromKeys(record, ["outsideWalls", "externalWalls", "exteriorWalls"]) ?? 1,
+    windowAreaM2: windowAreaFromRoomRecord(record) ?? 0,
+    construction: heatCalcConstruction.some((option) => option.id === construction)
+      ? construction as TakeoffRoom["construction"]
+      : "Average",
+    glazing: heatCalcGlazing.some((option) => option.id === glazing)
+      ? glazing as TakeoffRoom["glazing"]
+      : "Double glazed",
+    areaM2: Number(areaM2.toFixed(2)),
+    heatLoadWatts: numberFromKeys(record, ["heatLoadWatts", "watts", "heatLossWatts"]) ?? 0,
+    notes: `Imported from LiDAR/RoomPlan scan ${fileName}. Confirm dimensions on site before quote issue.`,
+  };
+}
+
+async function roomsFromLidarFiles(files: File[]) {
+  const importedRooms: TakeoffRoom[] = [];
+  const parsedFiles: string[] = [];
+
+  for (const file of files) {
+    if (!file.name.toLowerCase().endsWith(".json")) continue;
+    try {
+      const payload = JSON.parse(await file.text()) as unknown;
+      const rooms = roomArrayFromScanJson(payload)
+        .map((room, index) => roomFromScanRecord(room, index, file.name))
+        .filter((room): room is TakeoffRoom => Boolean(room));
+      if (rooms.length) {
+        importedRooms.push(...rooms);
+        parsedFiles.push(file.name);
+      }
+    } catch {
+      // The file is still uploaded as evidence; it just cannot prefill room rows.
+    }
+  }
+
+  return { importedRooms, parsedFiles };
+}
+
+function mergeImportedRooms(existingRooms: TakeoffRoom[], importedRooms: TakeoffRoom[]) {
+  const nextRooms = [...existingRooms];
+  importedRooms.forEach((room) => {
+    const existingIndex = nextRooms.findIndex((item) => item.name.trim().toLowerCase() === room.name.trim().toLowerCase());
+    if (existingIndex >= 0) {
+      const existingRoom = nextRooms[existingIndex];
+      if (!existingRoom) return;
+      nextRooms[existingIndex] = {
+        ...existingRoom,
+        ...room,
+        id: existingRoom.id,
+        notes: [existingRoom.notes, room.notes].filter(Boolean).join(" "),
+      };
+    } else {
+      nextRooms.push(room);
+    }
+  });
+  return nextRooms;
+}
+
 export default function TakeoffPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -461,9 +621,23 @@ export default function TakeoffPage() {
     [selectedProject],
   );
 
+  const lidarDocuments = useMemo(
+    () => selectedProject?.documents.filter((document) => document.kind === "LiDAR scan") ?? [],
+    [selectedProject],
+  );
+
+  const surveyEvidenceDocuments = useMemo(
+    () => selectedProject?.documents.filter((document) => (
+      document.kind === "Survey note"
+      || document.kind === "Survey photo"
+      || document.kind === "LiDAR scan"
+    )) ?? [],
+    [selectedProject],
+  );
+
   const surveyAiReadyDocumentCount = useMemo(
-    () => surveyDocuments.filter((document) => document.storageKey).length,
-    [surveyDocuments],
+    () => surveyEvidenceDocuments.filter((document) => document.storageKey).length,
+    [surveyEvidenceDocuments],
   );
 
   const surveyWorkflow = useMemo(
@@ -749,10 +923,10 @@ export default function TakeoffPage() {
   }
 
   async function addDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
-    if (!selectedProject) return;
+    if (!selectedProject) return null;
     const input = event.currentTarget;
     const files = Array.from(input.files ?? []);
-    if (!files.length) return;
+    if (!files.length) return null;
 
     const formData = new FormData();
     formData.append("kind", kind);
@@ -781,12 +955,36 @@ export default function TakeoffPage() {
       const result = (await response.json()) as { project: TakeoffProject };
       replaceProject(result.project);
       setNotice(`${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
+      return result.project;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload Takeoff documents");
+      return null;
     } finally {
       setIsUploadingDocs(false);
       input.value = "";
     }
+  }
+
+  async function addLidarDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
+    if (!selectedProject) return;
+    const files = Array.from(event.currentTarget.files ?? []);
+    if (!files.length) return;
+    const { importedRooms, parsedFiles } = await roomsFromLidarFiles(files);
+    const uploadedProject = await addDocuments(kind, event);
+    if (!uploadedProject || importedRooms.length === 0) return;
+
+    const mergedRooms = mergeImportedRooms(uploadedProject.rooms, importedRooms);
+    updateProject(
+      {
+        rooms: mergedRooms,
+        surveyWorkflow: {
+          ...surveyWorkflow,
+          plannedRoomCount: Math.max(surveyWorkflow.plannedRoomCount, mergedRooms.length),
+          step: "rooms",
+        },
+      },
+      `${importedRooms.length} room${importedRooms.length === 1 ? "" : "s"} imported from ${parsedFiles.join(", ")}. Confirm dimensions before quote issue.`,
+    );
   }
 
   async function runAiExtraction() {
@@ -843,12 +1041,12 @@ export default function TakeoffPage() {
       setError("Connect OpenAI in Intake before running a survey quote draft.");
       return;
     }
-    if (!surveyDocuments.length) {
-      setError("Upload handwritten notes or room photos before running a survey quote draft.");
+    if (!surveyEvidenceDocuments.length) {
+      setError("Upload handwritten notes, room photos or a LiDAR/RoomPlan scan before running a survey quote draft.");
       return;
     }
     if (surveyAiReadyDocumentCount === 0) {
-      setError("OpenAI is connected, but these survey files are not AI-ready. Re-upload notes/photos in Survey quote, then click AI draft quote again.");
+      setError("OpenAI is connected, but these survey files are not AI-ready. Re-upload notes/photos/LiDAR scans, then click AI draft quote again.");
       return;
     }
 
@@ -1633,6 +1831,35 @@ export default function TakeoffPage() {
                       </div>
                     </div>
 
+                    <div className="takeoff-lidar-card">
+                      <Ruler size={18} />
+                      <span>
+                        <strong>LiDAR / RoomPlan</strong>
+                        <small>Upload RoomPlan JSON to prefill room sizes, or store USD/USDZ/3D scan files for office review.</small>
+                      </span>
+                      <UploadButton
+                        kind="LiDAR scan"
+                        label={isUploadingDocs ? "Uploading" : "Upload scan"}
+                        accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply"
+                        disabled={isUploadingDocs}
+                        onUpload={addLidarDocuments}
+                      />
+                    </div>
+
+                    {lidarDocuments.length ? (
+                      <div className="takeoff-lidar-list">
+                        {lidarDocuments.map((document) => (
+                          <article key={document.id}>
+                            <FileSpreadsheet size={15} />
+                            <span>
+                              <strong>{document.fileName}</strong>
+                              <small>{fileSizeLabel(document.size)} - {document.storageKey ? "stored" : "not stored"}</small>
+                            </span>
+                          </article>
+                        ))}
+                      </div>
+                    ) : null}
+
                     {surveyWorkflow.step === "scope" ? (
                       <div className="takeoff-form-grid">
                         <label>
@@ -1843,11 +2070,11 @@ export default function TakeoffPage() {
               {activeTab === "survey" ? (
                 <section className="takeoff-grid two">
                   <article className="takeoff-panel">
-                    <PanelTitle icon={ClipboardList} title="Survey evidence" action={`${surveyDocuments.length} files`}>
+                    <PanelTitle icon={ClipboardList} title="Survey evidence" action={`${surveyEvidenceDocuments.length} files`}>
                       <button
                         className="takeoff-small-button"
                         type="button"
-                        disabled={isSurveyDrafting || surveyDocuments.length === 0 || !aiStatus?.connected}
+                        disabled={isSurveyDrafting || surveyEvidenceDocuments.length === 0 || !aiStatus?.connected}
                         onClick={runSurveyDraft}
                       >
                         <Sparkles size={14} />
@@ -1874,8 +2101,8 @@ export default function TakeoffPage() {
                         <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected yet"}</strong>
                         <small>
                           {aiStatus?.connected
-                            ? `${surveyAiReadyDocumentCount} of ${surveyDocuments.length} survey file(s) are AI-ready.`
-                            : "Connect an OpenAI Platform key before drafting from notes/photos."}
+                            ? `${surveyAiReadyDocumentCount} of ${surveyEvidenceDocuments.length} survey evidence file(s) are AI-ready.`
+                            : "Connect an OpenAI Platform key before drafting from notes/photos/LiDAR scans."}
                         </small>
                       </span>
                       {!aiStatus?.connected ? (
@@ -1900,7 +2127,7 @@ export default function TakeoffPage() {
                       ) : null}
                     </div>
                     <div className="takeoff-document-list">
-                      {surveyDocuments.map((document) => (
+                      {surveyEvidenceDocuments.map((document) => (
                         <article key={document.id}>
                           <FileText size={16} />
                           <span>
@@ -1919,8 +2146,8 @@ export default function TakeoffPage() {
                           </button>
                         </article>
                       ))}
-                      {!surveyDocuments.length ? (
-                        <div className="takeoff-empty">No handwritten notes or room photos uploaded.</div>
+                      {!surveyEvidenceDocuments.length ? (
+                        <div className="takeoff-empty">No handwritten notes, room photos or LiDAR scans uploaded.</div>
                       ) : null}
                     </div>
                   </article>
@@ -2510,7 +2737,7 @@ function UploadButton({
   label: string;
   accept?: string;
   disabled?: boolean;
-  onUpload: (kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) => void | Promise<void>;
+  onUpload: (kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) => void | Promise<unknown>;
 }) {
   return (
     <label className={`takeoff-upload-button${disabled ? " disabled" : ""}`}>

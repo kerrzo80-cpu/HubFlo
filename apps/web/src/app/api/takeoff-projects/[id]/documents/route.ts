@@ -17,7 +17,7 @@ export const runtime = "nodejs";
 
 const MAX_TAKEOFF_UPLOAD_BYTES = 250 * 1024 * 1024;
 const MAX_TAKEOFF_REQUEST_BYTES = 300 * 1024 * 1024;
-const documentKinds: TakeoffDocumentKind[] = ["Drawing", "Specification", "Contractor BOQ", "Survey note", "Survey photo"];
+const documentKinds: TakeoffDocumentKind[] = ["Drawing", "Specification", "Contractor BOQ", "Survey note", "Survey photo", "LiDAR scan"];
 
 function isDocumentKind(value: FormDataEntryValue | null): value is TakeoffDocumentKind {
   return typeof value === "string" && documentKinds.includes(value as TakeoffDocumentKind);
@@ -41,6 +41,13 @@ function inferredMimeType(file: File) {
     ".webp": "image/webp",
     ".pdf": "application/pdf",
     ".txt": "text/plain",
+    ".json": "application/json",
+    ".usd": "model/vnd.usd",
+    ".usdz": "model/vnd.usdz+zip",
+    ".obj": "model/obj",
+    ".glb": "model/gltf-binary",
+    ".gltf": "model/gltf+json",
+    ".ply": "application/octet-stream",
   };
   return knownTypes[extension];
 }
@@ -59,6 +66,7 @@ function uploadNotes(kind: TakeoffDocumentKind) {
   if (kind === "Specification") return ["Uploaded for OpenAI/specification scan; confirm named manufacturer requirements."];
   if (kind === "Survey note") return ["Uploaded for OpenAI survey quote draft; confirm handwriting, scope and exclusions."];
   if (kind === "Survey photo") return ["Uploaded for OpenAI survey quote draft; confirm room condition and visible measurements."];
+  if (kind === "LiDAR scan") return ["Uploaded as LiDAR/RoomPlan evidence; confirm imported room dimensions before quote issue."];
   return ["Uploaded for OpenAI/BOQ scan; check provisional sums and exclusions."];
 }
 
@@ -90,7 +98,7 @@ export async function POST(
   }
   const kind = formData.get("kind");
   if (!isDocumentKind(kind)) {
-    return NextResponse.json({ error: "Choose Drawing, Specification, Contractor BOQ, Survey note or Survey photo." }, { status: 400 });
+    return NextResponse.json({ error: "Choose Drawing, Specification, Contractor BOQ, Survey note, Survey photo or LiDAR scan." }, { status: 400 });
   }
 
   const files = fileEntries(formData.getAll("files"));

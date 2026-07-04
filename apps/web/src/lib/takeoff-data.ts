@@ -4,7 +4,7 @@ import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
-export type TakeoffDocumentKind = "Drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo";
+export type TakeoffDocumentKind = "Drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
 export type TakeoffDocumentStatus = "Uploaded" | "Parsed" | "Needs review";
 export type TakeoffSurveyAnswer = "Yes" | "No" | "Unknown" | "N/A";
 export type TakeoffSurveyStep = "scope" | "stop-go" | "rooms" | "handoff";
@@ -621,12 +621,12 @@ function inferTemplateName(project: TakeoffProject) {
 }
 
 function quoteDocumentKind(kind: TakeoffDocumentKind): QuoteTakeoffDocument["kind"] {
-  if (kind === "Survey note" || kind === "Survey photo") return "Survey evidence";
+  if (kind === "Survey note" || kind === "Survey photo" || kind === "LiDAR scan") return "Survey evidence";
   return kind === "Drawing" ? "Drawings" : kind;
 }
 
 function documentNeedsOfficeReview(kind: TakeoffDocumentKind) {
-  return kind === "Drawing" || kind === "Survey note" || kind === "Survey photo";
+  return kind === "Drawing" || kind === "Survey note" || kind === "Survey photo" || kind === "LiDAR scan";
 }
 
 function quoteDocumentStatus(status: TakeoffDocumentStatus): QuoteTakeoffDocument["status"] {

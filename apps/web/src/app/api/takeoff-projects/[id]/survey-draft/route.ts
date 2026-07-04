@@ -370,7 +370,7 @@ function normalizeOpenAiPayload(project: TakeoffProject, payload: OpenAiSurveyPa
 }
 
 function isSurveyDocument(document: TakeoffDocument) {
-  return document.kind === "Survey note" || document.kind === "Survey photo";
+  return document.kind === "Survey note" || document.kind === "Survey photo" || document.kind === "LiDAR scan";
 }
 
 function fileExtension(fileName: string) {
@@ -387,6 +387,12 @@ function imageMimeTypeFromFileName(fileName: string) {
   if (extension === ".heif") return "image/heif";
   if (extension === ".dng") return "image/x-adobe-dng";
   if (extension === ".tif" || extension === ".tiff") return "image/tiff";
+  if (extension === ".json") return "application/json";
+  if (extension === ".usd") return "model/vnd.usd";
+  if (extension === ".usdz") return "model/vnd.usdz+zip";
+  if (extension === ".obj") return "model/obj";
+  if (extension === ".glb") return "model/gltf-binary";
+  if (extension === ".gltf") return "model/gltf+json";
   return undefined;
 }
 
@@ -400,6 +406,18 @@ function isDirectOpenAiImage(document: TakeoffDocument) {
     || mimeType === "image/png"
     || mimeType === "image/webp"
     || mimeType === "image/gif";
+}
+
+function isDirectOpenAiFile(document: TakeoffDocument) {
+  const extension = fileExtension(document.fileName);
+  const mimeType = imageMimeTypeForDocument(document);
+  return extension === ".json"
+    || extension === ".txt"
+    || extension === ".csv"
+    || extension === ".pdf"
+    || mimeType === "application/json"
+    || mimeType === "text/plain"
+    || mimeType === "application/pdf";
 }
 
 function shouldConvertToJpeg(document: TakeoffDocument) {
@@ -527,10 +545,13 @@ async function buildOpenAiContent(project: TakeoffProject) {
         const buffer = await readFile(filePath);
         const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
         content.push({ type: "input_image", image_url: dataUrl, detail: "high" });
-      } else {
+      } else if (isDirectOpenAiFile(document)) {
         const buffer = await readFile(filePath);
         const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
         content.push({ type: "input_file", file_data: dataUrl, filename: document.fileName, detail: "high" });
+      } else {
+        skipped.push(`${document.fileName} is stored as LiDAR evidence but is not sent to AI until a RoomPlan/3D parser is connected`);
+        continue;
       }
       sourceFiles += 1;
     } catch {
