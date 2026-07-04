@@ -590,6 +590,7 @@ export default function TakeoffPage() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [pushedQuoteLink, setPushedQuoteLink] = useState<{ href: string; label: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUploadingDocs, setIsUploadingDocs] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -818,6 +819,7 @@ export default function TakeoffPage() {
 
   async function patchProject(projectId: string, patch: Partial<TakeoffProject>, successMessage?: string) {
     setError("");
+    setPushedQuoteLink(null);
     const currentProject = projects.find((project) => project.id === projectId);
     if (currentProject) {
       replaceProject({
@@ -1478,7 +1480,11 @@ export default function TakeoffPage() {
       const result = (await response.json()) as { project: TakeoffProject; quote: Quote; costCentres?: Array<{ id: string }> };
       replaceProject(result.project);
       setQuotes((current) => current.map((quote) => (quote.id === result.quote.id ? result.quote : quote)));
-      setNotice(`${result.project.reference} pushed into ${result.quote.ref} as ${result.costCentres?.length ?? 1} cost centre(s).`);
+      setPushedQuoteLink({
+        href: `/?quote=${encodeURIComponent(result.quote.id)}`,
+        label: `Open ${result.quote.ref} in NeXa`,
+      });
+      setNotice(`${result.project.reference} pushed into ${result.quote.ref}: ${result.costCentres?.length ?? 1} cost centre(s) added to the quote.`);
     } catch (pushError) {
       setError(pushError instanceof Error ? pushError.message : "Unable to push Takeoff output");
     } finally {
@@ -1609,7 +1615,12 @@ export default function TakeoffPage() {
               </section>
 
               {error ? <p className="takeoff-error">{error}</p> : null}
-              {notice ? <p className="takeoff-notice">{notice}</p> : null}
+              {notice ? (
+                <div className="takeoff-notice takeoff-handoff-notice">
+                  <span>{notice}</span>
+                  {pushedQuoteLink ? <a href={pushedQuoteLink.href}>{pushedQuoteLink.label}</a> : null}
+                </div>
+              ) : null}
 
               <section className="takeoff-metrics" aria-label="Takeoff totals">
                 <article>

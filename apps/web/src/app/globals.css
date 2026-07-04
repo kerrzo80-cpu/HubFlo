@@ -14878,6 +14878,32 @@ body {
   color: var(--green);
 }
 
+.takeoff-handoff-notice {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.takeoff-handoff-notice a {
+  background: #fff;
+  border: 1px solid #bfe3cf;
+  border-radius: 6px;
+  color: var(--green);
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 850;
+  padding: 7px 10px;
+  text-decoration: none;
+}
+
+.takeoff-handoff-notice a:hover,
+.takeoff-handoff-notice a:focus-visible {
+  background: var(--green);
+  color: #fff;
+  outline: 0;
+}
+
 .takeoff-metrics {
   display: grid;
   gap: 10px;
