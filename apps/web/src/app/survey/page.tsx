@@ -16,6 +16,7 @@ import {
   ScanLine,
   Send,
   Sparkles,
+  Trash2,
   Upload,
 } from "lucide-react";
 import type { Quote } from "@/lib/workflow-data";
@@ -181,6 +182,33 @@ export default function SurveyPage() {
     }
   }
 
+  async function deleteSurveyChat(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    const shouldDelete = window.confirm(`Delete survey chat ${project.reference}? This removes the test chat and its captured evidence from this pilot.`);
+    if (!shouldDelete) return;
+
+    setIsSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(projectId)}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete survey chat");
+      setProjects((current) => {
+        const nextProjects = current.filter((item) => item.id !== projectId);
+        setSelectedProjectId((currentSelected) => currentSelected === projectId ? nextProjects[0]?.id ?? "" : currentSelected);
+        return nextProjects;
+      });
+      setNotice("Survey chat deleted.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete survey chat");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProject || !draft.trim()) return;
@@ -307,19 +335,28 @@ export default function SurveyPage() {
           </div>
           <div className="takeoff-project-list">
             {projects.map((project) => (
-              <button
-                className={project.id === selectedProject?.id ? "takeoff-project-button active" : "takeoff-project-button"}
-                key={project.id}
-                type="button"
-                onClick={() => setSelectedProjectId(project.id)}
-              >
-                <span>
-                  <strong>{project.reference}</strong>
-                  <small>{project.status}</small>
-                </span>
-                <b>{project.name}</b>
-                <em>{project.customer}</em>
-              </button>
+              <article className="takeoff-project-card" key={project.id}>
+                <button
+                  className={project.id === selectedProject?.id ? "takeoff-project-button active" : "takeoff-project-button"}
+                  type="button"
+                  onClick={() => setSelectedProjectId(project.id)}
+                >
+                  <span>
+                    <strong>{project.reference}</strong>
+                    <small>{project.status}</small>
+                  </span>
+                  <b>{project.name}</b>
+                  <em>{project.customer}</em>
+                </button>
+                <button
+                  className="takeoff-delete-project-button"
+                  type="button"
+                  aria-label={`Delete ${project.reference}`}
+                  onClick={() => void deleteSurveyChat(project.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </article>
             ))}
             {!projects.length && !isLoading ? <p className="takeoff-empty">No survey chats yet.</p> : null}
           </div>

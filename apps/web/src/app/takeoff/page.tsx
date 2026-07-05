@@ -77,7 +77,6 @@ type HeatCalcDraft = {
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
   { key: "intake", label: "Intake", icon: Upload },
-  { key: "surveyor", label: "Surveyor", icon: ListChecks },
   { key: "survey", label: "Survey quote", icon: ClipboardList },
   { key: "rooms", label: "Rooms", icon: Ruler },
   { key: "heat", label: "Heat loss", icon: ThermometerSun },
@@ -913,6 +912,31 @@ export default function TakeoffPage() {
     }
   }
 
+  async function deleteProject(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    const shouldDelete = window.confirm(`Delete Takeoff project ${project.reference}? This removes the test project from this pilot.`);
+    if (!shouldDelete) return;
+
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(projectId)}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete Takeoff project");
+      setProjects((current) => {
+        const nextProjects = current.filter((item) => item.id !== projectId);
+        setSelectedProjectId((currentSelected) => currentSelected === projectId ? nextProjects[0]?.id ?? "" : currentSelected);
+        return nextProjects;
+      });
+      setActiveTab("intake");
+      setNotice(`${project.reference} deleted.`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to delete Takeoff project");
+    }
+  }
+
   async function saveOpenAiKey() {
     const apiKey = openAiKeyDraft.trim();
     if (!apiKey) {
@@ -1601,22 +1625,31 @@ export default function TakeoffPage() {
 
           <div className="takeoff-project-list">
             {projects.map((project) => (
-              <button
-                className={project.id === selectedProject?.id ? "takeoff-project-button active" : "takeoff-project-button"}
-                key={project.id}
-                type="button"
-                onClick={() => {
-                  setSelectedProjectId(project.id);
-                  setActiveTab("intake");
-                }}
-              >
-                <span>
-                  <strong>{project.reference}</strong>
-                  <small>{project.status}</small>
-                </span>
-                <b>{project.name}</b>
-                <em>{project.customer}</em>
-              </button>
+              <article className="takeoff-project-card" key={project.id}>
+                <button
+                  className={project.id === selectedProject?.id ? "takeoff-project-button active" : "takeoff-project-button"}
+                  type="button"
+                  onClick={() => {
+                    setSelectedProjectId(project.id);
+                    setActiveTab("intake");
+                  }}
+                >
+                  <span>
+                    <strong>{project.reference}</strong>
+                    <small>{project.status}</small>
+                  </span>
+                  <b>{project.name}</b>
+                  <em>{project.customer}</em>
+                </button>
+                <button
+                  className="takeoff-delete-project-button"
+                  type="button"
+                  aria-label={`Delete ${project.reference}`}
+                  onClick={() => void deleteProject(project.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </article>
             ))}
             {!projects.length && !isLoading ? (
               <p className="takeoff-empty">No Takeoff projects yet.</p>

@@ -1217,6 +1217,15 @@ export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>)
   return clone(updated);
 }
 
+export function deleteTakeoffProject(id: string): TakeoffProject | null {
+  const existing = takeoffStore.projects.find((project) => project.id === id);
+  if (!existing) return null;
+
+  takeoffStore.projects = takeoffStore.projects.filter((project) => project.id !== id);
+  persistTakeoffStore();
+  return clone(existing);
+}
+
 export function resetTakeoffStore(): TakeoffStore {
   takeoffStore.projects = [clone(seedProject)];
   persistTakeoffStore();
