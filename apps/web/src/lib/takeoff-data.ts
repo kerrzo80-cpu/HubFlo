@@ -85,7 +85,7 @@ export type TakeoffMeasurement = {
   label: string;
   quantity: number;
   unit: string;
-  source: "Drawing" | "Spec" | "BOQ" | "Manual";
+  source: "Drawing" | "Spec" | "BOQ" | "Manual" | "LiDAR";
 };
 
 export type TakeoffPipeRun = {

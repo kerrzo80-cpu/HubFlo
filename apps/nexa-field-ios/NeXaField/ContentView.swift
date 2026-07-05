@@ -1,0 +1,132 @@
+import RoomPlan
+import SwiftUI
+
+struct ContentView: View {
+    @EnvironmentObject private var scanner: RoomScanCoordinator
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                header
+
+                if RoomCaptureSession.isSupported {
+                    RoomScannerView(scanner: scanner)
+                        .overlay(alignment: .bottom) {
+                            controls
+                        }
+                } else {
+                    unsupportedDevice
+                }
+            }
+            .navigationTitle("NeXa Field")
+            .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $scanner.isShowingSettings) {
+                SettingsView(scanner: scanner)
+            }
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(scanner.reference.isEmpty ? "Room scan" : scanner.reference)
+                        .font(.headline)
+                    Text(scanner.projectName.isEmpty ? "No linked NeXa survey yet" : scanner.projectName)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    scanner.isShowingSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .labelStyle(.iconOnly)
+            }
+
+            Text(scanner.status)
+                .font(.footnote)
+                .foregroundStyle(scanner.lastError == nil ? .secondary : .red)
+        }
+        .padding()
+        .background(.regularMaterial)
+    }
+
+    private var controls: some View {
+        VStack(spacing: 12) {
+            TextField("Room name", text: $scanner.roomName)
+                .textFieldStyle(.roundedBorder)
+
+            HStack(spacing: 10) {
+                Button {
+                    scanner.isScanning ? scanner.stopScan() : scanner.startScan()
+                } label: {
+                    Label(scanner.isScanning ? "Finish Scan" : "Start Scan", systemImage: scanner.isScanning ? "stop.circle.fill" : "camera.viewfinder")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    Task {
+                        await scanner.uploadLatestScan()
+                    }
+                } label: {
+                    Label("Send to NeXa", systemImage: "paperplane.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(scanner.latestRoom == nil || scanner.isUploading)
+            }
+        }
+        .padding()
+        .background(.ultraThinMaterial)
+    }
+
+    private var unsupportedDevice: some View {
+        ContentUnavailableView(
+            "LiDAR not available",
+            systemImage: "camera.metering.unknown",
+            description: Text("RoomPlan needs a LiDAR-capable iPad or iPhone. Run this app on a real device, not the simulator.")
+        )
+    }
+}
+
+struct SettingsView: View {
+    @ObservedObject var scanner: RoomScanCoordinator
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("NeXa connection") {
+                    TextField("NeXa URL", text: $scanner.nexaBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+
+                    TextField("Basic auth username", text: $scanner.basicAuthUsername)
+                        .textInputAutocapitalization(.never)
+
+                    SecureField("Basic auth password", text: $scanner.basicAuthPassword)
+                }
+
+                Section("Linked survey") {
+                    TextField("Project ID", text: $scanner.projectId)
+                    TextField("Reference", text: $scanner.reference)
+                    TextField("Project name", text: $scanner.projectName)
+                }
+            }
+            .navigationTitle("Scanner settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        scanner.persistSettings()
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
