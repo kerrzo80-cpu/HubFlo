@@ -13582,7 +13582,7 @@ body {
   border-radius: 7px;
   box-shadow: 0 10px 24px rgba(8, 29, 58, 0.18);
   color: #fff !important;
-  content: attr(title);
+  content: attr(data-tooltip);
   font-size: 11px;
   font-weight: 750;
   left: calc(100% + 10px);
@@ -13610,12 +13610,13 @@ body {
 .context-sidebar .context-link:focus-visible span,
 .context-sidebar .context-link:hover svg,
 .context-sidebar .context-link:focus-visible svg {
-  color: var(--navy) !important;
+  color: #fff !important;
 }
 
 .context-sidebar .context-link:hover b,
 .context-sidebar .context-link:focus-visible b {
-  color: var(--navy) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
 }
 
 .body-shell.sidebar-collapsed .context-sidebar .context-link:hover::after,

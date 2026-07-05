@@ -11962,7 +11962,7 @@ export default function Dashboard() {
                   className={item.active ? "context-link active" : "context-link"}
                   key={item.label}
                   aria-label={item.label}
-                  title={item.label}
+                  data-tooltip={item.label}
                   onClick={(event) => {
                     event.preventDefault();
                     handleContextNavClick(item.label);
@@ -11978,39 +11978,39 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/survey" className="context-link" aria-label="NeXa Survey" title="NeXa Survey">
+          <a href="/survey" className="context-link" aria-label="NeXa Survey" data-tooltip="NeXa Survey">
             <Sparkles size={17} />
             <span>NeXa Survey</span>
           </a>
-          <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" title="NeXa Takeoff">
+          <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />
             <span>NeXa Takeoff</span>
           </a>
-          <a href="/engineer" className="context-link" aria-label="NeXa Field" title="NeXa Field">
+          <a href="/engineer" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
             <span>NeXa Field</span>
           </a>
-          <a href="/office/whatsapp-pilot" className="context-link" aria-label="NeXa Connect" title="NeXa Connect">
+          <a href="/office/whatsapp-pilot" className="context-link" aria-label="NeXa Connect" data-tooltip="NeXa Connect">
             <Inbox size={17} />
             <span>NeXa Connect</span>
           </a>
-          <a href="/office/alerts" className="context-link" aria-label="Office alerts" title="Office alerts">
+          <a href="/office/alerts" className="context-link" aria-label="Office alerts" data-tooltip="Office alerts">
             <Bell size={17} />
             <span>Office alerts</span>
             <b className={highPriorityOfficeAlerts ? "danger" : ""}>{officeAlerts.length}</b>
           </a>
-          <a href="#" className="context-link" aria-label="Blocked jobs" title="Blocked jobs" onClick={(event) => { event.preventDefault(); openBlockedJobsQuickView(); }}>
+          <a href="#" className="context-link" aria-label="Blocked jobs" data-tooltip="Blocked jobs" onClick={(event) => { event.preventDefault(); openBlockedJobsQuickView(); }}>
             <ShieldAlert size={17} />
             <span>Blocked jobs</span>
             <b className="danger">4</b>
           </a>
-          <a href="#" className="context-link" aria-label="Overdue tasks" title="Overdue tasks" onClick={(event) => { event.preventDefault(); openOverdueTasksQuickView(); }}>
+          <a href="#" className="context-link" aria-label="Overdue tasks" data-tooltip="Overdue tasks" onClick={(event) => { event.preventDefault(); openOverdueTasksQuickView(); }}>
             <Clock3 size={17} />
             <span>Overdue tasks</span>
             <b>6</b>
           </a>
           {access.showQuotes ? (
-            <a href="#" className="context-link" aria-label="Draft quotes" title="Draft quotes" onClick={(event) => { event.preventDefault(); openDraftQuotesQuickView(); }}>
+            <a href="#" className="context-link" aria-label="Draft quotes" data-tooltip="Draft quotes" onClick={(event) => { event.preventDefault(); openDraftQuotesQuickView(); }}>
               <FileText size={17} />
               <span>Draft quotes</span>
               <b>5</b>
