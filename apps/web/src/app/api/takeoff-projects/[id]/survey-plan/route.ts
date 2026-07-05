@@ -173,7 +173,7 @@ function buildPilotWorkflow(project: TakeoffProject, payload: SurveyPlanPayload 
   const workflow = createDefaultTakeoffSurveyWorkflow({
     ...(project.surveyWorkflow ?? {}),
     ...payload,
-    step: payload.step ?? project.surveyWorkflow?.step ?? "stop-go",
+    step: payload.step ?? project.surveyWorkflow?.step ?? "scope",
   });
 
   return {
@@ -198,7 +198,7 @@ async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSur
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK plumbing and heating survey manager for NeXa. Create a practical guided site-survey checklist for office-reviewed quotes. Use stop/go questions to prevent unsafe or incomplete surveys. Keep questions concise and field-ready.",
+            text: "You are a UK plumbing and heating survey manager for NeXa. Create a conversational site-survey interview for office-reviewed quotes. The questions should sound like an experienced estimator asking the engineer/client one useful follow-up at a time. Keep stop/go items as separate safety gates only; use the main questions for job-specific back-and-forth detail about scope, rooms, pipe routes, materials, exclusions and supplier pricing.",
           }],
         },
         {
@@ -264,7 +264,7 @@ async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSur
     aiQuestions: questions.length ? questions : buildPilotQuestions(project, workflow),
     generatedAt: new Date().toISOString(),
     generatedBy: "OpenAI" as const,
-    step: "stop-go" as const,
+    step: "scope" as const,
   };
 }
 

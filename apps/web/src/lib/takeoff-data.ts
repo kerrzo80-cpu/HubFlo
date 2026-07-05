@@ -26,6 +26,14 @@ export type TakeoffSurveyQuestion = {
   answer: string;
 };
 
+export type TakeoffSurveyChatMessage = {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+  createdAt: string;
+  attachments?: string[];
+};
+
 export type TakeoffSurveyWorkflow = {
   projectType: string;
   propertyType: string;
@@ -190,6 +198,7 @@ export type TakeoffProject = {
   labourAllowances: TakeoffLabourAllowance[];
   supplierRequests: TakeoffSupplierRequestItem[];
   surveyWorkflow?: TakeoffSurveyWorkflow;
+  surveyChat?: TakeoffSurveyChatMessage[];
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;
@@ -558,6 +567,26 @@ const seedProject: TakeoffProject = {
       unit: "each",
       linkedMaterialId: "takeoff-rad-office-1",
       notes: "Confirm outputs and bracket packs.",
+    },
+  ],
+  surveyChat: [
+    {
+      id: "survey-chat-opening",
+      role: "assistant",
+      text: "What are we pricing today? Tell me the customer outcome first, then we can capture photos, room scan evidence and anything needed for the quote.",
+      createdAt: seedCreatedAt,
+    },
+    {
+      id: "survey-chat-scope",
+      role: "user",
+      text: "Boiler replacement with radiator schedule and pipework checks for Hopetoun Court.",
+      createdAt: seedCreatedAt,
+    },
+    {
+      id: "survey-chat-follow-up",
+      role: "assistant",
+      text: "Good. Next, capture the boiler location, flue route, condensate route, pipe routes and each heated room. If using iPad/iPhone room scan, attach the RoomPlan export so Takeoff can turn it into rooms and quantities.",
+      createdAt: seedCreatedAt,
     },
   ],
   surveyWorkflow: createDefaultTakeoffSurveyWorkflow({
@@ -1119,6 +1148,14 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
     materialAllowances: payload.materialAllowances ?? [],
     labourAllowances: payload.labourAllowances ?? [],
     supplierRequests: payload.supplierRequests ?? [],
+    surveyChat: payload.surveyChat ?? [
+      {
+        id: makeId("survey-chat"),
+        role: "assistant",
+        text: "What are we pricing today? Tell me the job in plain English, then add photos, room scans or notes as we go.",
+        createdAt,
+      },
+    ],
     surveyWorkflow: payload.surveyWorkflow ?? createDefaultTakeoffSurveyWorkflow({
       projectType: payload.description?.toLowerCase().includes("heating")
         ? "Full heating replacement"
@@ -1170,6 +1207,7 @@ export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>)
           aiQuestions: patch.surveyWorkflow.aiQuestions ?? current.surveyWorkflow?.aiQuestions ?? createDefaultTakeoffSurveyWorkflow().aiQuestions,
         }
       : current.surveyWorkflow ?? createDefaultTakeoffSurveyWorkflow(),
+    surveyChat: patch.surveyChat ?? current.surveyChat,
     createdAt: current.createdAt,
     updatedAt: nowIso(),
   };

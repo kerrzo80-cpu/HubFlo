@@ -11978,8 +11978,12 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" title="NeXa Takeoff">
+          <a href="/survey" className="context-link" aria-label="NeXa Survey" title="NeXa Survey">
             <Sparkles size={17} />
+            <span>NeXa Survey</span>
+          </a>
+          <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" title="NeXa Takeoff">
+            <FileText size={17} />
             <span>NeXa Takeoff</span>
           </a>
           <a href="/engineer" className="context-link" aria-label="NeXa Field" title="NeXa Field">

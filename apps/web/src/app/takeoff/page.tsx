@@ -113,8 +113,8 @@ const blankHeatCalc: HeatCalcDraft = {
 };
 
 const surveyWorkflowSteps: Array<{ key: TakeoffSurveyWorkflow["step"]; label: string }> = [
-  { key: "scope", label: "Scope" },
-  { key: "stop-go", label: "Stop / go" },
+  { key: "scope", label: "Brief" },
+  { key: "stop-go", label: "Safety gates" },
   { key: "rooms", label: "Rooms" },
   { key: "handoff", label: "Handoff" },
 ];
@@ -314,6 +314,27 @@ function createDefaultSurveyWorkflow(patch: Partial<TakeoffSurveyWorkflow> = {})
     ],
     ...patch,
   };
+}
+
+function buildSurveyFollowUp(question: TakeoffSurveyQuestion, answer: string, projectName: string) {
+  const lowerQuestion = question.question.toLowerCase();
+  const lowerAnswer = answer.toLowerCase();
+  if (/unknown|not sure|check|confirm|tbc|don't know|dont know/.test(lowerAnswer)) {
+    return `What needs checked on site so ${question.section.toLowerCase()} can be confirmed for ${projectName}?`;
+  }
+  if (/room|radiator|heat|window/.test(lowerQuestion)) {
+    return "Are there any room-by-room constraints such as radiator height, furniture, windows, floor finishes or customer preferences that affect the quote?";
+  }
+  if (/boiler|flue|condensate|heat source/.test(lowerQuestion)) {
+    return "What boiler, flue, condensate, gas meter, controls or access details still need photographed or measured before pricing?";
+  }
+  if (/pipe|route|boxing|floor/.test(lowerQuestion)) {
+    return "What pipe routes, lifted floors, boxing-in, making-good or access allowances should be added to the scope?";
+  }
+  if (/exclusion|making-good|commercial|allowance/.test(lowerQuestion)) {
+    return "What should be priced as an allowance, listed as an exclusion, or sent to a supplier before the quote is issued?";
+  }
+  return `What follow-up detail would help price ${question.section.toLowerCase()} accurately for ${projectName}?`;
 }
 
 function heatDraftFromRoom(room: TakeoffRoom, current: HeatCalcDraft = blankHeatCalc): HeatCalcDraft {
@@ -1112,6 +1133,24 @@ export default function TakeoffPage() {
     });
   }
 
+  function addSurveyFollowUp(question: TakeoffSurveyQuestion) {
+    if (!selectedProject) return;
+    const followUp: TakeoffSurveyQuestion = {
+      id: makeId("survey-follow-up"),
+      section: question.section,
+      question: buildSurveyFollowUp(question, question.answer, selectedProject.name),
+      required: question.required,
+      answer: "",
+    };
+    updateSurveyWorkflow({
+      aiQuestions: [
+        ...surveyWorkflow.aiQuestions,
+        followUp,
+      ],
+      step: "scope",
+    }, "Follow-up question added to the AI survey conversation.");
+  }
+
   async function generateSurveyPlan() {
     if (!selectedProject) return;
 
@@ -1137,7 +1176,7 @@ export default function TakeoffPage() {
       };
       replaceProject(result.project);
       setActiveTab("surveyor");
-      setNotice(`${result.provider} survey workflow ready: ${result.generated.stopGo} stop/go check(s), ${result.generated.questions} survey question(s).`);
+      setNotice(`${result.provider} AI survey interview ready: ${result.generated.questions} job-specific question(s) and ${result.generated.stopGo} safety gate(s).`);
     } catch (planError) {
       setError(planError instanceof Error ? planError.message : "Unable to generate survey workflow");
     } finally {
@@ -1798,7 +1837,7 @@ export default function TakeoffPage() {
                   <article className="takeoff-panel">
                     <PanelTitle
                       icon={ListChecks}
-                      title="Surveyor workflow"
+                      title="AI survey interview"
                       action={surveyWorkflow.generatedAt ? `${surveyWorkflow.generatedBy ?? "Pilot"} ${formatDate(surveyWorkflow.generatedAt)}` : "Not generated"}
                     >
                       <button
@@ -1808,7 +1847,7 @@ export default function TakeoffPage() {
                         onClick={generateSurveyPlan}
                       >
                         <Sparkles size={14} />
-                        {isGeneratingSurveyPlan ? "Generating" : "Generate"}
+                        {isGeneratingSurveyPlan ? "Thinking" : "Start AI interview"}
                       </button>
                     </PanelTitle>
 
@@ -1827,7 +1866,7 @@ export default function TakeoffPage() {
 
                     <div className="takeoff-survey-summary">
                       <div>
-                        <span>Stop/go</span>
+                        <span>Safety gates</span>
                         <strong>{surveyStats.answeredStopGo}/{surveyWorkflow.stopGo.length}</strong>
                       </div>
                       <div>
@@ -1847,12 +1886,12 @@ export default function TakeoffPage() {
                     <div className="takeoff-lidar-card">
                       <Ruler size={18} />
                       <span>
-                        <strong>LiDAR / RoomPlan</strong>
-                        <small>Upload RoomPlan JSON to prefill room sizes, or store USD/USDZ/3D scan files for office review.</small>
+                        <strong>iPad / iPhone room scan</strong>
+                        <small>Live capture should run through NeXa Field using iOS RoomPlan where the device supports it. This pilot imports the RoomPlan JSON or scan export after capture.</small>
                       </span>
                       <UploadButton
                         kind="LiDAR scan"
-                        label={isUploadingDocs ? "Uploading" : "Upload scan"}
+                        label={isUploadingDocs ? "Importing" : "Import scan"}
                         accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply"
                         disabled={isUploadingDocs}
                         onUpload={addLidarDocuments}
@@ -1941,6 +1980,10 @@ export default function TakeoffPage() {
 
                     {surveyWorkflow.step === "stop-go" ? (
                       <div className="takeoff-stopgo-list">
+                        <div className="takeoff-conversation-intro">
+                          <strong>Safety gates</strong>
+                          <span>These are the required stop/proceed checks. The AI interview handles the back-and-forth detail for the job.</span>
+                        </div>
                         {surveyWorkflow.stopGo.map((item) => (
                           <article className={item.blockOn && item.answer === item.blockOn ? "blocking" : ""} key={item.id}>
                             <header>
@@ -2061,13 +2104,38 @@ export default function TakeoffPage() {
                       </>
                     ) : (
                       <>
-                        <PanelTitle icon={Sparkles} title="Survey questions" action={`${surveyStats.answeredQuestions}/${surveyWorkflow.aiQuestions.length} answered`} />
-                        <div className="takeoff-survey-question-list">
+                        <PanelTitle icon={Sparkles} title="AI conversation" action={`${surveyStats.answeredQuestions}/${surveyWorkflow.aiQuestions.length} answered`} />
+                        <div className="takeoff-conversation-intro">
+                          <strong>Back-and-forth survey capture</strong>
+                          <span>Answer what you know, then ask a follow-up where the job needs more detail. The answers become the survey record used for quote build-up.</span>
+                        </div>
+                        <div className="takeoff-survey-question-list conversation">
                           {surveyWorkflow.aiQuestions.map((item) => (
                             <article key={item.id}>
-                              <span>{item.section}{item.required ? " *" : ""}</span>
-                              <strong>{item.question}</strong>
-                              <textarea value={item.answer} onChange={(event) => updateSurveyQuestion(item.id, { answer: event.target.value })} />
+                              <div className="takeoff-chat-row ai">
+                                <b>AI</b>
+                                <span>
+                                  <em>{item.section}{item.required ? " *" : ""}</em>
+                                  <strong>{item.question}</strong>
+                                </span>
+                              </div>
+                              <div className="takeoff-chat-row user">
+                                <b>You</b>
+                                <textarea
+                                  placeholder="Reply with what you found on site..."
+                                  value={item.answer}
+                                  onChange={(event) => updateSurveyQuestion(item.id, { answer: event.target.value })}
+                                />
+                              </div>
+                              <button
+                                className="takeoff-small-button"
+                                type="button"
+                                disabled={!item.answer.trim()}
+                                onClick={() => addSurveyFollowUp(item)}
+                              >
+                                <Sparkles size={14} />
+                                Ask follow-up
+                              </button>
                             </article>
                           ))}
                           {!surveyWorkflow.aiQuestions.length ? (
