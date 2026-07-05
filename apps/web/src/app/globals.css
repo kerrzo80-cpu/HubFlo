@@ -15928,6 +15928,72 @@ body {
   margin: 0;
 }
 
+.survey-roomscan-bridge {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(32, 38, 43, 0.04);
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.survey-roomscan-bridge > div:first-child {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.survey-roomscan-bridge > div:first-child svg {
+  color: var(--blue-deep);
+}
+
+.survey-roomscan-bridge strong {
+  color: var(--ink);
+}
+
+.survey-roomscan-bridge small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+
+.survey-roomscan-bridge ol {
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--ink);
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 12px 12px 12px 30px;
+}
+
+.survey-roomscan-bridge li {
+  line-height: 1.35;
+}
+
+.survey-roomscan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.survey-roomscan-bridge > p {
+  align-items: center;
+  background: var(--amber-soft);
+  border: 1px solid #efd693;
+  border-radius: 7px;
+  color: #7a5b09;
+  display: flex;
+  gap: 7px;
+  line-height: 1.35;
+  margin: 0;
+  padding: 10px;
+}
+
 @media (max-width: 1100px) {
   .takeoff-shell {
     grid-template-columns: 1fr;

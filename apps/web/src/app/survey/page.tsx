@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   FileText,
   ImagePlus,
+  Info,
   Link2,
   Loader2,
   MessageCircle,
@@ -69,6 +70,18 @@ function quoteLabel(quote: Quote) {
   return `${quote.ref} - ${quote.description}`;
 }
 
+function roomScanDeepLink(project: TakeoffProject) {
+  const params = new URLSearchParams({
+    projectId: project.id,
+    reference: project.reference,
+    projectName: project.name,
+  });
+  if (typeof window !== "undefined") {
+    params.set("returnUrl", `${window.location.origin}/survey`);
+  }
+  return `nexa-field://room-scan?${params.toString()}`;
+}
+
 export default function SurveyPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -80,6 +93,7 @@ export default function SurveyPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isBuilding, setIsBuilding] = useState(false);
+  const [showRoomScanBridge, setShowRoomScanBridge] = useState(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0],
@@ -305,6 +319,12 @@ export default function SurveyPage() {
     }
   }
 
+  function openRoomScanBridge() {
+    if (!selectedProject) return;
+    setShowRoomScanBridge(true);
+    setNotice("LiDAR room scan bridge ready. The finished iPad/iPhone app will open the camera scanner; this web pilot can import the RoomPlan export.");
+  }
+
   return (
     <main className="survey-app">
       <header className="takeoff-header">
@@ -396,11 +416,10 @@ export default function SurveyPage() {
                       Camera / photos
                       <input hidden type="file" accept="image/*,video/*" multiple onChange={(event) => void uploadEvidence("Survey photo", event)} />
                     </label>
-                    <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
+                    <button className="takeoff-secondary-button" type="button" onClick={openRoomScanBridge}>
                       <ScanLine size={15} />
-                      Room scan
-                      <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply" onChange={(event) => void uploadEvidence("LiDAR scan", event)} />
-                    </label>
+                      Start LiDAR scan
+                    </button>
                     <button className="takeoff-secondary-button" type="button" onClick={prepareQuotePack} disabled={isBuilding}>
                       {isBuilding ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
                       Build quote pack
@@ -456,10 +475,45 @@ export default function SurveyPage() {
                   </article>
                   <div className="survey-next-steps">
                     <strong>How this should work live</strong>
-                    <p>On iPad/iPhone, NeXa Field opens the camera and RoomPlan capture directly. This web pilot imports those files until the native wrapper is built.</p>
+                    <p>On iPad/iPhone, NeXa Field opens the LiDAR camera scanner directly. This web pilot imports RoomPlan files until the native wrapper is built.</p>
                   </div>
                 </aside>
               </section>
+
+              {showRoomScanBridge ? (
+                <section className="survey-roomscan-bridge" aria-label="LiDAR room scan setup">
+                  <div>
+                    <ScanLine size={22} />
+                    <span>
+                      <strong>LiDAR camera scan</strong>
+                      <small>Use the iPad/iPhone NeXa Field scanner for live RoomPlan capture. The scan should then flow back into this survey and into Takeoff.</small>
+                    </span>
+                  </div>
+                  <ol>
+                    <li>Open NeXa Field on a LiDAR-capable iPad/iPhone.</li>
+                    <li>Scan the room with the camera and save the RoomPlan result.</li>
+                    <li>Attach the returned RoomPlan export here while the native app bridge is being built.</li>
+                  </ol>
+                  <div className="survey-roomscan-actions">
+                    <a className="takeoff-primary-button" href={roomScanDeepLink(selectedProject)}>
+                      <ScanLine size={15} />
+                      Open NeXa Field scanner
+                    </a>
+                    <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
+                      <Upload size={15} />
+                      Import scan file
+                      <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply" onChange={(event) => void uploadEvidence("LiDAR scan", event)} />
+                    </label>
+                    <button className="takeoff-secondary-button" type="button" onClick={() => setShowRoomScanBridge(false)}>
+                      Close
+                    </button>
+                  </div>
+                  <p>
+                    <Info size={14} />
+                    Safari cannot run Apple RoomPlan directly from this web page. The native NeXa Field app will handle the live LiDAR capture.
+                  </p>
+                </section>
+              ) : null}
             </>
           ) : (
             <section className="takeoff-panel takeoff-empty-state">
