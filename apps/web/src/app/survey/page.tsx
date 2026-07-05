@@ -322,7 +322,17 @@ export default function SurveyPage() {
   function openRoomScanBridge() {
     if (!selectedProject) return;
     setShowRoomScanBridge(true);
-    setNotice("LiDAR room scan bridge ready. The finished iPad/iPhone app will open the camera scanner; this web pilot can import the RoomPlan export.");
+    setNotice("Live LiDAR capture needs the native NeXa Field app installed. For now, use Import scan file here; once NeXa Field is installed this project link will open the camera scanner.");
+  }
+
+  async function copyRoomScanLink() {
+    if (!selectedProject) return;
+    try {
+      await navigator.clipboard.writeText(roomScanDeepLink(selectedProject));
+      setNotice("NeXa Field scanner link copied. Use it after the native iPad/iPhone app is installed.");
+    } catch {
+      setError("Could not copy the scanner link. Use Import scan file for now.");
+    }
   }
 
   return (
@@ -475,7 +485,7 @@ export default function SurveyPage() {
                   </article>
                   <div className="survey-next-steps">
                     <strong>How this should work live</strong>
-                    <p>On iPad/iPhone, NeXa Field opens the LiDAR camera scanner directly. This web pilot imports RoomPlan files until the native wrapper is built.</p>
+                    <p>On iPad/iPhone, the installed NeXa Field app will open the LiDAR camera scanner directly. Until it is installed, import a scan export here.</p>
                   </div>
                 </aside>
               </section>
@@ -486,31 +496,31 @@ export default function SurveyPage() {
                     <ScanLine size={22} />
                     <span>
                       <strong>LiDAR camera scan</strong>
-                      <small>Use the iPad/iPhone NeXa Field scanner for live RoomPlan capture. The scan should then flow back into this survey and into Takeoff.</small>
+                      <small>The browser cannot open the LiDAR camera directly. Native NeXa Field will do that once installed; today this panel imports scan exports into the survey.</small>
                     </span>
                   </div>
                   <ol>
-                    <li>Open NeXa Field on a LiDAR-capable iPad/iPhone.</li>
-                    <li>Scan the room with the camera and save the RoomPlan result.</li>
-                    <li>Attach the returned RoomPlan export here while the native app bridge is being built.</li>
+                    <li>For today, scan the room in a LiDAR app and export the RoomPlan/3D file.</li>
+                    <li>Tap Import scan file below and attach the exported scan to this survey.</li>
+                    <li>Once NeXa Field is installed on this iPad/iPhone, the copied app link will open the camera scanner directly.</li>
                   </ol>
                   <div className="survey-roomscan-actions">
-                    <a className="takeoff-primary-button" href={roomScanDeepLink(selectedProject)}>
-                      <ScanLine size={15} />
-                      Open NeXa Field scanner
-                    </a>
                     <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
                       <Upload size={15} />
                       Import scan file
                       <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply" onChange={(event) => void uploadEvidence("LiDAR scan", event)} />
                     </label>
+                    <button className="takeoff-secondary-button" type="button" onClick={() => void copyRoomScanLink()}>
+                      <Link2 size={15} />
+                      Copy app link
+                    </button>
                     <button className="takeoff-secondary-button" type="button" onClick={() => setShowRoomScanBridge(false)}>
                       Close
                     </button>
                   </div>
                   <p>
                     <Info size={14} />
-                    Safari cannot run Apple RoomPlan directly from this web page. The native NeXa Field app will handle the live LiDAR capture.
+                    Safari showed "address is invalid" because the native NeXa Field scanner is not installed on this device yet.
                   </p>
                 </section>
               ) : null}
