@@ -81,52 +81,235 @@ function previousAssistantAsked(project: TakeoffProject, phrase: string) {
   ));
 }
 
+type PilotEstimateProfile = {
+  label: string;
+  costCentres: string[];
+  materials: string[];
+  labour: string[];
+  assumptions: string[];
+  questions: string[];
+  supplierItems: string[];
+};
+
+function uniqueLines(lines: string[]) {
+  return Array.from(new Set(lines.map((line) => line.trim()).filter(Boolean)));
+}
+
+function bulletList(lines: string[]) {
+  return uniqueLines(lines).map((line) => `- ${line}`).join("\n");
+}
+
+function buildScopeLine(project: TakeoffProject, message: string) {
+  const cleanMessage = message.trim();
+  if (cleanMessage) return cleanMessage;
+  if (project.description && project.description !== "Takeoff scope to review.") return project.description;
+  return "Scope to confirm from survey notes";
+}
+
+function estimateProfileFor(project: TakeoffProject, message: string): PilotEstimateProfile {
+  const lower = `${project.name} ${project.description} ${message}`.toLowerCase();
+  const profile: PilotEstimateProfile = {
+    label: "General plumbing / building works",
+    costCentres: [
+      "Survey and set-out",
+      "Materials and plant",
+      "Labour installation",
+      "Testing, commissioning and handover",
+    ],
+    materials: [
+      "Consumables, fittings and sundries to match the final scope",
+      "Making-good materials where finishes are disturbed",
+      "Waste removal or skip allowance if strip-out is included",
+    ],
+    labour: [
+      "Engineer labour for first fix, second fix and testing",
+      "Office review time to convert this into a clean client quote",
+    ],
+    assumptions: [
+      "Prices should stay provisional until supplier items and site access are confirmed",
+      "Client-visible description should be kept separate from internal costing notes",
+    ],
+    questions: [
+      "What finishes or making-good are included?",
+      "Which materials need supplier prices before issue?",
+      "Is this fixed price, daywork or allowance-led?",
+    ],
+    supplierItems: [
+      "Any named fixture, valve, appliance or specialist material with volatile pricing",
+    ],
+  };
+
+  if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(lower)) {
+    profile.label = "Bathroom refurbishment";
+    profile.costCentres = [
+      "Strip out and isolate existing services",
+      "Move waste, soil, hot and cold pipework",
+      "First fix plumbing and shower valve route",
+      "Wall/floor preparation and making good",
+      "Second fix sanitaryware, shower enclosure and testing",
+    ];
+    profile.materials = [
+      "Skip or waste disposal allowance",
+      "Pipework, isolation valves, waste fittings and soil fittings",
+      "Shower tray/cubicle, basin, taps, WC and wastes if supplied by us",
+      "Boarding, sealants, fixings and access panel allowance",
+      "Tiling/electrical/extraction items only if included in our scope",
+    ];
+    profile.labour = [
+      "Plumber strip-out/isolation time",
+      "Plumber first fix for moved services",
+      "Plumber second fix and test",
+      "Joinery/tiling/electrical labour only where included",
+    ];
+    profile.assumptions = [
+      "Allow extra risk if the toilet moves away from the existing soil route",
+      "Assume hidden pipe routes and floor condition are provisional until opened",
+      "Exclude decorating and final finishes unless clearly included",
+      "Supplier quote required for sanitaryware, shower enclosure and any client-selected finishes",
+    ];
+    profile.questions = [
+      "Is the toilet moving onto the same soil wall or a new route?",
+      "Are we supplying the suite/shower screen/tray, or is the customer supplying?",
+      "Are tiling, electrics, joinery boxing and decorating included or excluded?",
+    ];
+    profile.supplierItems = [
+      "Shower tray and cubicle/screen",
+      "Basin, tap, waste and vanity if applicable",
+      "WC pan/cistern/seat and frame if concealed",
+      "Tiles, boards and trims if included",
+    ];
+  }
+
+  if (/boiler|heating|radiator|heat loss|cylinder|flue|controls|thermostat/.test(lower)) {
+    profile.label = /radiator|heat loss/.test(lower) ? "Heating and radiator works" : "Boiler / heating works";
+    profile.costCentres = [
+      "Survey, heat loss and radiator schedule",
+      "Plant, boiler/radiator and controls supply",
+      "Pipework alterations and access works",
+      "Installation, flushing, testing and commissioning",
+      "Gas paperwork and handover evidence",
+    ];
+    profile.materials = [
+      "Boiler/radiators/valves/controls to supplier quote",
+      "Copper/plastic pipework, fittings, insulation and clips",
+      "Flue, plume kit and condensate materials where required",
+      "Chemical cleaner/inhibitor and test consumables",
+    ];
+    profile.labour = [
+      "Heating engineer survey and set-out",
+      "Engineer installation hours split by plant, pipework and commissioning",
+      "Allowance for draining, filling, balancing and customer handover",
+    ];
+    profile.assumptions = [
+      "Heat loss should drive radiator sizing rather than guessing sizes",
+      "Boiler/radiator model and supplier cost should stay TBC until quoted",
+      "Gas-safe evidence and commissioning checks must be attached to the cost centre",
+    ];
+    profile.questions = [
+      "Are we replacing like-for-like or changing pipe routes/locations?",
+      "What boiler/radiator range should be priced?",
+      "Is the system getting flushed, balanced and controls upgraded?",
+    ];
+    profile.supplierItems = [
+      "Boiler, flue and controls",
+      "Radiators and TRVs/lockshields",
+      "Mag filter, chemicals and specialist valves",
+    ];
+  }
+
+  if (/leak|burst|repair|reactive|emergency|tap|valve|blockage/.test(lower)) {
+    profile.label = "Reactive plumbing repair";
+    profile.costCentres = [
+      "Attend and diagnose",
+      "Isolate/repair",
+      "Materials used",
+      "Test and reinstate",
+    ];
+    profile.materials = [
+      "Fittings and valves used on site",
+      "Access/making-good materials if any surfaces are disturbed",
+      "Specialist parts to supplier quote if not van stock",
+    ];
+    profile.labour = [
+      "Engineer travel/attendance if charged",
+      "Engineer repair time",
+      "Return visit allowance if parts are required",
+    ];
+    profile.assumptions = [
+      "Best handled as time and materials unless the fault is fully known",
+      "Capture before/after photos and exact parts used for invoice backup",
+    ];
+    profile.questions = [
+      "Is this being quoted upfront or logged as time and materials?",
+      "Is access straightforward or do we need to open finishes?",
+      "Are any specialist parts required before attendance?",
+    ];
+    profile.supplierItems = [
+      "Specialist valve, cartridge, pump or appliance part if not standard stock",
+    ];
+  }
+
+  return profile;
+}
+
+function buildPilotEstimateReply(project: TakeoffProject, message: string, mode: "draft" | "chat") {
+  const scope = buildScopeLine(project, message);
+  const profile = estimateProfileFor(project, message);
+  const uploadedEvidence = documentSummary(project);
+  const hasEvidence = project.documents.length > 0;
+  const readyTone = mode === "draft"
+    ? "I will stop asking broad questions and build this as a provisional estimate pack."
+    : "Here is the first useful pricing build-up I would create from that.";
+
+  return [
+    readyTone,
+    "",
+    `Understood scope: ${scope}`,
+    `Likely cost centre type: ${profile.label}`,
+    `Evidence held: ${uploadedEvidence}`,
+    "",
+    "Cost centres I would create:",
+    bulletList(profile.costCentres),
+    "",
+    "Materials / supplier request:",
+    bulletList([
+      ...profile.materials,
+      ...profile.supplierItems.map((item) => `${item} - send to supplier if no current rate is held`),
+    ]),
+    "",
+    "Labour build-up:",
+    bulletList(profile.labour),
+    "",
+    "Commercial assumptions before this becomes a client quote:",
+    bulletList([
+      ...profile.assumptions,
+      hasEvidence ? "Use uploaded evidence to support the scope and exclusions." : "Add photos/LiDAR/notes if we need evidence before issue.",
+    ]),
+    "",
+    "Targeted questions:",
+    bulletList(profile.questions),
+    "",
+    "Next action: use Send to pack, then review the estimate pack in Takeoff before pushing it into the linked quote.",
+  ].join("\n");
+}
+
 function buildPilotReply(project: TakeoffProject, message: string) {
   const lower = message.toLowerCase();
-  const scope = message.trim() || project.description;
+  const forceDraft = /just price|price it|build it|quote it|send it|go ahead|ready|draft it|work it out/.test(lower);
 
-  if (/just price|price it|build it|quote it|send it|go ahead|ready/.test(lower)) {
-    return [
-      "Okay. I will treat this as ready for a provisional quote pack rather than asking another broad question.",
-      `Working scope: ${project.description === "Takeoff scope to review." ? scope : project.description}`,
-      "Before issue, confirm only the commercial bits: what is included, what is excluded/making good, which items need supplier prices, and whether this is fixed price or allowance-led.",
-      "Next step: click Build quote pack, then review the Takeoff output before pushing it back to the quote.",
-    ].join("\n\n");
+  if (forceDraft) {
+    return buildPilotEstimateReply(project, message, "draft");
   }
 
-  if (/bathroom|toilet|basin|shower|cubicle|suite|wc/.test(lower)) {
-    return [
-      "Got it. For this bathroom scope I would price it around strip-out, waste/soil alterations, hot and cold feeds, shower/basin/toilet positions, making good, and final fit-off.",
-      "The only details I still need are targeted: is the toilet moving onto the same soil wall, are floors/walls being opened, who supplies the sanitaryware, and are tiling/electrics included or excluded?",
-    ].join("\n\n");
-  }
-
-  if (/boiler|heating|radiator|heat loss|cylinder|flue/.test(lower)) {
-    return [
-      "Understood. For heating, I will build around heat loss, radiator schedule, boiler/cylinder/flue route, pipework access, controls and making-good assumptions.",
-      "Next useful step: add heat loss for each room or tell me which rooms/radiators are changing, then I can turn that into supplier-price items.",
-    ].join("\n\n");
-  }
-
-  if (/photo|picture|image/.test(lower) || project.documents.some((document) => document.kind === "Survey photo")) {
-    return [
-      "I have the photo evidence in the quote pack. Tell me what each photo is proving: existing layout, damage, pipe route, access, or finish level.",
-      "Once OpenAI is connected, I can read the uploaded images directly; until then I need your short description beside the photos.",
-    ].join("\n\n");
-  }
-
-  if (/drawing|boq|spec|schedule|pdf/.test(lower)) {
-    return "Upload the drawing, spec or BOQ here, then I can turn it into the Takeoff output. If supplier prices are needed, mark those items for the supplier request rather than pricing them from memory.";
+  if (/bathroom|toilet|basin|shower|cubicle|suite|wc|boiler|heating|radiator|heat loss|cylinder|leak|repair|reactive|drawing|boq|spec|schedule|pdf/.test(lower)) {
+    return buildPilotEstimateReply(project, message, "chat");
   }
 
   if (!previousAssistantAsked(project, "included, what is excluded")) {
-    return [
-      `I have logged the scope as: ${scope}.`,
-      "Tell me the pricing basis now: what is included, what is excluded, and which materials need supplier prices?",
-    ].join("\n\n");
+    return buildPilotEstimateReply(project, message, "chat");
   }
 
-  return "Got it. I have enough to move forward with assumptions. Click Build quote pack and I will turn this conversation and evidence into the review output.";
+  return buildPilotEstimateReply(project, message, "draft");
 }
 
 async function runOpenAiSurveyChat(project: TakeoffProject, nextMessages: TakeoffSurveyChatMessage[], apiKey: string, model: string, actor: string) {
@@ -146,9 +329,11 @@ async function runOpenAiSurveyChat(project: TakeoffProject, nextMessages: Takeof
             text: [
               "You are NeXa AI Estimator for a UK plumbing, heating and bathroom contractor.",
               "Run a live quote-building conversation. Be practical, commercial and specific.",
+              "The user expects a ChatGPT-like estimator, not a checklist. Usually produce a first-pass pricing build-up before asking questions.",
               "Do not repeat broad generic questions. Never ask 'what would someone regret not knowing'.",
-              "Ask at most three targeted questions at a time, and only if they unblock pricing.",
-              "If the user says 'just price it', 'quote it', 'go ahead', or similar, switch into assumptions mode: summarise scope, list missing commercial assumptions, and tell them to build/review the quote pack.",
+              "Structure useful replies with these plain labels when relevant: Understood scope, Cost centres, Materials / supplier request, Labour build-up, Commercial assumptions, Targeted questions, Next action.",
+              "Ask at most three targeted questions at a time, and only after you have given the useful first-pass breakdown.",
+              "If the user says 'just price it', 'quote it', 'go ahead', or similar, switch into assumptions mode: summarise scope, propose cost centres, materials, labour allowances, supplier quote items and review risks.",
               "Do not invent a final fixed sell price unless rates, supplier values, or explicit allowances have been provided in the project context. Use pricing structure and provisional assumptions instead.",
               "Do not claim to visually inspect photos, drawings or LiDAR unless extracted text/data is provided. You can refer to uploaded evidence by count/type.",
               "Write plain chat text. Do not use markdown headings or bold formatting. Short dash bullets are fine.",
