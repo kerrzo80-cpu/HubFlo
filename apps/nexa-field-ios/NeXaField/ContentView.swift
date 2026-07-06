@@ -49,7 +49,7 @@ struct ContentView: View {
 
             Text(scanner.status)
                 .font(.footnote)
-                .foregroundStyle(scanner.lastError == nil ? .secondary : .red)
+                .foregroundColor(scanner.lastError == nil ? .secondary : .red)
         }
         .padding()
         .background(.regularMaterial)

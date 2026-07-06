@@ -27,6 +27,13 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         loadSettings()
     }
 
+    required init?(coder: NSCoder) {
+        super.init()
+        loadSettings()
+    }
+
+    nonisolated func encode(with coder: NSCoder) {}
+
     func attach(_ view: RoomCaptureView) {
         captureView = view
     }
@@ -128,7 +135,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     }
 }
 
-extension RoomScanCoordinator: RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
+extension RoomScanCoordinator: @preconcurrency RoomCaptureViewDelegate, RoomCaptureSessionDelegate {
     nonisolated func captureView(shouldPresent roomDataForProcessing: CapturedRoomData, error: Error?) -> Bool {
         Task { @MainActor in
             if let error {

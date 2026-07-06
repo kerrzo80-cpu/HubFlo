@@ -9,3 +9,10 @@ coverage
 *.log
 .DS_Store
 .hubflo-runtime
+*.swp
+*.swo
+*.xcodeproj/project.xcworkspace/
+*.xcodeproj/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/
+**/*.xcodeproj/xcuserdata/
+*.xcuserstate
