@@ -77,13 +77,10 @@ type HeatCalcDraft = {
 };
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
-  { key: "intake", label: "Intake", icon: Upload },
-  { key: "survey", label: "Survey quote", icon: ClipboardList },
+  { key: "intake", label: "Documents", icon: Upload },
   { key: "rooms", label: "Rooms", icon: Ruler },
-  { key: "heat", label: "Heat loss", icon: ThermometerSun },
-  { key: "runs", label: "Pipework", icon: Wrench },
-  { key: "boq", label: "BOQ", icon: PackageSearch },
-  { key: "review", label: "Review", icon: CheckCircle2 },
+  { key: "boq", label: "BOQ / supplier", icon: PackageSearch },
+  { key: "review", label: "Estimate pack", icon: CheckCircle2 },
 ];
 
 const requestHeaders: HeadersInit = {
@@ -739,6 +736,7 @@ export default function TakeoffPage() {
         supplierCount: 0,
         labourHours: 0,
         lineCount: 0,
+        totalSell: 0,
       };
     }
 
@@ -759,6 +757,7 @@ export default function TakeoffPage() {
       supplierCount: selectedProject.supplierRequests.length + flaggedMaterials + flaggedRadiators,
       labourHours: selectedProject.labourAllowances.reduce((sum, line) => sum + line.hours, 0),
       lineCount: selectedProject.materialAllowances.length + selectedProject.labourAllowances.length + selectedProject.radiators.length,
+      totalSell: materialSell + labourSell,
     };
   }, [selectedProject]);
 
@@ -833,6 +832,13 @@ export default function TakeoffPage() {
 
   useEffect(() => {
     loadData().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab === "pack" || tab === "estimate") {
+      setActiveTab("review");
+    }
   }, []);
 
   function replaceProject(project: TakeoffProject) {
@@ -1562,7 +1568,7 @@ export default function TakeoffPage() {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa" />
-          <span>Takeoff / BOQ</span>
+          <span>NeXa Takeoff</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">
@@ -1697,18 +1703,36 @@ export default function TakeoffPage() {
                 </div>
               ) : null}
 
+              <section className="estimate-flow-strip" aria-label="Estimate workflow">
+                <article>
+                  <span>1</span>
+                  <strong>Survey</strong>
+                  <small>Site chat, photos, LiDAR, heat loss</small>
+                </article>
+                <article className="active">
+                  <span>2</span>
+                  <strong>Takeoff</strong>
+                  <small>Drawings, specs and contractor BOQs</small>
+                </article>
+                <article>
+                  <span>3</span>
+                  <strong>Estimate pack</strong>
+                  <small>Review cost centres before quote push</small>
+                </article>
+              </section>
+
               <section className="takeoff-ai-handoff">
                 <div>
                   <Sparkles size={20} />
                   <span>
-                    <strong>Takeoff is the back-office output from the AI chat</strong>
-                    <small>Use AI Surveyor for the back-and-forth conversation, LiDAR room scan, heat loss and site evidence. Come here to review drawings, BOQs, supplier lines and push the finished output into the quote.</small>
+                    <strong>Office takeoff: documents in, estimate pack out</strong>
+                    <small>Use Survey for site chat/photos/LiDAR. Use this workspace for drawings, specs and contractor BOQs, then review the BOQ and supplier items before pushing into the quote.</small>
                   </span>
                 </div>
                 <div className="takeoff-ai-handoff-actions">
                   <a className="takeoff-primary-button" href="/survey">
                     <MessageCircle size={15} />
-                    Open AI chat
+                    Open Survey
                   </a>
                   <button
                     className="takeoff-secondary-button"
@@ -1717,11 +1741,11 @@ export default function TakeoffPage() {
                     onClick={runAiExtraction}
                   >
                     <Sparkles size={15} />
-                    {isExtracting ? "Scanning" : "AI scan files"}
+                    {isExtracting ? "Scanning" : "Scan documents"}
                   </button>
                   <button className="takeoff-secondary-button" type="button" disabled={isPushing} onClick={pushProject}>
                     <Send size={15} />
-                    {isPushing ? "Pushing" : "Push to quote"}
+                    {isPushing ? "Pushing" : "Push estimate"}
                   </button>
                 </div>
               </section>
@@ -2774,7 +2798,34 @@ export default function TakeoffPage() {
               {activeTab === "review" ? (
                 <section className="takeoff-grid two">
                   <article className="takeoff-panel">
-                    <PanelTitle icon={CheckCircle2} title="Office review" action={selectedQuote?.ref ?? "No quote"} />
+                    <PanelTitle icon={CheckCircle2} title="Estimate pack review" action={selectedQuote?.ref ?? "No quote"} />
+                    <div className="estimate-pack-summary">
+                      <article>
+                        <span>Survey evidence</span>
+                        <strong>{surveyEvidenceDocuments.length}</strong>
+                        <small>Photos, notes and LiDAR from NeXa Survey</small>
+                      </article>
+                      <article>
+                        <span>Office documents</span>
+                        <strong>{selectedProject.documents.filter((document) => ["Drawing", "Specification", "Contractor BOQ"].includes(document.kind)).length}</strong>
+                        <small>Drawings, specs and contractor BOQs</small>
+                      </article>
+                      <article>
+                        <span>BOQ lines</span>
+                        <strong>{boqPreviewRows.length}</strong>
+                        <small>Materials, labour and radiator outputs</small>
+                      </article>
+                      <article>
+                        <span>Supplier RFQ</span>
+                        <strong>{selectedProject.supplierRequests.length}</strong>
+                        <small>Items to price before quote issue</small>
+                      </article>
+                      <article className="total">
+                        <span>Current sell total</span>
+                        <strong>{money(projectTotals.totalSell)}</strong>
+                        <small>Review margins before pushing</small>
+                      </article>
+                    </div>
                     <div className="takeoff-form-grid">
                       <label className="wide">
                         Office notes
@@ -2816,7 +2867,7 @@ export default function TakeoffPage() {
                       </button>
                       <button className="takeoff-primary-button strong" type="button" disabled={isPushing} onClick={pushProject}>
                         <Send size={15} />
-                        {isPushing ? "Pushing" : "Push to quote"}
+                        {isPushing ? "Pushing" : "Push estimate to quote"}
                       </button>
                     </div>
                     <div className="takeoff-review-meta">

@@ -12,7 +12,6 @@ import {
   Link2,
   Loader2,
   MessageCircle,
-  PackageSearch,
   Plus,
   Ruler,
   ScanLine,
@@ -552,7 +551,7 @@ export default function SurveyPage() {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa" />
-          <span>AI Estimator</span>
+          <span>NeXa Survey</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">
@@ -561,7 +560,7 @@ export default function SurveyPage() {
           </a>
           <a className="takeoff-ghost-button" href="/takeoff">
             <FileText size={16} />
-            Output review
+            Takeoff
           </a>
         </div>
       </header>
@@ -569,7 +568,7 @@ export default function SurveyPage() {
       <div className="survey-shell">
         <aside className="survey-sidebar">
           <div className="takeoff-sidebar-title">
-            <span>Estimate chats</span>
+            <span>Site surveys</span>
             <button className="takeoff-create-project-button" type="button" onClick={createSurveyChat} disabled={isSaving}>
               <Plus size={16} />
               New
@@ -610,14 +609,17 @@ export default function SurveyPage() {
               <section className="survey-hero">
                 <div>
                   <span className="takeoff-kicker"><b>{selectedProject.reference}</b></span>
-                  <h1>What are we pricing today?</h1>
+                  <h1>Site survey chat</h1>
                   <p>
-                    Chat with NeXa, add photos, LiDAR, heat loss and drawings as you go, then send the finished quote pack into Core.
+                    Chat with NeXa on site, capture photos, LiDAR and heat loss, then hand the clean survey pack into the estimate.
                   </p>
                   <strong>{selectedProject.name} - {selectedProject.customer} - {selectedProject.site}</strong>
                   <div className="survey-prompt-chips" aria-label="Quick survey prompts">
-                    <button type="button" onClick={() => setDraft("We are pricing ")}>
-                      Start scope
+                    <button type="button" onClick={() => setDraft("We are surveying and pricing ")}>
+                      Describe job
+                    </button>
+                    <button type="button" onClick={() => setDraft("Site note: ")}>
+                      Add note
                     </button>
                     <button type="button" onClick={openRoomScanBridge}>
                       LiDAR room scan
@@ -625,8 +627,8 @@ export default function SurveyPage() {
                     <button type="button" onClick={() => setShowHeatLossPanel(true)}>
                       Heat loss
                     </button>
-                    <button type="button" onClick={() => setDraft("Build a BOQ from the attached drawings and supplier items for ")}>
-                      Drawing / BOQ
+                    <button type="button" onClick={prepareQuotePack} disabled={isBuilding}>
+                      Send to estimate pack
                     </button>
                   </div>
                 </div>
@@ -667,6 +669,24 @@ export default function SurveyPage() {
               {notice ? <p className="takeoff-notice">{notice}</p> : null}
               {error ? <p className="takeoff-error">{error}</p> : null}
 
+              <section className="estimate-flow-strip" aria-label="Estimate workflow">
+                <article className="active">
+                  <span>1</span>
+                  <strong>Survey</strong>
+                  <small>Chat, photos, LiDAR, heat loss</small>
+                </article>
+                <article>
+                  <span>2</span>
+                  <strong>Takeoff</strong>
+                  <small>Drawings, specs, contractor BOQs</small>
+                </article>
+                <article>
+                  <span>3</span>
+                  <strong>Estimate pack</strong>
+                  <small>Cost centres, supplier lines, quote push</small>
+                </article>
+              </section>
+
               <section className="survey-workspace">
                 <article className="survey-chat-panel">
                   <header className="survey-chat-title">
@@ -680,12 +700,16 @@ export default function SurveyPage() {
                     <b>{messages.length} messages</b>
                   </header>
                   <div className="survey-action-strip">
-                    <span className="survey-action-label">Add to chat</span>
+                    <span className="survey-action-label">Site tools</span>
                     <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
                       <Camera size={15} />
                       Photos
                       <input hidden type="file" accept="image/*,video/*" multiple onChange={(event) => void uploadEvidence("Survey photo", event)} />
                     </label>
+                    <button className="takeoff-secondary-button" type="button" onClick={() => setDraft("Site note: ")}>
+                      <MessageCircle size={15} />
+                      Add note
+                    </button>
                     <button className="takeoff-secondary-button" type="button" onClick={openRoomScanBridge}>
                       <ScanLine size={15} />
                       LiDAR scan
@@ -694,18 +718,13 @@ export default function SurveyPage() {
                       <ThermometerSun size={15} />
                       Heat loss
                     </button>
-                    <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
-                      <PackageSearch size={15} />
-                      Drawings / BOQ
-                      <input hidden type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,image/*" multiple onChange={(event) => void uploadEvidence("Contractor BOQ", event)} />
-                    </label>
                     <button className="takeoff-secondary-button" type="button" onClick={prepareQuotePack} disabled={isBuilding}>
                       {isBuilding ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
-                      Build quote pack
+                      Send to pack
                     </button>
-                    <a className="takeoff-secondary-button" href="/takeoff">
+                    <a className="takeoff-secondary-button" href="/takeoff?tab=pack">
                       <Send size={15} />
-                      Takeoff output
+                      Estimate pack
                     </a>
                   </div>
 
@@ -738,8 +757,8 @@ export default function SurveyPage() {
 
                 <aside className="survey-capture-panel">
                   <div className="survey-capture-heading">
-                    <strong>Quote pack</strong>
-                    <small>Everything captured from this chat</small>
+                    <strong>Survey pack</strong>
+                    <small>Site evidence feeding the estimate</small>
                   </div>
                   <article>
                     <ImagePlus size={18} />
@@ -758,7 +777,7 @@ export default function SurveyPage() {
                   </article>
                   <article>
                     <FileText size={18} />
-                    <span>Drawings / BOQ</span>
+                    <span>Office docs</span>
                     <strong>{documentCount}</strong>
                   </article>
                   <article>
@@ -767,8 +786,8 @@ export default function SurveyPage() {
                     <strong>{linkedQuote?.ref ?? selectedProject.linkedQuoteRef ?? "Not linked"}</strong>
                   </article>
                   <div className="survey-next-steps">
-                    <strong>AI workspace</strong>
-                    <p>Keep the conversation here. Photos, LiDAR, heat loss, drawings and BOQs all feed the same quote pack.</p>
+                    <strong>Handoff rule</strong>
+                    <p>Survey captures site truth. Takeoff handles drawings. Both feed the Estimate Pack before quote push.</p>
                   </div>
                 </aside>
               </section>

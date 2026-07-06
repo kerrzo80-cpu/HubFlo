@@ -16086,6 +16086,56 @@ body {
   outline: 0;
 }
 
+.estimate-flow-strip {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(32, 38, 43, 0.04);
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.estimate-flow-strip article {
+  background: #f8fbfc;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 13px 14px;
+}
+
+.estimate-flow-strip article.active {
+  background: var(--green-soft);
+}
+
+.estimate-flow-strip span {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--blue-deep);
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 950;
+  height: 28px;
+  justify-content: center;
+  width: 28px;
+}
+
+.estimate-flow-strip strong {
+  align-self: end;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.estimate-flow-strip small {
+  color: var(--muted);
+  font-size: 12px;
+  grid-column: 2;
+  line-height: 1.35;
+}
+
 .survey-workspace {
   display: grid;
   gap: 14px;
@@ -16481,6 +16531,47 @@ body {
   padding: 10px;
 }
 
+.estimate-pack-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.estimate-pack-summary article {
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.estimate-pack-summary article.total {
+  background: var(--green-soft);
+  border-color: #bfe3cf;
+  grid-column: 1 / -1;
+}
+
+.estimate-pack-summary span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.estimate-pack-summary strong {
+  color: var(--ink);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.estimate-pack-summary small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 @media (max-width: 1100px) {
   .takeoff-shell {
     grid-template-columns: 1fr;
@@ -16526,6 +16617,10 @@ body {
 
   .survey-shell,
   .survey-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .estimate-flow-strip {
     grid-template-columns: 1fr;
   }
 
@@ -16606,6 +16701,10 @@ body {
   }
 
   .survey-capture-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .estimate-pack-summary {
     grid-template-columns: 1fr;
   }
 
