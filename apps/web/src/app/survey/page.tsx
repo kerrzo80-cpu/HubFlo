@@ -20,6 +20,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
 import type { TakeoffDocumentKind, TakeoffProject, TakeoffSurveyChatMessage } from "@/lib/takeoff-data";
 
@@ -66,8 +67,38 @@ function nextAssistantReply(answer: string, project: TakeoffProject) {
   return `Got it. What would someone pricing ${project.name} regret not knowing later: access, exclusions, materials, labour time, client preference, or supplier quote items?`;
 }
 
-function quoteLabel(quote: Quote) {
-  return `${quote.ref} - ${quote.description}`;
+function quoteSite(quote: Quote, clientSites: ClientSite[]) {
+  return quote.siteId ? clientSites.find((site) => site.id === quote.siteId) : undefined;
+}
+
+function quoteSearchLabel(quote: Quote, clientSites: ClientSite[]) {
+  const site = quoteSite(quote, clientSites);
+  return [quote.ref, quote.customer, site?.address, quote.description].filter(Boolean).join(" - ");
+}
+
+function quoteSearchText(quote: Quote, clientSites: ClientSite[]) {
+  const site = quoteSite(quote, clientSites);
+  return [
+    quote.ref,
+    quote.customer,
+    site?.name,
+    site?.address,
+    quote.description,
+    quote.owner,
+    quote.status,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function shouldReplaceProjectText(value: string) {
+  const normalised = value.trim().toLowerCase();
+  return [
+    "",
+    "new survey pricing chat",
+    "customer to confirm",
+    "site to confirm",
+    "takeoff scope to review.",
+    "survey conversation started from nexa survey.",
+  ].includes(normalised);
 }
 
 function roomScanDeepLink(project: TakeoffProject) {
@@ -85,7 +116,10 @@ function roomScanDeepLink(project: TakeoffProject) {
 export default function SurveyPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [quoteSearch, setQuoteSearch] = useState("");
+  const [isQuoteSearchOpen, setIsQuoteSearchOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -103,30 +137,69 @@ export default function SurveyPage() {
   const projectDocuments = selectedProject?.documents ?? [];
   const photoCount = projectDocuments.filter((document) => document.kind === "Survey photo").length;
   const scanCount = projectDocuments.filter((document) => document.kind === "LiDAR scan").length;
+  const linkedQuote = useMemo(
+    () => selectedProject
+      ? quotes.find((quote) => quote.id === selectedProject.linkedQuoteId || quote.ref === selectedProject.linkedQuoteRef) ?? null
+      : null,
+    [quotes, selectedProject],
+  );
+  const quoteSearchMatches = useMemo(() => {
+    const query = quoteSearch.trim().toLowerCase();
+    const source = query
+      ? quotes.filter((quote) => quoteSearchText(quote, clientSites).includes(query))
+      : quotes;
+    return source.slice(0, 6);
+  }, [clientSites, quoteSearch, quotes]);
 
   useEffect(() => {
     void loadData();
   }, []);
 
+  useEffect(() => {
+    setQuoteSearch(linkedQuote ? quoteSearchLabel(linkedQuote, clientSites) : "");
+  }, [clientSites, linkedQuote]);
+
   async function loadData() {
     setIsLoading(true);
     setError("");
     try {
-      const [projectResponse, quoteResponse] = await Promise.all([
+      const [projectResponse, quoteResponse, siteResponse] = await Promise.all([
         fetch("/api/takeoff-projects", { headers: requestHeaders }),
         fetch("/api/quotes", { headers: requestHeaders }),
+        fetch("/api/client-sites", { headers: requestHeaders }),
       ]);
       if (!projectResponse.ok) throw new Error("Unable to load survey jobs");
       const nextProjects = (await projectResponse.json()) as TakeoffProject[];
       const nextQuotes = quoteResponse.ok ? ((await quoteResponse.json()) as Quote[]) : [];
+      const nextClientSites = siteResponse.ok ? ((await siteResponse.json()) as ClientSite[]) : [];
       setProjects(nextProjects);
       setQuotes(nextQuotes);
+      setClientSites(nextClientSites);
       setSelectedProjectId((current) => current || nextProjects[0]?.id || "");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load survey app");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function linkQuoteToProject(quote: Quote) {
+    if (!selectedProject) return;
+    const site = quoteSite(quote, clientSites);
+    setQuoteSearch(quoteSearchLabel(quote, clientSites));
+    setIsQuoteSearchOpen(false);
+    await patchProject(selectedProject.id, {
+      linkedQuoteId: quote.id,
+      customer: quote.customer,
+      site: site?.address ?? selectedProject.site,
+      name: shouldReplaceProjectText(selectedProject.name) ? `${quote.description} survey` : selectedProject.name,
+      description: shouldReplaceProjectText(selectedProject.description) ? quote.description : selectedProject.description,
+    }, `Linked to ${quote.ref}.`);
+  }
+
+  async function clearQuoteLinkIfEmpty(value: string) {
+    if (!selectedProject || value.trim() || !selectedProject.linkedQuoteId) return;
+    await patchProject(selectedProject.id, { linkedQuoteId: "" }, "Quote link cleared.");
   }
 
   function replaceProject(project: TakeoffProject) {
@@ -403,15 +476,35 @@ export default function SurveyPage() {
                 </div>
                 <div className="takeoff-quote-link">
                   <Link2 size={16} />
-                  <select
-                    value={selectedProject.linkedQuoteId ?? ""}
-                    onChange={(event) => void patchProject(selectedProject.id, { linkedQuoteId: event.target.value }, "Quote link updated.")}
-                  >
-                    <option value="">Link to lead / quote later</option>
-                    {quotes.map((quote) => (
-                      <option value={quote.id} key={quote.id}>{quoteLabel(quote)}</option>
-                    ))}
-                  </select>
+                  <div className="quote-search-control">
+                    <input
+                      type="search"
+                      value={quoteSearch}
+                      placeholder="Search quote, client or address..."
+                      onChange={(event) => {
+                        setQuoteSearch(event.target.value);
+                        setIsQuoteSearchOpen(true);
+                        void clearQuoteLinkIfEmpty(event.target.value);
+                      }}
+                      onFocus={() => setIsQuoteSearchOpen(true)}
+                      onBlur={() => window.setTimeout(() => setIsQuoteSearchOpen(false), 140)}
+                    />
+                    {isQuoteSearchOpen ? (
+                      <div className="quote-search-results">
+                        {quoteSearchMatches.length ? quoteSearchMatches.map((quote) => {
+                          const site = quoteSite(quote, clientSites);
+                          return (
+                            <button type="button" key={quote.id} onClick={() => void linkQuoteToProject(quote)}>
+                              <strong>{quote.ref} - {quote.customer}</strong>
+                              <small>{site?.address ?? quote.description}</small>
+                            </button>
+                          );
+                        }) : (
+                          <span>No matching quote, client or site address.</span>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </section>
 
@@ -481,7 +574,7 @@ export default function SurveyPage() {
                   <article>
                     <CheckCircle2 size={18} />
                     <span>Linked quote</span>
-                    <strong>{selectedProject.linkedQuoteRef ?? "Not linked"}</strong>
+                    <strong>{linkedQuote?.ref ?? selectedProject.linkedQuoteRef ?? "Not linked"}</strong>
                   </article>
                   <div className="survey-next-steps">
                     <strong>How this should work live</strong>

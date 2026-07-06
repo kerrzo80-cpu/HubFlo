@@ -1,4 +1,4 @@
-import { appendAuditEvent, type AuditEvent } from "@/lib/people-data";
+import { appendAuditEvent, getClientSites, type AuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
@@ -632,9 +632,32 @@ function nextReference(projects: TakeoffProject[]) {
   return `TK-${currentMax + 1}`;
 }
 
-function findLinkedQuote(quoteId?: string) {
-  if (!quoteId) return undefined;
-  return getQuotes().find((quote) => quote.id === quoteId);
+function normaliseLookup(value?: string) {
+  return value?.trim().toLowerCase() ?? "";
+}
+
+function findTakeoffProjectIndexByLookup(value: string) {
+  const lookup = normaliseLookup(value);
+  if (!lookup) return -1;
+  return takeoffStore.projects.findIndex((project) =>
+    [
+      project.id,
+      project.reference,
+      project.linkedQuoteId,
+      project.linkedQuoteRef,
+    ].some((candidate) => normaliseLookup(candidate) === lookup),
+  );
+}
+
+function findLinkedQuote(quoteIdOrRef?: string) {
+  const lookup = normaliseLookup(quoteIdOrRef);
+  if (!lookup) return undefined;
+  return getQuotes().find((quote) => normaliseLookup(quote.id) === lookup || normaliseLookup(quote.ref) === lookup);
+}
+
+function linkedQuoteSiteAddress(quote?: Quote) {
+  if (!quote?.siteId) return undefined;
+  return getClientSites().find((site) => site.id === quote.siteId)?.address;
 }
 
 function lineSellFromMarkup(unitCost: number, markupPercent: number) {
@@ -1123,7 +1146,8 @@ export function getTakeoffProjects(): TakeoffProject[] {
 }
 
 export function getTakeoffProject(id: string): TakeoffProject | undefined {
-  const project = takeoffStore.projects.find((item) => item.id === id);
+  const index = findTakeoffProjectIndexByLookup(id);
+  const project = index >= 0 ? takeoffStore.projects[index] : undefined;
   return project ? clone(project) : undefined;
 }
 
@@ -1135,7 +1159,7 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
     reference: payload.reference ?? nextReference(takeoffStore.projects),
     name: payload.name?.trim() || "New Takeoff / BOQ project",
     customer: payload.customer?.trim() || linkedQuote?.customer || "Customer to confirm",
-    site: payload.site?.trim() || "Site to confirm",
+    site: payload.site?.trim() || linkedQuoteSiteAddress(linkedQuote) || "Site to confirm",
     description: payload.description?.trim() || "Takeoff scope to review.",
     linkedQuoteId: payload.linkedQuoteId,
     linkedQuoteRef: linkedQuote?.ref ?? payload.linkedQuoteRef,
@@ -1173,17 +1197,18 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
 }
 
 export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>): TakeoffProject | null {
-  const index = takeoffStore.projects.findIndex((project) => project.id === id);
+  const index = findTakeoffProjectIndexByLookup(id);
   if (index < 0) return null;
   const current = takeoffStore.projects[index];
   if (!current) return null;
 
-  const nextLinkedQuoteId = patch.linkedQuoteId !== undefined
+  const requestedLinkedQuoteId = patch.linkedQuoteId !== undefined
     ? patch.linkedQuoteId || undefined
     : current.linkedQuoteId;
   const linkedQuote = patch.linkedQuoteId !== undefined
-    ? findLinkedQuote(nextLinkedQuoteId)
-    : findLinkedQuote(current.linkedQuoteId);
+    ? findLinkedQuote(requestedLinkedQuoteId)
+    : findLinkedQuote(current.linkedQuoteId ?? current.linkedQuoteRef);
+  const nextLinkedQuoteId = linkedQuote?.id ?? requestedLinkedQuoteId;
 
   const updated: TakeoffProject = {
     ...current,
@@ -1218,10 +1243,11 @@ export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>)
 }
 
 export function deleteTakeoffProject(id: string): TakeoffProject | null {
-  const existing = takeoffStore.projects.find((project) => project.id === id);
+  const index = findTakeoffProjectIndexByLookup(id);
+  const existing = index >= 0 ? takeoffStore.projects[index] : undefined;
   if (!existing) return null;
 
-  takeoffStore.projects = takeoffStore.projects.filter((project) => project.id !== id);
+  takeoffStore.projects = takeoffStore.projects.filter((project) => project.id !== existing.id);
   persistTakeoffStore();
   return clone(existing);
 }

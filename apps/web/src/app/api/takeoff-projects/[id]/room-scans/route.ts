@@ -5,12 +5,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
+  createTakeoffProject,
   getTakeoffProject,
   updateTakeoffProject,
   type TakeoffDocument,
   type TakeoffMeasurement,
   type TakeoffRoom,
 } from "@/lib/takeoff-data";
+import { getQuotes } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
 
@@ -176,6 +178,12 @@ function roomMeasurements(room: TakeoffRoom, documentId: string): TakeoffMeasure
   return rows;
 }
 
+function quoteFromLookup(value: string) {
+  const lookup = value.trim().toLowerCase();
+  if (!lookup) return undefined;
+  return getQuotes().find((quote) => quote.id.toLowerCase() === lookup || quote.ref.toLowerCase() === lookup);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -191,7 +199,18 @@ export async function POST(
   }
 
   const { id } = await params;
-  const project = getTakeoffProject(id);
+  let project = getTakeoffProject(id);
+  if (!project) {
+    const linkedQuote = quoteFromLookup(id);
+    if (linkedQuote) {
+      project = createTakeoffProject({
+        linkedQuoteId: linkedQuote.id,
+        name: `${linkedQuote.description} survey`,
+        customer: linkedQuote.customer,
+        description: linkedQuote.description,
+      });
+    }
+  }
   if (!project) {
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
@@ -240,7 +259,7 @@ export async function POST(
     },
   ];
 
-  const updated = updateTakeoffProject(id, {
+  const updated = updateTakeoffProject(project.id, {
     status: project.status === "Draft" ? "In review" : project.status,
     documents: [document, ...project.documents],
     rooms: [...rooms, ...project.rooms],

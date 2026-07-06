@@ -14904,6 +14904,75 @@ body {
   flex: 0 0 auto;
 }
 
+.quote-search-control {
+  flex: 1 1 auto;
+  position: relative;
+}
+
+.quote-search-control input {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 750;
+  outline: 0;
+  width: 100%;
+}
+
+.quote-search-control input::placeholder {
+  color: #788799;
+}
+
+.quote-search-results {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(15, 31, 45, 0.14);
+  display: grid;
+  gap: 4px;
+  left: -34px;
+  max-height: 265px;
+  overflow-y: auto;
+  padding: 6px;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 50;
+}
+
+.quote-search-results button,
+.quote-search-results span {
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.quote-search-results button {
+  cursor: pointer;
+}
+
+.quote-search-results button:hover,
+.quote-search-results button:focus-visible {
+  background: var(--teal-soft);
+  color: var(--ink);
+  outline: 0;
+}
+
+.quote-search-results strong {
+  font-size: 0.83rem;
+}
+
+.quote-search-results small {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
 .takeoff-error,
 .takeoff-notice {
   border-radius: 6px;
