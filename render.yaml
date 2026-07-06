@@ -4,7 +4,7 @@ services:
     runtime: node
     region: frankfurt
     plan: starter
-    autoDeploy: false
+    autoDeploy: true
     healthCheckPath: /api/health
     buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm --filter @hubflo/web build
     startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
