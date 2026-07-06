@@ -698,6 +698,119 @@ export default function SurveyPage() {
                 </article>
               </section>
 
+              {showHeatLossPanel || showRoomScanBridge ? (
+                <section className="survey-tool-drawer" aria-label="Survey tools">
+                  {showHeatLossPanel ? (
+                    <section className="survey-heat-panel" aria-label="Chat heat loss calculator">
+                      <header>
+                        <div>
+                          <ThermometerSun size={20} />
+                          <span>
+                            <strong>Heat loss inside the chat</strong>
+                            <small>Add one room at a time. NeXa stores the room and suggested radiator with this survey.</small>
+                          </span>
+                        </div>
+                        <button className="takeoff-secondary-button" type="button" onClick={() => setShowHeatLossPanel(false)}>
+                          Close
+                        </button>
+                      </header>
+                      <div className="survey-heat-grid">
+                        <label>
+                          Room name
+                          <input value={heatLossDraft.roomName} onChange={(event) => updateHeatLossDraft({ roomName: event.target.value })} placeholder="Lounge, Bedroom 1..." />
+                        </label>
+                        <label>
+                          Room type
+                          <select value={heatLossDraft.roomType} onChange={(event) => updateHeatLossDraft({ roomType: event.target.value as SurveyHeatLossDraft["roomType"] })}>
+                            {["Living Room", "Bedroom", "Bathroom", "Kitchen", "Hall", "Office"].map((item) => <option key={item}>{item}</option>)}
+                          </select>
+                        </label>
+                        <label>
+                          Length (m)
+                          <input inputMode="decimal" value={heatLossDraft.lengthM} onChange={(event) => updateHeatLossDraft({ lengthM: event.target.value })} placeholder="5.4" />
+                        </label>
+                        <label>
+                          Width (m)
+                          <input inputMode="decimal" value={heatLossDraft.widthM} onChange={(event) => updateHeatLossDraft({ widthM: event.target.value })} placeholder="3.8" />
+                        </label>
+                        <label>
+                          Height (m)
+                          <input inputMode="decimal" value={heatLossDraft.heightM} onChange={(event) => updateHeatLossDraft({ heightM: event.target.value })} />
+                        </label>
+                        <label>
+                          Outside walls
+                          <input inputMode="numeric" value={heatLossDraft.outsideWalls} onChange={(event) => updateHeatLossDraft({ outsideWalls: event.target.value })} />
+                        </label>
+                        <label>
+                          Window type
+                          <select value={heatLossDraft.glazing} onChange={(event) => updateHeatLossDraft({ glazing: event.target.value as SurveyHeatLossDraft["glazing"] })}>
+                            {["Double glazed", "Single glazed", "Large glazing"].map((item) => <option key={item}>{item}</option>)}
+                          </select>
+                        </label>
+                        <label>
+                          Glazed area (m2)
+                          <input inputMode="decimal" value={heatLossDraft.windowAreaM2} onChange={(event) => updateHeatLossDraft({ windowAreaM2: event.target.value })} placeholder="2.1" />
+                        </label>
+                        <label>
+                          Construction
+                          <select value={heatLossDraft.construction} onChange={(event) => updateHeatLossDraft({ construction: event.target.value as SurveyHeatLossDraft["construction"] })}>
+                            {["Modern / insulated", "Average", "Older / exposed"].map((item) => <option key={item}>{item}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="survey-heat-result">
+                        <div>
+                          <span>Heat required</span>
+                          <strong>{heatLossResult.watts}W / {btuFromWatts(heatLossResult.watts)} BTU</strong>
+                        </div>
+                        <div>
+                          <span>Suggested radiators</span>
+                          <strong>{heatLossResult.recommendations.map((item) => item.model).join(" - ")}</strong>
+                        </div>
+                        <button className="takeoff-primary-button" type="button" onClick={() => void addHeatLossToSurvey()} disabled={!heatLossResult.watts}>
+                          Add to chat and quote pack
+                        </button>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {showRoomScanBridge ? (
+                    <section className="survey-roomscan-bridge" aria-label="LiDAR room scan setup">
+                      <div>
+                        <ScanLine size={22} />
+                        <span>
+                          <strong>LiDAR camera scan</strong>
+                          <small>NeXa has tried to open the native iPad/iPhone scanner for this survey. Use import only if the scanner cannot open on this device.</small>
+                        </span>
+                      </div>
+                      <ol>
+                        <li>Scan the room in NeXa Field on the iPad/iPhone.</li>
+                        <li>Send the scan back to this linked survey/quote.</li>
+                        <li>If the native scanner does not open, import an existing RoomPlan/3D scan file below.</li>
+                      </ol>
+                      <div className="survey-roomscan-actions">
+                        <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
+                          <Upload size={15} />
+                          Import scan file
+                          <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply" onChange={(event) => void uploadEvidence("LiDAR scan", event)} />
+                        </label>
+                        <button className="takeoff-secondary-button" type="button" onClick={() => void copyRoomScanLink()}>
+                          <Link2 size={15} />
+                          Copy app link
+                        </button>
+                        <button className="takeoff-secondary-button" type="button" onClick={() => setShowRoomScanBridge(false)}>
+                          Close
+                        </button>
+                      </div>
+                      <p>
+                        <Info size={14} />
+                        Safari showed "address is invalid" because the native NeXa Field scanner is not installed on this device yet.
+                      </p>
+                    </section>
+                  ) : null}
+                </section>
+              ) : null}
+
               <section className="survey-workspace">
                 <article className="survey-chat-panel">
                   <header className="survey-chat-title">
@@ -802,115 +915,6 @@ export default function SurveyPage() {
                   </div>
                 </aside>
               </section>
-
-              {showHeatLossPanel ? (
-                <section className="survey-heat-panel" aria-label="Chat heat loss calculator">
-                  <header>
-                    <div>
-                      <ThermometerSun size={20} />
-                      <span>
-                        <strong>Heat loss inside the chat</strong>
-                        <small>Add one room at a time. NeXa stores the room and suggested radiator with this survey.</small>
-                      </span>
-                    </div>
-                    <button className="takeoff-secondary-button" type="button" onClick={() => setShowHeatLossPanel(false)}>
-                      Close
-                    </button>
-                  </header>
-                  <div className="survey-heat-grid">
-                    <label>
-                      Room name
-                      <input value={heatLossDraft.roomName} onChange={(event) => updateHeatLossDraft({ roomName: event.target.value })} placeholder="Lounge, Bedroom 1..." />
-                    </label>
-                    <label>
-                      Room type
-                      <select value={heatLossDraft.roomType} onChange={(event) => updateHeatLossDraft({ roomType: event.target.value as SurveyHeatLossDraft["roomType"] })}>
-                        {["Living Room", "Bedroom", "Bathroom", "Kitchen", "Hall", "Office"].map((item) => <option key={item}>{item}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Length (m)
-                      <input inputMode="decimal" value={heatLossDraft.lengthM} onChange={(event) => updateHeatLossDraft({ lengthM: event.target.value })} placeholder="5.4" />
-                    </label>
-                    <label>
-                      Width (m)
-                      <input inputMode="decimal" value={heatLossDraft.widthM} onChange={(event) => updateHeatLossDraft({ widthM: event.target.value })} placeholder="3.8" />
-                    </label>
-                    <label>
-                      Height (m)
-                      <input inputMode="decimal" value={heatLossDraft.heightM} onChange={(event) => updateHeatLossDraft({ heightM: event.target.value })} />
-                    </label>
-                    <label>
-                      Outside walls
-                      <input inputMode="numeric" value={heatLossDraft.outsideWalls} onChange={(event) => updateHeatLossDraft({ outsideWalls: event.target.value })} />
-                    </label>
-                    <label>
-                      Window type
-                      <select value={heatLossDraft.glazing} onChange={(event) => updateHeatLossDraft({ glazing: event.target.value as SurveyHeatLossDraft["glazing"] })}>
-                        {["Double glazed", "Single glazed", "Large glazing"].map((item) => <option key={item}>{item}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Glazed area (m2)
-                      <input inputMode="decimal" value={heatLossDraft.windowAreaM2} onChange={(event) => updateHeatLossDraft({ windowAreaM2: event.target.value })} placeholder="2.1" />
-                    </label>
-                    <label>
-                      Construction
-                      <select value={heatLossDraft.construction} onChange={(event) => updateHeatLossDraft({ construction: event.target.value as SurveyHeatLossDraft["construction"] })}>
-                        {["Modern / insulated", "Average", "Older / exposed"].map((item) => <option key={item}>{item}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="survey-heat-result">
-                    <div>
-                      <span>Heat required</span>
-                      <strong>{heatLossResult.watts}W / {btuFromWatts(heatLossResult.watts)} BTU</strong>
-                    </div>
-                    <div>
-                      <span>Suggested radiators</span>
-                      <strong>{heatLossResult.recommendations.map((item) => item.model).join(" - ")}</strong>
-                    </div>
-                    <button className="takeoff-primary-button" type="button" onClick={() => void addHeatLossToSurvey()} disabled={!heatLossResult.watts}>
-                      Add to chat and quote pack
-                    </button>
-                  </div>
-                </section>
-              ) : null}
-
-              {showRoomScanBridge ? (
-                <section className="survey-roomscan-bridge" aria-label="LiDAR room scan setup">
-                  <div>
-                    <ScanLine size={22} />
-                    <span>
-                      <strong>LiDAR camera scan</strong>
-                      <small>NeXa has tried to open the native iPad/iPhone scanner for this survey. Use import only if the scanner cannot open on this device.</small>
-                    </span>
-                  </div>
-                  <ol>
-                    <li>Scan the room in NeXa Field on the iPad/iPhone.</li>
-                    <li>Send the scan back to this linked survey/quote.</li>
-                    <li>If the native scanner does not open, import an existing RoomPlan/3D scan file below.</li>
-                  </ol>
-                  <div className="survey-roomscan-actions">
-                    <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
-                      <Upload size={15} />
-                      Import scan file
-                      <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply" onChange={(event) => void uploadEvidence("LiDAR scan", event)} />
-                    </label>
-                    <button className="takeoff-secondary-button" type="button" onClick={() => void copyRoomScanLink()}>
-                      <Link2 size={15} />
-                      Copy app link
-                    </button>
-                    <button className="takeoff-secondary-button" type="button" onClick={() => setShowRoomScanBridge(false)}>
-                      Close
-                    </button>
-                  </div>
-                  <p>
-                    <Info size={14} />
-                    Safari showed "address is invalid" because the native NeXa Field scanner is not installed on this device yet.
-                  </p>
-                </section>
-              ) : null}
             </>
           ) : (
             <section className="takeoff-panel takeoff-empty-state">

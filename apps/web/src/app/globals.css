@@ -16143,6 +16143,14 @@ body {
   min-height: 0;
 }
 
+.survey-tool-drawer {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  position: relative;
+  z-index: 2;
+}
+
 .survey-chat-panel,
 .survey-capture-panel {
   background: #fff;
@@ -16155,8 +16163,10 @@ body {
 .survey-chat-panel {
   display: flex;
   flex-direction: column;
-  min-height: 660px;
+  min-height: min(620px, 70vh);
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 
 .survey-chat-title {
@@ -16223,9 +16233,11 @@ body {
 .survey-chat-log {
   background: linear-gradient(180deg, #f8fbfc 0%, #fff 100%);
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 12px;
+  max-height: clamp(340px, 48vh, 620px);
+  min-height: 260px;
   overflow-y: auto;
   padding: 16px;
 }
@@ -16306,7 +16318,8 @@ body {
   gap: 10px;
   padding: 12px;
   position: sticky;
-  top: 0;
+  top: 12px;
+  z-index: 1;
 }
 
 .survey-capture-heading {
@@ -16376,6 +16389,8 @@ body {
   display: grid;
   gap: 14px;
   padding: 14px;
+  position: relative;
+  z-index: 3;
 }
 
 .survey-heat-panel header {
@@ -16473,6 +16488,8 @@ body {
   display: grid;
   gap: 12px;
   padding: 14px;
+  position: relative;
+  z-index: 3;
 }
 
 .survey-roomscan-bridge > div:first-child {
@@ -16639,6 +16656,7 @@ body {
 
   .survey-capture-panel {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    position: static;
   }
 
   .survey-heat-grid,
