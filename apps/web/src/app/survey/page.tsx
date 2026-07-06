@@ -12,21 +12,63 @@ import {
   Link2,
   Loader2,
   MessageCircle,
+  PackageSearch,
   Plus,
   Ruler,
   ScanLine,
   Send,
   Sparkles,
+  ThermometerSun,
   Trash2,
   Upload,
 } from "lucide-react";
 import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
-import type { TakeoffDocumentKind, TakeoffProject, TakeoffSurveyChatMessage } from "@/lib/takeoff-data";
+import type {
+  TakeoffDocumentKind,
+  TakeoffProject,
+  TakeoffRadiator,
+  TakeoffRoom,
+  TakeoffSurveyChatMessage,
+} from "@/lib/takeoff-data";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
 };
+
+type SurveyHeatLossDraft = {
+  roomName: string;
+  roomType: "Living Room" | "Bedroom" | "Bathroom" | "Kitchen" | "Hall" | "Office";
+  lengthM: string;
+  widthM: string;
+  heightM: string;
+  outsideWalls: string;
+  glazing: "Double glazed" | "Single glazed" | "Large glazing";
+  windowAreaM2: string;
+  construction: "Modern / insulated" | "Average" | "Older / exposed";
+};
+
+const blankHeatLossDraft: SurveyHeatLossDraft = {
+  roomName: "",
+  roomType: "Living Room",
+  lengthM: "",
+  widthM: "",
+  heightM: "2.4",
+  outsideWalls: "1",
+  glazing: "Double glazed",
+  windowAreaM2: "",
+  construction: "Average",
+};
+
+const radiatorRecommendations = [
+  { model: "Classic Compact K1 600 x 800", outputWatts: 740 },
+  { model: "Classic Compact P+ 600 x 1000", outputWatts: 1180 },
+  { model: "Classic Compact K2 600 x 1000", outputWatts: 1680 },
+  { model: "Classic Compact K2 600 x 1200", outputWatts: 2010 },
+  { model: "Softline Compact K2 600 x 1400", outputWatts: 2275 },
+  { model: "Classic Compact K3 600 x 1200", outputWatts: 2720 },
+  { model: "Vertical K2 1800 x 600", outputWatts: 2095 },
+];
 
 function makeId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -53,10 +95,10 @@ function nextAssistantReply(answer: string, project: TakeoffProject) {
     return "Good. Add photos of the boiler or appliance, access routes, existing pipework, each affected room, windows, floors and anything the office needs to see before pricing.";
   }
   if (/lidar|roomplan|scan|measure|dimension|room/.test(lower)) {
-    return "Use the iPad/iPhone room scan on site, then import the RoomPlan export here. I will use it to populate rooms, dimensions and quantity checks for the Takeoff pack.";
+    return "Use the LiDAR tool in this chat and scan the room on the iPad/iPhone. Once it comes back, I will use the room dimensions for heat loss, quantities and the quote pack.";
   }
   if (/radiator|heat loss|heating|boiler|cylinder|flue/.test(lower)) {
-    return "For heating work, I need heat source location, flue/condensate route, controls, room dimensions, window type/area and radiator position constraints. Which of those still needs captured?";
+    return "For heating work, I need room dimensions, outside walls, window type/area, radiator position constraints, boiler/flue route and controls. Use Heat loss in this chat for each room as you survey.";
   }
   if (/quote|boq|bill|materials|supplier|cost/.test(lower)) {
     return "I can build the quote pack from this conversation, the photos and any scan/BOQ files. Before sending to NeXa, what items need supplier prices and what should be treated as an allowance?";
@@ -101,6 +143,45 @@ function shouldReplaceProjectText(value: string) {
   ].includes(normalised);
 }
 
+function numberFromInput(value: string) {
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function btuFromWatts(watts: number) {
+  return Math.round(watts * 3.412);
+}
+
+function calculateHeatLoss(draft: SurveyHeatLossDraft) {
+  const lengthM = numberFromInput(draft.lengthM);
+  const widthM = numberFromInput(draft.widthM);
+  const heightM = numberFromInput(draft.heightM);
+  const windowAreaM2 = numberFromInput(draft.windowAreaM2);
+  const outsideWalls = Math.max(0, numberFromInput(draft.outsideWalls));
+  const areaM2 = lengthM * widthM;
+  const baseWattsPerM2 = draft.construction === "Modern / insulated" ? 55 : draft.construction === "Older / exposed" ? 100 : 75;
+  const roomTempUplift = draft.roomType === "Bathroom" ? 1.06 : draft.roomType === "Hall" ? 0.95 : 1;
+  const glazingUplift = draft.glazing === "Single glazed" ? 0.14 : draft.glazing === "Large glazing" ? 0.18 : 0;
+  const wallUplift = Math.min(0.35, outsideWalls * 0.075);
+  const heightUplift = heightM > 2.4 ? Math.min(0.18, (heightM - 2.4) * 0.12) : 0;
+  const windowAllowance = windowAreaM2 * (draft.glazing === "Single glazed" ? 70 : 42);
+  const watts = Math.round(((areaM2 * baseWattsPerM2) + windowAllowance) * (1 + wallUplift + glazingUplift + heightUplift) * roomTempUplift);
+  const recommendations = radiatorRecommendations
+    .filter((radiator) => radiator.outputWatts >= watts)
+    .slice(0, 3);
+
+  return {
+    areaM2: Math.round(areaM2 * 100) / 100,
+    heightM,
+    lengthM,
+    outsideWalls,
+    recommendations: recommendations.length ? recommendations : radiatorRecommendations.slice(-3),
+    watts,
+    widthM,
+    windowAreaM2,
+  };
+}
+
 function roomScanDeepLink(project: TakeoffProject) {
   const params = new URLSearchParams({
     projectId: project.id,
@@ -128,6 +209,8 @@ export default function SurveyPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isBuilding, setIsBuilding] = useState(false);
   const [showRoomScanBridge, setShowRoomScanBridge] = useState(false);
+  const [showHeatLossPanel, setShowHeatLossPanel] = useState(false);
+  const [heatLossDraft, setHeatLossDraft] = useState<SurveyHeatLossDraft>(blankHeatLossDraft);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0],
@@ -137,6 +220,9 @@ export default function SurveyPage() {
   const projectDocuments = selectedProject?.documents ?? [];
   const photoCount = projectDocuments.filter((document) => document.kind === "Survey photo").length;
   const scanCount = projectDocuments.filter((document) => document.kind === "LiDAR scan").length;
+  const heatLossRoomCount = selectedProject?.rooms.filter((room) => room.heatLoadWatts > 0).length ?? 0;
+  const documentCount = projectDocuments.filter((document) => ["Drawing", "Contractor BOQ", "Specification"].includes(document.kind)).length;
+  const heatLossResult = useMemo(() => calculateHeatLoss(heatLossDraft), [heatLossDraft]);
   const linkedQuote = useMemo(
     () => selectedProject
       ? quotes.find((quote) => quote.id === selectedProject.linkedQuoteId || quote.ref === selectedProject.linkedQuoteRef) ?? null
@@ -340,8 +426,10 @@ export default function SurveyPage() {
         id: makeId("survey-chat"),
         role: "assistant",
         text: kind === "LiDAR scan"
-          ? "Room scan imported. I will use this as dimensional evidence for rooms, heat loss and quantities when the quote pack is built."
-          : "Photos imported. Tell me what each photo proves or what the office should check when pricing.",
+          ? "LiDAR room scan received. I will use this as dimensional evidence for heat loss, quantities and the quote pack."
+          : kind === "Drawing" || kind === "Contractor BOQ" || kind === "Specification"
+            ? `${kind} received. I will use it as takeoff evidence and ask back if quantities, specs or exclusions are unclear.`
+            : "Photos received. Tell me what each photo proves or what the office should check when pricing.",
         createdAt: nowIso(),
         attachments: attachmentNames,
       };
@@ -395,7 +483,57 @@ export default function SurveyPage() {
   function openRoomScanBridge() {
     if (!selectedProject) return;
     setShowRoomScanBridge(true);
-    setNotice("Live LiDAR capture needs the native NeXa Field app installed. For now, use Import scan file here; once NeXa Field is installed this project link will open the camera scanner.");
+    setNotice("Opening NeXa Field LiDAR scanner. If iOS does not open it, use the import fallback below.");
+    window.location.href = roomScanDeepLink(selectedProject);
+  }
+
+  function updateHeatLossDraft(patch: Partial<SurveyHeatLossDraft>) {
+    setHeatLossDraft((current) => ({ ...current, ...patch }));
+  }
+
+  async function addHeatLossToSurvey() {
+    if (!selectedProject) return;
+    const roomName = heatLossDraft.roomName.trim() || "Room to confirm";
+    const roomId = makeId("survey-room");
+    const primaryRadiator = heatLossResult.recommendations[0];
+    const room: TakeoffRoom = {
+      id: roomId,
+      name: roomName,
+      level: "Ground",
+      lengthM: heatLossResult.lengthM || undefined,
+      widthM: heatLossResult.widthM || undefined,
+      heightM: heatLossResult.heightM || undefined,
+      outsideWalls: heatLossResult.outsideWalls,
+      windowAreaM2: heatLossResult.windowAreaM2,
+      construction: heatLossDraft.construction,
+      glazing: heatLossDraft.glazing,
+      areaM2: heatLossResult.areaM2,
+      heatLoadWatts: heatLossResult.watts,
+      notes: `Captured in NeXa AI Surveyor from chat heat loss tool. Confirm assumptions before quote issue.`,
+    };
+    const radiator: TakeoffRadiator = {
+      id: makeId("survey-radiator"),
+      roomId,
+      roomName,
+      outputWatts: heatLossResult.watts,
+      model: primaryRadiator?.model ?? "Radiator model to confirm",
+      quantity: 1,
+      supplierRequired: true,
+      notes: `Heat loss ${heatLossResult.watts}W / ${btuFromWatts(heatLossResult.watts)} BTU. Supplier to price final size/range.`,
+    };
+    const assistantMessage: TakeoffSurveyChatMessage = {
+      id: makeId("survey-chat"),
+      role: "assistant",
+      text: `Heat loss added for ${roomName}: ${heatLossResult.watts}W / ${btuFromWatts(heatLossResult.watts)} BTU. Suggested radiator options: ${heatLossResult.recommendations.map((item) => `${item.model} (${item.outputWatts}W)`).join("; ")}. I have added this to the quote pack as a supplier-price item.`,
+      createdAt: nowIso(),
+    };
+    await patchProject(selectedProject.id, {
+      rooms: [room, ...selectedProject.rooms],
+      radiators: [radiator, ...selectedProject.radiators],
+      surveyChat: [...messages, assistantMessage],
+    }, "Heat loss added to survey chat.");
+    setHeatLossDraft(blankHeatLossDraft);
+    setShowHeatLossPanel(false);
   }
 
   async function copyRoomScanLink() {
@@ -413,7 +551,7 @@ export default function SurveyPage() {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa" />
-          <span>Survey assistant</span>
+          <span>AI Surveyor</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">
@@ -516,20 +654,29 @@ export default function SurveyPage() {
                   <div className="survey-action-strip">
                     <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
                       <Camera size={15} />
-                      Camera / photos
+                      Photos
                       <input hidden type="file" accept="image/*,video/*" multiple onChange={(event) => void uploadEvidence("Survey photo", event)} />
                     </label>
                     <button className="takeoff-secondary-button" type="button" onClick={openRoomScanBridge}>
                       <ScanLine size={15} />
-                      Start LiDAR scan
+                      LiDAR scan
                     </button>
+                    <button className="takeoff-secondary-button" type="button" onClick={() => setShowHeatLossPanel((current) => !current)}>
+                      <ThermometerSun size={15} />
+                      Heat loss
+                    </button>
+                    <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
+                      <PackageSearch size={15} />
+                      Drawings / BOQ
+                      <input hidden type="file" accept=".pdf,.xlsx,.xls,.csv,.doc,.docx,image/*" multiple onChange={(event) => void uploadEvidence("Contractor BOQ", event)} />
+                    </label>
                     <button className="takeoff-secondary-button" type="button" onClick={prepareQuotePack} disabled={isBuilding}>
                       {isBuilding ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
                       Build quote pack
                     </button>
-                    <a className="takeoff-primary-button" href="/takeoff">
+                    <a className="takeoff-secondary-button" href="/takeoff">
                       <Send size={15} />
-                      Send to Takeoff
+                      Takeoff output
                     </a>
                   </div>
 
@@ -549,7 +696,7 @@ export default function SurveyPage() {
 
                   <form className="survey-composer" onSubmit={sendMessage}>
                     <textarea
-                      placeholder="Reply to the survey assistant..."
+                      placeholder="Tell NeXa what you are pricing, what you can see, or what the customer has asked for..."
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                     />
@@ -568,8 +715,18 @@ export default function SurveyPage() {
                   </article>
                   <article>
                     <Ruler size={18} />
-                    <span>Room scans</span>
+                    <span>LiDAR scans</span>
                     <strong>{scanCount}</strong>
+                  </article>
+                  <article>
+                    <ThermometerSun size={18} />
+                    <span>Heat loss</span>
+                    <strong>{heatLossRoomCount}</strong>
+                  </article>
+                  <article>
+                    <FileText size={18} />
+                    <span>Drawings / BOQ</span>
+                    <strong>{documentCount}</strong>
                   </article>
                   <article>
                     <CheckCircle2 size={18} />
@@ -577,11 +734,85 @@ export default function SurveyPage() {
                     <strong>{linkedQuote?.ref ?? selectedProject.linkedQuoteRef ?? "Not linked"}</strong>
                   </article>
                   <div className="survey-next-steps">
-                    <strong>How this should work live</strong>
-                    <p>On iPad/iPhone, the installed NeXa Field app will open the LiDAR camera scanner directly. Until it is installed, import a scan export here.</p>
+                    <strong>AI workspace</strong>
+                    <p>Keep the conversation here. Photos, LiDAR, heat loss, drawings and BOQs all feed the same quote pack.</p>
                   </div>
                 </aside>
               </section>
+
+              {showHeatLossPanel ? (
+                <section className="survey-heat-panel" aria-label="Chat heat loss calculator">
+                  <header>
+                    <div>
+                      <ThermometerSun size={20} />
+                      <span>
+                        <strong>Heat loss inside the chat</strong>
+                        <small>Add one room at a time. NeXa stores the room and suggested radiator with this survey.</small>
+                      </span>
+                    </div>
+                    <button className="takeoff-secondary-button" type="button" onClick={() => setShowHeatLossPanel(false)}>
+                      Close
+                    </button>
+                  </header>
+                  <div className="survey-heat-grid">
+                    <label>
+                      Room name
+                      <input value={heatLossDraft.roomName} onChange={(event) => updateHeatLossDraft({ roomName: event.target.value })} placeholder="Lounge, Bedroom 1..." />
+                    </label>
+                    <label>
+                      Room type
+                      <select value={heatLossDraft.roomType} onChange={(event) => updateHeatLossDraft({ roomType: event.target.value as SurveyHeatLossDraft["roomType"] })}>
+                        {["Living Room", "Bedroom", "Bathroom", "Kitchen", "Hall", "Office"].map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Length (m)
+                      <input inputMode="decimal" value={heatLossDraft.lengthM} onChange={(event) => updateHeatLossDraft({ lengthM: event.target.value })} placeholder="5.4" />
+                    </label>
+                    <label>
+                      Width (m)
+                      <input inputMode="decimal" value={heatLossDraft.widthM} onChange={(event) => updateHeatLossDraft({ widthM: event.target.value })} placeholder="3.8" />
+                    </label>
+                    <label>
+                      Height (m)
+                      <input inputMode="decimal" value={heatLossDraft.heightM} onChange={(event) => updateHeatLossDraft({ heightM: event.target.value })} />
+                    </label>
+                    <label>
+                      Outside walls
+                      <input inputMode="numeric" value={heatLossDraft.outsideWalls} onChange={(event) => updateHeatLossDraft({ outsideWalls: event.target.value })} />
+                    </label>
+                    <label>
+                      Window type
+                      <select value={heatLossDraft.glazing} onChange={(event) => updateHeatLossDraft({ glazing: event.target.value as SurveyHeatLossDraft["glazing"] })}>
+                        {["Double glazed", "Single glazed", "Large glazing"].map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Glazed area (m2)
+                      <input inputMode="decimal" value={heatLossDraft.windowAreaM2} onChange={(event) => updateHeatLossDraft({ windowAreaM2: event.target.value })} placeholder="2.1" />
+                    </label>
+                    <label>
+                      Construction
+                      <select value={heatLossDraft.construction} onChange={(event) => updateHeatLossDraft({ construction: event.target.value as SurveyHeatLossDraft["construction"] })}>
+                        {["Modern / insulated", "Average", "Older / exposed"].map((item) => <option key={item}>{item}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="survey-heat-result">
+                    <div>
+                      <span>Heat required</span>
+                      <strong>{heatLossResult.watts}W / {btuFromWatts(heatLossResult.watts)} BTU</strong>
+                    </div>
+                    <div>
+                      <span>Suggested radiators</span>
+                      <strong>{heatLossResult.recommendations.map((item) => item.model).join(" · ")}</strong>
+                    </div>
+                    <button className="takeoff-primary-button" type="button" onClick={() => void addHeatLossToSurvey()} disabled={!heatLossResult.watts}>
+                      Add to chat and quote pack
+                    </button>
+                  </div>
+                </section>
+              ) : null}
 
               {showRoomScanBridge ? (
                 <section className="survey-roomscan-bridge" aria-label="LiDAR room scan setup">
@@ -589,13 +820,13 @@ export default function SurveyPage() {
                     <ScanLine size={22} />
                     <span>
                       <strong>LiDAR camera scan</strong>
-                      <small>The browser cannot open the LiDAR camera directly. Native NeXa Field will do that once installed; today this panel imports scan exports into the survey.</small>
+                      <small>NeXa has tried to open the native iPad/iPhone scanner for this survey. Use import only if the scanner cannot open on this device.</small>
                     </span>
                   </div>
                   <ol>
-                    <li>For today, scan the room in a LiDAR app and export the RoomPlan/3D file.</li>
-                    <li>Tap Import scan file below and attach the exported scan to this survey.</li>
-                    <li>Once NeXa Field is installed on this iPad/iPhone, the copied app link will open the camera scanner directly.</li>
+                    <li>Scan the room in NeXa Field on the iPad/iPhone.</li>
+                    <li>Send the scan back to this linked survey/quote.</li>
+                    <li>If the native scanner does not open, import an existing RoomPlan/3D scan file below.</li>
                   </ol>
                   <div className="survey-roomscan-actions">
                     <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>

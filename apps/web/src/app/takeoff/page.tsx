@@ -12,6 +12,7 @@ import {
   Home,
   Link2,
   ListChecks,
+  MessageCircle,
   PackageSearch,
   Plus,
   RefreshCw,
@@ -1695,6 +1696,35 @@ export default function TakeoffPage() {
                   {pushedQuoteLink ? <a href={pushedQuoteLink.href}>{pushedQuoteLink.label}</a> : null}
                 </div>
               ) : null}
+
+              <section className="takeoff-ai-handoff">
+                <div>
+                  <Sparkles size={20} />
+                  <span>
+                    <strong>Takeoff is the back-office output from the AI chat</strong>
+                    <small>Use AI Surveyor for the back-and-forth conversation, LiDAR room scan, heat loss and site evidence. Come here to review drawings, BOQs, supplier lines and push the finished output into the quote.</small>
+                  </span>
+                </div>
+                <div className="takeoff-ai-handoff-actions">
+                  <a className="takeoff-primary-button" href="/survey">
+                    <MessageCircle size={15} />
+                    Open AI chat
+                  </a>
+                  <button
+                    className="takeoff-secondary-button"
+                    type="button"
+                    disabled={isExtracting || selectedProject.documents.length === 0}
+                    onClick={runAiExtraction}
+                  >
+                    <Sparkles size={15} />
+                    {isExtracting ? "Scanning" : "AI scan files"}
+                  </button>
+                  <button className="takeoff-secondary-button" type="button" disabled={isPushing} onClick={pushProject}>
+                    <Send size={15} />
+                    {isPushing ? "Pushing" : "Push to quote"}
+                  </button>
+                </div>
+              </section>
 
               <section className="takeoff-metrics" aria-label="Takeoff totals">
                 <article>
