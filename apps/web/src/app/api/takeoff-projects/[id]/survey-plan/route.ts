@@ -6,6 +6,7 @@ import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   createDefaultTakeoffSurveyWorkflow,
   getTakeoffProject,
+  runSurveyChatEstimatePackDraft,
   updateTakeoffProject,
   type TakeoffProject,
   type TakeoffSurveyAnswer,
@@ -170,9 +171,12 @@ function buildPilotQuestions(project: TakeoffProject, workflow: TakeoffSurveyWor
 }
 
 function buildPilotWorkflow(project: TakeoffProject, payload: SurveyPlanPayload = {}): TakeoffSurveyWorkflow {
+  const chatScope = latestSurveyScope(project);
   const workflow = createDefaultTakeoffSurveyWorkflow({
     ...(project.surveyWorkflow ?? {}),
     ...payload,
+    scopeNotes: (payload.scopeNotes ?? project.surveyWorkflow?.scopeNotes) || chatScope,
+    projectType: payload.projectType ?? project.surveyWorkflow?.projectType ?? inferSurveyType(chatScope || project.description),
     step: payload.step ?? project.surveyWorkflow?.step ?? "scope",
   });
 
@@ -182,6 +186,22 @@ function buildPilotWorkflow(project: TakeoffProject, payload: SurveyPlanPayload 
     generatedAt: new Date().toISOString(),
     generatedBy: "Pilot",
   };
+}
+
+function latestSurveyScope(project: TakeoffProject) {
+  return (project.surveyChat ?? [])
+    .filter((message) => message.role === "user")
+    .map((message) => message.text.trim())
+    .filter(Boolean)
+    .at(-1) ?? "";
+}
+
+function inferSurveyType(scope: string) {
+  const lower = scope.toLowerCase();
+  if (/bathroom|toilet|basin|shower|cubicle|wc/.test(lower)) return "Bathroom refurbishment";
+  if (/boiler|heating|radiator|cylinder|flue/.test(lower)) return "Heating / boiler works";
+  if (/leak|repair|reactive|emergency|tap|valve/.test(lower)) return "Reactive plumbing repair";
+  return "Survey to price";
 }
 
 async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSurveyWorkflow, apiKey: string, model: string) {
@@ -210,6 +230,7 @@ async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSur
               `Customer: ${project.customer}`,
               `Site: ${project.site}`,
               `Scope: ${project.description}`,
+              `Latest survey chat scope: ${latestSurveyScope(project) || "none"}`,
               `Survey type: ${workflow.projectType}`,
               `Property: ${workflow.propertyType}`,
               `Existing system: ${workflow.existingSystem}`,
@@ -285,9 +306,12 @@ export async function POST(
 
   const payload = await parseJsonRequestBody<SurveyPlanPayload>(request);
   const actor = payload?.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa surveyor";
+  const chatScope = latestSurveyScope(project);
   const baseWorkflow = createDefaultTakeoffSurveyWorkflow({
     ...(project.surveyWorkflow ?? {}),
     ...(payload ?? {}),
+    scopeNotes: (payload?.scopeNotes ?? project.surveyWorkflow?.scopeNotes) || chatScope,
+    projectType: payload?.projectType ?? project.surveyWorkflow?.projectType ?? inferSurveyType(chatScope || project.description),
   });
   const config = getTakeoffOpenAiConfig();
 
@@ -305,7 +329,8 @@ export async function POST(
     }
   }
 
-  const updated = updateTakeoffProject(project.id, {
+  const planned = updateTakeoffProject(project.id, {
+    description: project.description === "Takeoff scope to review." && chatScope ? chatScope : project.description,
     surveyWorkflow: workflow,
     review: {
       ...project.review,
@@ -318,16 +343,22 @@ export async function POST(
     },
   });
 
-  if (!updated) {
+  if (!planned) {
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
 
+  const estimatePack = runSurveyChatEstimatePackDraft(project.id, actor);
+  if (!estimatePack) {
+    return NextResponse.json({ error: "Unable to build estimate pack" }, { status: 404 });
+  }
+
   return NextResponse.json({
-    project: updated,
+    project: estimatePack.project,
     provider: workflow.generatedBy ?? "Pilot",
     generated: {
       stopGo: workflow.stopGo.length,
       questions: workflow.aiQuestions.length,
+      ...estimatePack.generated,
     },
   });
 }

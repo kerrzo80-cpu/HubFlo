@@ -460,11 +460,21 @@ export default function SurveyPage() {
         body: JSON.stringify({ actor: "NeXa Survey" }),
       });
       if (!response.ok) throw new Error("Unable to build survey pack");
-      const result = (await response.json()) as { project: TakeoffProject; provider: string; generated: { questions: number; stopGo: number } };
+      const result = (await response.json()) as {
+        project: TakeoffProject;
+        provider: string;
+        generated: {
+          questions: number;
+          stopGo: number;
+          materialAllowances: number;
+          labourAllowances: number;
+          supplierRequests: number;
+        };
+      };
       const assistantMessage: TakeoffSurveyChatMessage = {
         id: makeId("survey-chat"),
         role: "assistant",
-        text: `${result.provider} quote pack prepared with ${result.generated.questions} pricing question(s) and ${result.generated.stopGo} safety gate(s). Open Takeoff to review the BOQ and supplier request before pushing to the quote.`,
+        text: `${result.provider} estimate pack built from this survey: ${result.generated.materialAllowances} material line(s), ${result.generated.labourAllowances} labour allowance(s), ${result.generated.supplierRequests} supplier request item(s), plus ${result.generated.questions} review question(s). Opening the Estimate Pack now so the office can approve it before pushing into NeXa.`,
         createdAt: nowIso(),
       };
       const nextProject = {
@@ -472,7 +482,8 @@ export default function SurveyPage() {
         surveyChat: [...(result.project.surveyChat ?? messages), assistantMessage],
       };
       replaceProject(nextProject);
-      await patchProject(nextProject.id, { surveyChat: nextProject.surveyChat }, "Survey pack prepared for Takeoff.");
+      await patchProject(nextProject.id, { surveyChat: nextProject.surveyChat }, "Estimate pack built from survey chat.");
+      window.location.href = `/takeoff?tab=pack&project=${encodeURIComponent(nextProject.id)}`;
     } catch (buildError) {
       setError(buildError instanceof Error ? buildError.message : "Unable to build survey pack");
     } finally {
@@ -722,7 +733,7 @@ export default function SurveyPage() {
                       {isBuilding ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
                       Send to pack
                     </button>
-                    <a className="takeoff-secondary-button" href="/takeoff?tab=pack">
+                    <a className="takeoff-secondary-button" href={selectedProject ? `/takeoff?tab=pack&project=${encodeURIComponent(selectedProject.id)}` : "/takeoff?tab=pack"}>
                       <Send size={15} />
                       Estimate pack
                     </a>

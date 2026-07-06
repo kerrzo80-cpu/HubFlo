@@ -888,7 +888,132 @@ function buildSplitQuoteCostCentre(
   };
 }
 
+function costCentreKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "section";
+}
+
+function materialLineToQuoteLine(line: TakeoffMaterialAllowance): QuoteCostLine {
+  return {
+    id: `takeoff-material-line-${line.id}`,
+    catalogItemId: "takeoff-boq",
+    description: line.description,
+    quantity: line.quantity,
+    unitCost: line.unitCost,
+    unitSell: lineSellFromMarkup(line.unitCost, line.markupPercent),
+    supplierRequired: line.supplierRequired,
+  };
+}
+
+function labourLineToQuoteLine(line: TakeoffLabourAllowance): QuoteCostLine {
+  return {
+    id: `takeoff-labour-line-${line.id}`,
+    catalogItemId: "labour-engineer",
+    description: line.role,
+    quantity: line.hours,
+    unitCost: line.costRate,
+    unitSell: lineSellFromMarkup(line.costRate, line.markupPercent),
+  };
+}
+
+function materialTakeoffRow(line: TakeoffMaterialAllowance): QuoteTakeoffRow {
+  return {
+    id: `takeoff-row-${line.id}`,
+    source: "BOQ" as const,
+    section: line.section,
+    description: line.description,
+    quantity: line.quantity,
+    unit: line.unit,
+    supplierRequired: line.supplierRequired,
+    unitCost: line.unitCost,
+    markupPercent: line.markupPercent,
+  };
+}
+
+function supplierRequestSection(project: TakeoffProject, line: TakeoffSupplierRequestItem) {
+  return project.materialAllowances.find((material) => material.id === line.linkedMaterialId)?.section;
+}
+
+function supplierTakeoffRow(line: TakeoffSupplierRequestItem, section: string): QuoteTakeoffRow {
+  return {
+    id: `takeoff-row-${line.id}`,
+    source: "Takeoff" as const,
+    section,
+    description: line.description,
+    quantity: line.quantity,
+    unit: line.unit,
+    supplierRequired: true,
+    unitCost: 0,
+    markupPercent: 30,
+  };
+}
+
+function buildSectionQuoteCostCentres(project: TakeoffProject, quoteId: string): QuoteCostCentre[] {
+  const sections = Array.from(new Set([
+    ...project.materialAllowances.map((line) => line.section),
+    ...project.labourAllowances.map((line) => line.section),
+  ].filter(Boolean)));
+
+  return sections.map((section) => {
+    const materialLines = project.materialAllowances.filter((line) => line.section === section);
+    const labourLines = project.labourAllowances.filter((line) => line.section === section);
+    const supplierRows = project.supplierRequests
+      .filter((line) => supplierRequestSection(project, line) === section)
+      .map((line) => supplierTakeoffRow(line, section));
+
+    return buildSplitQuoteCostCentre(
+      quoteId,
+      project,
+      `section-${costCentreKey(section)}`,
+      `${section} - ${project.name}`,
+      [
+        ...materialLines.map(materialLineToQuoteLine),
+        ...labourLines.map(labourLineToQuoteLine),
+      ],
+      [
+        ...materialLines.map(materialTakeoffRow),
+        ...supplierRows,
+      ],
+    );
+  }).filter((centre): centre is QuoteCostCentre => Boolean(centre));
+}
+
 function buildQuoteCostCentres(project: TakeoffProject, quoteId: string): QuoteCostCentre[] {
+  const sectionCentres = buildSectionQuoteCostCentres(project, quoteId);
+  if (sectionCentres.length) {
+    const unmatchedSupplierRows = project.supplierRequests
+      .filter((line) => !supplierRequestSection(project, line))
+      .map((line) => supplierTakeoffRow(line, line.supplier || "Supplier request"));
+    const supportingCentres = [
+      buildSplitQuoteCostCentre(
+        quoteId,
+        project,
+        "pipework",
+        `Pipework - ${project.name}`,
+        [],
+        buildPipeTakeoffRows(project),
+      ),
+      buildSplitQuoteCostCentre(
+        quoteId,
+        project,
+        "radiators",
+        `Radiators / Heat emitters - ${project.name}`,
+        buildQuoteRadiatorLines(project),
+        buildRadiatorTakeoffRows(project),
+        buildQuoteHeatLossRooms(project),
+      ),
+      buildSplitQuoteCostCentre(
+        quoteId,
+        project,
+        "supplier-requests",
+        `Supplier requests - ${project.name}`,
+        [],
+        unmatchedSupplierRows,
+      ),
+    ].filter((centre): centre is QuoteCostCentre => Boolean(centre));
+
+    return [...sectionCentres, ...supportingCentres];
+  }
+
   const centres = [
     buildSplitQuoteCostCentre(
       quoteId,
@@ -1139,6 +1264,171 @@ function buildDraftExtraction(project: TakeoffProject): TakeoffExtractionDraft {
     riskFlags: Array.from(riskFlags),
     questions: Array.from(questions),
   };
+}
+
+function surveyChatText(project: TakeoffProject) {
+  return (project.surveyChat ?? [])
+    .map((message) => `${message.role === "assistant" ? "NeXa" : "User"}: ${message.text}`)
+    .join("\n");
+}
+
+function estimateScopeText(project: TakeoffProject) {
+  const userMessages = (project.surveyChat ?? [])
+    .filter((message) => message.role === "user")
+    .map((message) => message.text.trim())
+    .filter(Boolean);
+  return userMessages.at(-1) || project.description || project.name;
+}
+
+function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtractionDraft {
+  const scope = estimateScopeText(project);
+  const text = `${project.name} ${project.description} ${surveyChatText(project)}`.toLowerCase();
+  const generatedMaterials: TakeoffMaterialAllowance[] = [];
+  const generatedLabour: TakeoffLabourAllowance[] = [];
+  const generatedSupplierRequests: TakeoffSupplierRequestItem[] = [];
+  const riskFlags = new Set(project.review.riskFlags);
+  const questions = new Set<string>();
+
+  const addMaterial = (
+    id: string,
+    section: string,
+    description: string,
+    quantity: number,
+    unit: string,
+    unitCost: number,
+    markupPercent = 30,
+    supplierRequired = false,
+  ) => {
+    generatedMaterials.push({
+      id: `survey-pack-material-${id}`,
+      section,
+      description,
+      quantity,
+      unit,
+      unitCost,
+      markupPercent,
+      supplierRequired,
+    });
+    if (supplierRequired) {
+      generatedSupplierRequests.push({
+        id: `survey-pack-supplier-${id}`,
+        supplier: "",
+        description,
+        quantity,
+        unit,
+        linkedMaterialId: `survey-pack-material-${id}`,
+        notes: "Confirm model, availability, delivery and current trade price before quote issue.",
+      });
+    }
+  };
+
+  const addLabour = (
+    id: string,
+    section: string,
+    role: string,
+    hours: number,
+    notes: string,
+    costRate = 40,
+    markupPercent = 35,
+  ) => {
+    generatedLabour.push({
+      id: `survey-pack-labour-${id}`,
+      section,
+      role,
+      hours,
+      costRate,
+      markupPercent,
+      notes,
+    });
+  };
+
+  if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(text)) {
+    addMaterial("bathroom-strip-waste", "Strip out works", "Skip / waste disposal allowance", 1, "allowance", 180, 25);
+    addMaterial("bathroom-isolation", "Strip out works", "Isolation valves, caps and strip-out sundries", 1, "allowance", 45, 30);
+    addLabour("bathroom-strip-out", "Strip out works", "Plumber / labourer strip out and isolate", 8, "Remove existing suite, isolate services and clear working area.");
+
+    addMaterial("bathroom-first-fix-pipe", "First fix plumbing", "Hot, cold and waste pipework/fittings allowance", 1, "allowance", 220, 30);
+    addMaterial("bathroom-soil-route", "First fix plumbing", "WC soil route / waste alteration allowance", 1, "allowance", 180, 30, true);
+    addLabour("bathroom-first-fix", "First fix plumbing", "Plumber first fix", 16, "Move basin/WC/shower services and test rough-in routes.");
+
+    addMaterial("bathroom-suite", "Sanitaryware and shower", "WC, basin, taps, shower tray/cubicle and shower set", 1, "supplier quote", 0, 30, true);
+    addMaterial("bathroom-tanking", "Sanitaryware and shower", "Tanking, sealants, traps, wastes and fixing sundries", 1, "allowance", 160, 30);
+    addLabour("bathroom-second-fix", "Sanitaryware and shower", "Plumber second fix and test", 12, "Fit sanitaryware, shower enclosure, wastes, taps and final test.");
+
+    addMaterial("bathroom-making-good", "Making good and handover", "Boxing, access panel and making-good sundries", 1, "allowance", 140, 30);
+    addLabour("bathroom-making-good", "Making good and handover", "Making good / handover allowance", 8, "Allow for boxing, minor making good, silicone and handover.");
+
+    riskFlags.add("WC relocation depends on soil route, joist direction, floor build-up and external stack position.");
+    riskFlags.add("Tiling, flooring, decorating and electrical works must be explicitly included or excluded.");
+    questions.add("Is the toilet moving onto the same soil wall or does it need a new soil route?");
+    questions.add("Are we supplying sanitaryware/shower items or is the customer supplying them?");
+    questions.add("Are tiling, flooring, fan/electrics and decorating included in our price?");
+  } else if (/boiler|heating|radiator|heat loss|cylinder|flue|controls|thermostat/.test(text)) {
+    addMaterial("heating-survey", "Survey and heat loss", "Heat loss/radiator schedule office allowance", 1, "allowance", 120, 30);
+    addLabour("heating-survey", "Survey and heat loss", "Estimator / heating engineer survey review", 4, "Review rooms, heat losses, radiator output and design assumptions.", 42, 35);
+
+    addMaterial("heating-plant", "Plant and emitters", "Boiler/radiators/controls package", 1, "supplier quote", 0, 30, true);
+    addMaterial("heating-valves", "Plant and emitters", "TRVs, lockshields, controls and sundries allowance", 1, "allowance", 220, 30, true);
+
+    addMaterial("heating-pipework", "Pipework alterations", "Copper/plastic pipework, fittings, clips and insulation", 1, "allowance", 420, 30, true);
+    addLabour("heating-install", "Pipework alterations", "Heating engineer installation", 24, "Pipework alterations, plant/emitter install and controls preparation.", 42, 35);
+
+    addMaterial("heating-commissioning", "Commissioning and handover", "Chemicals, flushing consumables and commissioning sundries", 1, "allowance", 160, 30);
+    addLabour("heating-commissioning", "Commissioning and handover", "Flush, balance, commission and handover", 8, "Fill, dose, test, balance and complete handover evidence.", 42, 35);
+
+    riskFlags.add("Heat loss and radiator sizing must be confirmed before supplier order.");
+    riskFlags.add("Boiler/flue/condensate route and gas-safe evidence must be confirmed.");
+    questions.add("Are we replacing like-for-like or moving plant/radiator positions?");
+    questions.add("What boiler/radiator range should supplier price?");
+    questions.add("Is flushing, balancing and controls upgrade included?");
+  } else if (/leak|burst|repair|reactive|emergency|tap|valve|blockage/.test(text)) {
+    addMaterial("reactive-parts", "Repair materials", "Standard repair fittings and consumables allowance", 1, "allowance", 85, 30);
+    addMaterial("reactive-special", "Repair materials", "Specialist part if not van stock", 1, "supplier quote", 0, 30, true);
+    addLabour("reactive-attend", "Attend and diagnose", "Engineer attendance and diagnosis", 2, "Attend site, diagnose issue and confirm repair route.");
+    addLabour("reactive-repair", "Repair and test", "Engineer repair and test", 3, "Complete repair, test and capture evidence.");
+    riskFlags.add("Reactive repair should remain time/materials unless access and fault are fully confirmed.");
+    questions.add("Is this being quoted upfront or completed as time and materials?");
+    questions.add("Is access straightforward or do we need to open finishes?");
+  } else {
+    addMaterial("general-sundries", "Materials and sundries", "General fittings, fixings and consumables allowance", 1, "allowance", 180, 30);
+    addMaterial("general-supplier", "Materials and sundries", "Specialist materials to supplier quote", 1, "supplier quote", 0, 30, true);
+    addLabour("general-install", "Labour installation", "Engineer labour allowance", 8, "Provisional labour until scope is broken into detailed cost centres.");
+    addLabour("general-review", "Office review", "Estimator review and quote preparation", 2, "Turn survey chat into client wording, supplier request and final quote pack.", 42, 35);
+    questions.add("What is included, what is excluded, and which items need supplier prices?");
+  }
+
+  return {
+    rooms: [],
+    measurements: [],
+    pipeRuns: [],
+    radiators: [],
+    materialAllowances: generatedMaterials,
+    labourAllowances: generatedLabour,
+    supplierRequests: generatedSupplierRequests,
+    riskFlags: Array.from(riskFlags),
+    questions: [
+      `Review client-visible scope before issue: ${scope}`,
+      ...Array.from(questions),
+    ],
+  };
+}
+
+export function runSurveyChatEstimatePackDraft(
+  projectId: string,
+  actor = "NeXa Survey",
+): TakeoffExtractionResult | null {
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!project) return null;
+
+  const draft = buildSurveyChatDraftExtraction(project);
+  return applyTakeoffExtractionDraft(project.id, draft, {
+    actor,
+    provider: "Pilot",
+    summary: `${draft.materialAllowances.length} material line(s), ${draft.labourAllowances.length} labour allowance(s) and ${draft.supplierRequests.length} supplier request line(s) generated from survey chat.`,
+    confidence: project.documents.length ? "Medium" : "Low",
+    documentNote: "Survey chat converted into estimate pack; office review required before quote issue.",
+    sourceFiles: project.documents.length,
+  });
 }
 
 export function getTakeoffProjects(): TakeoffProject[] {

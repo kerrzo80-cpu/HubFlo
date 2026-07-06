@@ -813,13 +813,21 @@ export default function TakeoffPage() {
       const nextProjects = (await projectResponse.json()) as TakeoffProject[];
       const nextQuotes = (await quoteResponse.json()) as Quote[];
       const nextAiStatus = aiResponse.ok ? ((await aiResponse.json()) as TakeoffAiStatus) : null;
+      const requestedProject = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("project")
+        : null;
+      const requestedProjectMatch = requestedProject
+        ? nextProjects.find((project) => project.id === requestedProject || project.reference === requestedProject)
+        : undefined;
 
       setProjects(nextProjects);
       setQuotes(nextQuotes);
       setAiStatus(nextAiStatus);
       setShowNewProject(nextProjects.length === 0);
       setSelectedProjectId((current) =>
-        current && nextProjects.some((project) => project.id === current)
+        requestedProjectMatch
+          ? requestedProjectMatch.id
+          : current && nextProjects.some((project) => project.id === current)
           ? current
           : nextProjects[0]?.id ?? "",
       );
