@@ -551,7 +551,7 @@ export default function SurveyPage() {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa" />
-          <span>AI Surveyor</span>
+          <span>AI Estimator</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">
@@ -560,7 +560,7 @@ export default function SurveyPage() {
           </a>
           <a className="takeoff-ghost-button" href="/takeoff">
             <FileText size={16} />
-            Takeoff
+            Output review
           </a>
         </div>
       </header>
@@ -568,7 +568,7 @@ export default function SurveyPage() {
       <div className="survey-shell">
         <aside className="survey-sidebar">
           <div className="takeoff-sidebar-title">
-            <span>Survey chats</span>
+            <span>Estimate chats</span>
             <button className="takeoff-create-project-button" type="button" onClick={createSurveyChat} disabled={isSaving}>
               <Plus size={16} />
               New
@@ -609,8 +609,25 @@ export default function SurveyPage() {
               <section className="survey-hero">
                 <div>
                   <span className="takeoff-kicker"><b>{selectedProject.reference}</b></span>
-                  <h1>{selectedProject.name}</h1>
-                  <p>{selectedProject.customer} - {selectedProject.site}</p>
+                  <h1>What are we pricing today?</h1>
+                  <p>
+                    Chat with NeXa, add photos, LiDAR, heat loss and drawings as you go, then send the finished quote pack into Core.
+                  </p>
+                  <strong>{selectedProject.name} - {selectedProject.customer} - {selectedProject.site}</strong>
+                  <div className="survey-prompt-chips" aria-label="Quick survey prompts">
+                    <button type="button" onClick={() => setDraft("We are pricing ")}>
+                      Start scope
+                    </button>
+                    <button type="button" onClick={openRoomScanBridge}>
+                      LiDAR room scan
+                    </button>
+                    <button type="button" onClick={() => setShowHeatLossPanel(true)}>
+                      Heat loss
+                    </button>
+                    <button type="button" onClick={() => setDraft("Build a BOQ from the attached drawings and supplier items for ")}>
+                      Drawing / BOQ
+                    </button>
+                  </div>
                 </div>
                 <div className="takeoff-quote-link">
                   <Link2 size={16} />
@@ -651,7 +668,18 @@ export default function SurveyPage() {
 
               <section className="survey-workspace">
                 <article className="survey-chat-panel">
+                  <header className="survey-chat-title">
+                    <div>
+                      <MessageCircle size={18} />
+                      <span>
+                        <strong>NeXa conversation</strong>
+                        <small>Answer naturally. NeXa asks what is missing and keeps the quote pack together.</small>
+                      </span>
+                    </div>
+                    <b>{messages.length} messages</b>
+                  </header>
                   <div className="survey-action-strip">
+                    <span className="survey-action-label">Add to chat</span>
                     <label className={isUploading ? "takeoff-upload-button disabled" : "takeoff-upload-button"}>
                       <Camera size={15} />
                       Photos
@@ -708,6 +736,10 @@ export default function SurveyPage() {
                 </article>
 
                 <aside className="survey-capture-panel">
+                  <div className="survey-capture-heading">
+                    <strong>Quote pack</strong>
+                    <small>Everything captured from this chat</small>
+                  </div>
                   <article>
                     <ImagePlus size={18} />
                     <span>Photos</span>
@@ -805,7 +837,7 @@ export default function SurveyPage() {
                     </div>
                     <div>
                       <span>Suggested radiators</span>
-                      <strong>{heatLossResult.recommendations.map((item) => item.model).join(" · ")}</strong>
+                      <strong>{heatLossResult.recommendations.map((item) => item.model).join(" - ")}</strong>
                     </div>
                     <button className="takeoff-primary-button" type="button" onClick={() => void addHeatLossToSurvey()} disabled={!heatLossResult.watts}>
                       Add to chat and quote pack

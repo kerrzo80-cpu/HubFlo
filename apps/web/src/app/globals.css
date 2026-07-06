@@ -15960,7 +15960,9 @@ body {
 }
 
 .survey-app {
-  background: #eef3f5;
+  background:
+    radial-gradient(circle at top right, rgba(212, 175, 55, 0.14), transparent 30%),
+    linear-gradient(180deg, #edf4f6 0%, #f7fafb 46%, #edf2f4 100%);
   color: var(--ink);
   display: flex;
   flex-direction: column;
@@ -15972,8 +15974,8 @@ body {
 .survey-shell {
   display: grid;
   flex: 1;
-  gap: 18px;
-  grid-template-columns: 304px minmax(0, 1fr);
+  gap: 16px;
+  grid-template-columns: 288px minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   padding: 18px;
@@ -15993,7 +15995,7 @@ body {
 .survey-main {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
@@ -16002,32 +16004,92 @@ body {
 
 .survey-hero {
   align-items: center;
-  background: #fff;
-  border: 1px solid var(--line);
+  background:
+    linear-gradient(135deg, rgba(10, 28, 54, 0.98), rgba(18, 44, 76, 0.94)),
+    var(--navy);
+  border: 1px solid rgba(212, 175, 55, 0.36);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(32, 38, 43, 0.04);
+  box-shadow: 0 16px 42px rgba(11, 29, 58, 0.18);
   display: flex;
   gap: 18px;
   justify-content: space-between;
-  padding: 18px;
+  padding: 22px;
 }
 
 .survey-hero h1 {
-  font-size: 25px;
+  color: #fff;
+  font-size: 34px;
   letter-spacing: 0;
   line-height: 1.14;
-  margin: 0;
+  margin: 4px 0 0;
 }
 
 .survey-hero p {
-  color: var(--muted);
-  margin: 7px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 15px;
+  line-height: 1.45;
+  margin: 9px 0 0;
+  max-width: 760px;
+}
+
+.survey-hero > div:first-child > strong {
+  color: rgba(255, 255, 255, 0.9);
+  display: block;
+  font-size: 13px;
+  margin-top: 12px;
+}
+
+.survey-hero .takeoff-kicker b {
+  background: rgba(212, 175, 55, 0.18);
+  border-color: rgba(212, 175, 55, 0.44);
+  color: #f0d98a;
+}
+
+.survey-hero .takeoff-quote-link {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  max-width: 420px;
+}
+
+.survey-hero .takeoff-quote-link svg {
+  color: #f0d98a;
+}
+
+.survey-hero .quote-search-control input {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.survey-prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.survey-prompt-chips button {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 9px 12px;
+}
+
+.survey-prompt-chips button:hover,
+.survey-prompt-chips button:focus-visible {
+  background: #fff;
+  color: var(--navy);
+  outline: 0;
 }
 
 .survey-workspace {
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(0, 1fr) 286px;
+  grid-template-columns: minmax(0, 1fr) 260px;
   min-height: 0;
 }
 
@@ -16043,17 +16105,69 @@ body {
 .survey-chat-panel {
   display: flex;
   flex-direction: column;
-  min-height: 640px;
+  min-height: 660px;
   overflow: hidden;
+}
+
+.survey-chat-title {
+  align-items: center;
+  background: #fff;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.survey-chat-title > div {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.survey-chat-title svg {
+  color: var(--blue-deep);
+}
+
+.survey-chat-title span {
+  display: grid;
+  gap: 2px;
+}
+
+.survey-chat-title strong {
+  color: var(--ink);
+}
+
+.survey-chat-title small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.survey-chat-title b {
+  background: var(--green-soft);
+  border-radius: 999px;
+  color: var(--green);
+  font-size: 11px;
+  padding: 6px 10px;
+  white-space: nowrap;
 }
 
 .survey-action-strip {
   align-items: center;
+  background: #f7fbfb;
   border-bottom: 1px solid var(--line-soft);
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   padding: 12px;
+}
+
+.survey-action-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  padding: 0 4px;
+  text-transform: uppercase;
 }
 
 .survey-chat-log {
@@ -16140,6 +16254,25 @@ body {
   display: grid;
   gap: 10px;
   padding: 12px;
+  position: sticky;
+  top: 0;
+}
+
+.survey-capture-heading {
+  border-bottom: 1px solid var(--line-soft);
+  display: grid;
+  gap: 2px;
+  padding: 4px 4px 10px;
+}
+
+.survey-capture-heading strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.survey-capture-heading small {
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .survey-capture-panel article {
