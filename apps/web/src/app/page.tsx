@@ -11351,9 +11351,107 @@ export default function Dashboard() {
       dashboardVariationApprovals.length +
       approvedQuotesAwaitingScheduling.length +
       overdueTimesheetJobs.length;
+    const pilotWorkflowSteps = [
+      {
+        label: "1. Lead",
+        title: "Capture the enquiry",
+        detail: "Name, contact, address, description and survey booking.",
+        action: "New lead",
+        icon: Mail,
+        onClick: createLead,
+      },
+      {
+        label: "2. Survey",
+        title: "Gather site information",
+        detail: "Use the survey assistant, photos and LiDAR room scan.",
+        action: "Open survey",
+        icon: Sparkles,
+        onClick: () => {
+          window.location.href = "/survey";
+        },
+      },
+      {
+        label: "3. Quote",
+        title: "Build the price",
+        detail: "Cost centres, labour, materials, supplier requests and options.",
+        action: "Open quotes",
+        icon: FileText,
+        onClick: returnToQuotesDirectory,
+      },
+      {
+        label: "4. Approval",
+        title: "Send and accept online",
+        detail: "Issue the quote, track views and get customer acceptance.",
+        action: "Sent quotes",
+        icon: Check,
+        onClick: returnToQuotesDirectory,
+      },
+      {
+        label: "5. Job",
+        title: "Schedule and deliver",
+        detail: "Book people, run cost-centre workflows, POs and variations.",
+        action: "Open jobs",
+        icon: Wrench,
+        onClick: returnToJobsDirectory,
+      },
+      {
+        label: "6. Invoice",
+        title: "Review and bill",
+        detail: "Check costs, timesheets, variations and send the invoice.",
+        action: "Open invoices",
+        icon: CircleDollarSign,
+        onClick: () => setHomeView("invoices"),
+      },
+    ];
+    const pilotToolRules = [
+      { name: "NeXa Core", detail: "Leads, quotes, jobs, scheduling and invoices live here." },
+      { name: "Survey", detail: "Use on site when you need a chat, photos or LiDAR scan linked to a quote." },
+      { name: "Takeoff", detail: "Use for drawings, BOQs and supplier quantity extraction before pushing into a quote." },
+      { name: "Field / Connect", detail: "Use for engineer actions, messages, timesheets, POs and variation updates." },
+    ];
 
     return (
       <section className="ops-dashboard" aria-label="Operations dashboard">
+        <section className="pilot-workflow-panel" aria-label="Pilot workflow guide">
+          <div className="pilot-workflow-intro">
+            <div>
+              <span>Start here</span>
+              <h2>One clean workflow through NeXa</h2>
+              <p>Use this row as the pilot route. The dashboard below is only for live warnings and follow-ups.</p>
+            </div>
+            <button className="primary-button" type="button" onClick={createLead}>
+              <Plus size={16} />
+              Start with a lead
+            </button>
+          </div>
+
+          <div className="pilot-workflow-steps">
+            {pilotWorkflowSteps.map((step) => {
+              const Icon = step.icon;
+              return (
+                <button type="button" className="pilot-workflow-step" key={step.label} onClick={step.onClick}>
+                  <span>
+                    <Icon size={17} />
+                    {step.label}
+                  </span>
+                  <strong>{step.title}</strong>
+                  <small>{step.detail}</small>
+                  <b>{step.action}</b>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="pilot-tool-rules">
+            {pilotToolRules.map((tool) => (
+              <article key={tool.name}>
+                <strong>{tool.name}</strong>
+                <span>{tool.detail}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+
         <div className="ops-dashboard-grid">
           <section className="weekly-schedule-panel">
             <div className="panel-header">
