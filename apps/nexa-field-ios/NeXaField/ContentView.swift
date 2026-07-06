@@ -50,6 +50,13 @@ struct ContentView: View {
             Text(scanner.status)
                 .font(.footnote)
                 .foregroundColor(scanner.lastError == nil ? .secondary : .red)
+
+            if let lastError = scanner.lastError {
+                Text(lastError)
+                    .font(.caption)
+                    .foregroundColor(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding()
         .background(.regularMaterial)
@@ -101,7 +108,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("NeXa connection") {
+                Section {
                     TextField("NeXa URL", text: $scanner.nexaBaseURL)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
@@ -110,12 +117,22 @@ struct SettingsView: View {
                         .textInputAutocapitalization(.never)
 
                     SecureField("Basic auth password", text: $scanner.basicAuthPassword)
+                } header: {
+                    Text("NeXa connection")
+                }
+                footer: {
+                    Text("For the pilot, use the public NeXa URL. Do not use 127.0.0.1 from an iPad because that points back to the iPad, not the Mac.")
                 }
 
-                Section("Linked survey") {
+                Section {
                     TextField("Project ID", text: $scanner.projectId)
                     TextField("Reference", text: $scanner.reference)
                     TextField("Project name", text: $scanner.projectName)
+                } header: {
+                    Text("Linked survey")
+                }
+                footer: {
+                    Text("Open the scanner from NeXa Survey to fill these fields automatically.")
                 }
             }
             .navigationTitle("Scanner settings")

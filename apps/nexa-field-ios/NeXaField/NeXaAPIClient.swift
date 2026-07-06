@@ -39,7 +39,16 @@ struct NeXaAPIClient {
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
-            throw NeXaAPIError.server(message)
+            switch httpResponse.statusCode {
+            case 401:
+                throw NeXaAPIError.unauthorised
+            case 403:
+                throw NeXaAPIError.forbidden
+            case 404:
+                throw NeXaAPIError.projectNotFound(projectId)
+            default:
+                throw NeXaAPIError.server(httpResponse.statusCode, message)
+            }
         }
 
         return try JSONDecoder().decode(RoomScanUploadResponse.self, from: data)
@@ -59,7 +68,10 @@ enum NeXaAPIError: LocalizedError {
     case missingBaseURL
     case invalidURL
     case invalidResponse
-    case server(String)
+    case unauthorised
+    case forbidden
+    case projectNotFound(String)
+    case server(Int, String)
 
     var errorDescription: String? {
         switch self {
@@ -69,8 +81,14 @@ enum NeXaAPIError: LocalizedError {
             return "The NeXa web address is not valid."
         case .invalidResponse:
             return "NeXa did not return a valid response."
-        case .server(let message):
-            return "NeXa rejected the scan: \(message)"
+        case .unauthorised:
+            return "NeXa rejected the scan. Check the pilot username and password in scanner settings."
+        case .forbidden:
+            return "NeXa received the scan but this app is not allowed to create or edit takeoff data."
+        case .projectNotFound(let projectId):
+            return "NeXa could not find project \(projectId). Open the scanner from the survey page so it links to the right project."
+        case .server(let statusCode, let message):
+            return "NeXa rejected the scan with HTTP \(statusCode): \(message)"
         }
     }
 }
