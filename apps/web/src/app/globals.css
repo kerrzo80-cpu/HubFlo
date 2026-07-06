@@ -16220,6 +16220,7 @@ body {
   color: var(--ink);
   line-height: 1.45;
   padding: 12px 13px;
+  white-space: pre-wrap;
 }
 
 .survey-message.user span {

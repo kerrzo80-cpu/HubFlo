@@ -89,26 +89,6 @@ function defaultOpening(project: TakeoffProject): TakeoffSurveyChatMessage[] {
   ];
 }
 
-function nextAssistantReply(answer: string, project: TakeoffProject) {
-  const lower = answer.toLowerCase();
-  if (/photo|picture|image|camera|video/.test(lower)) {
-    return "Good. Add photos of the boiler or appliance, access routes, existing pipework, each affected room, windows, floors and anything the office needs to see before pricing.";
-  }
-  if (/lidar|roomplan|scan|measure|dimension|room/.test(lower)) {
-    return "Use the LiDAR tool in this chat and scan the room on the iPad/iPhone. Once it comes back, I will use the room dimensions for heat loss, quantities and the quote pack.";
-  }
-  if (/radiator|heat loss|heating|boiler|cylinder|flue/.test(lower)) {
-    return "For heating work, I need room dimensions, outside walls, window type/area, radiator position constraints, boiler/flue route and controls. Use Heat loss in this chat for each room as you survey.";
-  }
-  if (/quote|boq|bill|materials|supplier|cost/.test(lower)) {
-    return "I can build the quote pack from this conversation, the photos and any scan/BOQ files. Before sending to NeXa, what items need supplier prices and what should be treated as an allowance?";
-  }
-  if (/variation|extra|additional|change/.test(lower)) {
-    return "Is this extra work approved to proceed, or does the office need to send a variation quote first? Capture description, hours, materials and any photos that prove the change.";
-  }
-  return `Got it. What would someone pricing ${project.name} regret not knowing later: access, exclusions, materials, labour time, client preference, or supplier quote items?`;
-}
-
 function quoteSite(quote: Quote, clientSites: ClientSite[]) {
   return quote.siteId ? clientSites.find((site) => site.id === quote.siteId) : undefined;
 }
@@ -385,24 +365,45 @@ export default function SurveyPage() {
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedProject || !draft.trim()) return;
+    const messageText = draft.trim();
     const userMessage: TakeoffSurveyChatMessage = {
       id: makeId("survey-chat"),
       role: "user",
-      text: draft.trim(),
-      createdAt: nowIso(),
-    };
-    const assistantMessage: TakeoffSurveyChatMessage = {
-      id: makeId("survey-chat"),
-      role: "assistant",
-      text: nextAssistantReply(draft, selectedProject),
+      text: messageText,
       createdAt: nowIso(),
     };
     setDraft("");
-    const nextMessages = [...messages, userMessage, assistantMessage];
-    await patchProject(selectedProject.id, {
-      surveyChat: nextMessages,
-      description: selectedProject.description === "Takeoff scope to review." ? userMessage.text : selectedProject.description,
-    }, "Survey conversation saved.");
+    setIsSaving(true);
+    setError("");
+    replaceProject({
+      ...selectedProject,
+      surveyChat: [...messages, userMessage],
+    });
+
+    try {
+      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/survey-chat`, {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ message: messageText }),
+      });
+      const result = (await response.json()) as {
+        project?: TakeoffProject;
+        provider?: "OpenAI" | "Pilot";
+        warning?: string;
+        error?: string;
+      };
+      if (!response.ok || !result.project) throw new Error(result.error ?? "Unable to send survey chat");
+      replaceProject(result.project);
+      setNotice(result.provider === "OpenAI" ? "OpenAI replied live." : result.warning || "Pilot chat fallback replied.");
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send survey chat");
+      replaceProject(selectedProject);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function uploadEvidence(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
