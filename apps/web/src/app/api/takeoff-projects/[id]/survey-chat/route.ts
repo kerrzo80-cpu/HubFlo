@@ -289,7 +289,7 @@ function buildPilotEstimateReply(project: TakeoffProject, message: string, mode:
     "Targeted questions:",
     bulletList(profile.questions),
     "",
-    "Next action: use Send to pack, then review the estimate pack in Takeoff before pushing it into the linked quote.",
+    "Next action: use Push into quote so NeXa creates the quote description, cost centres, labour/material lines and supplier request items directly on the linked quote.",
   ].join("\n");
 }
 

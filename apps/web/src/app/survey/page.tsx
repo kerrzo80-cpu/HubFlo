@@ -448,24 +448,32 @@ export default function SurveyPage() {
 
   async function prepareQuotePack() {
     if (!selectedProject) return;
+    const quoteId = selectedProject.linkedQuoteId || linkedQuote?.id;
+    if (!quoteId) {
+      setError("Search and select the NeXa quote before pushing this survey.");
+      return;
+    }
     setIsBuilding(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/survey-plan`, {
+      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/survey-push`, {
         method: "POST",
         headers: {
           ...requestHeaders,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ actor: "NeXa Survey" }),
+        body: JSON.stringify({ actor: "NeXa Survey", quoteId }),
       });
-      if (!response.ok) throw new Error("Unable to build survey pack");
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to push survey into quote");
+      }
       const result = (await response.json()) as {
         project: TakeoffProject;
-        provider: string;
+        quote: Quote;
+        totalSell?: number;
+        costCentres?: Array<{ id: string }>;
         generated: {
-          questions: number;
-          stopGo: number;
           materialAllowances: number;
           labourAllowances: number;
           supplierRequests: number;
@@ -474,7 +482,7 @@ export default function SurveyPage() {
       const assistantMessage: TakeoffSurveyChatMessage = {
         id: makeId("survey-chat"),
         role: "assistant",
-        text: `${result.provider} estimate pack built from this survey: ${result.generated.materialAllowances} material line(s), ${result.generated.labourAllowances} labour allowance(s), ${result.generated.supplierRequests} supplier request item(s), plus ${result.generated.questions} review question(s). Opening the Estimate Pack now so the office can approve it before pushing into NeXa.`,
+        text: `Survey pushed into ${result.quote.ref}: ${result.costCentres?.length ?? 0} cost centre(s), ${result.generated.materialAllowances} material line(s), ${result.generated.labourAllowances} labour allowance(s) and ${result.generated.supplierRequests} supplier request item(s). Quote value is now £${(result.totalSell ?? result.quote.value).toLocaleString()}.`,
         createdAt: nowIso(),
       };
       const nextProject = {
@@ -482,10 +490,11 @@ export default function SurveyPage() {
         surveyChat: [...(result.project.surveyChat ?? messages), assistantMessage],
       };
       replaceProject(nextProject);
-      await patchProject(nextProject.id, { surveyChat: nextProject.surveyChat }, "Estimate pack built from survey chat.");
-      window.location.href = `/takeoff?tab=pack&project=${encodeURIComponent(nextProject.id)}`;
+      setQuotes((current) => current.map((quote) => (quote.id === result.quote.id ? result.quote : quote)));
+      await patchProject(nextProject.id, { surveyChat: nextProject.surveyChat }, `${result.quote.ref} updated from survey.`);
+      window.location.href = `/?quote=${encodeURIComponent(result.quote.id)}`;
     } catch (buildError) {
-      setError(buildError instanceof Error ? buildError.message : "Unable to build survey pack");
+      setError(buildError instanceof Error ? buildError.message : "Unable to push survey into quote");
     } finally {
       setIsBuilding(false);
     }
@@ -622,7 +631,7 @@ export default function SurveyPage() {
                   <span className="takeoff-kicker"><b>{selectedProject.reference}</b></span>
                   <h1>Site survey chat</h1>
                   <p>
-                    Chat with NeXa on site, capture photos, LiDAR and heat loss, then hand the clean survey pack into the estimate.
+                    Chat with NeXa on site, capture photos, LiDAR and heat loss, then push the priced scope into the linked quote.
                   </p>
                   <strong>{selectedProject.name} - {selectedProject.customer} - {selectedProject.site}</strong>
                   <div className="survey-prompt-chips" aria-label="Quick survey prompts">
@@ -639,7 +648,7 @@ export default function SurveyPage() {
                       Heat loss
                     </button>
                     <button type="button" onClick={prepareQuotePack} disabled={isBuilding}>
-                      Send to estimate pack
+                      Push into quote
                     </button>
                   </div>
                 </div>
@@ -693,8 +702,8 @@ export default function SurveyPage() {
                 </article>
                 <article>
                   <span>3</span>
-                  <strong>Estimate pack</strong>
-                  <small>Cost centres, supplier lines, quote push</small>
+                  <strong>NeXa quote</strong>
+                  <small>Job description, cost centres, quote value</small>
                 </article>
               </section>
 
@@ -844,11 +853,11 @@ export default function SurveyPage() {
                     </button>
                     <button className="takeoff-secondary-button" type="button" onClick={prepareQuotePack} disabled={isBuilding}>
                       {isBuilding ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
-                      Send to pack
+                      Push into quote
                     </button>
-                    <a className="takeoff-secondary-button" href={selectedProject ? `/takeoff?tab=pack&project=${encodeURIComponent(selectedProject.id)}` : "/takeoff?tab=pack"}>
+                    <a className="takeoff-secondary-button" href={linkedQuote ? `/?quote=${encodeURIComponent(linkedQuote.id)}` : "/"}>
                       <Send size={15} />
-                      Estimate pack
+                      Open quote
                     </a>
                   </div>
 
@@ -911,7 +920,7 @@ export default function SurveyPage() {
                   </article>
                   <div className="survey-next-steps">
                     <strong>Handoff rule</strong>
-                    <p>Survey captures site truth. Takeoff handles drawings. Both feed the Estimate Pack before quote push.</p>
+                    <p>Survey captures site truth and pushes straight into the linked quote. Takeoff stays separate for drawings, specs and contractor BOQs.</p>
                   </div>
                 </aside>
               </section>

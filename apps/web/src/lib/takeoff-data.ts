@@ -279,6 +279,8 @@ export type TakeoffPushResult = {
   costCentre: QuoteCostCentre;
   costCentres: QuoteCostCentre[];
   auditEvent: AuditEvent;
+  generated?: TakeoffExtractionResult["generated"];
+  totalSell?: number;
 };
 
 export type TakeoffExtractionResult = {
@@ -1075,6 +1077,75 @@ function quoteCentreSell(centre: QuoteCostCentre) {
   return centre.lines.reduce((sum, line) => sum + line.quantity * line.unitSell, 0);
 }
 
+function quoteDescriptionFromProject(project: TakeoffProject, quote: Quote) {
+  const scope = estimateScopeText(project).trim();
+  if (!scope || ["customer to confirm", "takeoff scope to review.", "survey conversation started from nexa survey."].includes(scope.toLowerCase())) {
+    return quote.description;
+  }
+  return scope;
+}
+
+function applyProjectCostCentresToQuote(
+  project: TakeoffProject,
+  quote: Quote,
+  actor: string,
+  source: "survey" | "takeoff",
+) {
+  const costCentres = buildQuoteCostCentres(project, quote.id);
+  const costCentre = costCentres[0];
+  if (!costCentre) return null;
+
+  const hubState = getHubDetailState();
+  const currentQuoteCostCentres = (hubState.quoteCostCentres ?? {}) as Record<string, unknown>;
+  const existingCentres = Array.isArray(currentQuoteCostCentres[quote.id])
+    ? (currentQuoteCostCentres[quote.id] as QuoteCostCentre[])
+    : [];
+  const splitCentreIds = new Set(costCentres.map((centre) => centre.id));
+  const legacyCentreId = `${quote.id}-takeoff-${project.id}`;
+  const nextQuoteCentres = [
+    ...existingCentres.filter((centre) => !splitCentreIds.has(centre.id) && centre.id !== legacyCentreId),
+    ...costCentres,
+  ];
+  const nextQuoteCostCentres = {
+    ...currentQuoteCostCentres,
+    [quote.id]: nextQuoteCentres,
+  };
+
+  saveHubDetailState({
+    ...hubState,
+    quoteCostCentres: nextQuoteCostCentres,
+  });
+
+  const totalSell = Math.round(nextQuoteCentres.reduce((sum, centre) => sum + quoteCentreSell(centre), 0));
+  const updatedQuote = updateQuote(quote.id, {
+    description: source === "survey" ? quoteDescriptionFromProject(project, quote) : quote.description,
+    value: totalSell,
+    next: source === "survey"
+      ? `Review ${project.reference} survey-built cost centres`
+      : `Review ${project.reference} Takeoff / BOQ output`,
+  }) ?? quote;
+
+  const label = source === "survey" ? "Survey" : "Takeoff / BOQ";
+  const sourceLabel = source === "survey" ? "survey assistant" : "takeoff add-on";
+  const auditEvent = appendAuditEvent({
+    actor,
+    action: "pushed",
+    recordType: "quote",
+    recordId: quote.id,
+    summary: `${project.reference} ${label} pushed into ${quote.ref}: ${costCentres.length} cost centre(s), ${costCentres.reduce((sum, centre) => sum + centre.lines.length, 0)} line(s), ${project.supplierRequests.length} supplier request item(s).`,
+    source: sourceLabel,
+    importance: "high",
+  });
+
+  return {
+    quote: updatedQuote,
+    costCentre,
+    costCentres,
+    auditEvent,
+    totalSell,
+  };
+}
+
 function documentBaseName(document: TakeoffDocument) {
   return document.fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || document.kind;
 }
@@ -1424,9 +1495,9 @@ export function runSurveyChatEstimatePackDraft(
   return applyTakeoffExtractionDraft(project.id, draft, {
     actor,
     provider: "Pilot",
-    summary: `${draft.materialAllowances.length} material line(s), ${draft.labourAllowances.length} labour allowance(s) and ${draft.supplierRequests.length} supplier request line(s) generated from survey chat.`,
+    summary: `${draft.materialAllowances.length} material line(s), ${draft.labourAllowances.length} labour allowance(s) and ${draft.supplierRequests.length} supplier request line(s) generated from survey chat for quote cost centres.`,
     confidence: project.documents.length ? "Medium" : "Low",
-    documentNote: "Survey chat converted into estimate pack; office review required before quote issue.",
+    documentNote: "Survey chat converted into quote cost centres; office review required before quote issue.",
     sourceFiles: project.documents.length,
   });
 }
@@ -1671,36 +1742,8 @@ export function pushTakeoffProjectToQuote(
     return null;
   }
 
-  const costCentres = buildQuoteCostCentres(project, quote.id);
-  const costCentre = costCentres[0];
-  if (!costCentre) return null;
-
-  const hubState = getHubDetailState();
-  const currentQuoteCostCentres = (hubState.quoteCostCentres ?? {}) as Record<string, unknown>;
-  const existingCentres = Array.isArray(currentQuoteCostCentres[quote.id])
-    ? (currentQuoteCostCentres[quote.id] as QuoteCostCentre[])
-    : [];
-  const splitCentreIds = new Set(costCentres.map((centre) => centre.id));
-  const legacyCentreId = `${quote.id}-takeoff-${project.id}`;
-  const nextQuoteCentres = [
-    ...existingCentres.filter((centre) => !splitCentreIds.has(centre.id) && centre.id !== legacyCentreId),
-    ...costCentres,
-  ];
-  const nextQuoteCostCentres = {
-    ...currentQuoteCostCentres,
-    [quote.id]: nextQuoteCentres,
-  };
-
-  saveHubDetailState({
-    ...hubState,
-    quoteCostCentres: nextQuoteCostCentres,
-  });
-
-  const totalSell = nextQuoteCentres.reduce((sum, centre) => sum + quoteCentreSell(centre), 0);
-  const updatedQuote = updateQuote(quote.id, {
-    value: Math.round(totalSell),
-    next: `Review ${project.reference} Takeoff / BOQ output`,
-  }) ?? quote;
+  const applied = applyProjectCostCentresToQuote(project, quote, actor, "takeoff");
+  if (!applied) return null;
 
   const pushedAt = nowIso();
   const updatedProject = updateTakeoffProject(project.id, {
@@ -1717,21 +1760,56 @@ export function pushTakeoffProjectToQuote(
 
   if (!updatedProject) return null;
 
-  const auditEvent = appendAuditEvent({
-    actor,
-    action: "pushed",
-    recordType: "quote",
-    recordId: quote.id,
-    summary: `${project.reference} Takeoff / BOQ pushed into ${quote.ref}: ${costCentres.length} cost centre(s), ${costCentres.reduce((sum, centre) => sum + centre.lines.length, 0)} line(s), ${project.supplierRequests.length} supplier request item(s).`,
-    source: "takeoff add-on",
-    importance: "high",
+  return {
+    project: updatedProject,
+    quote: applied.quote,
+    costCentre: applied.costCentre,
+    costCentres: applied.costCentres,
+    auditEvent: applied.auditEvent,
+    totalSell: applied.totalSell,
+  };
+}
+
+export function pushSurveyProjectToQuote(
+  projectId: string,
+  quoteId: string,
+  actor = "NeXa Survey",
+): TakeoffPushResult | null {
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!project) return null;
+
+  const quote = getQuotes().find((item) => item.id === quoteId);
+  if (!quote) return null;
+
+  const estimatePack = runSurveyChatEstimatePackDraft(project.id, actor);
+  if (!estimatePack) return null;
+
+  const preparedProject = estimatePack.project;
+  const applied = applyProjectCostCentresToQuote(preparedProject, quote, actor, "survey");
+  if (!applied) return null;
+
+  const pushedAt = nowIso();
+  const updatedProject = updateTakeoffProject(preparedProject.id, {
+    linkedQuoteId: quote.id,
+    linkedQuoteRef: quote.ref,
+    status: "Pushed",
+    review: {
+      ...preparedProject.review,
+      pushedAt,
+      pushedQuoteId: quote.id,
+      pushedQuoteRef: quote.ref,
+    },
   });
+
+  if (!updatedProject) return null;
 
   return {
     project: updatedProject,
-    quote: updatedQuote,
-    costCentre,
-    costCentres,
-    auditEvent,
+    quote: applied.quote,
+    costCentre: applied.costCentre,
+    costCentres: applied.costCentres,
+    auditEvent: applied.auditEvent,
+    generated: estimatePack.generated,
+    totalSell: applied.totalSell,
   };
 }
