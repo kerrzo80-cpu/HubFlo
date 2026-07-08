@@ -22,6 +22,7 @@ export type HubDetailState = {
   communications?: unknown[];
   invoices?: unknown[];
   employees?: unknown[];
+  simproExports?: unknown[];
   updatedAt?: string;
 };
 

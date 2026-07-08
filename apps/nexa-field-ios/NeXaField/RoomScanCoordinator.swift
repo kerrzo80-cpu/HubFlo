@@ -11,6 +11,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     @Published var nexaBaseURL: String = "https://nexa-pilot.onrender.com"
     @Published var basicAuthUsername: String = "nexa"
     @Published var basicAuthPassword: String = ""
+    @Published var returnUrl: String = ""
     @Published var status: String = "Open a NeXa survey link or scan a room manually."
     @Published var lastError: String?
     @Published var isScanning = false
@@ -48,6 +49,8 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         projectId = items.value(named: "projectId") ?? projectId
         reference = items.value(named: "reference") ?? reference
         projectName = items.value(named: "projectName") ?? projectName
+        nexaBaseURL = items.value(named: "baseUrl") ?? nexaBaseURL
+        returnUrl = items.value(named: "returnUrl") ?? returnUrl
         status = "Linked to \(reference.isEmpty ? "NeXa survey" : reference). Ready to scan."
         persistSettings()
     }
@@ -106,6 +109,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
             )
 
             status = "Sent to NeXa: \(result.imported.rooms) room, \(result.imported.measurements) measurements."
+            openReturnUrl()
         } catch {
             lastError = error.localizedDescription
             status = "Could not send scan to NeXa."
@@ -122,6 +126,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         defaults.set(nexaBaseURL, forKey: "nexaBaseURL")
         defaults.set(basicAuthUsername, forKey: "basicAuthUsername")
         defaults.set(basicAuthPassword, forKey: "basicAuthPassword")
+        defaults.set(returnUrl, forKey: "returnUrl")
     }
 
     private func loadSettings() {
@@ -132,6 +137,30 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         nexaBaseURL = defaults.string(forKey: "nexaBaseURL") ?? nexaBaseURL
         basicAuthUsername = defaults.string(forKey: "basicAuthUsername") ?? basicAuthUsername
         basicAuthPassword = defaults.string(forKey: "basicAuthPassword") ?? ""
+        returnUrl = defaults.string(forKey: "returnUrl") ?? ""
+    }
+
+    private func openReturnUrl() {
+        guard
+            !returnUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            var components = URLComponents(string: returnUrl)
+        else {
+            return
+        }
+
+        var items = components.queryItems ?? []
+        items.append(URLQueryItem(name: "roomScanStatus", value: "received"))
+        items.append(URLQueryItem(name: "roomScanProjectId", value: projectId))
+        if !reference.isEmpty {
+            items.append(URLQueryItem(name: "roomScanReference", value: reference))
+        }
+        components.queryItems = items
+
+        guard let url = components.url else {
+            return
+        }
+
+        UIApplication.shared.open(url)
     }
 }
 

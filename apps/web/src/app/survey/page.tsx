@@ -35,6 +35,8 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
 };
 
+const publicPilotBaseUrl = "https://nexa-pilot.onrender.com";
+
 type SurveyHeatLossDraft = {
   roomName: string;
   roomType: "Living Room" | "Bedroom" | "Bathroom" | "Kitchen" | "Hall" | "Office";
@@ -162,14 +164,17 @@ function calculateHeatLoss(draft: SurveyHeatLossDraft) {
 }
 
 function roomScanDeepLink(project: TakeoffProject) {
+  const baseUrl = typeof window !== "undefined"
+    && !["127.0.0.1", "localhost"].includes(window.location.hostname)
+    ? window.location.origin
+    : publicPilotBaseUrl;
   const params = new URLSearchParams({
+    baseUrl,
     projectId: project.id,
     reference: project.reference,
     projectName: project.name,
+    returnUrl: `${baseUrl}/survey`,
   });
-  if (typeof window !== "undefined") {
-    params.set("returnUrl", `${window.location.origin}/survey`);
-  }
   return `nexa-field://room-scan?${params.toString()}`;
 }
 
@@ -218,6 +223,24 @@ export default function SurveyPage() {
 
   useEffect(() => {
     void loadData();
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const returnedProjectId = params.get("roomScanProjectId");
+    const returnedReference = params.get("roomScanReference");
+    const scanStatus = params.get("roomScanStatus");
+    if (!scanStatus && !returnedProjectId) return;
+
+    if (returnedProjectId) {
+      setSelectedProjectId(returnedProjectId);
+    }
+    if (scanStatus === "received") {
+      setNotice(`LiDAR scan received${returnedReference ? ` for ${returnedReference}` : ""}. Review the scan evidence, then push the survey into the linked quote.`);
+      void loadData();
+    }
+    window.history.replaceState(null, "", window.location.pathname);
   }, []);
 
   useEffect(() => {

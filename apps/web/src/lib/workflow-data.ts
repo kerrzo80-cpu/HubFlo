@@ -53,6 +53,9 @@ export interface Quote {
   sentAt?: string;
   viewedAt?: string;
   respondedAt?: string;
+  simproQuoteId?: string;
+  simproStatus?: "Queued" | "Sent" | "Failed";
+  simproSentAt?: string;
 }
 
 export interface PurchaseRequest {
@@ -430,6 +433,9 @@ export function createQuote(payload: Omit<Quote, "id"> & { id?: string }): Quote
     sentAt: payload.sentAt,
     viewedAt: payload.viewedAt,
     respondedAt: payload.respondedAt,
+    simproQuoteId: payload.simproQuoteId,
+    simproStatus: payload.simproStatus,
+    simproSentAt: payload.simproSentAt,
     ref: payload.ref || determineNextQuoteRef(store.quotes),
   };
   store.quotes = [...store.quotes, created];

@@ -1113,6 +1113,26 @@ type HubDetailStatePayload = {
   jobVariationSections?: Record<string, JobVariationSection[]>;
   communications?: CommunicationRecord[];
   invoices?: Invoice[];
+  simproExports?: SimproExportRecord[];
+};
+
+type SimproExportRecord = {
+  id: string;
+  quoteId: string;
+  quoteRef: string;
+  createdAt: string;
+  actor: string;
+  status: "Queued" | "Sent" | "Failed";
+  mode: "manual" | "webhook";
+  simproQuoteId?: string;
+  error?: string;
+  payload?: {
+    totals?: {
+      cost?: number;
+      sell?: number;
+      profit?: number;
+    };
+  };
 };
 
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
@@ -4201,6 +4221,8 @@ export default function Dashboard() {
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
   const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
+  const [simproExports, setSimproExports] = useState<SimproExportRecord[]>([]);
+  const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
@@ -4376,6 +4398,11 @@ export default function Dashboard() {
   const selectedQuoteAudit = useMemo(
     () => (selectedQuote ? auditEvents.filter((event) => event.recordId === selectedQuote.id) : []),
     [auditEvents, selectedQuote],
+  );
+
+  const selectedQuoteSimproExports = useMemo(
+    () => (selectedQuote ? simproExports.filter((item) => item.quoteId === selectedQuote.id) : []),
+    [selectedQuote, simproExports],
   );
 
   const selectedJob = useMemo(
@@ -5127,6 +5154,7 @@ export default function Dashboard() {
           if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
           if (hubState.communications) setCommunicationRecords(hubState.communications);
           if (hubState.invoices) setInvoices(hubState.invoices);
+          if (hubState.simproExports) setSimproExports(hubState.simproExports);
           setHasLoadedHubDetailState(true);
         } else {
           hasOfflineFallback = true;
@@ -5242,6 +5270,7 @@ export default function Dashboard() {
         jobVariationSections,
         communications: communicationRecords,
         invoices,
+        simproExports,
       };
 
       fetch("/api/hub-state", {
@@ -5290,6 +5319,7 @@ export default function Dashboard() {
     jobDeliveryEvents,
     jobVariationSections,
     communicationRecords,
+    simproExports,
     hasHydratedLocalData,
     hasLoadedHubDetailState,
     requestHeaders,
@@ -7579,6 +7609,65 @@ export default function Dashboard() {
     const updated = (await response.json()) as Quote;
     setQuotes((current) => current.map((quote) => (quote.id === updated.id ? updated : quote)));
     return updated;
+  }
+
+  async function sendSelectedQuoteToSimpro() {
+    if (!selectedQuote) return;
+    setIsSendingQuoteToSimpro(true);
+    setSectionError(null);
+
+    try {
+      const response = await fetch(`/api/quotes/${selectedQuote.id}/simpro-push`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actor: activeEmployee?.name ?? "NeXa user",
+          costCentres: quoteCostCentres[selectedQuote.id] ?? [],
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        quote?: Quote;
+        exportRecord?: SimproExportRecord;
+        auditEvent?: AuditEvent;
+        error?: string;
+      } | null;
+
+      if (!result?.quote || !result.exportRecord) {
+        throw new Error(result?.error ?? "Unable to create Simpro handoff.");
+      }
+
+      const updatedQuote = result.quote;
+      const exportRecord = result.exportRecord;
+      const auditEvent = result.auditEvent;
+
+      setQuotes((current) => current.map((quote) => (quote.id === updatedQuote.id ? updatedQuote : quote)));
+      setSimproExports((current) => [
+        exportRecord,
+        ...current.filter((item) => item.id !== exportRecord.id),
+      ]);
+      if (auditEvent) {
+        setAuditEvents((current) => [
+          auditEvent,
+          ...current.filter((event) => event.id !== auditEvent.id),
+        ]);
+      }
+
+      if (exportRecord.status === "Sent") {
+        showNotice(`${selectedQuote.ref} sent to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`);
+      } else if (exportRecord.status === "Failed") {
+        const message = exportRecord.error ?? "Simpro bridge failed.";
+        setSectionError(message);
+        showNotice(message);
+      } else {
+        showNotice(`${selectedQuote.ref} Simpro handoff queued. Add the live Simpro bridge URL when ready.`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create Simpro handoff.";
+      setSectionError(message);
+      showNotice(message);
+    } finally {
+      setIsSendingQuoteToSimpro(false);
+    }
   }
 
   async function sendSelectedQuoteEmail() {
@@ -13082,14 +13171,35 @@ export default function Dashboard() {
                             <dt>Status</dt>
                             <dd>{selectedQuote.status}</dd>
                           </div>
+                          <div>
+                            <dt>Simpro</dt>
+                            <dd>{selectedQuote.simproStatus ?? "Not sent"}</dd>
+                          </div>
                         </dl>
                       </article>
                       <article className="client-info-card">
                         <span className="permission-heading">Commercial position</span>
                         <p>Build the quote from cost centres before it becomes a job. Jobs should inherit this structure rather than inventing costs after conversion.</p>
-                        <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
-                          Build quote costs
-                        </button>
+                        <div className="quote-action-stack">
+                          <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
+                            Build quote costs
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={sendSelectedQuoteToSimpro}
+                            disabled={isSendingQuoteToSimpro}
+                          >
+                            {isSendingQuoteToSimpro ? "Sending..." : "Send to Simpro"}
+                          </button>
+                          <small>
+                            {selectedQuote.simproStatus === "Sent"
+                              ? `Last sent${selectedQuote.simproQuoteId ? ` as ${selectedQuote.simproQuoteId}` : ""}.`
+                              : selectedQuote.simproStatus === "Queued"
+                                ? "Queued until the live Simpro bridge URL is configured."
+                                : "Creates a Simpro-ready handoff from this quote and its cost centres."}
+                          </small>
+                        </div>
                       </article>
                     </div>
 
@@ -13590,6 +13700,10 @@ export default function Dashboard() {
                         <span>Response</span>
                         <strong>{selectedQuote.status === "Accepted" || selectedQuote.status === "Declined" ? selectedQuote.status : "Waiting"}</strong>
                       </div>
+                      <div>
+                        <span>Simpro handoffs</span>
+                        <strong>{selectedQuoteSimproExports.length}</strong>
+                      </div>
                     </div>
                     <section className="communication-capture-panel">
                       <div>
@@ -13640,6 +13754,24 @@ export default function Dashboard() {
                     <div className="communication-thread">
                       {renderCommunicationThread(selectedQuoteCommunications)}
                     </div>
+                    {selectedQuoteSimproExports.length > 0 ? (
+                      <div className="quote-simpro-export-list">
+                        {selectedQuoteSimproExports.slice(0, 4).map((item) => (
+                          <article className={`quote-simpro-export ${item.status.toLowerCase()}`} key={item.id}>
+                            <span>{item.status}</span>
+                            <div>
+                              <strong>{item.quoteRef} Simpro handoff</strong>
+                              <small>
+                                {item.simproQuoteId ? `Simpro ${item.simproQuoteId}` : item.mode === "webhook" ? "Webhook bridge" : "Queued payload"}
+                                {" · "}
+                                {item.createdAt}
+                              </small>
+                              {item.error ? <small>{item.error}</small> : null}
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    ) : null}
                     <div className="quote-log-list">
                       {selectedQuoteAudit.length > 0 ? (
                         selectedQuoteAudit.map((event) => (

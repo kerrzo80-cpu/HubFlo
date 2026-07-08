@@ -892,6 +892,21 @@ kbd {
   margin: 0;
 }
 
+.quote-action-stack {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.quote-action-stack small {
+  color: var(--muted);
+  flex-basis: 100%;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .client-sites-list,
 .client-history-list {
   display: flex;
@@ -5336,7 +5351,7 @@ h1 {
 .quote-log-summary-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .quote-log-summary-grid div {
@@ -5360,6 +5375,51 @@ h1 {
 .quote-log-summary-grid strong {
   color: var(--ink);
   font-size: 18px;
+}
+
+.quote-simpro-export-list {
+  display: grid;
+  gap: 8px;
+}
+
+.quote-simpro-export {
+  align-items: flex-start;
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.quote-simpro-export > span {
+  background: #eef7f3;
+  border-radius: 999px;
+  color: #157457;
+  font-size: 10px;
+  font-weight: 900;
+  padding: 5px 8px;
+  text-transform: uppercase;
+}
+
+.quote-simpro-export.failed > span {
+  background: #fff0f0;
+  color: #b42318;
+}
+
+.quote-simpro-export.queued > span {
+  background: #fff8e8;
+  color: #9a6a00;
+}
+
+.quote-simpro-export strong,
+.quote-simpro-export small {
+  display: block;
+}
+
+.quote-simpro-export small {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .communication-capture-panel {
