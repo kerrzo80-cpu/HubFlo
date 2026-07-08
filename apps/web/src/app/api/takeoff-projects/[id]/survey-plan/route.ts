@@ -198,6 +198,12 @@ function latestSurveyScope(project: TakeoffProject) {
 
 function inferSurveyType(scope: string) {
   const lower = scope.toLowerCase();
+  const hasShowerScope = /shower|cubicle|enclosure|tray|screen|bi[- ]?fold|bifold/.test(lower);
+  const widerBathroomSignals =
+    /toilet|wc|basin|vanity|bath(?!room)|suite|sanitaryware|move\s+(?:the\s+)?(?:toilet|basin)|soil\s+route|full\s+bathroom|bathroom\s+(?:refurb|refurbishment|renovation)/.test(
+      lower,
+    );
+  if (hasShowerScope && !widerBathroomSignals) return "Shower cubicle works";
   if (/bathroom|toilet|basin|shower|cubicle|wc/.test(lower)) return "Bathroom refurbishment";
   if (/boiler|heating|radiator|cylinder|flue/.test(lower)) return "Heating / boiler works";
   if (/leak|repair|reactive|emergency|tap|valve/.test(lower)) return "Reactive plumbing repair";

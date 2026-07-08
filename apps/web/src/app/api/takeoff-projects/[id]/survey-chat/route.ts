@@ -106,6 +106,19 @@ function buildScopeLine(project: TakeoffProject, message: string) {
   return "Scope to confirm from survey notes";
 }
 
+function isShowerOnlyScope(text: string) {
+  const hasShowerScope = /shower|cubicle|enclosure|tray|screen|bi[- ]?fold|bifold/.test(text);
+  const explicitShowerOnly =
+    /shower\s+only|only\s+(?:the\s+)?shower|shower\s+cubicle|shower\s+enclosure/.test(text) ||
+    /no\s+(?:basin|toilet|wc)|not\s+(?:moving|pricing|supplying|including).*(?:basin|toilet|wc)/.test(text);
+  const widerBathroomSignals =
+    /toilet|wc|basin|vanity|bath(?!room)|suite|sanitaryware|move\s+(?:the\s+)?(?:toilet|basin)|soil\s+route|full\s+bathroom|bathroom\s+(?:refurb|refurbishment|renovation)/.test(
+      text,
+    );
+
+  return hasShowerScope && (explicitShowerOnly || !widerBathroomSignals);
+}
+
 function estimateProfileFor(project: TakeoffProject, message: string): PilotEstimateProfile {
   const lower = `${project.name} ${project.description} ${message}`.toLowerCase();
   const profile: PilotEstimateProfile = {
@@ -139,7 +152,43 @@ function estimateProfileFor(project: TakeoffProject, message: string): PilotEsti
     ],
   };
 
-  if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(lower)) {
+  if (isShowerOnlyScope(lower)) {
+    profile.label = "Shower cubicle works";
+    profile.costCentres = [
+      "Strip out existing shower cubicle",
+      "Shower feed and waste alterations",
+      "Shower tray, cubicle or screen where included",
+      "Local making good, seal and test",
+    ];
+    profile.materials = [
+      "Shower tray/cubicle/screen and shower waste if supplied by us",
+      "Isolation valves, caps, pipework and waste fittings local to the shower area",
+      "Sealants, fixings and local waterproofing/making-good sundries",
+      "Wall panels, tiling, flooring and electrics only if expressly included",
+    ];
+    profile.labour = [
+      "Plumber strip-out/isolation time for the existing shower only",
+      "Plumber first fix for shower feed and waste alterations",
+      "Plumber second fix, seal, test and handover",
+      "Joinery/tiling/electrical labour only where included",
+    ];
+    profile.assumptions = [
+      "No basin, WC, toilet or wider sanitaryware works included unless specifically added",
+      "Shower tray/cubicle/screen may need supplier pricing before issue",
+      "Wall/floor condition behind the existing cubicle is provisional until strip-out",
+      "Decorating, flooring, tiling and wall panels remain excluded unless clearly included",
+    ];
+    profile.questions = [
+      "Are we supplying the shower tray/cubicle/screen and waste, or is the customer supplying?",
+      "Are wall panels, tiling, flooring, electrics and decorating included or excluded?",
+      "Is the shower waste staying in the same location or moving?",
+    ];
+    profile.supplierItems = [
+      "Shower tray and cubicle/screen",
+      "Shower waste/trap and local fittings",
+      "Shower valve/set only if included",
+    ];
+  } else if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(lower)) {
     profile.label = "Bathroom refurbishment";
     profile.costCentres = [
       "Strip out and isolate existing services",

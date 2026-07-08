@@ -1351,8 +1351,23 @@ function estimateScopeText(project: TakeoffProject) {
   return userMessages.at(-1) || project.description || project.name;
 }
 
+function isShowerOnlyScope(focusedText: string, fullText: string) {
+  const combined = `${focusedText} ${fullText}`;
+  const hasShowerScope = /shower|cubicle|enclosure|tray|screen|bi[- ]?fold|bifold/.test(combined);
+  const explicitShowerOnly =
+    /shower\s+only|only\s+(?:the\s+)?shower|shower\s+cubicle|shower\s+enclosure/.test(combined) ||
+    /no\s+(?:basin|toilet|wc)|not\s+(?:moving|pricing|supplying|including).*(?:basin|toilet|wc)/.test(combined);
+  const widerBathroomSignals =
+    /toilet|wc|basin|vanity|bath(?!room)|suite|sanitaryware|move\s+(?:the\s+)?(?:toilet|basin)|soil\s+route|full\s+bathroom|bathroom\s+(?:refurb|refurbishment|renovation)/.test(
+      combined,
+    );
+
+  return hasShowerScope && (explicitShowerOnly || !widerBathroomSignals);
+}
+
 function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtractionDraft {
   const scope = estimateScopeText(project);
+  const focusedText = scope.toLowerCase();
   const text = `${project.name} ${project.description} ${surveyChatText(project)}`.toLowerCase();
   const generatedMaterials: TakeoffMaterialAllowance[] = [];
   const generatedLabour: TakeoffLabourAllowance[] = [];
@@ -1413,7 +1428,27 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
     });
   };
 
-  if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(text)) {
+  if (isShowerOnlyScope(focusedText, text)) {
+    addMaterial("shower-strip-waste", "Strip out works", "Remove and dispose existing shower enclosure/tray allowance", 1, "allowance", 120, 25);
+    addMaterial("shower-isolation", "Strip out works", "Isolation valves, caps and shower strip-out sundries", 1, "allowance", 45, 30);
+    addLabour("shower-strip-out", "Strip out works", "Plumber / labourer strip out and isolate", 5, "Remove existing shower cubicle/tray, isolate services and prepare the work area.");
+
+    addMaterial("shower-first-fix-pipe", "Shower pipework and waste", "Hot/cold feed and shower waste alteration allowance", 1, "allowance", 140, 30, true);
+    addLabour("shower-first-fix", "Shower pipework and waste", "Plumber first fix", 8, "Adjust shower feeds and waste route only; no basin, WC or toilet works included.");
+
+    addMaterial("shower-cubicle", "Shower cubicle", "Shower tray/cubicle/screen and shower waste if supplied by us", 1, "supplier quote", 0, 30, true);
+    addMaterial("shower-sealants", "Shower cubicle", "Sealants, fixings, traps/waste sundries and local waterproofing allowance", 1, "allowance", 90, 30);
+    addLabour("shower-second-fix", "Shower cubicle", "Plumber second fix and test", 8, "Fit shower tray/cubicle/screen, connect waste/feed, seal and test.");
+
+    addMaterial("shower-making-good", "Making good and handover", "Local making-good sundries around shower cubicle", 1, "allowance", 80, 30);
+    addLabour("shower-making-good", "Making good and handover", "Making good / handover allowance", 4, "Local making good, silicone, test and handover.");
+
+    riskFlags.add("Confirm whether shower tray/cubicle/screen are supplied by us or by the customer.");
+    riskFlags.add("Wall/floor condition behind the existing shower cubicle is provisional until strip-out.");
+    questions.add("Are we supplying the shower tray/cubicle/screen and waste, or is the customer supplying?");
+    questions.add("Are wall panels, tiling, flooring, electrics and decorating excluded unless specifically added?");
+    questions.add("Is the shower waste staying in the same location or moving?");
+  } else if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(text)) {
     addMaterial("bathroom-strip-waste", "Strip out works", "Skip / waste disposal allowance", 1, "allowance", 180, 25);
     addMaterial("bathroom-isolation", "Strip out works", "Isolation valves, caps and strip-out sundries", 1, "allowance", 45, 30);
     addLabour("bathroom-strip-out", "Strip out works", "Plumber / labourer strip out and isolate", 8, "Remove existing suite, isolate services and clear working area.");

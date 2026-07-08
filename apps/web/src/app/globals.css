@@ -17201,3 +17201,191 @@ body {
   border-color: rgba(88, 172, 213, 0.54) !important;
   color: #18384b !important;
 }
+
+/* Unified EWG blue theme for Core, Survey and Takeoff. */
+:root {
+  --ewg-blue: #58acd5;
+  --ewg-blue-600: #2f9cca;
+  --ewg-blue-700: #247fa9;
+  --ewg-blue-900: #124f70;
+  --ewg-blue-soft: #e8f7fd;
+  --ewg-blue-wash: #f3fbfe;
+}
+
+.takeoff-app,
+.survey-app {
+  background:
+    radial-gradient(circle at 92% -12%, rgba(88, 172, 213, 0.2), transparent 28rem),
+    linear-gradient(180deg, #ffffff 0%, var(--ewg-blue-wash) 100%) !important;
+  color: var(--ink) !important;
+}
+
+.takeoff-header {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0)),
+    linear-gradient(135deg, var(--ewg-blue) 0%, var(--ewg-blue-600) 100%) !important;
+  border-bottom: 1px solid rgba(36, 127, 169, 0.24) !important;
+  box-shadow: 0 10px 28px rgba(40, 126, 168, 0.16) !important;
+  color: #fff !important;
+}
+
+.takeoff-brand span {
+  border-left-color: rgba(255, 255, 255, 0.45) !important;
+  color: #fff !important;
+}
+
+.takeoff-ghost-button {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border-color: rgba(255, 255, 255, 0.72) !important;
+  color: var(--ewg-blue-900) !important;
+}
+
+.takeoff-ghost-button:hover,
+.takeoff-ghost-button:focus-visible {
+  background: #fff !important;
+  border-color: #fff !important;
+  color: #123044 !important;
+}
+
+.takeoff-primary-button,
+.takeoff-sidebar-title .takeoff-create-project-button:hover,
+.takeoff-sidebar-title .takeoff-create-project-button:focus-visible {
+  background: linear-gradient(135deg, var(--ewg-blue) 0%, var(--ewg-blue-700) 100%) !important;
+  border-color: rgba(36, 127, 169, 0.62) !important;
+  box-shadow: 0 12px 24px rgba(40, 126, 168, 0.16) !important;
+  color: #fff !important;
+}
+
+.takeoff-primary-button.strong {
+  background: linear-gradient(135deg, #4dbd77 0%, #278459 100%) !important;
+  border-color: rgba(39, 132, 89, 0.48) !important;
+}
+
+.takeoff-sidebar,
+.survey-sidebar,
+.takeoff-panel,
+.takeoff-project-hero,
+.survey-hero,
+.takeoff-project-button,
+.takeoff-delete-project-button,
+.takeoff-create-panel,
+.takeoff-document-list article,
+.takeoff-lidar-card,
+.takeoff-lidar-list article,
+.takeoff-extraction-strip,
+.takeoff-empty,
+.takeoff-ai-status,
+.survey-pack-card,
+.survey-chat-panel,
+.survey-tool-panel {
+  border-color: #d8e7ef !important;
+  border-radius: 18px !important;
+  box-shadow: 0 12px 30px rgba(40, 126, 168, 0.08) !important;
+}
+
+.takeoff-project-button,
+.takeoff-create-panel,
+.takeoff-document-list article,
+.takeoff-lidar-card,
+.takeoff-empty {
+  background: #ffffff !important;
+}
+
+.takeoff-project-button:hover,
+.takeoff-project-button:focus-visible,
+.takeoff-project-button.active {
+  background: var(--ewg-blue-soft) !important;
+  border-color: rgba(88, 172, 213, 0.58) !important;
+  color: #18384b !important;
+}
+
+.takeoff-project-button strong,
+.takeoff-kicker span,
+.takeoff-panel-title svg,
+.takeoff-lidar-card > svg,
+.takeoff-extraction-strip,
+.survey-hero .takeoff-quote-link svg {
+  color: var(--ewg-blue-700) !important;
+}
+
+.takeoff-app input,
+.takeoff-app select,
+.takeoff-app textarea {
+  border-color: #cfe4ee !important;
+  border-radius: 12px !important;
+}
+
+.takeoff-app input:focus,
+.takeoff-app select:focus,
+.takeoff-app textarea:focus {
+  border-color: var(--ewg-blue) !important;
+  box-shadow: 0 0 0 3px rgba(88, 172, 213, 0.18) !important;
+}
+
+.takeoff-tabs {
+  background: rgba(255, 255, 255, 0.76) !important;
+  border-radius: 18px !important;
+}
+
+.takeoff-tabs button {
+  border-radius: 14px !important;
+  color: #315b70 !important;
+}
+
+.takeoff-tabs button:hover,
+.takeoff-tabs button.active {
+  background: var(--ewg-blue-soft) !important;
+  border-color: rgba(88, 172, 213, 0.48) !important;
+  color: #18384b !important;
+}
+
+.survey-hero {
+  align-items: flex-start !important;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(88, 172, 213, 0.18), transparent 18rem),
+    #ffffff !important;
+  border-color: #d8e7ef !important;
+  color: var(--ink) !important;
+}
+
+.survey-hero h1,
+.survey-hero > div:first-child > strong {
+  color: #18384b !important;
+}
+
+.survey-hero p {
+  color: #657783 !important;
+}
+
+.survey-hero .takeoff-kicker b {
+  background: var(--ewg-blue-soft) !important;
+  border-color: rgba(88, 172, 213, 0.46) !important;
+  color: var(--ewg-blue-900) !important;
+}
+
+.survey-hero .takeoff-quote-link {
+  background: #fff !important;
+  border-color: #cfe4ee !important;
+  color: #18384b !important;
+}
+
+.survey-prompt-chips button {
+  background: #fff !important;
+  border-color: #cfe4ee !important;
+  color: var(--ewg-blue-900) !important;
+}
+
+.survey-prompt-chips button:hover,
+.survey-prompt-chips button:focus-visible {
+  background: var(--ewg-blue-soft) !important;
+  border-color: rgba(88, 172, 213, 0.52) !important;
+  color: #18384b !important;
+}
+
+.setup-rate-row input {
+  min-width: 0;
+}
+
+.setup-rate-row .secondary-button {
+  color: #24485d !important;
+}

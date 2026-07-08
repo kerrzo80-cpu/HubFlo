@@ -4015,7 +4015,7 @@ function normalizeLabourRateSetting(rate: Partial<LabourRateSetting>, fallback: 
 
   return {
     id: rate.id || fallback.id,
-    name: rate.name || fallback.name,
+    name: rate.name ?? fallback.name,
     costRate,
     markupPercent,
     sellRate,
@@ -4385,6 +4385,7 @@ export default function Dashboard() {
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastLocalSetupEditAt = useRef(0);
 
   const activeEmployee = useMemo(
     () => employees.find((employee) => employee.id === activeEmployeeId) ?? employees[0],
@@ -5274,6 +5275,7 @@ export default function Dashboard() {
 
         if (hubStateResponse.ok) {
           const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+          const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < 5000;
           if (hubState.employees?.length) {
             const nextEmployees = normalizeEmployeeCards(hubState.employees);
             setEmployees(nextEmployees);
@@ -5287,12 +5289,14 @@ export default function Dashboard() {
                 : nextEmployees[0]?.id ?? "",
             );
           }
-          if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
-          if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
-          if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
-          if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
-          if (hubState.financeSettings) setFinanceSettings(normalizeFinanceSettings(hubState.financeSettings));
-          if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
+          if (!hasRecentLocalSetupEdit) {
+            if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
+            if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
+            if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
+            if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
+            if (hubState.financeSettings) setFinanceSettings(normalizeFinanceSettings(hubState.financeSettings));
+            if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
+          }
           const nextLegacyEngineerFlow = hubState.engineerFlowTemplate
             ? normalizeEngineerFlowTemplate(hubState.engineerFlowTemplate)
             : engineerFlowTemplate;
@@ -5475,11 +5479,20 @@ export default function Dashboard() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         signal: controller.signal,
-      }).catch(() => {
-        if (!controller.signal.aborted) {
-          setSectionError("Could not save shared hub detail state, so local fallback is being used.");
-        }
-      });
+      })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Hub state save failed with ${response.status}`);
+          }
+          setSectionError((current) =>
+            current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
+          );
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setSectionError("Could not save shared hub detail state, so local fallback is being used.");
+          }
+        });
     }, 700);
 
     return () => {
@@ -6454,23 +6467,31 @@ export default function Dashboard() {
     noticeClearTimeout.current = setTimeout(() => setSectionNotice(null), 4200);
   }
 
+  function markSetupEdited() {
+    lastLocalSetupEditAt.current = Date.now();
+  }
+
   function recordDocumentFolders(recordType: RecordDocumentScope) {
     return documentFolderTemplates.filter((folder) => folder.recordTypes.includes(recordType));
   }
 
   function updateBusinessSettings(patch: Partial<BusinessSettings>) {
+    markSetupEdited();
     setBusinessSettings((current) => ({ ...current, ...patch }));
   }
 
   function updateWorkflowRules(patch: Partial<WorkflowRulesSettings>) {
+    markSetupEdited();
     setWorkflowRules((current) => ({ ...current, ...patch }));
   }
 
   function updateFinanceSettings(patch: Partial<FinanceSettings>) {
-    setFinanceSettings((current) => normalizeFinanceSettings({ ...current, ...patch }));
+    markSetupEdited();
+    setFinanceSettings((current) => ({ ...current, ...patch }));
   }
 
   function updateLabourRateSetting(rateId: string, patch: Partial<LabourRateSetting>) {
+    markSetupEdited();
     setFinanceSettings((current) => {
       const normalized = normalizeFinanceSettings(current);
       const labourRates = normalized.labourRates.map((rate) => {
@@ -6505,6 +6526,7 @@ export default function Dashboard() {
   }
 
   function addLabourRateSetting() {
+    markSetupEdited();
     const fallbackMarkup = numberFromSetting(normalizedFinanceSettings.defaultLabourMarkupPercent, 30);
     const costRate = 40;
     const labourRate: LabourRateSetting = {
@@ -6523,6 +6545,7 @@ export default function Dashboard() {
   }
 
   function removeLabourRateSetting(rateId: string) {
+    markSetupEdited();
     setFinanceSettings((current) => {
       const normalized = normalizeFinanceSettings(current);
       if (normalized.labourRates.length <= 1) return normalized;
