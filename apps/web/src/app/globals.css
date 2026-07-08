@@ -5997,6 +5997,7 @@ h1 {
 .setup-form-grid textarea,
 .setup-folder-row input,
 .setup-folder-row select,
+.setup-rate-row input,
 .cost-centre-type-card input,
 .cost-centre-type-card select,
 .setup-template-card input,
@@ -6035,6 +6036,41 @@ h1 {
 .setup-form-grid textarea {
   min-height: 92px;
   resize: vertical;
+}
+
+.setup-rate-table {
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.setup-rate-row {
+  align-items: center;
+  border-top: 1px solid var(--line-soft);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1.5fr) minmax(110px, 0.7fr) minmax(110px, 0.7fr) minmax(110px, 0.7fr) 96px;
+  min-height: 56px;
+  padding: 9px 12px;
+}
+
+.setup-rate-row:first-child {
+  border-top: 0;
+}
+
+.setup-rate-row.table-head {
+  background: #f5f8fa;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  min-height: 34px;
+  text-transform: uppercase;
+}
+
+.setup-rate-row .secondary-button {
+  min-height: 36px;
+  padding: 0 10px;
 }
 
 .setup-preview-card,

@@ -383,6 +383,7 @@ type SetupCategory =
   | "cost-centres"
   | "engineer-checklists"
   | "workflow-rules"
+  | "rates"
   | "communications"
   | "finance";
 
@@ -936,6 +937,19 @@ type FinanceSettings = {
   accountName: string;
   sortCode: string;
   accountNumber: string;
+  defaultMaterialMarkupPercent: string;
+  defaultPlantMarkupPercent: string;
+  defaultSubcontractorMarkupPercent: string;
+  defaultLabourMarkupPercent: string;
+  labourRates: LabourRateSetting[];
+};
+
+type LabourRateSetting = {
+  id: string;
+  name: string;
+  costRate: string;
+  markupPercent: string;
+  sellRate: string;
 };
 
 type QuoteEmailDraft = {
@@ -1383,6 +1397,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
+  { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
 ];
@@ -1488,6 +1503,23 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
     Approvals: {
       summary: "Configure approval gates for POs, variations, invoices and commercial reviews.",
       focus: ["PO approval threshold", "Variation approval routing", "Invoice review gates"],
+      status: "Editable now",
+    },
+  },
+  rates: {
+    "Labour rates": {
+      summary: "Set the standard labour cost, markup and sell rates used when new quote or job labour lines are added.",
+      focus: ["Engineer labour rates", "Survey and review rates", "Cost to us versus client charge"],
+      status: "Editable now",
+    },
+    "Default markups": {
+      summary: "Set fallback markup percentages for one-off materials, plant, subcontractors and returned supplier prices.",
+      focus: ["Material markups", "Plant markups", "Subcontractor markups"],
+      status: "Editable now",
+    },
+    "Supplier pricing": {
+      summary: "Control the markup applied when supplier quotes are uploaded and matched back to quote or job cost centres.",
+      focus: ["Returned supplier PDFs", "Request line pricing", "Cost centre supplier rules"],
       status: "Editable now",
     },
   },
@@ -2253,6 +2285,21 @@ const defaultWorkflowRules: WorkflowRulesSettings = {
   autoCreatePendingJobOnAcceptance: true,
   requireCommercialReviewBeforeInvoice: true,
 };
+
+const defaultLabourRateSettings: LabourRateSetting[] = [
+  { id: "labour-engineer", name: "Engineer labour", costRate: "40", markupPercent: "30", sellRate: "52" },
+  { id: "labour-apprentice", name: "Apprentice labour", costRate: "22", markupPercent: "30", sellRate: "28.6" },
+  { id: "labour-manager", name: "Survey / manager review", costRate: "45", markupPercent: "30", sellRate: "58.5" },
+];
+
+const fallbackLabourRateSetting: LabourRateSetting = {
+  id: "labour-engineer",
+  name: "Engineer labour",
+  costRate: "40",
+  markupPercent: "30",
+  sellRate: "52",
+};
+
 const defaultFinanceSettings: FinanceSettings = {
   vatRate: "20",
   paymentTermsDays: "14",
@@ -2262,6 +2309,11 @@ const defaultFinanceSettings: FinanceSettings = {
   accountName: "Errol Watson Group Ltd",
   sortCode: "00-00-00",
   accountNumber: "00000000",
+  defaultMaterialMarkupPercent: "30",
+  defaultPlantMarkupPercent: "25",
+  defaultSubcontractorMarkupPercent: "20",
+  defaultLabourMarkupPercent: "30",
+  labourRates: defaultLabourRateSettings,
 };
 const surveyorAvailability: Record<string, EmployeeAvailability> = {
   "Brian Kerr": {
@@ -3051,6 +3103,7 @@ function quoteLineMarkupPercent(line: QuoteCostLine) {
 }
 
 function quoteLineCatalogType(line: QuoteCostLine) {
+  if (line.catalogItemId.startsWith("labour-")) return "Labour";
   return quoteCatalog.find((item) => item.id === line.catalogItemId)?.type ?? "Material";
 }
 
@@ -3918,6 +3971,81 @@ function lineSellFromMarkup(cost: number, markupPercent: number) {
   return cost * (1 + markupPercent / 100);
 }
 
+function roundCurrencyValue(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function numberFromSetting(value: string | number | undefined, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function markupPercentFromRates(costRate: number, sellRate: number, fallback = 0) {
+  if (costRate <= 0) return fallback;
+  return roundCurrencyValue(((sellRate - costRate) / costRate) * 100);
+}
+
+function normalizeLabourRateSetting(rate: Partial<LabourRateSetting>, fallback: LabourRateSetting): LabourRateSetting {
+  const costRate = rate.costRate ?? fallback.costRate;
+  const markupPercent = rate.markupPercent ?? fallback.markupPercent;
+  const sellRate =
+    rate.sellRate ??
+    String(roundCurrencyValue(lineSellFromMarkup(numberFromSetting(costRate), numberFromSetting(markupPercent))));
+
+  return {
+    id: rate.id || fallback.id,
+    name: rate.name || fallback.name,
+    costRate,
+    markupPercent,
+    sellRate,
+  };
+}
+
+function normalizeFinanceSettings(settings?: Partial<FinanceSettings>): FinanceSettings {
+  const incomingRates = Array.isArray(settings?.labourRates) ? settings.labourRates : [];
+  const defaultRateIds = new Set(defaultLabourRateSettings.map((rate) => rate.id));
+  const defaultRates = defaultLabourRateSettings.map((defaultRate) =>
+    normalizeLabourRateSetting(incomingRates.find((rate) => rate.id === defaultRate.id) ?? {}, defaultRate),
+  );
+  const extraRates = incomingRates
+    .filter((rate) => rate.id && !defaultRateIds.has(rate.id))
+    .map((rate) => normalizeLabourRateSetting(rate, fallbackLabourRateSetting));
+
+  return {
+    ...defaultFinanceSettings,
+    ...settings,
+    labourRates: [...defaultRates, ...extraRates],
+  };
+}
+
+function defaultMarkupForCatalogType(type: CatalogItem["type"], settings: FinanceSettings) {
+  if (type === "Labour") return numberFromSetting(settings.defaultLabourMarkupPercent, 30);
+  if (type === "Plant") return numberFromSetting(settings.defaultPlantMarkupPercent, 25);
+  if (type === "Subcontractor") return numberFromSetting(settings.defaultSubcontractorMarkupPercent, 20);
+  return numberFromSetting(settings.defaultMaterialMarkupPercent, 30);
+}
+
+function labourRateSettingToCatalogItem(rate: LabourRateSetting): CatalogItem {
+  const costRate = numberFromSetting(rate.costRate, 0);
+  const sellRate = numberFromSetting(rate.sellRate, lineSellFromMarkup(costRate, numberFromSetting(rate.markupPercent, 30)));
+
+  return {
+    id: rate.id,
+    type: "Labour",
+    name: rate.name || "Labour rate",
+    unit: "hour",
+    costRate,
+    sellRate: roundCurrencyValue(sellRate),
+    category: "Labour",
+  };
+}
+
+function catalogMarkupPercent(item: CatalogItem, fallbackMarkup: number) {
+  return item.costRate > 0 && item.sellRate > 0
+    ? markupPercentFromRates(item.costRate, item.sellRate, fallbackMarkup)
+    : fallbackMarkup;
+}
+
 function weekdayFromDate(date: string): Weekday {
   const day = new Date(`${date}T00:00:00`).getDay();
   return weekDays[(day + 6) % 7] ?? "Mon";
@@ -4074,36 +4202,36 @@ function makeEstimateCostCentre(jobId: string, index: number, name?: string, tem
   };
 }
 
-function makeEstimateMaterialLine(item: CatalogItem): EstimateMaterialLine {
+function makeEstimateMaterialLine(item: CatalogItem, markupPercent = 30): EstimateMaterialLine {
   return {
     id: `material-${Date.now()}-${Math.round(Math.random() * 1000)}`,
     catalogItemId: item.id,
     description: item.name,
     quantity: 1,
     unitCost: item.costRate,
-    markupPercent: 30,
+    markupPercent,
   };
 }
 
-function makeOneOffEstimateMaterialLine(description = "One-off material"): EstimateMaterialLine {
+function makeOneOffEstimateMaterialLine(description = "One-off material", markupPercent = 30): EstimateMaterialLine {
   return {
     id: `one-off-material-${Date.now()}-${Math.round(Math.random() * 1000)}`,
     catalogItemId: "one-off-material",
     description,
     quantity: 1,
     unitCost: 0,
-    markupPercent: 30,
+    markupPercent,
     supplierRequired: true,
   };
 }
 
-function makeEstimateLabourLine(role = "Plumber labour"): EstimateLabourLine {
+function makeEstimateLabourLine(role = "Plumber labour", costRate = 40, markupPercent = 30): EstimateLabourLine {
   return {
     id: `labour-${Date.now()}-${Math.round(Math.random() * 1000)}`,
     role,
     hours: 1,
-    costRate: 40,
-    markupPercent: 30,
+    costRate,
+    markupPercent,
   };
 }
 
@@ -4138,7 +4266,7 @@ export default function Dashboard() {
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
   const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
   const [workflowRules, setWorkflowRules] = useState<WorkflowRulesSettings>(defaultWorkflowRules);
-  const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(defaultFinanceSettings);
+  const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() => normalizeFinanceSettings(defaultFinanceSettings));
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
   const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
@@ -4253,9 +4381,17 @@ export default function Dashboard() {
     [activeClientId, clientSites],
   );
 
+  const normalizedFinanceSettings = useMemo(() => normalizeFinanceSettings(financeSettings), [financeSettings]);
+  const defaultMaterialMarkupPercent = defaultMarkupForCatalogType("Material", normalizedFinanceSettings);
+  const defaultLabourMarkupPercent = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
+
   const availableQuoteCatalog = useMemo(
-    () => [...quoteCatalog, ...customQuoteCatalog],
-    [customQuoteCatalog],
+    () => [
+      ...normalizedFinanceSettings.labourRates.map(labourRateSettingToCatalogItem),
+      ...quoteCatalog.filter((item) => item.type !== "Labour"),
+      ...customQuoteCatalog,
+    ],
+    [customQuoteCatalog, normalizedFinanceSettings],
   );
 
   const engineerFlowLibrary = useMemo(
@@ -5016,7 +5152,7 @@ export default function Dashboard() {
       safeLoadStoredJson(STORAGE_KEYS.activeFormTemplateId, storedFormTemplates[0]?.id ?? defaultFormTemplates[0]?.id ?? ""),
     );
     setWorkflowRules(safeLoadStoredJson(STORAGE_KEYS.workflowRules, defaultWorkflowRules));
-    setFinanceSettings(safeLoadStoredJson(STORAGE_KEYS.financeSettings, defaultFinanceSettings));
+    setFinanceSettings(normalizeFinanceSettings(safeLoadStoredJson(STORAGE_KEYS.financeSettings, defaultFinanceSettings)));
     setDocumentFolderTemplates(safeLoadStoredJson(STORAGE_KEYS.documentFolders, defaultDocumentFolderTemplates));
     const storedLegacyEngineerFlow = normalizeEngineerFlowTemplate(safeLoadStoredJson(STORAGE_KEYS.engineerFlow, defaultBoilerFlowTemplate));
     const storedEngineerFlows = normalizeEngineerFlowTemplates(
@@ -5125,7 +5261,7 @@ export default function Dashboard() {
           if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
           if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
           if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
-          if (hubState.financeSettings) setFinanceSettings({ ...defaultFinanceSettings, ...hubState.financeSettings });
+          if (hubState.financeSettings) setFinanceSettings(normalizeFinanceSettings(hubState.financeSettings));
           if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
           const nextLegacyEngineerFlow = hubState.engineerFlowTemplate
             ? normalizeEngineerFlowTemplate(hubState.engineerFlowTemplate)
@@ -6270,7 +6406,65 @@ export default function Dashboard() {
   }
 
   function updateFinanceSettings(patch: Partial<FinanceSettings>) {
-    setFinanceSettings((current) => ({ ...current, ...patch }));
+    setFinanceSettings((current) => normalizeFinanceSettings({ ...current, ...patch }));
+  }
+
+  function updateLabourRateSetting(rateId: string, patch: Partial<LabourRateSetting>) {
+    setFinanceSettings((current) => {
+      const normalized = normalizeFinanceSettings(current);
+      const labourRates = normalized.labourRates.map((rate) => {
+        if (rate.id !== rateId) return rate;
+
+        const nextRate = { ...rate, ...patch };
+        const costRate = numberFromSetting(nextRate.costRate);
+
+        if (Object.prototype.hasOwnProperty.call(patch, "sellRate")) {
+          const sellRate = numberFromSetting(nextRate.sellRate);
+          nextRate.markupPercent = String(markupPercentFromRates(costRate, sellRate, numberFromSetting(nextRate.markupPercent)));
+          return nextRate;
+        }
+
+        if (
+          Object.prototype.hasOwnProperty.call(patch, "costRate") ||
+          Object.prototype.hasOwnProperty.call(patch, "markupPercent")
+        ) {
+          nextRate.sellRate = String(roundCurrencyValue(lineSellFromMarkup(costRate, numberFromSetting(nextRate.markupPercent))));
+        }
+
+        return nextRate;
+      });
+
+      return normalizeFinanceSettings({ ...normalized, labourRates });
+    });
+  }
+
+  function addLabourRateSetting() {
+    const fallbackMarkup = numberFromSetting(normalizedFinanceSettings.defaultLabourMarkupPercent, 30);
+    const costRate = 40;
+    const labourRate: LabourRateSetting = {
+      id: `labour-custom-${Date.now()}`,
+      name: "New labour rate",
+      costRate: String(costRate),
+      markupPercent: String(fallbackMarkup),
+      sellRate: String(roundCurrencyValue(lineSellFromMarkup(costRate, fallbackMarkup))),
+    };
+
+    setFinanceSettings((current) => {
+      const normalized = normalizeFinanceSettings(current);
+      return normalizeFinanceSettings({ ...normalized, labourRates: [...normalized.labourRates, labourRate] });
+    });
+    showNotice("New labour rate added. Rename it and set the cost/markup.");
+  }
+
+  function removeLabourRateSetting(rateId: string) {
+    setFinanceSettings((current) => {
+      const normalized = normalizeFinanceSettings(current);
+      if (normalized.labourRates.length <= 1) return normalized;
+      return normalizeFinanceSettings({
+        ...normalized,
+        labourRates: normalized.labourRates.filter((rate) => rate.id !== rateId),
+      });
+    });
   }
 
   function updateFormTemplate(templateId: string, patch: Partial<FormTemplate>) {
@@ -8781,11 +8975,12 @@ export default function Dashboard() {
   function addEstimateMaterialLine(centreId: string, catalogItemId: string) {
     const item = availableQuoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId);
     if (!item) return;
+    const markupPercent = catalogMarkupPercent(item, defaultMarkupForCatalogType(item.type, normalizedFinanceSettings));
 
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
         centre.id === centreId
-          ? { ...centre, materials: [...centre.materials, makeEstimateMaterialLine(item)] }
+          ? { ...centre, materials: [...centre.materials, makeEstimateMaterialLine(item, markupPercent)] }
           : centre,
       ),
     );
@@ -8795,7 +8990,7 @@ export default function Dashboard() {
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
         centre.id === centreId
-          ? { ...centre, materials: [...centre.materials, makeOneOffEstimateMaterialLine()] }
+          ? { ...centre, materials: [...centre.materials, makeOneOffEstimateMaterialLine("One-off material", defaultMaterialMarkupPercent)] }
           : centre,
       ),
     );
@@ -8827,7 +9022,7 @@ export default function Dashboard() {
         subject: "",
         message: "",
         fileName: "",
-        markupPercent: 30,
+        markupPercent: defaultMaterialMarkupPercent,
         lines: [],
       };
 
@@ -8883,7 +9078,7 @@ export default function Dashboard() {
         subject: current[centre.id]?.subject || `${selectedJob?.ref ?? "Job"} supplier quote request - ${centre.name}`,
         message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
         fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
-        markupPercent: current[centre.id]?.markupPercent ?? 30,
+        markupPercent: current[centre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
         lines,
         sentAt: new Date().toISOString(),
       },
@@ -8916,7 +9111,7 @@ export default function Dashboard() {
     }
 
     const existing = jobSupplierRequestDrafts[centre.id];
-    const markupPercent = existing?.markupPercent ?? 30;
+    const markupPercent = existing?.markupPercent ?? defaultMaterialMarkupPercent;
     const baseLines = existing?.lines.length ? existing.lines : centre.materials.filter((line) => line.supplierRequired);
     const pricedLines = baseLines.map((line, index) => {
       const unitCost = line.unitCost || 75 + (index * 34);
@@ -9062,11 +9257,19 @@ export default function Dashboard() {
     );
   }
 
-  function addEstimateLabourLine(centreId: string) {
+  function addEstimateLabourLine(centreId: string, catalogItemId = normalizedFinanceSettings.labourRates[0]?.id ?? "labour-engineer") {
+    const labourItem =
+      availableQuoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId && catalogItem.type === "Labour") ??
+      labourRateSettingToCatalogItem(normalizedFinanceSettings.labourRates[0] ?? fallbackLabourRateSetting);
+    const markupPercent = catalogMarkupPercent(
+      labourItem,
+      numberFromSetting(normalizedFinanceSettings.defaultLabourMarkupPercent, 30),
+    );
+
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
         centre.id === centreId
-          ? { ...centre, labour: [...centre.labour, makeEstimateLabourLine()] }
+          ? { ...centre, labour: [...centre.labour, makeEstimateLabourLine(labourItem.name, labourItem.costRate, markupPercent)] }
           : centre,
       ),
     );
@@ -9329,7 +9532,7 @@ export default function Dashboard() {
         subject: "",
         message: "",
         fileName: "",
-        markupPercent: 30,
+        markupPercent: defaultMaterialMarkupPercent,
         lines: [],
       };
 
@@ -9467,7 +9670,7 @@ export default function Dashboard() {
         subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} radiator request - ${centre.name}`,
         message: current[centre.id]?.message || `Please price the attached radiator schedule for ${centre.name}.`,
         fileName: `Radiator request - ${centre.name}`,
-        markupPercent: 30,
+        markupPercent: defaultMaterialMarkupPercent,
         lines,
       },
     }));
@@ -9555,7 +9758,7 @@ export default function Dashboard() {
         subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} supplier quote request - ${centre.name}`,
         message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
         fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
-        markupPercent: current[centre.id]?.markupPercent ?? 30,
+        markupPercent: current[centre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
         lines,
         sentAt: current[centre.id]?.sentAt,
       },
@@ -9625,7 +9828,7 @@ export default function Dashboard() {
         name,
         unit: "item",
         costRate: line.unitCost,
-        sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
+        sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, defaultMaterialMarkupPercent),
         category,
       };
       nextCustomItems.push(nextItem);
@@ -9695,7 +9898,7 @@ export default function Dashboard() {
         subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} supplier quote request - ${centre.name}`,
         message: current[centre.id]?.message || `Please price the listed items for ${centre.name}. Quantities and notes are included below.`,
         fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
-        markupPercent: current[centre.id]?.markupPercent ?? 30,
+        markupPercent: current[centre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
         lines,
         sentAt: new Date().toISOString(),
       },
@@ -9729,7 +9932,7 @@ export default function Dashboard() {
     }
 
     const existing = supplierQuoteDrafts[centre.id];
-    const markupPercent = existing?.markupPercent ?? 30;
+    const markupPercent = existing?.markupPercent ?? defaultMaterialMarkupPercent;
     const supplier = existing?.supplier || file.name.replace(/\.pdf$/i, "");
     if (isCsvLike) {
       const parsed = await parseSupplierQuoteRowsFromUpload(file, centre, markupPercent).catch(() => ({
@@ -9874,7 +10077,10 @@ export default function Dashboard() {
 
   function openOneOffMaterialModal(centreId: string) {
     setOneOffMaterialCentreId(centreId);
-    setOneOffMaterialDraft(blankOneOffMaterialDraft);
+    setOneOffMaterialDraft({
+      ...blankOneOffMaterialDraft,
+      markupPercent: String(defaultMaterialMarkupPercent),
+    });
   }
 
   function addOneOffQuoteMaterialLine(centreId: string, draft: OneOffMaterialDraft = blankOneOffMaterialDraft) {
@@ -9898,7 +10104,10 @@ export default function Dashboard() {
     if (!oneOffMaterialCentreId) return;
     addOneOffQuoteMaterialLine(oneOffMaterialCentreId, oneOffMaterialDraft);
     setOneOffMaterialCentreId(null);
-    setOneOffMaterialDraft(blankOneOffMaterialDraft);
+    setOneOffMaterialDraft({
+      ...blankOneOffMaterialDraft,
+      markupPercent: String(defaultMaterialMarkupPercent),
+    });
     setActiveQuoteBuildTab("one-off");
     scrollWorkspaceToTop();
   }
@@ -9937,7 +10146,7 @@ export default function Dashboard() {
         name,
         unit: "item",
         costRate: line.unitCost,
-        sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, 30),
+        sellRate: line.unitSell || lineSellFromMarkup(line.unitCost, defaultMaterialMarkupPercent),
         category: inferCatalogFolder({ name, type: "Material" as const, category: undefined }),
       };
 
@@ -14625,7 +14834,7 @@ export default function Dashboard() {
                                   value={line.unitCost || ""}
                                   onChange={(event) => {
                                     const unitCost = Number(event.target.value) || 0;
-                                    const markupPercent = quoteLineMarkupPercent(line) || 30;
+                                    const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
                                     updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
                                       unitCost,
                                       unitSell: lineSellFromMarkup(unitCost, markupPercent),
@@ -14818,7 +15027,7 @@ export default function Dashboard() {
                                     <span>{line.description}</span>
                                     <span>{line.quantity.toFixed(2)}</span>
                                     <span>{line.unitCost > 0 ? currency(line.unitCost) : "TBC"}</span>
-                                    <span>{line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? 30}%` : "TBC"}</span>
+                                    <span>{line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent}%` : "TBC"}</span>
                                     <strong>{line.unitSell > 0 ? currency(line.unitSell) : "Awaiting price"}</strong>
                                     <span className={`supplier-match-pill ${matchState.toLowerCase().replaceAll(" ", "-")}`}>{matchState}</span>
                                   </div>
@@ -14850,7 +15059,7 @@ export default function Dashboard() {
                                 Markup %
                                 <input
                                   inputMode="decimal"
-                                  value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? 30}
+                                  value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent}
                                   onChange={(event) => updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, Number(event.target.value) || 0)}
                                 />
                               </label>
@@ -14918,11 +15127,18 @@ export default function Dashboard() {
                             value={line.description}
                             onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
                           />
-                          <input
-                            inputMode="decimal"
-                            value={line.unitCost}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitCost: Number(event.target.value) || 0 })}
-                          />
+	                          <input
+	                            inputMode="decimal"
+	                            value={line.unitCost}
+	                            onChange={(event) => {
+	                              const unitCost = Number(event.target.value) || 0;
+	                              const markupPercent = quoteLineMarkupPercent(line) || defaultLabourMarkupPercent;
+	                              updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+	                                unitCost,
+	                                unitSell: lineSellFromMarkup(unitCost, markupPercent),
+	                              });
+	                            }}
+	                          />
                           <input
                             inputMode="decimal"
                             value={quoteLineMarkupPercent(line)}
@@ -16520,7 +16736,7 @@ export default function Dashboard() {
                                   Markup %
                                   <input
                                     inputMode="decimal"
-                                    value={jobSupplierRequestDrafts[selectedCostCentre.id]?.markupPercent ?? 30}
+                                    value={jobSupplierRequestDrafts[selectedCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent}
                                     onChange={(event) => updateJobSupplierRequestMarkup(selectedCostCentre.id, Number(event.target.value) || 0)}
                                   />
                                 </label>
@@ -16565,15 +16781,24 @@ export default function Dashboard() {
                             <strong>Time Billed: {selectedCostCentre.labour.reduce((sum, line) => sum + line.hours, 0).toFixed(2)} hrs</strong>
                           </div>
                         </div>
-                        <div className="simpro-labour-add">
-                          <select defaultValue="0">
-                            <option value="0">0 Selected</option>
-                            <option value="plumber">Plumbing rate</option>
-                            <option value="joiner">Joinery Labour</option>
-                          </select>
-                          <button className="primary-button" onClick={() => addEstimateLabourLine(selectedCostCentre.id)}>
-                            ADD
-                          </button>
+	                        <div className="simpro-labour-add">
+	                          <select
+	                            defaultValue=""
+	                            onChange={(event) => {
+	                              addEstimateLabourLine(selectedCostCentre.id, event.target.value);
+	                              event.currentTarget.value = "";
+	                            }}
+	                          >
+	                            <option value="" disabled>0 Selected</option>
+	                            {availableQuoteCatalog.filter((item) => item.type === "Labour").map((item) => (
+	                              <option key={item.id} value={item.id}>
+	                                {item.name}
+	                              </option>
+	                            ))}
+	                          </select>
+	                          <button className="primary-button" onClick={() => addEstimateLabourLine(selectedCostCentre.id)}>
+	                            ADD
+	                          </button>
                         </div>
                         <div className="simpro-billable-table">
                           <div className="simpro-billable-row table-head labour">
@@ -17937,8 +18162,8 @@ export default function Dashboard() {
                     </section>
                   ) : null}
 
-                  {activeSetupCategory === "workflow-rules" ? (
-                    <section className="setup-panel">
+	                  {activeSetupCategory === "workflow-rules" ? (
+	                    <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Workflow automation</span>
@@ -18031,11 +18256,124 @@ export default function Dashboard() {
                           <small>Threshold is ready to drive supplier approval routing.</small>
                         </article>
                       </div>
-                    </section>
-                  ) : null}
+	                    </section>
+	                  ) : null}
 
-                  {activeSetupCategory === "communications" ? (
-                    <section className="setup-panel setup-readiness">
+	                  {activeSetupCategory === "rates" ? (
+	                    <section className="setup-panel">
+	                      <div className="documents-toolbar">
+	                        <div>
+	                          <span className="permission-heading">Rates & markups</span>
+	                          <h2>Default commercial pricing</h2>
+	                        </div>
+	                        <button className="primary-button" type="button" onClick={addLabourRateSetting}>
+	                          <Plus size={15} />
+	                          Add labour rate
+	                        </button>
+	                      </div>
+
+	                      <div className="setup-form-grid">
+	                        <label>
+	                          Material markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultMaterialMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultMaterialMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                        <label>
+	                          Plant markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultPlantMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultPlantMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                        <label>
+	                          Subcontractor markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultSubcontractorMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultSubcontractorMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                        <label>
+	                          New labour markup %
+	                          <input
+	                            inputMode="decimal"
+	                            value={normalizedFinanceSettings.defaultLabourMarkupPercent}
+	                            onChange={(event) => updateFinanceSettings({ defaultLabourMarkupPercent: event.target.value })}
+	                          />
+	                        </label>
+	                      </div>
+
+	                      <div className="setup-rate-table">
+	                        <div className="setup-rate-row table-head">
+	                          <span>Labour type</span>
+	                          <span>Cost / hr</span>
+	                          <span>Markup %</span>
+	                          <span>Sell / hr</span>
+	                          <span />
+	                        </div>
+	                        {normalizedFinanceSettings.labourRates.map((rate) => (
+	                          <div className="setup-rate-row" key={rate.id}>
+	                            <input
+	                              aria-label={`${rate.name} labour type`}
+	                              value={rate.name}
+	                              onChange={(event) => updateLabourRateSetting(rate.id, { name: event.target.value })}
+	                            />
+	                            <input
+	                              aria-label={`${rate.name} cost rate`}
+	                              inputMode="decimal"
+	                              value={rate.costRate}
+	                              onChange={(event) => updateLabourRateSetting(rate.id, { costRate: event.target.value })}
+	                            />
+	                            <input
+	                              aria-label={`${rate.name} markup percent`}
+	                              inputMode="decimal"
+	                              value={rate.markupPercent}
+	                              onChange={(event) => updateLabourRateSetting(rate.id, { markupPercent: event.target.value })}
+	                            />
+	                            <input
+	                              aria-label={`${rate.name} sell rate`}
+	                              inputMode="decimal"
+	                              value={rate.sellRate}
+	                              onChange={(event) => updateLabourRateSetting(rate.id, { sellRate: event.target.value })}
+	                            />
+	                            <button
+	                              className="secondary-button"
+	                              disabled={normalizedFinanceSettings.labourRates.length <= 1}
+	                              type="button"
+	                              onClick={() => removeLabourRateSetting(rate.id)}
+	                            >
+	                              Remove
+	                            </button>
+	                          </div>
+	                        ))}
+	                      </div>
+
+	                      <div className="setup-readiness-grid">
+	                        <article>
+	                          <span>Quote labour</span>
+	                          <strong>{normalizedFinanceSettings.labourRates.length} active labour rate(s)</strong>
+	                          <small>New quote and job labour rows use these cost and sell rates.</small>
+	                        </article>
+	                        <article>
+	                          <span>Supplier returns</span>
+	                          <strong>{defaultMaterialMarkupPercent}% material markup</strong>
+	                          <small>Returned supplier prices and one-off material rows start with this markup.</small>
+	                        </article>
+	                        <article>
+	                          <span>Per quote control</span>
+	                          <strong>Lines remain editable</strong>
+	                          <small>Open a cost centre and change cost, markup, sell price or hours for that job only.</small>
+	                        </article>
+	                      </div>
+	                    </section>
+	                  ) : null}
+
+	                  {activeSetupCategory === "communications" ? (
+	                    <section className="setup-panel setup-readiness">
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Communications</span>
