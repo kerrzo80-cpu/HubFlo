@@ -12414,7 +12414,7 @@ export default function Dashboard() {
           ) : null}
 
           <div className="support-panel">
-            <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa - Bound into one command center" />
+            <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />
             <small>Service command center</small>
           </div>
         </aside>

@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">NeXa Bound X rail mark</title>
+  <desc id="desc">Bronze and white Bound X command mark for the NeXa sidebar.</desc>
+  <path d="M112 96L216 208M400 96L296 208M112 416L216 304M400 416L296 304" stroke="url(#Bronze)" stroke-width="58" stroke-linecap="round"/>
+  <rect x="198" y="198" width="116" height="116" rx="28" fill="#F6F1E8" transform="rotate(45 256 256)"/>
+  <rect x="232" y="232" width="48" height="48" rx="13" fill="url(#Bronze)" transform="rotate(45 256 256)"/>
+  <defs>
+    <linearGradient id="Bronze" x1="96" y1="80" x2="416" y2="432" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8BD72"/>
+      <stop offset=".55" stop-color="#A99562"/>
+      <stop offset="1" stop-color="#73582B"/>
+    </linearGradient>
+  </defs>
+</svg>

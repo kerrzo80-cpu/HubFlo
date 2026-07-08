@@ -13856,10 +13856,10 @@ body {
 
 .body-shell.sidebar-collapsed .support-panel::before {
   align-items: center;
-  background-image: url("/brand/nexa-command-mark.svg");
+  background-image: url("/brand/nexa-command-mark-rail.svg");
   background-position: center;
   background-repeat: no-repeat;
-  background-size: cover;
+  background-size: 82%;
   border: 1px solid rgba(212, 175, 55, 0.35);
   border-radius: 9px;
   content: "";
@@ -17071,7 +17071,7 @@ body {
 }
 
 .body-shell.sidebar-collapsed .support-panel::before {
-  background-color: rgba(255, 255, 255, 0.18);
+  background-color: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.35) !important;
   border-radius: 14px !important;
 }

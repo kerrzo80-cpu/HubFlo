@@ -1,0 +1,18 @@
+<svg width="900" height="260" viewBox="0 0 900 260" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">NeXa Bound X rail lockup</title>
+  <desc id="desc">NeXa wordmark with bronze and white Bound X command mark for the sidebar.</desc>
+  <path d="M72 68L112 108M178 68L138 108M72 192L112 152M178 192L138 152" stroke="url(#Bronze)" stroke-width="20" stroke-linecap="round"/>
+  <rect x="106" y="111" width="38" height="38" rx="9" fill="#F6F1E8" transform="rotate(45 125 130)"/>
+  <rect x="118" y="123" width="14" height="14" rx="3.5" fill="url(#Bronze)" transform="rotate(45 125 130)"/>
+  <text x="266" y="139" font-family="Sora, Inter, Arial, sans-serif" font-size="94" font-weight="760" letter-spacing="-2">
+    <tspan fill="#F6F1E8">Ne</tspan><tspan fill="#D8BD72">X</tspan><tspan fill="#F6F1E8">a</tspan>
+  </text>
+  <text x="270" y="181" fill="#F6F1E8" opacity=".78" font-family="Inter, Arial, sans-serif" font-size="20" font-weight="650" letter-spacing="4">BOUND INTO ONE COMMAND CENTER</text>
+  <defs>
+    <linearGradient id="Bronze" x1="66" y1="62" x2="184" y2="198" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D8BD72"/>
+      <stop offset=".55" stop-color="#A99562"/>
+      <stop offset="1" stop-color="#73582B"/>
+    </linearGradient>
+  </defs>
+</svg>
