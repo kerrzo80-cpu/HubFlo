@@ -16850,3 +16850,354 @@ body {
     font-size: 21px;
   }
 }
+
+/* EWG blue comfort pass: lighter shell, softer edges and clearer hover states. */
+:root {
+  --nexa-slate: #18384b;
+  --nexa-slate-900: #123044;
+  --nexa-slate-800: #245a76;
+  --nexa-brass: #3898c4;
+  --nexa-brass-light: #8bd4f2;
+  --nexa-brass-dark: #1d739d;
+  --nexa-porcelain: #f0f8fc;
+  --nexa-steel: #657783;
+  --nexa-verdigris: #58acd5;
+  --nexa-verdigris-soft: #e8f7fd;
+  --navy: #18384b;
+  --navy-900: #123044;
+  --navy-800: #245a76;
+  --ink: #1b2b36;
+  --muted: #657783;
+  --line: #d8e7ef;
+  --line-soft: #edf6fa;
+  --canvas: #f2f9fc;
+  --surface: #ffffff;
+  --blue: #58acd5;
+  --blue-dark: #2c91bf;
+  --blue-deep: #1b7198;
+  --blue-soft: #e8f7fd;
+  --champagne: #58acd5;
+  --shadow: 0 12px 32px rgba(40, 126, 168, 0.09);
+}
+
+body {
+  background:
+    radial-gradient(circle at 88% -18%, rgba(88, 172, 213, 0.15), transparent 25rem),
+    linear-gradient(180deg, #ffffff 0%, #eef8fc 100%);
+}
+
+.platform {
+  background:
+    radial-gradient(circle at 0% 8%, rgba(88, 172, 213, 0.12), transparent 25rem),
+    var(--canvas);
+}
+
+.global-header {
+  background: rgba(255, 255, 255, 0.97) !important;
+  border-bottom-color: rgba(88, 172, 213, 0.24) !important;
+  box-shadow: 0 10px 30px rgba(40, 126, 168, 0.08) !important;
+}
+
+.brand-lockup img {
+  border-radius: 14px;
+}
+
+.global-search,
+.account-button,
+.employee-config-button,
+.create-button,
+.primary-button,
+.secondary-button,
+.directory-actions-trigger,
+.simpro-options-button,
+.simpro-grey-button,
+.simpro-blue-button,
+.simpro-save-button,
+.module-submenu,
+.create-menu,
+.modal,
+.form-header,
+.form-body,
+.form-footer {
+  border-radius: 14px !important;
+}
+
+.create-button,
+.primary-button,
+.simpro-blue-button,
+.simpro-save-button,
+.engineer-primary-action,
+.engineer-po-form button,
+.engineer-outcome-bar button {
+  background: linear-gradient(135deg, #58acd5 0%, #2c91bf 100%) !important;
+  border-color: rgba(44, 145, 191, 0.64) !important;
+  box-shadow: 0 14px 26px rgba(40, 126, 168, 0.18) !important;
+  color: #fff !important;
+}
+
+.create-button:hover,
+.primary-button:hover,
+.simpro-blue-button:hover,
+.simpro-save-button:hover {
+  background: linear-gradient(135deg, #66bde3 0%, #247fa9 100%) !important;
+  color: #fff !important;
+}
+
+.secondary-button,
+.simpro-grey-button,
+.simpro-options-button,
+.directory-actions-trigger {
+  background: #fff !important;
+  border-color: #cfe4ee !important;
+  color: #24485d !important;
+}
+
+.secondary-button:hover,
+.simpro-grey-button:hover,
+.simpro-options-button:hover,
+.directory-actions-trigger:hover {
+  background: #eef9fd !important;
+  border-color: rgba(88, 172, 213, 0.46) !important;
+  color: #18384b !important;
+}
+
+.module-bar {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border-bottom-color: rgba(88, 172, 213, 0.2) !important;
+}
+
+.module-link {
+  border-radius: 14px 14px 0 0 !important;
+  color: #24485d !important;
+}
+
+.module-link:hover,
+.module-link:hover svg,
+.module-link:hover span {
+  background: #eef9fd !important;
+  color: #18384b !important;
+}
+
+.module-link.active,
+.module-link.active svg,
+.module-link.active span {
+  border-bottom-color: #58acd5 !important;
+  color: #18384b !important;
+}
+
+.context-sidebar {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 28%),
+    linear-gradient(180deg, #66bde3 0%, #2f9cca 58%, #247fa9 100%) !important;
+  box-shadow: 12px 0 30px rgba(40, 126, 168, 0.14) !important;
+  color: #fff !important;
+  scrollbar-width: none;
+}
+
+.context-sidebar::-webkit-scrollbar {
+  height: 0;
+  width: 0;
+}
+
+.context-title,
+.context-sidebar .sidebar-label,
+.context-title button {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.context-link {
+  border-radius: 14px !important;
+  color: rgba(255, 255, 255, 0.94) !important;
+}
+
+.context-link svg,
+.context-link span {
+  color: rgba(255, 255, 255, 0.94) !important;
+}
+
+.context-link:hover,
+.context-link:focus-visible,
+.context-sidebar .context-link:hover,
+.context-sidebar .context-link:focus-visible {
+  background: rgba(255, 255, 255, 0.2) !important;
+  color: #fff !important;
+  outline: 0;
+}
+
+.context-link:hover svg,
+.context-link:hover span,
+.context-link:focus-visible svg,
+.context-link:focus-visible span,
+.context-sidebar .context-link:hover svg,
+.context-sidebar .context-link:hover span,
+.context-sidebar .context-link:focus-visible svg,
+.context-sidebar .context-link:focus-visible span {
+  color: #fff !important;
+}
+
+.context-link.active,
+.context-sidebar .context-link.active {
+  background: rgba(255, 255, 255, 0.26) !important;
+  border-left-color: #ffffff !important;
+  color: #fff !important;
+}
+
+.context-link b {
+  background: rgba(255, 255, 255, 0.24) !important;
+  color: #fff !important;
+}
+
+.context-link b.danger {
+  background: rgba(255, 255, 255, 0.24) !important;
+  color: #fff !important;
+}
+
+.sidebar-divider,
+.support-panel {
+  border-color: rgba(255, 255, 255, 0.28) !important;
+}
+
+.support-panel small {
+  color: rgba(255, 255, 255, 0.86) !important;
+}
+
+.body-shell.sidebar-collapsed .context-link {
+  border-radius: 16px !important;
+}
+
+.body-shell.sidebar-collapsed .context-link::after {
+  background: #18384b !important;
+  border-radius: 12px !important;
+}
+
+.body-shell.sidebar-collapsed .support-panel::before {
+  background-color: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  border-radius: 14px !important;
+}
+
+.workspace {
+  background:
+    radial-gradient(circle at 100% -14%, rgba(88, 172, 213, 0.16), transparent 24rem),
+    transparent !important;
+}
+
+.workspace-header {
+  border-radius: 0 0 20px 20px !important;
+}
+
+.metric-strip,
+.workflow-board,
+.quote-panel,
+.lead-workspace,
+.record-directory,
+.quote-record-banner,
+.workflow-tracker,
+.quote-record-stats div,
+.client-record-banner,
+.client-record-stats div,
+.client-info-card,
+.client-site-card,
+.client-history-item,
+.employee-record-banner,
+.employee-record-stats div,
+.employee-record-panel,
+.employee-directory-card,
+.client-directory-card,
+.employee-card,
+.job-scheduling-panel,
+.simpro-record-shell,
+.simpro-estimate-page,
+.simpro-section-card,
+.simpro-summary-panel,
+.simpro-activity-panel,
+.simpro-timeline-card,
+.simpro-editor-card,
+.simpro-parts-page,
+.documents-workspace,
+.engineer-flow-workspace,
+.setup-workspace,
+.client-portal-card,
+.ai-estimate-table-panel,
+.ai-handoff-panel,
+.ai-mini-table,
+.ai-boq-table,
+.office-alert-card,
+.office-summary-card,
+.office-review-context,
+.whatsapp-live-test,
+.whatsapp-reply-tester,
+.whatsapp-structured-card,
+.record-folder-card,
+.lead-summary-grid article,
+.queue-card,
+.schedule-day-card,
+.notification-card {
+  border-color: #d8e7ef !important;
+  border-radius: 16px !important;
+  box-shadow: 0 12px 30px rgba(40, 126, 168, 0.08) !important;
+}
+
+.record-folder-card,
+.lead-summary-grid article {
+  background: #ffffff !important;
+}
+
+.record-folder-card.amber,
+.record-folder-card.blue,
+.record-folder-card.green,
+.record-folder-card.red,
+.lead-summary-grid article {
+  border-color: #d8e7ef !important;
+}
+
+.quote-directory .record-folder-card,
+.record-directory .record-folder-card,
+.lead-summary-grid article {
+  border-radius: 14px !important;
+}
+
+.record-folder-section > header,
+.quote-row.table-header,
+.lead-row.table-header {
+  background: #f6fbfe !important;
+}
+
+.quote-row,
+.lead-row,
+.simpro-cost-centre-row,
+.catalog-folder-row,
+.job-row {
+  border-radius: 12px !important;
+}
+
+.record-directory .quote-row.clickable:hover,
+.record-directory .lead-row.clickable:hover,
+.lead-workspace .lead-row.clickable:hover,
+.quote-row.clickable:hover,
+.lead-row.clickable:hover,
+.queue-card:hover,
+.employee-card:hover,
+.client-directory-card:hover,
+.employee-directory-card:hover,
+.simpro-cost-centre-row:hover {
+  background: #eef9fd !important;
+  border-color: rgba(88, 172, 213, 0.5) !important;
+  color: #1b2b36 !important;
+}
+
+.record-directory .quote-row.clickable:hover *,
+.record-directory .lead-row.clickable:hover *,
+.lead-workspace .lead-row.clickable:hover * {
+  color: inherit;
+}
+
+.queue-card.active,
+.employee-card.active,
+.employee-tab.active,
+.simpro-tab.active,
+.simpro-sub-tabs button.active {
+  background: #e8f7fd !important;
+  border-color: rgba(88, 172, 213, 0.54) !important;
+  color: #18384b !important;
+}
