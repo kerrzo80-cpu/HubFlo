@@ -1154,13 +1154,15 @@ type SimproExportRecord = {
 
 type SimproBridgeStatus = {
   configured: boolean;
-  mode: "webhook" | "direct" | "missing" | "unknown";
+  mode: "webhook" | "scheduler" | "direct" | "missing" | "unknown";
   missing: string[];
   endpoint?: string;
   checkedAt?: string;
   detectedEnvKeys?: string[];
   sourceNames?: {
     webhookUrl?: string;
+    schedulerUrl?: string;
+    schedulerPassword?: string;
     directBaseUrl?: string;
     directToken?: string;
     companyId?: string;

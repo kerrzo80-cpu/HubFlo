@@ -27,6 +27,12 @@ services:
         sync: false
       - key: SIMPRO_QUOTE_PUSH_TOKEN
         sync: false
+      - key: SIMPRO_SCHEDULER_BASE_URL
+        value: https://ewg-hub-scheduler.onrender.com
+      - key: SIMPRO_SCHEDULER_QUOTE_PUSH_URL
+        sync: false
+      - key: SIMPRO_SCHEDULER_HUB_PASSWORD
+        sync: false
       - key: SIMPRO_API_BASE_URL
         sync: false
       - key: SIMPRO_ACCESS_TOKEN

@@ -84,7 +84,7 @@ export type SimproQuoteExportRecord = {
   createdAt: string;
   actor: string;
   status: "Queued" | "Sent" | "Failed";
-  mode: "manual" | "webhook" | "direct";
+  mode: "manual" | "webhook" | "scheduler" | "direct";
   simproQuoteId?: string;
   endpoint?: string;
   setupRequired?: string;
@@ -100,12 +100,14 @@ export type SimproPushResult = {
 
 export type SimproBridgeStatus = {
   configured: boolean;
-  mode: "webhook" | "direct" | "missing";
+  mode: "webhook" | "scheduler" | "direct" | "missing";
   missing: string[];
   endpoint?: string;
   detectedEnvKeys: string[];
   sourceNames?: {
     webhookUrl?: string;
+    schedulerUrl?: string;
+    schedulerPassword?: string;
     directBaseUrl?: string;
     directToken?: string;
     companyId?: string;
@@ -160,6 +162,44 @@ function cleanEndpoint(value?: string) {
 
 function getBridgeEndpoint() {
   return cleanEndpoint(process.env.SIMPRO_QUOTE_PUSH_URL);
+}
+
+function getSchedulerConfig() {
+  const quoteUrl = envFirst(["SIMPRO_SCHEDULER_QUOTE_PUSH_URL", "SIMPRO_SCHEDULER_QUOTE_URL"]);
+  const base = envFirst(["SIMPRO_SCHEDULER_BASE_URL", "SCHEDULER_BASE_URL"]);
+  const password = envFirst(["SIMPRO_SCHEDULER_HUB_PASSWORD", "SCHEDULER_HUB_PASSWORD"]);
+  const endpoint = cleanEndpoint(quoteUrl?.value) ?? (base ? `${cleanEndpoint(base.value)}/api/hub/simpro/quote` : undefined);
+  const hasAnyConfig = Boolean(quoteUrl || base || password);
+  const missing = [
+    !endpoint ? "SIMPRO_SCHEDULER_QUOTE_PUSH_URL or SIMPRO_SCHEDULER_BASE_URL" : null,
+    !password ? "SIMPRO_SCHEDULER_HUB_PASSWORD" : null,
+  ].filter((item): item is string => Boolean(item));
+
+  if (missing.length > 0 || !endpoint || !password) {
+    return {
+      configured: false as const,
+      hasAnyConfig,
+      missing,
+      endpoint,
+      password: undefined,
+      sourceNames: {
+        schedulerUrl: quoteUrl?.name ?? base?.name,
+        schedulerPassword: password?.name,
+      },
+    };
+  }
+
+  return {
+    configured: true as const,
+    hasAnyConfig,
+    missing: [],
+    endpoint,
+    password: password.value,
+    sourceNames: {
+      schedulerUrl: quoteUrl?.name ?? base?.name,
+      schedulerPassword: password.name,
+    },
+  };
 }
 
 function normaliseBaseUrl(value: string) {
@@ -240,6 +280,35 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     };
   }
 
+  const scheduler = getSchedulerConfig();
+  if (scheduler.configured) {
+    return {
+      configured: true,
+      mode: "scheduler",
+      missing: [],
+      endpoint: scheduler.endpoint,
+      detectedEnvKeys,
+      sourceNames: {
+        schedulerUrl: scheduler.sourceNames.schedulerUrl,
+        schedulerPassword: scheduler.sourceNames.schedulerPassword,
+      },
+    };
+  }
+
+  if (scheduler.hasAnyConfig) {
+    return {
+      configured: false,
+      mode: "missing",
+      missing: scheduler.missing,
+      endpoint: scheduler.endpoint,
+      detectedEnvKeys,
+      sourceNames: {
+        schedulerUrl: scheduler.sourceNames.schedulerUrl,
+        schedulerPassword: scheduler.sourceNames.schedulerPassword,
+      },
+    };
+  }
+
   const direct = getDirectConfig();
   if (direct.configured) {
     return {
@@ -259,7 +328,7 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
   return {
     configured: false,
     mode: "missing",
-    missing: ["SIMPRO_QUOTE_PUSH_URL", ...direct.missing],
+    missing: ["SIMPRO_QUOTE_PUSH_URL or SIMPRO_SCHEDULER_QUOTE_PUSH_URL", ...direct.missing],
     detectedEnvKeys,
     sourceNames: {
       directBaseUrl: direct.sourceNames.baseUrl,
@@ -398,6 +467,72 @@ async function postToWebhook(payload: SimproQuoteExportPayload) {
   };
 }
 
+function schedulerBaseFromEndpoint(endpoint: string) {
+  try {
+    const url = new URL(endpoint);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return "";
+  }
+}
+
+function cookieHeaderFromResponse(response: Response) {
+  const headersWithGetSetCookie = response.headers as Headers & { getSetCookie?: () => string[] };
+  const setCookieHeaders = headersWithGetSetCookie.getSetCookie?.() ?? [];
+  const fallbackCookie = response.headers.get("set-cookie");
+  const cookies = (setCookieHeaders.length > 0 ? setCookieHeaders : fallbackCookie ? [fallbackCookie] : [])
+    .map((cookie) => cookie.split(";")[0]?.trim())
+    .filter((cookie): cookie is string => Boolean(cookie));
+
+  return cookies.join("; ");
+}
+
+async function postToSchedulerBridge(payload: SimproQuoteExportPayload) {
+  const scheduler = getSchedulerConfig();
+  if (!scheduler.configured) return null;
+
+  const baseUrl = schedulerBaseFromEndpoint(scheduler.endpoint);
+  if (!baseUrl) throw new Error("Scheduler bridge URL is invalid.");
+
+  const loginResponse = await fetch(`${baseUrl}/hub/login?next=/hub/`, {
+    method: "POST",
+    redirect: "manual",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ password: scheduler.password }).toString(),
+  });
+  const cookieHeader = cookieHeaderFromResponse(loginResponse);
+  if (!cookieHeader) {
+    throw new Error("Scheduler bridge login failed. Check SIMPRO_SCHEDULER_HUB_PASSWORD.");
+  }
+
+  const response = await fetch(scheduler.endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: cookieHeader,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const body = await response.json().catch(() => ({})) as UnknownRecord;
+  if (!response.ok) {
+    const message = asString(body.error) || asString(body.message) || `Scheduler Simpro bridge returned HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return {
+    endpoint: scheduler.endpoint,
+    simproQuoteId:
+      asString(body.simproQuoteId) ||
+      asString(body.quoteId) ||
+      asString(body.id) ||
+      asString(asRecord(body.quote)?.id) ||
+      undefined,
+  };
+}
+
 function numericId(value?: string) {
   if (!value) return undefined;
   const parsed = Number(value);
@@ -460,7 +595,10 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
     const errors = Array.isArray(body.errors) ? body.errors.join("; ") : "";
-    const message = asString(body.error) || asString(body.message) || errors || `Simpro returned HTTP ${response.status}`;
+    const returnedMessage = asString(body.error) || asString(body.message) || errors;
+    const message = response.status === 401
+      ? `Simpro rejected the access token or company permission (HTTP 401). Check SIMPRO_ACCESS_TOKEN is current and authorised for company ${direct.companyId}.`
+      : returnedMessage || `Simpro returned HTTP ${response.status} from ${endpoint}`;
     throw new Error(message);
   }
 
@@ -507,11 +645,14 @@ export async function pushQuoteToSimpro(
   if (!bridgeStatus.configured) {
     exportRecord.setupRequired = bridgeStatus.missing.join(", ");
   } else {
-    const sendMode = bridgeStatus.mode === "direct" ? "direct" : "webhook";
+    const sendMode = bridgeStatus.mode === "direct" ? "direct" : bridgeStatus.mode === "scheduler" ? "scheduler" : "webhook";
     try {
-      const sendResult = sendMode === "direct"
-        ? await postToDirectSimpro(payload)
-        : await postToWebhook(payload);
+      const sendResult =
+        sendMode === "direct"
+          ? await postToDirectSimpro(payload)
+          : sendMode === "scheduler"
+            ? await postToSchedulerBridge(payload)
+            : await postToWebhook(payload);
 
       if (sendResult) {
         exportRecord.status = "Sent";
