@@ -19,6 +19,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     @Published var isUploading = false
     @Published var isShowingSettings = false
     @Published var latestRoom: CapturedRoom?
+    @Published var cameraPermissionStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
     private weak var captureView: RoomCaptureView?
     private let configuration = RoomCaptureSession.Configuration()
@@ -38,6 +39,36 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
 
     func attach(_ view: RoomCaptureView) {
         captureView = view
+    }
+
+    func refreshCameraPermission() {
+        cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    }
+
+    func requestCameraPermission() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            cameraPermissionStatus = .authorized
+            lastError = nil
+        case .notDetermined:
+            status = "Waiting for camera permission..."
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.cameraPermissionStatus = granted ? .authorized : .denied
+                    self.status = granted ? "Camera ready. Start a room scan when ready." : "Camera permission denied."
+                    self.lastError = granted ? nil : "Camera permission is needed before NeXa Field can use RoomPlan scanning."
+                }
+            }
+        case .denied, .restricted:
+            cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
+            lastError = "Camera permission is blocked. Open iOS Settings > Privacy & Security > Camera and allow NeXa Field."
+            status = "Camera permission blocked."
+        @unknown default:
+            cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
+            lastError = "Camera permission is not available on this device."
+            status = "Camera permission unavailable."
+        }
     }
 
     func handleDeepLink(_ url: URL) {
@@ -70,24 +101,16 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
 
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
+            cameraPermissionStatus = .authorized
             runScan(on: captureView)
         case .notDetermined:
-            status = "Waiting for camera permission..."
-            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if granted {
-                        self.startScan()
-                    } else {
-                        self.lastError = "Camera permission is needed before NeXa Field can use LiDAR RoomPlan scanning."
-                        self.status = "Camera permission denied."
-                    }
-                }
-            }
+            requestCameraPermission()
         case .denied, .restricted:
+            cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
             lastError = "Camera permission is blocked. Open iOS Settings > Privacy & Security > Camera and allow NeXa Field."
             status = "Camera permission blocked."
         @unknown default:
+            cameraPermissionStatus = AVCaptureDevice.authorizationStatus(for: .video)
             lastError = "Camera permission is not available on this device."
             status = "Camera permission unavailable."
         }

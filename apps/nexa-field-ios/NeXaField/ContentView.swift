@@ -1,3 +1,4 @@
+import AVFoundation
 import RoomPlan
 import SwiftUI
 
@@ -10,16 +11,28 @@ struct ContentView: View {
                 header
 
                 if RoomCaptureSession.isSupported {
-                    RoomScannerView(scanner: scanner)
-                        .overlay(alignment: .bottom) {
-                            controls
-                        }
+                    switch scanner.cameraPermissionStatus {
+                    case .authorized:
+                        RoomScannerView(scanner: scanner)
+                            .overlay(alignment: .bottom) {
+                                controls
+                            }
+                    case .notDetermined:
+                        cameraPermissionRequired
+                    case .denied, .restricted:
+                        cameraPermissionBlocked
+                    @unknown default:
+                        cameraPermissionBlocked
+                    }
                 } else {
                     unsupportedDevice
                 }
             }
             .navigationTitle("NeXa Field")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                scanner.refreshCameraPermission()
+            }
             .sheet(isPresented: $scanner.isShowingSettings) {
                 SettingsView(scanner: scanner)
             }
@@ -96,8 +109,58 @@ struct ContentView: View {
         ContentUnavailableView(
             "LiDAR not available",
             systemImage: "camera.metering.unknown",
-            description: Text("RoomPlan needs a LiDAR-capable iPad or iPhone. Run this app on a real device, not the simulator.")
+            description: Text("RoomPlan needs a LiDAR-capable iPad Pro or iPhone Pro. Use a supported real device, not the simulator.")
         )
+    }
+
+    private var cameraPermissionRequired: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(
+                "Camera permission needed",
+                systemImage: "camera.viewfinder",
+                description: Text("NeXa Field needs camera access before Apple RoomPlan can start the LiDAR room scanner.")
+            )
+
+            Button {
+                scanner.requestCameraPermission()
+            } label: {
+                Label("Allow camera and prepare scanner", systemImage: "camera")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var cameraPermissionBlocked: some View {
+        VStack(spacing: 16) {
+            ContentUnavailableView(
+                "Camera permission blocked",
+                systemImage: "camera.badge.ellipsis",
+                description: Text("Open iOS Settings, find NeXa Field, and allow Camera. Then come back here and tap Check again.")
+            )
+
+            HStack(spacing: 12) {
+                Button {
+                    scanner.refreshCameraPermission()
+                } label: {
+                    Label("Check again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+
+                if let settingsUrl = URL(string: UIApplication.openSettingsURLString) {
+                    Link(destination: settingsUrl) {
+                        Label("Open Settings", systemImage: "gearshape")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .padding(.horizontal, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
