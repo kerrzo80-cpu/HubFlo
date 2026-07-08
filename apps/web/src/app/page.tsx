@@ -942,6 +942,7 @@ type FinanceSettings = {
   defaultSubcontractorMarkupPercent: string;
   defaultLabourMarkupPercent: string;
   labourRates: LabourRateSetting[];
+  deletedLabourRateIds?: string[];
 };
 
 type LabourRateSetting = {
@@ -1137,7 +1138,7 @@ type SimproExportRecord = {
   createdAt: string;
   actor: string;
   status: "Queued" | "Sent" | "Failed";
-  mode: "manual" | "webhook";
+  mode: "manual" | "webhook" | "direct";
   simproQuoteId?: string;
   endpoint?: string;
   setupRequired?: string;
@@ -1153,7 +1154,7 @@ type SimproExportRecord = {
 
 type SimproBridgeStatus = {
   configured: boolean;
-  mode: "webhook" | "missing" | "unknown";
+  mode: "webhook" | "direct" | "missing" | "unknown";
   missing: string[];
   endpoint?: string;
   checkedAt?: string;
@@ -2301,6 +2302,7 @@ const defaultLabourRateSettings: LabourRateSetting[] = [
   { id: "labour-apprentice", name: "Apprentice labour", costRate: "22", markupPercent: "30", sellRate: "28.6" },
   { id: "labour-manager", name: "Survey / manager review", costRate: "45", markupPercent: "30", sellRate: "58.5" },
 ];
+const defaultLabourRateIds = new Set(defaultLabourRateSettings.map((rate) => rate.id));
 
 const fallbackLabourRateSetting: LabourRateSetting = {
   id: "labour-engineer",
@@ -2324,6 +2326,7 @@ const defaultFinanceSettings: FinanceSettings = {
   defaultSubcontractorMarkupPercent: "20",
   defaultLabourMarkupPercent: "30",
   labourRates: defaultLabourRateSettings,
+  deletedLabourRateIds: [],
 };
 const surveyorAvailability: Record<string, EmployeeAvailability> = {
   "Brian Kerr": {
@@ -4021,18 +4024,22 @@ function normalizeLabourRateSetting(rate: Partial<LabourRateSetting>, fallback: 
 
 function normalizeFinanceSettings(settings?: Partial<FinanceSettings>): FinanceSettings {
   const incomingRates = Array.isArray(settings?.labourRates) ? settings.labourRates : [];
-  const defaultRateIds = new Set(defaultLabourRateSettings.map((rate) => rate.id));
-  const defaultRates = defaultLabourRateSettings.map((defaultRate) =>
-    normalizeLabourRateSetting(incomingRates.find((rate) => rate.id === defaultRate.id) ?? {}, defaultRate),
-  );
+  const deletedLabourRateIds = Array.isArray(settings?.deletedLabourRateIds) ? settings.deletedLabourRateIds : [];
+  const deletedRateIds = new Set(deletedLabourRateIds);
+  const defaultRates = defaultLabourRateSettings
+    .filter((defaultRate) => !deletedRateIds.has(defaultRate.id))
+    .map((defaultRate) =>
+      normalizeLabourRateSetting(incomingRates.find((rate) => rate.id === defaultRate.id) ?? {}, defaultRate),
+    );
   const extraRates = incomingRates
-    .filter((rate) => rate.id && !defaultRateIds.has(rate.id))
+    .filter((rate) => rate.id && !defaultLabourRateIds.has(rate.id))
     .map((rate) => normalizeLabourRateSetting(rate, fallbackLabourRateSetting));
 
   return {
     ...defaultFinanceSettings,
     ...settings,
     labourRates: [...defaultRates, ...extraRates],
+    deletedLabourRateIds,
   };
 }
 
@@ -6519,11 +6526,16 @@ export default function Dashboard() {
     setFinanceSettings((current) => {
       const normalized = normalizeFinanceSettings(current);
       if (normalized.labourRates.length <= 1) return normalized;
+      const deletedLabourRateIds = defaultLabourRateIds.has(rateId)
+        ? Array.from(new Set([...(normalized.deletedLabourRateIds ?? []), rateId]))
+        : normalized.deletedLabourRateIds ?? [];
       return normalizeFinanceSettings({
         ...normalized,
+        deletedLabourRateIds,
         labourRates: normalized.labourRates.filter((rate) => rate.id !== rateId),
       });
     });
+    showNotice("Labour rate removed from setup.");
   }
 
   function updateFormTemplate(templateId: string, patch: Partial<FormTemplate>) {

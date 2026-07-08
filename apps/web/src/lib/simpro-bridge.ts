@@ -84,7 +84,7 @@ export type SimproQuoteExportRecord = {
   createdAt: string;
   actor: string;
   status: "Queued" | "Sent" | "Failed";
-  mode: "manual" | "webhook";
+  mode: "manual" | "webhook" | "direct";
   simproQuoteId?: string;
   endpoint?: string;
   setupRequired?: string;
@@ -100,7 +100,7 @@ export type SimproPushResult = {
 
 export type SimproBridgeStatus = {
   configured: boolean;
-  mode: "webhook" | "missing";
+  mode: "webhook" | "direct" | "missing";
   missing: string[];
   endpoint?: string;
 };
@@ -122,8 +122,23 @@ function asNumber(value: unknown, fallback = 0) {
   return fallback;
 }
 
+function asIdentifier(value: unknown) {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
 function asBoolean(value: unknown) {
   return value === true;
+}
+
+function envFirst(names: string[]) {
+  for (const name of names) {
+    const value = process.env[name]?.trim();
+    if (value) return { name, value };
+  }
+
+  return null;
 }
 
 function cleanEndpoint(value?: string) {
@@ -134,22 +149,77 @@ function getBridgeEndpoint() {
   return cleanEndpoint(process.env.SIMPRO_QUOTE_PUSH_URL);
 }
 
-export function getSimproBridgeStatus(): SimproBridgeStatus {
-  const endpoint = getBridgeEndpoint();
+function normaliseBaseUrl(value: string) {
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  const cleaned = cleanEndpoint(withProtocol) ?? "";
+  return cleaned.endsWith("/api/v1.0") ? cleaned : `${cleaned}/api/v1.0`;
+}
 
-  if (!endpoint) {
+function getDirectConfig() {
+  const base = envFirst(["SIMPRO_API_BASE_URL", "SIMPRO_BUILD_URL", "SIMPRO_BASE_URL", "SIMPRO_SITE_URL"]);
+  const token = envFirst(["SIMPRO_API_KEY", "SIMPRO_ACCESS_TOKEN", "SIMPRO_API_TOKEN", "SIMPRO_TOKEN"]);
+  const companyId = envFirst(["SIMPRO_COMPANY_ID", "SIMPRO_COMPANY"]);
+  const missing = [
+    !base ? "SIMPRO_BUILD_URL or SIMPRO_API_BASE_URL" : null,
+    !token ? "SIMPRO_API_KEY or SIMPRO_ACCESS_TOKEN" : null,
+    !companyId ? "SIMPRO_COMPANY_ID" : null,
+  ].filter((item): item is string => Boolean(item));
+
+  if (missing.length > 0 || !base || !token || !companyId) {
     return {
-      configured: false,
-      mode: "missing",
-      missing: ["SIMPRO_QUOTE_PUSH_URL"],
+      configured: false as const,
+      missing,
+      baseUrl: undefined,
+      token: undefined,
+      companyId: undefined,
+      sourceNames: {
+        baseUrl: base?.name,
+        token: token?.name,
+        companyId: companyId?.name,
+      },
     };
   }
 
   return {
-    configured: true,
-    mode: "webhook",
+    configured: true as const,
     missing: [],
-    endpoint,
+    baseUrl: normaliseBaseUrl(base.value),
+    token: token.value,
+    companyId: companyId.value,
+    sourceNames: {
+      baseUrl: base.name,
+      token: token.name,
+      companyId: companyId.name,
+    },
+  };
+}
+
+export function getSimproBridgeStatus(): SimproBridgeStatus {
+  const endpoint = getBridgeEndpoint();
+
+  if (endpoint) {
+    return {
+      configured: true,
+      mode: "webhook",
+      missing: [],
+      endpoint,
+    };
+  }
+
+  const direct = getDirectConfig();
+  if (direct.configured) {
+    return {
+      configured: true,
+      mode: "direct",
+      missing: [],
+      endpoint: `${direct.baseUrl}/companies/${direct.companyId}/quotes/`,
+    };
+  }
+
+  return {
+    configured: false,
+    mode: "missing",
+    missing: ["SIMPRO_QUOTE_PUSH_URL", ...direct.missing],
   };
 }
 
@@ -282,6 +352,77 @@ async function postToWebhook(payload: SimproQuoteExportPayload) {
   };
 }
 
+function numericId(value?: string) {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
+  const costCentreLines = payload.costCentres.flatMap((centre) => {
+    const heading = [`Cost centre: ${centre.name}`];
+    if (centre.clientDescription) heading.push(`Client description: ${centre.clientDescription}`);
+    const lines = centre.lines.map((line) =>
+      `- ${line.description}: qty ${line.quantity}, cost £${line.unitCost.toFixed(2)}, sell £${line.unitSell.toFixed(2)}`,
+    );
+    return [...heading, ...lines, ""];
+  });
+
+  return [
+    `Created from NeXa quote ${payload.quote.ref}`,
+    payload.quote.description,
+    "",
+    `Customer: ${payload.customer.name}`,
+    payload.site.address ? `Site: ${payload.site.address}` : null,
+    "",
+    `Totals: cost £${payload.totals.cost.toFixed(2)} / sell £${payload.totals.sell.toFixed(2)} / profit £${payload.totals.profit.toFixed(2)}`,
+    "",
+    ...costCentreLines,
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+function buildDirectQuoteBody(payload: SimproQuoteExportPayload) {
+  const customerId = numericId(payload.customer.id) ?? numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID);
+  const siteId = numericId(payload.site.id) ?? numericId(process.env.SIMPRO_DEFAULT_SITE_ID);
+  const body: UnknownRecord = {
+    Name: `${payload.quote.ref} - ${payload.quote.description}`.slice(0, 120),
+    Description: buildSimproQuoteDescription(payload),
+  };
+
+  if (customerId) body.Customer = customerId;
+  if (siteId) body.Site = siteId;
+
+  return body;
+}
+
+async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
+  const direct = getDirectConfig();
+  if (!direct.configured) return null;
+
+  const endpoint = `${direct.baseUrl}/companies/${direct.companyId}/quotes/`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${direct.token}`,
+    },
+    body: JSON.stringify(buildDirectQuoteBody(payload)),
+  });
+
+  const body = await response.json().catch(() => ({})) as UnknownRecord;
+  if (!response.ok) {
+    const errors = Array.isArray(body.errors) ? body.errors.join("; ") : "";
+    const message = asString(body.error) || asString(body.message) || errors || `Simpro returned HTTP ${response.status}`;
+    throw new Error(message);
+  }
+
+  return {
+    endpoint,
+    simproQuoteId: asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.quoteId) ?? asIdentifier(body.simproQuoteId),
+  };
+}
+
 function saveExportRecord(record: SimproQuoteExportRecord) {
   const state = getHubDetailState();
   const current = Array.isArray(state.simproExports) ? state.simproExports : [];
@@ -319,17 +460,21 @@ export async function pushQuoteToSimpro(
   if (!bridgeStatus.configured) {
     exportRecord.setupRequired = bridgeStatus.missing.join(", ");
   } else {
+    const sendMode = bridgeStatus.mode === "direct" ? "direct" : "webhook";
     try {
-      const webhookResult = await postToWebhook(payload);
-      if (webhookResult) {
+      const sendResult = sendMode === "direct"
+        ? await postToDirectSimpro(payload)
+        : await postToWebhook(payload);
+
+      if (sendResult) {
         exportRecord.status = "Sent";
-        exportRecord.mode = "webhook";
-        exportRecord.endpoint = webhookResult.endpoint;
-        exportRecord.simproQuoteId = webhookResult.simproQuoteId;
+        exportRecord.mode = sendMode;
+        exportRecord.endpoint = sendResult.endpoint;
+        exportRecord.simproQuoteId = sendResult.simproQuoteId;
       }
     } catch (error) {
       exportRecord.status = "Failed";
-      exportRecord.mode = "webhook";
+      exportRecord.mode = sendMode;
       exportRecord.error = error instanceof Error ? error.message : "Unable to send to Simpro bridge";
     }
   }
@@ -354,10 +499,10 @@ export async function pushQuoteToSimpro(
     recordType: "quote",
     recordId: quote.id,
     summary: exportRecord.status === "Sent"
-      ? `${quote.ref} sent to Simpro bridge${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`
+      ? `${quote.ref} sent to Simpro ${exportRecord.mode === "direct" ? "API" : "bridge"}${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`
       : exportRecord.status === "Failed"
         ? `${quote.ref} could not be sent to Simpro bridge: ${exportRecord.error}.`
-        : `${quote.ref} saved in the NeXa Simpro queue. It has not been sent to Simpro yet because the live bridge URL is not configured.`,
+        : `${quote.ref} saved in the NeXa Simpro queue. It has not been sent to Simpro yet because ${exportRecord.setupRequired ?? "Simpro connection settings"} are not configured.`,
     source: "simpro bridge",
     importance: exportRecord.status === "Failed" ? "high" : "normal",
   });
