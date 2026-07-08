@@ -114,6 +114,8 @@ const STORAGE_KEYS = {
   customCatalog: "hubflo:custom-catalog:v1",
 } as const;
 
+const SETUP_SERVER_SYNC_HOLD_MS = 120000;
+
 function safeLoadStoredJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
 
@@ -4395,6 +4397,8 @@ export default function Dashboard() {
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSetupEditAt = useRef(0);
+  const hasAppliedHubSetupState = useRef(false);
+  const pendingSetupSaveRef = useRef(false);
 
   const activeEmployee = useMemo(
     () => employees.find((employee) => employee.id === activeEmployeeId) ?? employees[0],
@@ -5284,7 +5288,7 @@ export default function Dashboard() {
 
         if (hubStateResponse.ok) {
           const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
-          const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < 5000;
+          const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           if (hubState.employees?.length) {
             const nextEmployees = normalizeEmployeeCards(hubState.employees);
             setEmployees(nextEmployees);
@@ -5298,32 +5302,35 @@ export default function Dashboard() {
                 : nextEmployees[0]?.id ?? "",
             );
           }
-          if (!hasRecentLocalSetupEdit) {
+          if (!hasAppliedHubSetupState.current && !hasRecentLocalSetupEdit && !pendingSetupSaveRef.current) {
             if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
             if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
             if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
             if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
             if (hubState.financeSettings) setFinanceSettings(normalizeFinanceSettings(hubState.financeSettings));
             if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
+            const nextLegacyEngineerFlow = hubState.engineerFlowTemplate
+              ? normalizeEngineerFlowTemplate(hubState.engineerFlowTemplate)
+              : engineerFlowTemplate;
+            const nextEngineerFlows = normalizeEngineerFlowTemplates(
+              hubState.engineerFlowTemplates ?? engineerFlowTemplates,
+              nextLegacyEngineerFlow,
+            );
+            const nextCostCentreTypes = hubState.costCentreTypes?.length ? hubState.costCentreTypes : costCentreTypeOptions;
+            if (hubState.engineerFlowTemplate) setEngineerFlowTemplate(nextLegacyEngineerFlow);
+            setEngineerFlowTemplates(nextEngineerFlows);
+            if (hubState.activeEngineerFlowTemplateId) setActiveEngineerFlowTemplateId(hubState.activeEngineerFlowTemplateId);
+            setCostCentreTypeOptions(nextCostCentreTypes);
+            setCostCentreFlowAssignmentDrafts(
+              normalizeCostCentreAssignments(
+                hubState.costCentreFlowAssignmentDrafts ?? costCentreFlowAssignmentDrafts,
+                nextCostCentreTypes,
+              ),
+            );
+            hasAppliedHubSetupState.current = true;
+          } else if (!hasAppliedHubSetupState.current && (hasRecentLocalSetupEdit || pendingSetupSaveRef.current)) {
+            hasAppliedHubSetupState.current = true;
           }
-          const nextLegacyEngineerFlow = hubState.engineerFlowTemplate
-            ? normalizeEngineerFlowTemplate(hubState.engineerFlowTemplate)
-            : engineerFlowTemplate;
-          const nextEngineerFlows = normalizeEngineerFlowTemplates(
-            hubState.engineerFlowTemplates ?? engineerFlowTemplates,
-            nextLegacyEngineerFlow,
-          );
-          const nextCostCentreTypes = hubState.costCentreTypes?.length ? hubState.costCentreTypes : costCentreTypeOptions;
-          if (hubState.engineerFlowTemplate) setEngineerFlowTemplate(nextLegacyEngineerFlow);
-          setEngineerFlowTemplates(nextEngineerFlows);
-          if (hubState.activeEngineerFlowTemplateId) setActiveEngineerFlowTemplateId(hubState.activeEngineerFlowTemplateId);
-          setCostCentreTypeOptions(nextCostCentreTypes);
-          setCostCentreFlowAssignmentDrafts(
-            normalizeCostCentreAssignments(
-              hubState.costCentreFlowAssignmentDrafts ?? costCentreFlowAssignmentDrafts,
-              nextCostCentreTypes,
-            ),
-          );
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
           if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
           if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
@@ -5456,6 +5463,7 @@ export default function Dashboard() {
 
     if (!hasLoadedHubDetailState) return;
 
+    const setupSaveIncludesRecentEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload: HubDetailStatePayload = {
@@ -5496,9 +5504,15 @@ export default function Dashboard() {
           setSectionError((current) =>
             current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
           );
+          if (setupSaveIncludesRecentEdit) {
+            pendingSetupSaveRef.current = false;
+          }
         })
         .catch(() => {
           if (!controller.signal.aborted) {
+            if (setupSaveIncludesRecentEdit) {
+              pendingSetupSaveRef.current = false;
+            }
             setSectionError("Could not save shared hub detail state, so local fallback is being used.");
           }
         });
@@ -6478,6 +6492,8 @@ export default function Dashboard() {
 
   function markSetupEdited() {
     lastLocalSetupEditAt.current = Date.now();
+    pendingSetupSaveRef.current = true;
+    hasAppliedHubSetupState.current = true;
   }
 
   function recordDocumentFolders(recordType: RecordDocumentScope) {
