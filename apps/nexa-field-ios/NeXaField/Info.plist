@@ -36,7 +36,11 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>NeXa Field uses the camera and LiDAR scanner to capture room geometry for quotes and takeoffs.</string>
+	<key>NSWorldSensingUsageDescription</key>
+	<string>NeXa Field uses LiDAR and AR world sensing to understand room walls, openings and fixed items for quote measurements.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
+	<key>UIRequiresFullScreen</key>
+	<true/>
 </dict>
 </plist>

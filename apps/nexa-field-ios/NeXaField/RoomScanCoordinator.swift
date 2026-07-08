@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import RoomPlan
 import UIKit
 
@@ -61,15 +62,62 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
             return
         }
 
+        guard let captureView else {
+            lastError = "The LiDAR scanner is still loading. Wait a second, then tap Start Scan again."
+            status = "Scanner not ready yet."
+            return
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            runScan(on: captureView)
+        case .notDetermined:
+            status = "Waiting for camera permission..."
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                Task { @MainActor in
+                    guard let self else { return }
+                    if granted {
+                        self.startScan()
+                    } else {
+                        self.lastError = "Camera permission is needed before NeXa Field can use LiDAR RoomPlan scanning."
+                        self.status = "Camera permission denied."
+                    }
+                }
+            }
+        case .denied, .restricted:
+            lastError = "Camera permission is blocked. Open iOS Settings > Privacy & Security > Camera and allow NeXa Field."
+            status = "Camera permission blocked."
+        @unknown default:
+            lastError = "Camera permission is not available on this device."
+            status = "Camera permission unavailable."
+        }
+    }
+
+    private func runScan(on captureView: RoomCaptureView) {
+        guard !isScanning else {
+            return
+        }
+
         lastError = nil
         latestRoom = nil
-        captureView?.captureSession.run(configuration: configuration)
+        captureView.captureSession.run(configuration: configuration)
         isScanning = true
         status = "Scanning. Walk around the room slowly and capture walls, openings and fixed items."
     }
 
     func stopScan() {
-        captureView?.captureSession.stop()
+        guard isScanning else {
+            return
+        }
+
+        guard let captureView else {
+            isScanning = false
+            lastError = "The scanner view was closed before the scan could finish."
+            status = "Scanner view unavailable."
+            return
+        }
+
+        captureView.captureSession.stop()
         isScanning = false
         status = "Processing RoomPlan scan..."
     }
