@@ -1139,6 +1139,8 @@ type SimproExportRecord = {
   status: "Queued" | "Sent" | "Failed";
   mode: "manual" | "webhook";
   simproQuoteId?: string;
+  endpoint?: string;
+  setupRequired?: string;
   error?: string;
   payload?: {
     totals?: {
@@ -7853,7 +7855,7 @@ export default function Dashboard() {
         setSectionError(message);
         showNotice(message);
       } else {
-        showNotice(`${selectedQuote.ref} Simpro handoff queued. Add the live Simpro bridge URL when ready.`);
+        showNotice(`${selectedQuote.ref} saved in NeXa's Simpro queue. It has not reached Simpro yet because the live bridge URL is not configured.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create Simpro handoff.";
@@ -13405,7 +13407,7 @@ export default function Dashboard() {
                             {selectedQuote.simproStatus === "Sent"
                               ? `Last sent${selectedQuote.simproQuoteId ? ` as ${selectedQuote.simproQuoteId}` : ""}.`
                               : selectedQuote.simproStatus === "Queued"
-                                ? "Queued until the live Simpro bridge URL is configured."
+                                ? "Queued in NeXa only. It will not appear in Simpro until the live bridge URL is configured."
                                 : "Creates a Simpro-ready handoff from this quote and its cost centres."}
                           </small>
                         </div>
@@ -13971,7 +13973,13 @@ export default function Dashboard() {
                             <div>
                               <strong>{item.quoteRef} Simpro handoff</strong>
                               <small>
-                                {item.simproQuoteId ? `Simpro ${item.simproQuoteId}` : item.mode === "webhook" ? "Webhook bridge" : "Queued payload"}
+                                {item.simproQuoteId
+                                  ? `Simpro ${item.simproQuoteId}`
+                                  : item.status === "Queued"
+                                    ? "Queued in NeXa - not sent to Simpro yet"
+                                    : item.mode === "webhook"
+                                      ? "Webhook bridge"
+                                      : "Queued payload"}
                                 {" · "}
                                 {item.createdAt}
                               </small>
@@ -18391,6 +18399,11 @@ export default function Dashboard() {
                           <span>WhatsApp</span>
                           <strong>Engineer confirmations and site updates can feed the job</strong>
                           <small>Live Meta keys are still needed before production messaging.</small>
+                        </article>
+                        <article>
+                          <span>Simpro bridge</span>
+                          <strong>Quote handoffs queue in NeXa until the live bridge URL is configured</strong>
+                          <small>Add SIMPRO_QUOTE_PUSH_URL in Render when the bridge service is ready.</small>
                         </article>
                       </div>
                     </section>
