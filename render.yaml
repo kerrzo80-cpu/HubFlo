@@ -23,3 +23,17 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-pilot.onrender.com
+      - key: SIMPRO_QUOTE_PUSH_URL
+        sync: false
+      - key: SIMPRO_QUOTE_PUSH_TOKEN
+        sync: false
+      - key: SIMPRO_API_BASE_URL
+        sync: false
+      - key: SIMPRO_ACCESS_TOKEN
+        sync: false
+      - key: SIMPRO_COMPANY_ID
+        sync: false
+      - key: SIMPRO_DEFAULT_CUSTOMER_ID
+        sync: false
+      - key: SIMPRO_DEFAULT_SITE_ID
+        sync: false

@@ -103,6 +103,13 @@ export type SimproBridgeStatus = {
   mode: "webhook" | "direct" | "missing";
   missing: string[];
   endpoint?: string;
+  detectedEnvKeys: string[];
+  sourceNames?: {
+    webhookUrl?: string;
+    directBaseUrl?: string;
+    directToken?: string;
+    companyId?: string;
+  };
 };
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -141,6 +148,12 @@ function envFirst(names: string[]) {
   return null;
 }
 
+function detectedSimproEnvKeys() {
+  return Object.keys(process.env)
+    .filter((key) => key.startsWith("SIMPRO_"))
+    .sort();
+}
+
 function cleanEndpoint(value?: string) {
   return value?.trim().replace(/\/+$/, "");
 }
@@ -156,13 +169,29 @@ function normaliseBaseUrl(value: string) {
 }
 
 function getDirectConfig() {
-  const base = envFirst(["SIMPRO_API_BASE_URL", "SIMPRO_BUILD_URL", "SIMPRO_BASE_URL", "SIMPRO_SITE_URL"]);
-  const token = envFirst(["SIMPRO_API_KEY", "SIMPRO_ACCESS_TOKEN", "SIMPRO_API_TOKEN", "SIMPRO_TOKEN"]);
-  const companyId = envFirst(["SIMPRO_COMPANY_ID", "SIMPRO_COMPANY"]);
+  const base = envFirst([
+    "SIMPRO_API_BASE_URL",
+    "SIMPRO_BUILD_URL",
+    "SIMPRO_BASE_URL",
+    "SIMPRO_SITE_URL",
+    "SIMPRO_API_URL",
+    "SIMPRO_URL",
+    "SIMPRO_HOST",
+    "SIMPRO_DOMAIN",
+  ]);
+  const token = envFirst([
+    "SIMPRO_API_KEY",
+    "SIMPRO_ACCESS_TOKEN",
+    "SIMPRO_API_TOKEN",
+    "SIMPRO_TOKEN",
+    "SIMPRO_OAUTH_ACCESS_TOKEN",
+    "SIMPRO_BEARER_TOKEN",
+  ]);
+  const companyId = envFirst(["SIMPRO_COMPANY_ID", "SIMPRO_COMPANY", "SIMPRO_COMPANY_NUMBER", "SIMPRO_COMPANYID"]);
   const missing = [
-    !base ? "SIMPRO_BUILD_URL or SIMPRO_API_BASE_URL" : null,
-    !token ? "SIMPRO_API_KEY or SIMPRO_ACCESS_TOKEN" : null,
-    !companyId ? "SIMPRO_COMPANY_ID" : null,
+    !base ? "SIMPRO_API_BASE_URL / SIMPRO_BUILD_URL / SIMPRO_URL" : null,
+    !token ? "SIMPRO_API_KEY / SIMPRO_ACCESS_TOKEN / SIMPRO_TOKEN" : null,
+    !companyId ? "SIMPRO_COMPANY_ID / SIMPRO_COMPANY" : null,
   ].filter((item): item is string => Boolean(item));
 
   if (missing.length > 0 || !base || !token || !companyId) {
@@ -196,6 +225,7 @@ function getDirectConfig() {
 
 export function getSimproBridgeStatus(): SimproBridgeStatus {
   const endpoint = getBridgeEndpoint();
+  const detectedEnvKeys = detectedSimproEnvKeys();
 
   if (endpoint) {
     return {
@@ -203,6 +233,10 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       mode: "webhook",
       missing: [],
       endpoint,
+      detectedEnvKeys,
+      sourceNames: {
+        webhookUrl: "SIMPRO_QUOTE_PUSH_URL",
+      },
     };
   }
 
@@ -213,6 +247,12 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       mode: "direct",
       missing: [],
       endpoint: `${direct.baseUrl}/companies/${direct.companyId}/quotes/`,
+      detectedEnvKeys,
+      sourceNames: {
+        directBaseUrl: direct.sourceNames.baseUrl,
+        directToken: direct.sourceNames.token,
+        companyId: direct.sourceNames.companyId,
+      },
     };
   }
 
@@ -220,6 +260,12 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     configured: false,
     mode: "missing",
     missing: ["SIMPRO_QUOTE_PUSH_URL", ...direct.missing],
+    detectedEnvKeys,
+    sourceNames: {
+      directBaseUrl: direct.sourceNames.baseUrl,
+      directToken: direct.sourceNames.token,
+      companyId: direct.sourceNames.companyId,
+    },
   };
 }
 
@@ -382,8 +428,9 @@ function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
 }
 
 function buildDirectQuoteBody(payload: SimproQuoteExportPayload) {
-  const customerId = numericId(payload.customer.id) ?? numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID);
-  const siteId = numericId(payload.site.id) ?? numericId(process.env.SIMPRO_DEFAULT_SITE_ID);
+  const customerId =
+    numericId(payload.customer.id) ?? numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID ?? process.env.SIMPRO_CUSTOMER_ID);
+  const siteId = numericId(payload.site.id) ?? numericId(process.env.SIMPRO_DEFAULT_SITE_ID ?? process.env.SIMPRO_SITE_ID);
   const body: UnknownRecord = {
     Name: `${payload.quote.ref} - ${payload.quote.description}`.slice(0, 120),
     Description: buildSimproQuoteDescription(payload),

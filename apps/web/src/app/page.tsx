@@ -1158,6 +1158,13 @@ type SimproBridgeStatus = {
   missing: string[];
   endpoint?: string;
   checkedAt?: string;
+  detectedEnvKeys?: string[];
+  sourceNames?: {
+    webhookUrl?: string;
+    directBaseUrl?: string;
+    directToken?: string;
+    companyId?: string;
+  };
 };
 
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
@@ -18506,13 +18513,15 @@ export default function Dashboard() {
                           <span>Simpro bridge</span>
                           <strong>
                             {simproBridgeStatus.configured
-                              ? "Live quote handoff bridge configured"
+                              ? `Live quote handoff configured (${simproBridgeStatus.mode})`
                               : "Quote handoffs queue in NeXa until the bridge is configured"}
                           </strong>
                           <small>
                             {simproBridgeStatus.configured
                               ? `Posting to ${simproBridgeStatus.endpoint ?? "configured bridge endpoint"}.`
-                              : `Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} in Render environment variables.`}
+                              : simproBridgeStatus.detectedEnvKeys?.length
+                                ? `Render can see ${simproBridgeStatus.detectedEnvKeys.join(", ")} but still needs ${simproBridgeStatus.missing.join(", ")}.`
+                                : `No SIMPRO_ variables are visible to this service. Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"}.`}
                           </small>
                         </article>
                       </div>
