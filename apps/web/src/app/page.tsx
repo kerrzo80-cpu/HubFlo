@@ -1151,6 +1151,14 @@ type SimproExportRecord = {
   };
 };
 
+type SimproBridgeStatus = {
+  configured: boolean;
+  mode: "webhook" | "missing" | "unknown";
+  missing: string[];
+  endpoint?: string;
+  checkedAt?: string;
+};
+
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
 type EmployeeDocumentDraft = EmployeeDocument & { id: string };
 type EmployeeEmergencyContactDraft = EmployeeEmergencyContact & { id: string };
@@ -3978,8 +3986,16 @@ function roundCurrencyValue(value: number) {
 }
 
 function numberFromSetting(value: string | number | undefined, fallback = 0) {
+  if (typeof value === "string" && value.trim() === "") return fallback;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function finiteNumberFromSetting(value: string | number | undefined) {
+  if (typeof value === "string" && value.trim() === "") return null;
+  if (value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function markupPercentFromRates(costRate: number, sellRate: number, fallback = 0) {
@@ -4352,6 +4368,11 @@ export default function Dashboard() {
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
   const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
   const [simproExports, setSimproExports] = useState<SimproExportRecord[]>([]);
+  const [simproBridgeStatus, setSimproBridgeStatus] = useState<SimproBridgeStatus>({
+    configured: false,
+    mode: "unknown",
+    missing: [],
+  });
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
@@ -5348,6 +5369,37 @@ export default function Dashboard() {
       return changed ? next : current;
     });
   }, [hasHydratedLocalData, jobs, quoteCostCentres, quotes]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+
+    let stopped = false;
+
+    const loadSimproStatus = async () => {
+      try {
+        const response = await fetch("/api/integrations/simpro/status", { headers: requestHeaders });
+        if (!response.ok) return;
+        const status = (await response.json()) as SimproBridgeStatus;
+        if (!stopped) {
+          setSimproBridgeStatus(status);
+        }
+      } catch {
+        if (!stopped) {
+          setSimproBridgeStatus({
+            configured: false,
+            mode: "unknown",
+            missing: ["Unable to check Simpro bridge"],
+          });
+        }
+      }
+    };
+
+    loadSimproStatus().catch(() => {});
+
+    return () => {
+      stopped = true;
+    };
+  }, [hasHydratedLocalData, requestHeaders]);
 
   useEffect(() => {
     if (!hasHydratedLocalData) return;
@@ -6418,11 +6470,14 @@ export default function Dashboard() {
         if (rate.id !== rateId) return rate;
 
         const nextRate = { ...rate, ...patch };
-        const costRate = numberFromSetting(nextRate.costRate);
+        const costRate = finiteNumberFromSetting(nextRate.costRate);
+        const markupPercent = finiteNumberFromSetting(nextRate.markupPercent);
+        const sellRate = finiteNumberFromSetting(nextRate.sellRate);
 
         if (Object.prototype.hasOwnProperty.call(patch, "sellRate")) {
-          const sellRate = numberFromSetting(nextRate.sellRate);
-          nextRate.markupPercent = String(markupPercentFromRates(costRate, sellRate, numberFromSetting(nextRate.markupPercent)));
+          if (costRate !== null && sellRate !== null) {
+            nextRate.markupPercent = String(markupPercentFromRates(costRate, sellRate, numberFromSetting(nextRate.markupPercent)));
+          }
           return nextRate;
         }
 
@@ -6430,7 +6485,9 @@ export default function Dashboard() {
           Object.prototype.hasOwnProperty.call(patch, "costRate") ||
           Object.prototype.hasOwnProperty.call(patch, "markupPercent")
         ) {
-          nextRate.sellRate = String(roundCurrencyValue(lineSellFromMarkup(costRate, numberFromSetting(nextRate.markupPercent))));
+          if (costRate !== null && markupPercent !== null) {
+            nextRate.sellRate = String(roundCurrencyValue(lineSellFromMarkup(costRate, markupPercent)));
+          }
         }
 
         return nextRate;
@@ -7855,7 +7912,8 @@ export default function Dashboard() {
         setSectionError(message);
         showNotice(message);
       } else {
-        showNotice(`${selectedQuote.ref} saved in NeXa's Simpro queue. It has not reached Simpro yet because the live bridge URL is not configured.`);
+        const missingSetup = exportRecord.setupRequired || "SIMPRO_QUOTE_PUSH_URL";
+        showNotice(`${selectedQuote.ref} saved in NeXa's Simpro queue. It has not reached Simpro yet because ${missingSetup} is not configured.`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to create Simpro handoff.";
@@ -10064,13 +10122,19 @@ export default function Dashboard() {
     const item = availableQuoteCatalog.find((catalogItem) => catalogItem.id === catalogItemId) ?? availableQuoteCatalog[0];
     if (!item) return;
 
+    const markupPercent = catalogMarkupPercent(item, defaultMarkupForCatalogType(item.type, normalizedFinanceSettings));
+    const line = makeQuoteCostLine(item);
+    const pricedLine = item.costRate > 0
+      ? { ...line, unitSell: roundCurrencyValue(lineSellFromMarkup(item.costRate, markupPercent)) }
+      : line;
+
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
         centre.id === centreId
           ? {
               ...centre,
-              lines: [...centre.lines, makeQuoteCostLine(item)],
+              lines: [...centre.lines, pricedLine],
             }
           : centre,
       ),
@@ -13407,8 +13471,10 @@ export default function Dashboard() {
                             {selectedQuote.simproStatus === "Sent"
                               ? `Last sent${selectedQuote.simproQuoteId ? ` as ${selectedQuote.simproQuoteId}` : ""}.`
                               : selectedQuote.simproStatus === "Queued"
-                                ? "Queued in NeXa only. It will not appear in Simpro until the live bridge URL is configured."
-                                : "Creates a Simpro-ready handoff from this quote and its cost centres."}
+                                ? `Queued in NeXa only. It will not appear in Simpro until ${selectedQuoteSimproExports[0]?.setupRequired ?? "SIMPRO_QUOTE_PUSH_URL"} is configured.`
+                                : simproBridgeStatus.configured
+                                  ? "Live Simpro bridge is configured. This will push the quote payload to the bridge."
+                                  : `Simpro bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} missing.`}
                           </small>
                         </div>
                       </article>
@@ -18273,6 +18339,7 @@ export default function Dashboard() {
 	                        <div>
 	                          <span className="permission-heading">Rates & markups</span>
 	                          <h2>Default commercial pricing</h2>
+	                          <p>Changes autosave and feed new quote/job labour and material lines.</p>
 	                        </div>
 	                        <button className="primary-button" type="button" onClick={addLabourRateSetting}>
 	                          <Plus size={15} />
@@ -18402,8 +18469,16 @@ export default function Dashboard() {
                         </article>
                         <article>
                           <span>Simpro bridge</span>
-                          <strong>Quote handoffs queue in NeXa until the live bridge URL is configured</strong>
-                          <small>Add SIMPRO_QUOTE_PUSH_URL in Render when the bridge service is ready.</small>
+                          <strong>
+                            {simproBridgeStatus.configured
+                              ? "Live quote handoff bridge configured"
+                              : "Quote handoffs queue in NeXa until the bridge is configured"}
+                          </strong>
+                          <small>
+                            {simproBridgeStatus.configured
+                              ? `Posting to ${simproBridgeStatus.endpoint ?? "configured bridge endpoint"}.`
+                              : `Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} in Render environment variables.`}
+                          </small>
                         </article>
                       </div>
                     </section>

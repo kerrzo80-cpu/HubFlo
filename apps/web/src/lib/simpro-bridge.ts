@@ -98,6 +98,13 @@ export type SimproPushResult = {
   auditEvent: AuditEvent;
 };
 
+export type SimproBridgeStatus = {
+  configured: boolean;
+  mode: "webhook" | "missing";
+  missing: string[];
+  endpoint?: string;
+};
+
 function asRecord(value: unknown): UnknownRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as UnknownRecord) : null;
 }
@@ -125,6 +132,25 @@ function cleanEndpoint(value?: string) {
 
 function getBridgeEndpoint() {
   return cleanEndpoint(process.env.SIMPRO_QUOTE_PUSH_URL);
+}
+
+export function getSimproBridgeStatus(): SimproBridgeStatus {
+  const endpoint = getBridgeEndpoint();
+
+  if (!endpoint) {
+    return {
+      configured: false,
+      mode: "missing",
+      missing: ["SIMPRO_QUOTE_PUSH_URL"],
+    };
+  }
+
+  return {
+    configured: true,
+    mode: "webhook",
+    missing: [],
+    endpoint,
+  };
 }
 
 function normaliseCostLine(
@@ -288,8 +314,10 @@ export async function pushQuoteToSimpro(
     payload,
   };
 
-  if (!getBridgeEndpoint()) {
-    exportRecord.setupRequired = "SIMPRO_QUOTE_PUSH_URL";
+  const bridgeStatus = getSimproBridgeStatus();
+
+  if (!bridgeStatus.configured) {
+    exportRecord.setupRequired = bridgeStatus.missing.join(", ");
   } else {
     try {
       const webhookResult = await postToWebhook(payload);
