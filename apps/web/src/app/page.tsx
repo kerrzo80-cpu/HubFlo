@@ -1057,6 +1057,7 @@ type EstimateMaterialLine = {
 
 type EstimateLabourLine = {
   id: string;
+  catalogItemId?: string;
   role: string;
   hours: number;
   costRate: number;
@@ -2756,6 +2757,7 @@ function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[])
     }));
     const labour = totals.labourLines.map((line, lineIndex): EstimateLabourLine => ({
       id: `${job.id}-${centre.id}-labour-${lineIndex}`,
+      catalogItemId: line.catalogItemId,
       role: line.description,
       hours: line.quantity,
       costRate: line.unitCost,
@@ -4082,6 +4084,126 @@ function catalogMarkupPercent(item: CatalogItem, fallbackMarkup: number) {
     : fallbackMarkup;
 }
 
+const lockedQuoteCatalogItemIds = new Set(["one-off-material", "supplier-quote-material", "takeoff-boq", "radiator-stelrad"]);
+
+function refreshedQuoteCostLineFromCatalog(
+  line: QuoteCostLine,
+  catalogById: Map<string, CatalogItem>,
+  settings: FinanceSettings,
+) {
+  if (lockedQuoteCatalogItemIds.has(line.catalogItemId)) return line;
+  const item = catalogById.get(line.catalogItemId);
+  if (!item || item.type !== "Labour") return line;
+
+  const markupPercent = catalogMarkupPercent(item, defaultMarkupForCatalogType(item.type, settings));
+  const nextUnitCost = roundCurrencyValue(item.costRate);
+  const nextUnitSell = roundCurrencyValue(lineSellFromMarkup(item.costRate, markupPercent));
+  const nextDescription = item.type === "Labour" ? item.name : line.description;
+
+  if (
+    line.unitCost === nextUnitCost &&
+    line.unitSell === nextUnitSell &&
+    line.description === nextDescription
+  ) {
+    return line;
+  }
+
+  return {
+    ...line,
+    description: nextDescription,
+    unitCost: nextUnitCost,
+    unitSell: nextUnitSell,
+  };
+}
+
+function inferredLabourCatalogItemId(line: Pick<EstimateLabourLine, "catalogItemId" | "role">) {
+  if (line.catalogItemId) return line.catalogItemId;
+  const role = line.role.toLowerCase();
+  if (role.includes("apprentice")) return "labour-apprentice";
+  if (role.includes("manager") || role.includes("survey")) return "labour-manager";
+  if (role.includes("labour") || role.includes("plumber") || role.includes("engineer") || role.includes("joiner")) {
+    return "labour-engineer";
+  }
+  return null;
+}
+
+function refreshedEstimateLabourLineFromRates(
+  line: EstimateLabourLine,
+  catalogById: Map<string, CatalogItem>,
+  settings: FinanceSettings,
+) {
+  const catalogItemId = inferredLabourCatalogItemId(line);
+  if (!catalogItemId) return line;
+  const item = catalogById.get(catalogItemId);
+  if (!item || item.type !== "Labour") return line;
+
+  const markupPercent = catalogMarkupPercent(item, defaultMarkupForCatalogType("Labour", settings));
+  const nextCostRate = roundCurrencyValue(item.costRate);
+  const nextMarkupPercent = roundCurrencyValue(markupPercent);
+  const nextRole = line.catalogItemId ? item.name : line.role;
+
+  if (
+    line.catalogItemId === catalogItemId &&
+    line.costRate === nextCostRate &&
+    line.markupPercent === nextMarkupPercent &&
+    line.role === nextRole
+  ) {
+    return line;
+  }
+
+  return {
+    ...line,
+    catalogItemId,
+    role: nextRole,
+    costRate: nextCostRate,
+    markupPercent: nextMarkupPercent,
+  };
+}
+
+function refreshedQuoteCostCentresFromRateBook(
+  centres: QuoteCostCentre[],
+  catalogById: Map<string, CatalogItem>,
+  settings: FinanceSettings,
+) {
+  let changed = false;
+  const nextCentres = centres.map((centre) => {
+    let centreChanged = false;
+    const lines = centre.lines.map((line) => {
+      const nextLine = refreshedQuoteCostLineFromCatalog(line, catalogById, settings);
+      if (nextLine !== line) centreChanged = true;
+      return nextLine;
+    });
+
+    if (!centreChanged) return centre;
+    changed = true;
+    return { ...centre, lines };
+  });
+
+  return changed ? nextCentres : centres;
+}
+
+function refreshedEstimateCostCentresFromRateBook(
+  centres: EstimateCostCentre[],
+  catalogById: Map<string, CatalogItem>,
+  settings: FinanceSettings,
+) {
+  let changed = false;
+  const nextCentres = centres.map((centre) => {
+    let centreChanged = false;
+    const labour = centre.labour.map((line) => {
+      const nextLine = refreshedEstimateLabourLineFromRates(line, catalogById, settings);
+      if (nextLine !== line) centreChanged = true;
+      return nextLine;
+    });
+
+    if (!centreChanged) return centre;
+    changed = true;
+    return { ...centre, labour };
+  });
+
+  return changed ? nextCentres : centres;
+}
+
 function weekdayFromDate(date: string): Weekday {
   const day = new Date(`${date}T00:00:00`).getDay();
   return weekDays[(day + 6) % 7] ?? "Mon";
@@ -4261,9 +4383,15 @@ function makeOneOffEstimateMaterialLine(description = "One-off material", markup
   };
 }
 
-function makeEstimateLabourLine(role = "Plumber labour", costRate = 40, markupPercent = 30): EstimateLabourLine {
+function makeEstimateLabourLine(
+  role = "Plumber labour",
+  costRate = 40,
+  markupPercent = 30,
+  catalogItemId?: string,
+): EstimateLabourLine {
   return {
     id: `labour-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+    catalogItemId,
     role,
     hours: 1,
     costRate,
@@ -4436,6 +4564,10 @@ export default function Dashboard() {
       ...customQuoteCatalog,
     ],
     [customQuoteCatalog, normalizedFinanceSettings],
+  );
+  const availableQuoteCatalogById = useMemo(
+    () => new Map(availableQuoteCatalog.map((item) => [item.id, item])),
+    [availableQuoteCatalog],
   );
 
   const engineerFlowLibrary = useMemo(
@@ -4781,9 +4913,13 @@ export default function Dashboard() {
   const selectedJobEstimateCostCentres = useMemo(
     () =>
       selectedJob
-        ? jobEstimateCostCentres[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob)
+        ? refreshedEstimateCostCentresFromRateBook(
+            jobEstimateCostCentres[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob),
+            availableQuoteCatalogById,
+            normalizedFinanceSettings,
+          )
         : [],
-    [jobEstimateCostCentres, selectedJob],
+    [availableQuoteCatalogById, jobEstimateCostCentres, normalizedFinanceSettings, selectedJob],
   );
 
   const selectedJobSurveyPack = useMemo(
@@ -5396,6 +5532,44 @@ export default function Dashboard() {
       return changed ? next : current;
     });
   }, [hasHydratedLocalData, jobs, quoteCostCentres, quotes]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+
+    setQuoteCostCentres((current) => {
+      let changed = false;
+      const next: Record<string, QuoteCostCentre[]> = {};
+
+      Object.entries(current).forEach(([quoteId, centres]) => {
+        const refreshed = refreshedQuoteCostCentresFromRateBook(
+          centres,
+          availableQuoteCatalogById,
+          normalizedFinanceSettings,
+        );
+        next[quoteId] = refreshed;
+        if (refreshed !== centres) changed = true;
+      });
+
+      return changed ? next : current;
+    });
+
+    setJobEstimateCostCentres((current) => {
+      let changed = false;
+      const next: Record<string, EstimateCostCentre[]> = {};
+
+      Object.entries(current).forEach(([jobId, centres]) => {
+        const refreshed = refreshedEstimateCostCentresFromRateBook(
+          centres,
+          availableQuoteCatalogById,
+          normalizedFinanceSettings,
+        );
+        next[jobId] = refreshed;
+        if (refreshed !== centres) changed = true;
+      });
+
+      return changed ? next : current;
+    });
+  }, [availableQuoteCatalogById, hasHydratedLocalData, normalizedFinanceSettings]);
 
   useEffect(() => {
     if (!hasHydratedLocalData) return;
@@ -8937,7 +9111,11 @@ export default function Dashboard() {
   function setJobCentresForSelected(updater: (centres: EstimateCostCentre[]) => EstimateCostCentre[]) {
     if (!selectedJob) return;
     setJobEstimateCostCentres((current) => {
-      const existing = current[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob);
+      const existing = refreshedEstimateCostCentresFromRateBook(
+        current[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob),
+        availableQuoteCatalogById,
+        normalizedFinanceSettings,
+      );
       return {
         ...current,
         [selectedJob.id]: updater(existing),
@@ -9389,7 +9567,10 @@ export default function Dashboard() {
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
         centre.id === centreId
-          ? { ...centre, labour: [...centre.labour, makeEstimateLabourLine(labourItem.name, labourItem.costRate, markupPercent)] }
+          ? {
+              ...centre,
+              labour: [...centre.labour, makeEstimateLabourLine(labourItem.name, labourItem.costRate, markupPercent, labourItem.id)],
+            }
           : centre,
       ),
     );
