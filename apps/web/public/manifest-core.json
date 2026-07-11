@@ -1,0 +1,24 @@
+{
+  "name": "NeXa Core",
+  "short_name": "Core",
+  "description": "NeXa Core command center for leads, quotes, jobs, invoices and operations.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#006eb8",
+  "theme_color": "#006eb8",
+  "icons": [
+    {
+      "src": "/app-icons/nexa-core-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icons/nexa-core-icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

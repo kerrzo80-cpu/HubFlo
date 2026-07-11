@@ -1,0 +1,24 @@
+{
+  "name": "NeXa Estimator",
+  "short_name": "Estimator",
+  "description": "NeXa estimator for site survey chat, room scans, heat loss and quote handoff.",
+  "start_url": "/estimator",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#006eb8",
+  "theme_color": "#006eb8",
+  "icons": [
+    {
+      "src": "/app-icons/nexa-estimator-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icons/nexa-estimator-icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
