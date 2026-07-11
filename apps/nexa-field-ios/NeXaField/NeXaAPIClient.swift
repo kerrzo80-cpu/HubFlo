@@ -23,19 +23,55 @@ struct FieldRecordSummary: Decodable, Identifiable, Equatable {
 }
 
 struct NeXaAPIClient {
+    private struct EndpointConfig {
+        var baseURL: String
+        var username: String
+        var password: String
+    }
+
+    private func endpointConfig(baseURL: String, username: String, password: String) throws -> EndpointConfig {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else {
+            throw NeXaAPIError.missingBaseURL
+        }
+
+        guard var components = URLComponents(string: trimmed) else {
+            throw NeXaAPIError.invalidURL
+        }
+
+        let embeddedUsername = components.user?.removingPercentEncoding ?? ""
+        let embeddedPassword = components.password?.removingPercentEncoding ?? ""
+        components.user = nil
+        components.password = nil
+
+        guard let cleanURL = components.url?.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) else {
+            throw NeXaAPIError.invalidURL
+        }
+
+        return EndpointConfig(
+            baseURL: cleanURL,
+            username: username.isEmpty ? embeddedUsername : username,
+            password: password.isEmpty ? embeddedPassword : password
+        )
+    }
+
+    private func applyAuthentication(to request: inout URLRequest, config: EndpointConfig) {
+        if !config.username.isEmpty || !config.password.isEmpty {
+            let token = Data("\(config.username):\(config.password)".utf8).base64EncodedString()
+            request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
+        }
+    }
+
     func searchFieldRecords(
         query: String,
         baseURL: String,
         username: String,
         password: String
     ) async throws -> [FieldRecordSummary] {
-        let cleanBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !cleanBaseURL.isEmpty else {
-            throw NeXaAPIError.missingBaseURL
-        }
+        let config = try endpointConfig(baseURL: baseURL, username: username, password: password)
 
-        guard var components = URLComponents(string: "\(cleanBaseURL)/api/field-records") else {
+        guard var components = URLComponents(string: "\(config.baseURL)/api/field-records") else {
             throw NeXaAPIError.invalidURL
         }
         components.queryItems = [
@@ -49,11 +85,7 @@ struct NeXaAPIClient {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue("Manager", forHTTPHeaderField: "x-hubflo-role")
-
-        if !username.isEmpty || !password.isEmpty {
-            let token = Data("\(username):\(password)".utf8).base64EncodedString()
-            request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
-        }
+        applyAuthentication(to: &request, config: config)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -81,14 +113,10 @@ struct NeXaAPIClient {
         username: String,
         password: String
     ) async throws -> RoomScanUploadResponse {
-        let cleanBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !cleanBaseURL.isEmpty else {
-            throw NeXaAPIError.missingBaseURL
-        }
+        let config = try endpointConfig(baseURL: baseURL, username: username, password: password)
 
         let encodedProjectId = projectId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? projectId
-        guard let url = URL(string: "\(cleanBaseURL)/api/takeoff-projects/\(encodedProjectId)/room-scans") else {
+        guard let url = URL(string: "\(config.baseURL)/api/takeoff-projects/\(encodedProjectId)/room-scans") else {
             throw NeXaAPIError.invalidURL
         }
 
@@ -97,11 +125,7 @@ struct NeXaAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Manager", forHTTPHeaderField: "x-hubflo-role")
         request.setValue(payload.actor, forHTTPHeaderField: "x-hubflo-employee-id")
-
-        if !username.isEmpty || !password.isEmpty {
-            let token = Data("\(username):\(password)".utf8).base64EncodedString()
-            request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
-        }
+        applyAuthentication(to: &request, config: config)
 
         request.httpBody = try JSONEncoder().encode(payload)
 

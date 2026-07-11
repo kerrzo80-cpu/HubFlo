@@ -848,6 +848,7 @@ type QuoteCostLine = {
   unitCost: number;
   unitSell: number;
   supplierRequired?: boolean;
+  rateSource?: "ratebook" | "manual";
 };
 
 type SupplierQuoteDraft = {
@@ -1063,6 +1064,7 @@ type EstimateLabourLine = {
   hours: number;
   costRate: number;
   markupPercent: number;
+  rateSource?: "ratebook" | "manual";
 };
 
 type EstimateCostCentre = {
@@ -4092,6 +4094,7 @@ function refreshedQuoteCostLineFromCatalog(
   catalogById: Map<string, CatalogItem>,
   settings: FinanceSettings,
 ) {
+  if (line.rateSource === "manual") return line;
   if (lockedQuoteCatalogItemIds.has(line.catalogItemId)) return line;
   const item = catalogById.get(line.catalogItemId);
   if (!item || item.type !== "Labour") return line;
@@ -4133,6 +4136,7 @@ function refreshedEstimateLabourLineFromRates(
   catalogById: Map<string, CatalogItem>,
   settings: FinanceSettings,
 ) {
+  if (line.rateSource === "manual") return line;
   const catalogItemId = inferredLabourCatalogItemId(line);
   if (!catalogItemId) return line;
   const item = catalogById.get(catalogItemId);
@@ -5571,6 +5575,46 @@ export default function Dashboard() {
       return changed ? next : current;
     });
   }, [availableQuoteCatalogById, hasHydratedLocalData, normalizedFinanceSettings]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+
+    setQuotes((current) => {
+      let changed = false;
+      const nextQuotes = current.map((quote) => {
+        const centres = quoteCostCentres[quote.id];
+        if (!centres?.length) return quote;
+
+        const nextValue = roundCurrencyValue(
+          centres.reduce((total, centre) => total + centre.lines.reduce((lineTotal, line) => lineTotal + quoteLineSell(line), 0), 0),
+        );
+        if (Math.abs((quote.value ?? 0) - nextValue) < 0.01) return quote;
+
+        changed = true;
+        return { ...quote, value: nextValue };
+      });
+
+      return changed ? nextQuotes : current;
+    });
+
+    setJobs((current) => {
+      let changed = false;
+      const nextJobs = current.map((job) => {
+        const centres = jobEstimateCostCentres[job.id];
+        if (!centres?.length) return job;
+
+        const nextValue = roundCurrencyValue(
+          centres.reduce((total, centre) => total + estimateCostCentreTotals(centre).totalSell, 0),
+        );
+        if (Math.abs((job.value ?? 0) - nextValue) < 0.01) return job;
+
+        changed = true;
+        return { ...job, value: nextValue };
+      });
+
+      return changed ? nextJobs : current;
+    });
+  }, [hasHydratedLocalData, jobEstimateCostCentres, quoteCostCentres]);
 
   useEffect(() => {
     if (!hasHydratedLocalData) return;
@@ -9578,12 +9622,18 @@ export default function Dashboard() {
   }
 
   function updateEstimateLabourLine(centreId: string, lineId: string, patch: Partial<EstimateLabourLine>) {
+    const isManualRateEdit =
+      Object.prototype.hasOwnProperty.call(patch, "role") ||
+      Object.prototype.hasOwnProperty.call(patch, "costRate") ||
+      Object.prototype.hasOwnProperty.call(patch, "markupPercent");
+    const nextPatch = isManualRateEdit ? { ...patch, rateSource: "manual" as const } : patch;
+
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
         centre.id === centreId
           ? {
               ...centre,
-              labour: centre.labour.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+              labour: centre.labour.map((line) => (line.id === lineId ? { ...line, ...nextPatch } : line)),
             }
           : centre,
       ),
@@ -10422,13 +10472,19 @@ export default function Dashboard() {
 
   function updateQuoteLine(centreId: string, lineId: string, patch: Partial<QuoteCostLine>) {
     if (!selectedQuote) return;
+    const isManualRateEdit =
+      Object.prototype.hasOwnProperty.call(patch, "description") ||
+      Object.prototype.hasOwnProperty.call(patch, "unitCost") ||
+      Object.prototype.hasOwnProperty.call(patch, "unitSell");
+    const nextPatch = isManualRateEdit ? { ...patch, rateSource: "manual" as const } : patch;
+
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
         centre.id === centreId
           ? {
               ...centre,
-              lines: centre.lines.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+              lines: centre.lines.map((line) => (line.id === lineId ? { ...line, ...nextPatch } : line)),
             }
           : centre,
       ),
