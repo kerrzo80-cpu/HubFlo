@@ -42,6 +42,13 @@ struct ContentView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
+                Image("NexaRoomScannerLogo")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(scanner.reference.isEmpty ? "Room scan" : scanner.reference)
                         .font(.headline)
