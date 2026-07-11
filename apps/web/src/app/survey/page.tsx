@@ -168,12 +168,15 @@ function roomScanDeepLink(project: TakeoffProject) {
     && !["127.0.0.1", "localhost"].includes(window.location.hostname)
     ? window.location.origin
     : publicPilotBaseUrl;
+  const returnPath = typeof window !== "undefined" && window.location.pathname.startsWith("/estimator")
+    ? "/estimator"
+    : "/survey";
   const params = new URLSearchParams({
     baseUrl,
     projectId: project.id,
     reference: project.reference,
     projectName: project.name,
-    returnUrl: `${baseUrl}/survey`,
+    returnUrl: `${baseUrl}${returnPath}`,
   });
   return `nexa-field://room-scan?${params.toString()}`;
 }
@@ -594,7 +597,7 @@ export default function SurveyPage() {
     <main className="survey-app">
       <header className="takeoff-header">
         <div className="takeoff-brand">
-          <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa" />
+          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa Estimator" />
           <span>NeXa Survey</span>
         </div>
         <div className="takeoff-header-actions">

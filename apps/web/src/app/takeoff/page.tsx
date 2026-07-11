@@ -1649,7 +1649,7 @@ export default function TakeoffPage() {
     <main className="takeoff-app">
       <header className="takeoff-header">
         <div className="takeoff-brand">
-          <img src="/brand/nexa-command-lockup-light.svg" alt="NeXa" />
+          <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
           <span>NeXa Takeoff</span>
         </div>
         <div className="takeoff-header-actions">

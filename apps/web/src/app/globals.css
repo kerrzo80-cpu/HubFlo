@@ -3900,6 +3900,23 @@ h1 {
   white-space: pre-wrap;
 }
 
+.quote-line-meta-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.quote-line-meta-cell .quote-line-description {
+  min-height: 54px;
+  width: 100%;
+}
+
+.quote-scope-material-selector .simpro-billable-row.parts {
+  grid-template-columns: 48px minmax(170px, 1fr) minmax(130px, 0.7fr) minmax(58px, 0.42fr) minmax(76px, 0.56fr) minmax(68px, 0.5fr) minmax(78px, 0.58fr) minmax(58px, 0.42fr)
+    minmax(94px, 0.72fr);
+}
+
 .quote-line-actions {
   display: flex;
   flex-wrap: wrap;
@@ -14787,9 +14804,10 @@ body {
 }
 
 .takeoff-brand img {
-  height: 34px;
+  border-radius: 10px;
+  height: 36px;
   object-fit: contain;
-  width: 126px;
+  width: 36px;
 }
 
 .takeoff-brand span {
@@ -17300,6 +17318,11 @@ body {
 .takeoff-lidar-card,
 .takeoff-empty {
   background: #ffffff !important;
+}
+
+.quote-record-panel > .quote-summary-supplier-request,
+.simpro-parts-page .supplier-quote-import {
+  display: none !important;
 }
 
 .takeoff-project-button:hover,

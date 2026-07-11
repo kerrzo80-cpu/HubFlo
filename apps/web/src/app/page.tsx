@@ -369,12 +369,12 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
 type JobDetailTab = "summary" | "cost-centres" | "documents" | "logs";
-type QuoteDetailTab = "setup" | "cost-build" | "documents" | "preview" | "logs";
+type QuoteDetailTab = "setup" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "engineer-flow" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
-type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour" | "supplier-request";
-type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour" | "supplier-request";
+type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour";
+type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
 type DirectoryRecordScope = "lead" | "quote" | "job" | "invoice";
@@ -852,6 +852,28 @@ type QuoteCostLine = {
   rateSource?: "ratebook" | "manual";
 };
 
+type QuoteSupplierLineScopeRef = {
+  centreId: string;
+  lineId: string;
+};
+
+type QuoteSupplierLineWithCentre = {
+  centreId: string;
+  centreName: string;
+  line: QuoteCostLine;
+};
+
+type JobSupplierLineScopeRef = {
+  centreId: string;
+  lineId: string;
+};
+
+type JobSupplierLineWithCentre = {
+  centreId: string;
+  centreName: string;
+  line: EstimateMaterialLine;
+};
+
 type SupplierQuoteDraft = {
   supplier: string;
   contactEmail?: string;
@@ -860,6 +882,7 @@ type SupplierQuoteDraft = {
   fileName: string;
   markupPercent: number;
   lines: QuoteCostLine[];
+  lineRefs?: QuoteSupplierLineScopeRef[];
   sentAt?: string;
 };
 
@@ -1088,6 +1111,7 @@ type JobSupplierRequestDraft = {
   message?: string;
   fileName: string;
   markupPercent: number;
+  lineRefs?: JobSupplierLineScopeRef[];
   lines: EstimateMaterialLine[];
   poNumber?: string;
   poRequestId?: string;
@@ -1282,6 +1306,7 @@ const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
 const quoteDetailTabs: Array<{ key: QuoteDetailTab; label: string }> = [
   { key: "setup", label: "Details" },
   { key: "cost-build", label: "Cost Centre List" },
+  { key: "supplier-request", label: "Supplier Request" },
   { key: "documents", label: "Documents" },
   { key: "preview", label: "Send & Forms" },
   { key: "logs", label: "Logs" },
@@ -1397,16 +1422,20 @@ const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "one-off", label: "One-off items" },
   { key: "heat-loss", label: "Heat loss calculator" },
   { key: "labour", label: "Labour" },
-  { key: "supplier-request", label: "Supplier request" },
 ];
+
+const QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY = "__quote-summary__";
+const QUOTE_SUMMARY_CATALOG_MODAL_KEY = "__quote-summary-catalog__";
 
 const jobBuildTabs: Array<{ key: JobBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
   { key: "catalogue", label: "Catalogue" },
   { key: "one-off", label: "One-off items" },
   { key: "labour", label: "Labour" },
-  { key: "supplier-request", label: "Supplier request" },
 ];
+
+const JOB_SUMMARY_SUPPLIER_DRAFT_KEY = "__job-summary__";
+const JOB_SUMMARY_CATALOG_MODAL_KEY = "__job-summary-catalog__";
 
 const costCentreTemplates = [
   "Bathroom refurbishment",
@@ -3754,9 +3783,10 @@ function makeOneOffQuoteMaterialLine(draft: OneOffMaterialDraft = blankOneOffMat
   };
 }
 
-function makeSupplierQuoteLines(fileName: string, centre: QuoteCostCentre, markupPercent: number): QuoteCostLine[] {
+function makeSupplierQuoteLines(fileName: string, centre: QuoteCostCentre | null, markupPercent: number): QuoteCostLine[] {
   const quoteName = fileName.replace(/\.pdf$/i, "").trim() || "Supplier quote";
-  const seed = centre.templateName === "Bathroom refurbishment"
+  const templateName = centre?.templateName ?? "General";
+  const seed = templateName === "Bathroom refurbishment"
     ? [
         { description: "Pipework fittings and isolation valves", quantity: 1, unitCost: 184 },
         { description: "Waste fittings and traps", quantity: 1, unitCost: 96 },
@@ -3786,7 +3816,7 @@ type SupplierQuoteParseOutcome = {
 
 async function parseSupplierQuoteRowsFromUpload(
   file: File,
-  centre: QuoteCostCentre,
+  centre: QuoteCostCentre | null,
   markupPercent: number,
 ): Promise<SupplierQuoteParseOutcome> {
   const extension = file.name.split(".").pop()?.toLowerCase();
@@ -4510,6 +4540,7 @@ export default function Dashboard() {
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
   const [selectedQuoteMaterialLineIds, setSelectedQuoteMaterialLineIds] = useState<Record<string, string[]>>({});
+  const [selectedJobMaterialLineIds, setSelectedJobMaterialLineIds] = useState<Record<string, string[]>>({});
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
@@ -9416,9 +9447,363 @@ export default function Dashboard() {
     updateEstimateMaterialLine(centreId, lineId, { supplierRequired: checked });
   }
 
-  function updateJobSupplierRequestDraft(centreId: string, patch: Partial<JobSupplierRequestDraft>) {
+  function allJobMaterialLines() {
+    const lines: JobSupplierLineWithCentre[] = [];
+    const seen = new Set<string>();
+
+    selectedJobEstimateCostCentres.forEach((centre) => {
+      centre.materials.forEach((line) => {
+        const key = `${centre.id}:${line.id}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        lines.push({ centreId: centre.id, centreName: centre.name, line });
+      });
+    });
+
+    return lines;
+  }
+
+  function selectedJobMaterialLineEntries() {
+    const selected = new Set<string>();
+    selectedJobEstimateCostCentres.forEach((centre) => {
+      const ids = new Set(selectedJobMaterialLineIds[centre.id] ?? []);
+      ids.forEach((id) => selected.add(`${centre.id}:${id}`));
+    });
+
+    return allJobMaterialLines().filter((entry) => selected.has(`${entry.centreId}:${entry.line.id}`));
+  }
+
+  function jobSupplierRequestDraftLinesFromRefs(lineRefs: JobSupplierLineScopeRef[]) {
+    const seen = new Set<string>();
+    const entries = lineRefs
+      .map((ref) => {
+        const centre = selectedJobEstimateCostCentres.find((item) => item.id === ref.centreId);
+        if (!centre) return null;
+        const line = centre.materials.find((candidate) => candidate.id === ref.lineId);
+        if (!line) return null;
+        const key = `${centre.id}:${line.id}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return { centreId: centre.id, centreName: centre.name, line };
+      })
+      .filter((entry): entry is JobSupplierLineWithCentre => Boolean(entry));
+
+    return entries;
+  }
+
+  function makeEstimateMaterialLineFromSupplierQuoteLine(quoteLine: QuoteCostLine, existingLine?: EstimateMaterialLine): EstimateMaterialLine {
+    return {
+      id: existingLine?.id ?? quoteLine.id,
+      catalogItemId: existingLine?.catalogItemId ?? quoteLine.catalogItemId,
+      description: existingLine?.description ?? quoteLine.description,
+      quantity: existingLine?.quantity ?? quoteLine.quantity,
+      unitCost: existingLine?.unitCost ?? quoteLine.unitCost,
+      markupPercent:
+        existingLine?.markupPercent ??
+        (quoteLine.unitCost > 0 && quoteLine.unitSell > 0 ? quoteLineMarkupPercent(quoteLine) : defaultMaterialMarkupPercent),
+      rateSource: "manual" as const,
+    };
+  }
+
+  function jobSupplierLineMatchState(centre: EstimateCostCentre, line: EstimateMaterialLine) {
+    if (line.unitCost === 0) return "Awaiting price";
+    return centre.materials.some((existingLine) => existingLine.id === line.id) ? "Matched" : "New line";
+  }
+
+  function jobSupplierRequestDraftLines() {
+    const draft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
+    if (!draft?.lineRefs?.length) return [];
+    return jobSupplierRequestDraftLinesFromRefs(draft.lineRefs);
+  }
+
+  function selectedJobMaterialLinesForCentre(centre: EstimateCostCentre) {
+    const selectedIds = new Set(selectedJobMaterialLineIds[centre.id] ?? []);
+    return centre.materials.filter((line) => selectedIds.has(line.id));
+  }
+
+  function toggleJobMaterialLineSelection(centreId: string, lineId: string, checked: boolean) {
+    setSelectedJobMaterialLineIds((current) => {
+      const currentIds = new Set(current[centreId] ?? []);
+      if (checked) {
+        currentIds.add(lineId);
+      } else {
+        currentIds.delete(lineId);
+      }
+
+      return {
+        ...current,
+        [centreId]: Array.from(currentIds),
+      };
+    });
+  }
+
+  function toggleAllJobMaterialLineSelection(centre: EstimateCostCentre) {
+    const materialLines = centre.materials;
+    const selectedIds = new Set(selectedJobMaterialLineIds[centre.id] ?? []);
+    const allSelected = materialLines.length > 0 && materialLines.every((line) => selectedIds.has(line.id));
+
+    setSelectedJobMaterialLineIds((current) => ({
+      ...current,
+      [centre.id]: allSelected ? [] : materialLines.map((line) => line.id),
+    }));
+  }
+
+  function allJobMaterialLinesSelected() {
+    const materialLines = allJobMaterialLines();
+    if (materialLines.length === 0) return false;
+
+    return materialLines.every((entry) => {
+      const selectedIds = new Set(selectedJobMaterialLineIds[entry.centreId] ?? []);
+      return selectedIds.has(entry.line.id);
+    });
+  }
+
+  function toggleAllJobMaterialLineSelectionAcrossJob() {
+    const materialLines = allJobMaterialLines();
+    const allSelected = allJobMaterialLinesSelected();
+
+    setSelectedJobMaterialLineIds((current) => {
+      const next = { ...current };
+      if (allSelected) {
+        materialLines.forEach((entry) => {
+          const set = new Set(next[entry.centreId] ?? []);
+          set.delete(entry.line.id);
+          if (set.size) {
+            next[entry.centreId] = Array.from(set);
+          } else {
+            delete next[entry.centreId];
+          }
+        });
+        return next;
+      }
+
+      const selectedByCentre: Record<string, Set<string>> = {};
+      materialLines.forEach((entry) => {
+        const set = selectedByCentre[entry.centreId] ?? new Set<string>();
+        set.add(entry.line.id);
+        selectedByCentre[entry.centreId] = set;
+      });
+
+      Object.entries(selectedByCentre).forEach(([centreId, ids]) => {
+        next[centreId] = Array.from(ids);
+      });
+
+      return next;
+    });
+  }
+
+  function stageSelectedJobSupplierRequestLinesFromEntries(entries: JobSupplierLineWithCentre[]) {
+    if (!selectedJob) return;
+
+    if (!entries.length) {
+      showNotice("Select the items you want priced before staging the supplier request.");
+      return;
+    }
+
+    const lines = entries.map((entry) => ({
+      ...entry.line,
+      supplierRequired: true,
+    }));
+    const selectedByCentre = new Map<string, Set<string>>();
+
+    entries.forEach((entry) => {
+      const selected = selectedByCentre.get(entry.centreId) ?? new Set<string>();
+      selected.add(entry.line.id);
+      selectedByCentre.set(entry.centreId, selected);
+    });
+
+    markCostCentreEdited();
+    setJobCentresForSelected((centres) =>
+      centres.map((centre) => {
+        const selectedIds = selectedByCentre.get(centre.id);
+        if (!selectedIds || !selectedIds.size) return centre;
+
+        return {
+          ...centre,
+          materials: centre.materials.map((line) =>
+            selectedIds.has(line.id) ? { ...line, supplierRequired: true } : line,
+          ),
+        };
+      }),
+    );
+
     setJobSupplierRequestDrafts((current) => {
-      const existing = current[centreId] ?? {
+      const newRefs = entries.map((entry) => ({ centreId: entry.centreId, lineId: entry.line.id }));
+      const currentRefs = current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [];
+      const mergedRefs = [
+        ...currentRefs,
+        ...newRefs.filter(
+          (ref) => !currentRefs.some((entry) => entry.centreId === ref.centreId && entry.lineId === ref.lineId),
+        ),
+      ];
+
+      return {
+        ...current,
+        [JOB_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+          supplier: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.supplier || "",
+          contactEmail: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.contactEmail ?? "",
+          subject:
+            current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.subject || `${selectedJob?.ref ?? "Job"} supplier request`,
+          message:
+            current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.message ||
+            `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`,
+          fileName: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedJob?.ref ?? "job"}`,
+          markupPercent: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
+          lineRefs: mergedRefs,
+          lines: jobSupplierRequestDraftLinesFromRefs(mergedRefs).map((entry) => entry.line),
+        },
+      };
+    });
+
+    setActiveJobBuildTab("summary");
+    scrollWorkspaceToTop();
+    showNotice(`${lines.length} selected item(s) staged in the job supplier request.`);
+  }
+
+  function stageSelectedJobSupplierRequestLinesForCentre(centre: EstimateCostCentre) {
+    const lines = selectedJobMaterialLinesForCentre(centre).map((line) => ({ centreId: centre.id, centreName: centre.name, line }));
+    stageSelectedJobSupplierRequestLinesFromEntries(lines);
+  }
+
+  function stageSelectedJobSupplierRequestLinesFromJob() {
+    const entries = selectedJobMaterialLineEntries();
+    stageSelectedJobSupplierRequestLinesFromEntries(entries);
+  }
+
+  function openSelectedJobLinesCatalogFolderModal(centre?: EstimateCostCentre) {
+    if (!selectedJob) return;
+    const lines = centre
+      ? selectedJobMaterialLinesForCentre(centre)
+      : selectedJobMaterialLineEntries().map((entry) => entry.line);
+    if (!lines.length) {
+      showNotice("Select the one-off or material items you want to save to the catalogue.");
+      return;
+    }
+
+    setCatalogueFolderDrafts((current) => {
+      const next = { ...current };
+      lines.forEach((line) => {
+        next[line.id] = next[line.id] ?? inferCatalogFolder({ name: line.description, type: "Material", category: undefined });
+      });
+      return next;
+    });
+
+    setCatalogueFolderModalCentreId(centre ? centre.id : JOB_SUMMARY_CATALOG_MODAL_KEY);
+  }
+
+  function saveSelectedJobLinesToCatalog(centre?: EstimateCostCentre) {
+    if (!selectedJob) return;
+
+    const selectedEntries = centre
+      ? selectedJobMaterialLinesForCentre(centre).map((line) => ({
+          centreId: centre.id,
+          centreName: centre.name,
+          line,
+        }))
+      : selectedJobMaterialLineEntries();
+
+    const lines = selectedEntries.map((entry) => entry.line);
+    if (!lines.length) {
+      showNotice("Select the one-off or material items you want to save to the catalogue.");
+      return;
+    }
+
+    const catalogPool: CatalogItem[] = [...quoteCatalog, ...customQuoteCatalog];
+    const lineCatalogUpdates: Record<string, string> = {};
+    const nextCustomItems: CatalogItem[] = [];
+    const selectedByCentre = new Map<string, string[]>();
+    const savedFolders = new Set<string>();
+    let skippedBlank = 0;
+    let reusedCount = 0;
+
+    lines.forEach((line, index) => {
+      const name = line.description.trim();
+      if (!name) {
+        skippedBlank += 1;
+        return;
+      }
+      const category = catalogueFolderDrafts[line.id] ?? inferCatalogFolder({ name, type: "Material", category: undefined });
+      const entries = selectedByCentre.get(
+        centre ? centre.id : selectedEntries.find((entry) => entry.line.id === line.id)?.centreId ?? "",
+      ) ?? [];
+      entries.push(line.id);
+      const centreId = centre ? centre.id : selectedEntries.find((entry) => entry.line.id === line.id)?.centreId;
+      if (centreId) selectedByCentre.set(centreId, entries);
+
+      savedFolders.add(category);
+
+      const existing =
+        [...catalogPool, ...nextCustomItems].find(
+          (item) =>
+            item.name.trim().toLowerCase() === name.toLowerCase() &&
+            item.type !== "Labour" &&
+            inferCatalogFolder(item) === category,
+        ) ?? null;
+      if (existing) {
+        lineCatalogUpdates[line.id] = existing.id;
+        reusedCount += 1;
+        return;
+      }
+
+      const nextItem: CatalogItem = {
+        id: `custom-material-${Date.now()}-${index}`,
+        type: "Material",
+        name,
+        unit: "item",
+        costRate: line.unitCost,
+        sellRate: lineSellFromMarkup(line.unitCost, defaultMaterialMarkupPercent),
+        category,
+      };
+      nextCustomItems.push(nextItem);
+      lineCatalogUpdates[line.id] = nextItem.id;
+    });
+
+    if (!nextCustomItems.length && !Object.keys(lineCatalogUpdates).length) {
+      showNotice("Add descriptions before saving selected items to the catalogue.");
+      return;
+    }
+
+    if (nextCustomItems.length) {
+      setCustomQuoteCatalog((current) => [...nextCustomItems, ...current]);
+    }
+
+    setJobCentresForSelected((current) =>
+      current.map((item) => {
+        const entryIds = selectedByCentre.get(item.id) ?? [];
+        if (!entryIds.length) return item;
+        const idSet = new Set(entryIds);
+
+        return {
+          ...item,
+          materials: item.materials.map((line) => {
+            const catalogItemId = lineCatalogUpdates[line.id];
+            return catalogItemId ? { ...line, catalogItemId } : line;
+          }).filter((line) => !idSet.has(line.id) || line.id),
+        };
+      }),
+    );
+
+    setCatalogueFolderDrafts({});
+    setCatalogueFolderModalCentreId(null);
+
+    showNotice(
+      `${nextCustomItems.length} item(s) added to the catalogue${reusedCount ? `, ${reusedCount} matched existing items` : ""}${skippedBlank ? `, ${skippedBlank} skipped without descriptions` : ""}.`,
+    );
+    const firstSavedFolder = Array.from(savedFolders)[0];
+    if (firstSavedFolder) {
+      setActiveCatalogueFolder(firstSavedFolder);
+      setActiveJobBuildTab("catalogue");
+      scrollWorkspaceToTop();
+    }
+  }
+
+  function jobSupplierRequestLinesForSummaryOrSelected() {
+    return jobSupplierRequestDraftLines().map((entry) => entry.line);
+  }
+
+  function updateJobSupplierRequestDraft(patch: Partial<JobSupplierRequestDraft>) {
+    setJobSupplierRequestDrafts((current) => {
+      const existing = current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY] ?? {
         supplier: "",
         contactEmail: "",
         subject: "",
@@ -9430,14 +9815,14 @@ export default function Dashboard() {
 
       return {
         ...current,
-        [centreId]: { ...existing, ...patch },
+        [JOB_SUMMARY_SUPPLIER_DRAFT_KEY]: { ...existing, ...patch },
       };
     });
   }
 
-  function updateJobSupplierRequestMarkup(centreId: string, markupPercent: number) {
+  function updateJobSupplierRequestMarkup(markupPercent: number) {
     setJobSupplierRequestDrafts((current) => {
-      const existing = current[centreId] ?? {
+      const existing = current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY] ?? {
         supplier: "",
         contactEmail: "",
         subject: "",
@@ -9449,7 +9834,7 @@ export default function Dashboard() {
 
       return {
         ...current,
-        [centreId]: {
+        [JOB_SUMMARY_SUPPLIER_DRAFT_KEY]: {
           ...existing,
           markupPercent,
           lines: existing.lines.map((line) => ({ ...line, markupPercent })),
@@ -9458,30 +9843,40 @@ export default function Dashboard() {
     });
   }
 
-  function sendJobSupplierRequest(centre: EstimateCostCentre) {
-    const supplier = jobSupplierRequestDrafts[centre.id]?.supplier?.trim();
+  function sendJobSupplierRequest() {
+    const draft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
+    const supplier = draft?.supplier?.trim();
     if (!supplier) {
       showNotice("Choose or enter a supplier before sending the request.");
-      setActiveJobBuildTab("supplier-request");
+      setActiveJobBuildTab("summary");
       return;
     }
 
-    const lines = centre.materials.filter((line) => line.supplierRequired);
+    const lines = jobSupplierRequestLinesForSummaryOrSelected();
     if (!lines.length) {
       showNotice("Tick the materials you need prices for before sending a supplier request.");
       return;
     }
+    const centreCount = new Set(
+      lines.map(
+        (line) =>
+          selectedJobEstimateCostCentres.find((centre) => centre.materials.some((item) => item.id === line.id))?.id,
+      ),
+    ).size;
 
     setJobSupplierRequestDrafts((current) => ({
       ...current,
-      [centre.id]: {
+      [JOB_SUMMARY_SUPPLIER_DRAFT_KEY]: {
         supplier,
-        contactEmail: current[centre.id]?.contactEmail ?? "",
-        subject: current[centre.id]?.subject || `${selectedJob?.ref ?? "Job"} supplier quote request - ${centre.name}`,
-        message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
-        fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
-        markupPercent: current[centre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
-        lines,
+        contactEmail: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.contactEmail ?? "",
+        subject: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.subject || `${selectedJob?.ref ?? "Job"} supplier request`,
+        message:
+          current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.message ||
+          `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`,
+        fileName: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedJob?.ref ?? "job"}`,
+        markupPercent: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
+        lineRefs: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [],
+        lines: jobSupplierRequestDraftLinesFromRefs(current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? []).map((entry) => entry.line),
         sentAt: new Date().toISOString(),
       },
     }));
@@ -9492,7 +9887,7 @@ export default function Dashboard() {
         action: "sent",
         recordType: "job",
         recordId: selectedJob.id,
-        summary: `Supplier quote request sent to ${supplier} for ${centre.name}: ${lines.length} item(s).`,
+        summary: `Supplier quote request sent to ${supplier} for ${selectedJob?.ref ?? "this job"}: ${lines.length} item(s). Across ${centreCount || 1} cost centre(s).`,
         source: "web",
         importance: "normal",
       });
@@ -9501,7 +9896,7 @@ export default function Dashboard() {
     showNotice(`Supplier quote request staged for ${supplier} with ${lines.length} item(s).`);
   }
 
-  function handleJobSupplierQuoteUpload(centre: EstimateCostCentre, event: ChangeEvent<HTMLInputElement>) {
+  function handleJobSupplierQuoteUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
@@ -9512,9 +9907,9 @@ export default function Dashboard() {
       return;
     }
 
-    const existing = jobSupplierRequestDrafts[centre.id];
+    const existing = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
     const markupPercent = existing?.markupPercent ?? defaultMaterialMarkupPercent;
-    const baseLines = existing?.lines.length ? existing.lines : centre.materials.filter((line) => line.supplierRequired);
+    const baseLines = existing?.lines.length ? existing.lines : jobSupplierRequestLinesForSummaryOrSelected();
     const pricedLines = baseLines.map((line, index) => {
       const unitCost = line.unitCost || 75 + (index * 34);
       return {
@@ -9526,15 +9921,17 @@ export default function Dashboard() {
 
     setJobSupplierRequestDrafts((current) => ({
       ...current,
-      [centre.id]: {
-        supplier: current[centre.id]?.supplier || file.name.replace(/\.(pdf|csv|txt|tsv)$/i, ""),
-        contactEmail: current[centre.id]?.contactEmail ?? "",
-        subject: current[centre.id]?.subject || `${selectedJob?.ref ?? "Job"} supplier quote request - ${centre.name}`,
-        message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
+      [JOB_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+        supplier: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.supplier || file.name.replace(/\.(pdf|csv|txt|tsv)$/i, ""),
+        contactEmail: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.contactEmail ?? "",
+        subject: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.subject || `${selectedJob?.ref ?? "Job"} supplier request`,
+        message:
+          current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.message ||
+          `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`,
         fileName: file.name,
         markupPercent,
         lines: pricedLines,
-        sentAt: current[centre.id]?.sentAt,
+        sentAt: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.sentAt,
       },
     }));
 
@@ -9544,7 +9941,7 @@ export default function Dashboard() {
         action: "uploaded",
         recordType: "job",
         recordId: selectedJob.id,
-        summary: `Supplier quote ${file.name} uploaded for ${centre.name}: ${pricedLines.length} item(s) priced for review.`,
+        summary: `Supplier quote ${file.name} uploaded for ${selectedJob.ref}: ${pricedLines.length} item(s) priced for review.`,
         source: "web",
         importance: "normal",
       });
@@ -9554,42 +9951,67 @@ export default function Dashboard() {
     showNotice(`${file.name} priced ${pricedLines.length} supplier item(s) ready to apply.`);
   }
 
-  function applyJobSupplierQuoteImport(centreId: string) {
-    const draft = jobSupplierRequestDrafts[centreId];
+  function applyJobSupplierQuoteImport() {
+    const draft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
+    const requested = jobSupplierRequestDraftLines();
     if (!draft || draft.lines.length === 0) {
       showNotice("Upload a returned supplier quote before applying materials.");
       return;
     }
+    if (!requested.length) {
+      showNotice("Select and stage supplier request lines before applying the returned quote.");
+      return;
+    }
+
+    const importedLines = draft.lines.map((line) => ({ ...line, rateSource: "manual" as const }));
+    const importedById = new Map(importedLines.map((line) => [line.id, line]));
+    const requestedByCentre = new Map<string, Set<string>>();
+    requested.forEach((entry) => {
+      const ids = requestedByCentre.get(entry.centreId) ?? new Set<string>();
+      ids.add(entry.line.id);
+      requestedByCentre.set(entry.centreId, ids);
+    });
 
     setJobCentresForSelected((centres) =>
-      centres.map((centre) =>
-        centre.id === centreId
-          ? {
-              ...centre,
-              materials: centre.materials.map((line) => {
-                const matchedImport = draft.lines.find((importedLine) => importedLine.id === line.id);
-                return matchedImport
-                  ? { ...line, unitCost: matchedImport.unitCost, markupPercent: matchedImport.markupPercent, rateSource: "manual" as const }
-                  : line;
-              }),
-            }
-          : centre,
-      ),
+      centres.map((centre) => {
+        const requestedLineIds = requestedByCentre.get(centre.id);
+        if (!requestedLineIds?.size) return centre;
+        return {
+          ...centre,
+          materials: centre.materials.map((line) => {
+            if (!requestedLineIds.has(line.id)) return line;
+            const imported = importedById.get(line.id);
+            return imported ? { ...line, unitCost: imported.unitCost, markupPercent: imported.markupPercent, rateSource: "manual" as const } : line;
+          }),
+        };
+      }),
     );
 
-    showNotice(`Supplier prices applied into ${selectedCostCentre?.name ?? "the cost centre"}.`);
+    if (selectedJob) {
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa",
+        action: "imported",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `Supplier quote ${draft.fileName} applied into ${selectedJob.ref}: ${requested.length} line(s).`,
+        source: "web",
+        importance: "normal",
+      });
+    }
+
+    showNotice(`Supplier prices applied into ${selectedJob?.ref ?? "job"}.`);
   }
 
-  async function issueJobCostCentrePurchaseOrder(centre: EstimateCostCentre) {
+  async function issueJobSupplierPurchaseOrder() {
     if (!selectedJob) return;
-    const draft = jobSupplierRequestDrafts[centre.id];
+    const draft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
     const supplier = draft?.supplier?.trim();
     if (!supplier) {
       showNotice("Add the supplier before issuing a PO number.");
       return;
     }
 
-    const lines = draft?.lines.length ? draft.lines : centre.materials.filter((line) => line.supplierRequired);
+    const lines = jobSupplierRequestLinesForSummaryOrSelected();
     if (!lines.length) {
       showNotice("Select supplier request items before issuing a PO.");
       return;
@@ -9603,13 +10025,11 @@ export default function Dashboard() {
         body: JSON.stringify({
           jobId: selectedJob.id,
           jobRef: selectedJob.ref,
-          costCentreId: centre.id,
-          costCentreName: centre.name,
           requestedBy: activeEmployee?.name ?? "NeXa user",
           supplier,
           item: lines.map((line) => `${line.quantity} x ${line.description}`).join("; "),
           estimatedCost,
-          reason: `Supplier quote accepted for ${centre.name}`,
+          reason: "Supplier quote accepted for job-level request",
         }),
       });
       if (!createResponse.ok) throw new Error("Unable to create PO request");
@@ -9627,7 +10047,7 @@ export default function Dashboard() {
         approved,
         ...current.filter((request) => request.id !== approved.id),
       ]);
-      updateJobSupplierRequestDraft(centre.id, {
+      updateJobSupplierRequestDraft({
         poNumber: approved.poNumber,
         poRequestId: approved.id,
         poIssuedAt: workflowTimestamp(),
@@ -9637,11 +10057,11 @@ export default function Dashboard() {
         action: "po issued",
         recordType: "purchase_request",
         recordId: approved.id,
-        summary: `${approved.poNumber} issued to ${supplier} for ${selectedJob.ref} / ${centre.name}.`,
+        summary: `${approved.poNumber} issued to ${supplier} for ${selectedJob.ref}.`,
         source: "cost centre supplier request",
         importance: "high",
       });
-      showNotice(`${approved.poNumber} issued to ${supplier} against ${centre.name}.`);
+      showNotice(`${approved.poNumber} issued to ${supplier}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to issue PO number for this cost centre.";
       setSectionError(message);
@@ -9939,9 +10359,9 @@ export default function Dashboard() {
     }
   }
 
-  function updateSupplierQuoteDraft(centreId: string, patch: Partial<SupplierQuoteDraft>) {
+  function updateSupplierQuoteDraft(draftId: string, patch: Partial<SupplierQuoteDraft>) {
     setSupplierQuoteDrafts((current) => {
-      const existing = current[centreId] ?? {
+      const existing = current[draftId] ?? {
         supplier: "",
         contactEmail: "",
         subject: "",
@@ -9949,28 +10369,30 @@ export default function Dashboard() {
         fileName: "",
         markupPercent: defaultMaterialMarkupPercent,
         lines: [],
+        lineRefs: [],
       };
 
       return {
         ...current,
-        [centreId]: { ...existing, ...patch },
+        [draftId]: { ...existing, ...patch },
       };
     });
   }
 
-  function updateSupplierQuoteMarkup(centreId: string, markupPercent: number) {
+  function updateSupplierQuoteMarkup(draftId: string, markupPercent: number) {
     setSupplierQuoteDrafts((current) => {
-      const existing = current[centreId];
+      const existing = current[draftId];
       if (!existing) {
         return {
           ...current,
-          [centreId]: {
+          [draftId]: {
             supplier: "",
             contactEmail: "",
             subject: "",
             message: "",
             fileName: "",
             markupPercent,
+            lineRefs: [],
             lines: [],
           },
         };
@@ -9978,7 +10400,7 @@ export default function Dashboard() {
 
       return {
         ...current,
-        [centreId]: {
+        [draftId]: {
           ...existing,
           markupPercent,
           lines: existing.lines.map((line) => ({
@@ -10078,19 +10500,35 @@ export default function Dashboard() {
       return;
     }
 
-    setSupplierQuoteDrafts((current) => ({
-      ...current,
-      [centre.id]: {
-        supplier: current[centre.id]?.supplier || "Stelrad / radiator merchant",
-        contactEmail: current[centre.id]?.contactEmail ?? "",
-        subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} radiator request - ${centre.name}`,
-        message: current[centre.id]?.message || `Please price the attached radiator schedule for ${centre.name}.`,
-        fileName: `Radiator request - ${centre.name}`,
-        markupPercent: defaultMaterialMarkupPercent,
-        lines,
-      },
+    const requested = lines.map((line) => ({
+      ...line,
+      supplierRequired: true,
     }));
-    showNotice(`${lines.length} radiator line(s) staged in the supplier request preview.`);
+    const lineRefs = requested.map((line) => ({ centreId: centre.id, lineId: line.id }));
+
+    setSupplierQuoteDrafts((current) => {
+      const currentRefs = current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [];
+      const mergedRefs = [
+        ...currentRefs,
+        ...lineRefs.filter((ref) => !currentRefs.some((entry) => entry.centreId === ref.centreId && entry.lineId === ref.lineId)),
+      ];
+
+      return {
+        ...current,
+        [QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+          supplier: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.supplier || "Stelrad / radiator merchant",
+          contactEmail: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.contactEmail ?? "",
+          subject: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.subject || `${selectedQuote?.ref ?? "Quote"} radiator request`,
+          message: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.message || `Please price the attached radiator schedule for ${centre.name}.`,
+          fileName: `Radiator request - ${centre.name}`,
+          markupPercent: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
+          lineRefs: mergedRefs,
+          lines: quoteSupplierRequestDraftLinesFromRefs(mergedRefs).map((entry) => entry.line),
+        },
+      };
+    });
+    setActiveQuoteBuildTab("summary");
+    showNotice(`${requested.length} radiator line(s) staged in the quote-level supplier request.`);
   }
 
   function selectedSupplierRequestLinesForCentre(centre: QuoteCostCentre) {
@@ -10102,11 +10540,70 @@ export default function Dashboard() {
     return [...takeoffSupplierLines, ...flaggedSupplierLines];
   }
 
+  function allQuoteMaterialLines() {
+    const lines: QuoteSupplierLineWithCentre[] = [];
+    const seen = new Set<string>();
+
+    selectedQuoteCostCentres.forEach((centre) => {
+      quoteCostCentreTotals(centre).materialLines.forEach((line) => {
+        const key = `${centre.id}:${line.id}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        lines.push({ centreId: centre.id, centreName: centre.name, line });
+      });
+    });
+
+    return lines;
+  }
+
+  function selectedQuoteMaterialLineEntries() {
+    const selected = new Set<string>();
+    selectedQuoteCostCentres.forEach((centre) => {
+      const ids = new Set(selectedQuoteMaterialLineIds[centre.id] ?? []);
+      ids.forEach((id) => selected.add(`${centre.id}:${id}`));
+    });
+
+    return allQuoteMaterialLines().filter((entry) => selected.has(`${entry.centreId}:${entry.line.id}`));
+  }
+
   function supplierRequestLinesForCentre(centre: QuoteCostCentre) {
-    const stagedLines = supplierQuoteDrafts[centre.id]?.lines ?? [];
+    const stagedLines = quoteSupplierRequestLinesForCentre(centre).map((entry) => entry.line);
     if (stagedLines.length) return stagedLines;
 
     return selectedSupplierRequestLinesForCentre(centre);
+  }
+
+  function quoteSupplierRequestLinesForCentre(centre: QuoteCostCentre) {
+    return quoteSupplierRequestDraftLines().filter((entry) => entry.centreId === centre.id);
+  }
+
+  function quoteSupplierRequestDraftLinesFromRefs(lineRefs: QuoteSupplierLineScopeRef[]) {
+    const seen = new Set<string>();
+    const centres = selectedQuoteCostCentres;
+    const entries = lineRefs
+      .map((ref) => {
+        const centre = centres.find((item) => item.id === ref.centreId);
+        if (!centre) return null;
+        const line = centre.lines.find((line) => line.id === ref.lineId);
+        if (!line) return null;
+        const key = `${centre.id}:${line.id}`;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return { centreId: centre.id, centreName: centre.name, line };
+      })
+      .filter((entry): entry is QuoteSupplierLineWithCentre => Boolean(entry));
+
+    return entries;
+  }
+
+  function quoteSupplierRequestDraftLines() {
+    const draft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+    if (!draft?.lineRefs?.length) return [];
+    return quoteSupplierRequestDraftLinesFromRefs(draft.lineRefs);
+  }
+
+  function quoteSupplierRequestLineCentre(centreId: string) {
+    return selectedQuoteCostCentres.find((centre) => centre.id === centreId) ?? null;
   }
 
   function selectedQuoteMaterialLinesForCentre(centre: QuoteCostCentre) {
@@ -10141,52 +10638,132 @@ export default function Dashboard() {
     }));
   }
 
-  function stageSelectedSupplierRequestLines(centre: QuoteCostCentre) {
-    const lines = selectedQuoteMaterialLinesForCentre(centre).map((line) => ({
-      ...line,
-      supplierRequired: true,
-    }));
-    if (!lines.length) {
+  function allQuoteMaterialLinesSelected() {
+    const materialLines = allQuoteMaterialLines();
+    if (materialLines.length === 0) return false;
+
+    return materialLines.every((entry) => {
+      const selectedIds = new Set(selectedQuoteMaterialLineIds[entry.centreId] ?? []);
+      return selectedIds.has(entry.line.id);
+    });
+  }
+
+  function toggleAllQuoteMaterialLineSelectionAcrossQuote() {
+    const materialLines = allQuoteMaterialLines();
+    const allSelected = allQuoteMaterialLinesSelected();
+
+    setSelectedQuoteMaterialLineIds((current) => {
+      const next = { ...current };
+      if (allSelected) {
+        materialLines.forEach((entry) => {
+          const set = new Set(next[entry.centreId] ?? []);
+          set.delete(entry.line.id);
+          if (set.size) {
+            next[entry.centreId] = Array.from(set);
+          } else {
+            delete next[entry.centreId];
+          }
+        });
+        return next;
+      }
+
+      const selectedByCentre: Record<string, Set<string>> = {};
+      materialLines.forEach((entry) => {
+        const set = selectedByCentre[entry.centreId] ?? new Set<string>();
+        set.add(entry.line.id);
+        selectedByCentre[entry.centreId] = set;
+      });
+
+      Object.entries(selectedByCentre).forEach(([centreId, ids]) => {
+        next[centreId] = Array.from(ids);
+      });
+
+      return next;
+    });
+  }
+
+  function stageSelectedSupplierRequestLinesFromEntries(entries: QuoteSupplierLineWithCentre[]) {
+    if (!selectedQuote) return;
+
+    if (!entries.length) {
       showNotice("Select the items you want priced before staging the supplier request.");
       return;
     }
 
-    if (selectedQuote) {
-      const selectedIds = new Set(lines.map((line) => line.id));
-      markCostCentreEdited();
-      setQuoteCostCentres((current) => ({
-        ...current,
-        [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
-          item.id === centre.id
-            ? {
-                ...item,
-                lines: item.lines.map((line) => (selectedIds.has(line.id) ? { ...line, supplierRequired: true } : line)),
-              }
-            : item,
-        ),
-      }));
-    }
-
-    setSupplierQuoteDrafts((current) => ({
-      ...current,
-      [centre.id]: {
-        supplier: current[centre.id]?.supplier ?? "",
-        contactEmail: current[centre.id]?.contactEmail ?? "",
-        subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} supplier quote request - ${centre.name}`,
-        message: current[centre.id]?.message || `Please price the selected items for ${centre.name}. Quantities and notes are included below.`,
-        fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
-        markupPercent: current[centre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
-        lines,
-        sentAt: current[centre.id]?.sentAt,
-      },
+    const lines = entries.map((entry) => ({
+      ...entry.line,
+      supplierRequired: true,
     }));
-    setActiveQuoteBuildTab("supplier-request");
+
+    markCostCentreEdited();
+    const selectedByCentre = new Map<string, Set<string>>();
+    entries.forEach((entry) => {
+      const selected = selectedByCentre.get(entry.centreId) ?? new Set<string>();
+      selected.add(entry.line.id);
+      selectedByCentre.set(entry.centreId, selected);
+    });
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) => {
+        const selectedIds = selectedByCentre.get(item.id);
+        if (!selectedIds || selectedIds.size === 0) return item;
+
+        return {
+          ...item,
+          lines: item.lines.map((line) =>
+            selectedIds.has(line.id) ? { ...line, supplierRequired: true } : line,
+          ),
+        };
+      }),
+    }));
+
+    setSupplierQuoteDrafts((current) => {
+      const newRefs = entries.map((entry) => ({
+        centreId: entry.centreId,
+        lineId: entry.line.id,
+      }));
+      const existingRefs = current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [];
+      const mergedRefs = [
+        ...existingRefs,
+        ...newRefs.filter(
+          (ref) => !existingRefs.some((entry) => entry.centreId === ref.centreId && entry.lineId === ref.lineId),
+        ),
+      ];
+
+      return {
+        ...current,
+        [QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+          supplier: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.supplier ?? "",
+          contactEmail: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.contactEmail ?? "",
+          subject: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.subject || `${selectedQuote.ref} supplier request`,
+          message:
+            current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.message || `Please price the selected items for ${selectedQuote.ref}.`,
+          fileName: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedQuote.ref}`,
+          markupPercent: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
+          lineRefs: mergedRefs,
+          lines: quoteSupplierRequestDraftLinesFromRefs(mergedRefs).map((entry) => entry.line),
+          sentAt: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.sentAt,
+        },
+      };
+    });
+    setActiveQuoteBuildTab("summary");
+    scrollWorkspaceToTop();
     showNotice(`${lines.length} selected supplier item(s) staged in the request form.`);
   }
 
-  function openSelectedQuoteLinesCatalogFolderModal(centre: QuoteCostCentre) {
+  function stageSelectedSupplierRequestLines(centre: QuoteCostCentre) {
+    const lines = selectedQuoteMaterialLinesForCentre(centre).map((line) => ({ centreId: centre.id, centreName: centre.name, line }));
+    stageSelectedSupplierRequestLinesFromEntries(lines);
+  }
+
+  function stageSelectedSupplierRequestLinesFromQuote() {
+    const entries = selectedQuoteMaterialLineEntries();
+    stageSelectedSupplierRequestLinesFromEntries(entries);
+  }
+
+  function openSelectedQuoteLinesCatalogFolderModal(centre?: QuoteCostCentre) {
     if (!selectedQuote) return;
-    const lines = selectedQuoteMaterialLinesForCentre(centre);
+    const lines = centre ? selectedQuoteMaterialLinesForCentre(centre) : selectedQuoteMaterialLineEntries().map((entry) => entry.line);
     if (!lines.length) {
       showNotice("Select the one-off or material items you want to save to the catalogue.");
       return;
@@ -10199,12 +10776,12 @@ export default function Dashboard() {
       });
       return next;
     });
-    setCatalogueFolderModalCentreId(centre.id);
+    setCatalogueFolderModalCentreId(centre?.id || QUOTE_SUMMARY_CATALOG_MODAL_KEY);
   }
 
-  function saveSelectedQuoteLinesToCatalog(centre: QuoteCostCentre) {
+  function saveSelectedQuoteLinesToCatalog(centre?: QuoteCostCentre) {
     if (!selectedQuote) return;
-    const lines = selectedQuoteMaterialLinesForCentre(centre);
+    const lines = centre ? selectedQuoteMaterialLinesForCentre(centre) : selectedQuoteMaterialLineEntries().map((entry) => entry.line);
     if (!lines.length) {
       showNotice("Select the one-off or material items you want to save to the catalogue.");
       return;
@@ -10264,18 +10841,22 @@ export default function Dashboard() {
     markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
-      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
-        item.id === centre.id
-          ? {
-              ...item,
-              lines: item.lines.map((line) => {
-                const catalogItemId = lineCatalogUpdates[line.id];
-                return catalogItemId ? { ...line, catalogItemId } : line;
-              }),
-            }
-          : item,
-      ),
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) => {
+        const selectedLines = centre ? [centre.id] : null;
+        if (selectedLines && !selectedLines.includes(item.id)) return item;
+
+        return {
+          ...item,
+          lines: item.lines.map((line) => {
+            const catalogItemId = lineCatalogUpdates[line.id];
+            return catalogItemId ? { ...line, catalogItemId } : line;
+          }),
+        };
+      }),
     }));
+
+    setCatalogueFolderDrafts({});
+    setCatalogueFolderModalCentreId(null);
 
     showNotice(
       `${nextCustomItems.length} item(s) added to the catalogue${reusedCount ? `, ${reusedCount} matched existing items` : ""}${skippedBlank ? `, ${skippedBlank} skipped without descriptions` : ""}.`,
@@ -10294,30 +10875,39 @@ export default function Dashboard() {
     return centre.lines.some((existingLine) => existingLine.id === line.id) ? "Matched" : "New line";
   }
 
-  function sendSupplierQuoteRequest(centre: QuoteCostCentre) {
-    const supplier = supplierQuoteDrafts[centre.id]?.supplier?.trim();
+  function sendSupplierQuoteRequest() {
+    const draft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+    const supplier = draft?.supplier?.trim();
     if (!supplier) {
       showNotice("Choose or enter a supplier before sending the quote request.");
-      setActiveQuoteBuildTab("supplier-request");
+      setActiveQuoteBuildTab("summary");
       return;
     }
 
-    const lines = supplierRequestLinesForCentre(centre);
+    const requestedLines = quoteSupplierRequestDraftLines();
+    const lines = requestedLines.length ? requestedLines.map((entry) => entry.line) : [];
     if (!lines.length) {
       showNotice("Add catalogue, one-off, takeoff or radiator items before sending a supplier request.");
       return;
     }
 
+    const centreCount = new Set(lines.map((line) => selectedQuoteCostCentres.find((centre) => centre.lines.some((item) => item.id === line.id))?.id)).size;
+
     setSupplierQuoteDrafts((current) => ({
       ...current,
-      [centre.id]: {
+      [QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]: {
         supplier,
-        contactEmail: current[centre.id]?.contactEmail ?? "",
-        subject: current[centre.id]?.subject || `${selectedQuote?.ref ?? "Quote"} supplier quote request - ${centre.name}`,
-        message: current[centre.id]?.message || `Please price the listed items for ${centre.name}. Quantities and notes are included below.`,
-        fileName: current[centre.id]?.fileName || `Supplier request - ${centre.name}`,
-        markupPercent: current[centre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
-        lines,
+        contactEmail: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.contactEmail ?? "",
+        subject:
+          current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.subject || `${selectedQuote?.ref ?? "Quote"} supplier request`,
+        message:
+          current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.message ||
+          `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`,
+        fileName:
+          current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedQuote?.ref ?? "quote"}`,
+        markupPercent: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
+        lineRefs: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [],
+        lines: quoteSupplierRequestDraftLinesFromRefs(current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? []).map((entry) => entry.line),
         sentAt: new Date().toISOString(),
       },
     }));
@@ -10328,7 +10918,7 @@ export default function Dashboard() {
         action: "sent",
         recordType: "quote",
         recordId: selectedQuote.id,
-        summary: `Supplier quote request sent to ${supplier} for ${centre.name}: ${lines.length} item(s).`,
+        summary: `Supplier quote request sent to ${supplier} for ${selectedQuote?.ref ?? "this quote"}: ${lines.length} item(s). Across ${centreCount || 1} cost centre(s).`,
         source: "web",
         importance: "normal",
       });
@@ -10337,7 +10927,7 @@ export default function Dashboard() {
     showNotice(`Supplier quote request staged for ${supplier} with ${lines.length} item(s).`);
   }
 
-  async function handleSupplierQuoteUpload(centre: QuoteCostCentre, event: ChangeEvent<HTMLInputElement>) {
+  async function handleSupplierQuoteUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0];
     if (!file) return;
 
@@ -10349,25 +10939,36 @@ export default function Dashboard() {
       return;
     }
 
-    const existing = supplierQuoteDrafts[centre.id];
+    const existing = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
     const markupPercent = existing?.markupPercent ?? defaultMaterialMarkupPercent;
+    const requestLines = quoteSupplierRequestDraftLines();
     const supplier = existing?.supplier || file.name.replace(/\.pdf$/i, "");
     if (isCsvLike) {
-      const parsed = await parseSupplierQuoteRowsFromUpload(file, centre, markupPercent).catch(() => ({
+      const parsed = await parseSupplierQuoteRowsFromUpload(file, null, markupPercent).catch(() => ({
         lines: [],
         status: "fallback" as const,
         notes: ["Supplier quote parse failed; using existing draft lines."],
       }));
 
-      if (parsed.lines.length > 0) {
+      const aligned = parsed.lines.map((line, index) => {
+        const requestLine = requestLines[index];
+        if (!requestLine) return line;
+        return {
+          ...line,
+          id: requestLine.line.id,
+          catalogItemId: requestLine.line.catalogItemId,
+        };
+      });
+
+      if (aligned.length > 0) {
         setSupplierQuoteDrafts((current) => ({
           ...current,
-          [centre.id]: {
-            ...current[centre.id],
+          [QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+            ...current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY],
             supplier,
             fileName: file.name,
             markupPercent,
-            lines: parsed.lines,
+            lines: aligned,
           },
         }));
 
@@ -10377,13 +10978,13 @@ export default function Dashboard() {
             action: "uploaded",
             recordType: "quote",
             recordId: selectedQuote.id,
-            summary: `${file.name} parsed into ${parsed.lines.length} supplier-priced lines for ${centre.name}.`,
+            summary: `${file.name} parsed into ${aligned.length} supplier-priced lines for ${selectedQuote?.ref ?? "quote"}.`,
             source: "web",
             importance: "normal",
           });
         }
 
-        showNotice(parsed.lines.length ? parsed.notes.join(" ") : "Supplier quote parsed.");
+        showNotice(aligned.length ? aligned.length + " supplier line(s) parsed." : "No supplier lines parsed.");
       } else {
         showNotice(parsed.notes.join(" ") || "No supplier lines parsed; fallback sample retained.");
       }
@@ -10392,24 +10993,28 @@ export default function Dashboard() {
       return;
     }
 
-    const requestedLines = existing?.lines.length ? existing.lines : makeSupplierQuoteLines(file.name, centre, markupPercent);
+    const requestedLines = requestLines.length ? requestLines.map((entry) => entry.line) : makeSupplierQuoteLines(file.name, null, markupPercent);
     const lines = requestedLines.map((line, index) => {
       const radiatorMatch = radiatorCatalogue.find((radiator) =>
         line.description.includes(radiator.range) && line.description.includes(radiator.model),
       );
       const unitCost = line.unitCost || radiatorMatch?.costRate || 90 + (index * 42);
+      const requestLine = requestLines[index];
+      const matchedLine = requestLine?.line;
 
       return {
         ...line,
         unitCost,
         unitSell: lineSellFromMarkup(unitCost, markupPercent),
+        id: matchedLine?.id || line.id,
+        catalogItemId: matchedLine?.catalogItemId || line.catalogItemId,
       };
     });
 
     setSupplierQuoteDrafts((current) => ({
       ...current,
-      [centre.id]: {
-        ...current[centre.id],
+      [QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+        ...current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY],
         supplier,
         fileName: file.name,
         markupPercent,
@@ -10423,7 +11028,7 @@ export default function Dashboard() {
         action: "uploaded",
         recordType: "quote",
         recordId: selectedQuote.id,
-        summary: `Supplier quote PDF ${file.name} uploaded for ${centre.name}: ${lines.length} item(s) priced for review.`,
+        summary: `Supplier quote PDF ${file.name} uploaded for ${selectedQuote?.ref ?? "quote"}: ${lines.length} item(s) priced for review.`,
         source: "web",
         importance: "normal",
       });
@@ -10431,37 +11036,63 @@ export default function Dashboard() {
     showNotice(`${file.name} priced ${lines.length} supplier item(s) ready to apply.`);
   }
 
-  function applySupplierQuoteImport(centreId: string) {
+  function applySupplierQuoteImport() {
     if (!selectedQuote) return;
-    const draft = supplierQuoteDrafts[centreId];
+    const draft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+    const requested = quoteSupplierRequestDraftLines();
     if (!draft || draft.lines.length === 0) {
       showNotice("Upload a supplier quote PDF before applying materials.");
       return;
     }
+    if (!requested.length) {
+      showNotice("Select and stage supplier request lines before applying the returned quote.");
+      return;
+    }
 
-    const centreName = selectedQuoteCostCentres.find((centre) => centre.id === centreId)?.name ?? "cost centre";
     const importedLines = draft.lines.map((line) => ({
       ...line,
       rateSource: "manual" as const,
     }));
+    const importedById = new Map(importedLines.map((line) => [line.id, line]));
+    const requestedByCentre = new Map<string, QuoteSupplierLineWithCentre[]>();
+    requested.forEach((entry) => {
+      const list = requestedByCentre.get(entry.centreId) ?? [];
+      list.push(entry);
+      requestedByCentre.set(entry.centreId, list);
+    });
+    const requestedIds = new Set(requested.map((entry) => `${entry.centreId}:${entry.line.id}`));
+    const centreCount = requestedByCentre.size;
+    const quotedLineCount = requestedIds.size;
 
     markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
-      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
-        centre.id === centreId
-          ? {
-              ...centre,
-              lines: [
-                ...centre.lines.map((line) => {
-                  const matchedImport = importedLines.find((importedLine) => importedLine.id === line.id);
-                  return matchedImport ? { ...line, unitCost: matchedImport.unitCost, unitSell: matchedImport.unitSell } : line;
-                }),
-                ...importedLines.filter((importedLine) => !centre.lines.some((line) => line.id === importedLine.id)),
-              ],
-            }
-          : centre,
-      ),
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) => {
+        const linesForCentre = requestedByCentre.get(centre.id) ?? [];
+        if (!linesForCentre.length) return centre;
+
+        const requestedLineIdsForCentre = new Set(linesForCentre.map((entry) => entry.line.id));
+        const nextLines = centre.lines.map((line) => {
+          if (!requestedLineIdsForCentre.has(line.id)) return line;
+          const imported = importedById.get(line.id);
+          if (!imported) return line;
+          return {
+            ...line,
+            unitCost: imported.unitCost,
+            unitSell: imported.unitSell,
+            rateSource: "manual" as const,
+          };
+        });
+        const append = linesForCentre
+          .map((entry) => entry.line)
+          .filter((line) => !centre.lines.some((existing) => existing.id === line.id))
+          .map((line) => ({ ...line, rateSource: "manual" as const }));
+
+        return {
+          ...centre,
+          lines: [...nextLines, ...append],
+        };
+      }),
     }));
 
     logAuditEvent({
@@ -10469,12 +11100,12 @@ export default function Dashboard() {
       action: "imported",
       recordType: "quote",
       recordId: selectedQuote.id,
-      summary: `Supplier quote ${draft.fileName} applied into ${centreName}: ${draft.lines.length} material lines at ${draft.markupPercent}% markup.`,
+      summary: `Supplier quote ${draft.fileName} applied into ${selectedQuote.ref}: ${quotedLineCount} staged line(s) across ${centreCount || 1} cost centre(s) at ${draft.markupPercent}% markup.`,
       source: "web",
       importance: "normal",
     });
 
-    showNotice(`${draft.lines.length} supplier material lines applied to ${centreName}.`);
+    showNotice(`${draft.lines.length} supplier lines applied to ${selectedQuote.ref}.`);
   }
 
   function addQuoteLine(centreId: string, catalogItemId: string) {
@@ -11915,40 +12546,55 @@ export default function Dashboard() {
       recordType === "quote"
         ? quotes.find((item) => item.ref === recordRef)
         : quotes.find((item) => item.convertedJobRef === recordRef);
-    if (!quote) return baseFiles;
+    const job = recordType === "job" ? jobs.find((item) => item.ref === recordRef) ?? null : null;
+    if (recordType === "quote" && !quote) return baseFiles;
+    if (recordType === "job" && !job) return baseFiles;
+    const centres = quote ? (quoteCostCentres[quote.id] ?? []) : [];
+    const workflowFiles = quote
+      ? centres.flatMap((centre): RecordDocumentFile[] => {
+          const sourceDocuments = (centre.takeoffDocuments ?? []).map((document): RecordDocumentFile => ({
+            folderId:
+              document.kind === "Drawings"
+                ? "drawings"
+                : document.kind === "Contractor BOQ"
+                  ? "bill-of-quantities"
+                  : "office-private",
+            name: document.fileName,
+            type: document.kind,
+            visibility: document.kind === "Drawings" ? "Engineer" : "Private",
+            linkedTo: centre.name,
+          }));
 
-    const centres = quoteCostCentres[quote.id] ?? [];
-    const workflowFiles = centres.flatMap((centre): RecordDocumentFile[] => {
-      const sourceDocuments = (centre.takeoffDocuments ?? []).map((document): RecordDocumentFile => ({
-        folderId:
-          document.kind === "Drawings"
-            ? "drawings"
-            : document.kind === "Contractor BOQ"
-              ? "bill-of-quantities"
-              : "office-private",
-        name: document.fileName,
-        type: document.kind,
-        visibility: document.kind === "Drawings" ? "Engineer" : "Private",
-        linkedTo: centre.name,
-      }));
-
-      const supplierDraft = supplierQuoteDrafts[centre.id];
-      const supplierFiles: RecordDocumentFile[] = supplierDraft?.fileName
+          return [...sourceDocuments];
+        })
+      : [];
+    const quoteSupplierDraft = quote ? supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY] : null;
+    const jobSupplierDraft = recordType === "job" ? jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY] : null;
+    const supplierFiles: RecordDocumentFile[] = quoteSupplierDraft?.fileName
+      ? [
+          {
+            folderId: "supplier-quotes",
+            name: quoteSupplierDraft.fileName,
+            type: quoteSupplierDraft.fileName.toLowerCase().endsWith(".pdf") ? "Returned supplier quote" : "Supplier request",
+            visibility: "Private",
+            linkedTo: quote?.ref ?? recordRef,
+          },
+        ]
+      : [];
+    const jobSupplierFiles: RecordDocumentFile[] =
+      jobSupplierDraft?.fileName
         ? [
             {
               folderId: "supplier-quotes",
-              name: supplierDraft.fileName,
-              type: supplierDraft.fileName.toLowerCase().endsWith(".pdf") ? "Returned supplier quote" : "Supplier request",
+              name: jobSupplierDraft.fileName,
+              type: jobSupplierDraft.fileName.toLowerCase().endsWith(".pdf") ? "Returned supplier quote" : "Supplier request",
               visibility: "Private",
-              linkedTo: centre.name,
+              linkedTo: job?.ref ?? recordRef,
             },
           ]
         : [];
 
-      return [...sourceDocuments, ...supplierFiles];
-    });
-
-    return [...workflowFiles, ...baseFiles];
+    return [...workflowFiles, ...supplierFiles, ...jobSupplierFiles, ...baseFiles];
   }
 
   function renderDocumentWorkspace(recordType: RecordDocumentScope, recordRef: string) {
@@ -13981,9 +14627,252 @@ export default function Dashboard() {
                                 <strong>{currency(selectedQuoteTotals.profit)} · {selectedQuoteTotals.margin}%</strong>
                               </div>
                             </>
-                          );
-                        })()}
-                      </div>
+                        );
+                      })()}
+                    </div>
+                  </section>
+
+                    <section className="supplier-quote-import quote-summary-supplier-request">
+                      {(() => {
+                        const quoteMaterialEntries = allQuoteMaterialLines();
+                        const selectedQuoteLineCount = selectedQuoteMaterialLineEntries().length;
+                        const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
+                        const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+                        const supplierRequestEntries = quoteSupplierRequestDraftLines();
+                        const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
+                        const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
+                        const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + quoteLineSell(line), 0);
+
+                        return (
+                          <>
+                            <div className="supplier-quote-import-head">
+                              <div>
+                                <strong>Supplier request</strong>
+                                <span>Select materials from all quote cost centres and send one supplier request for the full quote.</span>
+                              </div>
+                              <FileText size={20} />
+                            </div>
+
+                            <div className="quote-build-summary-grid">
+                              <div>
+                                <span>Materials available</span>
+                                <strong>{quoteMaterialEntries.length}</strong>
+                                <small>Across {selectedQuoteCostCentres.length} cost centre(s)</small>
+                              </div>
+                              <div>
+                                <span>Selected now</span>
+                                <strong>{selectedQuoteLineCount}</strong>
+                                <small>Ready to stage</small>
+                              </div>
+                              <div>
+                                <span>In supplier request</span>
+                                <strong>{supplierRequestLines.length}</strong>
+                                <small>{supplierDraft?.fileName || "No request staged yet"}</small>
+                              </div>
+                              <div>
+                                <span>Priced lines</span>
+                                <strong>{supplierPricedCount} / {supplierRequestLines.length || 0}</strong>
+                                <small>{supplierRequestTotal > 0 ? currency(supplierRequestTotal) : "Awaiting quote"}</small>
+                              </div>
+                            </div>
+
+                            <div className="simpro-billable-table quote-scope-material-selector">
+                              <div className="simpro-billable-row table-head parts">
+                                <span>Select</span>
+                                <span>Description</span>
+                                <span>Cost centre</span>
+                                <span>Cost</span>
+                                <span>Markup</span>
+                                <span>Sell</span>
+                                <span>Qty</span>
+                                <span>Status</span>
+                                <span />
+                              </div>
+                              {quoteMaterialEntries.map((entry) => {
+                                const isSelected = Boolean(selectedQuoteMaterialLineIds[entry.centreId]?.includes(entry.line.id));
+                                return (
+                                  <div className="simpro-billable-row parts" key={`quote-summary:${entry.centreId}:${entry.line.id}`}>
+                                    <input
+                                      checked={isSelected}
+                                      type="checkbox"
+                                      aria-label={`Select ${entry.line.description} for supplier request`}
+                                      onChange={(event) => toggleQuoteMaterialLineSelection(entry.centreId, entry.line.id, event.target.checked)}
+                                    />
+                                    <div className="quote-line-meta-cell">
+                                      <textarea
+                                        className="quote-line-description"
+                                        value={entry.line.description}
+                                        onChange={(event) => updateQuoteLine(entry.centreId, entry.line.id, { description: event.target.value })}
+                                      />
+                                    </div>
+                                    <strong>{entry.centreName}</strong>
+                                    <input
+                                      inputMode="decimal"
+                                      placeholder="TBC"
+                                      value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:summaryUnitCost`, entry.line.unitCost, true)}
+                                      onChange={(event) => {
+                                        updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryUnitCost`, event.target.value, (unitCost) => {
+                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitCost,
+                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                          });
+                                        });
+                                      }}
+                                      onBlur={(event) => {
+                                        commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryUnitCost`, event.currentTarget.value, (unitCost) => {
+                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitCost,
+                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                          });
+                                        });
+                                      }}
+                                    />
+                                    <input
+                                      inputMode="decimal"
+                                      placeholder="TBC"
+                                      value={costCentreNumberInputValue(
+                                        `quote:${entry.centreId}:${entry.line.id}:summaryMarkup`,
+                                        entry.line.unitCost > 0 ? quoteLineMarkupPercent(entry.line) : 0,
+                                        entry.line.unitCost <= 0,
+                                      )}
+                                      onChange={(event) => {
+                                        updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryMarkup`, event.target.value, (markupPercent) => {
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
+                                          });
+                                        });
+                                      }}
+                                      onBlur={(event) => {
+                                        commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryMarkup`, event.currentTarget.value, (markupPercent) => {
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
+                                          });
+                                        });
+                                      }}
+                                    />
+                                    <strong>{entry.line.unitSell > 0 ? currency(quoteLineSell(entry.line)) : "Awaiting price"}</strong>
+                                    <span>{entry.line.quantity.toFixed(2)}</span>
+                                    <span>{entry.line.supplierRequired ? "Staged" : "Not staged"}</span>
+                                    <div className="quote-line-actions">
+                                      <button
+                                        className="simpro-options-button"
+                                        type="button"
+                                        onClick={() => updateQuoteLine(entry.centreId, entry.line.id, { supplierRequired: !entry.line.supplierRequired })}
+                                      >
+                                        {entry.line.supplierRequired ? "Unmark" : "Mark"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {quoteMaterialEntries.length === 0 ? (
+                                <div className="simpro-billable-row parts empty">
+                                  <span />
+                                  <strong>No material lines yet. Add catalogue, one-off, heat loss or takeoff items first.</strong>
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                </div>
+                              ) : (
+                                <div className="quote-bulk-action-bar">
+                                  <span>{selectedQuoteLineCount} selected</span>
+                                  <button className="simpro-options-button" type="button" onClick={toggleAllQuoteMaterialLineSelectionAcrossQuote}>
+                                    {allQuoteMaterialsSelected ? "Clear all" : "Select all"}
+                                  </button>
+                                  <button
+                                    className="simpro-options-button"
+                                    type="button"
+                                    disabled={!selectedQuoteLineCount}
+                                    onClick={stageSelectedSupplierRequestLinesFromQuote}
+                                  >
+                                    Send to supplier request form
+                                  </button>
+                                  <button
+                                    className="simpro-options-button"
+                                    type="button"
+                                    disabled={!selectedQuoteLineCount}
+                                    onClick={() => openSelectedQuoteLinesCatalogFolderModal()}
+                                  >
+                                    Add items to catalog
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="supplier-quote-controls">
+                              <label>
+                                Supplier
+                                <input
+                                  placeholder="Select or enter supplier"
+                                  value={supplierDraft?.supplier ?? ""}
+                                  onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { supplier: event.target.value })}
+                                />
+                              </label>
+                              <label>
+                                Supplier email
+                                <input
+                                  placeholder="quotes@supplier.co.uk"
+                                  value={supplierDraft?.contactEmail ?? ""}
+                                  onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { contactEmail: event.target.value })}
+                                />
+                              </label>
+                              <button className="simpro-grey-button" type="button" onClick={sendSupplierQuoteRequest}>
+                                SEND REQUEST
+                              </button>
+                            </div>
+
+                            <div className="supplier-return-panel">
+                              <div>
+                                <strong>Returned supplier quote</strong>
+                                <span>Upload the supplier PDF/CSV once they reply, then apply prices into the matching cost centres.</span>
+                              </div>
+                              <label>
+                                Supplier Quote
+                                <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleSupplierQuoteUpload} />
+                              </label>
+                              <label>
+                                Markup %
+                                <input
+                                  inputMode="decimal"
+                                  value={costCentreNumberInputValue(
+                                    `quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                    supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent,
+                                  )}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`, event.target.value, (markupPercent) => {
+                                      updateSupplierQuoteMarkup(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, markupPercent);
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(
+                                      `quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                      event.currentTarget.value,
+                                      (markupPercent) => {
+                                        updateSupplierQuoteMarkup(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, markupPercent);
+                                      },
+                                      defaultMaterialMarkupPercent,
+                                    );
+                                  }}
+                                />
+                              </label>
+                              <button
+                                className="simpro-blue-button"
+                                disabled={!supplierDraft?.lines.length}
+                                type="button"
+                                onClick={applySupplierQuoteImport}
+                              >
+                                APPLY RETURNED QUOTE
+                              </button>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </section>
                   </section>
                 ) : null}
@@ -14134,6 +15023,253 @@ export default function Dashboard() {
                         );
                       })}
                       </div>
+                    </section>
+                  </section>
+                ) : null}
+
+                {activeQuoteTab === "supplier-request" ? (
+                  <section className="quote-record-panel">
+                    <section className="supplier-quote-import quote-main-supplier-request">
+                      {(() => {
+                        const quoteMaterialEntries = allQuoteMaterialLines();
+                        const selectedQuoteLineCount = selectedQuoteMaterialLineEntries().length;
+                        const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
+                        const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+                        const supplierRequestEntries = quoteSupplierRequestDraftLines();
+                        const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
+                        const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
+                        const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + quoteLineSell(line), 0);
+
+                        return (
+                          <>
+                            <div className="supplier-quote-import-head">
+                              <div>
+                                <strong>Supplier request</strong>
+                                <span>Pulls all material lines from this quote. Tick what needs pricing, then send one supplier request.</span>
+                              </div>
+                              <FileText size={20} />
+                            </div>
+
+                            <div className="quote-build-summary-grid">
+                              <div>
+                                <span>Material lines</span>
+                                <strong>{quoteMaterialEntries.length}</strong>
+                                <small>Across {selectedQuoteCostCentres.length} cost centre(s)</small>
+                              </div>
+                              <div>
+                                <span>Selected</span>
+                                <strong>{selectedQuoteLineCount}</strong>
+                                <small>Ready to stage</small>
+                              </div>
+                              <div>
+                                <span>Request items</span>
+                                <strong>{supplierRequestLines.length}</strong>
+                                <small>{supplierDraft?.fileName || "No request staged yet"}</small>
+                              </div>
+                              <div>
+                                <span>Supplier priced</span>
+                                <strong>{supplierPricedCount} / {supplierRequestLines.length || 0}</strong>
+                                <small>{supplierRequestTotal > 0 ? currency(supplierRequestTotal) : "Awaiting prices"}</small>
+                              </div>
+                            </div>
+
+                            <div className="simpro-billable-table quote-scope-material-selector quote-supplier-material-list">
+                              <div className="simpro-billable-row table-head parts">
+                                <span>Select</span>
+                                <span>Description</span>
+                                <span>Cost centre</span>
+                                <span>Cost</span>
+                                <span>Markup</span>
+                                <span>Sell</span>
+                                <span>Qty</span>
+                                <span>Status</span>
+                                <span />
+                              </div>
+                              {quoteMaterialEntries.map((entry) => {
+                                const isSelected = Boolean(selectedQuoteMaterialLineIds[entry.centreId]?.includes(entry.line.id));
+                                return (
+                                  <div className="simpro-billable-row parts" key={`quote-supplier:${entry.centreId}:${entry.line.id}`}>
+                                    <input
+                                      checked={isSelected}
+                                      type="checkbox"
+                                      aria-label={`Select ${entry.line.description} for supplier request`}
+                                      onChange={(event) => toggleQuoteMaterialLineSelection(entry.centreId, entry.line.id, event.target.checked)}
+                                    />
+                                    <div className="quote-line-meta-cell">
+                                      <textarea
+                                        className="quote-line-description"
+                                        value={entry.line.description}
+                                        onChange={(event) => updateQuoteLine(entry.centreId, entry.line.id, { description: event.target.value })}
+                                      />
+                                    </div>
+                                    <strong>{entry.centreName}</strong>
+                                    <input
+                                      inputMode="decimal"
+                                      placeholder="TBC"
+                                      value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:supplierTabCost`, entry.line.unitCost, true)}
+                                      onChange={(event) => {
+                                        updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabCost`, event.target.value, (unitCost) => {
+                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitCost,
+                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                          });
+                                        });
+                                      }}
+                                      onBlur={(event) => {
+                                        commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabCost`, event.currentTarget.value, (unitCost) => {
+                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitCost,
+                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                          });
+                                        });
+                                      }}
+                                    />
+                                    <input
+                                      inputMode="decimal"
+                                      placeholder="TBC"
+                                      value={costCentreNumberInputValue(
+                                        `quote:${entry.centreId}:${entry.line.id}:supplierTabMarkup`,
+                                        entry.line.unitCost > 0 ? quoteLineMarkupPercent(entry.line) : 0,
+                                        entry.line.unitCost <= 0,
+                                      )}
+                                      onChange={(event) => {
+                                        updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabMarkup`, event.target.value, (markupPercent) => {
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
+                                          });
+                                        });
+                                      }}
+                                      onBlur={(event) => {
+                                        commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabMarkup`, event.currentTarget.value, (markupPercent) => {
+                                          updateQuoteLine(entry.centreId, entry.line.id, {
+                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
+                                          });
+                                        });
+                                      }}
+                                    />
+                                    <strong>{entry.line.unitSell > 0 ? currency(quoteLineSell(entry.line)) : "Awaiting price"}</strong>
+                                    <span>{entry.line.quantity.toFixed(2)}</span>
+                                    <span>{entry.line.supplierRequired ? "Staged" : "Not staged"}</span>
+                                    <div className="quote-line-actions">
+                                      <button
+                                        className="simpro-options-button"
+                                        type="button"
+                                        onClick={() => updateQuoteLine(entry.centreId, entry.line.id, { supplierRequired: !entry.line.supplierRequired })}
+                                      >
+                                        {entry.line.supplierRequired ? "Unmark" : "Mark"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {quoteMaterialEntries.length === 0 ? (
+                                <div className="simpro-billable-row parts empty">
+                                  <span />
+                                  <strong>No material lines yet. Add catalogue, one-off, heat loss or takeoff items inside the cost centres first.</strong>
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                  <span />
+                                </div>
+                              ) : (
+                                <div className="quote-bulk-action-bar">
+                                  <span>{selectedQuoteLineCount} selected</span>
+                                  <button className="simpro-options-button" type="button" onClick={toggleAllQuoteMaterialLineSelectionAcrossQuote}>
+                                    {allQuoteMaterialsSelected ? "Clear all" : "Select all"}
+                                  </button>
+                                  <button
+                                    className="simpro-options-button"
+                                    type="button"
+                                    disabled={!selectedQuoteLineCount}
+                                    onClick={stageSelectedSupplierRequestLinesFromQuote}
+                                  >
+                                    Send to supplier request form
+                                  </button>
+                                  <button
+                                    className="simpro-options-button"
+                                    type="button"
+                                    disabled={!selectedQuoteLineCount}
+                                    onClick={() => openSelectedQuoteLinesCatalogFolderModal()}
+                                  >
+                                    Add items to catalog
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="supplier-quote-controls">
+                              <label>
+                                Supplier
+                                <input
+                                  placeholder="Select or enter supplier"
+                                  value={supplierDraft?.supplier ?? ""}
+                                  onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { supplier: event.target.value })}
+                                />
+                              </label>
+                              <label>
+                                Supplier email
+                                <input
+                                  placeholder="quotes@supplier.co.uk"
+                                  value={supplierDraft?.contactEmail ?? ""}
+                                  onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { contactEmail: event.target.value })}
+                                />
+                              </label>
+                              <button className="simpro-grey-button" type="button" onClick={sendSupplierQuoteRequest}>
+                                SEND REQUEST
+                              </button>
+                            </div>
+
+                            <div className="supplier-return-panel">
+                              <div>
+                                <strong>Returned supplier quote</strong>
+                                <span>Upload the supplier PDF/CSV once they reply, then apply prices into the matching cost centres.</span>
+                              </div>
+                              <label>
+                                Supplier Quote
+                                <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleSupplierQuoteUpload} />
+                              </label>
+                              <label>
+                                Markup %
+                                <input
+                                  inputMode="decimal"
+                                  value={costCentreNumberInputValue(
+                                    `quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                    supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent,
+                                  )}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`, event.target.value, (markupPercent) => {
+                                      updateSupplierQuoteMarkup(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, markupPercent);
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(
+                                      `quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                      event.currentTarget.value,
+                                      (markupPercent) => {
+                                        updateSupplierQuoteMarkup(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, markupPercent);
+                                      },
+                                      defaultMaterialMarkupPercent,
+                                    );
+                                  }}
+                                />
+                              </label>
+                              <button
+                                className="simpro-blue-button"
+                                disabled={!supplierDraft?.lines.length}
+                                type="button"
+                                onClick={applySupplierQuoteImport}
+                              >
+                                APPLY RETURNED QUOTE
+                              </button>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </section>
                   </section>
                 ) : null}
@@ -14616,8 +15752,22 @@ export default function Dashboard() {
                     {activeQuoteBuildTab === "summary" ? (
                       <div className="quote-scope-summary">
                         {(() => {
+                          const quoteMaterialEntries = allQuoteMaterialLines();
+                          const selectedQuoteLineEntries = selectedQuoteMaterialLineEntries();
+                          const selectedQuoteLineCount = selectedQuoteLineEntries.length;
+                          const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
                           const totals = quoteCostCentreTotals(selectedQuoteCostCentre);
-                          const supplierLines = supplierRequestLinesForCentre(selectedQuoteCostCentre);
+                          const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+                          const supplierRequestEntries = quoteSupplierRequestDraftLines();
+                          const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
+                          const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + quoteLineSell(line), 0);
+                          const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
+                          const supplierMatchedCount = supplierRequestEntries.filter((entry) => {
+                            const centre = quoteSupplierRequestLineCentre(entry.centreId);
+                            if (!centre) return false;
+                            return supplierLineMatchState(centre, entry.line) === "Matched";
+                          }).length;
+
                           return (
                             <>
                               <div className="simpro-parts-header">
@@ -14640,8 +15790,8 @@ export default function Dashboard() {
                                 </div>
                                 <div>
                                   <span>Items for supplier</span>
-                                  <strong>{supplierLines.length}</strong>
-                                  <small>{supplierQuoteDrafts[selectedQuoteCostCentre.id]?.fileName || "Request not sent yet"}</small>
+                                  <strong>{supplierRequestLines.length}</strong>
+                                  <small>{supplierDraft?.fileName || "No supplier request staged"}</small>
                                 </div>
                                 <div>
                                   <span>Takeoff handoff</span>
@@ -14654,6 +15804,349 @@ export default function Dashboard() {
                                   <small>{totals.margin}% margin</small>
                                 </div>
                               </div>
+                              <div className="simpro-billable-table quote-scope-material-selector">
+                                <div className="simpro-billable-row table-head parts">
+                                  <span>Select</span>
+                                  <span>Description</span>
+                                  <span>Cost centre</span>
+                                  <span>Time (hrs)</span>
+                                  <span>Price</span>
+                                  <span>Markup</span>
+                                  <span>Sell Price</span>
+                                  <span>Qty</span>
+                                  <span />
+                                </div>
+                                {quoteMaterialEntries.map((entry) => {
+                                  const isSelected = Boolean(selectedQuoteMaterialLineIds[entry.centreId]?.includes(entry.line.id));
+                                  return (
+                                    <div className="simpro-billable-row parts" key={`${entry.centreId}:${entry.line.id}`}>
+                                      <input
+                                        checked={isSelected}
+                                        type="checkbox"
+                                        aria-label={`Select ${entry.line.description} for supplier request`}
+                                        onChange={(event) => toggleQuoteMaterialLineSelection(entry.centreId, entry.line.id, event.target.checked)}
+                                      />
+                                      <div className="quote-line-meta-cell">
+                                        <textarea
+                                          className="quote-line-description"
+                                          value={entry.line.description}
+                                          onChange={(event) => updateQuoteLine(entry.centreId, entry.line.id, { description: event.target.value })}
+                                        />
+                                      </div>
+                                      <strong>{entry.centreName}</strong>
+                                      <input value={0} readOnly />
+                                      <input
+                                        inputMode="decimal"
+                                        placeholder="TBC"
+                                        value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:unitCost`, entry.line.unitCost, true)}
+                                        onChange={(event) => {
+                                          updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitCost`, event.target.value, (unitCost) => {
+                                            const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
+                                            updateQuoteLine(entry.centreId, entry.line.id, {
+                                              unitCost,
+                                              unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                            });
+                                          });
+                                        }}
+                                        onBlur={(event) => {
+                                          commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                            const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
+                                            updateQuoteLine(entry.centreId, entry.line.id, {
+                                              unitCost,
+                                              unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                            });
+                                          });
+                                        }}
+                                      />
+                                      <input
+                                        inputMode="decimal"
+                                        placeholder="TBC"
+                                        value={costCentreNumberInputValue(
+                                          `quote:${entry.centreId}:${entry.line.id}:markup`,
+                                          entry.line.unitCost > 0 ? quoteLineMarkupPercent(entry.line) : 0,
+                                          entry.line.unitCost <= 0,
+                                        )}
+                                        onChange={(event) => {
+                                          updateCostCentreNumberInput(
+                                            `quote:${entry.centreId}:${entry.line.id}:markup`,
+                                            event.target.value,
+                                            (markupPercent) => {
+                                              updateQuoteLine(entry.centreId, entry.line.id, {
+                                                unitSell: entry.line.unitCost * (1 + markupPercent / 100),
+                                              });
+                                            },
+                                          );
+                                        }}
+                                        onBlur={(event) => {
+                                          commitCostCentreNumberInput(
+                                            `quote:${entry.centreId}:${entry.line.id}:markup`,
+                                            event.currentTarget.value,
+                                            (markupPercent) => {
+                                              updateQuoteLine(entry.centreId, entry.line.id, {
+                                                unitSell: entry.line.unitCost * (1 + markupPercent / 100),
+                                              });
+                                            },
+                                          );
+                                        }}
+                                      />
+                                      <input
+                                        inputMode="decimal"
+                                        placeholder="TBC"
+                                        value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:unitSell`, entry.line.unitSell, true)}
+                                        onChange={(event) => {
+                                          updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitSell`, event.target.value, (unitSell) => {
+                                            updateQuoteLine(entry.centreId, entry.line.id, { unitSell });
+                                          });
+                                        }}
+                                        onBlur={(event) => {
+                                          commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
+                                            updateQuoteLine(entry.centreId, entry.line.id, { unitSell });
+                                          });
+                                        }}
+                                      />
+                                      <strong>{entry.line.unitSell > 0 ? currency(quoteLineSell(entry.line)) : "Awaiting price"}</strong>
+                                      <div className="quote-line-actions">
+                                        <button
+                                          className="simpro-options-button"
+                                          type="button"
+                                          onClick={() => updateQuoteLine(entry.centreId, entry.line.id, { supplierRequired: !entry.line.supplierRequired })}
+                                        >
+                                          {entry.line.supplierRequired ? "Marked for supplier" : "Mark supplier"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {quoteMaterialEntries.length === 0 ? (
+                                  <div className="simpro-billable-row parts empty">
+                                    <span />
+                                    <strong>No material lines yet. Add materials first from the catalogue, one-off items, or a radiator schedule.</strong>
+                                    <span />
+                                    <span />
+                                    <span />
+                                    <span />
+                                    <span />
+                                    <span />
+                                    <span />
+                                  </div>
+                                ) : (
+                                  <div className="quote-bulk-action-bar">
+                                    <span>{selectedQuoteLineCount} selected</span>
+                                    <button className="simpro-options-button" type="button" onClick={toggleAllQuoteMaterialLineSelectionAcrossQuote}>
+                                      {allQuoteMaterialsSelected ? "Clear all" : "Select all"}
+                                    </button>
+                                    <button
+                                      className="simpro-options-button"
+                                      type="button"
+                                      disabled={!selectedQuoteLineCount}
+                                      onClick={stageSelectedSupplierRequestLinesFromQuote}
+                                    >
+                                      Send to supplier request form
+                                    </button>
+                                    <button
+                                      className="simpro-options-button"
+                                      type="button"
+                                      disabled={!selectedQuoteLineCount}
+                                      onClick={() => openSelectedQuoteLinesCatalogFolderModal()}
+                                    >
+                                      Add items to catalog
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              <section className="supplier-quote-import">
+                                <div className="supplier-quote-import-head">
+                                  <div>
+                                    <strong>Supplier request (Quote summary)</strong>
+                                    <span>Build one supplier request for all selected items across this quote, upload the returned file and apply prices once.</span>
+                                  </div>
+                                  <FileText size={20} />
+                                </div>
+                                <div className="supplier-quote-controls">
+                                  <label>
+                                    Supplier
+                                    <input
+                                      placeholder="Select or enter supplier"
+                                      value={supplierDraft?.supplier ?? ""}
+                                      onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { supplier: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    Supplier email
+                                    <input
+                                      placeholder="quotes@supplier.co.uk"
+                                      value={supplierDraft?.contactEmail ?? ""}
+                                      onChange={(event) =>
+                                        updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { contactEmail: event.target.value })
+                                      }
+                                    />
+                                  </label>
+                                  <button className="simpro-grey-button" type="button" onClick={sendSupplierQuoteRequest}>
+                                    SEND REQUEST
+                                  </button>
+                                </div>
+                                <div className="supplier-email-panel">
+                                  <label>
+                                    Subject
+                                    <input
+                                      value={supplierDraft?.subject ?? `${selectedQuote?.ref ?? "Quote"} supplier quote request`}
+                                      onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { subject: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    Message
+                                    <textarea
+                                      value={
+                                        supplierDraft?.message ??
+                                        `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`
+                                      }
+                                      onChange={(event) => updateSupplierQuoteDraft(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, { message: event.target.value })}
+                                    />
+                                  </label>
+                                </div>
+
+                                {(() => {
+                                  if (!supplierRequestEntries.length) {
+                                    return (
+                                      <div className="supplier-request-empty">
+                                        <strong>No supplier request items selected yet.</strong>
+                                        <span>
+                                          Go to the Catalogue or One-off Materials tab for each cost centre, tick the left-hand boxes for the items you want priced, then add
+                                          them to the supplier request from this panel.
+                                        </span>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="supplier-request-pack">
+                                      <div className="supplier-document-preview">
+                                        <div>
+                                          <span>Supplier request preview</span>
+                                          <h3>{supplierDraft?.subject ?? `${selectedQuote?.ref ?? "Quote"} supplier quote request`}</h3>
+                                          <p>
+                                            {supplierDraft?.message ??
+                                              `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`}
+                                          </p>
+                                        </div>
+                                        <div className="supplier-document-meta">
+                                          <span>To</span>
+                                          <strong>{supplierDraft?.supplier || "Supplier not selected"}</strong>
+                                          <span>Email</span>
+                                          <strong>{supplierDraft?.contactEmail || "Not entered"}</strong>
+                                          <span>Items</span>
+                                          <strong>{supplierRequestLines.length}</strong>
+                                        </div>
+                                      </div>
+
+                                      <div className="supplier-match-summary">
+                                        <div>
+                                          <span>Returned PDF</span>
+                                          <strong>{supplierDraft?.fileName || "Not uploaded yet"}</strong>
+                                        </div>
+                                        <div>
+                                          <span>Priced lines</span>
+                                          <strong>{supplierPricedCount} / {supplierRequestLines.length}</strong>
+                                        </div>
+                                        <div>
+                                          <span>Matched lines</span>
+                                          <strong>{supplierMatchedCount}</strong>
+                                        </div>
+                                        <div>
+                                          <span>Supplier total</span>
+                                          <strong>{supplierRequestTotal > 0 ? currency(supplierRequestTotal) : "Awaiting price"}</strong>
+                                        </div>
+                                      </div>
+
+                                      <div className="supplier-quote-preview">
+                                        <div className="supplier-quote-preview-head">
+                                          <span>Cost centre</span>
+                                          <span>Requested item</span>
+                                          <span>Qty</span>
+                                          <span>Cost</span>
+                                          <span>Markup</span>
+                                          <strong>Sell</strong>
+                                          <span>Match</span>
+                                        </div>
+                                        {supplierRequestEntries.map((entry) => {
+                                          const centre = quoteSupplierRequestLineCentre(entry.centreId);
+                                          const matchState = centre
+                                            ? supplierLineMatchState(centre, entry.line)
+                                            : "Awaiting price";
+
+                                          return (
+                                            <div className="supplier-quote-preview-row" key={`${entry.centreId}:${entry.line.id}`}>
+                                              <span>{entry.centreName}</span>
+                                              <span>{entry.line.description}</span>
+                                              <span>{entry.line.quantity.toFixed(2)}</span>
+                                              <span>{entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "TBC"}</span>
+                                              <span>{entry.line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent}%` : "TBC"}</span>
+                                              <strong>{entry.line.unitSell > 0 ? currency(entry.line.unitSell) : "Awaiting price"}</strong>
+                                              <span className={`supplier-match-pill ${matchState.toLowerCase().replaceAll(" ", "-")}`}>{matchState}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+
+                                      <div className="supplier-document-trail">
+                                        <strong>Supplier document trail</strong>
+                                        <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
+                                        <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
+                                        <span>
+                                          {supplierPricedCount === supplierRequestLines.length && supplierRequestLines.length > 0
+                                            ? "Ready to apply into quote summary"
+                                            : "Waiting for all supplier prices"}
+                                        </span>
+                                      </div>
+
+                                      <div className="supplier-return-panel">
+                                        <div>
+                                          <strong>Returned supplier quote</strong>
+                                          <span>Upload the supplier PDF/CSV after they reply, then apply the matched cost prices into the quote.</span>
+                                        </div>
+                                        <label>
+                                          Supplier Quote
+                                          <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleSupplierQuoteUpload} />
+                                        </label>
+                                        <label>
+                                          Markup %
+                                          <input
+                                            inputMode="decimal"
+                                            value={costCentreNumberInputValue(
+                                              `quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                              supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent,
+                                            )}
+                                            onChange={(event) => {
+                                              updateCostCentreNumberInput(`quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`, event.target.value, (markupPercent) => {
+                                                updateSupplierQuoteMarkup(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, markupPercent);
+                                              });
+                                            }}
+                                            onBlur={(event) => {
+                                              commitCostCentreNumberInput(
+                                                `quote:${QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                                event.currentTarget.value,
+                                                (markupPercent) => {
+                                                  updateSupplierQuoteMarkup(QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY, markupPercent);
+                                                },
+                                                defaultMaterialMarkupPercent,
+                                              );
+                                            }}
+                                          />
+                                        </label>
+                                        <button
+                                          className="simpro-blue-button"
+                                          disabled={!supplierDraft?.lines.length}
+                                          type="button"
+                                          onClick={applySupplierQuoteImport}
+                                        >
+                                          APPLY RETURNED QUOTE
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </section>
                             </>
                           );
                         })()}
@@ -14778,7 +16271,7 @@ export default function Dashboard() {
                           <div>
                             <h2>Takeoff / BOQ import</h2>
                             <h3>Review imported rows before they pull into the scope summary</h3>
-                            <span>Rows marked supplier-needed will also appear in the supplier request tab.</span>
+                            <span>Rows marked supplier-needed can be added to the quote-level supplier request from the Summary tab.</span>
                           </div>
                           <div className="simpro-parts-actions">
                             <button className="simpro-grey-button" type="button" onClick={() => importSampleTakeoffRows(selectedQuoteCostCentre)}>
@@ -15281,7 +16774,7 @@ export default function Dashboard() {
                     </div>
                     ) : null}
 
-                    {["summary", "catalogue", "one-off"].includes(activeQuoteBuildTab) ? (
+                    {["catalogue", "one-off"].includes(activeQuoteBuildTab) ? (
                       (() => {
                         const materialLines = quoteCostCentreTotals(selectedQuoteCostCentre).materialLines;
                         const selectedIds = new Set(selectedQuoteMaterialLineIds[selectedQuoteCostCentre.id] ?? []);
@@ -15412,10 +16905,12 @@ export default function Dashboard() {
                                 <button className="simpro-options-button" type="button" onClick={() => toggleAllQuoteMaterialLineSelection(selectedQuoteCostCentre)}>
                                   {allSelected ? "Clear selection" : "Select all"}
                                 </button>
-                                <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => stageSelectedSupplierRequestLines(selectedQuoteCostCentre)}>
-                                  Send to supplier request form
-                                </button>
-                                <button className="simpro-options-button" type="button" disabled={selectedCount === 0} onClick={() => openSelectedQuoteLinesCatalogFolderModal(selectedQuoteCostCentre)}>
+                                <button
+                                  className="simpro-options-button"
+                                  type="button"
+                                  disabled={selectedCount === 0}
+                                  onClick={() => openSelectedQuoteLinesCatalogFolderModal(selectedQuoteCostCentre)}
+                                >
                                   Add items to catalog
                                 </button>
                               </div>
@@ -15434,187 +16929,6 @@ export default function Dashboard() {
                         </select>
                       </label>
                       <button className="simpro-blue-button" type="button">ADD</button>
-                    </div>
-                    ) : null}
-
-                    {activeQuoteBuildTab === "supplier-request" ? (
-                    <div className="supplier-quote-import">
-                      <div className="supplier-quote-import-head">
-                        <div>
-                          <strong>Supplier quote / request</strong>
-                          <span>Send the request, upload the returned PDF, review matched prices, then apply them to the quote summary.</span>
-                        </div>
-                        <FileText size={20} />
-                      </div>
-                      <div className="supplier-quote-controls">
-                        <label>
-                          Supplier
-                          <input
-                            placeholder="Select or enter supplier"
-                            value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.supplier ?? ""}
-                            onChange={(event) => updateSupplierQuoteDraft(selectedQuoteCostCentre.id, { supplier: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          Supplier email
-                          <input
-                            placeholder="quotes@supplier.co.uk"
-                            value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.contactEmail ?? ""}
-                            onChange={(event) => updateSupplierQuoteDraft(selectedQuoteCostCentre.id, { contactEmail: event.target.value })}
-                          />
-                        </label>
-                        <button
-                          className="simpro-grey-button"
-                          type="button"
-                          onClick={() => sendSupplierQuoteRequest(selectedQuoteCostCentre)}
-                        >
-                          SEND
-                        </button>
-                      </div>
-                      <div className="supplier-email-panel">
-                        <label>
-                          Subject
-                          <input
-                            value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.subject ?? `${selectedQuote.ref} supplier quote request - ${selectedQuoteCostCentre.name}`}
-                            onChange={(event) => updateSupplierQuoteDraft(selectedQuoteCostCentre.id, { subject: event.target.value })}
-                          />
-                        </label>
-                        <label>
-                          Message
-                          <textarea
-                            value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.message ?? `Please price the listed items for ${selectedQuoteCostCentre.name}. Quantities and notes are included below.`}
-                            onChange={(event) => updateSupplierQuoteDraft(selectedQuoteCostCentre.id, { message: event.target.value })}
-                          />
-                        </label>
-                      </div>
-                      {(() => {
-                        const supplierDraft = supplierQuoteDrafts[selectedQuoteCostCentre.id];
-                        const requestLines = supplierRequestLinesForCentre(selectedQuoteCostCentre);
-                        const requestTotal = requestLines.reduce((total, line) => total + quoteLineSell(line), 0);
-                        const pricedCount = requestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
-                        const matchedCount = requestLines.filter((line) => supplierLineMatchState(selectedQuoteCostCentre, line) === "Matched").length;
-                        if (!requestLines.length) {
-                          return (
-                            <div className="supplier-request-empty">
-                              <strong>No supplier request items selected yet.</strong>
-                              <span>Go to the Summary, Catalogue or One-off tab, tick the left-hand boxes for the items you want priced, then send them to the supplier request form.</span>
-                            </div>
-                          );
-                        }
-
-                        return (
-                          <div className="supplier-request-pack">
-                            <div className="supplier-document-preview">
-                              <div>
-                                <span>Supplier request preview</span>
-                                <h3>{supplierDraft?.subject || `${selectedQuote.ref} supplier quote request - ${selectedQuoteCostCentre.name}`}</h3>
-                                <p>{supplierDraft?.message || `Please price the listed items for ${selectedQuoteCostCentre.name}. Quantities and notes are included below.`}</p>
-                              </div>
-                              <div className="supplier-document-meta">
-                                <span>To</span>
-                                <strong>{supplierDraft?.supplier || "Supplier not selected"}</strong>
-                                <span>Email</span>
-                                <strong>{supplierDraft?.contactEmail || "Not entered"}</strong>
-                                <span>Items</span>
-                                <strong>{requestLines.length}</strong>
-                              </div>
-                            </div>
-
-                            <div className="supplier-match-summary">
-                              <div>
-                                <span>Returned PDF</span>
-                                <strong>{supplierDraft?.fileName || "Not uploaded yet"}</strong>
-                              </div>
-                              <div>
-                                <span>Priced lines</span>
-                                <strong>{pricedCount} / {requestLines.length}</strong>
-                              </div>
-                              <div>
-                                <span>Matched lines</span>
-                                <strong>{matchedCount}</strong>
-                              </div>
-                              <div>
-                                <span>Supplier total</span>
-                                <strong>{requestTotal > 0 ? currency(requestTotal) : "Awaiting price"}</strong>
-                              </div>
-                            </div>
-
-                            <div className="supplier-quote-preview">
-                              <div className="supplier-quote-preview-head">
-                                <span>Requested item</span>
-                                <span>Qty</span>
-                                <span>Cost</span>
-                                <span>Markup</span>
-                                <strong>Sell</strong>
-                                <span>Match</span>
-                              </div>
-                              {requestLines.map((line) => {
-                                const matchState = supplierLineMatchState(selectedQuoteCostCentre, line);
-                                return (
-                                  <div className="supplier-quote-preview-row" key={line.id}>
-                                    <span>{line.description}</span>
-                                    <span>{line.quantity.toFixed(2)}</span>
-                                    <span>{line.unitCost > 0 ? currency(line.unitCost) : "TBC"}</span>
-                                    <span>{line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent}%` : "TBC"}</span>
-                                    <strong>{line.unitSell > 0 ? currency(line.unitSell) : "Awaiting price"}</strong>
-                                    <span className={`supplier-match-pill ${matchState.toLowerCase().replaceAll(" ", "-")}`}>{matchState}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-
-                            <div className="supplier-document-trail">
-                              <strong>Supplier document trail</strong>
-                              <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
-                              <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
-                              <span>{pricedCount === requestLines.length && requestLines.length > 0 ? "Ready to apply into quote summary" : "Waiting for all supplier prices"}</span>
-                            </div>
-
-                            <div className="supplier-return-panel">
-                              <div>
-                                <strong>Returned supplier quote</strong>
-                                <span>Upload the supplier PDF/CSV after they reply, then apply the matched cost prices into the quote.</span>
-                              </div>
-                              <label>
-                                Supplier Quote
-                                <input
-                                  accept=".pdf,.csv,.txt,.tsv"
-                                  type="file"
-                                  onChange={(event) => handleSupplierQuoteUpload(selectedQuoteCostCentre, event)}
-                                />
-                              </label>
-                              <label>
-                                Markup %
-                                <input
-                                  inputMode="decimal"
-                                  value={costCentreNumberInputValue(
-                                    `quote:${selectedQuoteCostCentre.id}:supplierMarkup`,
-                                    supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
-                                  )}
-                                  onChange={(event) => {
-                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:supplierMarkup`, event.target.value, (markupPercent) => {
-                                      updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, markupPercent);
-                                    });
-                                  }}
-                                  onBlur={(event) => {
-                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:supplierMarkup`, event.currentTarget.value, (markupPercent) => {
-                                      updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, markupPercent);
-                                    }, defaultMaterialMarkupPercent);
-                                  }}
-                                />
-                              </label>
-                              <button
-                                className="simpro-blue-button"
-                                disabled={!supplierQuoteDrafts[selectedQuoteCostCentre.id]?.lines.length}
-                                type="button"
-                                onClick={() => applySupplierQuoteImport(selectedQuoteCostCentre.id)}
-                              >
-                                APPLY RETURNED QUOTE
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })()}
                     </div>
                     ) : null}
 
@@ -16913,6 +18227,12 @@ export default function Dashboard() {
                         {(() => {
                           const totals = estimateCostCentreTotals(selectedCostCentre);
                           const supplierLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
+                          const supplierDraft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
+                          const supplierRequestEntries = jobSupplierRequestDraftLines();
+                          const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
+                          const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + estimateMaterialSell(line), 0);
+                          const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0).length;
+                          const supplierMatchedCount = supplierRequestLines.filter((line) => line.unitCost > 0).length;
                           return (
                             <>
                               <div className="simpro-parts-header">
@@ -16949,6 +18269,202 @@ export default function Dashboard() {
                                   <small>{totals.margin}% margin</small>
                                 </div>
                               </div>
+                              <section className="supplier-quote-import">
+                                <div className="supplier-quote-import-head">
+                                  <div>
+                                    <strong>Supplier request (Job summary)</strong>
+                                    <span>Build one supplier request from all selected job materials, upload returned file and apply prices into matching cost centres.</span>
+                                  </div>
+                                  <FileText size={20} />
+                                </div>
+                                <div className="supplier-quote-controls">
+                                  <label>
+                                    Supplier
+                                    <input
+                                      placeholder="Select or enter supplier"
+                                      value={supplierDraft?.supplier ?? ""}
+                                      onChange={(event) => updateJobSupplierRequestDraft({ supplier: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    Supplier email
+                                    <input
+                                      placeholder="quotes@supplier.co.uk"
+                                      value={supplierDraft?.contactEmail ?? ""}
+                                      onChange={(event) => updateJobSupplierRequestDraft({ contactEmail: event.target.value })}
+                                    />
+                                  </label>
+                                  <button className="simpro-grey-button" type="button" onClick={sendJobSupplierRequest}>
+                                    SEND REQUEST
+                                  </button>
+                                </div>
+                                <div className="supplier-email-panel">
+                                  <label>
+                                    Subject
+                                    <input
+                                      value={supplierDraft?.subject ?? `${selectedJob?.ref ?? "Job"} supplier quote request`}
+                                      onChange={(event) => updateJobSupplierRequestDraft({ subject: event.target.value })}
+                                    />
+                                  </label>
+                                  <label>
+                                    Message
+                                    <textarea
+                                      value={
+                                        supplierDraft?.message ??
+                                        `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`
+                                      }
+                                      onChange={(event) => updateJobSupplierRequestDraft({ message: event.target.value })}
+                                    />
+                                  </label>
+                                </div>
+
+                                {(() => {
+                                  if (!supplierRequestLines.length) {
+                                    return (
+                                      <div className="supplier-request-empty">
+                                        <strong>No supplier request items selected yet.</strong>
+                                        <span>Go to this cost centre's parts or one-off tab, tick the supplier checkboxes for the items you need priced, then add them to the supplier request below.</span>
+                                      </div>
+                                    );
+                                  }
+
+                                  return (
+                                    <div className="supplier-request-pack">
+                                      <div className="supplier-document-preview">
+                                        <div>
+                                          <span>Supplier request preview</span>
+                                          <h3>{supplierDraft?.subject ?? `${selectedJob?.ref ?? "Job"} supplier quote request`}</h3>
+                                          <p>
+                                            {supplierDraft?.message ??
+                                              `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`}
+                                          </p>
+                                        </div>
+                                        <div className="supplier-document-meta">
+                                          <span>To</span>
+                                          <strong>{supplierDraft?.supplier || "Supplier not selected"}</strong>
+                                          <span>Email</span>
+                                          <strong>{supplierDraft?.contactEmail || "Not entered"}</strong>
+                                          <span>Items</span>
+                                          <strong>{supplierRequestLines.length}</strong>
+                                        </div>
+                                      </div>
+
+                                      <div className="supplier-match-summary">
+                                        <div>
+                                          <span>Returned PDF</span>
+                                          <strong>{supplierDraft?.fileName || "Not uploaded yet"}</strong>
+                                        </div>
+                                        <div>
+                                          <span>Priced lines</span>
+                                          <strong>{supplierPricedCount} / {supplierRequestLines.length}</strong>
+                                        </div>
+                                        <div>
+                                          <span>Matched lines</span>
+                                          <strong>{supplierMatchedCount}</strong>
+                                        </div>
+                                        <div>
+                                          <span>Supplier total</span>
+                                          <strong>{supplierRequestTotal > 0 ? currency(supplierRequestTotal) : "Awaiting price"}</strong>
+                                        </div>
+                                      </div>
+
+                                      <div className="supplier-quote-preview">
+                                        <div className="supplier-quote-preview-head">
+                                          <span>Cost centre</span>
+                                          <span>Requested item</span>
+                                          <span>Qty</span>
+                                          <span>Cost</span>
+                                          <span>Markup</span>
+                                          <strong>Sell</strong>
+                                          <span>Match</span>
+                                        </div>
+                                        {supplierRequestEntries.map((entry) => (
+                                          <div className="supplier-quote-preview-row" key={`${entry.centreId}:${entry.line.id}`}>
+                                            <span>{entry.centreName}</span>
+                                            <span>{entry.line.description}</span>
+                                            <span>{entry.line.quantity.toFixed(2)}</span>
+                                            <span>{entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "TBC"}</span>
+                                            <span>{entry.line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? entry.line.markupPercent}%` : "TBC"}</span>
+                                            <strong>{entry.line.unitCost > 0 ? currency(estimateMaterialSell(entry.line)) : "Awaiting price"}</strong>
+                                            <span className={`supplier-match-pill ${entry.line.unitCost > 0 ? "matched" : "awaiting-price"}`}>
+                                              {entry.line.unitCost > 0 ? "Matched" : "Awaiting price"}
+                                            </span>
+                                          </div>
+                                        ))}
+                                      </div>
+
+                                      <div className="supplier-document-trail">
+                                        <strong>Supplier document trail</strong>
+                                        <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
+                                        <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
+                                        <span>
+                                          {supplierDraft?.poNumber
+                                            ? `PO ${supplierDraft.poNumber} issued`
+                                            : supplierPricedCount === supplierRequestLines.length && supplierRequestLines.length > 0
+                                              ? "Ready to apply into job"
+                                              : "Waiting for all supplier prices"}
+                                        </span>
+                                      </div>
+
+                                      <div className="supplier-return-panel">
+                                        <div>
+                                          <strong>Returned supplier quote</strong>
+                                          <span>Upload the supplier PDF/CSV after they reply, then apply the matched cost prices into this job.</span>
+                                        </div>
+                                        <label>
+                                          Supplier Quote
+                                          <input accept=".pdf,.csv,.txt,.tsv" type="file" onChange={handleJobSupplierQuoteUpload} />
+                                        </label>
+                                        <label>
+                                          Markup %
+                                          <input
+                                            inputMode="decimal"
+                                            value={costCentreNumberInputValue(
+                                              `job:${JOB_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                              supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent,
+                                            )}
+                                            onChange={(event) => {
+                                              updateCostCentreNumberInput(`job:${JOB_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`, event.target.value, (markupPercent) => {
+                                                updateJobSupplierRequestMarkup(markupPercent);
+                                              });
+                                            }}
+                                            onBlur={(event) => {
+                                              commitCostCentreNumberInput(
+                                                `job:${JOB_SUMMARY_SUPPLIER_DRAFT_KEY}:supplierMarkup`,
+                                                event.currentTarget.value,
+                                                (markupPercent) => {
+                                                  updateJobSupplierRequestMarkup(markupPercent);
+                                                },
+                                                defaultMaterialMarkupPercent,
+                                              );
+                                            }}
+                                          />
+                                        </label>
+                                        <button
+                                          className="simpro-blue-button"
+                                          disabled={!supplierDraft?.lines.length}
+                                          type="button"
+                                          onClick={applyJobSupplierQuoteImport}
+                                        >
+                                          APPLY RETURNED QUOTE
+                                        </button>
+                                        <button
+                                          className="simpro-grey-button"
+                                          disabled={
+                                            !supplierDraft?.lines.length ||
+                                            !supplierDraft?.fileName ||
+                                            Boolean(supplierDraft?.poNumber)
+                                          }
+                                          type="button"
+                                          onClick={issueJobSupplierPurchaseOrder}
+                                        >
+                                          {supplierDraft?.poNumber ? `PO ${supplierDraft.poNumber}` : "ISSUE / SEND PO NUMBER"}
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </section>
                             </>
                           );
                         })()}
@@ -17186,8 +18702,7 @@ export default function Dashboard() {
                                   disabled={selectedLines.length === 0}
                                   type="button"
                                   onClick={() => {
-                                    updateJobSupplierRequestDraft(selectedCostCentre.id, { lines: selectedLines });
-                                    setActiveJobBuildTab("supplier-request");
+                                    stageSelectedJobSupplierRequestLinesForCentre(selectedCostCentre);
                                     scrollWorkspaceToTop();
                                   }}
                                 >
@@ -17197,7 +18712,7 @@ export default function Dashboard() {
                                   className="simpro-options-button"
                                   disabled={selectedLines.length === 0}
                                   type="button"
-                                  onClick={() => showNotice("Saving selected job materials into catalogue folders will use the same folder picker as quote one-off items.")}
+                                  onClick={() => openSelectedJobLinesCatalogFolderModal(selectedCostCentre)}
                                 >
                                   Add items to catalog
                                 </button>
@@ -17205,190 +18720,6 @@ export default function Dashboard() {
                             );
                           })()
                         )}
-                      </div>
-                    ) : null}
-
-                    {activeJobBuildTab === "supplier-request" ? (
-                      <div className="supplier-quote-import">
-                        <div className="supplier-quote-import-head">
-                          <div>
-                            <strong>Supplier quote / request</strong>
-                            <span>Send the request, upload the returned PDF, review matched prices, then apply them to this cost centre.</span>
-                          </div>
-                          <FileText size={20} />
-                        </div>
-                        <div className="supplier-quote-controls">
-                          <label>
-                            Supplier
-                            <input
-                              placeholder="Select or enter supplier"
-                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.supplier ?? ""}
-                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { supplier: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Supplier email
-                            <input
-                              placeholder="quotes@supplier.co.uk"
-                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.contactEmail ?? ""}
-                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { contactEmail: event.target.value })}
-                            />
-                          </label>
-                          <button className="simpro-grey-button" type="button" onClick={() => sendJobSupplierRequest(selectedCostCentre)}>
-                            SEND
-                          </button>
-                        </div>
-                        <div className="supplier-email-panel">
-                          <label>
-                            Subject
-                            <input
-                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.subject ?? `${selectedJob.ref} supplier quote request - ${selectedCostCentre.name}`}
-                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { subject: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Message
-                            <textarea
-                              value={jobSupplierRequestDrafts[selectedCostCentre.id]?.message ?? `Please price the selected items for ${selectedCostCentre.name}. Quantities and notes are included below.`}
-                              onChange={(event) => updateJobSupplierRequestDraft(selectedCostCentre.id, { message: event.target.value })}
-                            />
-                          </label>
-                        </div>
-                        {(() => {
-                          const supplierDraft = jobSupplierRequestDrafts[selectedCostCentre.id];
-                          const requestLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
-                          const reviewLines = supplierDraft?.lines.length ? supplierDraft.lines : requestLines;
-                          const requestTotal = reviewLines.reduce((total, line) => total + estimateMaterialSell(line), 0);
-                          const pricedCount = reviewLines.filter((line) => line.unitCost > 0).length;
-                          if (!requestLines.length) {
-                            return (
-                              <div className="supplier-request-empty">
-                                <strong>No supplier request items selected yet.</strong>
-                                <span>Go to the Summary, Catalogue or One-off tab, tick the left-hand boxes for the items you want priced, then send them to the supplier request form.</span>
-                              </div>
-                            );
-                          }
-                          return (
-                            <div className="supplier-request-pack">
-                              <div className="supplier-document-preview">
-                                <div>
-                                  <span>Supplier request preview</span>
-                                  <h3>{selectedJob.ref} supplier quote request - {selectedCostCentre.name}</h3>
-                                  <p>Please price the selected items for {selectedCostCentre.name}. Quantities and notes are included below.</p>
-                                </div>
-                                <div className="supplier-document-meta">
-                                  <span>To</span>
-                                  <strong>{supplierDraft?.supplier || "Supplier not selected"}</strong>
-                                  <span>Email</span>
-                                  <strong>{supplierDraft?.contactEmail || "Not entered"}</strong>
-                                  <span>Items</span>
-                                  <strong>{requestLines.length}</strong>
-                                </div>
-                              </div>
-                              <div className="supplier-match-summary">
-                                <div>
-                                  <span>Returned PDF</span>
-                                  <strong>{supplierDraft?.fileName || "Not uploaded yet"}</strong>
-                                </div>
-                                <div>
-                                  <span>Priced lines</span>
-                                  <strong>{pricedCount} / {requestLines.length}</strong>
-                                </div>
-                                <div>
-                                  <span>Matched lines</span>
-                                  <strong>{pricedCount}</strong>
-                                </div>
-                                <div>
-                                  <span>Supplier total</span>
-                                  <strong>{requestTotal > 0 ? currency(requestTotal) : "Awaiting price"}</strong>
-                                </div>
-                              </div>
-                              <div className="supplier-quote-preview">
-                                <div className="supplier-quote-preview-head">
-                                  <span>Requested item</span>
-                                  <span>Qty</span>
-                                  <span>Cost</span>
-                                  <span>Markup</span>
-                                  <strong>Sell</strong>
-                                  <span>Match</span>
-                                </div>
-                                {reviewLines.map((line) => (
-                                  <div className="supplier-quote-preview-row" key={line.id}>
-                                    <span>{line.description}</span>
-                                    <span>{line.quantity.toFixed(2)}</span>
-                                    <span>{line.unitCost > 0 ? currency(line.unitCost) : "TBC"}</span>
-                                    <span>{line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? line.markupPercent}%` : "TBC"}</span>
-                                    <strong>{line.unitCost > 0 ? currency(estimateMaterialSell(line)) : "Awaiting price"}</strong>
-                                    <span className={`supplier-match-pill ${line.unitCost > 0 ? "matched" : "awaiting-price"}`}>{line.unitCost > 0 ? "Matched" : "Awaiting price"}</span>
-                                  </div>
-                                ))}
-                              </div>
-                              <div className="supplier-document-trail">
-                                <strong>Supplier document trail</strong>
-                                <span>{supplierDraft?.sentAt ? `Request sent ${supplierDraft.sentAt.slice(0, 10)}` : "Request not sent yet"}</span>
-                                <span>{supplierDraft?.fileName?.toLowerCase().endsWith(".pdf") ? `${supplierDraft.fileName} received and ready for review` : "Returned supplier PDF not uploaded yet"}</span>
-                                <span>{supplierDraft?.poNumber ? `PO ${supplierDraft.poNumber} issued against ${selectedCostCentre.name}` : "PO number not issued yet"}</span>
-                                <span>{pricedCount === requestLines.length && requestLines.length > 0 ? "Ready to apply into cost centre" : "Waiting for all supplier prices"}</span>
-                              </div>
-                              <div className="supplier-return-panel">
-                                <div>
-                                  <strong>Returned supplier quote</strong>
-                                  <span>Upload the supplier PDF/CSV after they reply, then apply the matched cost prices into the job or variation cost centre.</span>
-                                </div>
-                                <label>
-                                  Supplier Quote
-                                  <input
-                                    accept=".pdf,.csv,.txt,.tsv"
-                                    type="file"
-                                    onChange={(event) => handleJobSupplierQuoteUpload(selectedCostCentre, event)}
-                                  />
-                                </label>
-                                <label>
-                                  Markup %
-                                  <input
-                                    inputMode="decimal"
-                                    value={costCentreNumberInputValue(
-                                      `job:${selectedCostCentre.id}:supplierMarkup`,
-                                      jobSupplierRequestDrafts[selectedCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
-                                    )}
-                                    onChange={(event) => {
-                                      updateCostCentreNumberInput(`job:${selectedCostCentre.id}:supplierMarkup`, event.target.value, (markupPercent) => {
-                                        updateJobSupplierRequestMarkup(selectedCostCentre.id, markupPercent);
-                                      });
-                                    }}
-                                    onBlur={(event) => {
-                                      commitCostCentreNumberInput(`job:${selectedCostCentre.id}:supplierMarkup`, event.currentTarget.value, (markupPercent) => {
-                                        updateJobSupplierRequestMarkup(selectedCostCentre.id, markupPercent);
-                                      }, defaultMaterialMarkupPercent);
-                                    }}
-                                  />
-                                </label>
-                                <button
-                                  className="simpro-blue-button"
-                                  disabled={!jobSupplierRequestDrafts[selectedCostCentre.id]?.lines.length}
-                                  type="button"
-                                  onClick={() => applyJobSupplierQuoteImport(selectedCostCentre.id)}
-                                >
-                                  APPLY RETURNED QUOTE
-                                </button>
-                                <button
-                                  className="simpro-grey-button"
-                                  disabled={
-                                    !jobSupplierRequestDrafts[selectedCostCentre.id]?.lines.length ||
-                                    !jobSupplierRequestDrafts[selectedCostCentre.id]?.fileName ||
-                                    Boolean(jobSupplierRequestDrafts[selectedCostCentre.id]?.poNumber)
-                                  }
-                                  type="button"
-                                  onClick={() => issueJobCostCentrePurchaseOrder(selectedCostCentre)}
-                                >
-                                  {jobSupplierRequestDrafts[selectedCostCentre.id]?.poNumber
-                                    ? `PO ${jobSupplierRequestDrafts[selectedCostCentre.id]?.poNumber}`
-                                    : "ISSUE / SEND PO NUMBER"}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })()}
                       </div>
                     ) : null}
 
@@ -20164,9 +21495,24 @@ export default function Dashboard() {
 
       {catalogueFolderModalCentreId ? (
         (() => {
-          const centre = selectedQuoteCostCentres.find((item) => item.id === catalogueFolderModalCentreId) ?? null;
-          if (!centre) return null;
-          const lines = selectedQuoteMaterialLinesForCentre(centre);
+          const isSummaryCentre = catalogueFolderModalCentreId === QUOTE_SUMMARY_CATALOG_MODAL_KEY;
+          const isJobSummaryCentre = catalogueFolderModalCentreId === JOB_SUMMARY_CATALOG_MODAL_KEY;
+          const quoteCentre = isSummaryCentre || isJobSummaryCentre
+            ? null
+            : selectedQuoteCostCentres.find((item) => item.id === catalogueFolderModalCentreId) ?? null;
+          const jobCentre = isSummaryCentre || isJobSummaryCentre || quoteCentre
+            ? null
+            : selectedJobEstimateCostCentres.find((item) => item.id === catalogueFolderModalCentreId) ?? null;
+          const lines = isSummaryCentre
+            ? selectedQuoteMaterialLineEntries().map((entry) => ({ ...entry }))
+            : isJobSummaryCentre
+              ? selectedJobMaterialLineEntries().map((entry) => entry)
+              : jobCentre
+                ? selectedJobMaterialLinesForCentre(jobCentre).map((line) => ({ centreId: jobCentre.id, centreName: jobCentre.name, line }))
+            : quoteCentre
+              ? selectedQuoteMaterialLinesForCentre(quoteCentre).map((line) => ({ centreId: quoteCentre.id, centreName: quoteCentre.name, line }))
+              : [];
+          if (!lines.length) return null;
 
           return (
             <div className="modal-backdrop" role="presentation">
@@ -20174,7 +21520,15 @@ export default function Dashboard() {
                 <div className="form-header">
                   <div>
                     <span>Catalogue</span>
-                    <h2 id="catalog-folder-title">Choose folders for selected items</h2>
+                    <h2 id="catalog-folder-title">
+                      {isSummaryCentre
+                        ? "Choose folders for selected quote items"
+                        : isJobSummaryCentre
+                          ? "Choose folders for selected job items"
+                          : jobCentre
+                            ? "Choose folders for selected job items"
+                          : "Choose folders for selected items"}
+                    </h2>
                   </div>
                   <button aria-label="Close catalogue folder chooser" onClick={() => setCatalogueFolderModalCentreId(null)}>
                     <ChevronRight size={19} />
@@ -20186,18 +21540,25 @@ export default function Dashboard() {
                     <span>Item</span>
                     <span>Catalogue folder</span>
                   </div>
-                  {lines.map((line) => (
-                    <div className="catalog-folder-assignment-row" key={line.id}>
+                  {lines.map((entry) => (
+                    <div className="catalog-folder-assignment-row" key={`${entry.centreId}:${entry.line.id}`}>
                       <div>
-                        <strong>{line.description || "Untitled item"}</strong>
-                        <span>{line.quantity.toFixed(2)} item(s) · {line.unitCost > 0 ? currency(line.unitCost) : "Cost TBC"}</span>
+                        <strong>
+                          {entry.centreName}: {entry.line.description || "Untitled item"}
+                        </strong>
+                        <span>
+                          {entry.line.quantity.toFixed(2)} item(s) · {entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "Cost TBC"}
+                        </span>
                       </div>
                       <select
-                        value={catalogueFolderDrafts[line.id] ?? inferCatalogFolder({ name: line.description, type: "Material", category: undefined })}
+                        value={
+                          catalogueFolderDrafts[entry.line.id] ??
+                          inferCatalogFolder({ name: entry.line.description, type: "Material", category: undefined })
+                        }
                         onChange={(event) =>
                           setCatalogueFolderDrafts((current) => ({
                             ...current,
-                            [line.id]: event.target.value,
+                            [entry.line.id]: event.target.value,
                           }))
                         }
                       >
@@ -20212,7 +21573,19 @@ export default function Dashboard() {
                   <button className="secondary-button" type="button" onClick={() => setCatalogueFolderModalCentreId(null)}>
                     Cancel
                   </button>
-                  <button className="primary-button" type="button" onClick={() => saveSelectedQuoteLinesToCatalog(centre)}>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() =>
+                      isSummaryCentre
+                        ? saveSelectedQuoteLinesToCatalog(quoteCentre ?? undefined)
+                        : isJobSummaryCentre
+                          ? saveSelectedJobLinesToCatalog()
+                          : jobCentre
+                            ? saveSelectedJobLinesToCatalog(jobCentre)
+                            : saveSelectedQuoteLinesToCatalog(quoteCentre ?? undefined)
+                    }
+                  >
                     Save to catalogue
                   </button>
                 </div>
