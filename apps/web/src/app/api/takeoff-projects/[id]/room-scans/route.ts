@@ -5,14 +5,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
+  attachSurveyEvidenceToQuote,
   createTakeoffProject,
   getTakeoffProject,
+  getTakeoffProjects,
   updateTakeoffProject,
   type TakeoffDocument,
   type TakeoffMeasurement,
   type TakeoffRoom,
 } from "@/lib/takeoff-data";
-import { getQuotes } from "@/lib/workflow-data";
+import { getJobs, getQuotes } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
 
@@ -184,6 +186,65 @@ function quoteFromLookup(value: string) {
   return getQuotes().find((quote) => quote.id.toLowerCase() === lookup || quote.ref.toLowerCase() === lookup);
 }
 
+function jobFromLookup(value: string) {
+  const lookup = value.trim().toLowerCase();
+  if (!lookup) return undefined;
+  return getJobs().find((job) => job.id.toLowerCase() === lookup || job.ref.toLowerCase() === lookup);
+}
+
+function projectLinkedToQuote(quoteId: string, quoteRef: string) {
+  return getTakeoffProjects().find((project) => project.linkedQuoteId === quoteId || project.linkedQuoteRef === quoteRef);
+}
+
+function projectLinkedToJob(jobId: string, jobRef: string) {
+  return getTakeoffProjects().find((project) => project.linkedJobId === jobId || project.linkedJobRef === jobRef);
+}
+
+function escapeSvgText(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function roomPlanPreviewImageDataUrl(rooms: TakeoffRoom[], payload: RoomScanPayload) {
+  const room = rooms[0];
+  if (!room) return undefined;
+
+  const length = room.lengthM ?? Math.sqrt(Math.max(room.areaM2, 1) * 1.25);
+  const width = room.widthM ?? room.areaM2 / Math.max(length, 1);
+  const aspect = Math.max(0.55, Math.min(1.8, length / Math.max(width, 0.1)));
+  const planWidth = aspect >= 1 ? 290 : 220;
+  const planHeight = aspect >= 1 ? 220 : 290;
+  const x = (420 - planWidth) / 2;
+  const y = 58;
+  const rawRoom = Array.isArray(payload.rooms) ? payload.rooms[0] : payload.room;
+  const openings = rawRoom?.openings ?? [];
+  const openingMarks = openings.slice(0, 8).map((opening, index) => {
+    const topSide = index % 2 === 0;
+    const fraction = (index + 1) / (openings.length + 1);
+    const markX = x + planWidth * fraction - 18;
+    const markY = topSide ? y - 4 : y + planHeight - 2;
+    const label = opening.type?.trim() || "Opening";
+    return `<g><rect x="${markX}" y="${markY}" width="36" height="6" rx="3" fill="#3fb7df"/><text x="${markX + 18}" y="${topSide ? markY - 7 : markY + 21}" text-anchor="middle" font-family="Arial" font-size="9" fill="#406070">${escapeSvgText(label)}</text></g>`;
+  }).join("");
+
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="420" height="320" viewBox="0 0 420 320">
+      <rect width="420" height="320" rx="24" fill="#f4fbfd"/>
+      <rect x="18" y="18" width="384" height="284" rx="18" fill="#ffffff" stroke="#b7dceb"/>
+      <text x="32" y="42" font-family="Arial" font-size="14" font-weight="700" fill="#162532">NeXa LiDAR room scan</text>
+      <text x="32" y="62" font-family="Arial" font-size="11" fill="#6a7a88">${escapeSvgText(room.name)}</text>
+      <rect x="${x}" y="${y}" width="${planWidth}" height="${planHeight}" rx="10" fill="#e9f7fb" stroke="#14345f" stroke-width="6"/>
+      ${openingMarks}
+      <line x1="${x}" y1="${y + planHeight + 30}" x2="${x + planWidth}" y2="${y + planHeight + 30}" stroke="#d4af37" stroke-width="3"/>
+      <text x="${x + planWidth / 2}" y="${y + planHeight + 50}" text-anchor="middle" font-family="Arial" font-size="12" font-weight="700" fill="#162532">${round(length)}m length</text>
+      <line x1="${x - 30}" y1="${y}" x2="${x - 30}" y2="${y + planHeight}" stroke="#d4af37" stroke-width="3"/>
+      <text x="${x - 44}" y="${y + planHeight / 2}" transform="rotate(-90 ${x - 44} ${y + planHeight / 2})" text-anchor="middle" font-family="Arial" font-size="12" font-weight="700" fill="#162532">${round(width)}m width</text>
+      <text x="32" y="282" font-family="Arial" font-size="11" fill="#6a7a88">Area ${round(room.areaM2)}m² · Height ${room.heightM ? `${round(room.heightM)}m` : "review"} · Openings ${openings.length}</text>
+    </svg>
+  `.trim();
+
+  return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -203,11 +264,24 @@ export async function POST(
   if (!project) {
     const linkedQuote = quoteFromLookup(id);
     if (linkedQuote) {
-      project = createTakeoffProject({
+      project = projectLinkedToQuote(linkedQuote.id, linkedQuote.ref) ?? createTakeoffProject({
         linkedQuoteId: linkedQuote.id,
         name: `${linkedQuote.description} survey`,
         customer: linkedQuote.customer,
         description: linkedQuote.description,
+      });
+    }
+  }
+  if (!project) {
+    const linkedJob = jobFromLookup(id);
+    if (linkedJob) {
+      project = projectLinkedToJob(linkedJob.id, linkedJob.ref) ?? createTakeoffProject({
+        linkedJobId: linkedJob.id,
+        linkedJobRef: linkedJob.ref,
+        name: `${linkedJob.description} survey`,
+        customer: linkedJob.customer,
+        site: linkedJob.site,
+        description: linkedJob.description,
       });
     }
   }
@@ -230,6 +304,7 @@ export async function POST(
   const actor = payload.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa Field";
   const rooms = scanRooms.map((room, index) => toTakeoffRoom(room, index, documentId));
   const measurements = rooms.flatMap((room) => roomMeasurements(room, documentId));
+  const previewImageDataUrl = roomPlanPreviewImageDataUrl(rooms, payload);
   const document: TakeoffDocument = {
     id: documentId,
     kind: "LiDAR scan",
@@ -237,6 +312,7 @@ export async function POST(
     mimeType: "application/json",
     size: JSON.stringify(payload.raw ?? payload).length,
     storageKey: `room-scans/${project.id}/${documentId}.json`,
+    previewImageDataUrl,
     uploadedAt,
     status: "Parsed",
     notes: [
@@ -278,9 +354,14 @@ export async function POST(
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
 
+  const quoteAttachment = updated.linkedQuoteId
+    ? attachSurveyEvidenceToQuote(updated.id, updated.linkedQuoteId, actor)
+    : null;
+
   return NextResponse.json({
     project: updated,
     document,
+    quoteAttachment,
     imported: {
       rooms: rooms.length,
       measurements: measurements.length,

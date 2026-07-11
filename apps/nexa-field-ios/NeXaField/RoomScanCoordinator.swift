@@ -8,6 +8,9 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     @Published var projectId: String = ""
     @Published var reference: String = ""
     @Published var projectName: String = ""
+    @Published var linkedRecordType: String = ""
+    @Published var recordSearchText: String = ""
+    @Published var recordResults: [FieldRecordSummary] = []
     @Published var roomName: String = ""
     @Published var nexaBaseURL: String = "https://nexa-pilot.onrender.com"
     @Published var basicAuthUsername: String = "nexa"
@@ -17,6 +20,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     @Published var lastError: String?
     @Published var isScanning = false
     @Published var isUploading = false
+    @Published var isSearchingRecords = false
     @Published var isShowingSettings = false
     @Published var latestRoom: CapturedRoom?
     @Published var cameraPermissionStatus: AVAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
@@ -24,6 +28,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     private weak var captureView: RoomCaptureView?
     private let configuration = RoomCaptureSession.Configuration()
     private let apiClient = NeXaAPIClient()
+    private var skipNextRecordSearch = false
 
     override init() {
         super.init()
@@ -81,9 +86,53 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         projectId = items.value(named: "projectId") ?? projectId
         reference = items.value(named: "reference") ?? reference
         projectName = items.value(named: "projectName") ?? projectName
+        linkedRecordType = items.value(named: "recordType") ?? linkedRecordType
         nexaBaseURL = items.value(named: "baseUrl") ?? nexaBaseURL
         returnUrl = items.value(named: "returnUrl") ?? returnUrl
         status = "Linked to \(reference.isEmpty ? "NeXa survey" : reference). Ready to scan."
+        persistSettings()
+    }
+
+    func searchRecords(query: String) async {
+        if skipNextRecordSearch {
+            skipNextRecordSearch = false
+            return
+        }
+
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 2 else {
+            recordResults = []
+            return
+        }
+
+        isSearchingRecords = true
+        defer {
+            isSearchingRecords = false
+        }
+
+        do {
+            recordResults = try await apiClient.searchFieldRecords(
+                query: trimmed,
+                baseURL: nexaBaseURL,
+                username: basicAuthUsername,
+                password: basicAuthPassword
+            )
+            lastError = nil
+        } catch {
+            recordResults = []
+            lastError = error.localizedDescription
+        }
+    }
+
+    func selectRecord(_ record: FieldRecordSummary) {
+        projectId = record.uploadTargetId
+        reference = record.ref
+        projectName = record.title
+        linkedRecordType = record.type
+        skipNextRecordSearch = true
+        recordSearchText = "\(record.ref) · \(record.customer)"
+        recordResults = []
+        status = "Linked to \(record.typeLabel.lowercased()) \(record.ref). Ready to scan."
         persistSettings()
     }
 
@@ -179,7 +228,19 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
                 password: basicAuthPassword
             )
 
-            status = "Sent to NeXa: \(result.imported.rooms) room, \(result.imported.measurements) measurements."
+            if let project = result.project {
+                projectId = project.id
+                reference = project.reference
+                projectName = project.name
+            }
+            let quoteNote: String
+            if let quoteRef = result.quoteAttachment?.quote?.ref {
+                quoteNote = " Attached to quote \(quoteRef)."
+            } else {
+                quoteNote = ""
+            }
+            status = "Sent to NeXa: \(result.imported.rooms) room, \(result.imported.measurements) measurements.\(quoteNote)"
+            persistSettings()
             openReturnUrl()
         } catch {
             lastError = error.localizedDescription
@@ -194,6 +255,8 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         defaults.set(projectId, forKey: "projectId")
         defaults.set(reference, forKey: "reference")
         defaults.set(projectName, forKey: "projectName")
+        defaults.set(linkedRecordType, forKey: "linkedRecordType")
+        defaults.set(recordSearchText, forKey: "recordSearchText")
         defaults.set(nexaBaseURL, forKey: "nexaBaseURL")
         defaults.set(basicAuthUsername, forKey: "basicAuthUsername")
         defaults.set(basicAuthPassword, forKey: "basicAuthPassword")
@@ -205,6 +268,8 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         projectId = defaults.string(forKey: "projectId") ?? ""
         reference = defaults.string(forKey: "reference") ?? ""
         projectName = defaults.string(forKey: "projectName") ?? ""
+        linkedRecordType = defaults.string(forKey: "linkedRecordType") ?? ""
+        recordSearchText = defaults.string(forKey: "recordSearchText") ?? ""
         nexaBaseURL = defaults.string(forKey: "nexaBaseURL") ?? nexaBaseURL
         basicAuthUsername = defaults.string(forKey: "basicAuthUsername") ?? basicAuthUsername
         basicAuthPassword = defaults.string(forKey: "basicAuthPassword") ?? ""

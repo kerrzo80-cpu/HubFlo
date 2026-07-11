@@ -1,6 +1,79 @@
 import Foundation
 
+struct FieldRecordSummary: Decodable, Identifiable, Equatable {
+    var id: String
+    var type: String
+    var ref: String
+    var title: String
+    var customer: String
+    var site: String
+    var description: String
+    var status: String
+    var value: Double
+    var projectId: String?
+    var uploadTargetId: String
+
+    var typeLabel: String {
+        type == "job" ? "Job" : "Quote"
+    }
+
+    var displayTitle: String {
+        "\(ref) · \(customer)"
+    }
+}
+
 struct NeXaAPIClient {
+    func searchFieldRecords(
+        query: String,
+        baseURL: String,
+        username: String,
+        password: String
+    ) async throws -> [FieldRecordSummary] {
+        let cleanBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !cleanBaseURL.isEmpty else {
+            throw NeXaAPIError.missingBaseURL
+        }
+
+        guard var components = URLComponents(string: "\(cleanBaseURL)/api/field-records") else {
+            throw NeXaAPIError.invalidURL
+        }
+        components.queryItems = [
+            URLQueryItem(name: "q", value: query),
+            URLQueryItem(name: "limit", value: "8"),
+        ]
+        guard let url = components.url else {
+            throw NeXaAPIError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Manager", forHTTPHeaderField: "x-hubflo-role")
+
+        if !username.isEmpty || !password.isEmpty {
+            let token = Data("\(username):\(password)".utf8).base64EncodedString()
+            request.setValue("Basic \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NeXaAPIError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "HTTP \(httpResponse.statusCode)"
+            switch httpResponse.statusCode {
+            case 401:
+                throw NeXaAPIError.unauthorised
+            case 403:
+                throw NeXaAPIError.forbidden
+            default:
+                throw NeXaAPIError.server(httpResponse.statusCode, message)
+            }
+        }
+
+        return try JSONDecoder().decode([FieldRecordSummary].self, from: data)
+    }
+
     func uploadRoomScan(
         _ payload: RoomPlanPayload,
         baseURL: String,
@@ -56,7 +129,31 @@ struct NeXaAPIClient {
 }
 
 struct RoomScanUploadResponse: Decodable {
+    var project: ProjectSummary?
+    var document: DocumentSummary?
+    var quoteAttachment: QuoteAttachmentSummary?
     var imported: ImportedSummary
+
+    struct ProjectSummary: Decodable {
+        var id: String
+        var reference: String
+        var name: String
+    }
+
+    struct DocumentSummary: Decodable {
+        var id: String
+        var fileName: String
+        var previewImageDataUrl: String?
+    }
+
+    struct QuoteAttachmentSummary: Decodable {
+        var quote: QuoteSummary?
+    }
+
+    struct QuoteSummary: Decodable {
+        var id: String
+        var ref: String
+    }
 
     struct ImportedSummary: Decodable {
         var rooms: Int

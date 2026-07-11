@@ -1014,6 +1014,7 @@ type TakeoffSourceDocument = {
   id: string;
   kind: TakeoffDocumentKind;
   fileName: string;
+  previewImageDataUrl?: string;
   status: "Uploaded" | "Draft extracted" | "Needs review";
   confidence: "High" | "Medium" | "Low";
   extractedAt: string;
@@ -14692,6 +14693,9 @@ export default function Dashboard() {
                                   <span>{document.kind}</span>
                                   <strong>{document.fileName}</strong>
                                   <small>{document.status} · {document.confidence} confidence · {document.extractedAt}</small>
+                                  {document.previewImageDataUrl ? (
+                                    <img className="takeoff-document-preview" src={document.previewImageDataUrl} alt={`${document.fileName} preview`} />
+                                  ) : null}
                                 </div>
                                 <ul>
                                   {document.questions.map((question) => (

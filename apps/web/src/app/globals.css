@@ -4430,6 +4430,17 @@ h1 {
   gap: 4px;
 }
 
+.takeoff-document-preview {
+  aspect-ratio: 4 / 3;
+  background: #f4fbfd;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  margin-top: 8px;
+  max-width: 260px;
+  object-fit: contain;
+  width: 100%;
+}
+
 .takeoff-document-card ul {
   color: var(--muted);
   font-size: 12px;

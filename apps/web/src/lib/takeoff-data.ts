@@ -58,6 +58,7 @@ export type TakeoffDocument = {
   mimeType?: string;
   size?: number;
   storageKey?: string;
+  previewImageDataUrl?: string;
   uploadedAt: string;
   status: TakeoffDocumentStatus;
   notes: string[];
@@ -188,6 +189,8 @@ export type TakeoffProject = {
   description: string;
   linkedQuoteId?: string;
   linkedQuoteRef?: string;
+  linkedJobId?: string;
+  linkedJobRef?: string;
   status: TakeoffStatus;
   documents: TakeoffDocument[];
   rooms: TakeoffRoom[];
@@ -235,6 +238,7 @@ type QuoteTakeoffDocument = {
   id: string;
   kind: "Drawings" | "Specification" | "Contractor BOQ" | "Survey evidence";
   fileName: string;
+  previewImageDataUrl?: string;
   status: "Uploaded" | "Draft extracted" | "Needs review";
   confidence: "High" | "Medium" | "Low";
   extractedAt: string;
@@ -731,6 +735,7 @@ function buildQuoteTakeoffDocuments(project: TakeoffProject): QuoteTakeoffDocume
     id: document.id,
     kind: quoteDocumentKind(document.kind),
     fileName: document.fileName,
+    previewImageDataUrl: document.previewImageDataUrl,
     status: quoteDocumentStatus(document.status),
     confidence: document.status === "Parsed" ? "High" : document.status === "Needs review" ? "Medium" : "Low",
     extractedAt: document.uploadedAt,
@@ -1143,6 +1148,72 @@ function applyProjectCostCentresToQuote(
     costCentres,
     auditEvent,
     totalSell,
+  };
+}
+
+export function attachSurveyEvidenceToQuote(
+  projectId: string,
+  quoteId: string,
+  actor = "NeXa Field",
+) {
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  const quote = getQuotes().find((item) => item.id === quoteId);
+  if (!project || !quote) return null;
+
+  const takeoffDocuments = buildQuoteTakeoffDocuments(project).filter((document) => document.kind === "Survey evidence");
+  if (!takeoffDocuments.length) return null;
+
+  const hubState = getHubDetailState();
+  const currentQuoteCostCentres = (hubState.quoteCostCentres ?? {}) as Record<string, unknown>;
+  const existingCentres = Array.isArray(currentQuoteCostCentres[quote.id])
+    ? (currentQuoteCostCentres[quote.id] as QuoteCostCentre[])
+    : [];
+  const centreId = `${quote.id}-takeoff-${project.id}-summary`;
+  const existingCentre = existingCentres.find((centre) => centre.id === centreId);
+  const evidenceCentre: QuoteCostCentre = {
+    id: centreId,
+    name: existingCentre?.name ?? `Survey evidence - ${project.name}`,
+    templateName: existingCentre?.templateName ?? inferTemplateName(project),
+    clientDescription: existingCentre?.clientDescription ?? buildClientDescription(project),
+    engineerDescription: existingCentre?.engineerDescription ?? buildEngineerDescription(project),
+    lines: existingCentre?.lines ?? [],
+    takeoffRows: existingCentre?.takeoffRows ?? [],
+    takeoffDocuments,
+    heatLossRooms: existingCentre?.heatLossRooms ?? buildQuoteHeatLossRooms(project),
+  };
+
+  const nextQuoteCentres = [
+    ...existingCentres.filter((centre) => centre.id !== centreId),
+    evidenceCentre,
+  ];
+
+  saveHubDetailState({
+    ...hubState,
+    quoteCostCentres: {
+      ...currentQuoteCostCentres,
+      [quote.id]: nextQuoteCentres,
+    },
+  });
+
+  const updatedQuote = updateQuote(quote.id, {
+    next: `Review ${project.reference} LiDAR survey evidence`,
+  }) ?? quote;
+
+  const auditEvent = appendAuditEvent({
+    actor,
+    action: "attached",
+    recordType: "quote",
+    recordId: quote.id,
+    summary: `${project.reference} LiDAR room scan attached to ${quote.ref}.`,
+    source: "field scanner",
+    importance: "normal",
+  });
+
+  return {
+    project: clone(project),
+    quote: updatedQuote,
+    costCentre: evidenceCentre,
+    auditEvent,
   };
 }
 
@@ -1559,6 +1630,8 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
     description: payload.description?.trim() || "Takeoff scope to review.",
     linkedQuoteId: payload.linkedQuoteId,
     linkedQuoteRef: linkedQuote?.ref ?? payload.linkedQuoteRef,
+    linkedJobId: payload.linkedJobId,
+    linkedJobRef: payload.linkedJobRef,
     status: payload.status ?? "Draft",
     documents: payload.documents ?? [],
     rooms: payload.rooms ?? [],
@@ -1615,6 +1688,8 @@ export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>)
     linkedQuoteRef: patch.linkedQuoteId !== undefined
       ? linkedQuote?.ref
       : patch.linkedQuoteRef ?? current.linkedQuoteRef,
+    linkedJobId: patch.linkedJobId !== undefined ? patch.linkedJobId || undefined : current.linkedJobId,
+    linkedJobRef: patch.linkedJobRef !== undefined ? patch.linkedJobRef || undefined : current.linkedJobRef,
     review: {
       ...current.review,
       ...(patch.review ?? {}),

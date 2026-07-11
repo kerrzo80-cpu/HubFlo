@@ -64,6 +64,8 @@ struct ContentView: View {
                 .font(.footnote)
                 .foregroundColor(scanner.lastError == nil ? .secondary : .red)
 
+            recordLinker
+
             if let lastError = scanner.lastError {
                 Text(lastError)
                     .font(.caption)
@@ -73,6 +75,89 @@ struct ContentView: View {
         }
         .padding()
         .background(.regularMaterial)
+    }
+
+    private var recordLinker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "link")
+                    .foregroundStyle(.teal)
+
+                TextField("Search quote or job number, client or address", text: $scanner.recordSearchText)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: scanner.recordSearchText) { _, value in
+                        Task {
+                            await scanner.searchRecords(query: value)
+                        }
+                    }
+
+                if scanner.isSearchingRecords {
+                    ProgressView()
+                }
+            }
+
+            if !scanner.reference.isEmpty {
+                HStack(spacing: 8) {
+                    Text(scanner.linkedRecordType == "job" ? "Job" : scanner.linkedRecordType == "quote" ? "Quote" : "Survey")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.teal)
+                        .clipShape(Capsule())
+
+                    Text(scanner.reference)
+                        .font(.caption.weight(.semibold))
+
+                    Text(scanner.projectName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            if !scanner.recordResults.isEmpty {
+                VStack(spacing: 6) {
+                    ForEach(scanner.recordResults) { record in
+                        Button {
+                            scanner.selectRecord(record)
+                        } label: {
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(record.typeLabel)
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 4)
+                                    .background(record.type == "job" ? Color.blue : Color.teal)
+                                    .clipShape(Capsule())
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text("\(record.ref) · \(record.customer)")
+                                        .font(.caption.weight(.bold))
+                                    Text([record.site, record.description].filter { !$0.isEmpty }.joined(separator: " · "))
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+
+                                Spacer()
+
+                                Text(record.status)
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .background(.thinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
     }
 
     private var controls: some View {
@@ -191,11 +276,12 @@ struct SettingsView: View {
                     TextField("Project ID", text: $scanner.projectId)
                     TextField("Reference", text: $scanner.reference)
                     TextField("Project name", text: $scanner.projectName)
+                    TextField("Record type", text: $scanner.linkedRecordType)
                 } header: {
-                    Text("Linked survey")
+                    Text("Linked quote / job")
                 }
                 footer: {
-                    Text("Open the scanner from NeXa Survey to fill these fields automatically.")
+                    Text("Search and select a quote or job from the scanner screen, or open the scanner from NeXa Survey to fill these fields automatically.")
                 }
             }
             .navigationTitle("Scanner settings")
