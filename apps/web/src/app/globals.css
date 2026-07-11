@@ -17393,6 +17393,90 @@ body {
   color: #18384b !important;
 }
 
+.survey-main {
+  gap: 10px !important;
+}
+
+.survey-hero {
+  gap: 14px !important;
+  padding: 16px 18px !important;
+}
+
+.survey-hero h1 {
+  font-size: 28px !important;
+  line-height: 1.08 !important;
+  margin-top: 2px !important;
+}
+
+.survey-hero p {
+  font-size: 13px !important;
+  line-height: 1.35 !important;
+  margin-top: 6px !important;
+  max-width: 680px !important;
+}
+
+.survey-hero > div:first-child > strong {
+  font-size: 12px !important;
+  line-height: 1.3 !important;
+  margin-top: 8px !important;
+}
+
+.survey-prompt-chips {
+  gap: 6px !important;
+  margin-top: 10px !important;
+}
+
+.survey-prompt-chips button {
+  padding: 7px 10px !important;
+}
+
+.estimate-flow-strip {
+  margin: 2px 0 8px !important;
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 0 !important;
+}
+
+.estimate-flow-strip article {
+  min-height: 64px !important;
+  padding: 10px 12px !important;
+}
+
+.survey-workspace {
+  align-items: start !important;
+  gap: 12px !important;
+  margin-top: 0 !important;
+  position: relative !important;
+  z-index: 1 !important;
+}
+
+.survey-chat-panel {
+  min-height: min(500px, 58vh) !important;
+}
+
+.survey-chat-title {
+  padding: 11px 14px !important;
+}
+
+.survey-action-strip {
+  gap: 7px !important;
+  padding: 9px 12px !important;
+}
+
+.survey-chat-log {
+  max-height: clamp(220px, 34vh, 420px) !important;
+  min-height: 180px !important;
+  padding: 12px !important;
+}
+
+.survey-composer {
+  padding: 10px 12px !important;
+}
+
+.survey-composer textarea {
+  min-height: 58px !important;
+}
+
 .setup-rate-row input {
   min-width: 0;
 }
