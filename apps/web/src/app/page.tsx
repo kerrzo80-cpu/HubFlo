@@ -7811,6 +7811,12 @@ export default function Dashboard() {
     }
   }
 
+  function closeContextSidebarOnMobile() {
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 720px)").matches) {
+      setContextSidebarCollapsed(true);
+    }
+  }
+
   function handleSetupSubItemClick(category: (typeof setupCategories)[number], item: string) {
     setActiveSetupCategory(category.key);
     setActiveSetupSubItem(item);
@@ -13321,7 +13327,14 @@ export default function Dashboard() {
                 </button>
                 <div className={isOpen ? "module-submenu open" : "module-submenu"}>
                   {module.subItems.map((item) => (
-                    <button key={item} type="button" onClick={() => goToPeopleSection(item)}>
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => {
+                        goToPeopleSection(item);
+                        closeContextSidebarOnMobile();
+                      }}
+                    >
                       {item}
                     </button>
                   ))}
@@ -13362,6 +13375,7 @@ export default function Dashboard() {
                   setActiveSetupSubItem(null);
                   showNotice(`${module.label} configuration opens through Setup in this prototype.`);
                 }
+                closeContextSidebarOnMobile();
                 scrollWorkspaceToTop();
               }}
             >
@@ -13375,6 +13389,7 @@ export default function Dashboard() {
           aria-label="More modules"
           onClick={() => {
             setHomeView("addons");
+            closeContextSidebarOnMobile();
             scrollWorkspaceToTop();
           }}
         >
@@ -13452,6 +13467,7 @@ export default function Dashboard() {
                   onClick={(event) => {
                     event.preventDefault();
                     handleContextNavClick(item.label);
+                    closeContextSidebarOnMobile();
                   }}
                 >
                   <Icon size={17} />
