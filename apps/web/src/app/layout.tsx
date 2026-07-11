@@ -15,7 +15,6 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/brand/nexa-favicon.svg" },
       { url: "/app-icons/nexa-core-icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [{ url: "/app-icons/nexa-core-apple-touch-icon.png", sizes: "180x180", type: "image/png" }],

@@ -2,6 +2,20 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
+const publicAssetPrefixes = ["/app-icons/"];
+const publicAssetPaths = new Set([
+  "/apple-icon.png",
+  "/icon.png",
+  "/manifest-core.json",
+  "/manifest-estimator.json",
+  "/manifest-takeoffs.json",
+  "/estimator/apple-icon.png",
+  "/estimator/icon.png",
+  "/survey/apple-icon.png",
+  "/survey/icon.png",
+  "/takeoff/apple-icon.png",
+  "/takeoff/icon.png",
+]);
 
 function parseBasicAuth(value: string | null) {
   if (!value?.startsWith("Basic ")) return null;
@@ -20,7 +34,12 @@ function parseBasicAuth(value: string | null) {
 }
 
 export function proxy(request: NextRequest) {
-  if (request.nextUrl.pathname === "/api/health") return NextResponse.next();
+  const { pathname } = request.nextUrl;
+
+  if (pathname === "/api/health") return NextResponse.next();
+  if (publicAssetPaths.has(pathname) || publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix))) {
+    return NextResponse.next();
+  }
   if (!pilotPin) return NextResponse.next();
 
   const credentials = parseBasicAuth(request.headers.get("authorization"));
