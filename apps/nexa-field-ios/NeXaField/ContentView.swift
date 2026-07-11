@@ -95,9 +95,7 @@ struct ContentView: View {
                     .autocorrectionDisabled()
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: scanner.recordSearchText) { _, value in
-                        Task {
-                            await scanner.searchRecords(query: value)
-                        }
+                        scanner.queueRecordSearch(query: value)
                     }
 
                 if scanner.isSearchingRecords {
@@ -169,17 +167,6 @@ struct ContentView: View {
 
     private var controls: some View {
         VStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Link quote or job", systemImage: "link")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-
-                recordLinker
-            }
-            .padding(10)
-            .background(.regularMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
             TextField("Room name", text: $scanner.roomName)
                 .textFieldStyle(.roundedBorder)
 

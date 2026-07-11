@@ -29,6 +29,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     private let configuration = RoomCaptureSession.Configuration()
     private let apiClient = NeXaAPIClient()
     private var skipNextRecordSearch = false
+    private var recordSearchTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -93,38 +94,64 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         persistSettings()
     }
 
-    func searchRecords(query: String) async {
+    func queueRecordSearch(query: String) {
         if skipNextRecordSearch {
             skipNextRecordSearch = false
             return
         }
 
+        recordSearchTask?.cancel()
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.count >= 2 else {
             recordResults = []
+            isSearchingRecords = false
             return
         }
 
         isSearchingRecords = true
-        defer {
-            isSearchingRecords = false
+
+        recordSearchTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 350_000_000)
+            } catch {
+                return
+            }
+
+            await self?.searchRecords(query: trimmed)
+        }
+    }
+
+    private func searchRecords(query: String) async {
+        guard recordSearchText.trimmingCharacters(in: .whitespacesAndNewlines) == query else {
+            return
         }
 
         do {
-            recordResults = try await apiClient.searchFieldRecords(
-                query: trimmed,
+            let records = try await apiClient.searchFieldRecords(
+                query: query,
                 baseURL: nexaBaseURL,
                 username: basicAuthUsername,
                 password: basicAuthPassword
             )
+            guard recordSearchText.trimmingCharacters(in: .whitespacesAndNewlines) == query else {
+                return
+            }
+            recordResults = records.uniquedById()
             lastError = nil
         } catch {
+            guard recordSearchText.trimmingCharacters(in: .whitespacesAndNewlines) == query else {
+                return
+            }
             recordResults = []
             lastError = error.localizedDescription
         }
+
+        isSearchingRecords = false
     }
 
     func selectRecord(_ record: FieldRecordSummary) {
+        recordSearchTask?.cancel()
+        isSearchingRecords = false
         projectId = record.uploadTargetId
         reference = record.ref
         projectName = record.title
@@ -328,5 +355,14 @@ extension RoomScanCoordinator: @preconcurrency RoomCaptureViewDelegate, RoomCapt
 private extension Array where Element == URLQueryItem {
     func value(named name: String) -> String? {
         first(where: { $0.name == name })?.value?.removingPercentEncoding
+    }
+}
+
+private extension Array where Element == FieldRecordSummary {
+    func uniquedById() -> [FieldRecordSummary] {
+        var seen = Set<String>()
+        return filter { record in
+            seen.insert(record.id).inserted
+        }
     }
 }
