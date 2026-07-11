@@ -204,6 +204,7 @@ export default function SurveyPage() {
   const projectDocuments = selectedProject?.documents ?? [];
   const photoCount = projectDocuments.filter((document) => document.kind === "Survey photo").length;
   const scanCount = projectDocuments.filter((document) => document.kind === "LiDAR scan").length;
+  const latestScanPreview = projectDocuments.find((document) => document.kind === "LiDAR scan" && document.previewImageDataUrl);
   const heatLossRoomCount = selectedProject?.rooms.filter((room) => room.heatLoadWatts > 0).length ?? 0;
   const documentCount = projectDocuments.filter((document) => ["Drawing", "Contractor BOQ", "Specification"].includes(document.kind)).length;
   const heatLossResult = useMemo(() => calculateHeatLoss(heatLossDraft), [heatLossDraft]);
@@ -653,26 +654,10 @@ export default function SurveyPage() {
                 <div>
                   <span className="takeoff-kicker"><b>{selectedProject.reference}</b></span>
                   <h1>Site survey chat</h1>
-                  <p>
-                    Chat with NeXa on site, capture photos, LiDAR and heat loss, then push the priced scope into the linked quote.
-                  </p>
-                  <strong>{selectedProject.name} - {selectedProject.customer} - {selectedProject.site}</strong>
-                  <div className="survey-prompt-chips" aria-label="Quick survey prompts">
-                    <button type="button" onClick={() => setDraft("We are surveying and pricing ")}>
-                      Describe job
-                    </button>
-                    <button type="button" onClick={() => setDraft("Site note: ")}>
-                      Add note
-                    </button>
-                    <button type="button" onClick={openRoomScanBridge}>
-                      LiDAR room scan
-                    </button>
-                    <button type="button" onClick={() => setShowHeatLossPanel(true)}>
-                      Heat loss
-                    </button>
-                    <button type="button" onClick={prepareQuotePack} disabled={isBuilding}>
-                      Push into quote
-                    </button>
+                  <div className="survey-hero-summary">
+                    <strong>{selectedProject.name}</strong>
+                    <span>{selectedProject.customer}</span>
+                    <span>{selectedProject.site}</span>
                   </div>
                 </div>
                 <div className="takeoff-quote-link">
@@ -926,6 +911,13 @@ export default function SurveyPage() {
                     <span>LiDAR scans</span>
                     <strong>{scanCount}</strong>
                   </article>
+                  {latestScanPreview?.previewImageDataUrl ? (
+                    <article className="survey-scan-preview">
+                      <img src={latestScanPreview.previewImageDataUrl} alt={`${latestScanPreview.fileName} room scan preview`} />
+                      <span>Room image</span>
+                      <strong>{latestScanPreview.fileName}</strong>
+                    </article>
+                  ) : null}
                   <article>
                     <ThermometerSun size={18} />
                     <span>Heat loss</span>

@@ -2109,7 +2109,11 @@ export default function TakeoffPage() {
                       <div className="takeoff-lidar-list">
                         {lidarDocuments.map((document) => (
                           <article key={document.id}>
-                            <FileSpreadsheet size={15} />
+                            {document.previewImageDataUrl ? (
+                              <img className="takeoff-document-thumb" src={document.previewImageDataUrl} alt={`${document.fileName} room scan preview`} />
+                            ) : (
+                              <FileSpreadsheet size={15} />
+                            )}
                             <span>
                               <strong>{document.fileName}</strong>
                               <small>{fileSizeLabel(document.size)} - {document.storageKey ? "stored" : "not stored"}</small>
@@ -2417,7 +2421,11 @@ export default function TakeoffPage() {
                     <div className="takeoff-document-list">
                       {surveyEvidenceDocuments.map((document) => (
                         <article key={document.id}>
-                          <FileText size={16} />
+                          {document.previewImageDataUrl ? (
+                            <img className="takeoff-document-thumb" src={document.previewImageDataUrl} alt={`${document.fileName} preview`} />
+                          ) : (
+                            <FileText size={16} />
+                          )}
                           <span>
                             <strong>{document.fileName}</strong>
                             <small>
