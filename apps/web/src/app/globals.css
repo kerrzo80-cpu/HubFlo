@@ -17671,3 +17671,81 @@ body {
 .takeoff-lidar-list article {
   grid-template-columns: 56px minmax(0, 1fr) !important;
 }
+
+@media (max-width: 720px) {
+  .body-shell {
+    display: block !important;
+    position: relative;
+  }
+
+  .context-sidebar {
+    border-radius: 0 18px 18px 0 !important;
+    bottom: 0 !important;
+    display: flex !important;
+    height: calc(100dvh - 112px) !important;
+    left: 0 !important;
+    max-height: calc(100dvh - 112px) !important;
+    max-width: calc(100vw - 42px) !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    position: fixed !important;
+    top: 112px !important;
+    transition: transform 180ms ease, box-shadow 180ms ease !important;
+    width: min(286px, calc(100vw - 42px)) !important;
+    z-index: 1000 !important;
+  }
+
+  .body-shell.sidebar-collapsed .context-sidebar {
+    pointer-events: none !important;
+    transform: translateX(calc(-100% - 24px)) !important;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-sidebar {
+    align-items: stretch !important;
+    box-shadow: 16px 0 34px rgba(24, 56, 75, 0.24) !important;
+    padding: 17px 12px 14px !important;
+    pointer-events: auto !important;
+    transform: translateX(0) !important;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-title {
+    justify-content: space-between !important;
+    padding: 0 10px 13px !important;
+    width: auto !important;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-title > span,
+  .body-shell:not(.sidebar-collapsed) .sidebar-label,
+  .body-shell:not(.sidebar-collapsed) .context-link span,
+  .body-shell:not(.sidebar-collapsed) .context-link b,
+  .body-shell:not(.sidebar-collapsed) .support-panel img,
+  .body-shell:not(.sidebar-collapsed) .support-panel small {
+    display: inline-flex !important;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-link {
+    border-left: 3px solid transparent !important;
+    gap: 10px !important;
+    justify-content: flex-start !important;
+    min-height: 39px !important;
+    padding: 0 10px !important;
+    width: auto !important;
+  }
+
+  .context-sidebar-backdrop {
+    background: rgba(10, 26, 38, 0.38) !important;
+    border: 0 !important;
+    bottom: 0 !important;
+    display: none !important;
+    left: 0 !important;
+    padding: 0 !important;
+    position: fixed !important;
+    right: 0 !important;
+    top: 112px !important;
+    z-index: 990 !important;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-sidebar-backdrop {
+    display: block !important;
+  }
+}
