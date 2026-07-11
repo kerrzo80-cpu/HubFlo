@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 
 import { roleHeaderName } from "@/lib/access";
+import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
 import type {
   TakeoffDocumentKind,
@@ -427,8 +428,37 @@ function fileSizeLabel(size?: number) {
   return `${size} B`;
 }
 
-function quoteLabel(quote: Quote) {
-  return `${quote.ref} - ${quote.customer} - ${quote.description}`;
+function quoteSite(quote: Quote, clientSites: ClientSite[]) {
+  return quote.siteId ? clientSites.find((site) => site.id === quote.siteId) : undefined;
+}
+
+function quoteSearchLabel(quote: Quote, clientSites: ClientSite[]) {
+  const site = quoteSite(quote, clientSites);
+  return [quote.ref, quote.customer, site?.address, quote.description].filter(Boolean).join(" - ");
+}
+
+function quoteSearchText(quote: Quote, clientSites: ClientSite[]) {
+  const site = quoteSite(quote, clientSites);
+  return [
+    quote.ref,
+    quote.customer,
+    site?.name,
+    site?.address,
+    quote.description,
+    quote.owner,
+    quote.status,
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function shouldUseQuoteValue(value: string) {
+  const normalised = value.trim().toLowerCase();
+  return [
+    "",
+    "customer to confirm",
+    "site to confirm",
+    "survey conversation started from nexa survey.",
+    "takeoff project started from nexa takeoff.",
+  ].includes(normalised);
 }
 
 function replaceById<T extends { id: string }>(items: T[], id: string, patch: Partial<T>) {
@@ -602,9 +632,12 @@ function mergeImportedRooms(existingRooms: TakeoffRoom[], importedRooms: Takeoff
 export default function TakeoffPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeTab, setActiveTab] = useState<TakeoffTab>("intake");
   const [newProject, setNewProject] = useState<NewProjectDraft>(blankNewProject);
+  const [quoteSearch, setQuoteSearch] = useState("");
+  const [isQuoteSearchOpen, setIsQuoteSearchOpen] = useState(false);
   const [showNewProject, setShowNewProject] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -629,6 +662,14 @@ export default function TakeoffPage() {
     () => quotes.find((quote) => quote.id === selectedProject?.linkedQuoteId) ?? null,
     [quotes, selectedProject],
   );
+
+  const quoteSearchMatches = useMemo(() => {
+    const query = quoteSearch.trim().toLowerCase();
+    const source = query
+      ? quotes.filter((quote) => quoteSearchText(quote, clientSites).includes(query))
+      : quotes;
+    return source.slice(0, 7);
+  }, [clientSites, quoteSearch, quotes]);
 
   const aiReadyDocumentCount = useMemo(
     () => selectedProject?.documents.filter((document) => document.storageKey).length ?? 0,
@@ -801,9 +842,10 @@ export default function TakeoffPage() {
     setIsLoading(true);
     setError("");
     try {
-      const [projectResponse, quoteResponse] = await Promise.all([
+      const [projectResponse, quoteResponse, siteResponse] = await Promise.all([
         fetch("/api/takeoff-projects", { headers: requestHeaders }),
         fetch("/api/quotes", { headers: requestHeaders }),
+        fetch("/api/client-sites", { headers: requestHeaders }),
       ]);
       const aiResponse = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
 
@@ -812,6 +854,7 @@ export default function TakeoffPage() {
 
       const nextProjects = (await projectResponse.json()) as TakeoffProject[];
       const nextQuotes = (await quoteResponse.json()) as Quote[];
+      const nextClientSites = siteResponse.ok ? ((await siteResponse.json()) as ClientSite[]) : [];
       const nextAiStatus = aiResponse.ok ? ((await aiResponse.json()) as TakeoffAiStatus) : null;
       const requestedProject = typeof window !== "undefined"
         ? new URLSearchParams(window.location.search).get("project")
@@ -822,6 +865,7 @@ export default function TakeoffPage() {
 
       setProjects(nextProjects);
       setQuotes(nextQuotes);
+      setClientSites(nextClientSites);
       setAiStatus(nextAiStatus);
       setShowNewProject(nextProjects.length === 0);
       setSelectedProjectId((current) =>
@@ -848,6 +892,10 @@ export default function TakeoffPage() {
       setActiveTab("review");
     }
   }, []);
+
+  useEffect(() => {
+    setQuoteSearch(selectedQuote ? quoteSearchLabel(selectedQuote, clientSites) : "");
+  }, [clientSites, selectedQuote]);
 
   function replaceProject(project: TakeoffProject) {
     setProjects((current) => current.map((item) => (item.id === project.id ? project : item)));
@@ -888,15 +936,30 @@ export default function TakeoffPage() {
       const updated = (await response.json()) as TakeoffProject;
       replaceProject(updated);
       if (successMessage) setNotice(successMessage);
+      return updated;
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save Takeoff project");
       loadData().catch(() => {});
+      return null;
     }
   }
 
   function updateProject(patch: Partial<TakeoffProject>, successMessage?: string) {
     if (!selectedProject) return;
     patchProject(selectedProject.id, patch, successMessage).catch(() => {});
+  }
+
+  async function linkQuoteToProject(quote: Quote) {
+    if (!selectedProject) return;
+    const site = quoteSite(quote, clientSites);
+    setQuoteSearch(quoteSearchLabel(quote, clientSites));
+    setIsQuoteSearchOpen(false);
+    await patchProject(selectedProject.id, {
+      linkedQuoteId: quote.id,
+      customer: quote.customer,
+      site: shouldUseQuoteValue(selectedProject.site) ? site?.address ?? quote.description : selectedProject.site,
+      description: shouldUseQuoteValue(selectedProject.description) ? quote.description : selectedProject.description,
+    }, `Linked ${selectedProject.reference} to ${quote.ref}.`);
   }
 
   async function createProject() {
@@ -1536,19 +1599,29 @@ export default function TakeoffPage() {
       setError("Choose a quote before pushing Takeoff output.");
       return;
     }
-    if (selectedProject.status !== "Approved" && selectedProject.status !== "Pushed") {
-      setError("Approve the Takeoff project before pushing into NeXa.");
-      return;
-    }
 
     setIsPushing(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/push`, {
+      let projectToPush = selectedProject;
+      if (projectToPush.status !== "Approved" && projectToPush.status !== "Pushed") {
+        const approvedProject = await patchProject(projectToPush.id, {
+          status: "Approved",
+          review: {
+            ...projectToPush.review,
+            approvedAt: new Date().toISOString(),
+            approvedBy: "Office review",
+          },
+        });
+        if (!approvedProject) throw new Error("Unable to approve Takeoff project before pushing into NeXa.");
+        projectToPush = approvedProject;
+      }
+
+      const response = await fetch(`/api/takeoff-projects/${projectToPush.id}/push`, {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
-          quoteId: selectedProject.linkedQuoteId,
+          quoteId: projectToPush.linkedQuoteId,
           actor: "Office review",
         }),
       });
@@ -1563,6 +1636,7 @@ export default function TakeoffPage() {
         href: `/?quote=${encodeURIComponent(result.quote.id)}`,
         label: `Open ${result.quote.ref} in NeXa`,
       });
+      setActiveTab("review");
       setNotice(`${result.project.reference} pushed into ${result.quote.ref}: ${result.costCentres?.length ?? 1} cost centre(s) added to the quote.`);
     } catch (pushError) {
       setError(pushError instanceof Error ? pushError.message : "Unable to push Takeoff output");
@@ -1619,11 +1693,21 @@ export default function TakeoffPage() {
               />
               <select
                 value={newProject.linkedQuoteId}
-                onChange={(event) => setNewProject((current) => ({ ...current, linkedQuoteId: event.target.value }))}
+                onChange={(event) => {
+                  const quote = quotes.find((item) => item.id === event.target.value);
+                  const site = quote ? quoteSite(quote, clientSites) : undefined;
+                  setNewProject((current) => ({
+                    ...current,
+                    linkedQuoteId: event.target.value,
+                    customer: quote?.customer ?? current.customer,
+                    site: site?.address ?? current.site,
+                    description: quote?.description ?? current.description,
+                  }));
+                }}
               >
                 <option value="">No quote yet</option>
                 {quotes.map((quote) => (
-                  <option value={quote.id} key={quote.id}>{quoteLabel(quote)}</option>
+                  <option value={quote.id} key={quote.id}>{quoteSearchLabel(quote, clientSites)}</option>
                 ))}
               </select>
               <textarea
@@ -1691,15 +1775,39 @@ export default function TakeoffPage() {
                 </div>
                 <div className="takeoff-quote-link">
                   <Link2 size={16} />
-                  <select
-                    value={selectedProject.linkedQuoteId ?? ""}
-                    onChange={(event) => updateProject({ linkedQuoteId: event.target.value })}
-                  >
-                    <option value="">Choose quote</option>
-                    {quotes.map((quote) => (
-                      <option value={quote.id} key={quote.id}>{quoteLabel(quote)}</option>
-                    ))}
-                  </select>
+                  <div className="quote-search-control">
+                    <input
+                      value={quoteSearch}
+                      placeholder="Search quote, client or address..."
+                      onChange={(event) => {
+                        setQuoteSearch(event.target.value);
+                        setIsQuoteSearchOpen(true);
+                      }}
+                      onFocus={() => setIsQuoteSearchOpen(true)}
+                      onBlur={() => window.setTimeout(() => setIsQuoteSearchOpen(false), 120)}
+                    />
+                    {isQuoteSearchOpen ? (
+                      <div className="quote-search-results">
+                        {quoteSearchMatches.map((quote) => (
+                          <button
+                            type="button"
+                            key={quote.id}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => void linkQuoteToProject(quote)}
+                          >
+                            <strong>{quote.ref} - {quote.customer}</strong>
+                            <small>{[quoteSite(quote, clientSites)?.address, quote.description].filter(Boolean).join(" - ")}</small>
+                          </button>
+                        ))}
+                        {!quoteSearchMatches.length ? <span>No matching quotes</span> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                  {selectedQuote ? (
+                    <a className="takeoff-small-button" href={`/?quote=${encodeURIComponent(selectedQuote.id)}`}>
+                      Open quote
+                    </a>
+                  ) : null}
                 </div>
               </section>
 
@@ -1734,7 +1842,11 @@ export default function TakeoffPage() {
                   <Sparkles size={20} />
                   <span>
                     <strong>Office takeoff: documents in, estimate pack out</strong>
-                    <small>Use Survey for site chat/photos/LiDAR. Use this workspace for drawings, specs and contractor BOQs, then review the BOQ and supplier items before pushing into the quote.</small>
+                    <small>
+                      {selectedQuote
+                        ? `Linked to ${selectedQuote.ref}. Push estimate writes the reviewed BOQ into Core as quote cost centres.`
+                        : "Link this Takeoff to a Core quote first, then push the reviewed BOQ into that quote as cost centres."}
+                    </small>
                   </span>
                 </div>
                 <div className="takeoff-ai-handoff-actions">
@@ -1751,9 +1863,9 @@ export default function TakeoffPage() {
                     <Sparkles size={15} />
                     {isExtracting ? "Scanning" : "Scan documents"}
                   </button>
-                  <button className="takeoff-secondary-button" type="button" disabled={isPushing} onClick={pushProject}>
+                  <button className="takeoff-secondary-button" type="button" disabled={isPushing || !selectedProject.linkedQuoteId} onClick={pushProject}>
                     <Send size={15} />
-                    {isPushing ? "Pushing" : "Push estimate"}
+                    {isPushing ? "Pushing" : selectedProject.linkedQuoteId ? "Push to Core quote" : "Link quote first"}
                   </button>
                 </div>
               </section>
