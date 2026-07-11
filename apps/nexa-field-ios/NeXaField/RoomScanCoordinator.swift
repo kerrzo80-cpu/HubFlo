@@ -19,6 +19,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     @Published var status: String = "Open a NeXa survey link or scan a room manually."
     @Published var lastError: String?
     @Published var isScanning = false
+    @Published var isStartingScan = false
     @Published var isUploading = false
     @Published var isSearchingRecords = false
     @Published var isShowingSettings = false
@@ -30,6 +31,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     private let apiClient = NeXaAPIClient()
     private var skipNextRecordSearch = false
     private var recordSearchTask: Task<Void, Never>?
+    private var scanStartTask: Task<Void, Never>?
 
     override init() {
         super.init()
@@ -150,8 +152,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
     }
 
     func selectRecord(_ record: FieldRecordSummary) {
-        recordSearchTask?.cancel()
-        isSearchingRecords = false
+        cancelRecordSearch()
         projectId = record.uploadTargetId
         reference = record.ref
         projectName = record.title
@@ -163,22 +164,29 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         persistSettings()
     }
 
+    func cancelRecordSearch() {
+        recordSearchTask?.cancel()
+        recordSearchTask = nil
+        recordResults = []
+        isSearchingRecords = false
+    }
+
     func startScan() {
+        cancelRecordSearch()
+
         guard RoomCaptureSession.isSupported else {
             lastError = "This iPhone/iPad does not support RoomPlan LiDAR capture."
             return
         }
 
-        guard let captureView else {
-            lastError = "The LiDAR scanner is still loading. Wait a second, then tap Start Scan again."
-            status = "Scanner not ready yet."
+        guard !isScanning, !isStartingScan else {
             return
         }
 
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
             cameraPermissionStatus = .authorized
-            runScan(on: captureView)
+            prepareAndRunScan()
         case .notDetermined:
             requestCameraPermission()
         case .denied, .restricted:
@@ -192,13 +200,48 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
         }
     }
 
+    private func prepareAndRunScan() {
+        scanStartTask?.cancel()
+        isStartingScan = true
+        lastError = nil
+        status = "Preparing LiDAR scanner..."
+
+        scanStartTask = Task { [weak self] in
+            do {
+                try await Task.sleep(nanoseconds: 350_000_000)
+            } catch {
+                return
+            }
+
+            self?.runScanIfReady()
+        }
+    }
+
+    private func runScanIfReady() {
+        guard !isScanning else {
+            isStartingScan = false
+            return
+        }
+
+        guard let captureView, captureView.window != nil else {
+            isStartingScan = false
+            lastError = "The LiDAR scanner is still loading. Wait a second, then tap Start Scan again."
+            status = "Scanner not ready yet."
+            return
+        }
+
+        runScan(on: captureView)
+    }
+
     private func runScan(on captureView: RoomCaptureView) {
         guard !isScanning else {
+            isStartingScan = false
             return
         }
 
         lastError = nil
         latestRoom = nil
+        isStartingScan = false
         captureView.captureSession.run(configuration: configuration)
         isScanning = true
         status = "Scanning. Walk around the room slowly and capture walls, openings and fixed items."
@@ -211,6 +254,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
 
         guard let captureView else {
             isScanning = false
+            isStartingScan = false
             lastError = "The scanner view was closed before the scan could finish."
             status = "Scanner view unavailable."
             return
@@ -341,6 +385,7 @@ extension RoomScanCoordinator: @preconcurrency RoomCaptureViewDelegate, RoomCapt
     nonisolated func captureView(didPresent processedResult: CapturedRoom, error: Error?) {
         Task { @MainActor in
             self.isScanning = false
+            self.isStartingScan = false
             if let error {
                 self.lastError = error.localizedDescription
                 self.status = "RoomPlan could not process the room."

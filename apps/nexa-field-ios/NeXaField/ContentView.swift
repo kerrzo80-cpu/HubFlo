@@ -1,9 +1,16 @@
 import AVFoundation
 import RoomPlan
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var scanner: RoomScanCoordinator
+    @FocusState private var focusedField: FocusedField?
+
+    private enum FocusedField: Hashable {
+        case recordSearch
+        case roomName
+    }
 
     var body: some View {
         NavigationStack {
@@ -94,6 +101,7 @@ struct ContentView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .recordSearch)
                     .onChange(of: scanner.recordSearchText) { _, value in
                         scanner.queueRecordSearch(query: value)
                     }
@@ -127,6 +135,8 @@ struct ContentView: View {
                 VStack(spacing: 6) {
                     ForEach(scanner.recordResults) { record in
                         Button {
+                            focusedField = nil
+                            UIApplication.shared.endEditing()
                             scanner.selectRecord(record)
                         } label: {
                             HStack(alignment: .top, spacing: 10) {
@@ -169,17 +179,23 @@ struct ContentView: View {
         VStack(spacing: 12) {
             TextField("Room name", text: $scanner.roomName)
                 .textFieldStyle(.roundedBorder)
+                .focused($focusedField, equals: .roomName)
 
             HStack(spacing: 10) {
                 Button {
+                    focusedField = nil
+                    UIApplication.shared.endEditing()
                     scanner.isScanning ? scanner.stopScan() : scanner.startScan()
                 } label: {
-                    Label(scanner.isScanning ? "Finish Scan" : "Start Scan", systemImage: scanner.isScanning ? "stop.circle.fill" : "camera.viewfinder")
+                    Label(scanner.isScanning ? "Finish Scan" : scanner.isStartingScan ? "Preparing..." : "Start Scan", systemImage: scanner.isScanning ? "stop.circle.fill" : "camera.viewfinder")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(scanner.isStartingScan)
 
                 Button {
+                    focusedField = nil
+                    UIApplication.shared.endEditing()
                     Task {
                         await scanner.uploadLatestScan()
                     }
@@ -251,6 +267,12 @@ struct ContentView: View {
             .padding(.horizontal, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+private extension UIApplication {
+    func endEditing() {
+        sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
