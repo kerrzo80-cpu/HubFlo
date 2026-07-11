@@ -115,6 +115,7 @@ const STORAGE_KEYS = {
 } as const;
 
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
+const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 
 function safeLoadStoredJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -1055,6 +1056,7 @@ type EstimateMaterialLine = {
   unitCost: number;
   markupPercent: number;
   supplierRequired?: boolean;
+  rateSource?: "ratebook" | "manual";
 };
 
 type EstimateLabourLine = {
@@ -4017,6 +4019,11 @@ function finiteNumberFromSetting(value: string | number | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function formatEditableNumber(value: number, blankWhenZero = false) {
+  if (blankWhenZero && value === 0) return "";
+  return Number.isFinite(value) ? String(value) : "";
+}
+
 function markupPercentFromRates(costRate: number, sellRate: number, fallback = 0) {
   if (costRate <= 0) return fallback;
   return roundCurrencyValue(((sellRate - costRate) / costRate) * 100);
@@ -4530,8 +4537,11 @@ export default function Dashboard() {
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSetupEditAt = useRef(0);
+  const lastLocalCostCentreEditAt = useRef(0);
   const hasAppliedHubSetupState = useRef(false);
   const pendingSetupSaveRef = useRef(false);
+  const pendingCostCentreSaveRef = useRef(false);
+  const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
 
   const activeEmployee = useMemo(
     () => employees.find((employee) => employee.id === activeEmployeeId) ?? employees[0],
@@ -5430,6 +5440,7 @@ export default function Dashboard() {
         if (hubStateResponse.ok) {
           const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
+          const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
           if (hubState.employees?.length) {
             const nextEmployees = normalizeEmployeeCards(hubState.employees);
             setEmployees(nextEmployees);
@@ -5473,9 +5484,11 @@ export default function Dashboard() {
             hasAppliedHubSetupState.current = true;
           }
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
-          if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
+          if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current) {
+            if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
+            if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
+          }
           if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
-          if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
@@ -5683,6 +5696,7 @@ export default function Dashboard() {
     if (!hasLoadedHubDetailState) return;
 
     const setupSaveIncludesRecentEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
+    const costCentreSaveIncludesRecentEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload: HubDetailStatePayload = {
@@ -5726,11 +5740,17 @@ export default function Dashboard() {
           if (setupSaveIncludesRecentEdit) {
             pendingSetupSaveRef.current = false;
           }
+          if (costCentreSaveIncludesRecentEdit) {
+            pendingCostCentreSaveRef.current = false;
+          }
         })
         .catch(() => {
           if (!controller.signal.aborted) {
             if (setupSaveIncludesRecentEdit) {
               pendingSetupSaveRef.current = false;
+            }
+            if (costCentreSaveIncludesRecentEdit) {
+              pendingCostCentreSaveRef.current = false;
             }
             setSectionError("Could not save shared hub detail state, so local fallback is being used.");
           }
@@ -6713,6 +6733,38 @@ export default function Dashboard() {
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
     hasAppliedHubSetupState.current = true;
+  }
+
+  function markCostCentreEdited() {
+    lastLocalCostCentreEditAt.current = Date.now();
+    pendingCostCentreSaveRef.current = true;
+  }
+
+  function costCentreNumberInputValue(key: string, value: number, blankWhenZero = false) {
+    return costCentreInputDrafts[key] ?? formatEditableNumber(value, blankWhenZero);
+  }
+
+  function updateCostCentreNumberInput(key: string, rawValue: string, applyValue: (value: number) => void) {
+    setCostCentreInputDrafts((current) => ({ ...current, [key]: rawValue }));
+    const parsed = finiteNumberFromSetting(rawValue);
+    if (parsed !== null) {
+      applyValue(parsed);
+    }
+  }
+
+  function commitCostCentreNumberInput(
+    key: string,
+    rawValue: string,
+    applyValue: (value: number) => void,
+    fallback = 0,
+  ) {
+    const parsed = finiteNumberFromSetting(rawValue);
+    applyValue(parsed ?? fallback);
+    setCostCentreInputDrafts((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   function recordDocumentFolders(recordType: RecordDocumentScope) {
@@ -9155,6 +9207,7 @@ export default function Dashboard() {
 
   function setJobCentresForSelected(updater: (centres: EstimateCostCentre[]) => EstimateCostCentre[]) {
     if (!selectedJob) return;
+    markCostCentreEdited();
     setJobEstimateCostCentres((current) => {
       const existing = refreshedEstimateCostCentresFromRateBook(
         current[selectedJob.id] ?? makeDefaultEstimateCostCentres(selectedJob),
@@ -9341,12 +9394,18 @@ export default function Dashboard() {
   }
 
   function updateEstimateMaterialLine(centreId: string, lineId: string, patch: Partial<EstimateMaterialLine>) {
+    const isManualRateEdit =
+      Object.prototype.hasOwnProperty.call(patch, "description") ||
+      Object.prototype.hasOwnProperty.call(patch, "unitCost") ||
+      Object.prototype.hasOwnProperty.call(patch, "markupPercent");
+    const nextPatch = isManualRateEdit ? { ...patch, rateSource: "manual" as const } : patch;
+
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
         centre.id === centreId
           ? {
               ...centre,
-              materials: centre.materials.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+              materials: centre.materials.map((line) => (line.id === lineId ? { ...line, ...nextPatch } : line)),
             }
           : centre,
       ),
@@ -9510,7 +9569,7 @@ export default function Dashboard() {
               materials: centre.materials.map((line) => {
                 const matchedImport = draft.lines.find((importedLine) => importedLine.id === line.id);
                 return matchedImport
-                  ? { ...line, unitCost: matchedImport.unitCost, markupPercent: matchedImport.markupPercent }
+                  ? { ...line, unitCost: matchedImport.unitCost, markupPercent: matchedImport.markupPercent, rateSource: "manual" as const }
                   : line;
               }),
             }
@@ -9670,6 +9729,7 @@ export default function Dashboard() {
 
   function addQuoteCostCentre() {
     if (!selectedQuote) return;
+    markCostCentreEdited();
     setQuoteCostCentres((current) => {
       const existing = current[selectedQuote.id] ?? [];
       return {
@@ -9710,6 +9770,7 @@ export default function Dashboard() {
 
   function updateQuoteCostCentre(centreId: string, patch: Partial<QuoteCostCentre>) {
     if (!selectedQuote) return;
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
@@ -9786,6 +9847,7 @@ export default function Dashboard() {
 
   function updateTakeoffRow(centreId: string, rowId: string, patch: Partial<TakeoffBoqRow>) {
     if (!selectedQuote) return;
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
@@ -9808,6 +9870,7 @@ export default function Dashboard() {
     }
 
     const lines = rows.map(makeTakeoffQuoteLine);
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
@@ -9988,6 +10051,7 @@ export default function Dashboard() {
       return;
     }
 
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
@@ -10089,6 +10153,7 @@ export default function Dashboard() {
 
     if (selectedQuote) {
       const selectedIds = new Set(lines.map((line) => line.id));
+      markCostCentreEdited();
       setQuoteCostCentres((current) => ({
         ...current,
         [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
@@ -10196,6 +10261,7 @@ export default function Dashboard() {
       setCustomQuoteCatalog((current) => [...nextCustomItems, ...current]);
     }
 
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((item) =>
@@ -10376,8 +10442,10 @@ export default function Dashboard() {
     const centreName = selectedQuoteCostCentres.find((centre) => centre.id === centreId)?.name ?? "cost centre";
     const importedLines = draft.lines.map((line) => ({
       ...line,
+      rateSource: "manual" as const,
     }));
 
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
@@ -10420,6 +10488,7 @@ export default function Dashboard() {
       ? { ...line, unitSell: roundCurrencyValue(lineSellFromMarkup(item.costRate, markupPercent)) }
       : line;
 
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
@@ -10444,6 +10513,7 @@ export default function Dashboard() {
   function addOneOffQuoteMaterialLine(centreId: string, draft: OneOffMaterialDraft = blankOneOffMaterialDraft) {
     if (!selectedQuote) return;
 
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
@@ -10472,6 +10542,7 @@ export default function Dashboard() {
 
   function updateQuoteLine(centreId: string, lineId: string, patch: Partial<QuoteCostLine>) {
     if (!selectedQuote) return;
+    markCostCentreEdited();
     const isManualRateEdit =
       Object.prototype.hasOwnProperty.call(patch, "description") ||
       Object.prototype.hasOwnProperty.call(patch, "unitCost") ||
@@ -10524,6 +10595,7 @@ export default function Dashboard() {
 
   function removeQuoteLine(centreId: string, lineId: string) {
     if (!selectedQuote) return;
+    markCostCentreEdited();
     setQuoteCostCentres((current) => ({
       ...current,
       [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
@@ -14795,10 +14867,50 @@ export default function Dashboard() {
                               </select>
                               <input value={row.section} onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { section: event.target.value })} />
                               <input value={row.description} onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { description: event.target.value })} />
-                              <input inputMode="decimal" value={row.quantity} onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { quantity: Number(event.target.value) || 0 })} />
+                              <input
+                                inputMode="decimal"
+                                value={costCentreNumberInputValue(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:quantity`, row.quantity)}
+                                onChange={(event) => {
+                                  updateCostCentreNumberInput(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:quantity`, event.target.value, (quantity) => {
+                                    updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { quantity });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:quantity`, event.currentTarget.value, (quantity) => {
+                                    updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { quantity });
+                                  });
+                                }}
+                              />
                               <input value={row.unit} onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { unit: event.target.value })} />
-                              <input inputMode="decimal" value={row.unitCost || ""} placeholder="TBC" onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { unitCost: Number(event.target.value) || 0 })} />
-                              <input inputMode="decimal" value={row.markupPercent} onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { markupPercent: Number(event.target.value) || 0 })} />
+                              <input
+                                inputMode="decimal"
+                                value={costCentreNumberInputValue(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:unitCost`, row.unitCost, true)}
+                                placeholder="TBC"
+                                onChange={(event) => {
+                                  updateCostCentreNumberInput(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:unitCost`, event.target.value, (unitCost) => {
+                                    updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { unitCost });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                    updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { unitCost });
+                                  });
+                                }}
+                              />
+                              <input
+                                inputMode="decimal"
+                                value={costCentreNumberInputValue(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:markup`, row.markupPercent)}
+                                onChange={(event) => {
+                                  updateCostCentreNumberInput(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:markup`, event.target.value, (markupPercent) => {
+                                    updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { markupPercent });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`takeoff:${selectedQuoteCostCentre.id}:${row.id}:markup`, event.currentTarget.value, (markupPercent) => {
+                                    updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { markupPercent });
+                                  });
+                                }}
+                              />
                               <label className="takeoff-supplier-toggle">
                                 <input checked={row.supplierRequired} type="checkbox" onChange={(event) => updateTakeoffRow(selectedQuoteCostCentre.id, row.id, { supplierRequired: event.target.checked })} />
                                 <span>{row.supplierRequired ? "Yes" : "No"}</span>
@@ -15206,32 +15318,73 @@ export default function Dashboard() {
                                 <input
                                   inputMode="decimal"
                                   placeholder="TBC"
-                                  value={line.unitCost || ""}
+                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, line.unitCost, true)}
                                   onChange={(event) => {
-                                    const unitCost = Number(event.target.value) || 0;
-                                    const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
-                                    updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
-                                      unitCost,
-                                      unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.target.value, (unitCost) => {
+                                      const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                        unitCost,
+                                        unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                      });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                      const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+                                        unitCost,
+                                        unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                      });
                                     });
                                   }}
                                 />
                                 <input
                                   inputMode="decimal"
                                   placeholder="TBC"
-                                  value={line.unitCost > 0 ? quoteLineMarkupPercent(line) : ""}
-                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + ((Number(event.target.value) || 0) / 100)) })}
+                                  value={costCentreNumberInputValue(
+                                    `quote:${selectedQuoteCostCentre.id}:${line.id}:markup`,
+                                    line.unitCost > 0 ? quoteLineMarkupPercent(line) : 0,
+                                    line.unitCost <= 0,
+                                  )}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.target.value, (markupPercent) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + (markupPercent / 100)) });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + (markupPercent / 100)) });
+                                    });
+                                  }}
                                 />
                                 <input
                                   inputMode="decimal"
                                   placeholder="TBC"
-                                  value={line.unitSell || ""}
-                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: Number(event.target.value) || 0 })}
+                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, line.unitSell, true)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.target.value, (unitSell) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
+                                    });
+                                  }}
                                 />
                                 <input
                                   inputMode="decimal"
-                                  value={line.quantity}
-                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
+                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, line.quantity)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.target.value, (quantity) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
+                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                                    });
+                                  }}
                                 />
                                 <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
                                 <div className="quote-line-actions">
@@ -15434,8 +15587,20 @@ export default function Dashboard() {
                                 Markup %
                                 <input
                                   inputMode="decimal"
-                                  value={supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent}
-                                  onChange={(event) => updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, Number(event.target.value) || 0)}
+                                  value={costCentreNumberInputValue(
+                                    `quote:${selectedQuoteCostCentre.id}:supplierMarkup`,
+                                    supplierQuoteDrafts[selectedQuoteCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
+                                  )}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:supplierMarkup`, event.target.value, (markupPercent) => {
+                                      updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, markupPercent);
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:supplierMarkup`, event.currentTarget.value, (markupPercent) => {
+                                      updateSupplierQuoteMarkup(selectedQuoteCostCentre.id, markupPercent);
+                                    }, defaultMaterialMarkupPercent);
+                                  }}
                                 />
                               </label>
                               <button
@@ -15504,30 +15669,67 @@ export default function Dashboard() {
                           />
 	                          <input
 	                            inputMode="decimal"
-	                            value={line.unitCost}
+	                            value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourUnitCost`, line.unitCost)}
 	                            onChange={(event) => {
-	                              const unitCost = Number(event.target.value) || 0;
-	                              const markupPercent = quoteLineMarkupPercent(line) || defaultLabourMarkupPercent;
-	                              updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
-	                                unitCost,
-	                                unitSell: lineSellFromMarkup(unitCost, markupPercent),
+	                              updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourUnitCost`, event.target.value, (unitCost) => {
+	                                const markupPercent = quoteLineMarkupPercent(line) || defaultLabourMarkupPercent;
+	                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+	                                  unitCost,
+	                                  unitSell: lineSellFromMarkup(unitCost, markupPercent),
+	                                });
+	                              });
+	                            }}
+	                            onBlur={(event) => {
+	                              commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourUnitCost`, event.currentTarget.value, (unitCost) => {
+	                                const markupPercent = quoteLineMarkupPercent(line) || defaultLabourMarkupPercent;
+	                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
+	                                  unitCost,
+	                                  unitSell: lineSellFromMarkup(unitCost, markupPercent),
+	                                });
 	                              });
 	                            }}
 	                          />
                           <input
                             inputMode="decimal"
-                            value={quoteLineMarkupPercent(line)}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + ((Number(event.target.value) || 0) / 100)) })}
+                            value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourMarkup`, quoteLineMarkupPercent(line))}
+                            onChange={(event) => {
+                              updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourMarkup`, event.target.value, (markupPercent) => {
+                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + (markupPercent / 100)) });
+                              });
+                            }}
+                            onBlur={(event) => {
+                              commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourMarkup`, event.currentTarget.value, (markupPercent) => {
+                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + (markupPercent / 100)) });
+                              });
+                            }}
                           />
                           <input
                             inputMode="decimal"
-                            value={line.unitSell}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: Number(event.target.value) || 0 })}
+                            value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourUnitSell`, line.unitSell)}
+                            onChange={(event) => {
+                              updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourUnitSell`, event.target.value, (unitSell) => {
+                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
+                              });
+                            }}
+                            onBlur={(event) => {
+                              commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourUnitSell`, event.currentTarget.value, (unitSell) => {
+                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
+                              });
+                            }}
                           />
                           <input
                             inputMode="decimal"
-                            value={line.quantity}
-                            onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
+                            value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourQuantity`, line.quantity)}
+                            onChange={(event) => {
+                              updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourQuantity`, event.target.value, (quantity) => {
+                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                              });
+                            }}
+                            onBlur={(event) => {
+                              commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:labourQuantity`, event.currentTarget.value, (quantity) => {
+                                updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
+                              });
+                            }}
                           />
                           <strong>{currency(quoteLineSell(line))}</strong>
                           <button className="simpro-options-button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
@@ -16888,27 +17090,61 @@ export default function Dashboard() {
                               <input value={0} readOnly />
                               <input
                                 inputMode="decimal"
-                                value={line.unitCost}
-                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { unitCost: Number(event.target.value) || 0 })}
-                              />
-                              <input
-                                inputMode="decimal"
-                                value={line.markupPercent}
-                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Number(event.target.value) || 0 })}
-                              />
-                              <input
-                                inputMode="decimal"
-                                value={Math.round(unitSell * 100) / 100}
+                                value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:unitCost`, line.unitCost)}
                                 onChange={(event) => {
-                                  const sell = Number(event.target.value) || 0;
-                                  const markup = line.unitCost > 0 ? ((sell - line.unitCost) / line.unitCost) * 100 : 0;
-                                  updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                  updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:unitCost`, event.target.value, (unitCost) => {
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { unitCost });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { unitCost });
+                                  });
                                 }}
                               />
                               <input
                                 inputMode="decimal"
-                                value={line.quantity}
-                                onChange={(event) => updateEstimateMaterialLine(selectedCostCentre.id, line.id, { quantity: Number(event.target.value) || 0 })}
+                                value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:markup`, line.markupPercent)}
+                                onChange={(event) => {
+                                  updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:markup`, event.target.value, (markupPercent) => {
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent });
+                                  });
+                                }}
+                              />
+                              <input
+                                inputMode="decimal"
+                                value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:unitSell`, Math.round(unitSell * 100) / 100)}
+                                onChange={(event) => {
+                                  updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:unitSell`, event.target.value, (sell) => {
+                                    const markup = line.unitCost > 0 ? ((sell - line.unitCost) / line.unitCost) * 100 : 0;
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:unitSell`, event.currentTarget.value, (sell) => {
+                                    const markup = line.unitCost > 0 ? ((sell - line.unitCost) / line.unitCost) * 100 : 0;
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                  });
+                                }}
+                              />
+                              <input
+                                inputMode="decimal"
+                                value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:quantity`, line.quantity)}
+                                onChange={(event) => {
+                                  updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:quantity`, event.target.value, (quantity) => {
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { quantity });
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
+                                    updateEstimateMaterialLine(selectedCostCentre.id, line.id, { quantity });
+                                  });
+                                }}
                               />
                               <strong>{currency(estimateMaterialSell(line))}</strong>
                               <button className="simpro-options-button" onClick={() => removeEstimateMaterialLine(selectedCostCentre.id, line.id)}>
@@ -17111,8 +17347,20 @@ export default function Dashboard() {
                                   Markup %
                                   <input
                                     inputMode="decimal"
-                                    value={jobSupplierRequestDrafts[selectedCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent}
-                                    onChange={(event) => updateJobSupplierRequestMarkup(selectedCostCentre.id, Number(event.target.value) || 0)}
+                                    value={costCentreNumberInputValue(
+                                      `job:${selectedCostCentre.id}:supplierMarkup`,
+                                      jobSupplierRequestDrafts[selectedCostCentre.id]?.markupPercent ?? defaultMaterialMarkupPercent,
+                                    )}
+                                    onChange={(event) => {
+                                      updateCostCentreNumberInput(`job:${selectedCostCentre.id}:supplierMarkup`, event.target.value, (markupPercent) => {
+                                        updateJobSupplierRequestMarkup(selectedCostCentre.id, markupPercent);
+                                      });
+                                    }}
+                                    onBlur={(event) => {
+                                      commitCostCentreNumberInput(`job:${selectedCostCentre.id}:supplierMarkup`, event.currentTarget.value, (markupPercent) => {
+                                        updateJobSupplierRequestMarkup(selectedCostCentre.id, markupPercent);
+                                      }, defaultMaterialMarkupPercent);
+                                    }}
                                   />
                                 </label>
                                 <button
@@ -17197,27 +17445,61 @@ export default function Dashboard() {
                                 />
                                 <input
                                   inputMode="decimal"
-                                  value={line.costRate}
-                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { costRate: Number(event.target.value) || 0 })}
-                                />
-                                <input
-                                  inputMode="decimal"
-                                  value={line.markupPercent}
-                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Number(event.target.value) || 0 })}
-                                />
-                                <input
-                                  inputMode="decimal"
-                                  value={Math.round(sellRate * 100) / 100}
+                                  value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:costRate`, line.costRate)}
                                   onChange={(event) => {
-                                    const sell = Number(event.target.value) || 0;
-                                    const markup = line.costRate > 0 ? ((sell - line.costRate) / line.costRate) * 100 : 0;
-                                    updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                    updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:costRate`, event.target.value, (costRate) => {
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { costRate });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:costRate`, event.currentTarget.value, (costRate) => {
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { costRate });
+                                    });
                                   }}
                                 />
                                 <input
                                   inputMode="decimal"
-                                  value={line.hours}
-                                  onChange={(event) => updateEstimateLabourLine(selectedCostCentre.id, line.id, { hours: Number(event.target.value) || 0 })}
+                                  value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:labourMarkup`, line.markupPercent)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:labourMarkup`, event.target.value, (markupPercent) => {
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:labourMarkup`, event.currentTarget.value, (markupPercent) => {
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent });
+                                    });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:sellRate`, Math.round(sellRate * 100) / 100)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:sellRate`, event.target.value, (sell) => {
+                                      const markup = line.costRate > 0 ? ((sell - line.costRate) / line.costRate) * 100 : 0;
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:sellRate`, event.currentTarget.value, (sell) => {
+                                      const markup = line.costRate > 0 ? ((sell - line.costRate) / line.costRate) * 100 : 0;
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { markupPercent: Math.round(markup * 100) / 100 });
+                                    });
+                                  }}
+                                />
+                                <input
+                                  inputMode="decimal"
+                                  value={costCentreNumberInputValue(`job:${selectedCostCentre.id}:${line.id}:hours`, line.hours)}
+                                  onChange={(event) => {
+                                    updateCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:hours`, event.target.value, (hours) => {
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { hours });
+                                    });
+                                  }}
+                                  onBlur={(event) => {
+                                    commitCostCentreNumberInput(`job:${selectedCostCentre.id}:${line.id}:hours`, event.currentTarget.value, (hours) => {
+                                      updateEstimateLabourLine(selectedCostCentre.id, line.id, { hours });
+                                    });
+                                  }}
                                 />
                                 <strong>{currency(estimateLabourSell(line))}</strong>
                                 <button className="simpro-options-button" onClick={() => removeEstimateLabourLine(selectedCostCentre.id, line.id)}>
