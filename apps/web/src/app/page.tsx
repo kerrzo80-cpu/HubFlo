@@ -13383,6 +13383,14 @@ export default function Dashboard() {
       </nav>
 
       <div className={contextSidebarCollapsed ? "body-shell sidebar-collapsed" : "body-shell"}>
+        {!contextSidebarCollapsed ? (
+          <button
+            className="context-sidebar-backdrop"
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setContextSidebarCollapsed(true)}
+          />
+        ) : null}
         <aside className="context-sidebar">
           <div className="context-title">
             <span>

@@ -654,6 +654,10 @@ kbd {
   display: none;
 }
 
+.context-sidebar-backdrop {
+  display: none;
+}
+
 .body-shell {
   display: grid;
   grid-template-columns: 216px minmax(0, 1fr);
@@ -8737,7 +8741,72 @@ h1 {
   }
 
   .context-sidebar {
-    display: none;
+    border-radius: 0 18px 18px 0;
+    bottom: 0;
+    display: flex;
+    left: 0;
+    max-width: calc(100vw - 56px);
+    position: fixed;
+    top: 112px;
+    transform: translateX(0);
+    transition: transform 180ms ease;
+    width: min(286px, calc(100vw - 42px));
+    z-index: 120;
+  }
+
+  .body-shell.sidebar-collapsed .context-sidebar {
+    display: flex;
+    transform: translateX(calc(-100% - 18px));
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-sidebar {
+    align-items: stretch;
+    padding: 17px 12px 14px;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-title {
+    justify-content: space-between;
+    padding: 0 10px 13px;
+    width: auto;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-title > span,
+  .body-shell:not(.sidebar-collapsed) .sidebar-label,
+  .body-shell:not(.sidebar-collapsed) .context-link span,
+  .body-shell:not(.sidebar-collapsed) .context-link b,
+  .body-shell:not(.sidebar-collapsed) .support-panel img,
+  .body-shell:not(.sidebar-collapsed) .support-panel small {
+    display: inline-flex;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-sidebar nav {
+    align-items: stretch;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .context-link {
+    border-left: 3px solid transparent;
+    gap: 10px;
+    justify-content: flex-start;
+    min-height: 39px;
+    padding: 0 10px;
+    width: auto;
+  }
+
+  .body-shell:not(.sidebar-collapsed) .support-panel {
+    align-items: flex-start;
+  }
+
+  .context-sidebar-backdrop {
+    background: rgba(10, 26, 38, 0.38);
+    border: 0;
+    bottom: 0;
+    display: block;
+    left: 0;
+    padding: 0;
+    position: fixed;
+    right: 0;
+    top: 112px;
+    z-index: 110;
   }
 
   .workspace {
