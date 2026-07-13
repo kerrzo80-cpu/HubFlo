@@ -13354,128 +13354,6 @@ body {
   width: 100%;
 }
 
-.pilot-workflow-panel {
-  background: #fff;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-}
-
-.pilot-workflow-intro {
-  align-items: center;
-  display: flex;
-  gap: 16px;
-  justify-content: space-between;
-}
-
-.pilot-workflow-intro span {
-  color: var(--nexa-brass);
-  display: block;
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: 0.16em;
-  margin-bottom: 5px;
-  text-transform: uppercase;
-}
-
-.pilot-workflow-intro h2 {
-  color: var(--nexa-slate);
-  font-size: 22px;
-  margin: 0;
-}
-
-.pilot-workflow-intro p {
-  color: var(--muted);
-  font-size: 13px;
-  margin: 4px 0 0;
-}
-
-.pilot-workflow-steps {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.pilot-workflow-step {
-  background: #fbfcfd;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  color: var(--ink);
-  cursor: pointer;
-  display: grid;
-  gap: 8px;
-  min-height: 148px;
-  padding: 13px;
-  text-align: left;
-}
-
-.pilot-workflow-step:hover,
-.pilot-workflow-step:focus-visible {
-  background: #f9f6ee;
-  border-color: rgba(142, 116, 62, 0.34);
-  color: var(--ink);
-  outline: 0;
-}
-
-.pilot-workflow-step span {
-  align-items: center;
-  color: var(--nexa-brass);
-  display: inline-flex;
-  font-size: 11px;
-  font-weight: 850;
-  gap: 7px;
-  text-transform: uppercase;
-}
-
-.pilot-workflow-step strong {
-  color: var(--nexa-slate);
-  font-size: 14px;
-}
-
-.pilot-workflow-step small {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.pilot-workflow-step b {
-  align-self: end;
-  color: var(--nexa-verdigris);
-  font-size: 12px;
-  margin-top: auto;
-}
-
-.pilot-tool-rules {
-  background: var(--nexa-verdigris-soft);
-  border: 1px solid rgba(46, 140, 125, 0.16);
-  border-radius: 8px;
-  display: grid;
-  gap: 1px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  overflow: hidden;
-}
-
-.pilot-tool-rules article {
-  background: rgba(255, 255, 255, 0.58);
-  display: grid;
-  gap: 3px;
-  padding: 12px;
-}
-
-.pilot-tool-rules strong {
-  color: var(--nexa-slate);
-  font-size: 12px;
-}
-
-.pilot-tool-rules span {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
 .ops-dashboard-grid {
   display: grid;
   gap: 18px;
@@ -14808,11 +14686,6 @@ body {
 }
 
 @media (max-width: 1240px) {
-  .pilot-workflow-steps,
-  .pilot-tool-rules {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .ops-dashboard-grid,
   .ops-queue-grid {
     grid-template-columns: 1fr;
@@ -14827,16 +14700,6 @@ body {
   .brand-lockup .company-logo {
     height: 46px;
     width: 154px;
-  }
-
-  .pilot-workflow-intro {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .pilot-workflow-steps,
-  .pilot-tool-rules {
-    grid-template-columns: 1fr;
   }
 
   .weekly-schedule-grid {
