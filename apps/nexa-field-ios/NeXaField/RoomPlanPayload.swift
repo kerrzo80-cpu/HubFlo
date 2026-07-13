@@ -138,6 +138,7 @@ struct RoomPlanSurfaceSummary: Codable {
     var centerX: Double
     var centerY: Double
     var centerZ: Double
+    var rotationDegrees: Double
 
     static func from(_ surface: CapturedRoom.Surface, type: String) -> RoomPlanSurfaceSummary {
         let position = surface.transform.columns.3
@@ -147,7 +148,8 @@ struct RoomPlanSurfaceSummary: Codable {
             heightM: round(Double(surface.dimensions.y)),
             centerX: round(Double(position.x)),
             centerY: round(Double(position.y)),
-            centerZ: round(Double(position.z))
+            centerZ: round(Double(position.z)),
+            rotationDegrees: yawDegrees(from: surface.transform)
         )
     }
 }
@@ -160,6 +162,7 @@ struct RoomPlanObjectSummary: Codable {
     var centerX: Double
     var centerY: Double
     var centerZ: Double
+    var rotationDegrees: Double
 
     static func from(_ object: CapturedRoom.Object) -> RoomPlanObjectSummary {
         let position = object.transform.columns.3
@@ -170,7 +173,8 @@ struct RoomPlanObjectSummary: Codable {
             depthM: round(Double(object.dimensions.z)),
             centerX: round(Double(position.x)),
             centerY: round(Double(position.y)),
-            centerZ: round(Double(position.z))
+            centerZ: round(Double(position.z)),
+            rotationDegrees: yawDegrees(from: object.transform)
         )
     }
 }
@@ -217,4 +221,10 @@ struct RoomDimensionEstimate {
 
 private func round(_ value: Double) -> Double {
     Foundation.round(value * 100) / 100
+}
+
+private func yawDegrees(from transform: simd_float4x4) -> Double {
+    let column = transform.columns.0
+    let radians = atan2(Double(column.z), Double(column.x))
+    return round(radians * 180 / Double.pi)
 }

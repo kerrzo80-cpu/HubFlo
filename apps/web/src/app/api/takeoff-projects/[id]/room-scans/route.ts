@@ -77,6 +77,10 @@ function firstNumber(record: UnknownRecord | null | undefined, keys: string[]) {
   return undefined;
 }
 
+function stringFromUnknown(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
 function round(value: number, places = 2) {
   const multiplier = 10 ** places;
   return Math.round(value * multiplier) / multiplier;
@@ -245,6 +249,99 @@ function roomPlanPreviewImageDataUrl(rooms: TakeoffRoom[], payload: RoomScanPayl
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
 }
 
+function rawSurfacePreview(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const type = stringFromUnknown(record.type) ?? "Surface";
+  const widthM = numberFromUnknown(record.widthM);
+  const heightM = numberFromUnknown(record.heightM);
+  const centerX = numberFromUnknown(record.centerX);
+  const centerY = numberFromUnknown(record.centerY);
+  const centerZ = numberFromUnknown(record.centerZ);
+  if (
+    widthM === undefined
+    || heightM === undefined
+    || centerX === undefined
+    || centerY === undefined
+    || centerZ === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    type,
+    widthM,
+    heightM,
+    centerX,
+    centerY,
+    centerZ,
+    rotationDegrees: numberFromUnknown(record.rotationDegrees),
+  };
+}
+
+function rawObjectPreview(value: unknown) {
+  const record = asRecord(value);
+  if (!record) return null;
+
+  const category = stringFromUnknown(record.category) ?? "Object";
+  const widthM = numberFromUnknown(record.widthM);
+  const heightM = numberFromUnknown(record.heightM);
+  const depthM = numberFromUnknown(record.depthM);
+  const centerX = numberFromUnknown(record.centerX);
+  const centerY = numberFromUnknown(record.centerY);
+  const centerZ = numberFromUnknown(record.centerZ);
+  if (
+    widthM === undefined
+    || heightM === undefined
+    || depthM === undefined
+    || centerX === undefined
+    || centerY === undefined
+    || centerZ === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    category,
+    widthM,
+    heightM,
+    depthM,
+    centerX,
+    centerY,
+    centerZ,
+    rotationDegrees: numberFromUnknown(record.rotationDegrees),
+  };
+}
+
+function roomPlanPreviewData(rooms: TakeoffRoom[], payload: RoomScanPayload): TakeoffDocument["roomScanPreview"] {
+  const room = rooms[0];
+  if (!room) return undefined;
+
+  const raw = asRecord(payload.raw);
+  const surfaces = Array.isArray(raw?.surfaces)
+    ? raw.surfaces.map(rawSurfacePreview).filter((surface): surface is NonNullable<ReturnType<typeof rawSurfacePreview>> => Boolean(surface)).slice(0, 80)
+    : [];
+  const objects = Array.isArray(raw?.objects)
+    ? raw.objects.map(rawObjectPreview).filter((object): object is NonNullable<ReturnType<typeof rawObjectPreview>> => Boolean(object)).slice(0, 40)
+    : [];
+
+  return {
+    roomName: room.name,
+    lengthM: room.lengthM,
+    widthM: room.widthM,
+    heightM: room.heightM,
+    areaM2: room.areaM2,
+    wallCount: numberFromUnknown(raw?.wallCount) ?? surfaces.filter((surface) => /wall/i.test(surface.type)).length,
+    windowCount: numberFromUnknown(raw?.windowCount) ?? surfaces.filter((surface) => /window/i.test(surface.type)).length,
+    doorCount: numberFromUnknown(raw?.doorCount) ?? surfaces.filter((surface) => /door/i.test(surface.type)).length,
+    openingCount: numberFromUnknown(raw?.openingCount) ?? surfaces.filter((surface) => /opening/i.test(surface.type)).length,
+    objectCount: numberFromUnknown(raw?.objectCount) ?? objects.length,
+    surfaces,
+    objects,
+  };
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -305,6 +402,7 @@ export async function POST(
   const rooms = scanRooms.map((room, index) => toTakeoffRoom(room, index, documentId));
   const measurements = rooms.flatMap((room) => roomMeasurements(room, documentId));
   const previewImageDataUrl = roomPlanPreviewImageDataUrl(rooms, payload);
+  const roomScanPreview = roomPlanPreviewData(rooms, payload);
   const document: TakeoffDocument = {
     id: documentId,
     kind: "LiDAR scan",
@@ -313,6 +411,7 @@ export async function POST(
     size: JSON.stringify(payload.raw ?? payload).length,
     storageKey: `room-scans/${project.id}/${documentId}.json`,
     previewImageDataUrl,
+    roomScanPreview,
     uploadedAt,
     status: "Parsed",
     notes: [

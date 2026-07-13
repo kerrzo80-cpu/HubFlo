@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type PointerEvent } from "react";
 import {
   ArrowLeft,
   Bot,
@@ -24,10 +24,12 @@ import {
 import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
 import type {
+  TakeoffDocument,
   TakeoffDocumentKind,
   TakeoffProject,
   TakeoffRadiator,
   TakeoffRoom,
+  TakeoffRoomScanPreview,
   TakeoffSurveyChatMessage,
 } from "@/lib/takeoff-data";
 
@@ -181,6 +183,65 @@ function roomScanDeepLink(project: TakeoffProject) {
   return `nexa-field://room-scan?${params.toString()}`;
 }
 
+function fallbackRoomScanPreview(document: TakeoffDocument | undefined, rooms: TakeoffRoom[]): TakeoffRoomScanPreview | null {
+  if (document?.roomScanPreview) return document.roomScanPreview;
+
+  const lidarRoom = rooms.find((room) => /lidar|roomplan|room scan/i.test(room.notes))
+    ?? rooms.find((room) => room.lengthM && room.widthM && room.heightM);
+  if (!lidarRoom) return null;
+
+  return {
+    roomName: lidarRoom.name,
+    lengthM: lidarRoom.lengthM,
+    widthM: lidarRoom.widthM,
+    heightM: lidarRoom.heightM,
+    areaM2: lidarRoom.areaM2,
+    wallCount: lidarRoom.lengthM && lidarRoom.widthM ? 4 : 0,
+    windowCount: lidarRoom.windowAreaM2 && lidarRoom.windowAreaM2 > 0 ? 1 : 0,
+    doorCount: 0,
+    openingCount: lidarRoom.windowAreaM2 && lidarRoom.windowAreaM2 > 0 ? 1 : 0,
+    objectCount: 0,
+    surfaces: [],
+    objects: [],
+  };
+}
+
+function roomPreviewBounds(preview: TakeoffRoomScanPreview) {
+  const xs = [
+    ...preview.surfaces.map((surface) => surface.centerX),
+    ...preview.objects.map((object) => object.centerX),
+  ];
+  const zs = [
+    ...preview.surfaces.map((surface) => surface.centerZ),
+    ...preview.objects.map((object) => object.centerZ),
+  ];
+
+  if (preview.widthM) {
+    xs.push(-preview.widthM / 2, preview.widthM / 2);
+  }
+  if (preview.lengthM) {
+    zs.push(-preview.lengthM / 2, preview.lengthM / 2);
+  }
+
+  const minX = Math.min(...xs, -1.5);
+  const maxX = Math.max(...xs, 1.5);
+  const minZ = Math.min(...zs, -1.5);
+  const maxZ = Math.max(...zs, 1.5);
+  const xPad = Math.max((maxX - minX) * 0.16, 0.35);
+  const zPad = Math.max((maxZ - minZ) * 0.16, 0.35);
+
+  return {
+    minX: minX - xPad,
+    maxX: maxX + xPad,
+    minZ: minZ - zPad,
+    maxZ: maxZ + zPad,
+  };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export default function SurveyPage() {
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -198,6 +259,9 @@ export default function SurveyPage() {
   const [showRoomScanBridge, setShowRoomScanBridge] = useState(false);
   const [showHeatLossPanel, setShowHeatLossPanel] = useState(false);
   const [heatLossDraft, setHeatLossDraft] = useState<SurveyHeatLossDraft>(blankHeatLossDraft);
+  const [roomViewRotation, setRoomViewRotation] = useState(28);
+  const [roomViewZoom, setRoomViewZoom] = useState(1);
+  const roomDragRef = useRef<{ x: number; rotation: number } | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0],
@@ -207,7 +271,9 @@ export default function SurveyPage() {
   const projectDocuments = selectedProject?.documents ?? [];
   const photoCount = projectDocuments.filter((document) => document.kind === "Survey photo").length;
   const scanCount = projectDocuments.filter((document) => document.kind === "LiDAR scan").length;
-  const latestScanPreview = projectDocuments.find((document) => document.kind === "LiDAR scan" && document.previewImageDataUrl);
+  const latestScanDocument = projectDocuments.find((document) => document.kind === "LiDAR scan");
+  const latestRoomPreview = selectedProject ? fallbackRoomScanPreview(latestScanDocument, selectedProject.rooms) : null;
+  const roomBounds = latestRoomPreview ? roomPreviewBounds(latestRoomPreview) : null;
   const heatLossRoomCount = selectedProject?.rooms.filter((room) => room.heatLoadWatts > 0).length ?? 0;
   const documentCount = projectDocuments.filter((document) => ["Drawing", "Contractor BOQ", "Specification"].includes(document.kind)).length;
   const heatLossResult = useMemo(() => calculateHeatLoss(heatLossDraft), [heatLossDraft]);
@@ -250,6 +316,36 @@ export default function SurveyPage() {
   useEffect(() => {
     setQuoteSearch(linkedQuote ? quoteSearchLabel(linkedQuote, clientSites) : "");
   }, [clientSites, linkedQuote]);
+
+  function startRoomDrag(event: PointerEvent<HTMLDivElement>) {
+    roomDragRef.current = { x: event.clientX, rotation: roomViewRotation };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveRoomDrag(event: PointerEvent<HTMLDivElement>) {
+    if (!roomDragRef.current) return;
+    const delta = event.clientX - roomDragRef.current.x;
+    setRoomViewRotation(roomDragRef.current.rotation + delta * 0.35);
+  }
+
+  function stopRoomDrag(event: PointerEvent<HTMLDivElement>) {
+    roomDragRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  function plotRoomX(value: number) {
+    if (!roomBounds) return 50;
+    const range = Math.max(roomBounds.maxX - roomBounds.minX, 1);
+    return 8 + ((value - roomBounds.minX) / range) * 84;
+  }
+
+  function plotRoomZ(value: number) {
+    if (!roomBounds) return 50;
+    const range = Math.max(roomBounds.maxZ - roomBounds.minZ, 1);
+    return 8 + ((value - roomBounds.minZ) / range) * 84;
+  }
 
   async function loadData() {
     setIsLoading(true);
@@ -914,11 +1010,96 @@ export default function SurveyPage() {
                     <span>LiDAR scans</span>
                     <strong>{scanCount}</strong>
                   </article>
-                  {latestScanPreview?.previewImageDataUrl ? (
-                    <article className="survey-scan-preview">
-                      <img src={latestScanPreview.previewImageDataUrl} alt={`${latestScanPreview.fileName} room scan preview`} />
-                      <span>Room image</span>
-                      <strong>{latestScanPreview.fileName}</strong>
+                  {latestRoomPreview ? (
+                    <article className="survey-room-viewer-card">
+                      <div className="survey-room-viewer-title">
+                        <span>
+                          <strong>{latestRoomPreview.roomName}</strong>
+                          <small>
+                            {latestRoomPreview.lengthM && latestRoomPreview.widthM
+                              ? `${latestRoomPreview.lengthM}m x ${latestRoomPreview.widthM}m`
+                              : "RoomPlan geometry"}
+                            {latestRoomPreview.heightM ? ` · ${latestRoomPreview.heightM}m high` : ""}
+                          </small>
+                        </span>
+                        <b>{latestRoomPreview.areaM2 ? `${latestRoomPreview.areaM2}m2` : "Review"}</b>
+                      </div>
+                      <div
+                        className="survey-room-viewer"
+                        onPointerDown={startRoomDrag}
+                        onPointerMove={moveRoomDrag}
+                        onPointerUp={stopRoomDrag}
+                        onPointerCancel={stopRoomDrag}
+                      >
+                        <div
+                          className="survey-room-model"
+                          style={{
+                            transform: `rotateX(58deg) rotateZ(${roomViewRotation}deg) scale(${roomViewZoom})`,
+                          }}
+                        >
+                          <svg aria-label="Interactive LiDAR room preview" viewBox="0 0 100 100" role="img">
+                            <defs>
+                              <linearGradient id="surveyRoomFloor" x1="0%" x2="100%" y1="0%" y2="100%">
+                                <stop offset="0%" stopColor="#eefaff" />
+                                <stop offset="100%" stopColor="#d8eef8" />
+                              </linearGradient>
+                            </defs>
+                            <rect className="survey-room-floor" x="8" y="8" width="84" height="84" rx="8" />
+                            {latestRoomPreview.surfaces.length ? (
+                              latestRoomPreview.surfaces.map((surface, index) => {
+                                const surfaceWidth = clamp(surface.widthM / Math.max(latestRoomPreview.lengthM ?? 4, latestRoomPreview.widthM ?? 4, 1) * 76, 8, 52);
+                                const surfaceDepth = /window|door|opening/i.test(surface.type) ? 3 : 4.5;
+                                const x = plotRoomX(surface.centerX);
+                                const y = plotRoomZ(surface.centerZ);
+                                return (
+                                  <rect
+                                    className={`survey-room-surface ${/window/i.test(surface.type) ? "window" : /door|opening/i.test(surface.type) ? "opening" : "wall"}`}
+                                    height={surfaceDepth}
+                                    key={`${surface.type}-${index}`}
+                                    rx={surfaceDepth / 2}
+                                    transform={`translate(${x} ${y}) rotate(${surface.rotationDegrees ?? 0}) translate(${-surfaceWidth / 2} ${-surfaceDepth / 2})`}
+                                    width={surfaceWidth}
+                                  />
+                                );
+                              })
+                            ) : (
+                              <rect className="survey-room-outline" x="14" y="14" width="72" height="72" rx="6" />
+                            )}
+                            {latestRoomPreview.objects.map((object, index) => {
+                              const maxDimension = Math.max(latestRoomPreview.lengthM ?? 4, latestRoomPreview.widthM ?? 4, 1);
+                              const width = clamp(object.widthM / maxDimension * 72, 4, 18);
+                              const depth = clamp(object.depthM / maxDimension * 72, 4, 18);
+                              const x = plotRoomX(object.centerX);
+                              const y = plotRoomZ(object.centerZ);
+                              return (
+                                <rect
+                                  className="survey-room-object"
+                                  height={depth}
+                                  key={`${object.category}-${index}`}
+                                  rx="2"
+                                  transform={`translate(${x} ${y}) rotate(${object.rotationDegrees ?? 0}) translate(${-width / 2} ${-depth / 2})`}
+                                  width={width}
+                                />
+                              );
+                            })}
+                          </svg>
+                        </div>
+                      </div>
+                      <div className="survey-room-viewer-meta">
+                        <span>{latestRoomPreview.wallCount} walls</span>
+                        <span>{latestRoomPreview.windowCount} windows</span>
+                        <span>{latestRoomPreview.doorCount + latestRoomPreview.openingCount} doors/openings</span>
+                        <span>{latestRoomPreview.objectCount} objects</span>
+                      </div>
+                      <div className="survey-room-viewer-controls">
+                        <button type="button" onClick={() => setRoomViewRotation((current) => current - 30)}>Rotate left</button>
+                        <button type="button" onClick={() => setRoomViewRotation((current) => current + 30)}>Rotate right</button>
+                        <button type="button" onClick={() => setRoomViewZoom((current) => Math.min(current + 0.12, 1.45))}>Zoom</button>
+                        <button type="button" onClick={() => { setRoomViewRotation(28); setRoomViewZoom(1); }}>Reset</button>
+                      </div>
+                      {latestScanDocument?.previewImageDataUrl ? (
+                        <img className="survey-room-static-preview" src={latestScanDocument.previewImageDataUrl} alt={`${latestScanDocument.fileName} room scan preview`} />
+                      ) : null}
                     </article>
                   ) : null}
                   <article>

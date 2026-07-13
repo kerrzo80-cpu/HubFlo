@@ -9,6 +9,42 @@ export type TakeoffDocumentStatus = "Uploaded" | "Parsed" | "Needs review";
 export type TakeoffSurveyAnswer = "Yes" | "No" | "Unknown" | "N/A";
 export type TakeoffSurveyStep = "scope" | "stop-go" | "rooms" | "handoff";
 
+export type TakeoffRoomScanSurface = {
+  type: string;
+  widthM: number;
+  heightM: number;
+  centerX: number;
+  centerY: number;
+  centerZ: number;
+  rotationDegrees?: number;
+};
+
+export type TakeoffRoomScanObject = {
+  category: string;
+  widthM: number;
+  heightM: number;
+  depthM: number;
+  centerX: number;
+  centerY: number;
+  centerZ: number;
+  rotationDegrees?: number;
+};
+
+export type TakeoffRoomScanPreview = {
+  roomName: string;
+  lengthM?: number;
+  widthM?: number;
+  heightM?: number;
+  areaM2: number;
+  wallCount: number;
+  windowCount: number;
+  doorCount: number;
+  openingCount: number;
+  objectCount: number;
+  surfaces: TakeoffRoomScanSurface[];
+  objects: TakeoffRoomScanObject[];
+};
+
 export type TakeoffSurveyStopGoItem = {
   id: string;
   section: string;
@@ -59,6 +95,7 @@ export type TakeoffDocument = {
   size?: number;
   storageKey?: string;
   previewImageDataUrl?: string;
+  roomScanPreview?: TakeoffRoomScanPreview;
   uploadedAt: string;
   status: TakeoffDocumentStatus;
   notes: string[];
