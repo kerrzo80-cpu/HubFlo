@@ -627,6 +627,7 @@ async function runOpenAiSurveyDraft(project: TakeoffProject, actor: string, apiK
     confidence: payload.confidence,
     documentNote: "OpenAI survey quote draft created from stored notes/photos; office review still required.",
     sourceFiles,
+    replaceIdPrefixes: ["openai-survey-", "survey-pack-"],
   });
 }
 

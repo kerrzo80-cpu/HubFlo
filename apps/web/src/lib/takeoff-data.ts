@@ -257,6 +257,7 @@ type QuoteCostLine = {
   unitCost: number;
   unitSell: number;
   supplierRequired?: boolean;
+  rateSource?: "ratebook" | "manual";
 };
 
 type QuoteTakeoffRow = {
@@ -739,13 +740,15 @@ function buildClientDescription(project: TakeoffProject) {
   const roomCount = project.rooms.length;
   const materialCount = project.materialAllowances.length;
   const labourHours = project.labourAllowances.reduce((sum, line) => sum + line.hours, 0);
+  const scope = estimateScopeText(project).trim();
   return [
-    project.description.trim(),
+    scope || project.description.trim(),
     `${roomCount} room${roomCount === 1 ? "" : "s"} reviewed with ${materialCount} material allowance${materialCount === 1 ? "" : "s"} and ${labourHours.toFixed(1)} labour hours.`,
   ].filter(Boolean).join(" ");
 }
 
 function buildEngineerDescription(project: TakeoffProject) {
+  const scope = estimateScopeText(project).trim();
   const measurements = project.measurements
     .map((measurement) => {
       const location = roomName(project, measurement.roomId);
@@ -760,6 +763,7 @@ function buildEngineerDescription(project: TakeoffProject) {
     .join("; ");
 
   return [
+    scope ? `Survey scope: ${scope}.` : "",
     measurements ? `Measurements: ${measurements}.` : "",
     pipeRuns ? `Pipe runs: ${pipeRuns}.` : "",
     radiators ? `Radiator schedule: ${radiators}.` : "",
@@ -868,6 +872,7 @@ function buildQuoteLabourLines(project: TakeoffProject): QuoteCostLine[] {
     quantity: line.hours,
     unitCost: line.costRate,
     unitSell: lineSellFromMarkup(line.costRate, line.markupPercent),
+    rateSource: "manual",
   }));
 }
 
@@ -956,6 +961,7 @@ function labourLineToQuoteLine(line: TakeoffLabourAllowance): QuoteCostLine {
     quantity: line.hours,
     unitCost: line.costRate,
     unitSell: lineSellFromMarkup(line.costRate, line.markupPercent),
+    rateSource: "manual",
   };
 }
 
@@ -1144,8 +1150,9 @@ function applyProjectCostCentresToQuote(
     : [];
   const splitCentreIds = new Set(costCentres.map((centre) => centre.id));
   const legacyCentreId = `${quote.id}-takeoff-${project.id}`;
+  const projectCentrePrefix = `${quote.id}-takeoff-${project.id}-`;
   const nextQuoteCentres = [
-    ...existingCentres.filter((centre) => !splitCentreIds.has(centre.id) && centre.id !== legacyCentreId),
+    ...existingCentres.filter((centre) => !splitCentreIds.has(centre.id) && centre.id !== legacyCentreId && !centre.id.startsWith(projectCentrePrefix)),
     ...costCentres,
   ];
   const nextQuoteCostCentres = {
@@ -1451,6 +1458,14 @@ function surveyChatText(project: TakeoffProject) {
     .join("\n");
 }
 
+function surveyUserText(project: TakeoffProject) {
+  return (project.surveyChat ?? [])
+    .filter((message) => message.role === "user")
+    .map((message) => message.text.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
 function estimateScopeText(project: TakeoffProject) {
   const userMessages = (project.surveyChat ?? [])
     .filter((message) => message.role === "user")
@@ -1463,20 +1478,42 @@ function isShowerOnlyScope(focusedText: string, fullText: string) {
   const combined = `${focusedText} ${fullText}`;
   const hasShowerScope = /shower|cubicle|enclosure|tray|screen|bi[- ]?fold|bifold/.test(combined);
   const explicitShowerOnly =
-    /shower\s+only|only\s+(?:the\s+)?shower|shower\s+cubicle|shower\s+enclosure/.test(combined) ||
-    /no\s+(?:basin|toilet|wc)|not\s+(?:moving|pricing|supplying|including).*(?:basin|toilet|wc)/.test(combined);
+    /shower\s+only|only\s+(?:the\s+)?shower|only\s+working\s+on\s+(?:the\s+)?shower|shower\s+cubicle|shower\s+enclosure|shower\s+tray/.test(combined) ||
+    /no\s+(?:basin|toilet|wc)|not\s+(?:moving|pricing|supplying|including|working\s+on).*(?:basin|toilet|wc)/.test(combined);
   const widerBathroomSignals =
     /toilet|wc|basin|vanity|bath(?!room)|suite|sanitaryware|move\s+(?:the\s+)?(?:toilet|basin)|soil\s+route|full\s+bathroom|bathroom\s+(?:refurb|refurbishment|renovation)/.test(
-      combined,
+      focusedText,
     );
 
   return hasShowerScope && (explicitShowerOnly || !widerBathroomSignals);
 }
 
+function numberFromUnknown(value: unknown, fallback: number) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(",", "."));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function configuredSurveyLabourRate() {
+  const financeSettings = getHubDetailState().financeSettings;
+  const labourRates = Array.isArray(financeSettings?.labourRates) ? financeSettings.labourRates : [];
+  const firstRate = labourRates.find((rate): rate is Record<string, unknown> => Boolean(rate) && typeof rate === "object");
+  const defaultMarkup = numberFromUnknown(financeSettings?.defaultLabourMarkupPercent, 35);
+
+  return {
+    costRate: numberFromUnknown(firstRate?.costRate, 40),
+    markupPercent: numberFromUnknown(firstRate?.markupPercent, defaultMarkup),
+  };
+}
+
 function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtractionDraft {
   const scope = estimateScopeText(project);
-  const focusedText = scope.toLowerCase();
-  const text = `${project.name} ${project.description} ${surveyChatText(project)}`.toLowerCase();
+  const focusedText = `${project.name} ${project.description} ${surveyUserText(project) || scope}`.toLowerCase();
+  const text = `${focusedText} ${surveyChatText(project)}`.toLowerCase();
+  const { costRate: defaultLabourCostRate, markupPercent: defaultLabourMarkupPercent } = configuredSurveyLabourRate();
   const generatedMaterials: TakeoffMaterialAllowance[] = [];
   const generatedLabour: TakeoffLabourAllowance[] = [];
   const generatedSupplierRequests: TakeoffSupplierRequestItem[] = [];
@@ -1522,8 +1559,8 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
     role: string,
     hours: number,
     notes: string,
-    costRate = 40,
-    markupPercent = 35,
+    costRate = defaultLabourCostRate,
+    markupPercent = defaultLabourMarkupPercent,
   ) => {
     generatedLabour.push({
       id: `survey-pack-labour-${id}`,
@@ -1537,26 +1574,56 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
   };
 
   if (isShowerOnlyScope(focusedText, text)) {
-    addMaterial("shower-strip-waste", "Strip out works", "Remove and dispose existing shower enclosure/tray allowance", 1, "allowance", 120, 25);
+    const hasWetWall = /wet\s*wall|wall\s*panel|panel/.test(focusedText);
+    const hasPlasterboard = /plasterboard|plaster\s*board|backing\s*board|board/.test(focusedText);
+    const hasPlinth = /plinth/.test(focusedText);
+    const hasTowelRail = /towel\s*rail|heated\s*towel/.test(focusedText);
+    const refitExistingScreen = /refit\s+(?:the\s+)?existing\s+(?:shower\s+)?screen|reuse\s+(?:the\s+)?(?:existing\s+)?screen/.test(focusedText);
+    const refitExistingShower = /refit\s+(?:the\s+)?existing\s+(?:bar\s+)?shower|reuse\s+(?:the\s+)?(?:existing\s+)?(?:bar\s+)?shower/.test(focusedText);
+    const supplierDescription = [
+      /new\s+shower\s+tray|supply\s+and\s+fit\s+(?:a\s+)?new\s+shower\s+tray/.test(focusedText)
+        ? "New shower tray"
+        : "Shower tray if supplied by us",
+      refitExistingScreen ? "" : "cubicle/screen",
+      refitExistingShower ? "" : "shower set/valve if included",
+      hasWetWall ? "wet wall panels/trims" : "",
+      "waste/trap",
+    ].filter(Boolean).join(", ");
+
+    addMaterial("shower-strip-waste", "Strip out works", "Remove and dispose existing shower screen/tray/plinth allowance", 1, "allowance", 120, 25);
     addMaterial("shower-isolation", "Strip out works", "Isolation valves, caps and shower strip-out sundries", 1, "allowance", 45, 30);
-    addLabour("shower-strip-out", "Strip out works", "Plumber / labourer strip out and isolate", 5, "Remove existing shower cubicle/tray, isolate services and prepare the work area.");
+    addLabour("shower-strip-out", "Strip out works", "Plumber / labourer strip out and isolate", 5, "Remove existing shower screen/tray/plinth, isolate services and prepare the work area.");
 
     addMaterial("shower-first-fix-pipe", "Shower pipework and waste", "Hot/cold feed and shower waste alteration allowance", 1, "allowance", 140, 30, true);
     addLabour("shower-first-fix", "Shower pipework and waste", "Plumber first fix", 8, "Adjust shower feeds and waste route only; no basin, WC or toilet works included.");
 
-    addMaterial("shower-cubicle", "Shower cubicle", "Shower tray/cubicle/screen and shower waste if supplied by us", 1, "supplier quote", 0, 30, true);
+    addMaterial("shower-cubicle", "Shower cubicle", supplierDescription, 1, "supplier quote", 0, 30, true);
     addMaterial("shower-sealants", "Shower cubicle", "Sealants, fixings, traps/waste sundries and local waterproofing allowance", 1, "allowance", 90, 30);
-    addLabour("shower-second-fix", "Shower cubicle", "Plumber second fix and test", 8, "Fit shower tray/cubicle/screen, connect waste/feed, seal and test.");
+    if (hasWetWall) {
+      addMaterial("shower-wet-wall", "Shower cubicle", "Wet wall panels, trims, adhesive and sealant for shower cubicle area", 1, "supplier quote", 0, 30, true);
+    }
+    if (hasPlasterboard) {
+      addMaterial("shower-plasterboard", "Making good and handover", "Plasterboard/backing board repair behind wet wall", 1, "allowance", 85, 30);
+    }
+    if (hasPlinth) {
+      addMaterial("shower-plinth", "Making good and handover", "Rebuild shower tray plinth materials allowance", 1, "allowance", 90, 30);
+    }
+    if (hasTowelRail) {
+      addMaterial("shower-towel-rail", "Strip out works", "Towel rail removal/refit pipework sundries allowance", 1, "allowance", 35, 30);
+      addLabour("shower-towel-rail", "Strip out works", "Remove and refit towel rail", 2, "Remove towel rail for access and refit/test on completion.");
+    }
+    addLabour("shower-second-fix", "Shower cubicle", "Plumber second fix and test", 8, `${refitExistingScreen ? "Refit existing screen, " : "Fit shower screen/cubicle, "}${refitExistingShower ? "refit existing bar shower, " : ""}connect waste/feed, seal and test.`);
 
     addMaterial("shower-making-good", "Making good and handover", "Local making-good sundries around shower cubicle", 1, "allowance", 80, 30);
-    addLabour("shower-making-good", "Making good and handover", "Making good / handover allowance", 4, "Local making good, silicone, test and handover.");
+    addLabour("shower-making-good", "Making good and handover", "Making good / handover allowance", hasWetWall || hasPlinth ? 6 : 4, "Local making good, wet wall/plinth finishing where included, silicone, test and handover.");
 
-    riskFlags.add("Confirm whether shower tray/cubicle/screen are supplied by us or by the customer.");
+    riskFlags.add(refitExistingScreen ? "Existing shower screen is assumed suitable to refit; confirm condition before quote issue." : "Confirm whether shower tray/cubicle/screen are supplied by us or by the customer.");
+    if (refitExistingShower) riskFlags.add("Existing bar shower is assumed suitable to refit; replacement valve is excluded unless added.");
     riskFlags.add("Wall/floor condition behind the existing shower cubicle is provisional until strip-out.");
     questions.add("Are we supplying the shower tray/cubicle/screen and waste, or is the customer supplying?");
     questions.add("Are wall panels, tiling, flooring, electrics and decorating excluded unless specifically added?");
     questions.add("Is the shower waste staying in the same location or moving?");
-  } else if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(text)) {
+  } else if (/bathroom|toilet|basin|shower|cubicle|suite|wc|sanitary|tile|tiling/.test(focusedText)) {
     addMaterial("bathroom-strip-waste", "Strip out works", "Skip / waste disposal allowance", 1, "allowance", 180, 25);
     addMaterial("bathroom-isolation", "Strip out works", "Isolation valves, caps and strip-out sundries", 1, "allowance", 45, 30);
     addLabour("bathroom-strip-out", "Strip out works", "Plumber / labourer strip out and isolate", 8, "Remove existing suite, isolate services and clear working area.");
@@ -1577,7 +1644,7 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
     questions.add("Is the toilet moving onto the same soil wall or does it need a new soil route?");
     questions.add("Are we supplying sanitaryware/shower items or is the customer supplying them?");
     questions.add("Are tiling, flooring, fan/electrics and decorating included in our price?");
-  } else if (/boiler|heating|radiator|heat loss|cylinder|flue|controls|thermostat/.test(text)) {
+  } else if (/boiler|heating|radiator|heat loss|cylinder|flue|controls|thermostat/.test(focusedText)) {
     addMaterial("heating-survey", "Survey and heat loss", "Heat loss/radiator schedule office allowance", 1, "allowance", 120, 30);
     addLabour("heating-survey", "Survey and heat loss", "Estimator / heating engineer survey review", 4, "Review rooms, heat losses, radiator output and design assumptions.", 42, 35);
 
@@ -1595,7 +1662,7 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
     questions.add("Are we replacing like-for-like or moving plant/radiator positions?");
     questions.add("What boiler/radiator range should supplier price?");
     questions.add("Is flushing, balancing and controls upgrade included?");
-  } else if (/leak|burst|repair|reactive|emergency|tap|valve|blockage/.test(text)) {
+  } else if (/leak|burst|repair|reactive|emergency|tap|valve|blockage/.test(focusedText)) {
     addMaterial("reactive-parts", "Repair materials", "Standard repair fittings and consumables allowance", 1, "allowance", 85, 30);
     addMaterial("reactive-special", "Repair materials", "Specialist part if not van stock", 1, "supplier quote", 0, 30, true);
     addLabour("reactive-attend", "Attend and diagnose", "Engineer attendance and diagnosis", 2, "Attend site, diagnose issue and confirm repair route.");
@@ -1642,6 +1709,7 @@ export function runSurveyChatEstimatePackDraft(
     confidence: project.documents.length ? "Medium" : "Low",
     documentNote: "Survey chat converted into quote cost centres; office review required before quote issue.",
     sourceFiles: project.documents.length,
+    replaceIdPrefixes: ["survey-pack-"],
   });
 }
 
@@ -1774,6 +1842,7 @@ type TakeoffExtractionApplyOptions = {
   confidence?: "Low" | "Medium" | "High";
   documentNote?: string;
   sourceFiles?: number;
+  replaceIdPrefixes?: string[];
 };
 
 function extractionCounts(draft: TakeoffExtractionDraft) {
@@ -1788,13 +1857,44 @@ function extractionCounts(draft: TakeoffExtractionDraft) {
   };
 }
 
+function hasIdPrefix(id: string | undefined, prefixes: string[]) {
+  return Boolean(id && prefixes.some((prefix) => id.startsWith(prefix)));
+}
+
+function removeGeneratedTakeoffLines(project: TakeoffProject, prefixes: string[]): TakeoffProject {
+  if (!prefixes.length) return project;
+
+  return {
+    ...project,
+    rooms: project.rooms.filter((line) => !hasIdPrefix(line.id, prefixes)),
+    measurements: project.measurements.filter((line) => !hasIdPrefix(line.id, prefixes)),
+    pipeRuns: project.pipeRuns.filter((line) => !hasIdPrefix(line.id, prefixes)),
+    radiators: project.radiators.filter((line) => !hasIdPrefix(line.id, prefixes)),
+    materialAllowances: project.materialAllowances.filter((line) => !hasIdPrefix(line.id, prefixes)),
+    labourAllowances: project.labourAllowances.filter((line) => !hasIdPrefix(line.id, prefixes)),
+    supplierRequests: project.supplierRequests.filter((line) => !hasIdPrefix(line.id, prefixes) && !hasIdPrefix(line.linkedMaterialId, prefixes)),
+  };
+}
+
+function hasNonGeneratedEstimatePack(project: TakeoffProject) {
+  const isGeneratedSurveyPackLine = (id: string) => id.startsWith("survey-pack-");
+  return [
+    ...project.materialAllowances.map((line) => line.id),
+    ...project.labourAllowances.map((line) => line.id),
+    ...project.supplierRequests.map((line) => line.id),
+    ...project.radiators.map((line) => line.id),
+    ...project.pipeRuns.map((line) => line.id),
+  ].some((id) => !isGeneratedSurveyPackLine(id));
+}
+
 export function applyTakeoffExtractionDraft(
   projectId: string,
   draft: TakeoffExtractionDraft,
   options: TakeoffExtractionApplyOptions = {},
 ): TakeoffExtractionResult | null {
-  const project = takeoffStore.projects.find((item) => item.id === projectId);
-  if (!project) return null;
+  const storedProject = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!storedProject) return null;
+  const project = removeGeneratedTakeoffLines(storedProject, options.replaceIdPrefixes ?? []);
 
   const extractedAt = nowIso();
   const provider = options.provider ?? "Pilot";
@@ -1928,10 +2028,13 @@ export function pushSurveyProjectToQuote(
   const quote = getQuotes().find((item) => item.id === quoteId);
   if (!quote) return null;
 
-  const estimatePack = runSurveyChatEstimatePackDraft(project.id, actor);
-  if (!estimatePack) return null;
+  const shouldUseExistingPack = hasNonGeneratedEstimatePack(project);
+  const estimatePack = shouldUseExistingPack ? null : runSurveyChatEstimatePackDraft(project.id, actor);
+  const preparedProject = shouldUseExistingPack
+    ? removeGeneratedTakeoffLines(project, ["survey-pack-"])
+    : estimatePack?.project;
+  if (!preparedProject) return null;
 
-  const preparedProject = estimatePack.project;
   const applied = applyProjectCostCentresToQuote(preparedProject, quote, actor, "survey");
   if (!applied) return null;
 
@@ -1956,7 +2059,15 @@ export function pushSurveyProjectToQuote(
     costCentre: applied.costCentre,
     costCentres: applied.costCentres,
     auditEvent: applied.auditEvent,
-    generated: estimatePack.generated,
+    generated: estimatePack?.generated ?? {
+      rooms: preparedProject.rooms.length,
+      measurements: preparedProject.measurements.length,
+      pipeRuns: preparedProject.pipeRuns.length,
+      radiators: preparedProject.radiators.length,
+      materialAllowances: preparedProject.materialAllowances.length,
+      labourAllowances: preparedProject.labourAllowances.length,
+      supplierRequests: preparedProject.supplierRequests.length,
+    },
     totalSell: applied.totalSell,
   };
 }
