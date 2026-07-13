@@ -17748,4 +17748,156 @@ body {
   .body-shell:not(.sidebar-collapsed) .context-sidebar-backdrop {
     display: block !important;
   }
+
+  .record-directory.quote-panel {
+    display: block !important;
+    margin: 0 12px 28px !important;
+    max-width: none !important;
+    overflow: visible !important;
+    width: auto !important;
+  }
+
+  .record-directory .panel-header {
+    align-items: stretch !important;
+    display: grid !important;
+    gap: 10px !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .record-directory .panel-controls {
+    align-items: stretch !important;
+    display: grid !important;
+    gap: 8px !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  .record-directory .panel-controls .status-filter,
+  .record-directory > .panel-header .status-filter {
+    display: block !important;
+  }
+
+  .record-directory .panel-controls .status-filter select,
+  .record-directory > .panel-header .status-filter select {
+    width: 100% !important;
+  }
+
+  .record-directory .record-folder-grid {
+    display: grid !important;
+    gap: 8px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    padding: 10px !important;
+  }
+
+  .record-directory .record-folder-card {
+    align-items: flex-start !important;
+    border-radius: 12px !important;
+    flex-direction: column !important;
+    gap: 5px !important;
+    justify-content: center !important;
+    min-height: 72px !important;
+    padding: 10px 11px !important;
+  }
+
+  .record-directory .record-folder-card span {
+    font-size: 9px !important;
+    line-height: 1.2 !important;
+  }
+
+  .record-directory .record-folder-card strong {
+    font-size: 24px !important;
+  }
+
+  .record-directory .record-folder-stack {
+    display: grid !important;
+    gap: 12px !important;
+    padding: 0 10px 12px !important;
+  }
+
+  .record-directory .record-folder-section {
+    background: #fff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 14px !important;
+    overflow: hidden !important;
+  }
+
+  .record-directory .record-folder-section > header {
+    align-items: center !important;
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    padding: 10px 12px !important;
+  }
+
+  .record-directory .record-folder-section h3 {
+    font-size: 14px !important;
+    line-height: 1.2 !important;
+  }
+
+  .record-directory .quote-row.table-header {
+    display: none !important;
+  }
+
+  .record-directory .quote-row {
+    align-items: start !important;
+    border-top: 1px solid var(--line-soft) !important;
+    display: grid !important;
+    gap: 7px !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    min-height: 0 !important;
+    padding: 11px 12px !important;
+    width: 100% !important;
+  }
+
+  .record-directory .quote-row > * {
+    min-width: 0 !important;
+  }
+
+  .record-directory .quote-row > :nth-child(1),
+  .record-directory .quote-row > :nth-child(2),
+  .record-directory .quote-row > :nth-child(5) {
+    grid-column: 1 / -1 !important;
+  }
+
+  .record-directory .quote-row > :nth-child(3),
+  .record-directory .quote-row > :nth-child(4),
+  .record-directory .quote-row > :nth-child(6),
+  .record-directory .quote-row > :nth-child(7) {
+    grid-column: auto !important;
+  }
+
+  .invoice-directory .quote-row > :nth-child(5) {
+    grid-column: auto !important;
+  }
+
+  .invoice-directory .quote-row > :nth-child(6) {
+    grid-column: 1 / -1 !important;
+  }
+
+  .record-directory .quote-row .job-identity > strong,
+  .record-directory .record-address-cell strong,
+  .record-directory .record-address-cell small,
+  .record-directory .quote-site,
+  .record-directory .next-action strong,
+  .record-directory .next-action small {
+    white-space: normal !important;
+  }
+
+  .record-directory .quote-row .value {
+    justify-self: end !important;
+    white-space: nowrap !important;
+  }
+
+  .record-directory .next-action .secondary-button {
+    width: fit-content !important;
+  }
+
+  .module-bar {
+    scrollbar-width: none !important;
+  }
+
+  .module-bar::-webkit-scrollbar {
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+  }
 }
