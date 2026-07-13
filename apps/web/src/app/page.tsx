@@ -112,10 +112,82 @@ const STORAGE_KEYS = {
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
+  dashboardLayouts: "hubflo:dashboard-layouts:v1",
 } as const;
 
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
+
+const dashboardPanelIds = [
+  "schedule",
+  "notifications",
+  "leadFollowups",
+  "quoteFollowups",
+  "poRequests",
+  "variations",
+  "approvedQuotes",
+  "timesheets",
+] as const;
+
+type DashboardPanelId = (typeof dashboardPanelIds)[number];
+type DashboardPanelSize = "wide" | "side" | "standard";
+type DashboardLayout = {
+  order: DashboardPanelId[];
+  hidden: DashboardPanelId[];
+  updatedAt?: string;
+};
+
+const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: DashboardPanelSize }> = {
+  schedule: { label: "Weekly schedule", size: "wide" },
+  notifications: { label: "Action notifications", size: "side" },
+  leadFollowups: { label: "Lead follow-ups", size: "standard" },
+  quoteFollowups: { label: "Quote follow-ups", size: "standard" },
+  poRequests: { label: "PO requests", size: "standard" },
+  variations: { label: "Variations", size: "standard" },
+  approvedQuotes: { label: "Approved quotes", size: "standard" },
+  timesheets: { label: "Timesheets", size: "standard" },
+};
+
+const defaultDashboardLayout: DashboardLayout = {
+  order: [...dashboardPanelIds],
+  hidden: [],
+};
+
+function isDashboardPanelId(value: unknown): value is DashboardPanelId {
+  return typeof value === "string" && (dashboardPanelIds as readonly string[]).includes(value);
+}
+
+function normalizeDashboardLayout(value: unknown): DashboardLayout {
+  const record = value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Partial<DashboardLayout>)
+    : {};
+  const seen = new Set<DashboardPanelId>();
+  const order = [
+    ...(Array.isArray(record.order) ? record.order.filter(isDashboardPanelId) : []),
+    ...dashboardPanelIds,
+  ].filter((panelId): panelId is DashboardPanelId => {
+    if (!isDashboardPanelId(panelId) || seen.has(panelId)) return false;
+    seen.add(panelId);
+    return true;
+  });
+  const hidden = (Array.isArray(record.hidden) ? record.hidden.filter(isDashboardPanelId) : [])
+    .filter((panelId, index, list) => list.indexOf(panelId) === index);
+
+  return {
+    order,
+    hidden: hidden.length >= dashboardPanelIds.length ? [] : hidden,
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : undefined,
+  };
+}
+
+function normalizeDashboardLayouts(value: unknown): Record<string, DashboardLayout> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key.trim().length > 0)
+      .map(([key, layout]) => [key, normalizeDashboardLayout(layout)]),
+  );
+}
 
 function safeLoadStoredJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -4485,6 +4557,8 @@ function makeEstimateLabourLine(
 
 export default function Dashboard() {
   const [employees, setEmployees] = useState<EmployeeCard[]>(() => normalizeEmployeeCards(seedEmployees));
+  const [dashboardLayouts, setDashboardLayouts] = useState<Record<string, DashboardLayout>>({});
+  const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
   const [clients, setClients] = useState<ClientRecord[]>(seedClients);
   const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
@@ -4619,6 +4693,15 @@ export default function Dashboard() {
   const activeEmployee = useMemo(
     () => employees.find((employee) => employee.id === activeEmployeeId) ?? employees[0],
     [employees, activeEmployeeId],
+  );
+  const activeDashboardLayoutKey = loggedInEmployeeId ?? activeEmployee?.id ?? "shared";
+  const activeDashboardLayout = useMemo(
+    () => normalizeDashboardLayout(dashboardLayouts[activeDashboardLayoutKey] ?? defaultDashboardLayout),
+    [activeDashboardLayoutKey, dashboardLayouts],
+  );
+  const visibleDashboardPanelIds = useMemo(
+    () => activeDashboardLayout.order.filter((panelId) => !activeDashboardLayout.hidden.includes(panelId)),
+    [activeDashboardLayout],
   );
 
   const isEmployeeLoggedIn = useMemo(
@@ -5394,6 +5477,12 @@ export default function Dashboard() {
   }, [editingEmployeeId, activeEditingEmployee]);
 
   useEffect(() => {
+    if (homeView !== "dashboard" && isDashboardCustomising) {
+      setIsDashboardCustomising(false);
+    }
+  }, [homeView, isDashboardCustomising]);
+
+  useEffect(() => {
     const storedEmployees = normalizeEmployeeCards(
       safeLoadStoredJson(STORAGE_KEYS.employees, normalizeEmployeeCards(seedEmployees)),
     );
@@ -5406,6 +5495,7 @@ export default function Dashboard() {
     const storedClients = safeLoadStoredJson(STORAGE_KEYS.clients, seedClients);
 
     setEmployees(storedEmployees);
+    setDashboardLayouts(normalizeDashboardLayouts(safeLoadStoredJson(STORAGE_KEYS.dashboardLayouts, {})));
     setLoggedInEmployeeId(storedSessionEmployee?.id ?? null);
     setActiveEmployeeId(storedSessionEmployee?.id ?? storedEmployees[0]?.id ?? "");
     if (storedEmployeeSession && !storedSessionEmployee) {
@@ -5769,6 +5859,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.engineerFlow, engineerFlowTemplate);
     safeSaveStoredJson(STORAGE_KEYS.engineerFlowTemplates, engineerFlowTemplates);
     safeSaveStoredJson(STORAGE_KEYS.activeEngineerFlowTemplateId, activeEngineerFlowTemplateId);
+    safeSaveStoredJson(STORAGE_KEYS.dashboardLayouts, dashboardLayouts);
     safeSaveStoredJson(STORAGE_KEYS.costCentreTypes, costCentreTypeOptions);
     safeSaveStoredJson(STORAGE_KEYS.costCentreFlowAssignments, costCentreFlowAssignmentDrafts);
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
@@ -5868,6 +5959,7 @@ export default function Dashboard() {
     engineerFlowTemplate,
     engineerFlowTemplates,
     activeEngineerFlowTemplateId,
+    dashboardLayouts,
     costCentreTypeOptions,
     costCentreFlowAssignmentDrafts,
     flowStepCompletion,
@@ -7815,6 +7907,62 @@ export default function Dashboard() {
     } else {
       scrollWorkspaceToTop();
     }
+  }
+
+  function updateActiveDashboardLayout(updater: (layout: DashboardLayout) => DashboardLayout) {
+    setDashboardLayouts((current) => {
+      const currentLayout = normalizeDashboardLayout(current[activeDashboardLayoutKey] ?? defaultDashboardLayout);
+      return {
+        ...current,
+        [activeDashboardLayoutKey]: normalizeDashboardLayout({
+          ...updater(currentLayout),
+          updatedAt: new Date().toISOString(),
+        }),
+      };
+    });
+  }
+
+  function moveDashboardPanel(panelId: DashboardPanelId, direction: -1 | 1) {
+    updateActiveDashboardLayout((layout) => {
+      const order = [...layout.order];
+      const index = order.indexOf(panelId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return layout;
+      const currentPanel = order[index];
+      const nextPanel = order[nextIndex];
+      if (!currentPanel || !nextPanel) return layout;
+      order[index] = nextPanel;
+      order[nextIndex] = currentPanel;
+      return { ...layout, order };
+    });
+  }
+
+  function toggleDashboardPanelVisibility(panelId: DashboardPanelId) {
+    updateActiveDashboardLayout((layout) => {
+      const isHidden = layout.hidden.includes(panelId);
+      if (isHidden) {
+        return { ...layout, hidden: layout.hidden.filter((item) => item !== panelId) };
+      }
+      const visibleCount = layout.order.filter((item) => !layout.hidden.includes(item)).length;
+      if (visibleCount <= 1) {
+        showNotice("Keep at least one dashboard panel visible.");
+        return layout;
+      }
+      return { ...layout, hidden: [...layout.hidden, panelId] };
+    });
+  }
+
+  function resetActiveDashboardLayout() {
+    setDashboardLayouts((current) => ({
+      ...current,
+      [activeDashboardLayoutKey]: {
+        ...defaultDashboardLayout,
+        order: [...defaultDashboardLayout.order],
+        hidden: [],
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+    showNotice("Dashboard layout reset for this user.");
   }
 
   function openCommunicationsHub() {
@@ -12795,10 +12943,12 @@ export default function Dashboard() {
       dashboardVariationApprovals.length +
       approvedQuotesAwaitingScheduling.length +
       overdueTimesheetJobs.length;
-    return (
-      <section className="ops-dashboard" aria-label="Operations dashboard">
-        <div className="ops-dashboard-grid">
-          <section className="weekly-schedule-panel">
+
+    const renderDashboardPanel = (panelId: DashboardPanelId) => {
+      switch (panelId) {
+        case "schedule":
+          return (
+            <section className="weekly-schedule-panel">
             <div className="panel-header">
               <div>
                 <h2>Weekly schedule</h2>
@@ -12838,8 +12988,11 @@ export default function Dashboard() {
               ))}
             </div>
           </section>
+          );
 
-          <aside className="notification-panel" id="dashboard-notifications">
+        case "notifications":
+          return (
+            <aside className="notification-panel" id="dashboard-notifications">
             <div className="panel-header compact">
               <div>
                 <h2>Action notifications</h2>
@@ -12899,10 +13052,11 @@ export default function Dashboard() {
               </button>
             </div>
           </aside>
-        </div>
+          );
 
-        <div className="ops-queue-grid">
-          <section className="ops-queue-panel" id="dashboard-lead-followups">
+        case "leadFollowups":
+          return (
+            <section className="ops-queue-panel" id="dashboard-lead-followups">
             <header>
               <div>
                 <h3>Lead follow-ups</h3>
@@ -12932,8 +13086,11 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+          );
 
-          <section className="ops-queue-panel" id="dashboard-quote-followups">
+        case "quoteFollowups":
+          return (
+            <section className="ops-queue-panel" id="dashboard-quote-followups">
             <header>
               <div>
                 <h3>Quote follow-ups</h3>
@@ -12963,8 +13120,11 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+          );
 
-          <section className="ops-queue-panel" id="dashboard-po-requests">
+        case "poRequests":
+          return (
+            <section className="ops-queue-panel" id="dashboard-po-requests">
             <header>
               <div>
                 <h3>PO Requests</h3>
@@ -12997,8 +13157,11 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+          );
 
-          <section className="ops-queue-panel" id="dashboard-variations">
+        case "variations":
+          return (
+            <section className="ops-queue-panel" id="dashboard-variations">
             <header>
               <div>
                 <h3>Variations</h3>
@@ -13028,8 +13191,11 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+          );
 
-          <section className="ops-queue-panel" id="dashboard-approved-quotes">
+        case "approvedQuotes":
+          return (
+            <section className="ops-queue-panel" id="dashboard-approved-quotes">
             <header>
               <div>
                 <h3>Approved Quotes</h3>
@@ -13059,8 +13225,11 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+          );
 
-          <section className="ops-queue-panel" id="dashboard-timesheets">
+        case "timesheets":
+          return (
+            <section className="ops-queue-panel" id="dashboard-timesheets">
             <header>
               <div>
                 <h3>Timesheets</h3>
@@ -13090,6 +13259,85 @@ export default function Dashboard() {
               )}
             </div>
           </section>
+          );
+
+        default:
+          return null;
+      }
+    };
+
+    return (
+      <section className={`ops-dashboard ${isDashboardCustomising ? "customising" : ""}`} aria-label="Operations dashboard">
+        {isDashboardCustomising ? (
+          <section className="dashboard-customise-panel" aria-label="Dashboard customisation">
+            <div>
+              <span className="permission-heading">Dashboard layout</span>
+              <h2>Arrange this dashboard for {activeEmployee?.name ?? "this user"}</h2>
+              <p>Move panels into the order you want, or hide panels that are not useful for this role.</p>
+            </div>
+            <div className="dashboard-customise-actions">
+              <button className="secondary-button" type="button" onClick={resetActiveDashboardLayout}>
+                Reset layout
+              </button>
+              <button className="primary-button" type="button" onClick={() => setIsDashboardCustomising(false)}>
+                Done
+              </button>
+            </div>
+            <div className="dashboard-panel-picker">
+              {dashboardPanelIds.map((panelId) => {
+                const isHidden = activeDashboardLayout.hidden.includes(panelId);
+                return (
+                  <button
+                    className={isHidden ? "hidden" : ""}
+                    key={panelId}
+                    type="button"
+                    onClick={() => toggleDashboardPanelVisibility(panelId)}
+                  >
+                    <span>{dashboardPanelMeta[panelId].label}</span>
+                    <b>{isHidden ? "Show" : "Hide"}</b>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
+        <div className="ops-dashboard-layout-grid">
+          {visibleDashboardPanelIds.map((panelId) => {
+            const index = activeDashboardLayout.order.indexOf(panelId);
+            return (
+              <div
+                className={`dashboard-panel-slot ${dashboardPanelMeta[panelId].size} ${isDashboardCustomising ? "editing" : ""}`}
+                key={panelId}
+              >
+                {isDashboardCustomising ? (
+                  <div className="dashboard-panel-tools">
+                    <strong>{dashboardPanelMeta[panelId].label}</strong>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={index <= 0}
+                        onClick={() => moveDashboardPanel(panelId, -1)}
+                      >
+                        Move up
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index >= activeDashboardLayout.order.length - 1}
+                        onClick={() => moveDashboardPanel(panelId, 1)}
+                      >
+                        Move down
+                      </button>
+                      <button type="button" onClick={() => toggleDashboardPanelVisibility(panelId)}>
+                        Hide
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {renderDashboardPanel(panelId)}
+              </div>
+            );
+          })}
         </div>
       </section>
     );
@@ -13846,22 +14094,18 @@ export default function Dashboard() {
                     New lead
                   </button>
                   <button
-                    className="secondary-button"
-                    onClick={() =>
-                      (() => {
-                        setHomeView("settings");
-                        setActiveSetupSubItem(null);
-                        scrollWorkspaceToTop();
-                        showNotice(
-                          access.canCustomize
-                            ? "Setup opened. Use the left categories to customise the working prototype."
-                            : "Setup access is restricted for this role.",
-                        );
-                      })()
-                    }
+                    className={isDashboardCustomising ? "primary-button" : "secondary-button"}
+                    onClick={() => {
+                      if (!access.canCustomize) {
+                        showNotice("Dashboard customisation is restricted for this role.");
+                        return;
+                      }
+                      setIsDashboardCustomising((current) => !current);
+                      scrollWorkspaceToTop();
+                    }}
                   >
                     <SlidersHorizontal size={16} />
-                    Customise
+                    {isDashboardCustomising ? "Done" : "Customise"}
                   </button>
                 </>
               )}
