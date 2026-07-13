@@ -138,6 +138,40 @@ function safeSaveStoredJson<T>(key: string, value: T) {
   }
 }
 
+function createTrustedEmployeeSession(employeeId: string): TrustedEmployeeSession {
+  const issuedAt = new Date();
+  const trustedUntil = new Date(issuedAt);
+  trustedUntil.setDate(trustedUntil.getDate() + TRUSTED_EMPLOYEE_SESSION_DAYS);
+
+  return {
+    employeeId,
+    issuedAt: issuedAt.toISOString(),
+    trustedUntil: trustedUntil.toISOString(),
+  };
+}
+
+function resolveTrustedEmployeeSession(
+  value: string | TrustedEmployeeSession | null,
+  employees: EmployeeCard[],
+) {
+  const employeeId = typeof value === "string" ? value : value?.employeeId;
+  if (!employeeId) return null;
+
+  if (value && typeof value !== "string") {
+    const trustedUntilTime = Date.parse(value.trustedUntil);
+    if (!Number.isFinite(trustedUntilTime) || trustedUntilTime < Date.now()) {
+      return null;
+    }
+  }
+
+  return employees.some((employee) => employee.id === employeeId) ? employeeId : null;
+}
+
+function clearTrustedEmployeeSession() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(STORAGE_KEYS.activeEmployeeSession);
+}
+
 function normalizeClientIdentity(value: string) {
   return value.trim().toLowerCase();
 }
@@ -1233,6 +1267,14 @@ type LoginDraft = {
   username: string;
   password: string;
 };
+
+type TrustedEmployeeSession = {
+  employeeId: string;
+  issuedAt: string;
+  trustedUntil: string;
+};
+
+const TRUSTED_EMPLOYEE_SESSION_DAYS = 60;
 
 const modules: ModuleItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, active: true },
@@ -5355,13 +5397,20 @@ export default function Dashboard() {
     const storedEmployees = normalizeEmployeeCards(
       safeLoadStoredJson(STORAGE_KEYS.employees, normalizeEmployeeCards(seedEmployees)),
     );
-    const storedEmployeeSession = safeLoadStoredJson<string | null>(STORAGE_KEYS.activeEmployeeSession, null);
-    const storedSessionEmployee = storedEmployees.find((employee) => employee.id === storedEmployeeSession);
+    const storedEmployeeSession = safeLoadStoredJson<string | TrustedEmployeeSession | null>(
+      STORAGE_KEYS.activeEmployeeSession,
+      null,
+    );
+    const storedSessionEmployeeId = resolveTrustedEmployeeSession(storedEmployeeSession, storedEmployees);
+    const storedSessionEmployee = storedEmployees.find((employee) => employee.id === storedSessionEmployeeId);
     const storedClients = safeLoadStoredJson(STORAGE_KEYS.clients, seedClients);
 
     setEmployees(storedEmployees);
     setLoggedInEmployeeId(storedSessionEmployee?.id ?? null);
     setActiveEmployeeId(storedSessionEmployee?.id ?? storedEmployees[0]?.id ?? "");
+    if (storedEmployeeSession && !storedSessionEmployee) {
+      clearTrustedEmployeeSession();
+    }
     setClients(storedClients);
     setClientSites(safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
     setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
@@ -5477,7 +5526,11 @@ export default function Dashboard() {
             setEmployees(nextEmployees);
             setLoggedInEmployeeId((current) => {
               if (current && nextEmployees.some((employee) => employee.id === current)) return current;
-              return null;
+              const storedSession = safeLoadStoredJson<string | TrustedEmployeeSession | null>(
+                STORAGE_KEYS.activeEmployeeSession,
+                null,
+              );
+              return resolveTrustedEmployeeSession(storedSession, nextEmployees);
             });
             setActiveEmployeeId((current) =>
               nextEmployees.some((employee) => employee.id === current)
@@ -5695,7 +5748,10 @@ export default function Dashboard() {
     if (!hasHydratedLocalData) return;
 
     safeSaveStoredJson(STORAGE_KEYS.employees, employees);
-    safeSaveStoredJson(STORAGE_KEYS.activeEmployeeSession, loggedInEmployeeId);
+    safeSaveStoredJson(
+      STORAGE_KEYS.activeEmployeeSession,
+      loggedInEmployeeId ? createTrustedEmployeeSession(loggedInEmployeeId) : null,
+    );
     safeSaveStoredJson(STORAGE_KEYS.clients, clients);
     safeSaveStoredJson(STORAGE_KEYS.clientSites, clientSites);
     safeSaveStoredJson(STORAGE_KEYS.leads, leads);
@@ -7156,6 +7212,7 @@ export default function Dashboard() {
     setLoginError("");
     setLoggedInEmployeeId(employee.id);
     setActiveEmployeeId(employee.id);
+    safeSaveStoredJson(STORAGE_KEYS.activeEmployeeSession, createTrustedEmployeeSession(employee.id));
     setLoginDraft({ username: "", password: "" });
     setEmployees((current) =>
       current.map((item) =>
@@ -7196,6 +7253,7 @@ export default function Dashboard() {
       });
     }
     setLoggedInEmployeeId(null);
+    clearTrustedEmployeeSession();
     setLoginDraft({ username: "", password: "" });
     setLoginError("");
     showNotice("Signed out. Please sign in to continue.");
@@ -13171,7 +13229,7 @@ export default function Dashboard() {
           <div>
             <span className="permission-heading">Employee login</span>
             <h1>Sign in to continue</h1>
-            <p>Actions inside NeXa will be logged against the employee card you use here.</p>
+            <p>Actions inside NeXa will be logged against the employee card you use here. This device stays trusted for 60 days unless you sign out.</p>
           </div>
           <form className="employee-login-form" onSubmit={handleEmployeeLogin}>
             <label>
@@ -13228,7 +13286,7 @@ export default function Dashboard() {
               ))}
             </div>
             <small className="employee-login-hint">
-              Default pilot password is EWG2026 unless it has been changed on the employee card.
+              Default pilot password is EWG2026 unless it has been changed on the employee card. On iPhone, save the password to iCloud Keychain to use Face ID autofill.
             </small>
           </div>
         </section>

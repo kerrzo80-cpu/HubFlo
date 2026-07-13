@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
+const pilotSessionCookie = "nexa_pilot_session";
+const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const publicAssetPrefixes = ["/app-icons/"];
 const publicAssetPaths = new Set([
   "/apple-icon.png",
@@ -33,6 +35,16 @@ function parseBasicAuth(value: string | null) {
   }
 }
 
+function expectedPilotSessionValue() {
+  if (!pilotPin) return "";
+
+  try {
+    return btoa(`${pilotUser}:${pilotPin}`);
+  } catch {
+    return `${pilotUser}:${pilotPin}`;
+  }
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -42,9 +54,22 @@ export function proxy(request: NextRequest) {
   }
   if (!pilotPin) return NextResponse.next();
 
+  const expectedPilotSession = expectedPilotSessionValue();
+  if (request.cookies.get(pilotSessionCookie)?.value === expectedPilotSession) {
+    return NextResponse.next();
+  }
+
   const credentials = parseBasicAuth(request.headers.get("authorization"));
   if (credentials?.username === pilotUser && credentials.password === pilotPin) {
-    return NextResponse.next();
+    const response = NextResponse.next();
+    response.cookies.set(pilotSessionCookie, expectedPilotSession, {
+      httpOnly: true,
+      maxAge: pilotSessionMaxAgeSeconds,
+      path: "/",
+      sameSite: "lax",
+      secure: request.nextUrl.protocol === "https:",
+    });
+    return response;
   }
 
   return new NextResponse("NeXa pilot login required", {
