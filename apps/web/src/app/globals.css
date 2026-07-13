@@ -9729,6 +9729,224 @@ h1 {
   font-size: 12px;
 }
 
+.engineer-feedback {
+  align-items: center;
+  background: var(--green-soft);
+  border: 1px solid #bfe3cf;
+  border-radius: 16px;
+  color: var(--green);
+  display: flex;
+  font-weight: 850;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px 14px;
+}
+
+.engineer-feedback.error {
+  background: var(--red-soft);
+  border-color: #f0b8bc;
+  color: var(--red);
+}
+
+.engineer-site-info-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  margin-bottom: 12px;
+}
+
+.engineer-site-info-grid .engineer-note-block {
+  background: #f8fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  padding: 13px;
+}
+
+.engineer-requirement > div:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.engineer-requirement span {
+  font-weight: 850;
+}
+
+.engineer-requirement small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.engineer-requirement-actions {
+  align-items: center;
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.engineer-requirement-actions button {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--blue-deep);
+  font-size: 11px;
+  font-weight: 900;
+  min-height: 32px;
+  padding: 0 10px;
+}
+
+.engineer-ready-message {
+  align-items: center;
+  background: var(--green-soft);
+  border: 1px solid #bfe3cf;
+  border-radius: 15px;
+  color: var(--green);
+  display: flex;
+  font-weight: 850;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 11px 13px;
+}
+
+.engineer-capture-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.engineer-upload-row {
+  align-items: center;
+  background: #f8fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  padding: 12px;
+}
+
+.engineer-upload-row span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.engineer-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.engineer-po-form select,
+.engineer-time-form input,
+.engineer-time-form textarea,
+.engineer-outcome-note textarea {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  font: inherit;
+  outline: 0;
+  padding: 13px;
+  width: 100%;
+}
+
+.engineer-time-form {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.engineer-time-form label,
+.engineer-outcome-note {
+  color: var(--muted);
+  display: grid;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.engineer-time-form .full,
+.engineer-time-form button.full {
+  grid-column: 1 / -1;
+}
+
+.engineer-time-form button {
+  align-items: center;
+  background: var(--blue-deep);
+  border: 0;
+  border-radius: 15px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 7px;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+.engineer-mini-list,
+.engineer-review-feed {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.engineer-mini-list article,
+.engineer-review-feed article {
+  background: #f8fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  display: grid;
+  gap: 5px;
+  padding: 13px;
+}
+
+.engineer-mini-list span,
+.engineer-review-feed span {
+  color: var(--blue-deep);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.engineer-mini-list strong,
+.engineer-review-feed strong {
+  color: var(--ink);
+}
+
+.engineer-mini-list p,
+.engineer-review-feed p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.engineer-mini-list small,
+.engineer-review-feed small {
+  color: var(--subtle);
+  font-weight: 800;
+}
+
+.engineer-outcome-note {
+  margin-bottom: 12px;
+}
+
+.engineer-outcome-bar {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  z-index: 5;
+}
+
+.engineer-outcome-bar button:nth-child(4) {
+  background: var(--red);
+}
+
+.engineer-po-form button:disabled,
+.engineer-time-form button:disabled,
+.engineer-requirement-actions button:disabled,
+.engineer-outcome-bar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 @media (min-width: 860px) {
   .engineer-shell {
     padding: 30px;
@@ -10406,6 +10624,22 @@ h1 {
   .engineer-contact-actions {
     grid-template-columns: 1fr 1fr;
     min-width: 0;
+  }
+
+  .engineer-upload-row,
+  .engineer-form-grid,
+  .engineer-time-form {
+    grid-template-columns: 1fr;
+  }
+
+  .engineer-requirement {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .engineer-requirement-actions {
+    align-items: flex-end;
+    flex-direction: column;
   }
 
   .engineer-outcome-bar {
