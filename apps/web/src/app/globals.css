@@ -16657,6 +16657,55 @@ body {
   margin-top: 3px;
 }
 
+.survey-lidar-room-picker {
+  align-items: center;
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.42fr);
+  padding: 12px;
+}
+
+.survey-lidar-room-picker div {
+  display: grid;
+  gap: 4px;
+}
+
+.survey-lidar-room-picker strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.survey-lidar-room-picker span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.survey-lidar-room-picker select {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 750;
+  min-height: 40px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.survey-lidar-room-picker select:focus {
+  border-color: var(--blue-deep);
+  box-shadow: 0 0 0 3px rgba(33, 109, 210, 0.12);
+  outline: 0;
+}
+
+.survey-lidar-room-picker.empty {
+  grid-template-columns: 1fr;
+}
+
 .survey-heat-grid {
   display: grid;
   gap: 10px;
@@ -16895,6 +16944,7 @@ body {
   }
 
   .survey-heat-grid,
+  .survey-lidar-room-picker,
   .survey-heat-result {
     grid-template-columns: 1fr;
   }
@@ -18189,6 +18239,16 @@ body {
 
   .survey-heat-grid input,
   .survey-heat-grid select {
+    min-height: 46px !important;
+  }
+
+  .survey-lidar-room-picker {
+    border-radius: 16px !important;
+    grid-template-columns: 1fr !important;
+    padding: 14px !important;
+  }
+
+  .survey-lidar-room-picker select {
     min-height: 46px !important;
   }
 

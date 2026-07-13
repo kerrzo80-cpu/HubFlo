@@ -310,7 +310,7 @@ final class RoomScanCoordinator: NSObject, ObservableObject {
             } else {
                 quoteNote = ""
             }
-            status = "Sent to NeXa: \(result.imported.rooms) room, \(result.imported.measurements) measurements.\(quoteNote)"
+            status = "Sent to NeXa: \(result.imported.rooms) room, \(result.imported.measurements) measurements.\(quoteNote) Name the next room and scan again to add another room."
             persistSettings()
             openReturnUrl()
         } catch {

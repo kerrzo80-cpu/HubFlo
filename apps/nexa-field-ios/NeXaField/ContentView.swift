@@ -181,6 +181,11 @@ struct ContentView: View {
                 .textFieldStyle(.roundedBorder)
                 .focused($focusedField, equals: .roomName)
 
+            Text("For multiple rooms, scan and send one room at a time. Keep the same linked quote or job selected, rename the next room, then start another scan.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             HStack(spacing: 10) {
                 Button {
                     focusedField = nil
@@ -200,7 +205,7 @@ struct ContentView: View {
                         await scanner.uploadLatestScan()
                     }
                 } label: {
-                    Label("Send to NeXa", systemImage: "paperplane.fill")
+                    Label("Send room to NeXa", systemImage: "paperplane.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)

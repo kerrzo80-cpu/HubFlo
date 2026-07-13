@@ -41,6 +41,7 @@ const publicPilotBaseUrl = "https://nexa-pilot.onrender.com";
 
 type SurveyHeatLossDraft = {
   roomName: string;
+  sourceRoomId?: string;
   roomType: "Living Room" | "Bedroom" | "Bathroom" | "Kitchen" | "Hall" | "Office";
   lengthM: string;
   widthM: string;
@@ -53,6 +54,7 @@ type SurveyHeatLossDraft = {
 
 const blankHeatLossDraft: SurveyHeatLossDraft = {
   roomName: "",
+  sourceRoomId: "",
   roomType: "Living Room",
   lengthM: "",
   widthM: "",
@@ -165,6 +167,40 @@ function calculateHeatLoss(draft: SurveyHeatLossDraft) {
   };
 }
 
+function formatHeatLossDimension(value?: number) {
+  if (!value || !Number.isFinite(value)) return "";
+  return `${Math.round(value * 100) / 100}`;
+}
+
+function inferRoomTypeFromName(roomName: string): SurveyHeatLossDraft["roomType"] {
+  const normalised = roomName.toLowerCase();
+  if (/bath|ensuite|en-suite|wc|toilet|shower/.test(normalised)) return "Bathroom";
+  if (/bed/.test(normalised)) return "Bedroom";
+  if (/kitchen/.test(normalised)) return "Kitchen";
+  if (/hall|landing|corridor/.test(normalised)) return "Hall";
+  if (/office|study/.test(normalised)) return "Office";
+  return "Living Room";
+}
+
+function isLidarRoom(room: TakeoffRoom) {
+  return room.id.startsWith("lidar-room-") || /lidar|roomplan|room scan/i.test(room.notes);
+}
+
+function heatLossDraftFromRoom(room: TakeoffRoom): Partial<SurveyHeatLossDraft> {
+  return {
+    sourceRoomId: room.id,
+    roomName: room.name,
+    roomType: inferRoomTypeFromName(room.name),
+    lengthM: formatHeatLossDimension(room.lengthM),
+    widthM: formatHeatLossDimension(room.widthM),
+    heightM: formatHeatLossDimension(room.heightM) || "2.4",
+    outsideWalls: `${room.outsideWalls ?? 1}`,
+    windowAreaM2: formatHeatLossDimension(room.windowAreaM2),
+    construction: room.construction ?? "Average",
+    glazing: room.glazing ?? "Double glazed",
+  };
+}
+
 function roomScanDeepLink(project: TakeoffProject) {
   const baseUrl = typeof window !== "undefined"
     && !["127.0.0.1", "localhost"].includes(window.location.hostname)
@@ -273,6 +309,10 @@ export default function SurveyPage() {
   const scanCount = projectDocuments.filter((document) => document.kind === "LiDAR scan").length;
   const latestScanDocument = projectDocuments.find((document) => document.kind === "LiDAR scan");
   const latestRoomPreview = selectedProject ? fallbackRoomScanPreview(latestScanDocument, selectedProject.rooms) : null;
+  const lidarRoomsForHeatLoss = useMemo(
+    () => selectedProject?.rooms.filter((room) => isLidarRoom(room)) ?? [],
+    [selectedProject],
+  );
   const roomBounds = latestRoomPreview ? roomPreviewBounds(latestRoomPreview) : null;
   const heatLossRoomCount = selectedProject?.rooms.filter((room) => room.heatLoadWatts > 0).length ?? 0;
   const documentCount = projectDocuments.filter((document) => ["Drawing", "Contractor BOQ", "Specification"].includes(document.kind)).length;
@@ -634,15 +674,32 @@ export default function SurveyPage() {
     setHeatLossDraft((current) => ({ ...current, ...patch }));
   }
 
+  function applyLidarRoomToHeatLoss(roomId: string) {
+    if (!roomId) {
+      setHeatLossDraft(blankHeatLossDraft);
+      return;
+    }
+    const room = lidarRoomsForHeatLoss.find((item) => item.id === roomId);
+    if (!room) return;
+    setHeatLossDraft((current) => ({
+      ...current,
+      ...heatLossDraftFromRoom(room),
+    }));
+  }
+
   async function addHeatLossToSurvey() {
     if (!selectedProject) return;
     const roomName = heatLossDraft.roomName.trim() || "Room to confirm";
-    const roomId = makeId("survey-room");
+    const sourceRoom = heatLossDraft.sourceRoomId
+      ? selectedProject.rooms.find((room) => room.id === heatLossDraft.sourceRoomId)
+      : undefined;
+    const roomId = sourceRoom?.id ?? makeId("survey-room");
     const primaryRadiator = heatLossResult.recommendations[0];
     const room: TakeoffRoom = {
+      ...(sourceRoom ?? {}),
       id: roomId,
       name: roomName,
-      level: "Ground",
+      level: sourceRoom?.level ?? "Ground",
       lengthM: heatLossResult.lengthM || undefined,
       widthM: heatLossResult.widthM || undefined,
       heightM: heatLossResult.heightM || undefined,
@@ -650,9 +707,14 @@ export default function SurveyPage() {
       windowAreaM2: heatLossResult.windowAreaM2,
       construction: heatLossDraft.construction,
       glazing: heatLossDraft.glazing,
-      areaM2: heatLossResult.areaM2,
+      areaM2: heatLossResult.areaM2 || sourceRoom?.areaM2 || 0,
       heatLoadWatts: heatLossResult.watts,
-      notes: `Captured in NeXa AI Surveyor from chat heat loss tool. Confirm assumptions before quote issue.`,
+      notes: [
+        sourceRoom?.notes,
+        sourceRoom
+          ? "Heat loss linked to this LiDAR/RoomPlan room scan in NeXa Survey. Confirm assumptions before quote issue."
+          : "Captured in NeXa AI Surveyor from chat heat loss tool. Confirm assumptions before quote issue.",
+      ].filter(Boolean).join(" "),
     };
     const radiator: TakeoffRadiator = {
       id: makeId("survey-radiator"),
@@ -667,12 +729,18 @@ export default function SurveyPage() {
     const assistantMessage: TakeoffSurveyChatMessage = {
       id: makeId("survey-chat"),
       role: "assistant",
-      text: `Heat loss added for ${roomName}: ${heatLossResult.watts}W / ${btuFromWatts(heatLossResult.watts)} BTU. Suggested radiator options: ${heatLossResult.recommendations.map((item) => `${item.model} (${item.outputWatts}W)`).join("; ")}. I have added this to the quote pack as a supplier-price item.`,
+      text: `Heat loss added for ${roomName}: ${heatLossResult.watts}W / ${btuFromWatts(heatLossResult.watts)} BTU.${sourceRoom ? " Linked to the LiDAR room scan." : ""} Suggested radiator options: ${heatLossResult.recommendations.map((item) => `${item.model} (${item.outputWatts}W)`).join("; ")}. I have added this to the quote pack as a supplier-price item.`,
       createdAt: nowIso(),
     };
+    const nextRooms = sourceRoom
+      ? selectedProject.rooms.map((item) => (item.id === sourceRoom.id ? room : item))
+      : [room, ...selectedProject.rooms];
+    const nextRadiators = selectedProject.radiators.some((item) => item.roomId === roomId)
+      ? selectedProject.radiators.map((item) => (item.roomId === roomId ? { ...radiator, id: item.id } : item))
+      : [radiator, ...selectedProject.radiators];
     await patchProject(selectedProject.id, {
-      rooms: [room, ...selectedProject.rooms],
-      radiators: [radiator, ...selectedProject.radiators],
+      rooms: nextRooms,
+      radiators: nextRadiators,
       surveyChat: [...messages, assistantMessage],
     }, "Heat loss added to survey chat.");
     setHeatLossDraft(blankHeatLossDraft);
@@ -830,6 +898,27 @@ export default function SurveyPage() {
                           Close
                         </button>
                       </header>
+                      {lidarRoomsForHeatLoss.length ? (
+                        <div className="survey-lidar-room-picker">
+                          <div>
+                            <strong>Use LiDAR room measurements</strong>
+                            <span>Pick a scanned room to pre-fill dimensions and opening area. Confirm outside walls, glazing and construction before adding the radiator.</span>
+                          </div>
+                          <select value={heatLossDraft.sourceRoomId ?? ""} onChange={(event) => applyLidarRoomToHeatLoss(event.target.value)}>
+                            <option value="">Manual room</option>
+                            {lidarRoomsForHeatLoss.map((room) => (
+                              <option key={room.id} value={room.id}>
+                                {room.name} {room.lengthM && room.widthM ? `- ${formatHeatLossDimension(room.lengthM)}m x ${formatHeatLossDimension(room.widthM)}m` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="survey-lidar-room-picker empty">
+                          <strong>No LiDAR rooms linked yet</strong>
+                          <span>Use LiDAR scan for each room, then return here to pre-fill the heat loss dimensions from the scanned rooms.</span>
+                        </div>
+                      )}
                       <div className="survey-heat-grid">
                         <label>
                           Room name
