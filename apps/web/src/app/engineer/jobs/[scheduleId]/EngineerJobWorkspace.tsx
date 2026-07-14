@@ -359,7 +359,7 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
         )}
       </section>
 
-      <section className="engineer-panel engineer-capture-panel">
+      <section className="engineer-panel engineer-capture-panel" id="site-evidence">
         <div className="engineer-section-heading compact">
           <div>
             <p className="eyebrow">Site evidence</p>
@@ -452,7 +452,7 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
         ) : null}
       </section>
 
-      <section className="engineer-panel">
+      <section className="engineer-panel" id="time-entry">
         <div className="engineer-section-heading compact">
           <div>
             <p className="eyebrow">Timesheet</p>
@@ -494,7 +494,7 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
         ) : null}
       </section>
 
-      <section className="engineer-panel">
+      <section className="engineer-panel" id="paper-sheet">
         <div className="engineer-section-heading compact">
           <div>
             <p className="eyebrow">Paper job sheet</p>
