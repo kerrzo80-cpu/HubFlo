@@ -2985,11 +2985,22 @@ const blankLead: LeadDraft = {
 
 const blankPurchaseRequest = {
   supplier: "",
+  supplierEmail: "",
   item: "",
   estimatedCost: "",
+  actualCost: "",
   reason: "",
   costCentreId: "",
+  invoiceFileName: "",
 };
+
+const supplierDirectory = [
+  { name: "Plumbase", email: "aberdeen@plumbase.example", account: "EWG trade account" },
+  { name: "Pipe Center Aberdeen", email: "aberdeen@pipecenter.example", account: "Heating stock" },
+  { name: "Wolseley", email: "trade@wolseley.example", account: "Plumbing and heating" },
+  { name: "Aldrite Plumbing Ltd", email: "orders@aldrite.example", account: "Bathroom materials" },
+  { name: "Valve Source", email: "sales@valvesource.example", account: "Specialist valves" },
+];
 
 const blankEmployeeProfileTemplate: EmployeeProfileDraft = {
   name: "",
@@ -4630,6 +4641,7 @@ export default function Dashboard() {
   const [newJob, setNewJob] = useState<JobDraft>(blankJob);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [purchaseDraft, setPurchaseDraft] = useState(blankPurchaseRequest);
+  const [editingPurchaseRequestId, setEditingPurchaseRequestId] = useState<string | null>(null);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
@@ -10267,23 +10279,20 @@ export default function Dashboard() {
         body: JSON.stringify({
           jobId: selectedJob.id,
           jobRef: selectedJob.ref,
+          costCentreId: selectedCostCentre?.id,
+          costCentreName: selectedCostCentre?.name,
           requestedBy: activeEmployee?.name ?? "NeXa user",
           supplier,
           item: lines.map((line) => `${line.quantity} x ${line.description}`).join("; "),
           estimatedCost,
           reason: "Supplier quote accepted for job-level request",
+          status: "Pending cost",
+          createdAt: workflowTimestamp(),
+          sentAt: workflowTimestamp(),
         }),
       });
-      if (!createResponse.ok) throw new Error("Unable to create PO request");
-      const created = (await createResponse.json()) as PurchaseRequest;
-
-      const approveResponse = await fetch(`/api/purchase-requests/${created.id}`, {
-        method: "PATCH",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Approved" }),
-      });
-      if (!approveResponse.ok) throw new Error("Unable to issue PO number");
-      const approved = (await approveResponse.json()) as PurchaseRequest;
+      if (!createResponse.ok) throw new Error("Unable to issue PO number");
+      const approved = (await createResponse.json()) as PurchaseRequest;
 
       setPurchaseRequests((current) => [
         approved,
@@ -12689,6 +12698,21 @@ export default function Dashboard() {
     }
   }
 
+  function closePurchaseForm() {
+    setShowPurchaseForm(false);
+    setEditingPurchaseRequestId(null);
+    setPurchaseDraft(blankPurchaseRequest);
+  }
+
+  function applySupplierDirectoryMatch(value: string) {
+    const supplier = supplierDirectory.find((entry) => entry.name.toLowerCase() === value.trim().toLowerCase());
+    setPurchaseDraft((current) => ({
+      ...current,
+      supplier: value,
+      supplierEmail: supplier?.email ?? current.supplierEmail,
+    }));
+  }
+
   async function createPurchaseRequest() {
     const job = selectedJob ?? jobs[0];
     if (!job || !purchaseDraft.supplier.trim() || !purchaseDraft.item.trim()) return;
@@ -12697,60 +12721,83 @@ export default function Dashboard() {
       selectedJobEstimateCostCentres[0];
 
     try {
-      const response = await fetch("/api/purchase-requests", {
-        method: "POST",
+      const payload = {
+        jobId: job.id,
+        jobRef: job.ref,
+        costCentreId: selectedCostCentre?.id,
+        costCentreName: selectedCostCentre?.name,
+        requestedBy: activeEmployee?.name ?? "NeXa user",
+        supplier: purchaseDraft.supplier.trim(),
+        supplierEmail: purchaseDraft.supplierEmail.trim(),
+        item: purchaseDraft.item.trim(),
+        estimatedCost: Number(purchaseDraft.estimatedCost) || 0,
+        actualCost: purchaseDraft.actualCost ? Number(purchaseDraft.actualCost) || 0 : undefined,
+        reason: purchaseDraft.reason.trim() || "Raised by office from cost centre",
+        invoiceFileName: purchaseDraft.invoiceFileName.trim(),
+      };
+      const response = await fetch(editingPurchaseRequestId ? `/api/purchase-requests/${editingPurchaseRequestId}` : "/api/purchase-requests", {
+        method: editingPurchaseRequestId ? "PATCH" : "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobId: job.id,
-          jobRef: job.ref,
-          costCentreId: selectedCostCentre?.id,
-          costCentreName: selectedCostCentre?.name,
-          requestedBy: activeEmployee?.name ?? "Engineer",
-          supplier: purchaseDraft.supplier.trim(),
-          item: purchaseDraft.item.trim(),
-          estimatedCost: Number(purchaseDraft.estimatedCost) || 0,
-          reason: purchaseDraft.reason.trim() || "Requested from site",
-        }),
+        body: JSON.stringify(editingPurchaseRequestId ? payload : { ...payload, status: "Draft", createdAt: workflowTimestamp() }),
       });
 
-      if (!response.ok) throw new Error("Unable to create purchase request");
+      if (!response.ok) throw new Error("Unable to save purchase order");
 
-      const created = (await response.json()) as PurchaseRequest;
-      setPurchaseRequests((current) => [created, ...current]);
-      setPurchaseDraft(blankPurchaseRequest);
-      setShowPurchaseForm(false);
+      const saved = (await response.json()) as PurchaseRequest;
+      setPurchaseRequests((current) =>
+        current.some((request) => request.id === saved.id)
+          ? current.map((request) => (request.id === saved.id ? saved : request))
+          : [saved, ...current],
+      );
+      closePurchaseForm();
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
-        action: "created",
+        action: editingPurchaseRequestId ? "updated" : "created",
         recordType: "purchase_request",
-        recordId: created.id,
-        summary: `PO request created for ${created.jobRef} with ${created.supplier}.`,
+        recordId: saved.id,
+        summary: `${saved.poNumber || "Draft PO"} ${editingPurchaseRequestId ? "updated" : "created"} for ${saved.jobRef} with ${saved.supplier}.`,
         source: "web",
         importance: "normal",
       });
-      showNotice("PO request submitted.");
+      showNotice(editingPurchaseRequestId ? "PO updated." : "Draft PO created.");
     } catch {
-      setSectionError("Unable to submit PO request right now.");
+      setSectionError("Unable to save PO right now.");
     }
   }
 
   function openSelectedCostCentrePurchaseRequest(centre: EstimateCostCentre) {
-    setPurchaseDraft((current) => ({
-      ...current,
+    setEditingPurchaseRequestId(null);
+    setPurchaseDraft({
+      ...blankPurchaseRequest,
       costCentreId: centre.id,
-    }));
+    });
     setShowPurchaseForm(true);
   }
 
-  async function markPurchaseRequestStatus(id: string, status: PurchaseStatus) {
+  function editPurchaseRequest(request: PurchaseRequest) {
+    setEditingPurchaseRequestId(request.id);
+    setPurchaseDraft({
+      supplier: request.supplier,
+      supplierEmail: request.supplierEmail ?? "",
+      item: request.item,
+      estimatedCost: String(request.estimatedCost || ""),
+      actualCost: request.actualCost !== undefined ? String(request.actualCost) : "",
+      reason: request.reason,
+      costCentreId: request.costCentreId ?? "",
+      invoiceFileName: request.invoiceFileName ?? "",
+    });
+    setShowPurchaseForm(true);
+  }
+
+  async function patchPurchaseRequest(id: string, patch: Partial<PurchaseRequest>, successMessage: string) {
     try {
       const response = await fetch(`/api/purchase-requests/${id}`, {
         method: "PATCH",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
+        body: JSON.stringify(patch),
       });
 
-      if (!response.ok) throw new Error("Unable to update PO request");
+      if (!response.ok) throw new Error("Unable to update PO");
 
       const updated = (await response.json()) as PurchaseRequest;
       setPurchaseRequests((current) =>
@@ -12758,16 +12805,45 @@ export default function Dashboard() {
       );
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
-        action: status === "Approved" ? "approved" : "updated",
+        action: patch.status === "Approved" ? "approved" : "updated",
         recordType: "purchase_request",
         recordId: updated.id,
-        summary: `PO request ${updated.jobRef} marked ${status}.`,
+        summary: `${updated.poNumber || "PO"} for ${updated.jobRef} marked ${updated.status}.`,
         source: "web",
-        importance: status === "Approved" ? "high" : "normal",
+        importance: patch.status === "Approved" || patch.status === "Received" ? "high" : "normal",
       });
+      showNotice(successMessage);
+      return updated;
     } catch {
-      setSectionError("Unable to update PO request right now.");
+      setSectionError("Unable to update PO right now.");
+      return null;
     }
+  }
+
+  async function markPurchaseRequestStatus(id: string, status: PurchaseStatus) {
+    await patchPurchaseRequest(id, { status }, `PO marked ${status}.`);
+  }
+
+  async function sendPurchaseOrderToSupplier(request: PurchaseRequest) {
+    await patchPurchaseRequest(
+      request.id,
+      { status: "Pending cost", sentAt: workflowTimestamp() },
+      `${request.poNumber || "PO"} sent to supplier. Cost is now pending invoice check.`,
+    );
+  }
+
+  async function receivePurchaseOrderInvoice(request: PurchaseRequest) {
+    await patchPurchaseRequest(
+      request.id,
+      {
+        status: "Received",
+        actualCost: request.actualCost ?? request.estimatedCost,
+        invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
+        invoiceReceivedAt: workflowTimestamp(),
+        receivedAt: workflowTimestamp(),
+      },
+      `${request.poNumber || "PO"} received. Cost is now actual against ${request.costCentreName ?? "the cost centre"}.`,
+    );
   }
 
   function documentFilesForRecord(recordType: RecordDocumentScope, recordRef: string): RecordDocumentFile[] {
@@ -18365,6 +18441,16 @@ export default function Dashboard() {
                       ) : null}
                       {(() => {
                         const totals = estimateCostCentreTotals(selectedCostCentre);
+                        const centrePurchaseRequests = selectedJobPurchaseRequests.filter((request) =>
+                          request.costCentreId === selectedCostCentre.id ||
+                          (!request.costCentreId && request.costCentreName === selectedCostCentre.name),
+                        );
+                        const pendingPoCost = centrePurchaseRequests
+                          .filter((request) => !["Received", "Rejected"].includes(request.status))
+                          .reduce((total, request) => total + request.estimatedCost, 0);
+                        const actualPoCost = centrePurchaseRequests
+                          .filter((request) => request.status === "Received")
+                          .reduce((total, request) => total + (request.actualCost ?? request.estimatedCost), 0);
                         return (
                           <>
                             <div className="hubflo-total-strip">
@@ -18383,6 +18469,14 @@ export default function Dashboard() {
                               <div>
                                 <span>Margin</span>
                                 <strong>{totals.margin}%</strong>
+                              </div>
+                              <div>
+                                <span>Pending PO cost</span>
+                                <strong>{currency(pendingPoCost)}</strong>
+                              </div>
+                              <div>
+                                <span>Actual PO cost</span>
+                                <strong>{currency(actualPoCost)}</strong>
                               </div>
                             </div>
 
@@ -18416,6 +18510,8 @@ export default function Dashboard() {
                             <div className="simpro-breakdown-table">
                               <div><span>Materials Cost</span><strong>{currency(totals.materialCost)}</strong></div>
                               <div><span>Resources Cost</span><strong>{currency(totals.labourCost)}</strong></div>
+                              <div><span>Pending Supplier POs</span><strong>{currency(pendingPoCost)}</strong></div>
+                              <div><span>Received Supplier Invoices</span><strong>{currency(actualPoCost)}</strong></div>
                               <div className="nested"><span>Labour</span><strong>{currency(totals.labourCost)}</strong></div>
                               <div><span>Materials Markup</span><strong>{currency(totals.materialSell - totals.materialCost)}</strong></div>
                               <div><span>Resources Markup</span><strong>{currency(totals.labourSell - totals.labourCost)}</strong></div>
@@ -19125,18 +19221,23 @@ export default function Dashboard() {
                         (!request.costCentreId && request.costCentreName === selectedCostCentre.name),
                       );
                       const requestedCount = costCentrePurchaseRequests.filter((request) => request.status === "Requested").length;
-                      const approvedCount = costCentrePurchaseRequests.filter((request) => request.status === "Approved" || request.status === "Issued").length;
+                      const pendingCostTotal = costCentrePurchaseRequests
+                        .filter((request) => !["Received", "Rejected"].includes(request.status))
+                        .reduce((total, request) => total + request.estimatedCost, 0);
+                      const actualCostTotal = costCentrePurchaseRequests
+                        .filter((request) => request.status === "Received")
+                        .reduce((total, request) => total + (request.actualCost ?? request.estimatedCost), 0);
                       return (
                         <>
                           <div className="simpro-parts-header">
                             <div>
                               <h2>Purchase orders</h2>
                               <h3>{selectedCostCentre.name}</h3>
-                              <span>Raise, approve and track supplier PO requests against this cost centre.</span>
+                              <span>Create supplier POs here so costs stay against this cost centre. Pending costs become actual once the supplier invoice is checked.</span>
                             </div>
                             <div className="simpro-parts-actions">
                               <button className="simpro-blue-button" type="button" onClick={() => openSelectedCostCentrePurchaseRequest(selectedCostCentre)}>
-                                RAISE PO
+                                CREATE PO
                               </button>
                             </div>
                           </div>
@@ -19148,19 +19249,19 @@ export default function Dashboard() {
                               <small>{selectedJob?.ref ?? "Job"} · {selectedCostCentre.name}</small>
                             </div>
                             <div>
-                              <span>Requested</span>
+                              <span>Engineer requests</span>
                               <strong>{requestedCount}</strong>
-                              <small>Waiting office approval</small>
+                              <small>Needs office decision</small>
                             </div>
                             <div>
-                              <span>Approved / issued</span>
-                              <strong>{approvedCount}</strong>
-                              <small>Ready for supplier</small>
+                              <span>Pending cost</span>
+                              <strong>{currency(pendingCostTotal)}</strong>
+                              <small>Sent / awaiting invoice</small>
                             </div>
                             <div>
-                              <span>Estimated cost</span>
-                              <strong>{currency(costCentrePurchaseRequests.reduce((total, request) => total + request.estimatedCost, 0))}</strong>
-                              <small>Against this cost centre</small>
+                              <span>Actual cost</span>
+                              <strong>{currency(actualCostTotal)}</strong>
+                              <small>Received invoices</small>
                             </div>
                           </div>
 
@@ -19170,12 +19271,19 @@ export default function Dashboard() {
                                 <article className="cost-centre-po-card" key={request.id}>
                                   <div>
                                     <span>{request.status}</span>
-                                    <strong>{request.supplier}</strong>
+                                    <strong>{request.poNumber ? `${request.poNumber} · ${request.supplier}` : request.supplier}</strong>
                                     <p>{request.item}</p>
-                                    <small>{request.reason || "No reason added"} · {request.createdAt}</small>
+                                    <small>
+                                      {request.reason || "No reason added"} · Est {currency(request.estimatedCost)}
+                                      {request.actualCost !== undefined ? ` · Actual ${currency(request.actualCost)}` : ""}
+                                      {request.invoiceFileName ? ` · ${request.invoiceFileName}` : ""}
+                                    </small>
                                   </div>
                                   <div className="cost-centre-po-actions">
-                                    <b>{request.poNumber || currency(request.estimatedCost)}</b>
+                                    <b>{request.poNumber || "Draft PO"}</b>
+                                    <button className="secondary-button" type="button" onClick={() => editPurchaseRequest(request)}>
+                                      Edit
+                                    </button>
                                     {request.status === "Requested" ? (
                                       <>
                                         <button className="secondary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Rejected")}>
@@ -19186,13 +19294,23 @@ export default function Dashboard() {
                                         </button>
                                       </>
                                     ) : null}
+                                    {request.status === "Draft" || request.status === "Approved" || request.status === "Issued" ? (
+                                      <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(request)}>
+                                        Send to supplier
+                                      </button>
+                                    ) : null}
+                                    {request.status === "Pending cost" ? (
+                                      <button className="primary-button" type="button" onClick={() => receivePurchaseOrderInvoice(request)}>
+                                        Mark invoice received
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </article>
                               ))
                             ) : (
                               <div className="supplier-request-empty">
                                 <strong>No POs raised for this cost centre yet.</strong>
-                                <span>Use Raise PO here so the supplier cost lands against {selectedCostCentre.name}, not just the overall job.</span>
+                                <span>Use Create PO here so supplier materials and invoices land against {selectedCostCentre.name}, not just the overall job.</span>
                               </div>
                             )}
                           </div>
@@ -22478,16 +22596,29 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Purchase orders</span>
-                <h2 id="create-po-title">Request purchase order</h2>
+                <h2 id="create-po-title">{editingPurchaseRequestId ? "Edit purchase order" : "Create purchase order"}</h2>
               </div>
-              <button aria-label="Close purchase request" onClick={() => setShowPurchaseForm(false)}>
+              <button aria-label="Close purchase order" onClick={closePurchaseForm}>
                 <ChevronRight size={19} />
               </button>
             </div>
             <div className="form-body two-column-form">
               <label>
                 Supplier
-                <input value={purchaseDraft.supplier} onChange={(event) => setPurchaseDraft((current) => ({ ...current, supplier: event.target.value }))} />
+                <input
+                  list="po-supplier-directory"
+                  value={purchaseDraft.supplier}
+                  onChange={(event) => applySupplierDirectoryMatch(event.target.value)}
+                />
+                <datalist id="po-supplier-directory">
+                  {supplierDirectory.map((supplier) => (
+                    <option key={supplier.name} value={supplier.name}>{supplier.account}</option>
+                  ))}
+                </datalist>
+              </label>
+              <label>
+                Supplier email
+                <input value={purchaseDraft.supplierEmail} onChange={(event) => setPurchaseDraft((current) => ({ ...current, supplierEmail: event.target.value }))} />
               </label>
               <label>
                 Cost centre
@@ -22502,28 +22633,39 @@ export default function Dashboard() {
                 </select>
               </label>
               <label>
-                Estimated cost
+                PO / estimated cost
                 <div className="money-input">
                   <span>£</span>
                   <input value={purchaseDraft.estimatedCost} onChange={(event) => setPurchaseDraft((current) => ({ ...current, estimatedCost: event.target.value }))} />
                 </div>
               </label>
+              <label>
+                Actual invoice cost
+                <div className="money-input">
+                  <span>£</span>
+                  <input value={purchaseDraft.actualCost} onChange={(event) => setPurchaseDraft((current) => ({ ...current, actualCost: event.target.value }))} />
+                </div>
+              </label>
               <label className="full-field">
-                Item
+                Materials / order details
                 <input value={purchaseDraft.item} onChange={(event) => setPurchaseDraft((current) => ({ ...current, item: event.target.value }))} />
               </label>
               <label className="full-field">
-                Reason
+                Office note
                 <input value={purchaseDraft.reason} onChange={(event) => setPurchaseDraft((current) => ({ ...current, reason: event.target.value }))} />
+              </label>
+              <label className="full-field">
+                Supplier invoice reference / file
+                <input value={purchaseDraft.invoiceFileName} onChange={(event) => setPurchaseDraft((current) => ({ ...current, invoiceFileName: event.target.value }))} />
               </label>
             </div>
             <div className="form-footer">
-              <button className="secondary-button" onClick={() => setShowPurchaseForm(false)}>
+              <button className="secondary-button" onClick={closePurchaseForm}>
                 Cancel
               </button>
               <button className="primary-button" onClick={createPurchaseRequest}>
                 <Plus size={16} />
-                Send request
+                {editingPurchaseRequestId ? "Save PO" : "Create PO"}
               </button>
             </div>
           </section>

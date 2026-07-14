@@ -9,7 +9,15 @@ import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 export type JobHealth = "red" | "amber" | "green" | "blue";
 export type QuoteStatus = "Draft" | "Sent" | "Accepted" | "Declined" | "Converted" | "Lost";
-export type PurchaseStatus = "Requested" | "Approved" | "Issued" | "Rejected";
+export type PurchaseStatus =
+  | "Requested"
+  | "Draft"
+  | "Pending cost"
+  | "Received"
+  | "Disputed"
+  | "Approved"
+  | "Issued"
+  | "Rejected";
 
 export interface Job {
   id: string;
@@ -71,12 +79,19 @@ export interface PurchaseRequest {
   costCentreName?: string;
   requestedBy: string;
   supplier: string;
+  supplierEmail?: string;
   item: string;
   estimatedCost: number;
+  actualCost?: number;
   reason: string;
   status: PurchaseStatus;
   poNumber: string;
   createdAt: string;
+  sentAt?: string;
+  invoiceFileName?: string;
+  invoiceReceivedAt?: string;
+  receivedAt?: string;
+  updatedAt?: string;
 }
 
 export interface WorkflowStore {
@@ -326,6 +341,22 @@ function nextPoNumber(existing: PurchaseRequest[]): string {
     .filter((value) => Number.isFinite(value));
   const next = Math.max(1000, ...existingNumbers) + 1;
   return `PO-${next}`;
+}
+
+function workflowStoreTimestamp() {
+  return new Date()
+    .toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+    .replace(",", "");
+}
+
+function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
+  return ["Approved", "Issued", "Pending cost", "Received"].includes(status);
 }
 
 export function getJobs(): Job[] {
@@ -599,15 +630,24 @@ export function getPurchaseRequests(): PurchaseRequest[] {
   return clone(getStore().purchaseRequests);
 }
 
+export type PurchaseRequestInput = Omit<PurchaseRequest, "id" | "status" | "poNumber"> & {
+  status?: PurchaseStatus;
+  poNumber?: string;
+};
+
 export function createPurchaseRequest(
-  payload: Omit<PurchaseRequest, "id" | "status" | "poNumber">,
+  payload: PurchaseRequestInput,
 ): PurchaseRequest {
+  const store = getStore();
+  const status = payload.status ?? "Requested";
   const created: PurchaseRequest = {
     id: crypto.randomUUID(),
-    status: "Requested",
-    poNumber: "",
+    status,
+    poNumber: payload.poNumber ?? (purchaseStatusIssuesPoNumber(status) ? nextPoNumber(store.purchaseRequests) : ""),
     createdAt: payload.createdAt,
+    updatedAt: payload.updatedAt ?? payload.createdAt,
     estimatedCost: payload.estimatedCost,
+    actualCost: payload.actualCost,
     item: payload.item,
     jobId: payload.jobId,
     jobRef: payload.jobRef,
@@ -616,16 +656,20 @@ export function createPurchaseRequest(
     reason: payload.reason,
     requestedBy: payload.requestedBy,
     supplier: payload.supplier,
+    supplierEmail: payload.supplierEmail,
+    sentAt: payload.sentAt,
+    invoiceFileName: payload.invoiceFileName,
+    invoiceReceivedAt: payload.invoiceReceivedAt,
+    receivedAt: payload.receivedAt,
   };
-  const store = getStore();
   store.purchaseRequests = [created, ...store.purchaseRequests];
   persistWorkflowStore();
   return clone(created);
 }
 
-export function updatePurchaseRequestStatus(
+export function updatePurchaseRequest(
   id: string,
-  status: Exclude<PurchaseRequest["status"], "Requested">,
+  patch: Partial<Omit<PurchaseRequest, "id">>,
 ): PurchaseRequest | null {
   const store = getStore();
   const index = store.purchaseRequests.findIndex((request) => request.id === id);
@@ -633,16 +677,36 @@ export function updatePurchaseRequestStatus(
 
   const current = store.purchaseRequests[index];
   if (!current) return null;
-  const generatedPoNumber =
-    status === "Approved" && current.status === "Requested"
-      ? nextPoNumber(store.purchaseRequests)
-      : current.poNumber;
+
+  const status = patch.status ?? current.status;
+  const poNumber =
+    patch.poNumber ??
+    (current.poNumber || (purchaseStatusIssuesPoNumber(status) ? nextPoNumber(store.purchaseRequests) : ""));
+  const actualCost =
+    patch.actualCost ??
+    (status === "Received" && current.actualCost === undefined
+      ? patch.estimatedCost ?? current.estimatedCost
+      : current.actualCost);
+  const timestamp = workflowStoreTimestamp();
 
   store.purchaseRequests[index] = {
     ...current,
+    ...patch,
     status,
-    poNumber: generatedPoNumber,
+    poNumber,
+    actualCost,
+    sentAt: patch.sentAt ?? (status === "Pending cost" ? current.sentAt ?? timestamp : current.sentAt),
+    invoiceReceivedAt: patch.invoiceReceivedAt ?? (status === "Received" ? current.invoiceReceivedAt ?? timestamp : current.invoiceReceivedAt),
+    receivedAt: patch.receivedAt ?? (status === "Received" ? current.receivedAt ?? timestamp : current.receivedAt),
+    updatedAt: patch.updatedAt ?? timestamp,
   };
   persistWorkflowStore();
   return clone(store.purchaseRequests[index]);
+}
+
+export function updatePurchaseRequestStatus(
+  id: string,
+  status: Exclude<PurchaseRequest["status"], "Requested">,
+): PurchaseRequest | null {
+  return updatePurchaseRequest(id, { status });
 }

@@ -243,6 +243,19 @@ function firstCostCentreForJob(job: Job) {
   return "General works";
 }
 
+function defaultCostCentreOptionsForJob(jobId: string, jobRef: string, fallbackName: string): EngineerCostCentreOption[] {
+  const scope = `${jobId} ${jobRef} ${fallbackName}`.toLowerCase();
+  if (jobId === "job-1048" || /bathroom|shower|cubicle|strip out|joinery|1st fix|2nd fix/.test(scope)) {
+    return [
+      { id: `${jobId}-strip-out`, name: "Strip out works", templateName: "Bathroom refurbishment" },
+      { id: `${jobId}-joinery`, name: "Joinery work", templateName: "Bathroom refurbishment" },
+      { id: `${jobId}-first-fix`, name: "1st fix works", templateName: "General plumbing" },
+      { id: `${jobId}-second-fix`, name: "2nd fix works", templateName: "General plumbing" },
+    ];
+  }
+  return [{ id: `${jobId}-cost-centre`, name: fallbackName, templateName: fallbackName }];
+}
+
 function requirementsForCostCentre(job: Job, costCentre: string): EngineerRequirement[] {
   const scope = `${costCentre} ${job.description}`.toLowerCase();
   if (/boiler/.test(scope) && /service/.test(scope)) {
@@ -278,7 +291,7 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
   const fallbackCostCentre = firstCostCentreForJob(job);
   const costCentres = hubCostCentres.length
     ? hubCostCentres
-    : [{ id: `${job.id}-cost-centre`, name: fallbackCostCentre, templateName: fallbackCostCentre }];
+    : defaultCostCentreOptionsForJob(job.id, job.ref, fallbackCostCentre);
   const costCentre = costCentres[0]?.name ?? fallbackCostCentre;
   const engineerName = job.manager || "Engineer TBC";
   const status: EngineerJobStatus = /parts/i.test(job.status)
@@ -331,14 +344,18 @@ function withCostCentreOptions(item: EngineerScheduleItem): EngineerScheduleItem
       costCentres: hubCostCentres,
     };
   }
+  const fallbackCostCentres = defaultCostCentreOptionsForJob(item.jobId, item.jobRef, item.costCentre);
+  if (fallbackCostCentres.length > 1) {
+    return {
+      ...item,
+      costCentre: fallbackCostCentres[0]?.name ?? item.costCentre,
+      costCentres: fallbackCostCentres,
+    };
+  }
   if (item.costCentres?.length) return item;
   return {
     ...item,
-    costCentres: [{
-      id: `${item.scheduleId}-cost-centre`,
-      name: item.costCentre,
-      templateName: item.costCentre,
-    }],
+    costCentres: fallbackCostCentres,
   };
 }
 
@@ -365,12 +382,12 @@ export function getEngineerScheduleItem(scheduleId: string) {
 export function getOfficePoRequests(): EngineerPoRequest[] {
   const coreRequests: EngineerPoRequest[] = getPurchaseRequests().map((request) => {
     const job = getJobs().find((item) => item.id === request.jobId);
-    const status: EngineerPoRequest["status"] =
-      request.status === "Requested"
-        ? "New"
-        : request.status === "Issued"
-          ? "Ordered"
-          : request.status;
+    const status: EngineerPoRequest["status"] = (() => {
+      if (request.status === "Rejected") return "Rejected";
+      if (request.status === "Approved") return "Approved";
+      if (request.status === "Issued" || request.status === "Received" || request.status === "Pending cost") return "Ordered";
+      return "New";
+    })();
     return {
       id: request.id,
       engineerName: request.requestedBy,

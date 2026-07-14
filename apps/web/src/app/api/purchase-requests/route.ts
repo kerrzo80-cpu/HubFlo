@@ -4,6 +4,7 @@ import {
   createPurchaseRequest,
   getPurchaseRequests,
   type PurchaseRequest,
+  type PurchaseRequestInput,
 } from "@/lib/workflow-data";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -41,16 +42,23 @@ export async function POST(request: Request) {
     costCentreName: payload.costCentreName,
     requestedBy: payload.requestedBy ?? "Engineer",
     supplier: payload.supplier,
+    supplierEmail: payload.supplierEmail,
     item: payload.item,
     estimatedCost: payload.estimatedCost ?? 0,
+    actualCost: payload.actualCost,
     reason: payload.reason ?? "",
+    status: payload.status ?? "Requested",
+    poNumber: payload.poNumber,
     createdAt: payload.createdAt ?? new Date().toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
     }),
-    poNumber: "",
-    status: "Requested",
-  } as Omit<PurchaseRequest, "id" | "status" | "poNumber">);
+    sentAt: payload.sentAt,
+    invoiceFileName: payload.invoiceFileName,
+    invoiceReceivedAt: payload.invoiceReceivedAt,
+    receivedAt: payload.receivedAt,
+    updatedAt: payload.updatedAt,
+  } as PurchaseRequestInput);
 
   return NextResponse.json(created, { status: 201 });
 }
