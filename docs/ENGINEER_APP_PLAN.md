@@ -159,6 +159,32 @@ Examples for boiler installation:
 - Controls photo.
 - Materials/parts used.
 
+## Paper job sheet / carbon-book workflow
+
+Engineers may still use a simple paper/carbon-book style job sheet on site because it is familiar and quick. HubFlo should support this rather than forcing every detail into small mobile forms.
+
+Paper sheet should capture:
+
+- Actual start and finish time.
+- Break minutes where relevant.
+- Tick-box stop/go evidence.
+- Equipment booked out.
+- Equipment booked back in.
+- Materials or parts used.
+- Short site notes and defects.
+- Signature or handover notes later.
+
+Workflow:
+
+- Engineer takes a photo of the sheet inside the job.
+- If OpenAI is connected, NeXa reads the photo and extracts structured fields.
+- If the scan is unclear, the engineer can type helper text and the office still receives the sheet image/name for review.
+- Extracted actual hours create a time entry for office review.
+- Equipment movements are logged against the job.
+- Checklist ticks can satisfy matching stop/go items.
+- Core job actuals are updated with actual start, finish, duration and labour cost variance.
+- Office can compare planned hours versus actual hours to see whether the job made more or less margin than expected.
+
 If required items are missing, block completion with a clear message:
 
 `Cannot mark complete yet. Missing: flue photo, service notes.`

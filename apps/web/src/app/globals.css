@@ -9883,6 +9883,51 @@ h1 {
   padding: 0 14px;
 }
 
+.engineer-paper-form {
+  display: grid;
+  gap: 12px;
+}
+
+.engineer-paper-summary {
+  background: linear-gradient(135deg, #f8fdff 0%, #edf9fd 100%);
+  border: 1px solid rgba(88, 172, 213, 0.24);
+  border-radius: 18px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.engineer-paper-summary div {
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(88, 172, 213, 0.18);
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+}
+
+.engineer-paper-summary span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.engineer-paper-summary strong {
+  color: var(--blue-deep);
+  font-size: 18px;
+}
+
+.engineer-paper-summary p {
+  color: var(--muted);
+  font-weight: 800;
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .engineer-mini-list,
 .engineer-review-feed {
   display: grid;

@@ -1,3 +1,6 @@
+import { getHubDetailState } from "@/lib/hub-detail-store";
+import { getJobs, type Job } from "@/lib/workflow-data";
+
 export type EngineerJobStatus = "Scheduled" | "Needs parts" | "Ready to complete";
 export type RequirementStatus = "done" | "missing" | "optional";
 
@@ -19,6 +22,7 @@ export type EngineerScheduleItem = {
   scheduleId: string;
   jobId: string;
   jobRef: string;
+  source: "seed" | "core";
   costCentre: string;
   engineerId: string;
   engineerName: string;
@@ -37,6 +41,9 @@ export type EngineerScheduleItem = {
   attachments: EngineerAttachment[];
   requirements: EngineerRequirement[];
   photos: EngineerAttachment[];
+  plannedHours?: number;
+  actualHours?: number;
+  labourCostVariance?: number;
 };
 
 export type OfficeAlertType =
@@ -78,6 +85,7 @@ export const engineerSchedule: EngineerScheduleItem[] = [
     scheduleId: "sched-1048-am",
     jobId: "job-1048",
     jobRef: "J-1048",
+    source: "seed",
     costCentre: "Boiler service",
     engineerId: "eng-scott",
     engineerName: "Chris Lawson",
@@ -113,6 +121,7 @@ export const engineerSchedule: EngineerScheduleItem[] = [
     scheduleId: "sched-1052-mid",
     jobId: "job-1052",
     jobRef: "J-1052",
+    source: "seed",
     costCentre: "Commercial heating",
     engineerId: "eng-scott",
     engineerName: "Chris Lawson",
@@ -145,6 +154,7 @@ export const engineerSchedule: EngineerScheduleItem[] = [
     scheduleId: "sched-1039-pm",
     jobId: "job-1039",
     jobRef: "J-1039",
+    source: "seed",
     costCentre: "Reactive heating",
     engineerId: "eng-scott",
     engineerName: "Chris Lawson",
@@ -169,12 +179,132 @@ export const engineerSchedule: EngineerScheduleItem[] = [
   },
 ];
 
-export function getEngineerSchedule(engineerId = "eng-scott") {
-  return engineerSchedule.filter((item) => item.engineerId === engineerId);
+function addHours(time: string, hours: number) {
+  const [hourRaw, minuteRaw] = time.split(":");
+  const hour = Number(hourRaw) || 0;
+  const minute = Number(minuteRaw) || 0;
+  const totalMinutes = hour * 60 + minute + Math.round(hours * 60);
+  const nextHour = Math.floor(totalMinutes / 60) % 24;
+  const nextMinute = totalMinutes % 60;
+  return `${String(nextHour).padStart(2, "0")}:${String(nextMinute).padStart(2, "0")}`;
+}
+
+function normaliseName(value: string) {
+  return value.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+}
+
+function engineerIdForName(name: string) {
+  const normalised = normaliseName(name);
+  if (normalised.includes("brian")) return "eng-brian";
+  if (normalised.includes("errol")) return "eng-errol";
+  if (normalised.includes("chris")) return "eng-chris";
+  return `eng-${normalised.split(" ")[0] || "field"}`;
+}
+
+function firstCostCentreForJob(job: Job) {
+  const hubState = getHubDetailState();
+  const centresByJob = (hubState.jobCostCentres ?? {}) as Record<string, unknown>;
+  const centres = Array.isArray(centresByJob[job.id]) ? centresByJob[job.id] as Array<Record<string, unknown>> : [];
+  const firstName = centres.find((centre) => typeof centre.name === "string")?.name;
+  if (typeof firstName === "string" && firstName.trim()) return firstName.trim();
+  if (/boiler.*service|service.*boiler/i.test(job.description)) return "Boiler service";
+  if (/boiler.*replace|replace.*boiler|boiler change|installation/i.test(job.description)) return "Boiler replacement";
+  if (/bathroom|shower|cubicle/i.test(job.description)) return "Bathroom refurbishment";
+  if (/heating|radiator|controls/i.test(job.description)) return "Heating works";
+  return "General works";
+}
+
+function requirementsForCostCentre(job: Job, costCentre: string): EngineerRequirement[] {
+  const scope = `${costCentre} ${job.description}`.toLowerCase();
+  if (/boiler/.test(scope) && /service/.test(scope)) {
+    return [
+      { id: `req-${job.id}-appliance-photo`, label: "Appliance photo", status: "missing" },
+      { id: `req-${job.id}-data-plate`, label: "Data plate / serial number", status: "missing" },
+      { id: `req-${job.id}-flue-analyser`, label: "Flue/analyser evidence", status: "missing" },
+      { id: `req-${job.id}-service-notes`, label: "Service notes / defects", status: "missing" },
+    ];
+  }
+
+  if (/boiler/.test(scope) && /replace|replacement|install|change/.test(scope)) {
+    return [
+      { id: `req-${job.id}-existing-boiler`, label: "Existing boiler photos", status: "missing" },
+      { id: `req-${job.id}-new-boiler`, label: "New boiler data plate / serial number", status: "missing" },
+      { id: `req-${job.id}-flue-photo`, label: "Flue route photo", status: "missing" },
+      { id: `req-${job.id}-commissioning`, label: "Commissioning / benchmark details", status: "missing" },
+      { id: `req-${job.id}-completion`, label: "Completion photos", status: "missing" },
+    ];
+  }
+
+  return [
+    { id: `req-${job.id}-arrival`, label: "Arrival / before photo", status: "missing" },
+    { id: `req-${job.id}-work-note`, label: "Engineer work note", status: "missing" },
+    { id: `req-${job.id}-completion`, label: "Completion / issue photo", status: "optional" },
+  ];
+}
+
+function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
+  if (!job.scheduledDate || !job.scheduledTime) return null;
+  const durationHours = job.scheduledDurationHours ?? 4;
+  const costCentre = firstCostCentreForJob(job);
+  const engineerName = job.manager || "Engineer TBC";
+  const status: EngineerJobStatus = /parts/i.test(job.status)
+    ? "Needs parts"
+    : /complete|invoice/i.test(job.status)
+      ? "Ready to complete"
+      : "Scheduled";
+
+  return {
+    scheduleId: `core-${job.id}`,
+    jobId: job.id,
+    jobRef: job.ref,
+    source: "core",
+    costCentre,
+    engineerId: engineerIdForName(engineerName),
+    engineerName,
+    date: job.scheduledDate,
+    start: job.scheduledTime,
+    end: addHours(job.scheduledTime, durationHours),
+    durationHours,
+    plannedHours: durationHours,
+    actualHours: job.actualDurationHours,
+    labourCostVariance: job.labourCostVariance,
+    customer: job.customer,
+    contactName: job.customer,
+    phone: "+441224000000",
+    address: job.site,
+    description: job.description,
+    accessNotes: job.next || "Check office notes before attending.",
+    officeNotes: [
+      job.sourceQuoteRef ? `Converted from ${job.sourceQuoteRef}.` : "",
+      job.actualDurationHours ? `Latest sheet actual: ${job.actualDurationHours.toFixed(2)} hrs.` : "",
+    ].filter(Boolean),
+    status,
+    attachments: [
+      { id: `att-${job.id}-job`, name: `${job.ref} job pack`, type: "PDF", uploadedBy: "Office", uploadedAt: "Core" },
+    ],
+    photos: [],
+    requirements: requirementsForCostCentre(job, costCentre),
+  };
+}
+
+function liveEngineerSchedule() {
+  return getJobs()
+    .map(coreJobToEngineerScheduleItem)
+    .filter((item): item is EngineerScheduleItem => Boolean(item));
+}
+
+export function getEngineerSchedule(engineerId?: string) {
+  const liveItems = liveEngineerSchedule();
+  const liveJobIds = new Set(liveItems.map((item) => item.jobId));
+  const items = [
+    ...liveItems,
+    ...engineerSchedule.filter((item) => !liveJobIds.has(item.jobId)),
+  ];
+  return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
 }
 
 export function getEngineerScheduleItem(scheduleId: string) {
-  return engineerSchedule.find((item) => item.scheduleId === scheduleId);
+  return getEngineerSchedule().find((item) => item.scheduleId === scheduleId);
 }
 
 export function getOfficePoRequests(): EngineerPoRequest[] {

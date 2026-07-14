@@ -24,6 +24,11 @@ export interface Job {
   manager: string;
   scheduledDate?: string;
   scheduledTime?: string;
+  scheduledDurationHours?: number;
+  actualStartTime?: string;
+  actualEndTime?: string;
+  actualDurationHours?: number;
+  labourCostVariance?: number;
   status: string;
   health: JobHealth;
   value: number;

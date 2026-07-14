@@ -31,6 +31,7 @@ type EngineerWorkflowAction =
   | "add_report"
   | "request_po"
   | "add_time_entry"
+  | "scan_paper_sheet"
   | "set_outcome";
 
 type EngineerJobWorkspaceProps = {
@@ -46,6 +47,8 @@ function initialWorkflow(job: EngineerScheduleItem): EngineerJobWorkflow {
     reports: [],
     poRequests: [],
     timeEntries: [],
+    equipmentEntries: [],
+    paperSheetScans: [],
     officeReview: [],
   };
 }
@@ -77,6 +80,7 @@ function statusCopy(status: EngineerJobWorkflow["requirements"][number]["status"
 
 export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps) {
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const paperInputRef = useRef<HTMLInputElement>(null);
   const [workflow, setWorkflow] = useState<EngineerJobWorkflow>(() => initialWorkflow(job));
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -91,6 +95,11 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
   const [timeEnd, setTimeEnd] = useState(job.end);
   const [timeBreak, setTimeBreak] = useState("0");
   const [timeNote, setTimeNote] = useState("");
+  const [paperFiles, setPaperFiles] = useState<Array<{ name: string; dataUrl: string }>>([]);
+  const [paperSheetText, setPaperSheetText] = useState("");
+  const [paperActualStart, setPaperActualStart] = useState("");
+  const [paperActualEnd, setPaperActualEnd] = useState("");
+  const [paperBreak, setPaperBreak] = useState("0");
   const [outcomeNote, setOutcomeNote] = useState("");
 
   const missingRequirements = useMemo(
@@ -99,6 +108,8 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
   );
   const canComplete = missingRequirements.length === 0;
   const latestOfficeReview = workflow.officeReview.slice(0, 5);
+  const latestPaperScan = workflow.paperSheetScans?.[0];
+  const equipmentEntries = workflow.equipmentEntries ?? [];
 
   useEffect(() => {
     let cancelled = false;
@@ -167,6 +178,53 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
       { fileNames },
       `${fileNames.length} photo${fileNames.length === 1 ? "" : "s"} sent to office review.`,
     );
+  }
+
+  function fileToDataUrl(file: File) {
+    return new Promise<{ name: string; dataUrl: string }>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, dataUrl: String(reader.result ?? "") });
+      reader.onerror = () => reject(new Error("Unable to read sheet photo"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadPaperSheet(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []).slice(0, 3);
+    event.target.value = "";
+    if (!files.length) return;
+    try {
+      const nextFiles = await Promise.all(files.map(fileToDataUrl));
+      setPaperFiles(nextFiles);
+      setNotice(`${nextFiles.length} paper sheet photo${nextFiles.length === 1 ? "" : "s"} ready to scan.`);
+      setError("");
+    } catch (sheetError) {
+      setError(sheetError instanceof Error ? sheetError.message : "Unable to read sheet photo");
+    }
+  }
+
+  async function scanPaperSheet(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!paperFiles.length && !paperSheetText.trim() && !paperActualStart && !paperActualEnd) return;
+    const saved = await runWorkflowAction(
+      "scan_paper_sheet",
+      {
+        fileNames: paperFiles.map((file) => file.name),
+        images: paperFiles.map((file) => file.dataUrl),
+        sheetText: paperSheetText,
+        actualStart: paperActualStart,
+        actualEnd: paperActualEnd,
+        breakMinutes: Number(paperBreak) || 0,
+      },
+      "Paper sheet scanned. Time, equipment and checklist items sent to office review.",
+    );
+    if (saved) {
+      setPaperFiles([]);
+      setPaperSheetText("");
+      setPaperActualStart("");
+      setPaperActualEnd("");
+      setPaperBreak("0");
+    }
   }
 
   async function submitNote(event: FormEvent<HTMLFormElement>) {
@@ -429,6 +487,90 @@ export default function EngineerJobWorkspace({ job }: EngineerJobWorkspaceProps)
                 <span>{entry.status}</span>
                 <strong>{entry.start}-{entry.end}</strong>
                 <p>{entry.note || "No exception note added."}</p>
+                <small>{entry.createdBy} · {entry.createdAt}</small>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
+
+      <section className="engineer-panel">
+        <div className="engineer-section-heading compact">
+          <div>
+            <p className="eyebrow">Paper job sheet</p>
+            <h2>Scan carbon-book sheet</h2>
+          </div>
+          <ClipboardCheck size={21} />
+        </div>
+        <p className="engineer-muted-copy">
+          Take a photo of the tick-box sheet. NeXa reads actual time, equipment booked out/in, checklist ticks and site notes, then writes the actual hours back against the job for office review.
+        </p>
+        <form className="engineer-paper-form" onSubmit={(event) => void scanPaperSheet(event)}>
+          <div className="engineer-upload-row">
+            <button className="engineer-secondary-action" type="button" onClick={() => paperInputRef.current?.click()} disabled={isSaving}>
+              <UploadCloud size={17} />
+              Add sheet photo
+            </button>
+            <input ref={paperInputRef} type="file" accept="image/*" capture="environment" multiple onChange={(event) => void uploadPaperSheet(event)} hidden />
+            <span>{paperFiles.length ? paperFiles.map((file) => file.name).join(", ") : "No paper sheet selected"}</span>
+          </div>
+          <div className="engineer-time-form">
+            <label>
+              Actual start optional
+              <input type="time" value={paperActualStart} onChange={(event) => setPaperActualStart(event.target.value)} />
+            </label>
+            <label>
+              Actual finish optional
+              <input type="time" value={paperActualEnd} onChange={(event) => setPaperActualEnd(event.target.value)} />
+            </label>
+            <label>
+              Break mins
+              <input inputMode="numeric" value={paperBreak} onChange={(event) => setPaperBreak(event.target.value)} />
+            </label>
+            <label className="full">
+              Anything the scan may miss
+              <textarea
+                value={paperSheetText}
+                onChange={(event) => setPaperSheetText(event.target.value)}
+                placeholder="Example: 08:00-10:00, booked out analyser, returned analyser, data plate ticked, service notes complete."
+                rows={3}
+              />
+            </label>
+            <button className="full" type="submit" disabled={isSaving || (!paperFiles.length && !paperSheetText.trim() && !paperActualStart && !paperActualEnd)}>
+              <FileText size={17} /> Scan sheet and update actuals
+            </button>
+          </div>
+        </form>
+
+        {latestPaperScan ? (
+          <div className="engineer-paper-summary">
+            <div>
+              <span>Planned</span>
+              <strong>{latestPaperScan.plannedHours.toFixed(2)} hrs</strong>
+            </div>
+            <div>
+              <span>Actual</span>
+              <strong>{latestPaperScan.actualHours.toFixed(2)} hrs</strong>
+            </div>
+            <div>
+              <span>Variance</span>
+              <strong>{latestPaperScan.varianceHours >= 0 ? "+" : ""}{latestPaperScan.varianceHours.toFixed(2)} hrs</strong>
+            </div>
+            <div>
+              <span>Cost movement</span>
+              <strong>{latestPaperScan.labourCostVariance < 0 ? "-" : "+"}£{Math.abs(latestPaperScan.labourCostVariance).toFixed(2)}</strong>
+            </div>
+            <p>{latestPaperScan.schedulerAdjustment}</p>
+          </div>
+        ) : null}
+
+        {equipmentEntries.length ? (
+          <div className="engineer-mini-list">
+            {equipmentEntries.slice(0, 5).map((entry) => (
+              <article key={entry.id}>
+                <span>{entry.direction}</span>
+                <strong>{entry.item}</strong>
+                <p>{entry.condition}</p>
                 <small>{entry.createdBy} · {entry.createdAt}</small>
               </article>
             ))}
