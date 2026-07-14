@@ -4149,6 +4149,22 @@ function roundCurrencyValue(value: number) {
   return Math.round(value * 100) / 100;
 }
 
+function quoteValueFromCostCentres(centres: QuoteCostCentre[] | undefined) {
+  if (!centres?.length) return null;
+  return roundCurrencyValue(
+    centres.reduce(
+      (total, centre) => total + centre.lines.reduce((lineTotal, line) => lineTotal + quoteLineSell(line), 0),
+      0,
+    ),
+  );
+}
+
+function quoteWithCostCentreValue(quote: Quote, centresByQuote: Record<string, QuoteCostCentre[]>) {
+  const nextValue = quoteValueFromCostCentres(centresByQuote[quote.id]);
+  if (nextValue === null || Math.abs((quote.value ?? 0) - nextValue) < 0.01) return quote;
+  return { ...quote, value: nextValue };
+}
+
 function numberFromSetting(value: string | number | undefined, fallback = 0) {
   if (typeof value === "string" && value.trim() === "") return fallback;
   const parsed = Number(value);
@@ -4687,6 +4703,7 @@ export default function Dashboard() {
   const hasAppliedHubSetupState = useRef(false);
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
+  const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
 
   const activeEmployee = useMemo(
@@ -5482,6 +5499,10 @@ export default function Dashboard() {
   }, [homeView, isDashboardCustomising]);
 
   useEffect(() => {
+    quoteCostCentresRef.current = quoteCostCentres;
+  }, [quoteCostCentres]);
+
+  useEffect(() => {
     const storedEmployees = normalizeEmployeeCards(
       safeLoadStoredJson(STORAGE_KEYS.employees, normalizeEmployeeCards(seedEmployees)),
     );
@@ -5504,8 +5525,9 @@ export default function Dashboard() {
     setClientSites(safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
     setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? seedClients[0]?.id ?? "");
+    const storedQuoteCostCentres = safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
     setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, demoJobs));
-    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes));
+    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes).map((quote) => quoteWithCostCentreValue(quote, storedQuoteCostCentres)));
     setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
     setPurchaseRequests(safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
     setInvoices(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices));
@@ -5537,7 +5559,7 @@ export default function Dashboard() {
       ),
     );
     setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
-    setQuoteCostCentres(safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {}));
+    setQuoteCostCentres(storedQuoteCostCentres);
     setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
@@ -5589,7 +5611,7 @@ export default function Dashboard() {
 
         if (quotesResponse.ok) {
           const nextQuotes = (await quotesResponse.json()) as Quote[];
-          setQuotes(nextQuotes);
+          setQuotes(nextQuotes.map((quote) => quoteWithCostCentreValue(quote, quoteCostCentresRef.current)));
         } else {
           hasOfflineFallback = true;
         }
@@ -5768,16 +5790,10 @@ export default function Dashboard() {
     setQuotes((current) => {
       let changed = false;
       const nextQuotes = current.map((quote) => {
-        const centres = quoteCostCentres[quote.id];
-        if (!centres?.length) return quote;
-
-        const nextValue = roundCurrencyValue(
-          centres.reduce((total, centre) => total + centre.lines.reduce((lineTotal, line) => lineTotal + quoteLineSell(line), 0), 0),
-        );
-        if (Math.abs((quote.value ?? 0) - nextValue) < 0.01) return quote;
-
+        const refreshed = quoteWithCostCentreValue(quote, quoteCostCentres);
+        if (refreshed === quote) return quote;
         changed = true;
-        return { ...quote, value: nextValue };
+        return refreshed;
       });
 
       return changed ? nextQuotes : current;

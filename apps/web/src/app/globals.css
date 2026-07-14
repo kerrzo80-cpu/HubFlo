@@ -18824,3 +18824,14 @@ body {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Core locks body scrolling so its workspace/sidebar can stay fixed. Standalone
+   Field pages need their own scroll container, especially when saved as a PWA. */
+.engineer-shell {
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding-bottom: max(28px, env(safe-area-inset-bottom)) !important;
+  -webkit-overflow-scrolling: touch;
+}
