@@ -14559,7 +14559,7 @@ body {
 
 .quote-directory .quote-row {
   grid-template-columns:
-    minmax(230px, 1.45fr) minmax(320px, 1.75fr) minmax(92px, 0.62fr)
+    minmax(230px, 1.35fr) minmax(260px, 1.75fr) minmax(84px, max-content)
     88px minmax(156px, 1fr) 44px;
   min-height: 58px;
   padding: 8px 14px;
@@ -14614,29 +14614,39 @@ body {
 }
 
 .record-address-cell {
+  align-self: stretch;
   color: #253545;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   font-size: 12px;
   font-weight: 650;
-  gap: 2px;
+  gap: 3px;
+  justify-content: center;
   line-height: 1.35;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .record-address-cell strong {
   color: #17212b;
+  display: block;
   font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .record-address-cell small {
   color: #536575;
+  display: block;
   font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: normal;
 }
 
 .quote-directory .manager {
