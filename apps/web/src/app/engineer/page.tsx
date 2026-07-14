@@ -42,40 +42,8 @@ export default function EngineerTodayPage() {
           <ClipboardCheck size={17} /> Open next job
         </Link>
         <Link href="/engineer/time-check" className="engineer-secondary-action"><Clock3 size={17} /> Quick time check</Link>
-        <Link href="/office/alerts" className="engineer-secondary-action"><FileText size={17} /> Office alerts</Link>
+        <Link href="/" className="engineer-secondary-action"><FileText size={17} /> Open Core</Link>
         <a href="tel:+441224000000" className="engineer-secondary-action">Call office</a>
-      </section>
-
-      <section className="engineer-flow-panel" aria-label="Engineer workflow tools">
-        <div className="engineer-section-heading">
-          <div>
-            <p className="eyebrow">Live workflow</p>
-            <h2>Simple engineer tabs</h2>
-          </div>
-          <ClipboardCheck size={22} />
-        </div>
-        <div className="engineer-flow-card-grid">
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#stop-go` : "/engineer"} className="engineer-flow-card">
-            <ClipboardCheck size={19} />
-            <strong>Stop / go</strong>
-            <span>Boiler service and replacement checks appear from the cost centre type.</span>
-          </Link>
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#time-entry` : "/engineer/time-check"} className="engineer-flow-card">
-            <Clock3 size={19} />
-            <strong>Timesheets</strong>
-            <span>Confirm scheduled time or amend it before the office reviews job cost.</span>
-          </Link>
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#site-evidence` : "/engineer"} className="engineer-flow-card">
-            <Camera size={19} />
-            <strong>Photos / info</strong>
-            <span>See job pack details, upload photos, add notes and send reports.</span>
-          </Link>
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#po-request` : "/engineer"} className="engineer-flow-card">
-            <ShoppingCart size={19} />
-            <strong>PO request</strong>
-            <span>Choose the live job and cost centre before requesting supplier support.</span>
-          </Link>
-        </div>
       </section>
 
       <section className="engineer-timeline" aria-label="Scheduled jobs">

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import { getEngineerScheduleItem, type EngineerAttachment, type EngineerRequirement } from "@/lib/engineer-data";
-import { getHubDetailState } from "@/lib/hub-detail-store";
+import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
-import { updateJob } from "@/lib/workflow-data";
+import { createPurchaseRequest, updateJob } from "@/lib/workflow-data";
 
 export type EngineerWorkflowNote = {
   id: string;
@@ -272,6 +272,23 @@ function addReviewItem(
   ];
 }
 
+function appendCoreJobDeliveryEvent(item: Record<string, unknown>) {
+  const hubState = getHubDetailState();
+  const currentEvents = Array.isArray(hubState.jobDeliveryEvents) ? hubState.jobDeliveryEvents : [];
+  saveHubDetailState({
+    ...hubState,
+    jobDeliveryEvents: [
+      {
+        id: makeId("delivery"),
+        createdAt: nowLabel(),
+        source: "Engineer app",
+        ...item,
+      },
+      ...currentEvents,
+    ],
+  });
+}
+
 export function getEngineerJobWorkflow(scheduleId: string) {
   return clone(normaliseWorkflow(getMutableWorkflow(scheduleId)));
 }
@@ -466,8 +483,33 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
     const supplier = input.payload.supplier.trim() || "Supplier TBC";
     const note = input.payload.note.trim();
     const costCentreName = input.payload.costCentreName?.trim() || job?.costCentre || "Cost centre TBC";
+    let corePurchaseRequestId = "";
+    if (job?.jobId && job.jobRef) {
+      const coreRequest = createPurchaseRequest({
+        jobId: job.jobId,
+        jobRef: job.jobRef,
+        costCentreId: input.payload.costCentreId?.trim(),
+        costCentreName,
+        requestedBy: createdBy,
+        supplier,
+        item: note || "Engineer requested supplier / PO support.",
+        estimatedCost: 0,
+        reason: note || `Requested from engineer app for ${costCentreName}.`,
+        createdAt,
+      });
+      corePurchaseRequestId = coreRequest.id;
+      appendCoreJobDeliveryEvent({
+        jobId: job.jobId,
+        jobRef: job.jobRef,
+        kind: "po",
+        actor: createdBy,
+        summary: `${supplier} PO request raised for ${costCentreName}.`,
+        status: "Requested",
+        costValue: 0,
+      });
+    }
     const request: EngineerWorkflowPoRequest = {
-      id: makeId("engineer-po"),
+      id: corePurchaseRequestId || makeId("engineer-po"),
       supplier,
       note,
       jobRef: input.payload.jobRef?.trim() || job?.jobRef,
@@ -488,11 +530,13 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   }
 
   if (input.action === "add_time_entry") {
+    const breakMinutes = Math.max(0, Number(input.payload.breakMinutes ?? 0) || 0);
+    const actualHours = hoursBetween(input.payload.start, input.payload.end, breakMinutes);
     const entry: EngineerWorkflowTimeEntry = {
       id: makeId("engineer-time"),
       start: input.payload.start,
       end: input.payload.end,
-      breakMinutes: Math.max(0, Number(input.payload.breakMinutes ?? 0) || 0),
+      breakMinutes,
       note: input.payload.note?.trim() ?? "",
       createdBy,
       createdAt,
@@ -500,6 +544,32 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       source: "Manual",
     };
     workflow.timeEntries = [entry, ...workflow.timeEntries];
+    if (job?.jobId && actualHours > 0) {
+      const plannedHours = job.durationHours ?? 0;
+      const varianceHours = Number((actualHours - plannedHours).toFixed(2));
+      const labourCostRate = engineerLabourCostRate();
+      const labourCostVariance = Number((varianceHours * labourCostRate).toFixed(2));
+      updateJob(job.jobId, {
+        actualStartTime: entry.start,
+        actualEndTime: entry.end,
+        actualDurationHours: actualHours,
+        labourCostVariance,
+        next: varianceHours === 0
+          ? "Engineer timesheet matched schedule."
+          : varianceHours < 0
+            ? `Engineer timesheet shows ${Math.abs(varianceHours).toFixed(2)} hrs under schedule.`
+            : `Engineer timesheet shows ${varianceHours.toFixed(2)} hrs over schedule.`,
+      });
+      appendCoreJobDeliveryEvent({
+        jobId: job.jobId,
+        jobRef: job.jobRef,
+        kind: "timesheet",
+        actor: createdBy,
+        summary: entry.note || `${actualHours.toFixed(2)} hrs submitted by ${createdBy}.`,
+        hours: actualHours,
+        status: "Submitted",
+      });
+    }
     addReviewItem(workflow, {
       type: "Time",
       title: `${entry.start}-${entry.end}`,

@@ -2571,6 +2571,20 @@ h1 {
   line-height: 1.4;
 }
 
+.job-readiness-item .job-readiness-actions {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.job-readiness-actions button {
+  min-height: 36px;
+  white-space: nowrap;
+}
+
 .job-review-check.checked {
   background: #f2faf5;
   border-color: #bddfcb;

@@ -2987,6 +2987,7 @@ const blankPurchaseRequest = {
   item: "",
   estimatedCost: "",
   reason: "",
+  costCentreId: "",
 };
 
 const blankEmployeeProfileTemplate: EmployeeProfileDraft = {
@@ -12690,6 +12691,9 @@ export default function Dashboard() {
   async function createPurchaseRequest() {
     const job = selectedJob ?? jobs[0];
     if (!job || !purchaseDraft.supplier.trim() || !purchaseDraft.item.trim()) return;
+    const selectedCostCentre =
+      selectedJobEstimateCostCentres.find((centre) => centre.id === purchaseDraft.costCentreId) ??
+      selectedJobEstimateCostCentres[0];
 
     try {
       const response = await fetch("/api/purchase-requests", {
@@ -12698,6 +12702,8 @@ export default function Dashboard() {
         body: JSON.stringify({
           jobId: job.id,
           jobRef: job.ref,
+          costCentreId: selectedCostCentre?.id,
+          costCentreName: selectedCostCentre?.name,
           requestedBy: activeEmployee?.name ?? "Engineer",
           supplier: purchaseDraft.supplier.trim(),
           item: purchaseDraft.item.trim(),
@@ -12725,6 +12731,15 @@ export default function Dashboard() {
     } catch {
       setSectionError("Unable to submit PO request right now.");
     }
+  }
+
+  function openSelectedJobPurchaseRequest() {
+    const firstCostCentre = selectedJobEstimateCostCentres[0];
+    setPurchaseDraft((current) => ({
+      ...current,
+      costCentreId: current.costCentreId || firstCostCentre?.id || "",
+    }));
+    setShowPurchaseForm(true);
   }
 
   async function markPurchaseRequestStatus(id: string, status: PurchaseStatus) {
@@ -17622,9 +17637,14 @@ export default function Dashboard() {
                           <strong>Variations and purchase orders are controlled from cost centres</strong>
                           <small>Use Cost Centre List for variation quotes. Use Parts & Labour / Supplier request inside a cost centre to request supplier prices, upload the quote and issue a PO number against that cost centre.</small>
                         </div>
-                        <button className="secondary-button" type="button" onClick={() => setActiveJobTab("cost-centres")}>
-                          Open cost centres
-                        </button>
+                        <div className="job-readiness-actions">
+                          <button className="secondary-button" type="button" onClick={() => setActiveJobTab("cost-centres")}>
+                            Open cost centres
+                          </button>
+                          <button className="primary-button" type="button" onClick={openSelectedJobPurchaseRequest}>
+                            Raise PO
+                          </button>
+                        </div>
                       </div>
 
                       <div className="job-delivery-grid">
@@ -22386,6 +22406,18 @@ export default function Dashboard() {
               <label>
                 Supplier
                 <input value={purchaseDraft.supplier} onChange={(event) => setPurchaseDraft((current) => ({ ...current, supplier: event.target.value }))} />
+              </label>
+              <label>
+                Cost centre
+                <select
+                  value={purchaseDraft.costCentreId}
+                  onChange={(event) => setPurchaseDraft((current) => ({ ...current, costCentreId: event.target.value }))}
+                >
+                  <option value="">No cost centre selected</option>
+                  {selectedJobEstimateCostCentres.map((centre) => (
+                    <option key={centre.id} value={centre.id}>{centre.name}</option>
+                  ))}
+                </select>
               </label>
               <label>
                 Estimated cost

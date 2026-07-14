@@ -1,5 +1,5 @@
 import { getHubDetailState } from "@/lib/hub-detail-store";
-import { getJobs, type Job } from "@/lib/workflow-data";
+import { getJobs, getPurchaseRequests, type Job } from "@/lib/workflow-data";
 
 export type EngineerJobStatus = "Scheduled" | "Needs parts" | "Ready to complete";
 export type RequirementStatus = "done" | "missing" | "optional";
@@ -347,7 +347,28 @@ export function getEngineerScheduleItem(scheduleId: string) {
 }
 
 export function getOfficePoRequests(): EngineerPoRequest[] {
-  return engineerSchedule
+  const coreRequests: EngineerPoRequest[] = getPurchaseRequests().map((request) => {
+    const job = getJobs().find((item) => item.id === request.jobId);
+    const status: EngineerPoRequest["status"] =
+      request.status === "Requested"
+        ? "New"
+        : request.status === "Issued"
+          ? "Ordered"
+          : request.status;
+    return {
+      id: request.id,
+      engineerName: request.requestedBy,
+      jobRef: request.jobRef,
+      customer: job?.customer ?? request.jobRef,
+      address: job?.site ?? "Address TBC",
+      supplier: request.supplier,
+      note: request.reason || request.item,
+      requestedAt: request.createdAt,
+      status,
+    };
+  });
+
+  const seedRequests: EngineerPoRequest[] = engineerSchedule
     .filter((item) => item.status === "Needs parts")
     .map((item) => ({
       id: `po-${item.scheduleId}`,
@@ -362,6 +383,8 @@ export function getOfficePoRequests(): EngineerPoRequest[] {
       requestedAt: "Today 09:24",
       status: "New",
     }));
+
+  return [...coreRequests, ...seedRequests];
 }
 
 export function getOfficeAlerts(): OfficeAlert[] {
