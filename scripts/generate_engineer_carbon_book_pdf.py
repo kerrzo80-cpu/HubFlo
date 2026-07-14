@@ -153,22 +153,22 @@ def build_pdf():
     y -= sec_h + 5
 
     sec_h = 124
-    content_top = section(pdf, "3. Stop / Go Checklist", "Tick all that apply. Missing required items block completion.", x, y - sec_h, usable, sec_h)
+    content_top = section(pdf, "3. Van Consumables Used", "Tick van stock used. Office prices and charges against the job.", x, y - sec_h, usable, sec_h)
     check_w = (usable - 10) / 3
     checks = [
-        "Before photos taken", "Risk assessment complete", "Isolation confirmed",
-        "Appliance photo", "Existing boiler serial no.", "New boiler serial no.",
-        "Flue / analyser evidence", "Benchmark / commissioning", "Controls photo",
-        "Defects recorded / none", "Completion photos taken", "Customer handover done",
+        "PTFE / jointing tape", "Sealant / silicone", "Solder / flux",
+        "Pipe clips / brackets", "Screws / plugs", "Cable ties / fixings",
+        "Copper fittings", "Plastic fittings", "Compression fittings",
+        "Waste fittings", "Pipe insulation", "Inhibitor / cleaner",
     ]
     for idx, label in enumerate(checks):
         row = idx // 3
         col_idx = idx % 3
         check_item(pdf, label, x + 5 + col_idx * check_w, content_top - 18 - row * 15, check_w, 14)
     thirds = (usable - 10) / 3
-    for i, label in enumerate(["Existing boiler make / model", "Existing serial no.", "Existing location"]):
+    for i, label in enumerate(["Other consumables used", "Approx qty / length", "Charge to cost centre"]):
         field(pdf, x + 5 + i * thirds, y - sec_h + 25, thirds, 18, label)
-    for i, label in enumerate(["New boiler make / model", "New serial no.", "New location"]):
+    for i, label in enumerate(["Engineer note", "Replenish van stock?", "Office checked"]):
         field(pdf, x + 5 + i * thirds, y - sec_h + 5, thirds, 18, label)
     y -= sec_h + 5
 
@@ -178,8 +178,8 @@ def build_pdf():
     y -= sec_h + 5
 
     sec_h = 62
-    content_top = section(pdf, "5. Materials / Parts Used", "AI fields: materials, qty, supplier, PO required", x, y - sec_h, usable, sec_h)
-    table(pdf, x + 5, y - sec_h + 5, usable - 10, content_top - (y - sec_h + 9), ["Item / description", "Qty", "Van stock / supplier", "PO required?", "Cost centre"], 4, [4, 0.8, 2.3, 1.4, 1.7])
+    content_top = section(pdf, "5. Parts / Materials Used", "Non-van-stock items or chargeable parts needing office review", x, y - sec_h, usable, sec_h)
+    table(pdf, x + 5, y - sec_h + 5, usable - 10, content_top - (y - sec_h + 9), ["Item / description", "Qty", "Supplier / van stock", "PO required?", "Cost centre"], 4, [4, 0.8, 2.3, 1.4, 1.7])
     y -= sec_h + 5
 
     sec_h = 88
