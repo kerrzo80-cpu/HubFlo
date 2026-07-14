@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Errol Watson Group Engineer Carbon Book Template</title>
+  <style>
+    :root {
+      --ewg-blue: #41a6cf;
+      --ewg-navy: #12384a;
+      --line: #1f3947;
+      --muted: #5b7280;
+      --paper: #ffffff;
+      --soft: #eef8fc;
+    }
+
+    @page {
+      size: A4;
+      margin: 8mm;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #d9e8ee;
+      color: var(--line);
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 9.6px;
+      line-height: 1.25;
+      margin: 0;
+      padding: 18px;
+    }
+
+    .sheet {
+      background: var(--paper);
+      border: 1.5px solid var(--line);
+      box-shadow: 0 14px 34px rgba(18, 56, 74, 0.16);
+      margin: 0 auto;
+      min-height: 281mm;
+      padding: 8mm;
+      width: 210mm;
+    }
+
+    .top {
+      align-items: stretch;
+      border-bottom: 2px solid var(--line);
+      display: grid;
+      gap: 8px;
+      grid-template-columns: 38mm 1fr 52mm;
+      padding-bottom: 6px;
+    }
+
+    .logo-box {
+      align-items: center;
+      border: 1px solid var(--ewg-blue);
+      display: flex;
+      justify-content: center;
+      min-height: 28mm;
+      padding: 4px;
+    }
+
+    .logo-box img {
+      display: block;
+      max-height: 24mm;
+      max-width: 33mm;
+      object-fit: contain;
+    }
+
+    h1 {
+      color: var(--ewg-navy);
+      font-size: 21px;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      margin: 0 0 4px;
+      text-transform: uppercase;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .copy-row {
+      display: grid;
+      gap: 4px;
+      margin-top: 7px;
+    }
+
+    .copy-row span,
+    .scan-instruction {
+      align-items: center;
+      display: flex;
+      gap: 5px;
+      font-weight: 700;
+    }
+
+    .box {
+      border: 1px solid var(--line);
+      display: inline-block;
+      height: 10px;
+      width: 10px;
+    }
+
+    .header-grid {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(2, 1fr);
+    }
+
+    .field {
+      border: 1px solid var(--line);
+      min-height: 16px;
+      padding: 2px 4px;
+    }
+
+    .field strong {
+      color: var(--ewg-navy);
+      display: block;
+      font-size: 7.5px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .scan-instruction {
+      background: var(--soft);
+      border: 1px solid var(--ewg-blue);
+      color: var(--ewg-navy);
+      font-size: 8px;
+      justify-content: center;
+      margin-top: 4px;
+      min-height: 18px;
+      padding: 3px;
+      text-align: center;
+    }
+
+    .section {
+      border: 1px solid var(--line);
+      margin-top: 6px;
+    }
+
+    .section-title {
+      align-items: center;
+      background: var(--ewg-navy);
+      color: #fff;
+      display: flex;
+      font-size: 9px;
+      font-weight: 900;
+      justify-content: space-between;
+      letter-spacing: 0.08em;
+      min-height: 18px;
+      padding: 3px 6px;
+      text-transform: uppercase;
+    }
+
+    .section-title em {
+      color: #d9f4ff;
+      font-size: 7px;
+      font-style: normal;
+      letter-spacing: 0.04em;
+      text-transform: none;
+    }
+
+    .content {
+      padding: 5px;
+    }
+
+    .grid-2 {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .grid-3 {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .grid-4 {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    .line-box {
+      border: 1px solid var(--line);
+      min-height: 19px;
+      padding: 2px 4px;
+    }
+
+    .line-box.tall {
+      min-height: 42px;
+    }
+
+    label,
+    .label {
+      color: var(--ewg-navy);
+      display: block;
+      font-size: 7.5px;
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .checks {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: repeat(3, 1fr);
+    }
+
+    .check {
+      align-items: center;
+      border: 1px solid var(--line);
+      display: flex;
+      gap: 5px;
+      min-height: 19px;
+      padding: 2px 4px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid var(--line);
+      height: 18px;
+      padding: 2px 4px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      color: var(--ewg-navy);
+      font-size: 7px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .time-table th,
+    .time-table td {
+      height: 20px;
+      text-align: center;
+    }
+
+    .note-lines {
+      background-image: repeating-linear-gradient(to bottom, transparent 0, transparent 17px, rgba(31, 57, 71, 0.35) 18px);
+      border: 1px solid var(--line);
+      min-height: 52px;
+      padding: 4px;
+    }
+
+    .signatures {
+      display: grid;
+      gap: 4px;
+      grid-template-columns: 1fr 1fr 36mm;
+    }
+
+    .signature-box {
+      border: 1px solid var(--line);
+      min-height: 28px;
+      padding: 3px 4px;
+    }
+
+    .footer {
+      align-items: center;
+      color: var(--muted);
+      display: flex;
+      font-size: 7px;
+      justify-content: space-between;
+      margin-top: 5px;
+    }
+
+    .carbon-note {
+      border: 1px dashed var(--ewg-blue);
+      color: var(--ewg-navy);
+      font-size: 7.5px;
+      font-weight: 700;
+      margin-top: 5px;
+      padding: 4px;
+    }
+
+    @media print {
+      body {
+        background: #fff;
+        padding: 0;
+      }
+
+      .sheet {
+        border: 0;
+        box-shadow: none;
+        min-height: auto;
+        padding: 0;
+        width: auto;
+      }
+
+      .section-title,
+      th {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="sheet">
+    <header class="top">
+      <div class="logo-box">
+        <img src="../../apps/web/public/ewg-logo.png" alt="Errol Watson Group">
+      </div>
+
+      <div>
+        <h1>Engineer Job Sheet</h1>
+        <div class="subtitle">Carbon book template · scan into NeXa Engineer after completion</div>
+        <div class="copy-row">
+          <span><i class="box"></i> Office copy</span>
+          <span><i class="box"></i> Engineer copy</span>
+          <span><i class="box"></i> Customer copy where required</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="header-grid">
+          <div class="field"><strong>Job ref</strong></div>
+          <div class="field"><strong>Cost centre</strong></div>
+          <div class="field"><strong>Date</strong></div>
+          <div class="field"><strong>Engineer</strong></div>
+          <div class="field"><strong>Quote / PO ref</strong></div>
+          <div class="field"><strong>Sheet no.</strong></div>
+        </div>
+        <div class="scan-instruction">Photo/scan this full page into NeXa Engineer before leaving site</div>
+      </div>
+    </header>
+
+    <section class="section">
+      <div class="section-title">1. Customer / Site <em>AI fields: client, address, contact, job description</em></div>
+      <div class="content">
+        <div class="grid-4">
+          <div class="line-box"><label>Client / customer</label></div>
+          <div class="line-box"><label>Contact name</label></div>
+          <div class="line-box"><label>Telephone</label></div>
+          <div class="line-box"><label>Access / keys</label></div>
+        </div>
+        <div class="grid-2" style="margin-top:4px;">
+          <div class="line-box"><label>Site address</label></div>
+          <div class="line-box"><label>Parking / permits / hazards</label></div>
+        </div>
+        <div class="line-box tall" style="margin-top:4px;"><label>Works instructed / job description</label></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">2. Time Sheet <em>AI fields: scheduled time, actual time, break, travel, variance</em></div>
+      <div class="content">
+        <table class="time-table">
+          <thead>
+            <tr>
+              <th>Scheduled start</th>
+              <th>Scheduled finish</th>
+              <th>Actual arrival</th>
+              <th>Actual start</th>
+              <th>Actual finish</th>
+              <th>Break mins</th>
+              <th>Travel mins</th>
+              <th>Actual labour hrs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="checks" style="margin-top:4px;">
+          <div class="check"><i class="box"></i> Time same as schedule</div>
+          <div class="check"><i class="box"></i> Time under schedule</div>
+          <div class="check"><i class="box"></i> Time over schedule</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">3. Stop / Go Checklist <em>Tick all that apply. Missing required items block completion.</em></div>
+      <div class="content">
+        <div class="checks">
+          <div class="check"><i class="box"></i> Before photos taken</div>
+          <div class="check"><i class="box"></i> Risk assessment complete</div>
+          <div class="check"><i class="box"></i> Isolation confirmed</div>
+          <div class="check"><i class="box"></i> Appliance photo</div>
+          <div class="check"><i class="box"></i> Existing boiler serial no.</div>
+          <div class="check"><i class="box"></i> New boiler serial no.</div>
+          <div class="check"><i class="box"></i> Flue / analyser evidence</div>
+          <div class="check"><i class="box"></i> Benchmark / commissioning</div>
+          <div class="check"><i class="box"></i> Controls photo</div>
+          <div class="check"><i class="box"></i> Defects recorded / none</div>
+          <div class="check"><i class="box"></i> Completion photos taken</div>
+          <div class="check"><i class="box"></i> Customer handover done</div>
+        </div>
+        <div class="grid-3" style="margin-top:4px;">
+          <div class="line-box"><label>Existing boiler make / model</label></div>
+          <div class="line-box"><label>Existing serial no.</label></div>
+          <div class="line-box"><label>Existing location</label></div>
+          <div class="line-box"><label>New boiler make / model</label></div>
+          <div class="line-box"><label>New serial no.</label></div>
+          <div class="line-box"><label>New location</label></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">4. Equipment Book Out / Book In <em>AI fields: equipmentOut, equipmentIn, condition</em></div>
+      <div class="content">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:30%;">Equipment / plant</th>
+              <th>Booked out qty</th>
+              <th>Out condition</th>
+              <th>Booked in qty</th>
+              <th>In condition</th>
+              <th>Initials</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+            <tr><td></td><td></td><td></td><td></td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">5. Materials / Parts Used <em>AI fields: materials, qty, supplier, PO required</em></div>
+      <div class="content">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36%;">Item / description</th>
+              <th>Qty</th>
+              <th>Van stock / supplier</th>
+              <th>PO required?</th>
+              <th>Cost centre</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td></td><td></td><td></td><td><span class="box"></span> Yes <span class="box"></span> No</td><td></td></tr>
+            <tr><td></td><td></td><td></td><td><span class="box"></span> Yes <span class="box"></span> No</td><td></td></tr>
+            <tr><td></td><td></td><td></td><td><span class="box"></span> Yes <span class="box"></span> No</td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">6. Variations / Extra Works <em>Use before doing unquoted works where client approval is required.</em></div>
+      <div class="content">
+        <div class="checks">
+          <div class="check"><i class="box"></i> No variation</div>
+          <div class="check"><i class="box"></i> Variation required</div>
+          <div class="check"><i class="box"></i> Office contacted before proceeding</div>
+          <div class="check"><i class="box"></i> Customer approval required</div>
+          <div class="check"><i class="box"></i> Customer approved on site</div>
+          <div class="check"><i class="box"></i> Quote required before works</div>
+        </div>
+        <div class="grid-3" style="margin-top:4px;">
+          <div class="line-box"><label>Extra labour hrs</label></div>
+          <div class="line-box"><label>Extra materials</label></div>
+          <div class="line-box"><label>Approved by / time</label></div>
+        </div>
+        <div class="line-box tall" style="margin-top:4px;"><label>Variation description</label></div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-title">7. Outcome / Office Review <em>AI fields: outcome, notes, defects, rebook reason</em></div>
+      <div class="content">
+        <div class="checks">
+          <div class="check"><i class="box"></i> Complete</div>
+          <div class="check"><i class="box"></i> Needs parts</div>
+          <div class="check"><i class="box"></i> Needs rebooked</div>
+          <div class="check"><i class="box"></i> Could not access</div>
+          <div class="check"><i class="box"></i> Office review required</div>
+          <div class="check"><i class="box"></i> Ready to invoice</div>
+        </div>
+        <div class="note-lines" style="margin-top:4px;"><span class="label">Engineer notes / service report / defects / rebook reason</span></div>
+        <div class="signatures" style="margin-top:4px;">
+          <div class="signature-box"><label>Engineer signature</label></div>
+          <div class="signature-box"><label>Customer / site contact signature</label></div>
+          <div class="signature-box"><label>Date / time</label></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="carbon-note">
+      Printer note: suitable for A4 duplicate/triplicate carbonless books. Keep boxes and labels dark for OCR. Suggested paper sequence: white office copy, yellow engineer copy, pink customer copy.
+    </div>
+
+    <footer class="footer">
+      <span>Errol Watson Group · Engineer carbon book template · NeXa scan-ready v1</span>
+      <span>For office use: scan into job, review extracted actuals, approve time/equipment/materials</span>
+    </footer>
+  </main>
+</body>
+</html>
