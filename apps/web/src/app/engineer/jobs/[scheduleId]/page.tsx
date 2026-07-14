@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, MapPin, Phone } from "lucide-react";
-import { formatDuration, getEngineerScheduleItem, mapsUrl } from "@/lib/engineer-data";
+import { formatDuration, getEngineerSchedule, getEngineerScheduleItem, mapsUrl } from "@/lib/engineer-data";
 import EngineerJobWorkspace from "./EngineerJobWorkspace";
 
 export default async function EngineerJobDetailPage({ params }: { params: Promise<{ scheduleId: string }> }) {
   const { scheduleId } = await params;
   const job = getEngineerScheduleItem(scheduleId);
   if (!job) notFound();
+  const jobs = getEngineerSchedule(job.engineerId);
 
   return (
     <main className="engineer-shell job-detail-shell">
@@ -36,7 +37,7 @@ export default async function EngineerJobDetailPage({ params }: { params: Promis
         </div>
       </section>
 
-      <EngineerJobWorkspace job={job} />
+      <EngineerJobWorkspace job={job} jobs={jobs} />
     </main>
   );
 }

@@ -18,12 +18,19 @@ export type EngineerRequirement = {
   status: RequirementStatus;
 };
 
+export type EngineerCostCentreOption = {
+  id: string;
+  name: string;
+  templateName?: string;
+};
+
 export type EngineerScheduleItem = {
   scheduleId: string;
   jobId: string;
   jobRef: string;
   source: "seed" | "core";
   costCentre: string;
+  costCentres?: EngineerCostCentreOption[];
   engineerId: string;
   engineerName: string;
   date: string;
@@ -201,12 +208,26 @@ function engineerIdForName(name: string) {
   return `eng-${normalised.split(" ")[0] || "field"}`;
 }
 
-function firstCostCentreForJob(job: Job) {
+function costCentreOptionsFromHub(job: Job): EngineerCostCentreOption[] {
   const hubState = getHubDetailState();
   const centresByJob = (hubState.jobCostCentres ?? {}) as Record<string, unknown>;
   const centres = Array.isArray(centresByJob[job.id]) ? centresByJob[job.id] as Array<Record<string, unknown>> : [];
-  const firstName = centres.find((centre) => typeof centre.name === "string")?.name;
-  if (typeof firstName === "string" && firstName.trim()) return firstName.trim();
+  return centres
+    .flatMap((centre, index) => {
+      const name = typeof centre.name === "string" ? centre.name.trim() : "";
+      if (!name) return [];
+      const option: EngineerCostCentreOption = {
+        id: typeof centre.id === "string" && centre.id.trim() ? centre.id.trim() : `${job.id}-cost-centre-${index + 1}`,
+        name,
+        templateName: typeof centre.templateName === "string" ? centre.templateName : undefined,
+      };
+      return [option];
+    });
+}
+
+function firstCostCentreForJob(job: Job) {
+  const firstName = costCentreOptionsFromHub(job)[0]?.name;
+  if (firstName) return firstName;
   if (/boiler.*service|service.*boiler/i.test(job.description)) return "Boiler service";
   if (/boiler.*replace|replace.*boiler|boiler change|installation/i.test(job.description)) return "Boiler replacement";
   if (/bathroom|shower|cubicle/i.test(job.description)) return "Bathroom refurbishment";
@@ -245,7 +266,12 @@ function requirementsForCostCentre(job: Job, costCentre: string): EngineerRequir
 function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
   if (!job.scheduledDate || !job.scheduledTime) return null;
   const durationHours = job.scheduledDurationHours ?? 4;
-  const costCentre = firstCostCentreForJob(job);
+  const hubCostCentres = costCentreOptionsFromHub(job);
+  const fallbackCostCentre = firstCostCentreForJob(job);
+  const costCentres = hubCostCentres.length
+    ? hubCostCentres
+    : [{ id: `${job.id}-cost-centre`, name: fallbackCostCentre, templateName: fallbackCostCentre }];
+  const costCentre = costCentres[0]?.name ?? fallbackCostCentre;
   const engineerName = job.manager || "Engineer TBC";
   const status: EngineerJobStatus = /parts/i.test(job.status)
     ? "Needs parts"
@@ -259,6 +285,7 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
     jobRef: job.ref,
     source: "core",
     costCentre,
+    costCentres,
     engineerId: engineerIdForName(engineerName),
     engineerName,
     date: job.scheduledDate,
@@ -287,6 +314,18 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
   };
 }
 
+function withCostCentreOptions(item: EngineerScheduleItem): EngineerScheduleItem {
+  if (item.costCentres?.length) return item;
+  return {
+    ...item,
+    costCentres: [{
+      id: `${item.scheduleId}-cost-centre`,
+      name: item.costCentre,
+      templateName: item.costCentre,
+    }],
+  };
+}
+
 function liveEngineerSchedule() {
   return getJobs()
     .map(coreJobToEngineerScheduleItem)
@@ -299,7 +338,7 @@ export function getEngineerSchedule(engineerId?: string) {
   const items = [
     ...liveItems,
     ...engineerSchedule.filter((item) => !liveJobIds.has(item.jobId)),
-  ];
+  ].map(withCostCentreOptions);
   return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
 }
 

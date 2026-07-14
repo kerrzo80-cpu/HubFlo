@@ -9795,6 +9795,194 @@ h1 {
   color: var(--red);
 }
 
+.engineer-workspace-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.engineer-work-tabs {
+  background: #f6fbfd;
+  border: 1px solid rgba(88, 172, 213, 0.18);
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 8px;
+}
+
+.engineer-work-tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 14px;
+  color: var(--blue-deep);
+  display: grid;
+  font: inherit;
+  font-weight: 900;
+  gap: 4px;
+  justify-items: center;
+  min-height: 72px;
+  padding: 8px;
+  text-align: center;
+}
+
+.engineer-work-tab svg {
+  color: var(--blue);
+}
+
+.engineer-work-tab small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engineer-work-tab.active {
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(40, 126, 168, 0.12);
+}
+
+.engineer-tab-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.engineer-timesheet-prompt,
+.engineer-po-target-card,
+.engineer-outcome-card {
+  background: #f8fafb;
+  border: 1px solid var(--line-soft);
+  border-radius: 18px;
+  padding: 14px;
+}
+
+.engineer-timesheet-prompt {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.engineer-timesheet-prompt span,
+.engineer-po-target-card span {
+  color: var(--blue-deep);
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.engineer-timesheet-prompt strong,
+.engineer-po-target-card strong {
+  color: var(--ink);
+  display: block;
+  font-size: 17px;
+  margin-top: 3px;
+}
+
+.engineer-timesheet-prompt small,
+.engineer-po-target-card small {
+  color: var(--muted);
+  display: block;
+  font-weight: 800;
+  line-height: 1.35;
+  margin-top: 4px;
+}
+
+.engineer-timesheet-prompt button,
+.engineer-inline-actions button {
+  align-items: center;
+  background: var(--blue-deep);
+  border: 0;
+  border-radius: 15px;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 7px;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 14px;
+}
+
+.engineer-po-job-feed {
+  display: grid;
+  gap: 10px;
+}
+
+.engineer-po-job-button {
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 16px;
+  color: var(--ink);
+  display: grid;
+  gap: 4px;
+  padding: 13px;
+  text-align: left;
+}
+
+.engineer-po-job-button.active {
+  background: var(--blue-soft);
+  border-color: rgba(88, 172, 213, 0.42);
+  box-shadow: inset 4px 0 0 var(--blue);
+}
+
+.engineer-po-job-button span {
+  color: var(--blue-deep);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.engineer-po-job-button strong {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.engineer-po-job-button small {
+  color: var(--muted);
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.engineer-po-target-card {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+}
+
+.engineer-po-target-card svg {
+  color: var(--blue);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.engineer-inline-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.engineer-inline-actions button:nth-child(2) {
+  background: var(--amber);
+}
+
+.engineer-inline-actions button:nth-child(3) {
+  background: var(--charcoal-800);
+}
+
+.engineer-inline-actions button:nth-child(4) {
+  background: var(--red);
+}
+
+.engineer-inline-actions button:disabled,
+.engineer-timesheet-prompt button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .engineer-site-info-grid {
   display: grid;
   gap: 10px;
@@ -10725,6 +10913,19 @@ h1 {
   .engineer-upload-row,
   .engineer-form-grid,
   .engineer-time-form {
+    grid-template-columns: 1fr;
+  }
+
+  .engineer-work-tabs {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .engineer-work-tab {
+    min-height: 66px;
+  }
+
+  .engineer-timesheet-prompt,
+  .engineer-inline-actions {
     grid-template-columns: 1fr;
   }
 

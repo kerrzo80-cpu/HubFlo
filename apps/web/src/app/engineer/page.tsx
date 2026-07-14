@@ -27,8 +27,8 @@ export default function EngineerTodayPage() {
     <main className="engineer-shell">
       <section className="engineer-hero">
         <p className="eyebrow">Engineer app</p>
-        <h1>Field workflow</h1>
-        <p>Open each job to see the job pack, complete stop / go checks, upload photos and notes, request POs, enter time or scan the carbon-book sheet for office review.</p>
+        <h1>My jobs today</h1>
+        <p>Open a job, follow the cost-centre checklist, confirm your time, send photos or notes, and request POs against the right cost centre.</p>
         <div className="engineer-summary-grid">
           <div><strong>{jobs.length}</strong><span>Jobs</span></div>
           <div><strong>{formatDuration(totalHours)}</strong><span>Booked</span></div>
@@ -50,30 +50,30 @@ export default function EngineerTodayPage() {
         <div className="engineer-section-heading">
           <div>
             <p className="eyebrow">Live workflow</p>
-            <h2>What happens inside each job</h2>
+            <h2>Simple engineer tabs</h2>
           </div>
           <ClipboardCheck size={22} />
         </div>
         <div className="engineer-flow-card-grid">
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}` : "/engineer"} className="engineer-flow-card">
-            <FileText size={19} />
-            <strong>Job pack</strong>
-            <span>Works, access, office notes and documents.</span>
-          </Link>
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#site-evidence` : "/engineer"} className="engineer-flow-card">
-            <Camera size={19} />
-            <strong>Photos / reports</strong>
-            <span>Send notes, photos and reports to office review.</span>
+          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#stop-go` : "/engineer"} className="engineer-flow-card">
+            <ClipboardCheck size={19} />
+            <strong>Stop / go</strong>
+            <span>Boiler service and replacement checks appear from the cost centre type.</span>
           </Link>
           <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#time-entry` : "/engineer/time-check"} className="engineer-flow-card">
             <Clock3 size={19} />
             <strong>Timesheets</strong>
-            <span>Confirm actual hours against the schedule.</span>
+            <span>Confirm scheduled time or amend it before the office reviews job cost.</span>
           </Link>
-          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#paper-sheet` : "/engineer"} className="engineer-flow-card">
-            <ClipboardCheck size={19} />
-            <strong>Carbon sheet scan</strong>
-            <span>Photo the paper sheet so NeXa pulls time and ticks.</span>
+          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#site-evidence` : "/engineer"} className="engineer-flow-card">
+            <Camera size={19} />
+            <strong>Photos / info</strong>
+            <span>See job pack details, upload photos, add notes and send reports.</span>
+          </Link>
+          <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}#po-request` : "/engineer"} className="engineer-flow-card">
+            <ShoppingCart size={19} />
+            <strong>PO request</strong>
+            <span>Choose the live job and cost centre before requesting supplier support.</span>
           </Link>
         </div>
       </section>
@@ -114,10 +114,9 @@ export default function EngineerTodayPage() {
               </Link>
 
               <div className="engineer-job-actions">
-                <Link href={`/engineer/jobs/${job.scheduleId}`}><ClipboardCheck size={16} /> Workflow</Link>
+                <Link href={`/engineer/jobs/${job.scheduleId}#stop-go`}><ClipboardCheck size={16} /> Checklist</Link>
                 <Link href={`/engineer/jobs/${job.scheduleId}#site-evidence`}><Camera size={16} /> Photos</Link>
                 <Link href={`/engineer/jobs/${job.scheduleId}#time-entry`}><Clock3 size={16} /> Time</Link>
-                <Link href={`/engineer/jobs/${job.scheduleId}#paper-sheet`}><FileText size={16} /> Sheet</Link>
                 <a href={mapsUrl(job.address)} target="_blank" rel="noreferrer"><MapPin size={16} /> Maps</a>
                 <a href={`tel:${job.phone}`}><Phone size={16} /> Call</a>
                 <Link href={`/engineer/jobs/${job.scheduleId}#po-request`}><ShoppingCart size={16} /> PO</Link>

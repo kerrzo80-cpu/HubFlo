@@ -25,6 +25,9 @@ export type EngineerWorkflowPoRequest = {
   id: string;
   supplier: string;
   note: string;
+  jobRef?: string;
+  costCentreId?: string;
+  costCentreName?: string;
   createdBy: string;
   createdAt: string;
   status: "Office review" | "Approved" | "Ordered" | "Rejected";
@@ -149,6 +152,9 @@ export type EngineerWorkflowAction =
       payload: {
         supplier: string;
         note: string;
+        jobRef?: string;
+        costCentreId?: string;
+        costCentreName?: string;
         createdBy?: string;
       };
     }
@@ -459,10 +465,14 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   if (input.action === "request_po") {
     const supplier = input.payload.supplier.trim() || "Supplier TBC";
     const note = input.payload.note.trim();
+    const costCentreName = input.payload.costCentreName?.trim() || job?.costCentre || "Cost centre TBC";
     const request: EngineerWorkflowPoRequest = {
       id: makeId("engineer-po"),
       supplier,
       note,
+      jobRef: input.payload.jobRef?.trim() || job?.jobRef,
+      costCentreId: input.payload.costCentreId?.trim(),
+      costCentreName,
       createdBy,
       createdAt,
       status: "Office review",
@@ -470,8 +480,8 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
     workflow.poRequests = [request, ...workflow.poRequests];
     addReviewItem(workflow, {
       type: "PO request",
-      title: supplier,
-      detail: note || "Engineer requested supplier / PO support.",
+      title: `${supplier} · ${costCentreName}`,
+      detail: note || `Engineer requested supplier / PO support for ${costCentreName}.`,
       createdBy,
       createdAt,
     });
