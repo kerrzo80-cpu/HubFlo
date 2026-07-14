@@ -35,7 +35,6 @@ import {
   Wrench,
 } from "lucide-react";
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
-import { getOfficeAlerts, getOfficePoRequests } from "@/lib/engineer-data";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
 import {
   seedClients,
@@ -6512,8 +6511,21 @@ export default function Dashboard() {
     [jobDeliveryEvents, jobs],
   );
 
-  const officeAlerts = useMemo(() => getOfficeAlerts(), []);
-  const officePoRequests = useMemo(() => getOfficePoRequests(), []);
+  const officeAlerts = useMemo(
+    () => [
+      ...dashboardVariationApprovals.map(({ job }) => ({
+        id: `variation-${job.id}`,
+        type: "Variation detected" as const,
+        priority: "High" as const,
+      })),
+      ...overdueTimesheetJobs.map((job) => ({
+        id: `timesheet-${job.id}`,
+        type: "Stop/go missing" as const,
+        priority: "Medium" as const,
+      })),
+    ],
+    [dashboardVariationApprovals, overdueTimesheetJobs],
+  );
   const highPriorityOfficeAlerts = officeAlerts.filter((alert) => alert.priority === "High").length;
   const officeExceptionCards = useMemo(
     () => [
@@ -6534,7 +6546,7 @@ export default function Dashboard() {
       {
         label: "Parts / PO",
         title: "Engineer parts support",
-        detail: `${officePoRequests.length + pendingPORequests.length} supplier or PO requests need office action`,
+        detail: `${pendingPORequests.length} supplier or PO requests need office action`,
         tone: "amber",
         href: "/office/po-requests",
       },
@@ -6546,7 +6558,7 @@ export default function Dashboard() {
         href: "/office/whatsapp-pilot",
       },
     ],
-    [officeAlerts, officePoRequests.length, pendingPORequests.length],
+    [officeAlerts, pendingPORequests.length],
   );
 
   const leadSurveyBookings = useMemo(
