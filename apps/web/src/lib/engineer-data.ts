@@ -208,21 +208,29 @@ function engineerIdForName(name: string) {
   return `eng-${normalised.split(" ")[0] || "field"}`;
 }
 
-function costCentreOptionsFromHub(job: Job): EngineerCostCentreOption[] {
+function costCentreOptionFromRecord(jobId: string, centre: Record<string, unknown>, index: number): EngineerCostCentreOption | null {
+  const name = typeof centre.name === "string" ? centre.name.trim() : "";
+  if (!name) return null;
+  return {
+    id: typeof centre.id === "string" && centre.id.trim() ? centre.id.trim() : `${jobId}-cost-centre-${index + 1}`,
+    name,
+    templateName: typeof centre.templateName === "string" ? centre.templateName : undefined,
+  };
+}
+
+function costCentreOptionsFromHubJobId(jobId: string): EngineerCostCentreOption[] {
   const hubState = getHubDetailState();
   const centresByJob = (hubState.jobCostCentres ?? {}) as Record<string, unknown>;
-  const centres = Array.isArray(centresByJob[job.id]) ? centresByJob[job.id] as Array<Record<string, unknown>> : [];
+  const centres = Array.isArray(centresByJob[jobId]) ? centresByJob[jobId] as Array<Record<string, unknown>> : [];
   return centres
     .flatMap((centre, index) => {
-      const name = typeof centre.name === "string" ? centre.name.trim() : "";
-      if (!name) return [];
-      const option: EngineerCostCentreOption = {
-        id: typeof centre.id === "string" && centre.id.trim() ? centre.id.trim() : `${job.id}-cost-centre-${index + 1}`,
-        name,
-        templateName: typeof centre.templateName === "string" ? centre.templateName : undefined,
-      };
-      return [option];
+      const option = costCentreOptionFromRecord(jobId, centre, index);
+      return option ? [option] : [];
     });
+}
+
+function costCentreOptionsFromHub(job: Job): EngineerCostCentreOption[] {
+  return costCentreOptionsFromHubJobId(job.id);
 }
 
 function firstCostCentreForJob(job: Job) {
@@ -315,6 +323,14 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
 }
 
 function withCostCentreOptions(item: EngineerScheduleItem): EngineerScheduleItem {
+  const hubCostCentres = costCentreOptionsFromHubJobId(item.jobId);
+  if (hubCostCentres.length) {
+    return {
+      ...item,
+      costCentre: hubCostCentres[0]?.name ?? item.costCentre,
+      costCentres: hubCostCentres,
+    };
+  }
   if (item.costCentres?.length) return item;
   return {
     ...item,

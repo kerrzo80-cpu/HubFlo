@@ -476,7 +476,7 @@ type LeadTab = "details" | "survey" | "documents" | "logs";
 type JobDetailTab = "summary" | "cost-centres" | "documents" | "logs";
 type QuoteDetailTab = "setup" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
-type CostCentreTab = "summary" | "info" | "parts-labour" | "engineer-flow" | "options" | "schedule" | "assets";
+type CostCentreTab = "summary" | "info" | "parts-labour" | "po" | "engineer-flow" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
 type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour";
 type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour";
@@ -1524,6 +1524,7 @@ const jobCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "info", label: "Info" },
   { key: "parts-labour", label: "Parts & Labour" },
+  { key: "po", label: "POs" },
   { key: "engineer-flow", label: "Engineer Flow" },
   { key: "schedule", label: "Schedule" },
   { key: "assets", label: "Customer Assets" },
@@ -12733,11 +12734,10 @@ export default function Dashboard() {
     }
   }
 
-  function openSelectedJobPurchaseRequest() {
-    const firstCostCentre = selectedJobEstimateCostCentres[0];
+  function openSelectedCostCentrePurchaseRequest(centre: EstimateCostCentre) {
     setPurchaseDraft((current) => ({
       ...current,
-      costCentreId: current.costCentreId || firstCostCentre?.id || "",
+      costCentreId: centre.id,
     }));
     setShowPurchaseForm(true);
   }
@@ -17635,14 +17635,11 @@ export default function Dashboard() {
                         <span><FileText size={15} /></span>
                         <div>
                           <strong>Variations and purchase orders are controlled from cost centres</strong>
-                          <small>Use Cost Centre List for variation quotes. Use Parts & Labour / Supplier request inside a cost centre to request supplier prices, upload the quote and issue a PO number against that cost centre.</small>
+                          <small>Open the cost centre and use its POs tab so supplier costs land against the right section of the job.</small>
                         </div>
                         <div className="job-readiness-actions">
                           <button className="secondary-button" type="button" onClick={() => setActiveJobTab("cost-centres")}>
                             Open cost centres
-                          </button>
-                          <button className="primary-button" type="button" onClick={openSelectedJobPurchaseRequest}>
-                            Raise PO
                           </button>
                         </div>
                       </div>
@@ -19117,6 +19114,91 @@ export default function Dashboard() {
                         </div>
                       </>
                     ) : null}
+                  </section>
+                ) : null}
+
+                {activeCostCentreTab === "po" ? (
+                  <section className="simpro-parts-page cost-centre-po-page">
+                    {(() => {
+                      const costCentrePurchaseRequests = selectedJobPurchaseRequests.filter((request) =>
+                        request.costCentreId === selectedCostCentre.id ||
+                        (!request.costCentreId && request.costCentreName === selectedCostCentre.name),
+                      );
+                      const requestedCount = costCentrePurchaseRequests.filter((request) => request.status === "Requested").length;
+                      const approvedCount = costCentrePurchaseRequests.filter((request) => request.status === "Approved" || request.status === "Issued").length;
+                      return (
+                        <>
+                          <div className="simpro-parts-header">
+                            <div>
+                              <h2>Purchase orders</h2>
+                              <h3>{selectedCostCentre.name}</h3>
+                              <span>Raise, approve and track supplier PO requests against this cost centre.</span>
+                            </div>
+                            <div className="simpro-parts-actions">
+                              <button className="simpro-blue-button" type="button" onClick={() => openSelectedCostCentrePurchaseRequest(selectedCostCentre)}>
+                                RAISE PO
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="quote-build-summary-grid">
+                            <div>
+                              <span>Total POs</span>
+                              <strong>{costCentrePurchaseRequests.length}</strong>
+                              <small>{selectedJob?.ref ?? "Job"} · {selectedCostCentre.name}</small>
+                            </div>
+                            <div>
+                              <span>Requested</span>
+                              <strong>{requestedCount}</strong>
+                              <small>Waiting office approval</small>
+                            </div>
+                            <div>
+                              <span>Approved / issued</span>
+                              <strong>{approvedCount}</strong>
+                              <small>Ready for supplier</small>
+                            </div>
+                            <div>
+                              <span>Estimated cost</span>
+                              <strong>{currency(costCentrePurchaseRequests.reduce((total, request) => total + request.estimatedCost, 0))}</strong>
+                              <small>Against this cost centre</small>
+                            </div>
+                          </div>
+
+                          <div className="cost-centre-po-list">
+                            {costCentrePurchaseRequests.length ? (
+                              costCentrePurchaseRequests.map((request) => (
+                                <article className="cost-centre-po-card" key={request.id}>
+                                  <div>
+                                    <span>{request.status}</span>
+                                    <strong>{request.supplier}</strong>
+                                    <p>{request.item}</p>
+                                    <small>{request.reason || "No reason added"} · {request.createdAt}</small>
+                                  </div>
+                                  <div className="cost-centre-po-actions">
+                                    <b>{request.poNumber || currency(request.estimatedCost)}</b>
+                                    {request.status === "Requested" ? (
+                                      <>
+                                        <button className="secondary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Rejected")}>
+                                          Reject
+                                        </button>
+                                        <button className="primary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Approved")}>
+                                          Approve
+                                        </button>
+                                      </>
+                                    ) : null}
+                                  </div>
+                                </article>
+                              ))
+                            ) : (
+                              <div className="supplier-request-empty">
+                                <strong>No POs raised for this cost centre yet.</strong>
+                                <span>Use Raise PO here so the supplier cost lands against {selectedCostCentre.name}, not just the overall job.</span>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()}
                   </section>
                 ) : null}
 

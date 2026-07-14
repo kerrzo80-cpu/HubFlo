@@ -2585,6 +2585,63 @@ h1 {
   white-space: nowrap;
 }
 
+.cost-centre-po-list {
+  display: grid;
+  gap: 10px;
+}
+
+.cost-centre-po-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 14px;
+}
+
+.cost-centre-po-card span {
+  color: var(--blue);
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.cost-centre-po-card strong {
+  color: var(--navy);
+  display: block;
+  margin-top: 4px;
+}
+
+.cost-centre-po-card p {
+  color: #536575;
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+
+.cost-centre-po-card small {
+  color: #667085;
+  display: block;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.cost-centre-po-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.cost-centre-po-actions b {
+  color: var(--navy);
+  margin-right: 4px;
+}
+
 .job-review-check.checked {
   background: #f2faf5;
   border-color: #bddfcb;
