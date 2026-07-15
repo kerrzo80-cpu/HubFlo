@@ -465,6 +465,7 @@ type HomeView =
   | "client-record"
   | "quote-record"
   | "jobs"
+  | "purchase-orders"
   | "invoices"
   | "invoice-record"
   | "job-record"
@@ -1353,6 +1354,7 @@ const modules: ModuleItem[] = [
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
+  { label: "POs", icon: ClipboardCheck },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
   { label: "Add-ons", icon: Sparkles },
@@ -3024,6 +3026,17 @@ const supplierDirectory = [
   { name: "Valve Source", email: "sales@valvesource.example", account: "Specialist valves" },
 ];
 
+const purchaseOrderStatusFilters = [
+  "All POs",
+  "Requested",
+  "Draft",
+  "Pending cost",
+  "Part received",
+  "Received",
+  "Disputed",
+  "Rejected",
+];
+
 const blankEmployeeProfileTemplate: EmployeeProfileDraft = {
   name: "",
   loginUsername: "",
@@ -4596,6 +4609,13 @@ function purchaseRequestReceiptPercent(request: PurchaseRequest) {
   return 0;
 }
 
+function purchaseRequestTone(request: PurchaseRequest) {
+  if (request.status === "Received") return "green";
+  if (request.status === "Rejected" || request.status === "Disputed") return "red";
+  if (request.status === "Pending cost" || request.status === "Part received") return "blue";
+  return "amber";
+}
+
 function makeEstimateCostCentre(jobId: string, index: number, name?: string, templateName = "General plumbing"): EstimateCostCentre {
   return {
     id: `${jobId}-centre-${Date.now()}-${index}`,
@@ -4675,6 +4695,7 @@ export default function Dashboard() {
   const [quoteStatusFilter, setQuoteStatusFilter] = useState("All quotes");
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
+  const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
   const [scheduleDate, setScheduleDate] = useState("2026-06-24");
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
@@ -6308,6 +6329,76 @@ export default function Dashboard() {
     });
   }, [invoiceStatusFilter, invoices, search]);
 
+  const purchaseOrderRows = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return purchaseRequests
+      .map((request) => {
+        const job = jobs.find((item) => item.id === request.jobId) ?? null;
+        return {
+          request,
+          job,
+          supplier: request.supplier,
+          orderNo: request.poNumber || "Draft",
+          createdBy: request.requestedBy,
+          reference: `${request.jobRef}${request.costCentreName ? ` - ${request.costCentreName}` : ""}`,
+          customer: job?.customer ?? request.jobRef,
+          address: job?.site ?? "Address TBC",
+          orderAmount: request.estimatedCost,
+          actualCost: purchaseRequestActualCost(request),
+          balancePending: purchaseRequestPendingCost(request),
+          receiptPercent: purchaseRequestReceiptPercent(request),
+        };
+      })
+      .filter((row) => {
+        const matchesSearch =
+          !query ||
+          [
+            row.orderNo,
+            row.request.jobRef,
+            row.request.costCentreName ?? "",
+            row.supplier,
+            row.createdBy,
+            row.customer,
+            row.address,
+            row.request.item,
+            row.request.status,
+          ].some((value) => value.toLowerCase().includes(query));
+        const matchesStatus =
+          purchaseOrderStatusFilter === "All POs" || row.request.status === purchaseOrderStatusFilter;
+        return matchesSearch && matchesStatus;
+      });
+  }, [jobs, purchaseOrderStatusFilter, purchaseRequests, search]);
+
+  const purchaseOrderFolders = useMemo(
+    () => [
+      {
+        key: "pending",
+        label: "Pending orders",
+        tone: "amber",
+        items: purchaseOrderRows.filter((row) => ["Requested", "Draft", "Pending cost", "Part received"].includes(row.request.status)),
+      },
+      {
+        key: "invoice-match",
+        label: "Invoice matching",
+        tone: "blue",
+        items: purchaseOrderRows.filter((row) => row.request.status === "Pending cost" || row.request.status === "Part received"),
+      },
+      {
+        key: "received",
+        label: "Received",
+        tone: "green",
+        items: purchaseOrderRows.filter((row) => row.request.status === "Received"),
+      },
+      {
+        key: "disputed",
+        label: "Disputed / rejected",
+        tone: "red",
+        items: purchaseOrderRows.filter((row) => row.request.status === "Disputed" || row.request.status === "Rejected"),
+      },
+    ],
+    [purchaseOrderRows],
+  );
+
   const quoteDirectoryGroups = useMemo(
     () => [
       {
@@ -6416,6 +6507,7 @@ export default function Dashboard() {
     return modules.filter((module) => {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
+      if (module.label === "POs" && !access.canRequestPurchase && !access.canApprovePurchase && !access.showFinance) return false;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
@@ -8480,6 +8572,46 @@ export default function Dashboard() {
     setActiveCostCentreTab("summary");
     setActiveJobBuildTab("summary");
     setHomeView("cost-centre-record");
+  }
+
+  function openPurchaseOrderRegisterRow(request: PurchaseRequest) {
+    const job = jobs.find((item) => item.id === request.jobId) ?? null;
+    if (!job) {
+      showNotice(`${request.poNumber || "PO"} is not linked to a live job yet.`);
+      return;
+    }
+
+    const jobCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
+    const centre =
+      (request.costCentreId ? jobCentres.find((item) => item.id === request.costCentreId) : null) ??
+      (request.costCentreName ? jobCentres.find((item) => item.name === request.costCentreName) : null) ??
+      jobCentres[0] ??
+      null;
+
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedQuoteCostCentreId(null);
+    setSelectedInvoiceId(null);
+    setSelectedJobId(job.id);
+    setSelectedCostCentreId(centre?.id ?? null);
+    setActiveCostCentreTab("po");
+    setActiveJobBuildTab("summary");
+    setHomeView(centre ? "cost-centre-record" : "job-record");
+    scrollWorkspaceToTop();
+  }
+
+  function editPurchaseOrderFromRegister(request: PurchaseRequest) {
+    const job = jobs.find((item) => item.id === request.jobId) ?? null;
+    if (job) {
+      const jobCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
+      const centre =
+        (request.costCentreId ? jobCentres.find((item) => item.id === request.costCentreId) : null) ??
+        (request.costCentreName ? jobCentres.find((item) => item.name === request.costCentreName) : null) ??
+        null;
+      setSelectedJobId(job.id);
+      setSelectedCostCentreId(centre?.id ?? null);
+    }
+    editPurchaseRequest(request);
   }
 
   function returnToInvoiceDirectory() {
@@ -13755,6 +13887,7 @@ export default function Dashboard() {
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
             (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
             (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
+            (module.label === "POs" && homeView === "purchase-orders") ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
@@ -13816,6 +13949,8 @@ export default function Dashboard() {
                   returnToQuotesDirectory();
                 } else if (module.label === "Jobs") {
                   returnToJobsDirectory();
+                } else if (module.label === "POs") {
+                  setHomeView("purchase-orders");
                 } else if (module.label === "Schedules") {
                   setHomeView("schedule");
                 } else if (module.label === "Setup") {
@@ -14001,6 +14136,8 @@ export default function Dashboard() {
                       ? "Job"
                     : homeView === "cost-centre-record"
                       ? "Cost centre"
+                    : homeView === "purchase-orders"
+                      ? "Purchase orders"
                     : homeView === "invoices"
                       ? "Invoices"
                     : homeView === "invoice-record"
@@ -14043,6 +14180,8 @@ export default function Dashboard() {
                     ? selectedJob?.ref ?? "Job record"
                   : homeView === "cost-centre-record"
                     ? selectedCostCentre?.name ?? "Cost centre"
+                  : homeView === "purchase-orders"
+                    ? "Purchase orders"
                   : homeView === "invoices"
                     ? "Invoices"
                   : homeView === "invoice-record"
@@ -14084,6 +14223,8 @@ export default function Dashboard() {
                     ? `${selectedJob?.customer ?? "Job"} · summary, cost centres and variations`
                   : homeView === "cost-centre-record"
                     ? `${selectedJob?.ref ?? "Job"} · materials, labour and descriptions`
+                  : homeView === "purchase-orders"
+                    ? `${purchaseOrderRows.length} purchase orders · ${purchaseOrderStatusFilter}`
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
                   : homeView === "invoice-record"
@@ -14148,6 +14289,10 @@ export default function Dashboard() {
                     New job
                   </button>
                 </>
+              ) : homeView === "purchase-orders" ? (
+                <button className="secondary-button" onClick={returnToDashboard}>
+                  Back to dashboard
+                </button>
               ) : homeView === "invoices" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
@@ -14795,6 +14940,131 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+            </section>
+          ) : homeView === "purchase-orders" ? (
+            <section className="quote-panel record-directory workflow-directory purchase-order-directory">
+              <div className="panel-header">
+                <div>
+                  <h2>Purchase order register</h2>
+                  <p>All job and cost-centre POs in one place for supplier invoice matching.</p>
+                </div>
+                <div className="panel-controls">
+                  <label className="status-filter">
+                    <select
+                      value={purchaseOrderStatusFilter}
+                      onChange={(event) => setPurchaseOrderStatusFilter(event.target.value)}
+                      aria-label="Filter purchase orders by status"
+                    >
+                      {purchaseOrderStatusFilters.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className="record-folder-grid">
+                {purchaseOrderFolders.map((folder) => (
+                  <article className={`record-folder-card ${folder.tone}`} key={folder.key}>
+                    <span>{folder.label}</span>
+                    <strong>{folder.items.length}</strong>
+                  </article>
+                ))}
+              </div>
+
+              <div className="po-register-tabs" role="tablist" aria-label="Purchase order status filters">
+                {purchaseOrderStatusFilters.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    role="tab"
+                    aria-selected={purchaseOrderStatusFilter === status}
+                    className={purchaseOrderStatusFilter === status ? "active" : ""}
+                    onClick={() => setPurchaseOrderStatusFilter(status)}
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+
+              <section className="record-folder-section">
+                <header>
+                  <div>
+                    <h3>{purchaseOrderStatusFilter === "All POs" ? "All purchase orders" : purchaseOrderStatusFilter}</h3>
+                  </div>
+                  <span className="status-pill blue">{purchaseOrderRows.length} orders</span>
+                </header>
+
+                {purchaseOrderRows.length === 0 ? (
+                  <div className="record-folder-empty">No purchase orders match this view yet.</div>
+                ) : (
+                  <>
+                    <div className="quote-row table-header">
+                      <span></span>
+                      <span>Order no.</span>
+                      <span>Status</span>
+                      <span>Created by</span>
+                      <span>Supplier</span>
+                      <span>Date ordered</span>
+                      <span>Reference</span>
+                      <span>Actual cost</span>
+                      <span>Order amount</span>
+                      <span>Balance pending</span>
+                      <span>Options</span>
+                    </div>
+                    {purchaseOrderRows.map((row) => (
+                      <article
+                        className="quote-row clickable"
+                        key={row.request.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openPurchaseOrderRegisterRow(row.request)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openPurchaseOrderRegisterRow(row.request);
+                          }
+                        }}
+                      >
+                        <span className="po-select-cell" onClick={(event) => event.stopPropagation()}>
+                          <input aria-label={`Select ${row.orderNo}`} type="checkbox" />
+                        </span>
+                        <div className="job-identity">
+                          <div>
+                            <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openPurchaseOrderRegisterRow(row.request); }}>
+                              {row.orderNo}
+                            </a>
+                          </div>
+                          <strong>{row.request.item}</strong>
+                          <small>{row.receiptPercent}% received</small>
+                        </div>
+                        <span className={`status-pill ${purchaseRequestTone(row.request)}`}>{row.request.status}</span>
+                        <span className="manager">{row.createdBy}</span>
+                        <span className="record-address-cell">
+                          <strong>{row.supplier}</strong>
+                          <small>{row.request.supplierEmail || "Supplier email TBC"}</small>
+                        </span>
+                        <span className="manager">{row.request.sentAt ?? row.request.createdAt}</span>
+                        <span className="record-address-cell">
+                          <strong>{row.reference}</strong>
+                          <small>{row.customer} · {row.address}</small>
+                        </span>
+                        <strong className="value">{currency(row.actualCost)}</strong>
+                        <strong className="value">{currency(row.orderAmount)}</strong>
+                        <strong className="value">{currency(row.balancePending)}</strong>
+                        <span className="po-register-actions">
+                          <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); editPurchaseOrderFromRegister(row.request); }}>
+                            Edit
+                          </button>
+                          <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openPurchaseOrderRegisterRow(row.request); }}>
+                            Open
+                          </button>
+                        </span>
+                      </article>
+                    ))}
+                  </>
+                )}
+              </section>
             </section>
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
