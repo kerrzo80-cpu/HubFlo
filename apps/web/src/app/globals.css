@@ -2362,6 +2362,115 @@ h1 {
   gap: 7px;
 }
 
+.job-planner-summary-strip {
+  align-items: center;
+  background: #f7fbfd;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.job-planner-summary-strip > div {
+  display: grid;
+  gap: 3px;
+}
+
+.job-planner-summary-strip span,
+.job-planner-summary-strip small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.job-planner-summary-strip strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.job-plan-form-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.job-plan-form-grid label {
+  color: #526169;
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 800;
+  gap: 7px;
+  min-width: 0;
+}
+
+.job-plan-cost-centre-field,
+.job-plan-notes-field {
+  grid-column: span 2;
+}
+
+.job-plan-programme {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.job-plan-programme-head,
+.job-plan-programme-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(130px, 0.8fr) minmax(130px, 0.8fr) 70px minmax(132px, auto);
+  padding: 11px 14px;
+}
+
+.job-plan-programme-head {
+  background: #f4f9fb;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.job-plan-programme-row {
+  border-top: 1px solid var(--line-soft);
+}
+
+.job-plan-programme-row > div:first-child,
+.job-plan-programme-row time {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.job-plan-programme-row > div:first-child span,
+.job-plan-programme-row > div:first-child small,
+.job-plan-programme-row time {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.job-plan-programme-row > div:first-child small {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.job-plan-programme-row time strong {
+  color: var(--ink);
+}
+
+.job-plan-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.job-plan-row-actions .danger {
+  color: #a63b3b;
+}
+
 .attendance-status-panel {
   align-items: center;
   background: #f8fafb;
@@ -18867,6 +18976,52 @@ body {
 
   .quote-gantt-track {
     grid-template-columns: repeat(7, minmax(34px, 1fr));
+  }
+
+  .job-plan-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .job-plan-programme-head {
+    display: none;
+  }
+
+  .job-plan-programme-row {
+    align-items: start;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .job-plan-programme-row > div:first-child,
+  .job-plan-row-actions {
+    grid-column: span 2;
+  }
+
+  .job-plan-row-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .job-plan-form-grid,
+  .job-plan-programme-row {
+    grid-template-columns: 1fr;
+  }
+
+  .job-plan-cost-centre-field,
+  .job-plan-notes-field,
+  .job-plan-programme-row > div:first-child,
+  .job-plan-row-actions {
+    grid-column: auto;
+  }
+
+  .job-planner-summary-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .job-planner-summary-strip .primary-button {
+    justify-content: center;
+    width: 100%;
   }
 }
 

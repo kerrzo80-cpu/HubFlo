@@ -34,6 +34,7 @@ export type EngineerScheduleItem = {
   engineerId: string;
   engineerName: string;
   date: string;
+  endDate?: string;
   start: string;
   end: string;
   durationHours: number;
@@ -233,6 +234,58 @@ function costCentreOptionsFromHub(job: Job): EngineerCostCentreOption[] {
   return costCentreOptionsFromHubJobId(job.id);
 }
 
+type CoreJobScheduleAssignment = {
+  id: string;
+  jobId: string;
+  costCentreId: string;
+  costCentreName: string;
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  plannedHours: number;
+  notes: string;
+};
+
+function jobScheduleAssignmentsFromHub(jobId: string): CoreJobScheduleAssignment[] {
+  const hubState = getHubDetailState();
+  const plansByJob = (hubState.jobSchedulePlans ?? {}) as Record<string, unknown>;
+  const plans = plansByJob[jobId];
+  if (!Array.isArray(plans)) return [];
+  return plans.flatMap((plan) => {
+    if (!plan || typeof plan !== "object" || Array.isArray(plan)) return [];
+    const record = plan as Record<string, unknown>;
+    const requiredStrings = [
+      record.id,
+      record.costCentreId,
+      record.costCentreName,
+      record.employeeName,
+      record.startDate,
+      record.startTime,
+      record.endDate,
+      record.endTime,
+    ];
+    if (requiredStrings.some((value) => typeof value !== "string" || !value.trim())) return [];
+    const plannedHours = Number(record.plannedHours);
+    return [{
+      id: record.id as string,
+      jobId,
+      costCentreId: record.costCentreId as string,
+      costCentreName: record.costCentreName as string,
+      employeeId: typeof record.employeeId === "string" ? record.employeeId : "",
+      employeeName: record.employeeName as string,
+      startDate: record.startDate as string,
+      startTime: record.startTime as string,
+      endDate: record.endDate as string,
+      endTime: record.endTime as string,
+      plannedHours: Number.isFinite(plannedHours) && plannedHours > 0 ? plannedHours : 4,
+      notes: typeof record.notes === "string" ? record.notes : "",
+    }];
+  });
+}
+
 function firstCostCentreForJob(job: Job) {
   const firstName = costCentreOptionsFromHub(job)[0]?.name;
   if (firstName) return firstName;
@@ -335,12 +388,64 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
   };
 }
 
+function coreJobPlanToEngineerScheduleItem(job: Job, assignment: CoreJobScheduleAssignment): EngineerScheduleItem {
+  const hubCostCentres = costCentreOptionsFromHub(job);
+  const fallbackCostCentre = firstCostCentreForJob(job);
+  const costCentres = hubCostCentres.length
+    ? hubCostCentres
+    : defaultCostCentreOptionsForJob(job.id, job.ref, fallbackCostCentre);
+  const selectedCostCentre = costCentres.find((centre) => centre.id === assignment.costCentreId)
+    ?? costCentres.find((centre) => centre.name === assignment.costCentreName)
+    ?? { id: assignment.costCentreId, name: assignment.costCentreName };
+  const status: EngineerJobStatus = /parts/i.test(job.status)
+    ? "Needs parts"
+    : /complete|invoice/i.test(job.status)
+      ? "Ready to complete"
+      : "Scheduled";
+
+  return {
+    scheduleId: `core-${job.id}-${assignment.id}`,
+    jobId: job.id,
+    jobRef: job.ref,
+    source: "core",
+    costCentre: selectedCostCentre.name,
+    costCentres,
+    engineerId: engineerIdForName(assignment.employeeName),
+    engineerName: assignment.employeeName,
+    date: assignment.startDate,
+    endDate: assignment.endDate,
+    start: assignment.startTime,
+    end: assignment.endTime,
+    durationHours: assignment.plannedHours,
+    plannedHours: assignment.plannedHours,
+    actualHours: job.actualDurationHours,
+    labourCostVariance: job.labourCostVariance,
+    customer: job.customer,
+    contactName: job.customer,
+    phone: "+441224000000",
+    address: job.site,
+    description: assignment.notes || job.description,
+    accessNotes: job.next || "Check office notes before attending.",
+    officeNotes: [
+      `Cost centre: ${selectedCostCentre.name}.`,
+      `Planned finish: ${assignment.endDate} at ${assignment.endTime}.`,
+      job.sourceQuoteRef ? `Converted from ${job.sourceQuoteRef}.` : "",
+    ].filter(Boolean),
+    status,
+    attachments: [
+      { id: `att-${job.id}-job`, name: `${job.ref} job pack`, type: "PDF", uploadedBy: "Office", uploadedAt: "Core" },
+    ],
+    photos: [],
+    requirements: requirementsForCostCentre(job, selectedCostCentre.name),
+  };
+}
+
 function withCostCentreOptions(item: EngineerScheduleItem): EngineerScheduleItem {
   const hubCostCentres = costCentreOptionsFromHubJobId(item.jobId);
   if (hubCostCentres.length) {
     return {
       ...item,
-      costCentre: hubCostCentres[0]?.name ?? item.costCentre,
+      costCentre: hubCostCentres.find((centre) => centre.name === item.costCentre)?.name ?? item.costCentre,
       costCentres: hubCostCentres,
     };
   }
@@ -360,9 +465,14 @@ function withCostCentreOptions(item: EngineerScheduleItem): EngineerScheduleItem
 }
 
 function liveEngineerSchedule() {
-  return getJobs()
-    .map(coreJobToEngineerScheduleItem)
-    .filter((item): item is EngineerScheduleItem => Boolean(item));
+  return getJobs().flatMap((job) => {
+    const assignments = jobScheduleAssignmentsFromHub(job.id);
+    if (assignments.length > 0) {
+      return assignments.map((assignment) => coreJobPlanToEngineerScheduleItem(job, assignment));
+    }
+    const legacyItem = coreJobToEngineerScheduleItem(job);
+    return legacyItem ? [legacyItem] : [];
+  });
 }
 
 export function getEngineerSchedule(engineerId?: string) {

@@ -107,6 +107,7 @@ const STORAGE_KEYS = {
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   quoteSections: "hubflo:quote-sections:v1",
   quoteSchedulePlans: "hubflo:quote-schedule-plans:v1",
+  jobSchedulePlans: "hubflo:job-schedule-plans:v1",
   jobCostCentres: "hubflo:job-cost-centres:v1",
   jobReviews: "hubflo:job-reviews:v1",
   jobDeliveryEvents: "hubflo:job-delivery-events:v1",
@@ -590,10 +591,30 @@ type OneOffMaterialDraft = {
   quantity: string;
 };
 
+type JobScheduleAssignment = {
+  id: string;
+  jobId: string;
+  costCentreId: string;
+  costCentreName: string;
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  plannedHours: number;
+  notes: string;
+};
+
 type JobScheduleDraft = {
-  manager: string;
-  scheduledDate: string;
-  scheduledTime: string;
+  costCentreId: string;
+  employeeId: string;
+  startDate: string;
+  startTime: string;
+  endDate: string;
+  endTime: string;
+  plannedHours: string;
+  notes: string;
 };
 
 type QuoteSection = {
@@ -1354,6 +1375,7 @@ type HubDetailStatePayload = {
   quoteCostCentres?: Record<string, QuoteCostCentre[]>;
   quoteSections?: Record<string, QuoteSection[]>;
   quoteSchedulePlans?: Record<string, QuoteScheduleAssignment[]>;
+  jobSchedulePlans?: Record<string, JobScheduleAssignment[]>;
   customQuoteCatalog?: CatalogItem[];
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
   jobReviews?: Record<string, JobReviewState>;
@@ -4939,7 +4961,9 @@ export default function Dashboard() {
   const [jobVariationSectionDescriptionDraft, setJobVariationSectionDescriptionDraft] = useState("");
   const [jobVariationCostCentreNameDraft, setJobVariationCostCentreNameDraft] = useState("");
   const [jobVariationCostCentreTemplateDraft, setJobVariationCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
+  const [jobSchedulePlans, setJobSchedulePlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
+  const [editingJobScheduleAssignmentId, setEditingJobScheduleAssignmentId] = useState<string | null>(null);
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
@@ -5225,16 +5249,31 @@ export default function Dashboard() {
     [clientSites, selectedJob],
   );
 
+  const selectedJobScheduleAssignments = useMemo(
+    () =>
+      selectedJob
+        ? [...(jobSchedulePlans[selectedJob.id] ?? [])].sort((first, second) =>
+            `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`),
+          )
+        : [],
+    [jobSchedulePlans, selectedJob],
+  );
+
   const selectedJobScheduleDraft = useMemo(
     () =>
       selectedJob
         ? jobScheduleDrafts[selectedJob.id] ?? {
-            manager: selectedJob.manager,
-            scheduledDate: selectedJob.scheduledDate ?? "",
-            scheduledTime: selectedJob.scheduledTime ?? "",
+            costCentreId: "",
+            employeeId: employees.find((employee) => employee.name === selectedJob.manager)?.id ?? employees[0]?.id ?? "",
+            startDate: selectedJob.scheduledDate ?? "",
+            startTime: selectedJob.scheduledTime ?? "08:00",
+            endDate: selectedJob.scheduledDate ?? "",
+            endTime: "12:00",
+            plannedHours: String(selectedJob.scheduledDurationHours ?? 4),
+            notes: "",
           }
         : null,
-    [jobScheduleDrafts, selectedJob],
+    [employees, jobScheduleDrafts, selectedJob],
   );
 
   const selectedJobReviewState = useMemo(
@@ -5251,19 +5290,6 @@ export default function Dashboard() {
     () => (selectedJob ? jobDeliveryEvents.filter((event) => event.jobId === selectedJob.id) : []),
     [jobDeliveryEvents, selectedJob],
   );
-
-  const selectedJobAttendanceEvents = useMemo(
-    () => selectedJobDeliveryEvents.filter((event) => event.kind === "attendance"),
-    [selectedJobDeliveryEvents],
-  );
-
-  const selectedJobAttendanceStatus = useMemo(() => {
-    if (!selectedJob?.scheduledDate || !selectedJob.scheduledTime) return "Not scheduled";
-    if (selectedJobAttendanceEvents.some((event) => event.status === "Arrived")) return "Arrived on site";
-    if (selectedJobAttendanceEvents.some((event) => event.status === "Confirmed")) return "Engineer confirmed";
-    if (selectedJobAttendanceEvents.some((event) => event.status === "Requested")) return "Awaiting confirmation";
-    return "Not requested";
-  }, [selectedJob, selectedJobAttendanceEvents]);
 
   const selectedJobDeliveryDraft = useMemo(
     () => (selectedJob ? jobDeliveryDrafts[selectedJob.id] ?? blankJobDeliveryDraft : blankJobDeliveryDraft),
@@ -5748,7 +5774,7 @@ export default function Dashboard() {
         detail:
           communicationEvents > 0
             ? `${communicationEvents} confirmations or site messages captured`
-            : "Request confirmation or capture the first site update.",
+            : "Capture the first site update or office message.",
         complete: communicationEvents > 0,
       },
     ];
@@ -5810,6 +5836,7 @@ export default function Dashboard() {
     const storedQuoteCostCentres = safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
     const storedQuoteSections = safeLoadStoredJson(STORAGE_KEYS.quoteSections, {});
     const storedQuoteSchedulePlans = safeLoadStoredJson(STORAGE_KEYS.quoteSchedulePlans, {});
+    const storedJobSchedulePlans = safeLoadStoredJson(STORAGE_KEYS.jobSchedulePlans, {});
     setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, demoJobs));
     setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes).map((quote) => quoteWithCostCentreValue(quote, storedQuoteCostCentres)));
     setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
@@ -5846,6 +5873,7 @@ export default function Dashboard() {
     setQuoteCostCentres(storedQuoteCostCentres);
     setQuoteSections(storedQuoteSections);
     setQuoteSchedulePlans(storedQuoteSchedulePlans);
+    setJobSchedulePlans(storedJobSchedulePlans);
     setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
@@ -5969,6 +5997,7 @@ export default function Dashboard() {
             if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
             if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
             if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
+            if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
             if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
           }
           if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
@@ -6169,6 +6198,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.quoteSections, quoteSections);
     safeSaveStoredJson(STORAGE_KEYS.quoteSchedulePlans, quoteSchedulePlans);
+    safeSaveStoredJson(STORAGE_KEYS.jobSchedulePlans, jobSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
@@ -6199,6 +6229,7 @@ export default function Dashboard() {
         quoteCostCentres,
         quoteSections,
         quoteSchedulePlans,
+        jobSchedulePlans,
         customQuoteCatalog,
         jobCostCentres: jobEstimateCostCentres,
         jobReviews: jobReviewApprovals,
@@ -6273,6 +6304,7 @@ export default function Dashboard() {
     quoteCostCentres,
     quoteSections,
     quoteSchedulePlans,
+    jobSchedulePlans,
     customQuoteCatalog,
     jobEstimateCostCentres,
     jobReviewApprovals,
@@ -6954,12 +6986,35 @@ export default function Dashboard() {
   );
 
   const scheduledJobs = useMemo(
-    () =>
-      jobs
+    () => {
+      const plannedJobIds = new Set(Object.keys(jobSchedulePlans).filter((jobId) => (jobSchedulePlans[jobId] ?? []).length > 0));
+      const plannedBookings = jobs.flatMap((job) =>
+        (jobSchedulePlans[job.id] ?? []).map((assignment) => ({
+          id: assignment.id,
+          jobId: job.id,
+          ref: job.ref,
+          surveyor: assignment.employeeName,
+          manager: assignment.employeeName,
+          date: assignment.startDate,
+          time: assignment.startTime,
+          endDate: assignment.endDate,
+          endTime: assignment.endTime,
+          plannedHours: assignment.plannedHours,
+          costCentreName: assignment.costCentreName,
+          customerName: job.customer,
+          customer: job.customer,
+          address: job.site,
+          description: assignment.notes || job.description,
+          type: "Job" as const,
+        })),
+      );
+      const legacyBookings = jobs
+        .filter((job) => !plannedJobIds.has(job.id))
         .filter((job) => Boolean(job.scheduledDate && job.scheduledTime))
         .filter((job): job is Job & { scheduledDate: string; scheduledTime: string } => Boolean(job.scheduledDate && job.scheduledTime))
         .map((job) => ({
           id: job.id,
+          jobId: job.id,
           ref: job.ref,
           surveyor: job.manager ?? "Unassigned",
           manager: job.manager ?? "Unassigned",
@@ -6969,9 +7024,15 @@ export default function Dashboard() {
           customer: job.customer,
           address: job.site,
           description: job.description,
+          endDate: undefined as string | undefined,
+          endTime: undefined as string | undefined,
+          plannedHours: job.scheduledDurationHours,
+          costCentreName: undefined as string | undefined,
           type: "Job" as const,
-        })),
-    [jobs],
+        }));
+      return [...plannedBookings, ...legacyBookings];
+    },
+    [jobSchedulePlans, jobs],
   );
 
   const dashboardScheduleEntries = useMemo(() => {
@@ -6994,11 +7055,11 @@ export default function Dashboard() {
       time: job.time,
       person: job.manager,
       ref: job.ref,
-      title: job.description,
-      detail: job.customer,
+      title: job.costCentreName ?? job.description,
+      detail: `${job.customer}${job.endDate && job.endTime ? ` · until ${job.endDate} ${job.endTime}` : ""}`,
       tone: "blue",
       type: "Job",
-      open: () => openJobDrawer(job.id),
+      open: () => openJobDrawer(job.jobId),
     }));
 
     const unscheduledDueWork = jobs
@@ -7115,18 +7176,16 @@ export default function Dashboard() {
 
   const jobScheduleBookings = useMemo(
     () =>
-      jobs
-        .filter((job) => Boolean(job.scheduledDate && job.scheduledTime))
-        .filter((job): job is Job & { scheduledDate: string; scheduledTime: string } => Boolean(job.scheduledDate && job.scheduledTime))
-        .map((job) => ({
-          id: job.id,
-          ref: job.ref,
-          manager: job.manager,
-          date: job.scheduledDate,
-          time: job.scheduledTime,
-          customerName: job.customer,
-        })),
-    [jobs],
+      scheduledJobs.map((job) => ({
+        id: job.id,
+        jobId: job.jobId,
+        ref: job.ref,
+        manager: job.manager,
+        date: job.date,
+        time: job.time,
+        customerName: job.customer,
+      })),
+    [scheduledJobs],
   );
 
   const bookingsForSelectedDate = useMemo(
@@ -8257,6 +8316,7 @@ export default function Dashboard() {
         STORAGE_KEYS.quoteCostCentres,
         STORAGE_KEYS.quoteSections,
         STORAGE_KEYS.quoteSchedulePlans,
+        STORAGE_KEYS.jobSchedulePlans,
         STORAGE_KEYS.jobCostCentres,
         STORAGE_KEYS.jobReviews,
         STORAGE_KEYS.jobDeliveryEvents,
@@ -8274,6 +8334,7 @@ export default function Dashboard() {
     setQuoteCostCentres({});
     setQuoteSections({});
     setQuoteSchedulePlans({});
+    setJobSchedulePlans({});
     setJobEstimateCostCentres({});
     setJobReviewApprovals({});
     setJobDeliveryEvents([]);
@@ -9215,9 +9276,14 @@ export default function Dashboard() {
     if (!selectedJob) return;
     setJobScheduleDrafts((current) => {
       const existing = current[selectedJob.id] ?? {
-        manager: selectedJob.manager,
-        scheduledDate: selectedJob.scheduledDate ?? "",
-        scheduledTime: selectedJob.scheduledTime ?? "",
+        costCentreId: selectedJobEstimateCostCentres[0]?.id ?? "",
+        employeeId: employees.find((employee) => employee.name === selectedJob.manager)?.id ?? employees[0]?.id ?? "",
+        startDate: selectedJob.scheduledDate ?? "",
+        startTime: selectedJob.scheduledTime ?? "08:00",
+        endDate: selectedJob.scheduledDate ?? "",
+        endTime: "12:00",
+        plannedHours: String(selectedJob.scheduledDurationHours ?? 4),
+        notes: "",
       };
       return {
         ...current,
@@ -9653,31 +9719,108 @@ export default function Dashboard() {
 
   async function scheduleSelectedJob() {
     if (!selectedJob || !selectedJobScheduleDraft) return;
-    if (!selectedJobScheduleDraft.manager || !selectedJobScheduleDraft.scheduledDate || !selectedJobScheduleDraft.scheduledTime) {
-      showNotice("Choose an engineer, date and time before scheduling this job.");
+    const costCentre = selectedJobEstimateCostCentres.find(
+      (centre) => centre.id === (selectedJobScheduleDraft.costCentreId || selectedJobEstimateCostCentres[0]?.id),
+    );
+    const employee = employees.find((item) => item.id === selectedJobScheduleDraft.employeeId);
+    if (!costCentre || !employee) {
+      showNotice("Choose a cost centre and engineer before adding the work package.");
       return;
     }
+    if (
+      !selectedJobScheduleDraft.startDate ||
+      !selectedJobScheduleDraft.startTime ||
+      !selectedJobScheduleDraft.endDate ||
+      !selectedJobScheduleDraft.endTime
+    ) {
+      showNotice("Choose both the start and finish for this work package.");
+      return;
+    }
+
+    const startAt = new Date(`${selectedJobScheduleDraft.startDate}T${selectedJobScheduleDraft.startTime}:00`).getTime();
+    const endAt = new Date(`${selectedJobScheduleDraft.endDate}T${selectedJobScheduleDraft.endTime}:00`).getTime();
+    if (!Number.isFinite(startAt) || !Number.isFinite(endAt) || endAt <= startAt) {
+      showNotice("The finish must be after the start.");
+      return;
+    }
+
+    const plannedHours = Number(selectedJobScheduleDraft.plannedHours);
+    if (!Number.isFinite(plannedHours) || plannedHours <= 0) {
+      showNotice("Enter the planned working hours for this allocation.");
+      return;
+    }
+
+    const clash = Object.values(jobSchedulePlans)
+      .flat()
+      .find((assignment) => {
+        if (assignment.id === editingJobScheduleAssignmentId || assignment.employeeId !== employee.id) return false;
+        const assignmentStart = new Date(`${assignment.startDate}T${assignment.startTime}:00`).getTime();
+        const assignmentEnd = new Date(`${assignment.endDate}T${assignment.endTime}:00`).getTime();
+        return startAt < assignmentEnd && endAt > assignmentStart;
+      });
+    if (clash) {
+      const clashJob = jobs.find((job) => job.id === clash.jobId);
+      showNotice(`${employee.name} already has ${clashJob?.ref ?? "another job"} during that time.`);
+      return;
+    }
+
+    const assignment: JobScheduleAssignment = {
+      id: editingJobScheduleAssignmentId ?? `${selectedJob.id}-plan-${Date.now()}`,
+      jobId: selectedJob.id,
+      costCentreId: costCentre.id,
+      costCentreName: costCentre.name,
+      employeeId: employee.id,
+      employeeName: employee.name,
+      startDate: selectedJobScheduleDraft.startDate,
+      startTime: selectedJobScheduleDraft.startTime,
+      endDate: selectedJobScheduleDraft.endDate,
+      endTime: selectedJobScheduleDraft.endTime,
+      plannedHours: Math.round(plannedHours * 100) / 100,
+      notes: selectedJobScheduleDraft.notes.trim(),
+    };
+    const nextAssignments = [
+      ...selectedJobScheduleAssignments.filter((item) => item.id !== assignment.id),
+      assignment,
+    ].sort((first, second) => `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`));
+    const firstAssignment = nextAssignments[0] ?? assignment;
 
     try {
       const updated = await patchSelectedJob(
         {
-          manager: selectedJobScheduleDraft.manager,
-          scheduledDate: selectedJobScheduleDraft.scheduledDate,
-          scheduledTime: selectedJobScheduleDraft.scheduledTime,
+          manager: firstAssignment.employeeName,
+          scheduledDate: firstAssignment.startDate,
+          scheduledTime: firstAssignment.startTime,
+          scheduledDurationHours: firstAssignment.plannedHours,
           status: "In progress",
           health: "blue",
-          next: "Engineer scheduled. Track delivery, POs and variations.",
+          next: `${nextAssignments.length} planned work package${nextAssignments.length === 1 ? "" : "s"}. Track delivery, POs and variations.`,
         },
-        `${selectedJob.ref} scheduled for ${selectedJobScheduleDraft.scheduledDate} at ${selectedJobScheduleDraft.scheduledTime}.`,
+        editingJobScheduleAssignmentId ? "Planner allocation updated." : "Work package added to the job planner.",
       );
       if (!updated) return;
+      markCostCentreEdited();
+      setJobSchedulePlans((current) => ({ ...current, [selectedJob.id]: nextAssignments }));
+      setEditingJobScheduleAssignmentId(null);
+      setJobScheduleDrafts((current) => ({
+        ...current,
+        [selectedJob.id]: {
+          costCentreId: costCentre.id,
+          employeeId: employee.id,
+          startDate: "",
+          startTime: "08:00",
+          endDate: "",
+          endTime: "12:00",
+          plannedHours: "4",
+          notes: "",
+        },
+      }));
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
-        action: "scheduled",
+        action: editingJobScheduleAssignmentId ? "planner allocation updated" : "planner allocation added",
         recordType: "job",
         recordId: updated.id,
-        summary: `${updated.ref} scheduled with ${updated.manager} on ${updated.scheduledDate} at ${updated.scheduledTime}.`,
-        source: "scheduler",
+        summary: `${employee.name} assigned to ${costCentre.name} from ${assignment.startDate} ${assignment.startTime} to ${assignment.endDate} ${assignment.endTime}.`,
+        source: "job planner",
         importance: "high",
       });
     } catch (error) {
@@ -9687,110 +9830,76 @@ export default function Dashboard() {
     }
   }
 
-  function requestSelectedJobAttendanceConfirmation() {
+  function editJobScheduleAssignment(assignment: JobScheduleAssignment) {
     if (!selectedJob) return;
-    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
-      showNotice("Schedule the job before requesting attendance confirmation.");
-      return;
-    }
-
-    const created = addJobDeliveryEvent({
-      jobId: selectedJob.id,
-      jobRef: selectedJob.ref,
-      kind: "attendance",
-      actor: activeEmployee?.name ?? "NeXa user",
-      summary: `Attendance confirmation requested from ${selectedJob.manager} for ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}.`,
-      source: "WhatsApp",
-      status: "Requested",
-    });
-    logAuditEvent({
-      actor: created.actor,
-      action: "attendance requested",
-      recordType: "job",
-      recordId: selectedJob.id,
-      summary: `${selectedJob.manager} was asked to confirm attendance for ${selectedJob.ref}.`,
-      source: "schedule confirmation",
-      importance: "normal",
-    });
-    showNotice("Attendance confirmation requested and logged.");
+    setEditingJobScheduleAssignmentId(assignment.id);
+    setJobScheduleDrafts((current) => ({
+      ...current,
+      [selectedJob.id]: {
+        costCentreId: assignment.costCentreId,
+        employeeId: assignment.employeeId,
+        startDate: assignment.startDate,
+        startTime: assignment.startTime,
+        endDate: assignment.endDate,
+        endTime: assignment.endTime,
+        plannedHours: String(assignment.plannedHours),
+        notes: assignment.notes,
+      },
+    }));
+    scrollWorkspaceToTop();
   }
 
-  async function confirmSelectedJobAttendance() {
+  function cancelJobScheduleEdit() {
     if (!selectedJob) return;
-    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
-      showNotice("Schedule the job before confirming attendance.");
-      return;
-    }
-
-    try {
-      const created = addJobDeliveryEvent({
-        jobId: selectedJob.id,
-        jobRef: selectedJob.ref,
-        kind: "attendance",
-        actor: selectedJob.manager,
-        summary: `${selectedJob.manager} confirmed attendance for ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}.`,
-        source: "WhatsApp",
-        status: "Confirmed",
-      });
-      const updated = await patchSelectedJob(
-        {
-          next: `${selectedJob.manager} confirmed attendance. Await arrival on site.`,
-        },
-        `${selectedJob.ref} attendance confirmed.`,
-      );
-      if (!updated) return;
-      logAuditEvent({
-        actor: created.actor,
-        action: "attendance confirmed",
-        recordType: "job",
-        recordId: updated.id,
-        summary: `${updated.manager} confirmed scheduled attendance for ${updated.ref}.`,
-        source: "schedule confirmation",
-        importance: "high",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to confirm attendance.";
-      setSectionError(message);
-      showNotice(message);
-    }
+    setEditingJobScheduleAssignmentId(null);
+    setJobScheduleDrafts((current) => {
+      const next = { ...current };
+      delete next[selectedJob.id];
+      return next;
+    });
   }
 
-  async function markSelectedJobArrived() {
+  async function removeJobScheduleAssignment(assignmentId: string) {
     if (!selectedJob) return;
-    if (!selectedJob.scheduledDate || !selectedJob.scheduledTime) {
-      showNotice("Schedule the job before marking arrival.");
-      return;
-    }
-
+    const assignment = selectedJobScheduleAssignments.find((item) => item.id === assignmentId);
+    if (!window.confirm(`Remove ${assignment?.costCentreName ?? "this work package"} from the job planner?`)) return;
+    const nextAssignments = selectedJobScheduleAssignments.filter((assignment) => assignment.id !== assignmentId);
+    const firstAssignment = nextAssignments[0];
     try {
-      const created = addJobDeliveryEvent({
-        jobId: selectedJob.id,
-        jobRef: selectedJob.ref,
-        kind: "attendance",
-        actor: selectedJob.manager,
-        summary: `${selectedJob.manager} arrived on site for ${selectedJob.ref}.`,
-        source: "WhatsApp",
-        status: "Arrived",
-      });
       const updated = await patchSelectedJob(
-        {
-          status: "In progress",
-          next: "Engineer on site. Track timesheets, POs, WhatsApp updates and variations.",
-        },
-        `${selectedJob.ref} marked arrived and moved to in progress.`,
+        firstAssignment
+          ? {
+              manager: firstAssignment.employeeName,
+              scheduledDate: firstAssignment.startDate,
+              scheduledTime: firstAssignment.startTime,
+              scheduledDurationHours: firstAssignment.plannedHours,
+              status: "In progress",
+              next: `${nextAssignments.length} planned work package${nextAssignments.length === 1 ? "" : "s"}.`,
+            }
+          : {
+              scheduledDate: "",
+              scheduledTime: "",
+              status: "Pending",
+              health: "amber",
+              next: "Awaiting scheduling",
+            },
+        "Planner allocation removed.",
       );
       if (!updated) return;
+      markCostCentreEdited();
+      setJobSchedulePlans((current) => ({ ...current, [selectedJob.id]: nextAssignments }));
+      if (editingJobScheduleAssignmentId === assignmentId) cancelJobScheduleEdit();
       logAuditEvent({
-        actor: created.actor,
-        action: "arrived",
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "planner allocation removed",
         recordType: "job",
-        recordId: updated.id,
-        summary: `${updated.manager} arrived on site and ${updated.ref} moved into delivery.`,
-        source: "schedule confirmation",
-        importance: "high",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} planner allocation removed.`,
+        source: "job planner",
+        importance: "normal",
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to mark job arrived.";
+      const message = error instanceof Error ? error.message : "Unable to remove the planner allocation.";
       setSectionError(message);
       showNotice(message);
     }
@@ -18708,83 +18817,37 @@ export default function Dashboard() {
                     <section className="job-scheduling-panel">
                       <header>
                         <div>
-                          <span className="permission-heading">Scheduling</span>
-                          <h2>Assign staff and move job forward</h2>
+                          <span className="permission-heading">Job programme</span>
+                          <h2>{selectedJobScheduleAssignments.length} planned work package{selectedJobScheduleAssignments.length === 1 ? "" : "s"}</h2>
                         </div>
                         <span className={`status-pill ${selectedJob.status === "In progress" ? "green" : selectedJob.status === "Pending" ? "amber" : "blue"}`}>
                           {selectedJob.status}
                         </span>
                       </header>
-                      {selectedJobScheduleDraft ? (
-                        <div className="job-scheduling-grid">
-                          <label>
-                            Engineer / lead
-                            <select
-                              value={selectedJobScheduleDraft.manager}
-                              onChange={(event) => updateSelectedJobScheduleDraft({ manager: event.target.value })}
-                            >
-                              {surveyorOptions.map((surveyor) => (
-                                <option key={surveyor}>{surveyor}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Date
-                            <input
-                              type="date"
-                              value={selectedJobScheduleDraft.scheduledDate}
-                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledDate: event.target.value })}
-                            />
-                          </label>
-                          <label>
-                            Time
-                            <input
-                              type="time"
-                              value={selectedJobScheduleDraft.scheduledTime}
-                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledTime: event.target.value })}
-                            />
-                          </label>
-                        </div>
-                      ) : null}
-                      <div className="job-scheduling-actions">
-                        <button className="primary-button" type="button" onClick={scheduleSelectedJob}>
-                          Schedule staff
-                        </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
-                          onClick={requestSelectedJobAttendanceConfirmation}
-                        >
-                          Request confirmation
-                        </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
-                          onClick={confirmSelectedJobAttendance}
-                        >
-                          Confirmed
-                        </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={selectedJob.status === "In progress"}
-                          onClick={markSelectedJobArrived}
-                        >
-                          Arrived / start
-                        </button>
-                      </div>
-                      <div className="attendance-status-panel">
+                      <div className="job-planner-summary-strip">
                         <div>
-                          <span>Attendance status</span>
-                          <strong>{selectedJobAttendanceStatus}</strong>
+                          <span>Next allocation</span>
+                          <strong>
+                            {selectedJobScheduleAssignments[0]
+                              ? `${selectedJobScheduleAssignments[0].costCentreName} · ${selectedJobScheduleAssignments[0].employeeName}`
+                              : "Not scheduled"}
+                          </strong>
+                          <small>
+                            {selectedJobScheduleAssignments[0]
+                              ? `${selectedJobScheduleAssignments[0].startDate} ${selectedJobScheduleAssignments[0].startTime} to ${selectedJobScheduleAssignments[0].endDate} ${selectedJobScheduleAssignments[0].endTime}`
+                              : "Add cost-centre work packages in the Planner tab."}
+                          </small>
                         </div>
-                        <p>
-                          {selectedJob.scheduledDate && selectedJob.scheduledTime
-                            ? `${selectedJob.manager} · ${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}`
-                            : "Schedule this job before requesting engineer confirmation."}
-                        </p>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => {
+                            setActiveJobTab("planner");
+                            scrollWorkspaceToTop();
+                          }}
+                        >
+                          Open planner
+                        </button>
                       </div>
                     </section>
                     <section className="job-review-panel">
@@ -18948,8 +19011,8 @@ export default function Dashboard() {
                     <div className="documents-toolbar">
                       <div>
                         <span className="permission-heading">Job planner</span>
-                        <h2>Schedule engineers against this job</h2>
-                        <p>This writes to the live job schedule, so the appointment also appears in the Schedules area.</p>
+                        <h2>Build the job programme by cost centre</h2>
+                        <p>Each work package appears in the main Schedules area and the assigned engineer&apos;s diary.</p>
                       </div>
                       <span className={`status-pill ${selectedJob.status === "In progress" ? "green" : selectedJob.status === "Pending" ? "amber" : "blue"}`}>
                         {selectedJob.status}
@@ -18958,55 +19021,95 @@ export default function Dashboard() {
 
                     <section className="job-scheduling-panel">
                       {selectedJobScheduleDraft ? (
-                        <div className="job-scheduling-grid">
-                          <label>
-                            Engineer / lead
+                        <div className="job-plan-form-grid">
+                          <label className="job-plan-cost-centre-field">
+                            Cost centre
                             <select
-                              value={selectedJobScheduleDraft.manager}
-                              onChange={(event) => updateSelectedJobScheduleDraft({ manager: event.target.value })}
+                              value={selectedJobScheduleDraft.costCentreId || selectedJobEstimateCostCentres[0]?.id || ""}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ costCentreId: event.target.value })}
                             >
-                              {surveyorOptions.map((surveyor) => (
-                                <option key={surveyor}>{surveyor}</option>
+                              {selectedJobEstimateCostCentres.map((centre) => (
+                                <option key={centre.id} value={centre.id}>{centre.name}</option>
                               ))}
                             </select>
                           </label>
                           <label>
-                            Date
+                            Engineer / trade
+                            <select
+                              value={selectedJobScheduleDraft.employeeId}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ employeeId: event.target.value })}
+                            >
+                              {employees.map((employee) => (
+                                <option key={employee.id} value={employee.id}>{employee.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Start date
                             <input
                               type="date"
-                              value={selectedJobScheduleDraft.scheduledDate}
-                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledDate: event.target.value })}
+                              value={selectedJobScheduleDraft.startDate}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ startDate: event.target.value })}
                             />
                           </label>
                           <label>
-                            Time
+                            Start time
                             <input
                               type="time"
-                              value={selectedJobScheduleDraft.scheduledTime}
-                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledTime: event.target.value })}
+                              value={selectedJobScheduleDraft.startTime}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ startTime: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            End date
+                            <input
+                              type="date"
+                              value={selectedJobScheduleDraft.endDate}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ endDate: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            End time
+                            <input
+                              type="time"
+                              value={selectedJobScheduleDraft.endTime}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ endTime: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Planned hours
+                            <input
+                              min="0.25"
+                              step="0.25"
+                              type="number"
+                              value={selectedJobScheduleDraft.plannedHours}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ plannedHours: event.target.value })}
+                            />
+                          </label>
+                          <label className="job-plan-notes-field">
+                            Work notes
+                            <input
+                              value={selectedJobScheduleDraft.notes}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ notes: event.target.value })}
+                              placeholder="Strip out, first fix, return visit, access notes..."
                             />
                           </label>
                         </div>
                       ) : null}
                       <div className="job-scheduling-actions">
                         <button className="primary-button" type="button" onClick={scheduleSelectedJob}>
-                          Save to job schedule
+                          <Plus size={15} />
+                          {editingJobScheduleAssignmentId ? "Save changes" : "Add work package"}
                         </button>
+                        {editingJobScheduleAssignmentId ? (
+                          <button className="secondary-button" type="button" onClick={cancelJobScheduleEdit}>Cancel edit</button>
+                        ) : null}
                         <button
                           className="secondary-button"
                           type="button"
-                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
-                          onClick={requestSelectedJobAttendanceConfirmation}
-                        >
-                          Request confirmation
-                        </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
                           onClick={() => {
                             setHomeView("schedule");
-                            setScheduleDate(selectedJob.scheduledDate || scheduleDate);
+                            setScheduleDate(selectedJobScheduleAssignments[0]?.startDate || selectedJob.scheduledDate || scheduleDate);
                             scrollWorkspaceToTop();
                           }}
                         >
@@ -19015,29 +19118,36 @@ export default function Dashboard() {
                       </div>
                     </section>
 
-                    {selectedJob.scheduledDate && selectedJob.scheduledTime ? (
-                      <div className="quote-gantt job-gantt">
-                        <div className="quote-gantt-head">
-                          <span>Engineer</span>
-                          <span>{selectedJob.scheduledDate.slice(5)}</span>
-                          <span />
+                    {selectedJobScheduleAssignments.length > 0 ? (
+                      <div className="job-plan-programme">
+                        <div className="job-plan-programme-head">
+                          <span>Cost centre / engineer</span>
+                          <span>Start</span>
+                          <span>Finish</span>
+                          <span>Hours</span>
+                          <span>Actions</span>
                         </div>
-                        <div className="quote-gantt-row">
-                          <strong>{selectedJob.manager}</strong>
-                          <div className="quote-gantt-track">
-                            <span className="quote-gantt-bar" style={{ gridColumn: "1 / span 1" }}>
-                              {selectedJob.scheduledTime} · {selectedJob.description}
-                            </span>
-                          </div>
-                          <button className="simpro-options-button" type="button" onClick={confirmSelectedJobAttendance}>
-                            Confirm
-                          </button>
-                        </div>
+                        {selectedJobScheduleAssignments.map((assignment) => (
+                          <article className="job-plan-programme-row" key={assignment.id}>
+                            <div>
+                              <strong>{assignment.costCentreName}</strong>
+                              <span>{assignment.employeeName}</span>
+                              {assignment.notes ? <small>{assignment.notes}</small> : null}
+                            </div>
+                            <time>{assignment.startDate}<strong>{assignment.startTime}</strong></time>
+                            <time>{assignment.endDate}<strong>{assignment.endTime}</strong></time>
+                            <b>{assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h</b>
+                            <div className="job-plan-row-actions">
+                              <button className="simpro-options-button" type="button" onClick={() => editJobScheduleAssignment(assignment)}>Edit</button>
+                              <button className="simpro-options-button danger" type="button" onClick={() => removeJobScheduleAssignment(assignment.id)}>Delete</button>
+                            </div>
+                          </article>
+                        ))}
                       </div>
                     ) : (
                       <div className="quote-planner-empty">
-                        <strong>No job schedule saved yet.</strong>
-                        <span>Pick an engineer, date and time above, then save it to the job schedule.</span>
+                        <strong>No work packages planned yet.</strong>
+                        <span>Add the first cost centre, engineer, start, finish and planned hours above.</span>
                       </div>
                     )}
                   </section>
@@ -21306,13 +21416,21 @@ export default function Dashboard() {
                             key={booking.id}
                             type="button"
                             onClick={() =>
-                              "type" in booking && booking.type === "Job" ? openJobDrawer(booking.id) : openLeadRecord(booking.id)
+                              "type" in booking && booking.type === "Job"
+                                ? openJobDrawer("jobId" in booking && typeof booking.jobId === "string" ? booking.jobId : booking.id)
+                                : openLeadRecord(booking.id)
                             }
                           >
                             <time>{booking.time}</time>
                             <strong>{booking.ref} · {booking.customerName}</strong>
                             <span>{booking.address}</span>
-                            <small>{booking.description}</small>
+                            <small>
+                              {"costCentreName" in booking && booking.costCentreName ? `${booking.costCentreName} · ` : ""}
+                              {booking.description}
+                              {"endDate" in booking && booking.endDate && "endTime" in booking && booking.endTime
+                                ? ` · Ends ${booking.endDate} ${booking.endTime}`
+                                : ""}
+                            </small>
                           </button>
                         ))}
 
