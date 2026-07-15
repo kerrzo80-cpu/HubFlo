@@ -5436,6 +5436,85 @@ h1 {
   font-size: 20px;
 }
 
+.record-form-preview-workspace {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.record-form-document {
+  margin: 0 auto;
+  max-width: 980px;
+  min-height: 0;
+  width: 100%;
+}
+
+.record-form-intro {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 16px;
+}
+
+.record-form-private-summary {
+  background: #fff5df;
+  border: 1px solid #ead39d;
+  border-radius: 7px;
+  color: #71551c;
+  font-size: 12px;
+  font-weight: 800;
+  margin-top: 14px;
+  padding: 10px 12px;
+}
+
+.record-form-schedule-list,
+.record-form-terms {
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding: 13px 14px;
+}
+
+.record-form-schedule-list span,
+.record-form-terms p,
+.record-form-terms small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.record-form-terms button {
+  background: var(--blue);
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  font-weight: 800;
+  justify-self: start;
+  padding: 9px 14px;
+}
+
+.record-form-preview-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin: 0 auto;
+  max-width: 980px;
+  width: 100%;
+}
+
+.purchase-order-record-shell {
+  display: grid;
+  gap: 16px;
+}
+
+.purchase-order-form-preview .quote-document-section strong:last-child {
+  white-space: nowrap;
+}
+
 .quote-email-panel {
   align-content: start;
   display: grid;

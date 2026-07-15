@@ -505,6 +505,7 @@ type HomeView =
   | "quote-record"
   | "jobs"
   | "purchase-orders"
+  | "purchase-order-record"
   | "invoices"
   | "invoice-record"
   | "job-record"
@@ -514,9 +515,9 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
-type JobDetailTab = "summary" | "planner" | "cost-centres" | "documents" | "logs";
+type JobDetailTab = "summary" | "planner" | "cost-centres" | "documents" | "forms" | "logs";
 type QuoteDetailTab = "setup" | "planner" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
-type InvoiceTab = "summary" | "lines" | "documents" | "logs";
+type InvoiceTab = "summary" | "lines" | "documents" | "preview" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "po" | "engineer-flow" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
 type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour";
@@ -1134,7 +1135,7 @@ type QuoteReviewQuestion = {
   centreId?: string;
 };
 
-type QuoteDocumentLayout = "quote" | "job-sheet" | "application-payment" | "invoice";
+type QuoteDocumentLayout = "quote" | "job-sheet" | "application-payment" | "invoice" | "purchase-order";
 
 type BusinessSettings = {
   companyName: string;
@@ -1157,7 +1158,7 @@ type FormTemplate = {
   intro: string;
   footer: string;
   terms: string;
-  defaultAudience: "Client" | "Engineer" | "Office";
+  defaultAudience: "Client" | "Engineer" | "Office" | "Supplier";
   includeCostCentreBreakdown: boolean;
   includePnl: boolean;
   includeAcceptance: boolean;
@@ -1533,6 +1534,7 @@ const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
   { key: "planner", label: "Planner" },
   { key: "cost-centres", label: "Cost Centre List" },
   { key: "documents", label: "Documents" },
+  { key: "forms", label: "Forms & Preview" },
   { key: "logs", label: "Logs" },
 ];
 
@@ -1541,7 +1543,7 @@ const quoteDetailTabs: Array<{ key: QuoteDetailTab; label: string }> = [
   { key: "cost-build", label: "Cost Centre List" },
   { key: "supplier-request", label: "Supplier Request" },
   { key: "documents", label: "Documents" },
-  { key: "preview", label: "Send & Forms" },
+  { key: "preview", label: "Forms & Preview" },
   { key: "logs", label: "Logs" },
 ];
 
@@ -1549,6 +1551,7 @@ const invoiceTabs: Array<{ key: InvoiceTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "lines", label: "Lines" },
   { key: "documents", label: "Documents" },
+  { key: "preview", label: "Forms & Preview" },
   { key: "logs", label: "Logs" },
 ];
 
@@ -1557,6 +1560,7 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "job-sheet", label: "Job sheet", detail: "Engineer view with site, scope and operational notes." },
   { key: "application-payment", label: "Application for payment", detail: "Progress claim layout for staged commercial works." },
   { key: "invoice", label: "Invoice", detail: "Final billing layout using approved job or quote totals." },
+  { key: "purchase-order", label: "Purchase order", detail: "Supplier-facing order, delivery reference, line items and totals." },
 ];
 
 const defaultBusinessSettings: BusinessSettings = {
@@ -1629,7 +1633,29 @@ const defaultFormTemplates: FormTemplate[] = [
     includeAcceptance: false,
     includeBankDetails: true,
   },
+  {
+    id: "form-template-purchase-order",
+    layout: "purchase-order",
+    name: "Standard purchase order",
+    title: "Purchase Order",
+    intro: "Please supply the items listed below against this purchase order number.",
+    footer: "Quote this purchase order number on all delivery notes and invoices.",
+    terms: "Items and charges not shown on this order require office approval before supply.",
+    defaultAudience: "Supplier",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+  },
 ];
+
+function normalizeFormTemplates(templates: FormTemplate[]) {
+  const validTemplates = Array.isArray(templates) ? templates : [];
+  const missingDefaults = defaultFormTemplates.filter(
+    (defaultTemplate) => !validTemplates.some((template) => template.layout === defaultTemplate.layout),
+  );
+  return [...validTemplates, ...missingDefaults];
+}
 
 const quoteCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
@@ -1683,7 +1709,7 @@ const costCentreTemplates = [
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
   { key: "overview", label: "Overview", detail: "System readiness and live setup position" },
   { key: "business", label: "Business profile", detail: "Company details, workspace name and default sender details", subItems: ["Company", "Branding", "Portal"] },
-  { key: "forms", label: "Forms & templates", detail: "Quote, job sheet, application for payment and invoice layouts", subItems: ["Quote", "Job sheet", "Invoice"] },
+  { key: "forms", label: "Forms & templates", detail: "Quote, job, payment, invoice and purchase order layouts", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
@@ -1724,9 +1750,19 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Engineer scope wording", "Visible document folders", "Required job information"],
       status: "Editable now",
     },
+    "Application for payment": {
+      summary: "Edit valuation and application wording, progress breakdowns and payment information.",
+      focus: ["Application heading and intro", "Progress breakdown", "Payment and supporting evidence wording"],
+      status: "Editable now",
+    },
     Invoice: {
       summary: "Edit invoice wording, footer text, bank detail visibility and final billing layout.",
       focus: ["Invoice title and intro", "Payment wording", "Bank detail display"],
+      status: "Editable now",
+    },
+    "Purchase order": {
+      summary: "Edit the supplier-facing purchase order layout, order lines, delivery wording and PO terms.",
+      focus: ["Supplier and delivery details", "Order lines and totals", "PO reference and terms"],
       status: "Editable now",
     },
   },
@@ -4917,6 +4953,7 @@ export default function Dashboard() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedPurchaseRequestId, setSelectedPurchaseRequestId] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
   const [selectedQuoteCostCentreId, setSelectedQuoteCostCentreId] = useState<string | null>(null);
   const [selectedCostCentreId, setSelectedCostCentreId] = useState<string | null>(null);
@@ -5074,6 +5111,14 @@ export default function Dashboard() {
     formTemplates[0] ??
     defaultFormTemplates[0]!;
 
+  function formTemplateForLayout(layout: QuoteDocumentLayout) {
+    return (
+      formTemplates.find((template) => template.layout === layout) ??
+      defaultFormTemplates.find((template) => template.layout === layout) ??
+      defaultFormTemplates[0]!
+    );
+  }
+
   const activeChecklistAssignmentCount = costCentreTypeOptions.filter(
     (typeName) => costCentreFlowAssignmentDrafts[typeName] === activeEngineerFlowTemplate.id,
   ).length;
@@ -5191,10 +5236,40 @@ export default function Dashboard() {
     [jobs, selectedJobId],
   );
 
+  const selectedPurchaseOrder = useMemo(
+    () =>
+      selectedPurchaseRequestId
+        ? purchaseRequests.find((request) => request.id === selectedPurchaseRequestId) ?? null
+        : null,
+    [purchaseRequests, selectedPurchaseRequestId],
+  );
+
   const selectedInvoice = useMemo(
     () => (selectedInvoiceId ? invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null : null),
     [invoices, selectedInvoiceId],
   );
+
+  const selectedPurchaseOrderJob = useMemo(
+    () =>
+      selectedPurchaseOrder
+        ? jobs.find((job) => job.id === selectedPurchaseOrder.jobId) ?? null
+        : null,
+    [jobs, selectedPurchaseOrder],
+  );
+
+  const selectedPurchaseOrderCostCentre = useMemo(() => {
+    if (!selectedPurchaseOrder || !selectedPurchaseOrderJob) return null;
+    const centres = jobEstimateCostCentres[selectedPurchaseOrderJob.id] ?? makeDefaultEstimateCostCentres(selectedPurchaseOrderJob);
+    return (
+      (selectedPurchaseOrder.costCentreId
+        ? centres.find((centre) => centre.id === selectedPurchaseOrder.costCentreId)
+        : null) ??
+      (selectedPurchaseOrder.costCentreName
+        ? centres.find((centre) => centre.name === selectedPurchaseOrder.costCentreName)
+        : null) ??
+      null
+    );
+  }, [jobEstimateCostCentres, selectedPurchaseOrder, selectedPurchaseOrderJob]);
 
   const selectedQuoteJob = useMemo(
     () => getQuoteJob(selectedQuote),
@@ -5843,8 +5918,8 @@ export default function Dashboard() {
     setPurchaseRequests(safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
     setInvoices(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices));
     setBusinessSettings(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings));
-    const storedFormTemplates = safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates);
-    setFormTemplates(storedFormTemplates.length ? storedFormTemplates : defaultFormTemplates);
+    const storedFormTemplates = normalizeFormTemplates(safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates));
+    setFormTemplates(storedFormTemplates);
     setActiveFormTemplateId(
       safeLoadStoredJson(STORAGE_KEYS.activeFormTemplateId, storedFormTemplates[0]?.id ?? defaultFormTemplates[0]?.id ?? ""),
     );
@@ -5965,7 +6040,7 @@ export default function Dashboard() {
           }
           if (!hasAppliedHubSetupState.current && !hasRecentLocalSetupEdit && !pendingSetupSaveRef.current) {
             if (hubState.businessSettings) setBusinessSettings({ ...defaultBusinessSettings, ...hubState.businessSettings });
-            if (hubState.formTemplates?.length) setFormTemplates(hubState.formTemplates);
+            if (hubState.formTemplates?.length) setFormTemplates(normalizeFormTemplates(hubState.formTemplates));
             if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
             if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
             if (hubState.financeSettings) setFinanceSettings(normalizeFinanceSettings(hubState.financeSettings));
@@ -7482,6 +7557,7 @@ export default function Dashboard() {
   }
 
   function updateFormTemplate(templateId: string, patch: Partial<FormTemplate>) {
+    markSetupEdited();
     setFormTemplates((current) =>
       current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
     );
@@ -7489,6 +7565,7 @@ export default function Dashboard() {
 
   function duplicateActiveFormTemplate() {
     if (!activeFormTemplate) return;
+    markSetupEdited();
     const id = `form-template-${Date.now()}`;
     const copy = {
       ...activeFormTemplate,
@@ -8351,6 +8428,7 @@ export default function Dashboard() {
     setSelectedQuoteId(null);
     setSelectedQuoteCostCentreId(null);
     setSelectedJobId(null);
+    setSelectedPurchaseRequestId(null);
     setSelectedCostCentreId(null);
     setSelectedInvoiceId(null);
     setHomeView("dashboard");
@@ -8550,7 +8628,9 @@ export default function Dashboard() {
       const layoutByItem: Partial<Record<string, QuoteDocumentLayout>> = {
         Quote: "quote",
         "Job sheet": "job-sheet",
+        "Application for payment": "application-payment",
         Invoice: "invoice",
+        "Purchase order": "purchase-order",
       };
       const layout = layoutByItem[item];
       const template = layout ? formTemplates.find((candidate) => candidate.layout === layout) : undefined;
@@ -8563,6 +8643,15 @@ export default function Dashboard() {
       if (template) setActiveEngineerFlowTemplateId(template.id);
     }
 
+    scrollWorkspaceToTop();
+  }
+
+  function openFormTemplateEditor(layout: QuoteDocumentLayout) {
+    const template = formTemplateForLayout(layout);
+    setActiveFormTemplateId(template.id);
+    setActiveSetupCategory("forms");
+    setActiveSetupSubItem(documentLayouts.find((item) => item.key === layout)?.label ?? null);
+    setHomeView("settings");
     scrollWorkspaceToTop();
   }
 
@@ -8896,28 +8985,36 @@ export default function Dashboard() {
   }
 
   function openPurchaseOrderRegisterRow(request: PurchaseRequest) {
-    const job = jobs.find((item) => item.id === request.jobId) ?? null;
-    if (!job) {
-      showNotice(`${request.poNumber || "PO"} is not linked to a live job yet.`);
-      return;
-    }
-
-    const jobCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
-    const centre =
-      (request.costCentreId ? jobCentres.find((item) => item.id === request.costCentreId) : null) ??
-      (request.costCentreName ? jobCentres.find((item) => item.name === request.costCentreName) : null) ??
-      jobCentres[0] ??
-      null;
-
     setSelectedLeadId(null);
     setSelectedQuoteId(null);
     setSelectedQuoteCostCentreId(null);
     setSelectedInvoiceId(null);
-    setSelectedJobId(job.id);
-    setSelectedCostCentreId(centre?.id ?? null);
-    setActiveCostCentreTab("po");
-    setActiveJobBuildTab("summary");
-    setHomeView(centre ? "cost-centre-record" : "job-record");
+    setSelectedPurchaseRequestId(request.id);
+    setHomeView("purchase-order-record");
+    scrollWorkspaceToTop();
+  }
+
+  function returnToPurchaseOrderRegister() {
+    setSelectedPurchaseRequestId(null);
+    setHomeView("purchase-orders");
+    scrollWorkspaceToTop();
+  }
+
+  function openSelectedPurchaseOrderJob() {
+    if (!selectedPurchaseOrderJob) {
+      showNotice(`${selectedPurchaseOrder?.poNumber || "PO"} is not linked to a live job yet.`);
+      return;
+    }
+    setSelectedPurchaseRequestId(null);
+    setSelectedJobId(selectedPurchaseOrderJob.id);
+    if (selectedPurchaseOrderCostCentre) {
+      setSelectedCostCentreId(selectedPurchaseOrderCostCentre.id);
+      setActiveCostCentreTab("po");
+      setHomeView("cost-centre-record");
+    } else {
+      setActiveJobTab("cost-centres");
+      setHomeView("job-record");
+    }
     scrollWorkspaceToTop();
   }
 
@@ -14698,6 +14795,8 @@ export default function Dashboard() {
                     ? "Job record"
                 : homeView === "cost-centre-record"
                   ? "Cost centre"
+                : homeView === "purchase-orders" || homeView === "purchase-order-record"
+                  ? "Purchase orders"
                 : homeView === "invoices" || homeView === "invoice-record"
                   ? "Invoices"
                 : homeView === "leads"
@@ -14823,6 +14922,8 @@ export default function Dashboard() {
                       ? "Cost centre"
                     : homeView === "purchase-orders"
                       ? "Purchase orders"
+                    : homeView === "purchase-order-record"
+                      ? selectedPurchaseOrder?.poNumber || "Purchase order"
                     : homeView === "invoices"
                       ? "Invoices"
                     : homeView === "invoice-record"
@@ -14869,6 +14970,8 @@ export default function Dashboard() {
                     ? selectedCostCentre?.name ?? "Cost centre"
                   : homeView === "purchase-orders"
                     ? "Purchase orders"
+                  : homeView === "purchase-order-record"
+                    ? selectedPurchaseOrder?.poNumber || "Purchase order"
                   : homeView === "invoices"
                     ? "Invoices"
                   : homeView === "invoice-record"
@@ -14914,6 +15017,8 @@ export default function Dashboard() {
                     ? `${selectedJob?.ref ?? "Job"} · materials, labour and descriptions`
                   : homeView === "purchase-orders"
                     ? `${purchaseOrderRows.length} purchase orders · ${purchaseOrderStatusFilter}`
+                  : homeView === "purchase-order-record"
+                    ? `${selectedPurchaseOrder?.supplier ?? "Supplier TBC"} · ${selectedPurchaseOrder?.jobRef ?? "No job linked"}`
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
                   : homeView === "invoice-record"
@@ -14984,6 +15089,13 @@ export default function Dashboard() {
                 <button className="secondary-button" onClick={returnToDashboard}>
                   Back to dashboard
                 </button>
+              ) : homeView === "purchase-order-record" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToPurchaseOrderRegister}>Back to PO register</button>
+                  {selectedPurchaseOrder ? (
+                    <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
+                  ) : null}
+                </>
               ) : homeView === "invoices" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
@@ -14999,6 +15111,9 @@ export default function Dashboard() {
                 <>
                   <button className="secondary-button" onClick={returnFromInvoiceRecord}>
                     Back to source
+                  </button>
+                  <button className="secondary-button" onClick={() => setActiveInvoiceTab("preview")}>
+                    Preview client form
                   </button>
                   {access.canEditInvoice ? (
                     <label className="status-filter">
@@ -15020,6 +15135,12 @@ export default function Dashboard() {
                 <>
                   <button className="secondary-button" onClick={returnFromRecord}>
                     Back to dashboard
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => homeView === "quote-record" ? setActiveQuoteTab("preview") : setActiveJobTab("forms")}
+                  >
+                    Preview form
                   </button>
                   {homeView === "quote-record" && selectedInvoiceFromQuote ? (
                     <button className="secondary-button" onClick={() => openInvoiceRecord(selectedInvoiceFromQuote.id)}>
@@ -15774,6 +15895,112 @@ export default function Dashboard() {
                 )}
               </section>
             </section>
+          ) : homeView === "purchase-order-record" ? (
+            selectedPurchaseOrder ? (() => {
+              const template = formTemplateForLayout("purchase-order");
+              const orderAmount = selectedPurchaseOrder.lines?.length
+                ? selectedPurchaseOrder.lines.reduce((total, line) => total + line.estimatedCost, 0)
+                : selectedPurchaseOrder.estimatedCost;
+              const vatRate = numberFromSetting(normalizedFinanceSettings.vatRate, 20);
+              const vatAmount = orderAmount * (vatRate / 100);
+              return (
+                <section className="quote-record-shell purchase-order-record-shell">
+                  <div className="quote-record-banner">
+                    <div>
+                      <span className="employee-record-eyebrow">Purchase order</span>
+                      <h2>{selectedPurchaseOrder.poNumber || "Open PO"}</h2>
+                      <p>{selectedPurchaseOrder.supplier} · {selectedPurchaseOrder.item || "Open order awaiting item details"}</p>
+                    </div>
+                    <div className="quote-record-stats">
+                      <div><strong>{currency(orderAmount)}</strong><span>Order amount</span></div>
+                      <div><strong>{purchaseRequestReceiptPercent(selectedPurchaseOrder)}%</strong><span>Received</span></div>
+                      <div><strong>{currency(purchaseRequestPendingCost(selectedPurchaseOrder))}</strong><span>Pending cost</span></div>
+                    </div>
+                  </div>
+
+                  <div className="client-overview-grid">
+                    <article className="client-info-card">
+                      <span className="permission-heading">Order details</span>
+                      <dl>
+                        <div><dt>Status</dt><dd>{selectedPurchaseOrder.status}</dd></div>
+                        <div><dt>Supplier</dt><dd>{selectedPurchaseOrder.supplier}</dd></div>
+                        <div><dt>Supplier email</dt><dd>{selectedPurchaseOrder.supplierEmail || "To be confirmed"}</dd></div>
+                        <div><dt>Created by</dt><dd>{selectedPurchaseOrder.requestedBy}</dd></div>
+                      </dl>
+                    </article>
+                    <article className="client-info-card">
+                      <span className="permission-heading">Charged against</span>
+                      <dl>
+                        <div><dt>Job</dt><dd>{selectedPurchaseOrder.jobRef}</dd></div>
+                        <div><dt>Customer</dt><dd>{selectedPurchaseOrderJob?.customer || "Not linked"}</dd></div>
+                        <div><dt>Cost centre</dt><dd>{selectedPurchaseOrder.costCentreName || selectedPurchaseOrderCostCentre?.name || "Not selected"}</dd></div>
+                        <div><dt>Site</dt><dd>{selectedPurchaseOrderJob?.site || "Not linked"}</dd></div>
+                      </dl>
+                      <button className="secondary-button" type="button" onClick={openSelectedPurchaseOrderJob}>Open linked job / cost centre</button>
+                    </article>
+                  </div>
+
+                  <section className="record-form-preview-workspace">
+                    <div className="documents-toolbar">
+                      <div>
+                        <span className="permission-heading">Supplier preview</span>
+                        <h2>Purchase order exactly as the supplier sees it</h2>
+                        <p>Review the PO number, delivery reference, items, totals and terms before sending.</p>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("purchase-order")}>Edit form template</button>
+                    </div>
+                    <article className="quote-document-preview record-form-document purchase-order-form-preview">
+                      <header>
+                        <div>
+                          <span>{template.defaultAudience} preview</span>
+                          <h2>{template.title} · {selectedPurchaseOrder.poNumber || "Open PO"}</h2>
+                        </div>
+                        <strong>{currency(orderAmount)}</strong>
+                      </header>
+                      <div className="quote-document-meta">
+                        <span>{businessSettings.tradingName}</span>
+                        <span>{selectedPurchaseOrder.supplier}</span>
+                        <span>{selectedPurchaseOrderJob?.site || "Delivery address to be confirmed"}</span>
+                      </div>
+                      <p className="record-form-intro">{template.intro}</p>
+                      <div className="quote-document-sections">
+                        {selectedPurchaseOrder.lines?.length ? selectedPurchaseOrder.lines.map((line) => (
+                          <div className="quote-document-section" key={line.id}>
+                            <div>
+                              <strong>{line.description || "Open order line"}</strong>
+                              <span>Quantity {line.quantity} · {line.receivedPercent}% received</span>
+                            </div>
+                            <strong>{currency(line.estimatedCost)}</strong>
+                          </div>
+                        )) : (
+                          <div className="quote-document-section">
+                            <div>
+                              <strong>{selectedPurchaseOrder.item || "Open purchase order"}</strong>
+                              <span>Items and value will be populated when confirmed.</span>
+                            </div>
+                            <strong>{currency(selectedPurchaseOrder.estimatedCost)}</strong>
+                          </div>
+                        )}
+                      </div>
+                      <div className="record-form-terms">
+                        <strong>Supplier notes and terms</strong>
+                        <p>{selectedPurchaseOrder.reason || template.terms}</p>
+                        <small>{template.footer}</small>
+                      </div>
+                      <footer>
+                        <span>Subtotal {currency(orderAmount)}</span>
+                        <span>VAT {currency(vatAmount)}</span>
+                        <strong>Total {currency(orderAmount + vatAmount)}</strong>
+                      </footer>
+                    </article>
+                    <div className="record-form-preview-actions">
+                      <button className="secondary-button" type="button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
+                      <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
+                    </div>
+                  </section>
+                </section>
+              );
+            })() : <section className="record-folder-empty">Purchase order not found.</section>
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
               <div className="addon-hero">
@@ -16884,12 +17111,12 @@ export default function Dashboard() {
                               <span className="permission-heading">Forms and layouts</span>
                               <h2>Choose the document layout</h2>
                             </div>
-                            <button className="secondary-button" type="button" onClick={() => showNotice("Template editor is next to wire up.")}>
+                            <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor(selectedQuoteEmailDraft.layout)}>
                               Manage templates
                             </button>
                           </div>
                           <div className="document-layout-grid">
-                            {documentLayouts.map((layout) => (
+                            {documentLayouts.filter((layout) => layout.key !== "purchase-order").map((layout) => (
                               <button
                                 className={selectedQuoteEmailDraft.layout === layout.key ? "document-layout-card active" : "document-layout-card"}
                                 key={layout.key}
@@ -16907,12 +17134,13 @@ export default function Dashboard() {
                           <article className="quote-document-preview">
                             {(() => {
                               const surveyPack = quoteSurveyPackSummary(selectedQuoteCostCentres);
+                              const template = formTemplateForLayout(selectedQuoteEmailDraft.layout);
                               return (
                                 <>
                                   <header>
                                     <div>
                                       <span>{documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "Quote"} preview</span>
-                                      <h2>{selectedQuote.ref}</h2>
+                                      <h2>{template.title} · {selectedQuote.ref}</h2>
                                     </div>
                                     <strong>{currency(selectedQuoteTotals.sell)}</strong>
                                   </header>
@@ -16921,21 +17149,29 @@ export default function Dashboard() {
                                     <span>{selectedQuoteSite?.name ?? "Site to confirm"}</span>
                                     <span>Prepared by {selectedQuote.owner}</span>
                                   </div>
+                                  <p className="record-form-intro">{template.intro}</p>
                                   <h3>{selectedQuote.description}</h3>
-                                  <div className="quote-document-sections">
-                                    {selectedQuoteCostCentres.map((centre) => {
-                                      const totals = quoteCostCentreTotals(centre);
-                                      return (
-                                        <div className="quote-document-section" key={centre.id}>
-                                          <div>
-                                            <strong>{centre.name}</strong>
-                                            <span>{centre.clientDescription || "Scope description to be confirmed before issue."}</span>
+                                  {template.includeCostCentreBreakdown ? (
+                                    <div className="quote-document-sections">
+                                      {selectedQuoteCostCentres.map((centre) => {
+                                        const totals = quoteCostCentreTotals(centre);
+                                        return (
+                                          <div className="quote-document-section" key={centre.id}>
+                                            <div>
+                                              <strong>{centre.name}</strong>
+                                              <span>{centre.clientDescription || "Scope description to be confirmed before issue."}</span>
+                                            </div>
+                                            <strong>{currency(totals.totalSell)}</strong>
                                           </div>
-                                          <strong>{currency(totals.totalSell)}</strong>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : null}
+                                  {template.includePnl ? (
+                                    <div className="record-form-private-summary">
+                                      Internal preview · Cost {currency(selectedQuoteTotals.cost)} · Profit {currency(selectedQuoteTotals.profit)}
+                                    </div>
+                                  ) : null}
                                   <div className="quote-survey-pack-preview">
                                     <div>
                                       <span>Survey pack</span>
@@ -16955,6 +17191,13 @@ export default function Dashboard() {
                                     ) : (
                                       <small>No survey records are currently marked client-visible.</small>
                                     )}
+                                  </div>
+                                  <div className="record-form-terms">
+                                    <strong>Terms</strong>
+                                    <p>{template.terms}</p>
+                                    {template.includeBankDetails ? <p>{normalizedFinanceSettings.bankName} · {normalizedFinanceSettings.sortCode} · {normalizedFinanceSettings.accountNumber}</p> : null}
+                                    {template.includeAcceptance ? <button type="button" disabled>Accept online</button> : null}
+                                    <small>{template.footer}</small>
                                   </div>
                                   <footer>
                                     <span>Subtotal {currency(selectedQuoteTotals.sell)}</span>
@@ -19611,6 +19854,71 @@ export default function Dashboard() {
 
                 {activeJobTab === "documents" ? renderDocumentWorkspace("job", selectedJob.ref) : null}
 
+                {activeJobTab === "forms" ? (() => {
+                  const template = formTemplateForLayout("job-sheet");
+                  return (
+                    <section className="record-form-preview-workspace">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Recipient preview</span>
+                          <h2>Job form exactly as {template.defaultAudience.toLowerCase()} users see it</h2>
+                          <p>Check scope, dates and visible financial information before sharing the job pack.</p>
+                        </div>
+                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("job-sheet")}>Edit form template</button>
+                      </div>
+                      <article className="quote-document-preview record-form-document">
+                        <header>
+                          <div>
+                            <span>{template.defaultAudience} preview</span>
+                            <h2>{template.title} · {selectedJob.ref}</h2>
+                          </div>
+                          <strong>{selectedJob.status}</strong>
+                        </header>
+                        <div className="quote-document-meta">
+                          <span>{businessSettings.tradingName}</span>
+                          <span>{selectedJob.customer}</span>
+                          <span>{selectedJob.site}</span>
+                        </div>
+                        <p className="record-form-intro">{template.intro}</p>
+                        <h3>{selectedJob.description}</h3>
+                        {template.includeCostCentreBreakdown ? (
+                          <div className="quote-document-sections">
+                            {selectedJobEstimateCostCentres.map((centre) => {
+                              const totals = estimateCostCentreTotals(centre);
+                              return (
+                                <div className="quote-document-section" key={centre.id}>
+                                  <div>
+                                    <strong>{centre.name}</strong>
+                                    <span>{centre.engineerDescription || centre.clientDescription || "Work package details to be confirmed."}</span>
+                                  </div>
+                                  <strong>{template.defaultAudience === "Client" ? currency(totals.totalSell) : `${centre.labour.reduce((sum, line) => sum + line.hours, 0)}h labour`}</strong>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        <div className="record-form-schedule-list">
+                          <strong>Planned visits</strong>
+                          {selectedJobScheduleAssignments.length ? selectedJobScheduleAssignments.map((assignment) => (
+                            <span key={assignment.id}>{assignment.costCentreName} · {assignment.employeeName} · {assignment.startDate} {assignment.startTime} to {assignment.endDate} {assignment.endTime}</span>
+                          )) : <span>No visits scheduled.</span>}
+                        </div>
+                        {template.includePnl ? <div className="record-form-private-summary">Internal preview · Cost {currency(selectedJobCostSummary.totalCost)} · Profit {currency(selectedJobCostSummary.projectedProfit)}</div> : null}
+                        <div className="record-form-terms">
+                          <strong>Notes and terms</strong>
+                          <p>{template.terms}</p>
+                          <small>{template.footer}</small>
+                        </div>
+                        <footer>
+                          <span>{selectedJobEstimateCostCentres.length} cost centres</span>
+                          <span>{selectedJobScheduleAssignments.length} planned visits</span>
+                          <strong>{template.defaultAudience === "Client" ? currency(selectedJobCostSummary.totalCharge) : selectedJob.manager}</strong>
+                        </footer>
+                      </article>
+                    </section>
+                  );
+                })() : null}
+
                 {activeJobTab === "logs" ? (
                   <section className="quote-logs-panel">
                     <header>
@@ -21083,6 +21391,67 @@ export default function Dashboard() {
 
                 {activeInvoiceTab === "documents" ? <div className="simpro-empty-workspace">{renderDocumentWorkspace("invoice", selectedInvoice.ref)}</div> : null}
 
+                {activeInvoiceTab === "preview" ? (() => {
+                  const template = formTemplateForLayout("invoice");
+                  return (
+                    <section className="record-form-preview-workspace">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Client preview</span>
+                          <h2>Invoice exactly as the customer sees it</h2>
+                          <p>Review wording, lines, VAT, payment details and totals before emailing.</p>
+                        </div>
+                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("invoice")}>Edit form template</button>
+                      </div>
+                      <article className="quote-document-preview record-form-document">
+                        <header>
+                          <div>
+                            <span>{template.defaultAudience} preview</span>
+                            <h2>{template.title} · {selectedInvoice.ref}</h2>
+                          </div>
+                          <strong>{currency(selectedInvoiceFinancials.grandTotal)}</strong>
+                        </header>
+                        <div className="quote-document-meta">
+                          <span>{businessSettings.tradingName}</span>
+                          <span>{selectedInvoice.customer}</span>
+                          <span>Issued {selectedInvoice.issuedDate} · Due {selectedInvoice.dueDate}</span>
+                        </div>
+                        <p className="record-form-intro">{template.intro}</p>
+                        <h3>{selectedInvoice.title}</h3>
+                        <div className="quote-document-sections">
+                          {selectedInvoice.lines.map((line) => (
+                            <div className="quote-document-section" key={line.id}>
+                              <div>
+                                <strong>{line.description}</strong>
+                                <span>{line.category}</span>
+                              </div>
+                              <strong>{currency(line.chargeToClient)}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        {template.includePnl ? <div className="record-form-private-summary">Internal preview · Cost {currency(selectedInvoice.costTotal)} · Profit {currency(selectedInvoiceFinancials.profit)}</div> : null}
+                        <div className="record-form-terms">
+                          <strong>Payment terms</strong>
+                          <p>{template.terms}</p>
+                          {template.includeBankDetails ? (
+                            <p>{normalizedFinanceSettings.bankName} · {normalizedFinanceSettings.accountName} · Sort code {normalizedFinanceSettings.sortCode} · Account {normalizedFinanceSettings.accountNumber}</p>
+                          ) : null}
+                          <small>{template.footer}</small>
+                        </div>
+                        <footer>
+                          <span>Subtotal {currency(selectedInvoice.chargeTotal)}</span>
+                          <span>VAT {currency(selectedInvoiceFinancials.vatAmount)}</span>
+                          <strong>Total {currency(selectedInvoiceFinancials.grandTotal)}</strong>
+                        </footer>
+                      </article>
+                      <div className="record-form-preview-actions">
+                        <button className="secondary-button" type="button" onClick={() => setActiveInvoiceTab("summary")}>Back to invoice</button>
+                        <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}><Mail size={15} /> Email invoice</button>
+                      </div>
+                    </section>
+                  );
+                })() : null}
+
                 {activeInvoiceTab === "logs" ? (
                   <section className="client-record-panel">
                     <section className="communication-capture-panel">
@@ -21674,6 +22043,7 @@ export default function Dashboard() {
                                 <option>Client</option>
                                 <option>Engineer</option>
                                 <option>Office</option>
+                                <option>Supplier</option>
                               </select>
                             </label>
                             <label className="span-2">
