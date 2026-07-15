@@ -7348,6 +7348,93 @@ h1 {
   width: 100%;
 }
 
+.lead-create-workspace-shell {
+  align-items: flex-start;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(88, 172, 213, 0.16), transparent 24rem),
+    #eff9fd;
+  inset: 0;
+  overflow: auto;
+  padding: 128px 28px 32px 116px;
+  position: fixed;
+  z-index: 118;
+}
+
+.lead-create-page {
+  background: #fff;
+  border: 1px solid #d8e7ef;
+  border-radius: 20px;
+  box-shadow: 0 22px 60px rgba(40, 126, 168, 0.14);
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  max-width: 1180px;
+  min-height: calc(100vh - 168px);
+  overflow: hidden;
+  width: 100%;
+}
+
+.lead-create-page .form-body {
+  flex: 1;
+  overflow: visible;
+}
+
+.lead-form-section-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.lead-form-section-heading strong {
+  color: var(--ink);
+  display: block;
+  font-size: 14px;
+  margin-top: 3px;
+}
+
+.lead-contact-panel {
+  background: #f7fbfd;
+  border: 1px solid #d8e7ef;
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.lead-contact-grid,
+.lead-address-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lead-additional-contact-list {
+  display: grid;
+  gap: 8px;
+}
+
+.lead-additional-contact-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+}
+
+.lead-address-fields label:first-child,
+.lead-address-fields label:nth-child(2) {
+  grid-column: span 2;
+}
+
+.job-gantt .quote-gantt-head,
+.job-gantt .quote-gantt-row {
+  grid-template-columns: 170px minmax(0, 1fr) 96px;
+}
+
+.job-gantt .quote-gantt-track {
+  grid-column: 2;
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .form-header,
 .drawer-header {
   align-items: flex-start;
@@ -15128,11 +15215,12 @@ body {
 
 .purchase-order-directory .quote-row {
   grid-template-columns:
-    24px minmax(140px, 1fr) minmax(98px, 0.75fr) minmax(110px, 0.9fr)
-    minmax(160px, 1.15fr) minmax(108px, 0.85fr) minmax(260px, 1.7fr)
-    minmax(86px, 0.7fr) minmax(94px, 0.74fr) minmax(104px, 0.8fr) minmax(104px, 0.8fr);
+    24px minmax(128px, 1fr) minmax(82px, 0.65fr) minmax(92px, 0.75fr)
+    minmax(132px, 1fr) minmax(92px, 0.72fr) minmax(184px, 1.35fr)
+    minmax(82px, 0.62fr) minmax(92px, 0.7fr) minmax(98px, 0.76fr) minmax(96px, 0.72fr);
   min-height: 48px;
-  padding: 7px 14px;
+  gap: 8px;
+  padding: 7px 10px;
 }
 
 .purchase-order-directory .quote-row > :nth-child(2),
@@ -15144,6 +15232,14 @@ body {
 
 .purchase-order-directory .quote-row.table-header {
   border-top: 1px solid var(--line-soft);
+}
+
+.purchase-order-directory .quote-row .value,
+.purchase-order-directory .quote-row.table-header > :nth-child(8),
+.purchase-order-directory .quote-row.table-header > :nth-child(9),
+.purchase-order-directory .quote-row.table-header > :nth-child(10) {
+  justify-self: end;
+  text-align: right;
 }
 
 .purchase-order-directory .job-identity {
@@ -15282,8 +15378,8 @@ body {
   overflow: hidden;
   padding: 6px;
   position: absolute;
+  bottom: calc(100% + 6px);
   right: 0;
-  top: calc(100% + 6px);
   z-index: 90;
 }
 
@@ -18731,6 +18827,26 @@ body {
 }
 
 @media (max-width: 920px) {
+  .lead-create-workspace-shell {
+    padding: 112px 12px 20px;
+  }
+
+  .lead-create-page {
+    border-radius: 16px;
+    min-height: calc(100vh - 132px);
+  }
+
+  .lead-contact-grid,
+  .lead-address-fields,
+  .lead-additional-contact-row {
+    grid-template-columns: 1fr;
+  }
+
+  .lead-address-fields label:first-child,
+  .lead-address-fields label:nth-child(2) {
+    grid-column: auto;
+  }
+
   .simpro-cost-centre-row.quote {
     grid-template-columns: 22px minmax(180px, 1fr) !important;
   }
@@ -18983,7 +19099,7 @@ body {
     background: #fff !important;
     border: 1px solid var(--line) !important;
     border-radius: 14px !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
   .record-directory .record-folder-section > header {

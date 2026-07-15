@@ -452,9 +452,45 @@ function leadMapSearchUrl(address: string) {
   return `https://www.google.com/maps/search/?api=1&query=${query}`;
 }
 
+function leadAddressFromParts(parts?: Partial<LeadAddressParts>) {
+  if (!parts) return "";
+  return [parts.line1, parts.line2, parts.town, parts.county, parts.postcode]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+function leadAddressPartsFromAddress(address: string, postcodeHint = ""): LeadAddressParts {
+  const postcode = (postcodeHint || address.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i)?.[0] || "").toUpperCase();
+  const withoutPostcode = postcode
+    ? address.replace(new RegExp(`${postcode.replace(/\s+/g, "\\s*")}$`, "i"), "").replace(/,\s*$/, "")
+    : address;
+  const parts = withoutPostcode.split(",").map((part) => part.trim()).filter(Boolean);
+  const tail = parts.slice(1);
+  return {
+    line1: parts[0] ?? "",
+    line2: tail.length > 2 ? tail.slice(0, -2).join(", ") : "",
+    town: tail.length >= 2 ? tail[tail.length - 2] ?? "" : tail[0] ?? "",
+    county: tail.length >= 2 ? tail[tail.length - 1] ?? "" : "",
+    postcode,
+  };
+}
+
+function normaliseLeadContact(contact: LeadContact) {
+  return {
+    ...contact,
+    name: contact.name.trim(),
+    role: contact.role.trim() || "Additional contact",
+    phone: contact.phone.trim(),
+    email: contact.email.trim(),
+    notes: contact.notes.trim(),
+  };
+}
+
 type HomeView =
   | "dashboard"
   | "leads"
+  | "lead-create"
   | "lead-record"
   | "quotes"
   | "schedule"
@@ -477,7 +513,7 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
-type JobDetailTab = "summary" | "cost-centres" | "documents" | "logs";
+type JobDetailTab = "summary" | "planner" | "cost-centres" | "documents" | "logs";
 type QuoteDetailTab = "setup" | "planner" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "po" | "engineer-flow" | "options" | "schedule" | "assets";
@@ -601,6 +637,9 @@ type Lead = {
   source: LeadSource;
   clientId?: string;
   siteId?: string;
+  mainContact?: LeadContact;
+  additionalContacts?: LeadContact[];
+  addressParts?: LeadAddressParts;
   customerName: string;
   phone: string;
   email: string;
@@ -616,6 +655,23 @@ type Lead = {
 };
 
 type LeadCustomerMode = "existing" | "new";
+type LeadAddressParts = {
+  line1: string;
+  line2: string;
+  town: string;
+  county: string;
+  postcode: string;
+};
+
+type LeadContact = {
+  id: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  notes: string;
+};
+
 type LeadDraft = Omit<Lead, "id" | "ref" | "createdAt" | "next"> & {
   customerMode: LeadCustomerMode;
 };
@@ -1452,6 +1508,7 @@ const leadTabs: Array<{ key: LeadTab; label: string }> = [
 
 const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
   { key: "summary", label: "Details" },
+  { key: "planner", label: "Planner" },
   { key: "cost-centres", label: "Cost Centre List" },
   { key: "documents", label: "Documents" },
   { key: "logs", label: "Logs" },
@@ -1459,7 +1516,6 @@ const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
 
 const quoteDetailTabs: Array<{ key: QuoteDetailTab; label: string }> = [
   { key: "setup", label: "Details" },
-  { key: "planner", label: "Planner" },
   { key: "cost-build", label: "Cost Centre List" },
   { key: "supplier-request", label: "Supplier Request" },
   { key: "documents", label: "Documents" },
@@ -3026,10 +3082,30 @@ const blankOneOffMaterialDraft: OneOffMaterialDraft = {
   quantity: "1",
 };
 
+const blankLeadAddressParts: LeadAddressParts = {
+  line1: "",
+  line2: "",
+  town: "",
+  county: "",
+  postcode: "",
+};
+
+const blankLeadMainContact: LeadContact = {
+  id: "main-contact",
+  name: "",
+  role: "Main contact",
+  phone: "",
+  email: "",
+  notes: "",
+};
+
 const blankLead: LeadDraft = {
   customerMode: "new",
   clientId: undefined,
   siteId: undefined,
+  mainContact: blankLeadMainContact,
+  additionalContacts: [],
+  addressParts: blankLeadAddressParts,
   source: "Phone call",
   customerName: "",
   phone: "",
@@ -6534,13 +6610,6 @@ export default function Dashboard() {
         tone: "blue",
         items: filteredQuotes.filter((quote) => quote.status === "Sent"),
       },
-      {
-        key: "job-ready",
-        label: "Accepted / jobs",
-        detail: "Approved quotes ready to convert or already linked",
-        tone: "green",
-        items: filteredQuotes.filter((quote) => quote.status === "Accepted" || quote.status === "Converted"),
-      },
     ],
     [filteredQuotes],
   );
@@ -6552,7 +6621,7 @@ export default function Dashboard() {
         label: "Pending jobs",
         detail: "Accepted work needing schedule or final start checks",
         tone: "amber",
-        items: filteredJobs.filter((job) => ["Accepted", "Pending", "Scheduled"].includes(job.status)),
+        items: filteredJobs.filter((job) => ["Accepted", "Pending"].includes(job.status)),
       },
       {
         key: "progress",
@@ -6560,7 +6629,7 @@ export default function Dashboard() {
         detail: "Live work, blocked work and active site control",
         tone: "blue",
         items: filteredJobs.filter((job) =>
-          ["In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
+          ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
         ),
       },
       {
@@ -7882,6 +7951,9 @@ export default function Dashboard() {
         importance: patch.status === "Accepted" || patch.status === "Lost" ? "high" : "normal",
       });
       showNotice(message);
+      if (patch.status === "Accepted" && !updated.convertedJobId && workflowRules.autoCreatePendingJobOnAcceptance) {
+        await convertQuoteToJob(updated);
+      }
     } catch {
       setQuotes((current) => current.map((item) => (item.id === quote.id ? previous : item)));
       showNotice(`Unable to update ${quote.ref}.`);
@@ -9592,8 +9664,9 @@ export default function Dashboard() {
           manager: selectedJobScheduleDraft.manager,
           scheduledDate: selectedJobScheduleDraft.scheduledDate,
           scheduledTime: selectedJobScheduleDraft.scheduledTime,
-          status: "Scheduled",
-          next: "Engineer scheduled. Await attendance confirmation.",
+          status: "In progress",
+          health: "blue",
+          next: "Engineer scheduled. Track delivery, POs and variations.",
         },
         `${selectedJob.ref} scheduled for ${selectedJobScheduleDraft.scheduledDate} at ${selectedJobScheduleDraft.scheduledTime}.`,
       );
@@ -12376,7 +12449,9 @@ export default function Dashboard() {
     setShowCreateMenu(false);
     setLeadFormError("");
     setLeadPostcodeSearch("");
+    setHomeView("lead-create");
     setShowCreateLead(true);
+    scrollWorkspaceToTop();
   }
 
   function createQuote() {
@@ -12413,11 +12488,69 @@ export default function Dashboard() {
     return address.match(/[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i)?.[0].toUpperCase() ?? "";
   }
 
+  function updateLeadAddressParts(patch: Partial<LeadAddressParts>) {
+    setNewLead((current) => {
+      const addressParts = { ...blankLeadAddressParts, ...current.addressParts, ...patch };
+      return {
+        ...current,
+        addressParts,
+        address: leadAddressFromParts(addressParts),
+      };
+    });
+  }
+
+  function updateLeadMainContact(patch: Partial<LeadContact>) {
+    setNewLead((current) => {
+      const mainContact = { ...blankLeadMainContact, ...current.mainContact, ...patch };
+      return {
+        ...current,
+        mainContact,
+        phone: patch.phone !== undefined ? patch.phone : current.phone,
+        email: patch.email !== undefined ? patch.email : current.email,
+      };
+    });
+  }
+
+  function addLeadAdditionalContact() {
+    setNewLead((current) => ({
+      ...current,
+      additionalContacts: [
+        ...(current.additionalContacts ?? []),
+        {
+          id: `lead-contact-${Date.now()}`,
+          name: "",
+          role: "Site contact",
+          phone: "",
+          email: "",
+          notes: "",
+        },
+      ],
+    }));
+  }
+
+  function updateLeadAdditionalContact(contactId: string, patch: Partial<LeadContact>) {
+    setNewLead((current) => ({
+      ...current,
+      additionalContacts: (current.additionalContacts ?? []).map((contact) =>
+        contact.id === contactId ? { ...contact, ...patch } : contact,
+      ),
+    }));
+  }
+
+  function removeLeadAdditionalContact(contactId: string) {
+    setNewLead((current) => ({
+      ...current,
+      additionalContacts: (current.additionalContacts ?? []).filter((contact) => contact.id !== contactId),
+    }));
+  }
+
   function setLeadExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
     const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
-    setLeadPostcodeSearch(site ? postcodeFromAddress(site.address) : postcodeFromAddress(client.billingAddress));
+    const address = site?.address ?? client.billingAddress;
+    const postcode = postcodeFromAddress(address);
+    setLeadPostcodeSearch(postcode);
     setNewLead((current) => ({
       ...current,
       customerMode: "existing",
@@ -12426,17 +12559,29 @@ export default function Dashboard() {
       customerName: client.name,
       phone: client.phone,
       email: client.email,
-      address: site?.address ?? client.billingAddress,
+      mainContact: {
+        id: "main-contact",
+        name: client.primaryContact || client.name,
+        role: "Main contact",
+        phone: client.phone,
+        email: client.email,
+        notes: "",
+      },
+      address,
+      addressParts: leadAddressPartsFromAddress(address, postcode),
     }));
   }
 
   function setLeadExistingSite(siteId: string) {
     const site = clientSites.find((item) => item.id === siteId);
+    const postcode = site ? postcodeFromAddress(site.address) : "";
     setNewLead((current) => ({
       ...current,
       siteId,
       address: site?.address ?? current.address,
+      addressParts: site ? leadAddressPartsFromAddress(site.address, postcode) : current.addressParts,
     }));
+    if (postcode) setLeadPostcodeSearch(postcode);
   }
 
   function clearLeadCustomerMatch() {
@@ -12586,10 +12731,12 @@ export default function Dashboard() {
 
   function selectLeadAddress(address: string, postcode: string) {
     const matchingSite = clientSites.find((site) => site.clientId === newLead.clientId && site.address === address);
+    const addressParts = leadAddressPartsFromAddress(address, postcode);
     setNewLead((current) => ({
       ...current,
       siteId: matchingSite?.id,
       address,
+      addressParts,
     }));
     setLeadPostcodeSearch(postcode);
   }
@@ -12613,6 +12760,11 @@ export default function Dashboard() {
       source: newLead.source,
       clientId: newLead.clientId || undefined,
       siteId: newLead.siteId || undefined,
+      mainContact: newLead.mainContact ? normaliseLeadContact(newLead.mainContact) : undefined,
+      additionalContacts: (newLead.additionalContacts ?? [])
+        .map(normaliseLeadContact)
+        .filter((contact) => contact.name || contact.phone || contact.email || contact.notes),
+      addressParts: { ...blankLeadAddressParts, ...newLead.addressParts },
       customerName: newLead.customerName.trim(),
       phone: newLead.phone.trim(),
       email: newLead.email.trim(),
@@ -12674,6 +12826,7 @@ export default function Dashboard() {
       });
       setLeads((current) => [result.lead, ...current.filter((lead) => lead.id !== result.lead.id)]);
       setShowCreateLead(false);
+      setHomeView("leads");
       setLeadFormError("");
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
@@ -12755,6 +12908,11 @@ export default function Dashboard() {
         source: newLead.source,
         clientId: selectedClient.id,
         siteId: resolvedSite?.id,
+        mainContact: newLead.mainContact ? normaliseLeadContact(newLead.mainContact) : undefined,
+        additionalContacts: (newLead.additionalContacts ?? [])
+          .map(normaliseLeadContact)
+          .filter((contact) => contact.name || contact.phone || contact.email || contact.notes),
+        addressParts: { ...blankLeadAddressParts, ...newLead.addressParts },
         customerName: selectedClient.name,
         phone: newLead.phone.trim(),
         email: newLead.email.trim(),
@@ -12781,6 +12939,7 @@ export default function Dashboard() {
 
       setLeads((current) => [createdLead, ...current]);
       setShowCreateLead(false);
+      setHomeView("leads");
       setLeadFormError("");
       setLeadPostcodeSearch("");
       setNewLead(blankLead);
@@ -13212,9 +13371,11 @@ export default function Dashboard() {
       manager: newJob.manager,
       scheduledDate: newJob.scheduledDate,
       scheduledTime: newJob.scheduledTime,
-      status: newJob.status,
+      status: newJob.scheduledDate && newJob.scheduledTime ? "In progress" : newJob.status,
       value: Number(newJob.value) || 0,
-      next: newJob.next.trim() || "Review job",
+      next: newJob.scheduledDate && newJob.scheduledTime
+        ? "Engineer scheduled. Track delivery, POs and variations."
+        : newJob.next.trim() || "Review job",
       due: newJob.due,
     };
 
@@ -14561,6 +14722,8 @@ export default function Dashboard() {
                         : "Invoice"
                     : homeView === "leads"
                       ? "Leads"
+                    : homeView === "lead-create"
+                      ? "New lead"
                     : homeView === "lead-record"
                       ? "Lead record"
                     : homeView === "schedule"
@@ -14605,6 +14768,8 @@ export default function Dashboard() {
                       : "Invoice"
                   : homeView === "leads"
                     ? "Leads"
+                  : homeView === "lead-create"
+                    ? "Create lead"
                   : homeView === "lead-record"
                     ? selectedLead?.ref ?? "Lead record"
                   : homeView === "schedule"
@@ -14646,6 +14811,8 @@ export default function Dashboard() {
                     ? `${selectedInvoice?.sourceName ?? "Source not linked"} · due ${selectedInvoice?.dueDate ?? "TBC"}`
                   : homeView === "leads"
                   ? `${leads.filter((lead) => !["Quoted", "Lost"].includes(lead.status)).length} open enquiries · ${leads.filter((lead) => lead.status === "Survey booked").length} surveys booked`
+                  : homeView === "lead-create"
+                    ? "Capture customer, site, contacts, work description and survey booking"
                   : homeView === "lead-record"
                     ? `${selectedLead?.customerName ?? "Lead"} · ${selectedLead?.address ?? "Address to confirm"}`
                   : homeView === "schedule"
@@ -14796,6 +14963,23 @@ export default function Dashboard() {
                   <button className="primary-button" onClick={createLead}>
                     <Plus size={16} />
                     New lead
+                  </button>
+                </>
+              ) : homeView === "lead-create" ? (
+                <>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setLeadFormError("");
+                      setShowCreateLead(false);
+                      setHomeView("leads");
+                    }}
+                  >
+                    Back to leads
+                  </button>
+                  <button className="primary-button" type="button" onClick={submitLead}>
+                    <Bell size={16} />
+                    Save lead and notify
                   </button>
                 </>
               ) : homeView === "lead-record" ? (
@@ -15655,29 +15839,6 @@ export default function Dashboard() {
                         </div>
                       </article>
                     </div>
-
-                    <section className="quote-planner-summary-card">
-                      <div>
-                        <span className="permission-heading">Planner</span>
-                        <h2>Engineer schedule draft</h2>
-                        <p>
-                          {selectedQuoteScheduleAssignments.length
-                            ? `${selectedQuoteScheduleAssignments.length} engineer assignment(s) drafted for this quote.`
-                            : "No engineer time planned yet for this quote."}
-                        </p>
-                      </div>
-                      <div className="quote-planner-summary-list">
-                        {selectedQuoteScheduleAssignments.slice(0, 3).map((assignment) => (
-                          <span key={assignment.id}>
-                            <strong>{assignment.employeeName}</strong>
-                            {assignment.startDate} - {assignment.endDate}
-                          </span>
-                        ))}
-                      </div>
-                      <button className="secondary-button" type="button" onClick={() => setActiveQuoteTab("planner")}>
-                        Open planner
-                      </button>
-                    </section>
 
                     <section className="ai-quote-review-panel">
                       <header>
@@ -18779,6 +18940,106 @@ export default function Dashboard() {
                         )}
                       </div>
                     </section>
+                  </section>
+                ) : null}
+
+                {activeJobTab === "planner" ? (
+                  <section className="quote-record-panel quote-planner-panel job-planner-panel">
+                    <div className="documents-toolbar">
+                      <div>
+                        <span className="permission-heading">Job planner</span>
+                        <h2>Schedule engineers against this job</h2>
+                        <p>This writes to the live job schedule, so the appointment also appears in the Schedules area.</p>
+                      </div>
+                      <span className={`status-pill ${selectedJob.status === "In progress" ? "green" : selectedJob.status === "Pending" ? "amber" : "blue"}`}>
+                        {selectedJob.status}
+                      </span>
+                    </div>
+
+                    <section className="job-scheduling-panel">
+                      {selectedJobScheduleDraft ? (
+                        <div className="job-scheduling-grid">
+                          <label>
+                            Engineer / lead
+                            <select
+                              value={selectedJobScheduleDraft.manager}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ manager: event.target.value })}
+                            >
+                              {surveyorOptions.map((surveyor) => (
+                                <option key={surveyor}>{surveyor}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Date
+                            <input
+                              type="date"
+                              value={selectedJobScheduleDraft.scheduledDate}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledDate: event.target.value })}
+                            />
+                          </label>
+                          <label>
+                            Time
+                            <input
+                              type="time"
+                              value={selectedJobScheduleDraft.scheduledTime}
+                              onChange={(event) => updateSelectedJobScheduleDraft({ scheduledTime: event.target.value })}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                      <div className="job-scheduling-actions">
+                        <button className="primary-button" type="button" onClick={scheduleSelectedJob}>
+                          Save to job schedule
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
+                          onClick={requestSelectedJobAttendanceConfirmation}
+                        >
+                          Request confirmation
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={!selectedJob.scheduledDate || !selectedJob.scheduledTime}
+                          onClick={() => {
+                            setHomeView("schedule");
+                            setScheduleDate(selectedJob.scheduledDate || scheduleDate);
+                            scrollWorkspaceToTop();
+                          }}
+                        >
+                          Open schedules
+                        </button>
+                      </div>
+                    </section>
+
+                    {selectedJob.scheduledDate && selectedJob.scheduledTime ? (
+                      <div className="quote-gantt job-gantt">
+                        <div className="quote-gantt-head">
+                          <span>Engineer</span>
+                          <span>{selectedJob.scheduledDate.slice(5)}</span>
+                          <span />
+                        </div>
+                        <div className="quote-gantt-row">
+                          <strong>{selectedJob.manager}</strong>
+                          <div className="quote-gantt-track">
+                            <span className="quote-gantt-bar" style={{ gridColumn: "1 / span 1" }}>
+                              {selectedJob.scheduledTime} · {selectedJob.description}
+                            </span>
+                          </div>
+                          <button className="simpro-options-button" type="button" onClick={confirmSelectedJobAttendance}>
+                            Confirm
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="quote-planner-empty">
+                        <strong>No job schedule saved yet.</strong>
+                        <span>Pick an engineer, date and time above, then save it to the job schedule.</span>
+                      </div>
+                    )}
                   </section>
                 ) : null}
 
@@ -23149,8 +23410,13 @@ export default function Dashboard() {
       ) : null}
 
       {showCreateLead ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal lead-modal" role="dialog" aria-modal="true" aria-labelledby="create-lead-title">
+        <div className={homeView === "lead-create" ? "lead-create-workspace-shell" : "modal-backdrop"} role="presentation">
+          <section
+            className={homeView === "lead-create" ? "lead-create-page" : "modal lead-modal"}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-lead-title"
+          >
             <div className="form-header">
               <div>
                 <span>Leads</span>
@@ -23162,6 +23428,7 @@ export default function Dashboard() {
                 onClick={() => {
                   setLeadFormError("");
                   setShowCreateLead(false);
+                  if (homeView === "lead-create") setHomeView("leads");
                 }}
               >
                 <ChevronRight size={19} />
@@ -23236,14 +23503,85 @@ export default function Dashboard() {
                 Created by
                 <input value={newLead.createdBy} onChange={(event) => setNewLead((current) => ({ ...current, createdBy: event.target.value }))} />
               </label>
-              <label>
-                Phone
-                <input value={newLead.phone} onChange={(event) => setNewLead((current) => ({ ...current, phone: event.target.value }))} />
-              </label>
-              <label>
-                Email
-                <input value={newLead.email} onChange={(event) => setNewLead((current) => ({ ...current, email: event.target.value }))} />
-              </label>
+              <div className="full-field lead-contact-panel">
+                <div className="lead-form-section-heading">
+                  <div>
+                    <span className="permission-heading">Main contact</span>
+                    <strong>Who should we speak to first?</strong>
+                  </div>
+                </div>
+                <div className="lead-contact-grid">
+                  <label>
+                    Contact name
+                    <input
+                      value={newLead.mainContact?.name ?? ""}
+                      onChange={(event) => updateLeadMainContact({ name: event.target.value })}
+                      placeholder="Name of the main contact"
+                    />
+                  </label>
+                  <label>
+                    Role
+                    <input
+                      value={newLead.mainContact?.role ?? "Main contact"}
+                      onChange={(event) => updateLeadMainContact({ role: event.target.value })}
+                      placeholder="Main contractor, tenant, site manager..."
+                    />
+                  </label>
+                  <label>
+                    Phone
+                    <input value={newLead.phone} onChange={(event) => updateLeadMainContact({ phone: event.target.value })} />
+                  </label>
+                  <label>
+                    Email
+                    <input value={newLead.email} onChange={(event) => updateLeadMainContact({ email: event.target.value })} />
+                  </label>
+                </div>
+              </div>
+              <div className="full-field lead-contact-panel">
+                <div className="lead-form-section-heading">
+                  <div>
+                    <span className="permission-heading">Additional contacts</span>
+                    <strong>Main contractor, site contacts or tenant contacts</strong>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={addLeadAdditionalContact}>
+                    <Plus size={14} />
+                    Add contact
+                  </button>
+                </div>
+                {(newLead.additionalContacts ?? []).length ? (
+                  <div className="lead-additional-contact-list">
+                    {(newLead.additionalContacts ?? []).map((contact) => (
+                      <article className="lead-additional-contact-row" key={contact.id}>
+                        <input
+                          value={contact.name}
+                          onChange={(event) => updateLeadAdditionalContact(contact.id, { name: event.target.value })}
+                          placeholder="Contact name"
+                        />
+                        <input
+                          value={contact.role}
+                          onChange={(event) => updateLeadAdditionalContact(contact.id, { role: event.target.value })}
+                          placeholder="Role"
+                        />
+                        <input
+                          value={contact.phone}
+                          onChange={(event) => updateLeadAdditionalContact(contact.id, { phone: event.target.value })}
+                          placeholder="Phone"
+                        />
+                        <input
+                          value={contact.email}
+                          onChange={(event) => updateLeadAdditionalContact(contact.id, { email: event.target.value })}
+                          placeholder="Email"
+                        />
+                        <button className="simpro-options-button" type="button" onClick={() => removeLeadAdditionalContact(contact.id)}>
+                          Remove
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="lead-match-empty">Add extra contacts only when this lead has a contractor, tenant, site manager or multiple site contacts.</p>
+                )}
+              </div>
               <label>
                 Status
                 <select value={newLead.status} onChange={(event) => setNewLead((current) => ({ ...current, status: event.target.value as LeadStatus }))}>
@@ -23270,13 +23608,46 @@ export default function Dashboard() {
                 ) : null}
               </div>
               <div className="full-field lead-address-map-grid">
-                <label>
-                  Address
-                  <input
-                    value={newLead.address}
-                    onChange={(event) => setNewLead((current) => ({ ...current, address: event.target.value }))}
-                  />
-                </label>
+                <div className="lead-address-fields">
+                  <label>
+                    Address line 1
+                    <input
+                      value={newLead.addressParts?.line1 ?? ""}
+                      onChange={(event) => updateLeadAddressParts({ line1: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Address line 2
+                    <input
+                      value={newLead.addressParts?.line2 ?? ""}
+                      onChange={(event) => updateLeadAddressParts({ line2: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Town / city
+                    <input
+                      value={newLead.addressParts?.town ?? ""}
+                      onChange={(event) => updateLeadAddressParts({ town: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    County
+                    <input
+                      value={newLead.addressParts?.county ?? ""}
+                      onChange={(event) => updateLeadAddressParts({ county: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Postcode
+                    <input
+                      value={newLead.addressParts?.postcode ?? ""}
+                      onChange={(event) => {
+                        updateLeadAddressParts({ postcode: event.target.value.toUpperCase() });
+                        setLeadPostcodeSearch(event.target.value.toUpperCase());
+                      }}
+                    />
+                  </label>
+                </div>
                 <div className="lead-map-preview" aria-label="Selected address map preview">
                   {newLead.address ? (
                     <>
@@ -23365,6 +23736,7 @@ export default function Dashboard() {
                 onClick={() => {
                   setLeadFormError("");
                   setShowCreateLead(false);
+                  if (homeView === "lead-create") setHomeView("leads");
                 }}
               >
                 Cancel

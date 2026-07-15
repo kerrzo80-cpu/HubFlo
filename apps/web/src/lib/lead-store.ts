@@ -18,6 +18,9 @@ export type LeadRecord = {
   source: LeadSource;
   clientId?: string;
   siteId?: string;
+  mainContact?: LeadContact;
+  additionalContacts?: LeadContact[];
+  addressParts?: LeadAddressParts;
   customerName: string;
   phone: string;
   email: string;
@@ -30,6 +33,23 @@ export type LeadRecord = {
   createdBy: string;
   next: string;
   createdAt: string;
+};
+
+export type LeadAddressParts = {
+  line1: string;
+  line2: string;
+  town: string;
+  county: string;
+  postcode: string;
+};
+
+export type LeadContact = {
+  id: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  notes: string;
 };
 
 export type LeadStoreApiPayload = Omit<LeadRecord, "id" | "ref" | "createdAt" | "next"> & {
@@ -326,6 +346,9 @@ export function createLead(payload: LeadDraftFromClient, actor: string): LeadCre
     source: payload.source,
     clientId: selectedClient?.id,
     siteId: selectedSite?.id,
+    mainContact: payload.mainContact,
+    additionalContacts: payload.additionalContacts,
+    addressParts: payload.addressParts,
     customerName: selectedClient?.name ?? payload.customerName,
     phone: payload.phone,
     email: payload.email,

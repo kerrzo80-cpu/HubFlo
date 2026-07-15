@@ -608,10 +608,13 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
               <div className="engineer-mini-list">
                 {workflow.poRequests.map((request) => (
                   <article key={request.id}>
-                    <span>{request.status}</span>
+                    <span>{request.poNumber ? `${request.status} · ${request.poNumber}` : request.status}</span>
                     <strong>{request.supplier}</strong>
                     <p>{request.note || "Supplier / PO support requested."}</p>
-                    <small>{request.jobRef ?? job.jobRef} · {request.costCentreName ?? job.costCentre} · {request.createdBy} · {request.createdAt}</small>
+                    <small>
+                      {request.jobRef ?? job.jobRef} · {request.costCentreName ?? job.costCentre} · {request.createdBy} · {request.createdAt}
+                      {request.poNumber ? ` · Give supplier ${request.poNumber}` : ""}
+                    </small>
                   </article>
                 ))}
               </div>

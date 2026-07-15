@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getEngineerScheduleItem, type EngineerAttachment, type EngineerRequirement } from "@/lib/engineer-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
-import { createPurchaseRequest, updateJob } from "@/lib/workflow-data";
+import { createPurchaseRequest, getPurchaseRequests, updateJob } from "@/lib/workflow-data";
 
 export type EngineerWorkflowNote = {
   id: string;
@@ -23,6 +23,7 @@ export type EngineerWorkflowReport = {
 
 export type EngineerWorkflowPoRequest = {
   id: string;
+  poNumber?: string;
   supplier: string;
   note: string;
   jobRef?: string;
@@ -257,6 +258,30 @@ function normaliseWorkflow(workflow: EngineerJobWorkflow) {
   return workflow;
 }
 
+function syncWorkflowPoRequestsFromCore(workflow: EngineerJobWorkflow) {
+  const coreRequests = getPurchaseRequests();
+  workflow.poRequests = workflow.poRequests.map((request) => {
+    const coreRequest = coreRequests.find((item) => item.id === request.id);
+    if (!coreRequest) return request;
+    const status: EngineerWorkflowPoRequest["status"] =
+      coreRequest.status === "Rejected"
+        ? "Rejected"
+        : coreRequest.status === "Requested"
+          ? "Office review"
+          : coreRequest.status === "Approved"
+            ? "Approved"
+            : "Ordered";
+    return {
+      ...request,
+      poNumber: coreRequest.poNumber || request.poNumber,
+      supplier: coreRequest.supplier || request.supplier,
+      note: coreRequest.reason || coreRequest.item || request.note,
+      status,
+    };
+  });
+  return workflow;
+}
+
 function addReviewItem(
   workflow: EngineerJobWorkflow,
   item: Omit<EngineerWorkflowReviewItem, "id" | "createdAt" | "status"> & { createdAt?: string; status?: EngineerWorkflowReviewItem["status"] },
@@ -290,7 +315,8 @@ function appendCoreJobDeliveryEvent(item: Record<string, unknown>) {
 }
 
 export function getEngineerJobWorkflow(scheduleId: string) {
-  return clone(normaliseWorkflow(getMutableWorkflow(scheduleId)));
+  const workflow = syncWorkflowPoRequestsFromCore(normaliseWorkflow(getMutableWorkflow(scheduleId)));
+  return clone(workflow);
 }
 
 function minutesFromTime(value: string) {
