@@ -8,6 +8,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ClipboardCheck,
   Clock3,
@@ -617,6 +618,8 @@ type JobScheduleDraft = {
   plannedHours: string;
   notes: string;
 };
+
+type ScheduleView = "day" | "week" | "month";
 
 type QuoteSection = {
   id: string;
@@ -2776,6 +2779,7 @@ const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey b
 const surveyorOptions = ["Brian Kerr", "Errol Watson", "Chris Lawson"];
 const surveyDurationMinutes = 60;
 const currentOperatingDate = "2026-07-01";
+const scheduleToday = "2026-07-15";
 const defaultLeadQuoteGraceDays = 3;
 const defaultQuoteResponseGraceDays = 3;
 const defaultWorkflowRules: WorkflowRulesSettings = {
@@ -4864,8 +4868,58 @@ function finishFromPlannedHours(startDate: string, startTime: string, hours: str
 function plannerDateLabel(value: string) {
   const date = plannerDateTime(value, "12:00");
   return date
-    ? new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(date)
+    ? new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }).format(date)
     : value;
+}
+
+function formatUkDate(value: string) {
+  const date = plannerDateTime(value, "12:00");
+  return date ? new Intl.DateTimeFormat("en-GB").format(date) : value;
+}
+
+function formatScheduleDate(value: string, options?: Intl.DateTimeFormatOptions) {
+  const date = plannerDateTime(value, "12:00");
+  return date
+    ? new Intl.DateTimeFormat("en-GB", options ?? { weekday: "short", day: "numeric", month: "short" }).format(date)
+    : value;
+}
+
+function shiftIsoDate(value: string, days: number) {
+  const date = plannerDateTime(value, "12:00");
+  if (!date) return value;
+  date.setDate(date.getDate() + days);
+  return plannerInputDate(date);
+}
+
+function startOfScheduleWeek(value: string) {
+  const date = plannerDateTime(value, "12:00");
+  if (!date) return value;
+  const mondayOffset = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - mondayOffset);
+  return plannerInputDate(date);
+}
+
+function scheduleMonthDays(value: string) {
+  const date = plannerDateTime(value, "12:00");
+  if (!date) return [];
+  const firstOfMonth = new Date(date.getFullYear(), date.getMonth(), 1, 12);
+  const firstGridDay = startOfScheduleWeek(plannerInputDate(firstOfMonth));
+  return Array.from({ length: 42 }, (_, index) => shiftIsoDate(firstGridDay, index));
+}
+
+function bookingFallsOnDate(booking: { date: string; endDate?: string }, date: string) {
+  return date >= booking.date && date <= (booking.endDate || booking.date);
+}
+
+const JOB_GANTT_SLOTS_PER_DAY = 20;
+const JOB_GANTT_START_MINUTES = 8 * 60;
+const JOB_GANTT_SLOT_MINUTES = 30;
+
+function jobGanttSlotForTime(time: string, isEnd = false) {
+  const minutes = timeToMinutes(time);
+  const rawSlot = (minutes - JOB_GANTT_START_MINUTES) / JOB_GANTT_SLOT_MINUTES;
+  const roundedSlot = isEnd ? Math.ceil(rawSlot) : Math.floor(rawSlot);
+  return Math.min(JOB_GANTT_SLOTS_PER_DAY, Math.max(0, roundedSlot));
 }
 
 function timeRangesOverlap(firstStart: string, secondStart: string, durationMinutes = surveyDurationMinutes) {
@@ -5118,7 +5172,8 @@ export default function Dashboard() {
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
-  const [scheduleDate, setScheduleDate] = useState("2026-06-24");
+  const [scheduleDate, setScheduleDate] = useState(scheduleToday);
+  const [scheduleView, setScheduleView] = useState<ScheduleView>("week");
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
   const [formTemplates, setFormTemplates] = useState<FormTemplate[]>(defaultFormTemplates);
   const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
@@ -7506,10 +7561,59 @@ export default function Dashboard() {
     [scheduledJobs],
   );
 
-  const bookingsForSelectedDate = useMemo(
-    () => [...leadSurveyBookings, ...scheduledJobs].filter((booking) => booking.date === scheduleDate),
-    [leadSurveyBookings, scheduledJobs, scheduleDate],
+  const allScheduleBookings = useMemo(
+    () => [...leadSurveyBookings, ...scheduledJobs],
+    [leadSurveyBookings, scheduledJobs],
   );
+
+  const bookingsForSelectedDate = useMemo(
+    () => allScheduleBookings.filter((booking) => bookingFallsOnDate(booking, scheduleDate)),
+    [allScheduleBookings, scheduleDate],
+  );
+
+  const scheduleVisibleDays = useMemo(() => {
+    if (scheduleView === "day") return [scheduleDate];
+    if (scheduleView === "month") return scheduleMonthDays(scheduleDate);
+    const weekStart = startOfScheduleWeek(scheduleDate);
+    return Array.from({ length: 7 }, (_, index) => shiftIsoDate(weekStart, index));
+  }, [scheduleDate, scheduleView]);
+
+  const schedulePeriodLabel = useMemo(() => {
+    if (scheduleView === "day") {
+      return formatScheduleDate(scheduleDate, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    }
+    if (scheduleView === "month") {
+      return formatScheduleDate(scheduleDate, { month: "long", year: "numeric" });
+    }
+    const first = scheduleVisibleDays[0] ?? scheduleDate;
+    const last = scheduleVisibleDays.at(-1) ?? scheduleDate;
+    return `${formatScheduleDate(first, { day: "numeric", month: "long", year: "numeric" })} - ${formatScheduleDate(last, { day: "numeric", month: "long", year: "numeric" })}`;
+  }, [scheduleDate, scheduleView, scheduleVisibleDays]);
+
+  function moveSchedulePeriod(direction: -1 | 1) {
+    if (scheduleView === "day") {
+      setScheduleDate((current) => shiftIsoDate(current, direction));
+      return;
+    }
+    if (scheduleView === "week") {
+      setScheduleDate((current) => shiftIsoDate(current, direction * 7));
+      return;
+    }
+    setScheduleDate((current) => {
+      const date = plannerDateTime(current, "12:00");
+      if (!date) return current;
+      date.setMonth(date.getMonth() + direction);
+      return plannerInputDate(date);
+    });
+  }
+
+  function openScheduleBooking(booking: { id: string; type?: "Job"; jobId?: string }) {
+    if (booking.type === "Job") {
+      openJobDrawer(booking.jobId || booking.id);
+      return;
+    }
+    openLeadRecord(booking.id);
+  }
 
   type StaffScheduleClash = {
     type: "lead" | "job";
@@ -19580,20 +19684,30 @@ export default function Dashboard() {
                           <div className="job-gantt-scroll">
                             <div
                               className="job-gantt-grid job-gantt-grid-head"
-                              style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length}, minmax(48px, 1fr)) 58px` }}
+                              style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY}, minmax(4px, 1fr)) 58px` }}
                             >
-                              <span>Work package</span>
-                              {selectedJobGanttDays.map((day) => <time key={day}>{plannerDateLabel(day)}</time>)}
-                              <span>Hours</span>
+                              <span style={{ gridColumn: 1 }}>Work package</span>
+                              {selectedJobGanttDays.map((day, dayIndex) => (
+                                <time
+                                  key={day}
+                                  style={{ gridColumn: `${dayIndex * JOB_GANTT_SLOTS_PER_DAY + 2} / ${dayIndex * JOB_GANTT_SLOTS_PER_DAY + JOB_GANTT_SLOTS_PER_DAY + 2}` }}
+                                >
+                                  {plannerDateLabel(day)}
+                                </time>
+                              ))}
+                              <span style={{ gridColumn: selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY + 2 }}>Hours</span>
                             </div>
                             {selectedJobScheduleAssignments.map((assignment, assignmentIndex) => {
                               const startIndex = selectedJobGanttDays.indexOf(assignment.startDate);
                               const endIndex = selectedJobGanttDays.indexOf(assignment.endDate);
+                              const startSlot = startIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.startTime);
+                              const endSlot = endIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.endTime, true);
+                              const finalSlot = Math.max(startSlot + 1, endSlot);
                               return (
                                 <article
                                   className="job-gantt-grid job-gantt-grid-row"
                                   key={assignment.id}
-                                  style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length}, minmax(48px, 1fr)) 58px` }}
+                                  style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY}, minmax(4px, 1fr)) 58px` }}
                                 >
                                   <div className="job-gantt-work-package">
                                     <strong>{assignment.costCentreName}</strong>
@@ -19603,20 +19717,20 @@ export default function Dashboard() {
                                     <span
                                       className="job-gantt-day-cell"
                                       key={day}
-                                      style={{ gridColumn: dayIndex + 2 }}
+                                      style={{ gridColumn: `${dayIndex * JOB_GANTT_SLOTS_PER_DAY + 2} / ${dayIndex * JOB_GANTT_SLOTS_PER_DAY + JOB_GANTT_SLOTS_PER_DAY + 2}` }}
                                       aria-hidden="true"
                                     />
                                   ))}
                                   {startIndex >= 0 && endIndex >= startIndex ? (
                                     <div
                                       className={`job-gantt-bar tone-${assignmentIndex % 4}`}
-                                      style={{ gridColumn: `${startIndex + 2} / ${endIndex + 3}` }}
+                                      style={{ gridColumn: `${startSlot + 2} / ${finalSlot + 2}` }}
                                       title={`${assignment.costCentreName}: ${assignment.startDate} ${assignment.startTime} to ${assignment.endDate} ${assignment.endTime}`}
                                     >
                                       <span>{assignment.startTime} - {assignment.endTime}</span>
                                     </div>
                                   ) : null}
-                                  <b className="job-gantt-hours" style={{ gridColumn: selectedJobGanttDays.length + 2 }}>
+                                  <b className="job-gantt-hours" style={{ gridColumn: selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY + 2 }}>
                                     {assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h
                                   </b>
                                 </article>
@@ -19640,8 +19754,8 @@ export default function Dashboard() {
                                 <span>{assignment.employeeName}</span>
                                 {assignment.notes ? <small>{assignment.notes}</small> : null}
                               </div>
-                              <time>{assignment.startDate}<strong>{assignment.startTime}</strong></time>
-                              <time>{assignment.endDate}<strong>{assignment.endTime}</strong></time>
+                              <time>{formatUkDate(assignment.startDate)}<strong>{assignment.startTime}</strong></time>
+                              <time>{formatUkDate(assignment.endDate)}<strong>{assignment.endTime}</strong></time>
                               <b>{assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h</b>
                               <div className="job-plan-row-actions">
                                 <button className="simpro-options-button" type="button" onClick={() => editJobScheduleAssignment(assignment)}>Edit</button>
@@ -21955,88 +22069,159 @@ export default function Dashboard() {
             ) : null
           ) : homeView === "schedule" ? (
             <section className="scheduler-shell">
-              <div className="panel-header">
+              <div className="scheduler-toolbar">
                 <div>
-                  <h2>Survey scheduler</h2>
-                  <p>Lead and job bookings are shown against each engineer&apos;s availability.</p>
+                  <span className="permission-heading">Team diary</span>
+                  <h2>Schedules</h2>
+                  <p>{schedulePeriodLabel}</p>
                 </div>
-                <div className="scheduler-date-tabs" role="tablist" aria-label="Scheduler dates">
-                  {schedulerDays.map((day) => (
-                    <button
-                      key={day.date}
-                      type="button"
-                      className={scheduleDate === day.date ? "active" : ""}
-                      onClick={() => setScheduleDate(day.date)}
-                    >
-                      {day.label}
-                    </button>
+                <div className="scheduler-toolbar-actions">
+                  <div className="scheduler-view-switch" role="tablist" aria-label="Schedule view">
+                    {(["day", "week", "month"] as ScheduleView[]).map((view) => (
+                      <button
+                        className={scheduleView === view ? "active" : ""}
+                        key={view}
+                        type="button"
+                        onClick={() => setScheduleView(view)}
+                      >
+                        {view[0]?.toUpperCase()}{view.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="scheduler-period-nav">
+                    <button type="button" onClick={() => moveSchedulePeriod(-1)} title={`Previous ${scheduleView}`} aria-label={`Previous ${scheduleView}`}><ChevronLeft size={16} /></button>
+                    <button type="button" onClick={() => setScheduleDate(scheduleToday)}>Today</button>
+                    <button type="button" onClick={() => moveSchedulePeriod(1)} title={`Next ${scheduleView}`} aria-label={`Next ${scheduleView}`}><ChevronRight size={16} /></button>
+                  </div>
+                  <label className="scheduler-date-picker">
+                    <CalendarDays size={15} />
+                    <input type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} />
+                  </label>
+                </div>
+              </div>
+
+              {scheduleView === "day" ? (
+                <div className="scheduler-grid">
+                  {surveyorOptions.map((surveyor) => {
+                    const availability = availabilityForDate(surveyor, scheduleDate);
+                    const bookings = bookingsForSelectedDate
+                      .filter((booking) => booking.surveyor === surveyor)
+                      .sort((first, second) => first.time.localeCompare(second.time));
+
+                    return (
+                      <section className="scheduler-column" key={surveyor}>
+                        <header>
+                          <div>
+                            <h3>{surveyor}</h3>
+                            <span className={availability.active ? "scheduler-available" : "scheduler-unavailable"}>
+                              {availabilityLabel(surveyor, scheduleDate)}
+                            </span>
+                          </div>
+                          <strong>{bookings.length}</strong>
+                        </header>
+
+                        <div className="scheduler-lane">
+                          {availability.active ? (
+                            <div className="scheduler-availability-window">
+                              Available {availability.from} to {availability.to}
+                            </div>
+                          ) : (
+                            <div className="scheduler-closed-window">Unavailable</div>
+                          )}
+
+                          {bookings.map((booking) => (
+                            <button className="scheduler-booking" key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>
+                              <time>{booking.date === scheduleDate ? booking.time : "Continues"}</time>
+                              <strong>{booking.ref} · {booking.customerName}</strong>
+                              <span>{booking.address}</span>
+                              <small>
+                                {"costCentreName" in booking && booking.costCentreName ? `${booking.costCentreName} · ` : ""}
+                                {booking.description}
+                                {"endDate" in booking && typeof booking.endDate === "string" && "endTime" in booking && typeof booking.endTime === "string"
+                                  ? ` · Ends ${formatUkDate(booking.endDate)} ${booking.endTime}`
+                                  : ""}
+                              </small>
+                            </button>
+                          ))}
+
+                          {bookings.length === 0 ? (
+                            <div className="scheduler-empty-slot">
+                              <strong>No bookings</strong>
+                              <span>{availability.active ? "Available for work or survey visits." : "Choose another day or person."}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              {scheduleView === "week" ? (
+                <div className="scheduler-week-board">
+                  <div className="scheduler-week-row scheduler-week-head">
+                    <span>Engineer</span>
+                    {scheduleVisibleDays.map((day) => <time key={day}>{formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}</time>)}
+                  </div>
+                  {surveyorOptions.map((surveyor) => (
+                    <div className="scheduler-week-row" key={surveyor}>
+                      <header><strong>{surveyor}</strong><span>Team diary</span></header>
+                      {scheduleVisibleDays.map((day) => {
+                        const availability = availabilityForDate(surveyor, day);
+                        const bookings = allScheduleBookings
+                          .filter((booking) => booking.surveyor === surveyor && bookingFallsOnDate(booking, day))
+                          .sort((first, second) => first.time.localeCompare(second.time));
+                        return (
+                          <section className={availability.active ? "scheduler-week-cell" : "scheduler-week-cell unavailable"} key={day}>
+                            <small>{availability.active ? `${availability.from}-${availability.to}` : "Unavailable"}</small>
+                            {bookings.map((booking) => (
+                              <button key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>
+                                <time>{booking.date === day ? booking.time : "Continues"}</time>
+                                <strong>{booking.ref}</strong>
+                                <span>{booking.customerName}</span>
+                              </button>
+                            ))}
+                          </section>
+                        );
+                      })}
+                    </div>
                   ))}
                 </div>
-              </div>
+              ) : null}
 
-              <div className="scheduler-grid">
-                {surveyorOptions.map((surveyor) => {
-                  const availability = availabilityForDate(surveyor, scheduleDate);
-                  const bookings = bookingsForSelectedDate
-                    .filter((booking) => booking.surveyor === surveyor)
-                    .sort((first, second) => first.time.localeCompare(second.time));
-
-                  return (
-                    <section className="scheduler-column" key={surveyor}>
-                      <header>
-                        <div>
-                          <h3>{surveyor}</h3>
-                          <span className={availability.active ? "scheduler-available" : "scheduler-unavailable"}>
-                            {availabilityLabel(surveyor, scheduleDate)}
-                          </span>
-                        </div>
-                        <strong>{bookings.length}</strong>
-                      </header>
-
-                      <div className="scheduler-lane">
-                        {availability.active ? (
-                          <div className="scheduler-availability-window">
-                            Available {availability.from} to {availability.to}
-                          </div>
-                        ) : (
-                          <div className="scheduler-closed-window">Unavailable</div>
-                        )}
-
-                        {bookings.map((booking) => (
+              {scheduleView === "month" ? (
+                <div className="scheduler-month-board">
+                  <div className="scheduler-month-weekdays">
+                    {weekDays.map((day) => <span key={day}>{day}</span>)}
+                  </div>
+                  <div className="scheduler-month-grid">
+                    {scheduleVisibleDays.map((day) => {
+                      const bookings = allScheduleBookings.filter((booking) => bookingFallsOnDate(booking, day));
+                      const inCurrentMonth = day.slice(0, 7) === scheduleDate.slice(0, 7);
+                      return (
+                        <article className={inCurrentMonth ? "scheduler-month-day" : "scheduler-month-day outside"} key={day}>
                           <button
-                            className="scheduler-booking"
-                            key={booking.id}
+                            className={day === scheduleToday ? "scheduler-month-date today" : "scheduler-month-date"}
                             type="button"
-                            onClick={() =>
-                              "type" in booking && booking.type === "Job"
-                                ? openJobDrawer("jobId" in booking && typeof booking.jobId === "string" ? booking.jobId : booking.id)
-                                : openLeadRecord(booking.id)
-                            }
+                            onClick={() => { setScheduleDate(day); setScheduleView("day"); }}
                           >
-                            <time>{booking.time}</time>
-                            <strong>{booking.ref} · {booking.customerName}</strong>
-                            <span>{booking.address}</span>
-                            <small>
-                              {"costCentreName" in booking && booking.costCentreName ? `${booking.costCentreName} · ` : ""}
-                              {booking.description}
-                              {"endDate" in booking && booking.endDate && "endTime" in booking && booking.endTime
-                                ? ` · Ends ${booking.endDate} ${booking.endTime}`
-                                : ""}
-                            </small>
+                            {formatScheduleDate(day, { day: "numeric" })}
                           </button>
-                        ))}
-
-                        {bookings.length === 0 ? (
-                          <div className="scheduler-empty-slot">
-                            <strong>No bookings for this timeslot</strong>
-                            <span>{availability.active ? "Available for new quote visits." : "Choose another day or person."}</span>
+                          <div>
+                            {bookings.slice(0, 4).map((booking) => (
+                              <button className="scheduler-month-booking" key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>
+                                <time>{booking.time}</time>
+                                <span>{booking.ref} · {booking.surveyor}</span>
+                              </button>
+                            ))}
+                            {bookings.length > 4 ? <small>+{bookings.length - 4} more</small> : null}
                           </div>
-                        ) : null}
-                      </div>
-                    </section>
-                  );
-                })}
-              </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </section>
           ) : homeView === "settings" ? (
             <section className="setup-workspace setup-page-shell">

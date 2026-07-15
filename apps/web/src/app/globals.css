@@ -8425,6 +8425,106 @@ h1 {
   border-bottom: 1px solid var(--line);
 }
 
+.scheduler-toolbar {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 16px 18px;
+}
+
+.scheduler-toolbar > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.scheduler-toolbar h2,
+.scheduler-toolbar p {
+  margin: 0;
+}
+
+.scheduler-toolbar h2 {
+  font-size: 20px;
+}
+
+.scheduler-toolbar p {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.scheduler-toolbar-actions,
+.scheduler-view-switch,
+.scheduler-period-nav,
+.scheduler-date-picker {
+  align-items: center;
+  display: flex;
+}
+
+.scheduler-toolbar-actions {
+  flex-wrap: wrap;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+.scheduler-view-switch {
+  background: #eef3f5;
+  border: 1px solid var(--line);
+  padding: 3px;
+}
+
+.scheduler-view-switch button,
+.scheduler-period-nav button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #526169;
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0 11px;
+}
+
+.scheduler-view-switch button.active {
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(22, 52, 69, 0.12);
+  color: var(--blue-deep);
+}
+
+.scheduler-period-nav {
+  border: 1px solid var(--line);
+}
+
+.scheduler-period-nav button + button {
+  border-left: 1px solid var(--line);
+}
+
+.scheduler-view-switch button:hover,
+.scheduler-period-nav button:hover {
+  background: #e5f4fa;
+  color: var(--blue-deep);
+}
+
+.scheduler-date-picker {
+  border: 1px solid var(--line);
+  color: var(--blue-deep);
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+.scheduler-date-picker input {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  min-width: 122px;
+  outline: 0;
+}
+
 .scheduler-date-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -8565,6 +8665,214 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 5px;
+}
+
+.scheduler-week-board,
+.scheduler-month-board {
+  overflow-x: auto;
+  padding: 14px;
+}
+
+.scheduler-week-row {
+  display: grid;
+  grid-template-columns: 150px repeat(7, minmax(132px, 1fr));
+  min-width: 1074px;
+}
+
+.scheduler-week-head {
+  background: #f1f7f9;
+  border: 1px solid var(--line);
+  color: #586c78;
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.scheduler-week-head > span,
+.scheduler-week-head > time {
+  align-items: center;
+  border-left: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: center;
+  min-height: 38px;
+  padding: 7px;
+  text-align: center;
+}
+
+.scheduler-week-head > span {
+  border-left: 0;
+  justify-content: flex-start;
+  padding-left: 12px;
+}
+
+.scheduler-week-row > header {
+  align-content: start;
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-top: 0;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.scheduler-week-row > header strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.scheduler-week-row > header span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.scheduler-week-cell {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 142px;
+  padding: 7px;
+}
+
+.scheduler-week-cell.unavailable {
+  background: #f7f8f9;
+}
+
+.scheduler-week-cell > small {
+  color: var(--muted);
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.scheduler-week-cell > button {
+  background: #eaf6fb;
+  border: 0;
+  border-left: 3px solid var(--blue);
+  color: var(--ink);
+  display: grid;
+  gap: 2px;
+  padding: 7px;
+  text-align: left;
+}
+
+.scheduler-week-cell > button:hover,
+.scheduler-month-booking:hover {
+  background: #dceff7;
+}
+
+.scheduler-week-cell button time,
+.scheduler-week-cell button strong,
+.scheduler-week-cell button span {
+  font-size: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduler-week-cell button time {
+  color: var(--blue-deep);
+  font-weight: 850;
+}
+
+.scheduler-week-cell button span {
+  color: var(--muted);
+}
+
+.scheduler-month-board {
+  min-width: 860px;
+}
+
+.scheduler-month-weekdays,
+.scheduler-month-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(118px, 1fr));
+}
+
+.scheduler-month-weekdays {
+  background: #f1f7f9;
+  border: 1px solid var(--line);
+}
+
+.scheduler-month-weekdays span {
+  color: #5c6f7a;
+  font-size: 9px;
+  font-weight: 850;
+  padding: 9px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.scheduler-month-day {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  min-height: 126px;
+  padding: 7px;
+}
+
+.scheduler-month-day:nth-child(7n + 1) {
+  border-left: 1px solid var(--line);
+}
+
+.scheduler-month-day.outside {
+  background: #f6f8f9;
+  opacity: 0.66;
+}
+
+.scheduler-month-date {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  display: flex;
+  font-size: 10px;
+  font-weight: 850;
+  height: 25px;
+  justify-content: center;
+  margin: 0 0 4px auto;
+  width: 25px;
+}
+
+.scheduler-month-date.today {
+  background: var(--blue);
+  border-radius: 50%;
+  color: #fff;
+}
+
+.scheduler-month-day > div {
+  display: grid;
+  gap: 4px;
+}
+
+.scheduler-month-booking {
+  align-items: center;
+  background: #eaf6fb;
+  border: 0;
+  color: var(--ink);
+  display: grid;
+  gap: 5px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 5px;
+  text-align: left;
+}
+
+.scheduler-month-booking time,
+.scheduler-month-booking span,
+.scheduler-month-day > div > small {
+  font-size: 8px;
+}
+
+.scheduler-month-booking time {
+  color: var(--blue-deep);
+  font-weight: 850;
+}
+
+.scheduler-month-booking span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .form-body input,
@@ -9521,6 +9829,16 @@ h1 {
 
   .scheduler-grid {
     grid-template-columns: 1fr;
+  }
+
+  .scheduler-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .scheduler-toolbar-actions {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .quote-row {
@@ -20446,6 +20764,22 @@ body {
 }
 
 @media (max-width: 720px) {
+  .scheduler-toolbar-actions,
+  .scheduler-view-switch,
+  .scheduler-period-nav,
+  .scheduler-date-picker {
+    width: 100%;
+  }
+
+  .scheduler-view-switch button,
+  .scheduler-period-nav button {
+    flex: 1;
+  }
+
+  .scheduler-date-picker input {
+    width: 100%;
+  }
+
   .setup-pdf-proof-toolbar {
     align-items: stretch;
     flex-direction: column;
