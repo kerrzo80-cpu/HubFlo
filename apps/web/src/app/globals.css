@@ -18540,6 +18540,220 @@ body {
   margin: 1px 0 0 !important;
 }
 
+.simpro-section-title {
+  display: grid;
+  gap: 2px;
+  min-height: 20px;
+  min-width: 0;
+}
+
+.simpro-section-title strong {
+  color: var(--ink) !important;
+  min-height: 18px;
+}
+
+.simpro-section-title small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.simpro-row-section-select {
+  color: var(--muted);
+  display: grid;
+  font-size: 10px;
+  font-weight: 850;
+  gap: 3px;
+  text-transform: uppercase;
+}
+
+.simpro-row-section-select select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  min-width: 130px;
+  padding: 6px 8px;
+  text-transform: none;
+}
+
+.simpro-cost-centre-row.quote {
+  grid-template-columns: 22px 22px minmax(180px, 1fr) minmax(130px, 170px) 120px 90px auto !important;
+}
+
+.simpro-cost-centre-empty,
+.quote-planner-empty {
+  background: #f8fbfc;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  display: grid;
+  gap: 4px;
+  margin: 10px 16px 16px;
+  padding: 14px;
+}
+
+.simpro-cost-centre-empty strong,
+.quote-planner-empty strong {
+  color: var(--ink);
+}
+
+.quote-planner-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.quote-planner-summary-card {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr) auto;
+  padding: 14px 16px;
+}
+
+.quote-planner-summary-card h2 {
+  font-size: 18px;
+  margin: 3px 0;
+}
+
+.quote-planner-summary-card p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+
+.quote-planner-summary-list {
+  display: grid;
+  gap: 6px;
+}
+
+.quote-planner-summary-list span {
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  display: grid;
+  font-size: 12px;
+  padding: 7px 9px;
+}
+
+.quote-planner-summary-list strong {
+  color: var(--ink);
+}
+
+.quote-planner-form {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(170px, 1.2fr) repeat(4, minmax(120px, 0.8fr)) minmax(180px, 1.4fr) auto;
+}
+
+.quote-planner-notes {
+  min-width: 0;
+}
+
+.quote-gantt {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.quote-gantt-head,
+.quote-gantt-row {
+  display: grid;
+  grid-template-columns: 150px repeat(14, minmax(28px, 1fr)) 90px;
+}
+
+.quote-gantt-head {
+  background: #f5f9fb;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.quote-gantt-head span:first-child {
+  border-right: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.quote-gantt-head span:not(:first-child) {
+  border-right: 1px solid var(--line-soft);
+  padding: 10px 8px;
+  text-align: center;
+}
+
+.quote-gantt-row {
+  align-items: center;
+  border-top: 1px solid var(--line-soft);
+  min-height: 52px;
+}
+
+.quote-gantt-row > strong {
+  color: var(--ink);
+  padding: 0 12px;
+}
+
+.quote-gantt-track {
+  display: grid;
+  gap: 4px;
+  grid-column: 2 / span 14;
+  grid-template-columns: repeat(14, minmax(28px, 1fr));
+  min-height: 34px;
+  padding: 8px;
+}
+
+.quote-gantt-row .simpro-options-button {
+  margin-right: 8px;
+}
+
+.quote-gantt-bar {
+  align-items: center;
+  background: linear-gradient(90deg, var(--blue), #7bc9e5);
+  border-radius: 999px;
+  color: #fff;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 850;
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup-catalog-table .setup-rate-row {
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 0.8fr) 110px 100px 100px;
+}
+
+@media (max-width: 920px) {
+  .simpro-cost-centre-row.quote {
+    grid-template-columns: 22px minmax(180px, 1fr) !important;
+  }
+
+  .simpro-row-section-select,
+  .simpro-row-total,
+  .simpro-row-profit,
+  .simpro-row-actions {
+    grid-column: 2;
+  }
+
+  .quote-planner-form,
+  .quote-planner-summary-card,
+  .quote-gantt-head,
+  .quote-gantt-row {
+    grid-template-columns: 1fr;
+  }
+
+  .quote-gantt-track {
+    grid-template-columns: repeat(7, minmax(34px, 1fr));
+  }
+}
+
 .survey-hero-summary {
   align-items: center;
   color: #536979;

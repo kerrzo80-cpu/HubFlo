@@ -105,6 +105,8 @@ const STORAGE_KEYS = {
   financeSettings: "hubflo:finance-settings:v1",
   flowCompletion: "hubflo:flow-completion:v1",
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
+  quoteSections: "hubflo:quote-sections:v1",
+  quoteSchedulePlans: "hubflo:quote-schedule-plans:v1",
   jobCostCentres: "hubflo:job-cost-centres:v1",
   jobReviews: "hubflo:job-reviews:v1",
   jobDeliveryEvents: "hubflo:job-delivery-events:v1",
@@ -476,7 +478,7 @@ type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availabilit
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
 type JobDetailTab = "summary" | "cost-centres" | "documents" | "logs";
-type QuoteDetailTab = "setup" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
+type QuoteDetailTab = "setup" | "planner" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "po" | "engineer-flow" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
@@ -493,6 +495,7 @@ type SetupCategory =
   | "cost-centres"
   | "engineer-checklists"
   | "workflow-rules"
+  | "catalogue"
   | "rates"
   | "communications"
   | "finance";
@@ -555,6 +558,38 @@ type JobScheduleDraft = {
   manager: string;
   scheduledDate: string;
   scheduledTime: string;
+};
+
+type QuoteSection = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+type QuoteScheduleAssignment = {
+  id: string;
+  quoteId: string;
+  employeeId: string;
+  employeeName: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+};
+
+type QuoteScheduleDraft = {
+  employeeId: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+};
+
+type CatalogImportDraft = {
+  folder: string;
+  type: CatalogItem["type"];
 };
 
 type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
@@ -1168,6 +1203,7 @@ type SurveyAsset = {
 type QuoteCostCentre = {
   id: string;
   name: string;
+  sectionId?: string;
   templateName?: string;
   clientDescription?: string;
   engineerDescription?: string;
@@ -1260,6 +1296,8 @@ type HubDetailStatePayload = {
   costCentreFlowAssignmentDrafts?: Record<string, string>;
   flowStepCompletion?: Record<string, boolean>;
   quoteCostCentres?: Record<string, QuoteCostCentre[]>;
+  quoteSections?: Record<string, QuoteSection[]>;
+  quoteSchedulePlans?: Record<string, QuoteScheduleAssignment[]>;
   customQuoteCatalog?: CatalogItem[];
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
   jobReviews?: Record<string, JobReviewState>;
@@ -1421,6 +1459,7 @@ const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
 
 const quoteDetailTabs: Array<{ key: QuoteDetailTab; label: string }> = [
   { key: "setup", label: "Details" },
+  { key: "planner", label: "Planner" },
   { key: "cost-build", label: "Cost Centre List" },
   { key: "supplier-request", label: "Supplier Request" },
   { key: "documents", label: "Documents" },
@@ -1571,6 +1610,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
+  { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
@@ -1677,6 +1717,23 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
     Approvals: {
       summary: "Configure approval gates for POs, variations, invoices and commercial reviews.",
       focus: ["PO approval threshold", "Variation approval routing", "Invoice review gates"],
+      status: "Editable now",
+    },
+  },
+  catalogue: {
+    Materials: {
+      summary: "Import material catalogues from supplier CSV exports or office price sheets.",
+      focus: ["Item description", "Folder/category", "Cost and sell rates"],
+      status: "Editable now",
+    },
+    Labour: {
+      summary: "Review labour catalogue items generated from the rates and markups setup.",
+      focus: ["Engineer labour", "Survey/review time", "Markup defaults"],
+      status: "Editable now",
+    },
+    Suppliers: {
+      summary: "Prepare supplier price lists so quote cost centres can search reusable priced items.",
+      focus: ["Supplier item files", "Trade price updates", "Folder mapping"],
       status: "Editable now",
     },
   },
@@ -3477,10 +3534,19 @@ function buildQuoteReviewQuestions(
   return questions.slice(0, 6);
 }
 
-function makeQuoteCostCentre(quoteId: string, index: number, name?: string, templateName = "General plumbing"): QuoteCostCentre {
+function baseQuoteSection(quoteId: string): QuoteSection {
+  return {
+    id: `${quoteId}-section-base`,
+    name: "",
+    description: "",
+  };
+}
+
+function makeQuoteCostCentre(quoteId: string, index: number, name?: string, templateName = "General plumbing", sectionId?: string): QuoteCostCentre {
   return {
     id: `${quoteId}-centre-${Date.now()}-${index}`,
     name: name?.trim() || `Cost centre ${index + 1}`,
+    sectionId,
     templateName,
     clientDescription: "",
     engineerDescription: "",
@@ -4758,6 +4824,9 @@ export default function Dashboard() {
   const [selectedCostCentreId, setSelectedCostCentreId] = useState<string | null>(null);
   const [quoteCostCentreNameDraft, setQuoteCostCentreNameDraft] = useState("");
   const [quoteCostCentreTemplateDraft, setQuoteCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
+  const [quoteCostCentreSectionDraft, setQuoteCostCentreSectionDraft] = useState("");
+  const [quoteSectionNameDraft, setQuoteSectionNameDraft] = useState("");
+  const [quoteSectionDescriptionDraft, setQuoteSectionDescriptionDraft] = useState("");
   const [showQuoteCostCentreCreate, setShowQuoteCostCentreCreate] = useState(false);
   const [jobCostCentreNameDraft, setJobCostCentreNameDraft] = useState("");
   const [jobCostCentreTemplateDraft, setJobCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
@@ -4766,6 +4835,20 @@ export default function Dashboard() {
   const [renamingCostCentre, setRenamingCostCentre] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renameCostCentreDraft, setRenameCostCentreDraft] = useState("");
   const [quoteCostCentres, setQuoteCostCentres] = useState<Record<string, QuoteCostCentre[]>>({});
+  const [quoteSections, setQuoteSections] = useState<Record<string, QuoteSection[]>>({});
+  const [quoteSchedulePlans, setQuoteSchedulePlans] = useState<Record<string, QuoteScheduleAssignment[]>>({});
+  const [quotePlannerDraft, setQuotePlannerDraft] = useState<QuoteScheduleDraft>({
+    employeeId: seedEmployees[0]?.id ?? "",
+    startDate: "2026-06-24",
+    endDate: "2026-06-24",
+    startTime: "09:00",
+    endTime: "16:00",
+    notes: "",
+  });
+  const [catalogImportDraft, setCatalogImportDraft] = useState<CatalogImportDraft>({
+    folder: quoteCatalogFolders[0] ?? "General materials",
+    type: "Material",
+  });
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
@@ -5163,6 +5246,30 @@ export default function Dashboard() {
   const selectedQuoteCostCentres = useMemo(
     () => (selectedQuote ? quoteCostCentres[selectedQuote.id] ?? [] : []),
     [quoteCostCentres, selectedQuote],
+  );
+
+  const selectedQuoteSections = useMemo(() => {
+    if (!selectedQuote) return [];
+    const baseSection = baseQuoteSection(selectedQuote.id);
+    const storedSections = quoteSections[selectedQuote.id] ?? [];
+    const merged = storedSections.some((section) => section.id === baseSection.id)
+      ? storedSections
+      : [baseSection, ...storedSections];
+    return merged;
+  }, [quoteSections, selectedQuote]);
+
+  const selectedQuoteSectionsWithCentres = useMemo(
+    () =>
+      selectedQuoteSections.map((section) => ({
+        section,
+        centres: selectedQuoteCostCentres.filter((centre) => (centre.sectionId ?? selectedQuoteSections[0]?.id) === section.id),
+      })),
+    [selectedQuoteCostCentres, selectedQuoteSections],
+  );
+
+  const selectedQuoteScheduleAssignments = useMemo(
+    () => (selectedQuote ? quoteSchedulePlans[selectedQuote.id] ?? [] : []),
+    [quoteSchedulePlans, selectedQuote],
   );
 
   const selectedQuoteCostCentre = useMemo(
@@ -5625,6 +5732,8 @@ export default function Dashboard() {
     setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? seedClients[0]?.id ?? "");
     const storedQuoteCostCentres = safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
+    const storedQuoteSections = safeLoadStoredJson(STORAGE_KEYS.quoteSections, {});
+    const storedQuoteSchedulePlans = safeLoadStoredJson(STORAGE_KEYS.quoteSchedulePlans, {});
     setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, demoJobs));
     setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes).map((quote) => quoteWithCostCentreValue(quote, storedQuoteCostCentres)));
     setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
@@ -5659,6 +5768,8 @@ export default function Dashboard() {
     );
     setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
     setQuoteCostCentres(storedQuoteCostCentres);
+    setQuoteSections(storedQuoteSections);
+    setQuoteSchedulePlans(storedQuoteSchedulePlans);
     setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
@@ -5780,6 +5891,8 @@ export default function Dashboard() {
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
           if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current) {
             if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
+            if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
+            if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
             if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
           }
           if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
@@ -5978,6 +6091,8 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.costCentreFlowAssignments, costCentreFlowAssignmentDrafts);
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
+    safeSaveStoredJson(STORAGE_KEYS.quoteSections, quoteSections);
+    safeSaveStoredJson(STORAGE_KEYS.quoteSchedulePlans, quoteSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
@@ -6006,6 +6121,8 @@ export default function Dashboard() {
         costCentreFlowAssignmentDrafts,
         flowStepCompletion,
         quoteCostCentres,
+        quoteSections,
+        quoteSchedulePlans,
         customQuoteCatalog,
         jobCostCentres: jobEstimateCostCentres,
         jobReviews: jobReviewApprovals,
@@ -6078,6 +6195,8 @@ export default function Dashboard() {
     costCentreFlowAssignmentDrafts,
     flowStepCompletion,
     quoteCostCentres,
+    quoteSections,
+    quoteSchedulePlans,
     customQuoteCatalog,
     jobEstimateCostCentres,
     jobReviewApprovals,
@@ -7422,6 +7541,71 @@ export default function Dashboard() {
     showNotice(`${typeName} removed from setup.`);
   }
 
+  async function importCatalogFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFileAsText(file);
+      const rows = csvRowsFromText(text);
+      const header = rows[0] ?? [];
+      if (!header.length || rows.length < 2) {
+        showNotice("Could not detect catalogue rows. Export as CSV with description/name, cost and sell/rate columns.");
+        return;
+      }
+
+      const nameIndex = detectColumn(header, [["description", "item description", "name", "item", "material", "part"], ["details"]]);
+      const unitIndex = detectColumn(header, [["unit", "uom", "measure"]]);
+      const costIndex = detectColumn(header, [["cost", "unit cost", "trade price", "buy", "buy price", "rate"], ["price"]]);
+      const sellIndex = detectColumn(header, [["sell", "sell rate", "charge", "charge rate", "selling price"]]);
+      const typeIndex = detectColumn(header, [["type", "category type", "item type"]]);
+      const folderIndex = detectColumn(header, [["folder", "category", "group", "section"]]);
+
+      if (nameIndex < 0) {
+        showNotice("No description/name column found in the catalogue file.");
+        return;
+      }
+
+      const imported = rows.slice(1).flatMap((row, index) => {
+        const name = row[nameIndex]?.trim();
+        if (!name) return [];
+        const typeValue = row[typeIndex]?.trim() as CatalogItem["type"] | undefined;
+        const type: CatalogItem["type"] = ["Labour", "Material", "Plant", "Subcontractor"].includes(typeValue ?? "")
+          ? typeValue!
+          : catalogImportDraft.type;
+        const costRate = parseNumberish(row[costIndex] ?? "") ?? 0;
+        const fallbackMarkup = defaultMarkupForCatalogType(type, normalizedFinanceSettings);
+        const sellRate = parseNumberish(row[sellIndex] ?? "") ?? lineSellFromMarkup(costRate, fallbackMarkup);
+        const category = row[folderIndex]?.trim() || catalogImportDraft.folder;
+        return [{
+          id: `imported-catalog-${Date.now()}-${index}`,
+          type,
+          name,
+          unit: row[unitIndex]?.trim() || (type === "Labour" ? "hour" : "item"),
+          costRate,
+          sellRate,
+          category,
+        } satisfies CatalogItem];
+      });
+
+      if (!imported.length) {
+        showNotice("No catalogue items imported from that file.");
+        return;
+      }
+
+      setCustomQuoteCatalog((current) => {
+        const existingKeys = new Set(current.map((item) => `${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
+        const fresh = imported.filter((item) => !existingKeys.has(`${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
+        return [...fresh, ...current];
+      });
+      markSetupEdited();
+      showNotice(`${imported.length} catalogue item(s) imported from ${file.name}.`);
+    } catch {
+      showNotice("Unable to import that catalogue file.");
+    } finally {
+      event.currentTarget.value = "";
+    }
+  }
+
   function flowCompletionKey(recordId: string, stepId: string) {
     return `${recordId}:${stepId}`;
   }
@@ -7999,6 +8183,8 @@ export default function Dashboard() {
         STORAGE_KEYS.invoices,
         STORAGE_KEYS.flowCompletion,
         STORAGE_KEYS.quoteCostCentres,
+        STORAGE_KEYS.quoteSections,
+        STORAGE_KEYS.quoteSchedulePlans,
         STORAGE_KEYS.jobCostCentres,
         STORAGE_KEYS.jobReviews,
         STORAGE_KEYS.jobDeliveryEvents,
@@ -8014,6 +8200,8 @@ export default function Dashboard() {
     setInvoices([]);
     setAuditEvents([]);
     setQuoteCostCentres({});
+    setQuoteSections({});
+    setQuoteSchedulePlans({});
     setJobEstimateCostCentres({});
     setJobReviewApprovals({});
     setJobDeliveryEvents([]);
@@ -10594,7 +10782,89 @@ export default function Dashboard() {
     setHomeView("dashboard");
   }
 
-  function addQuoteCostCentre() {
+  function createQuoteSection() {
+    if (!selectedQuote) return;
+    const name = quoteSectionNameDraft.trim();
+    const description = quoteSectionDescriptionDraft.trim();
+    if (!name && !description) {
+      showNotice("Add a section name or description first.");
+      return;
+    }
+    const section: QuoteSection = {
+      id: `${selectedQuote.id}-section-${Date.now()}`,
+      name,
+      description,
+    };
+    markCostCentreEdited();
+    setQuoteSections((current) => ({
+      ...current,
+      [selectedQuote.id]: [...(current[selectedQuote.id] ?? []), section],
+    }));
+    setQuoteCostCentreSectionDraft(section.id);
+    setQuoteSectionNameDraft("");
+    setQuoteSectionDescriptionDraft("");
+    showNotice(name ? `${name} section added.` : "Blank section added.");
+  }
+
+  function editQuoteSection(section: QuoteSection) {
+    if (!selectedQuote) return;
+    const nextName = window.prompt("Section name", section.name);
+    if (nextName === null) return;
+    const nextDescription = window.prompt("Section description", section.description);
+    if (nextDescription === null) return;
+    markCostCentreEdited();
+    setQuoteSections((current) => {
+      const sections = current[selectedQuote.id] ?? [];
+      const nextSection = {
+        ...section,
+        name: nextName.trim(),
+        description: nextDescription.trim(),
+      };
+      return {
+        ...current,
+        [selectedQuote.id]: sections.some((item) => item.id === section.id)
+          ? sections.map((item) => (item.id === section.id ? nextSection : item))
+          : [nextSection, ...sections],
+      };
+    });
+    showNotice("Section updated.");
+  }
+
+  function deleteQuoteSection(section: QuoteSection) {
+    if (!selectedQuote) return;
+    const baseSection = baseQuoteSection(selectedQuote.id);
+    if (section.id === baseSection.id) {
+      showNotice("The blank base section stays on the quote. Rename it from Options if needed.");
+      return;
+    }
+    if (!window.confirm(`Delete section ${section.name || "Untitled section"}? Cost centres will move into the blank base section.`)) return;
+    markCostCentreEdited();
+    setQuoteSections((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).filter((item) => item.id !== section.id),
+    }));
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
+        centre.sectionId === section.id ? { ...centre, sectionId: baseSection.id } : centre,
+      ),
+    }));
+    if (quoteCostCentreSectionDraft === section.id) setQuoteCostCentreSectionDraft(baseSection.id);
+    showNotice("Section deleted and cost centres moved to the blank base section.");
+  }
+
+  function updateQuoteCostCentreSection(centreId: string, sectionId: string) {
+    if (!selectedQuote) return;
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) =>
+        centre.id === centreId ? { ...centre, sectionId } : centre,
+      ),
+    }));
+  }
+
+  function addQuoteCostCentre(sectionId = quoteCostCentreSectionDraft || selectedQuoteSections[0]?.id) {
     if (!selectedQuote) return;
     markCostCentreEdited();
     setQuoteCostCentres((current) => {
@@ -10603,12 +10873,66 @@ export default function Dashboard() {
         ...current,
         [selectedQuote.id]: [
           ...existing,
-          makeQuoteCostCentre(selectedQuote.id, existing.length, quoteCostCentreNameDraft, quoteCostCentreTemplateDraft),
+          makeQuoteCostCentre(selectedQuote.id, existing.length, quoteCostCentreNameDraft, quoteCostCentreTemplateDraft, sectionId),
         ],
       };
     });
     setQuoteCostCentreNameDraft("");
     setShowQuoteCostCentreCreate(false);
+  }
+
+  function updateQuotePlannerDraft(patch: Partial<QuoteScheduleDraft>) {
+    setQuotePlannerDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function addQuoteScheduleAssignment() {
+    if (!selectedQuote) return;
+    const employee = employees.find((item) => item.id === quotePlannerDraft.employeeId) ?? employees[0];
+    if (!employee) {
+      showNotice("Add an employee before assigning quote planning time.");
+      return;
+    }
+    if (!quotePlannerDraft.startDate || !quotePlannerDraft.endDate) {
+      showNotice("Choose start and end dates for the planner assignment.");
+      return;
+    }
+    const assignment: QuoteScheduleAssignment = {
+      id: `${selectedQuote.id}-plan-${Date.now()}`,
+      quoteId: selectedQuote.id,
+      employeeId: employee.id,
+      employeeName: employee.name,
+      startDate: quotePlannerDraft.startDate,
+      endDate: quotePlannerDraft.endDate,
+      startTime: quotePlannerDraft.startTime || "09:00",
+      endTime: quotePlannerDraft.endTime || "16:00",
+      notes: quotePlannerDraft.notes.trim(),
+    };
+    markCostCentreEdited();
+    setQuoteSchedulePlans((current) => ({
+      ...current,
+      [selectedQuote.id]: [...(current[selectedQuote.id] ?? []), assignment],
+    }));
+    setQuotePlannerDraft((current) => ({ ...current, notes: "" }));
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "scheduled",
+      recordType: "quote",
+      recordId: selectedQuote.id,
+      summary: `${employee.name} assigned to quote planner for ${selectedQuote.ref} from ${assignment.startDate} to ${assignment.endDate}.`,
+      source: "quote planner",
+      importance: "normal",
+    });
+    showNotice(`${employee.name} added to the quote planner.`);
+  }
+
+  function removeQuoteScheduleAssignment(assignmentId: string) {
+    if (!selectedQuote) return;
+    markCostCentreEdited();
+    setQuoteSchedulePlans((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).filter((assignment) => assignment.id !== assignmentId),
+    }));
+    showNotice("Planner assignment removed.");
   }
 
   function startRenameCostCentre(scope: "quote" | "job", centre: QuoteCostCentre | EstimateCostCentre) {
@@ -15332,6 +15656,29 @@ export default function Dashboard() {
                       </article>
                     </div>
 
+                    <section className="quote-planner-summary-card">
+                      <div>
+                        <span className="permission-heading">Planner</span>
+                        <h2>Engineer schedule draft</h2>
+                        <p>
+                          {selectedQuoteScheduleAssignments.length
+                            ? `${selectedQuoteScheduleAssignments.length} engineer assignment(s) drafted for this quote.`
+                            : "No engineer time planned yet for this quote."}
+                        </p>
+                      </div>
+                      <div className="quote-planner-summary-list">
+                        {selectedQuoteScheduleAssignments.slice(0, 3).map((assignment) => (
+                          <span key={assignment.id}>
+                            <strong>{assignment.employeeName}</strong>
+                            {assignment.startDate} - {assignment.endDate}
+                          </span>
+                        ))}
+                      </div>
+                      <button className="secondary-button" type="button" onClick={() => setActiveQuoteTab("planner")}>
+                        Open planner
+                      </button>
+                    </section>
+
                     <section className="ai-quote-review-panel">
                       <header>
                         <div>
@@ -15713,6 +16060,105 @@ export default function Dashboard() {
                   </section>
                 ) : null}
 
+                {activeQuoteTab === "planner" ? (
+                  <section className="quote-record-panel quote-planner-panel">
+                    <div className="documents-toolbar">
+                      <div>
+                        <span className="permission-heading">Quote planner</span>
+                        <h2>Engineer planning before conversion</h2>
+                        <p>Plan who would attend and when. This stays on the quote until the quote is accepted and converted into a job schedule.</p>
+                      </div>
+                      <span className="setup-status-label">{selectedQuoteScheduleAssignments.length} assignment(s)</span>
+                    </div>
+
+                    <div className="quote-planner-form">
+                      <label>
+                        Engineer
+                        <select value={quotePlannerDraft.employeeId} onChange={(event) => updateQuotePlannerDraft({ employeeId: event.target.value })}>
+                          {employees.map((employee) => (
+                            <option key={employee.id} value={employee.id}>{employee.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Start date
+                        <input type="date" value={quotePlannerDraft.startDate} onChange={(event) => updateQuotePlannerDraft({ startDate: event.target.value })} />
+                      </label>
+                      <label>
+                        End date
+                        <input type="date" value={quotePlannerDraft.endDate} onChange={(event) => updateQuotePlannerDraft({ endDate: event.target.value })} />
+                      </label>
+                      <label>
+                        Start
+                        <input type="time" value={quotePlannerDraft.startTime} onChange={(event) => updateQuotePlannerDraft({ startTime: event.target.value })} />
+                      </label>
+                      <label>
+                        Finish
+                        <input type="time" value={quotePlannerDraft.endTime} onChange={(event) => updateQuotePlannerDraft({ endTime: event.target.value })} />
+                      </label>
+                      <label className="quote-planner-notes">
+                        Notes
+                        <input value={quotePlannerDraft.notes} onChange={(event) => updateQuotePlannerDraft({ notes: event.target.value })} placeholder="Survey, first fix, install window, etc." />
+                      </label>
+                      <button className="primary-button" type="button" onClick={addQuoteScheduleAssignment}>
+                        <Plus size={15} />
+                        Add to planner
+                      </button>
+                    </div>
+
+                    {selectedQuoteScheduleAssignments.length > 0 ? (
+                      <div className="quote-gantt">
+                        {(() => {
+                          const sorted = [...selectedQuoteScheduleAssignments].sort((first, second) => first.startDate.localeCompare(second.startDate));
+                          const startMs = Math.min(...sorted.map((assignment) => new Date(assignment.startDate).getTime()));
+                          const endMs = Math.max(...sorted.map((assignment) => new Date(assignment.endDate).getTime()));
+                          const dayMs = 24 * 60 * 60 * 1000;
+                          const totalDays = Math.max(1, Math.round((endMs - startMs) / dayMs) + 1);
+                          const days = Array.from({ length: Math.min(totalDays, 14) }, (_, index) => new Date(startMs + index * dayMs).toISOString().slice(5, 10));
+
+                          return (
+                            <>
+                              <div className="quote-gantt-head">
+                                <span>Engineer</span>
+                                {days.map((day) => <span key={day}>{day}</span>)}
+                                <span />
+                              </div>
+                              {sorted.map((assignment) => {
+                                const offset = Math.max(0, Math.round((new Date(assignment.startDate).getTime() - startMs) / dayMs));
+                                const span = Math.max(1, Math.round((new Date(assignment.endDate).getTime() - new Date(assignment.startDate).getTime()) / dayMs) + 1);
+                                return (
+                                  <div className="quote-gantt-row" key={assignment.id}>
+                                    <strong>{assignment.employeeName}</strong>
+                                    <div className="quote-gantt-track">
+                                      <span
+                                        className="quote-gantt-bar"
+                                        style={{
+                                          gridColumn: `${Math.min(offset + 1, days.length)} / span ${Math.min(span, days.length)}`,
+                                        }}
+                                      >
+                                        {assignment.startTime}-{assignment.endTime}
+                                        {assignment.notes ? ` · ${assignment.notes}` : ""}
+                                      </span>
+                                    </div>
+                                    <button className="simpro-options-button" type="button" onClick={() => removeQuoteScheduleAssignment(assignment.id)}>
+                                      Remove
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    ) : (
+                      <div className="quote-planner-empty">
+                        <strong>No planner assignments yet.</strong>
+                        <span>Add engineers here to model the job programme before the quote is accepted.</span>
+                      </div>
+                    )}
+                  </section>
+                ) : null}
+
                 {activeQuoteTab === "cost-build" ? (
                   <section className="simpro-estimate-page">
                     <div className="simpro-sub-tabs" role="tablist" aria-label="Quote cost centre categories">
@@ -15737,128 +16183,175 @@ export default function Dashboard() {
                     <div className="simpro-section-create">
                       <label>
                         Name
-                        <input />
+                        <input
+                          placeholder="Interior works"
+                          value={quoteSectionNameDraft}
+                          onChange={(event) => setQuoteSectionNameDraft(event.target.value)}
+                        />
                       </label>
                       <label>
                         Description <span>(Optional)</span>
-                        <input placeholder="Enter a description..." />
+                        <input
+                          placeholder="Enter a description..."
+                          value={quoteSectionDescriptionDraft}
+                          onChange={(event) => setQuoteSectionDescriptionDraft(event.target.value)}
+                        />
                       </label>
-                      <button className="simpro-blue-button" type="button">ADD</button>
+                      <button className="simpro-blue-button" type="button" onClick={createQuoteSection}>ADD</button>
                     </div>
 
-                    <section className="simpro-section-card">
-                      <header>
-                        <span className="simpro-drag-handle" aria-hidden="true" />
-                        <strong>{selectedQuote.description || "Bathroom refurbishment"}</strong>
-                        <div className="simpro-section-actions">
-                          <button className="simpro-grey-button" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
-                          <button
-                            className="simpro-blue-button"
-                            type="button"
-                            aria-expanded={showQuoteCostCentreCreate}
-                            onClick={() => setShowQuoteCostCentreCreate((current) => !current)}
-                          >
-                            {showQuoteCostCentreCreate ? "CLOSE" : "ADD COST CENTRE"}
-                          </button>
-                          <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
-                            Options <ChevronDown size={13} />
-                          </button>
-                        </div>
-                      </header>
-
-                      {showQuoteCostCentreCreate ? (
-                        <div className="simpro-cost-centre-add">
-                          <label>
-                            Default category
-                            <select
-                              value={quoteCostCentreTemplateDraft}
-                              onChange={(event) => setQuoteCostCentreTemplateDraft(event.target.value)}
+                    {selectedQuoteSectionsWithCentres.map(({ section, centres }) => (
+                      <section className="simpro-section-card" key={section.id}>
+                        <header>
+                          <span className="simpro-drag-handle" aria-hidden="true" />
+                          <span className="simpro-section-title">
+                            <strong>{section.name}</strong>
+                            {section.description ? <small>{section.description}</small> : null}
+                          </span>
+                          <div className="simpro-section-actions">
+                            <button className="simpro-grey-button" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
+                            <button
+                              className="simpro-blue-button"
+                              type="button"
+                              aria-expanded={showQuoteCostCentreCreate && quoteCostCentreSectionDraft === section.id}
+                              onClick={() => {
+                                setQuoteCostCentreSectionDraft(section.id);
+                                setShowQuoteCostCentreCreate((current) => !(current && quoteCostCentreSectionDraft === section.id));
+                              }}
                             >
-                              {costCentreTypeOptions.map((template) => (
-                                <option key={template} value={template}>{template}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Cost Centre Name <span>(Optional)</span>
-                            <input
-                              placeholder="Enter Name here..."
-                              value={quoteCostCentreNameDraft}
-                              onChange={(event) => setQuoteCostCentreNameDraft(event.target.value)}
-                            />
-                          </label>
-                          <button className="simpro-blue-button" type="button" onClick={addQuoteCostCentre}>ADD</button>
-                        </div>
-                      ) : null}
+                              {showQuoteCostCentreCreate && quoteCostCentreSectionDraft === section.id ? "CLOSE" : "ADD COST CENTRE"}
+                            </button>
+                            <button className="simpro-options-button" type="button" onClick={() => editQuoteSection(section)}>
+                              Options <ChevronDown size={13} />
+                            </button>
+                            <button className="simpro-grey-button" type="button" onClick={() => deleteQuoteSection(section)}>
+                              DELETE SECTION
+                            </button>
+                          </div>
+                        </header>
 
-                      <div className="simpro-cost-centre-list">
-                      {selectedQuoteCostCentres.map((centre) => {
-                        const centreCost = centre.lines.reduce((total, line) => total + quoteLineCost(line), 0);
-                        const centreSell = centre.lines.reduce((total, line) => total + quoteLineSell(line), 0);
-                        return (
-                          <div
-                            className="simpro-cost-centre-row quote"
-                            key={centre.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => openQuoteCostCentreRecord(centre.id)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter" || event.key === " ") {
-                                event.preventDefault();
-                                openQuoteCostCentreRecord(centre.id);
-                              }
-                            }}
-                          >
-                            <span className="simpro-drag-handle" aria-hidden="true" />
-                            <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
-                            <strong className="simpro-row-title">
-                              {centre.name}
-                              <small>{centre.templateName ?? "Uncategorised"}</small>
-                              {(centre.surveyAssets?.length ?? 0) > 0 ? (
-                                <small>{centre.surveyAssets?.length} survey records handed over</small>
-                              ) : null}
-                            </strong>
-                            <span className="simpro-row-total">Total: {currency(centreSell)}</span>
-                            <span className={centreSell - centreCost >= 0 ? "profit-positive simpro-row-profit" : "profit-negative simpro-row-profit"}>
-                              {currency(centreSell - centreCost)}
-                            </span>
-                            <div className="simpro-row-actions">
-                              <button
-                                className="simpro-options-button"
-                                type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  setCostCentreActionMenu((current) =>
-                                    current?.scope === "quote" && current.id === centre.id ? null : { scope: "quote", id: centre.id },
-                                  );
+                        {showQuoteCostCentreCreate && quoteCostCentreSectionDraft === section.id ? (
+                          <div className="simpro-cost-centre-add">
+                            <label>
+                              Section
+                              <select
+                                value={quoteCostCentreSectionDraft || section.id}
+                                onChange={(event) => setQuoteCostCentreSectionDraft(event.target.value)}
+                              >
+                                {selectedQuoteSections.map((option) => (
+                                  <option key={option.id} value={option.id}>{option.name || "Blank section"}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Default category
+                              <select
+                                value={quoteCostCentreTemplateDraft}
+                                onChange={(event) => setQuoteCostCentreTemplateDraft(event.target.value)}
+                              >
+                                {costCentreTypeOptions.map((template) => (
+                                  <option key={template} value={template}>{template}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Cost Centre Name <span>(Optional)</span>
+                              <input
+                                placeholder="Enter Name here..."
+                                value={quoteCostCentreNameDraft}
+                                onChange={(event) => setQuoteCostCentreNameDraft(event.target.value)}
+                              />
+                            </label>
+                            <button className="simpro-blue-button" type="button" onClick={() => addQuoteCostCentre(quoteCostCentreSectionDraft || section.id)}>ADD</button>
+                          </div>
+                        ) : null}
+
+                        <div className="simpro-cost-centre-list">
+                          {centres.map((centre) => {
+                            const centreCost = centre.lines.reduce((total, line) => total + quoteLineCost(line), 0);
+                            const centreSell = centre.lines.reduce((total, line) => total + quoteLineSell(line), 0);
+                            return (
+                              <div
+                                className="simpro-cost-centre-row quote"
+                                key={centre.id}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => openQuoteCostCentreRecord(centre.id)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    openQuoteCostCentreRecord(centre.id);
+                                  }
                                 }}
                               >
-                              Options <ChevronDown size={13} />
-                              </button>
-                              {costCentreActionMenu?.scope === "quote" && costCentreActionMenu.id === centre.id ? (
-                                <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
-                                  <button type="button" onClick={() => startRenameCostCentre("quote", centre)}>Rename display name</button>
-                                  <button type="button" onClick={() => openQuoteCostCentreRecord(centre.id)}>Open cost centre</button>
-                                  <button type="button" disabled={selectedQuoteCostCentres.length < 2} onClick={() => mergeQuoteCostCentre(centre.id)}>Merge into section above</button>
-                                  <button className="danger" type="button" onClick={() => deleteQuoteCostCentre(centre.id)}>Delete cost centre</button>
-                                </div>
-                              ) : null}
-                            </div>
-                            {renamingCostCentre?.scope === "quote" && renamingCostCentre.id === centre.id ? (
-                              <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
-                                <label>
-                                  Display name
-                                  <input value={renameCostCentreDraft} onChange={(event) => setRenameCostCentreDraft(event.target.value)} />
+                                <span className="simpro-drag-handle" aria-hidden="true" />
+                                <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
+                                <strong className="simpro-row-title">
+                                  {centre.name}
+                                  <small>{centre.templateName ?? "Uncategorised"}</small>
+                                  {(centre.surveyAssets?.length ?? 0) > 0 ? (
+                                    <small>{centre.surveyAssets?.length} survey records handed over</small>
+                                  ) : null}
+                                </strong>
+                                <label className="simpro-row-section-select" onClick={(event) => event.stopPropagation()}>
+                                  Section
+                                  <select
+                                    value={centre.sectionId ?? selectedQuoteSections[0]?.id ?? ""}
+                                    onChange={(event) => updateQuoteCostCentreSection(centre.id, event.target.value)}
+                                  >
+                                    {selectedQuoteSections.map((option) => (
+                                      <option key={option.id} value={option.id}>{option.name || "Blank section"}</option>
+                                    ))}
+                                  </select>
                                 </label>
-                                <button className="simpro-blue-button" type="button" onClick={saveRenameCostCentre}>Save</button>
-                                <button className="simpro-grey-button" type="button" onClick={cancelRenameCostCentre}>Cancel</button>
+                                <span className="simpro-row-total">Total: {currency(centreSell)}</span>
+                                <span className={centreSell - centreCost >= 0 ? "profit-positive simpro-row-profit" : "profit-negative simpro-row-profit"}>
+                                  {currency(centreSell - centreCost)}
+                                </span>
+                                <div className="simpro-row-actions">
+                                  <button
+                                    className="simpro-options-button"
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setCostCentreActionMenu((current) =>
+                                        current?.scope === "quote" && current.id === centre.id ? null : { scope: "quote", id: centre.id },
+                                      );
+                                    }}
+                                  >
+                                  Options <ChevronDown size={13} />
+                                  </button>
+                                  {costCentreActionMenu?.scope === "quote" && costCentreActionMenu.id === centre.id ? (
+                                    <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
+                                      <button type="button" onClick={() => startRenameCostCentre("quote", centre)}>Rename display name</button>
+                                      <button type="button" onClick={() => openQuoteCostCentreRecord(centre.id)}>Open cost centre</button>
+                                      <button type="button" disabled={selectedQuoteCostCentres.length < 2} onClick={() => mergeQuoteCostCentre(centre.id)}>Merge into section above</button>
+                                      <button className="danger" type="button" onClick={() => deleteQuoteCostCentre(centre.id)}>Delete cost centre</button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                                {renamingCostCentre?.scope === "quote" && renamingCostCentre.id === centre.id ? (
+                                  <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
+                                    <label>
+                                      Display name
+                                      <input value={renameCostCentreDraft} onChange={(event) => setRenameCostCentreDraft(event.target.value)} />
+                                    </label>
+                                    <button className="simpro-blue-button" type="button" onClick={saveRenameCostCentre}>Save</button>
+                                    <button className="simpro-grey-button" type="button" onClick={cancelRenameCostCentre}>Cancel</button>
+                                  </div>
+                                ) : null}
                               </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                      </div>
-                    </section>
+                            );
+                          })}
+                          {centres.length === 0 ? (
+                            <div className="simpro-cost-centre-empty">
+                              <strong>No cost centres in this section yet.</strong>
+                              <span>Add one here or move an existing cost centre into this section.</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </section>
+                    ))}
                   </section>
                 ) : null}
 
@@ -21003,6 +21496,95 @@ export default function Dashboard() {
                             </article>
                           );
                         })}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "catalogue" ? (
+                    <section className="setup-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Catalogue import</span>
+                          <h2>Reusable priced items</h2>
+                          <p>Import supplier or office price lists, then search these items inside quote and job cost centres.</p>
+                        </div>
+                        <span className="setup-status-label">{customQuoteCatalog.length} imported item(s)</span>
+                      </div>
+
+                      <div className="setup-form-grid">
+                        <label>
+                          Default folder
+                          <select
+                            value={catalogImportDraft.folder}
+                            onChange={(event) => setCatalogImportDraft((current) => ({ ...current, folder: event.target.value }))}
+                          >
+                            {quoteCatalogFolders.map((folder) => (
+                              <option key={folder} value={folder}>{folder}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          Default item type
+                          <select
+                            value={catalogImportDraft.type}
+                            onChange={(event) => setCatalogImportDraft((current) => ({ ...current, type: event.target.value as CatalogItem["type"] }))}
+                          >
+                            <option value="Material">Material</option>
+                            <option value="Plant">Plant</option>
+                            <option value="Subcontractor">Subcontractor</option>
+                            <option value="Labour">Labour</option>
+                          </select>
+                        </label>
+                        <label className="full-field">
+                          Import CSV / TSV / TXT
+                          <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
+                        </label>
+                      </div>
+
+                      <div className="setup-rate-table setup-catalog-table">
+                        <div className="setup-rate-row table-head">
+                          <span>Item</span>
+                          <span>Folder</span>
+                          <span>Type</span>
+                          <span>Cost</span>
+                          <span>Sell</span>
+                        </div>
+                        {customQuoteCatalog.slice(0, 12).map((item) => (
+                          <div className="setup-rate-row" key={item.id}>
+                            <input
+                              value={item.name}
+                              onChange={(event) =>
+                                setCustomQuoteCatalog((current) =>
+                                  current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, name: event.target.value } : catalogItem),
+                                )
+                              }
+                            />
+                            <select
+                              value={inferCatalogFolder(item)}
+                              onChange={(event) =>
+                                setCustomQuoteCatalog((current) =>
+                                  current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, category: event.target.value } : catalogItem),
+                                )
+                              }
+                            >
+                              {quoteCatalogFolders.map((folder) => (
+                                <option key={folder} value={folder}>{folder}</option>
+                              ))}
+                            </select>
+                            <span>{item.type}</span>
+                            <span>{currency(item.costRate)}</span>
+                            <span>{currency(item.sellRate)}</span>
+                          </div>
+                        ))}
+                        {customQuoteCatalog.length === 0 ? (
+                          <div className="setup-rate-row">
+                            <span>No imported catalogue items yet.</span>
+                            <span />
+                            <span />
+                            <span />
+                            <span />
+                          </div>
+                        ) : null}
                       </div>
                     </section>
                   ) : null}

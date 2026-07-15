@@ -710,6 +710,7 @@ function lineSellFromMarkup(unitCost: number, markupPercent: number) {
 
 function inferTemplateName(project: TakeoffProject) {
   const text = `${project.name} ${project.description} ${surveyUserText(project)}`.toLowerCase();
+  if (isRadiatorRelocationScope(text, surveyChatText(project).toLowerCase())) return "Heating remedials";
   if (text.includes("boiler")) return "Boiler replacement";
   if (text.includes("heating") || text.includes("radiator")) return "Heating remedials";
   if (text.includes("bathroom")) return "Bathroom refurbishment";
