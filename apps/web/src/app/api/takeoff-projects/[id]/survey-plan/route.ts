@@ -94,6 +94,48 @@ function getOutputText(response: unknown) {
   }).filter(Boolean).join("\n");
 }
 
+function roundCurrency(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function sellFromMarkup(unitCost: number, markupPercent: number) {
+  return unitCost * (1 + markupPercent / 100);
+}
+
+function buildSurveyEstimatePreview(project: TakeoffProject) {
+  const sectionNames = Array.from(new Set([
+    ...project.materialAllowances.map((line) => line.section),
+    ...project.labourAllowances.map((line) => line.section),
+  ].filter(Boolean)));
+  const materialCost = project.materialAllowances.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);
+  const materialSell = project.materialAllowances.reduce((sum, line) => sum + line.quantity * sellFromMarkup(line.unitCost, line.markupPercent), 0);
+  const labourCost = project.labourAllowances.reduce((sum, line) => sum + line.hours * line.costRate, 0);
+  const labourSell = project.labourAllowances.reduce((sum, line) => sum + line.hours * sellFromMarkup(line.costRate, line.markupPercent), 0);
+
+  return {
+    costCentres: sectionNames.length || (project.materialAllowances.length || project.labourAllowances.length ? 1 : 0),
+    materialCost: roundCurrency(materialCost),
+    materialSell: roundCurrency(materialSell),
+    labourCost: roundCurrency(labourCost),
+    labourSell: roundCurrency(labourSell),
+    supplierItems: project.supplierRequests.length,
+    totalCost: roundCurrency(materialCost + labourCost),
+    totalSell: roundCurrency(materialSell + labourSell),
+    sections: sectionNames.map((section) => {
+      const materialLines = project.materialAllowances.filter((line) => line.section === section);
+      const labourLines = project.labourAllowances.filter((line) => line.section === section);
+      const sectionMaterialSell = materialLines.reduce((sum, line) => sum + line.quantity * sellFromMarkup(line.unitCost, line.markupPercent), 0);
+      const sectionLabourSell = labourLines.reduce((sum, line) => sum + line.hours * sellFromMarkup(line.costRate, line.markupPercent), 0);
+      return {
+        name: section,
+        lines: materialLines.length + labourLines.length,
+        supplierItems: project.supplierRequests.filter((line) => materialLines.some((material) => material.id === line.linkedMaterialId)).length,
+        totalSell: roundCurrency(sectionMaterialSell + sectionLabourSell),
+      };
+    }),
+  };
+}
+
 function buildPilotQuestions(project: TakeoffProject, workflow: TakeoffSurveyWorkflow): TakeoffSurveyQuestion[] {
   const lowerScope = `${workflow.projectType} ${workflow.scopeNotes} ${project.description}`.toLowerCase();
   const questions: Omit<TakeoffSurveyQuestion, "id" | "answer">[] = [
@@ -361,6 +403,7 @@ export async function POST(
   return NextResponse.json({
     project: estimatePack.project,
     provider: workflow.generatedBy ?? "Pilot",
+    preview: buildSurveyEstimatePreview(estimatePack.project),
     generated: {
       stopGo: workflow.stopGo.length,
       questions: workflow.aiQuestions.length,

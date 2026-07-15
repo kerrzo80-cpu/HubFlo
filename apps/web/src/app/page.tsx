@@ -10650,6 +10650,97 @@ export default function Dashboard() {
     updateQuoteCostCentre(centreId, { name });
   }
 
+  function mergeQuoteCostCentre(centreId: string) {
+    if (!selectedQuote) return;
+    const centres = selectedQuoteCostCentres;
+    const sourceIndex = centres.findIndex((centre) => centre.id === centreId);
+    const source = centres[sourceIndex];
+    const target = centres[sourceIndex - 1] ?? centres.find((centre) => centre.id !== centreId);
+    if (!source || !target) {
+      showNotice("Add another cost centre before merging.");
+      return;
+    }
+
+    const mergeStamp = Date.now();
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? [])
+        .filter((centre) => centre.id !== source.id)
+        .map((centre) => {
+          if (centre.id !== target.id) return centre;
+          const existingLineIds = new Set(centre.lines.map((line) => line.id));
+          const mergedLines = source.lines.map((line, index) =>
+            existingLineIds.has(line.id) ? { ...line, id: `${line.id}-merged-${mergeStamp}-${index}` } : line,
+          );
+
+          return {
+            ...centre,
+            clientDescription: [centre.clientDescription, source.clientDescription].filter(Boolean).join("\n\n"),
+            engineerDescription: [centre.engineerDescription, source.engineerDescription].filter(Boolean).join("\n\n"),
+            heatLossRooms: [...(centre.heatLossRooms ?? []), ...(source.heatLossRooms ?? [])],
+            lines: [...centre.lines, ...mergedLines],
+            surveyAssets: [...(centre.surveyAssets ?? []), ...(source.surveyAssets ?? [])],
+            takeoffDocuments: [...(centre.takeoffDocuments ?? []), ...(source.takeoffDocuments ?? [])],
+            takeoffRows: [...(centre.takeoffRows ?? []), ...(source.takeoffRows ?? [])],
+          };
+        }),
+    }));
+    setSelectedQuoteCostCentreId((current) => (current === source.id ? target.id : current));
+    setCostCentreActionMenu(null);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "merged",
+      recordType: "quote",
+      recordId: selectedQuote.id,
+      summary: `${source.name} merged into ${target.name} on ${selectedQuote.ref}.`,
+      source: "cost centre actions",
+      importance: "normal",
+    });
+    showNotice(`${source.name} merged into ${target.name}.`);
+  }
+
+  function deleteQuoteCostCentre(centreId: string) {
+    if (!selectedQuote) return;
+    const centre = selectedQuoteCostCentres.find((item) => item.id === centreId);
+    if (!centre) return;
+    if (!window.confirm(`Delete ${centre.name} from ${selectedQuote.ref}? This removes its lines from this pilot quote.`)) return;
+
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).filter((item) => item.id !== centreId),
+    }));
+    setSelectedQuoteMaterialLineIds((current) => {
+      const next = { ...current };
+      delete next[centreId];
+      return next;
+    });
+    setSupplierQuoteDrafts((current) => {
+      const draft = current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
+      if (!draft?.lineRefs?.length) return current;
+      return {
+        ...current,
+        [QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]: {
+          ...draft,
+          lineRefs: draft.lineRefs.filter((ref) => ref.centreId !== centreId),
+        },
+      };
+    });
+    setSelectedQuoteCostCentreId((current) => (current === centreId ? null : current));
+    setCostCentreActionMenu(null);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "deleted",
+      recordType: "quote",
+      recordId: selectedQuote.id,
+      summary: `${centre.name} deleted from ${selectedQuote.ref}.`,
+      source: "cost centre actions",
+      importance: "high",
+    });
+    showNotice(`${centre.name} deleted from ${selectedQuote.ref}.`);
+  }
+
   function makeSurveyAsset(centre: QuoteCostCentre, kind: SurveyAssetKind): SurveyAsset {
     const stamp = new Date().toISOString();
     const count = (centre.surveyAssets ?? []).filter((asset) => asset.kind === kind).length + 1;
@@ -15748,12 +15839,11 @@ export default function Dashboard() {
                                 <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
                                   <button type="button" onClick={() => startRenameCostCentre("quote", centre)}>Rename display name</button>
                                   <button type="button" onClick={() => openQuoteCostCentreRecord(centre.id)}>Open cost centre</button>
+                                  <button type="button" disabled={selectedQuoteCostCentres.length < 2} onClick={() => mergeQuoteCostCentre(centre.id)}>Merge into section above</button>
+                                  <button className="danger" type="button" onClick={() => deleteQuoteCostCentre(centre.id)}>Delete cost centre</button>
                                 </div>
                               ) : null}
                             </div>
-                            <button className="simpro-kebab-button" type="button" onClick={(event) => { event.stopPropagation(); showNotice("More cost centre actions are next."); }}>
-                              <MoreHorizontal size={16} />
-                            </button>
                             {renamingCostCentre?.scope === "quote" && renamingCostCentre.id === centre.id ? (
                               <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
                                 <label>

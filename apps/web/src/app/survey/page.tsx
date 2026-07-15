@@ -52,6 +52,23 @@ type SurveyHeatLossDraft = {
   construction: "Modern / insulated" | "Average" | "Older / exposed";
 };
 
+type SurveyEstimatePreview = {
+  costCentres: number;
+  materialCost: number;
+  materialSell: number;
+  labourCost: number;
+  labourSell: number;
+  supplierItems: number;
+  totalCost: number;
+  totalSell: number;
+  sections: Array<{
+    name: string;
+    lines: number;
+    supplierItems: number;
+    totalSell: number;
+  }>;
+};
+
 const blankHeatLossDraft: SurveyHeatLossDraft = {
   roomName: "",
   sourceRoomId: "",
@@ -164,6 +181,51 @@ function calculateHeatLoss(draft: SurveyHeatLossDraft) {
     watts,
     widthM,
     windowAreaM2,
+  };
+}
+
+function roundCurrency(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function sellFromMarkup(unitCost: number, markupPercent: number) {
+  return unitCost * (1 + markupPercent / 100);
+}
+
+function buildProjectEstimatePreview(project?: TakeoffProject | null): SurveyEstimatePreview | null {
+  if (!project) return null;
+  const sectionNames = Array.from(new Set([
+    ...project.materialAllowances.map((line) => line.section),
+    ...project.labourAllowances.map((line) => line.section),
+  ].filter(Boolean)));
+  if (!sectionNames.length && !project.materialAllowances.length && !project.labourAllowances.length) return null;
+
+  const materialCost = project.materialAllowances.reduce((sum, line) => sum + line.quantity * line.unitCost, 0);
+  const materialSell = project.materialAllowances.reduce((sum, line) => sum + line.quantity * sellFromMarkup(line.unitCost, line.markupPercent), 0);
+  const labourCost = project.labourAllowances.reduce((sum, line) => sum + line.hours * line.costRate, 0);
+  const labourSell = project.labourAllowances.reduce((sum, line) => sum + line.hours * sellFromMarkup(line.costRate, line.markupPercent), 0);
+
+  return {
+    costCentres: sectionNames.length || 1,
+    materialCost: roundCurrency(materialCost),
+    materialSell: roundCurrency(materialSell),
+    labourCost: roundCurrency(labourCost),
+    labourSell: roundCurrency(labourSell),
+    supplierItems: project.supplierRequests.length,
+    totalCost: roundCurrency(materialCost + labourCost),
+    totalSell: roundCurrency(materialSell + labourSell),
+    sections: sectionNames.map((section) => {
+      const materialLines = project.materialAllowances.filter((line) => line.section === section);
+      const labourLines = project.labourAllowances.filter((line) => line.section === section);
+      const sectionMaterialSell = materialLines.reduce((sum, line) => sum + line.quantity * sellFromMarkup(line.unitCost, line.markupPercent), 0);
+      const sectionLabourSell = labourLines.reduce((sum, line) => sum + line.hours * sellFromMarkup(line.costRate, line.markupPercent), 0);
+      return {
+        name: section,
+        lines: materialLines.length + labourLines.length,
+        supplierItems: project.supplierRequests.filter((line) => materialLines.some((material) => material.id === line.linkedMaterialId)).length,
+        totalSell: roundCurrency(sectionMaterialSell + sectionLabourSell),
+      };
+    }),
   };
 }
 
@@ -292,6 +354,8 @@ export default function SurveyPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isBuilding, setIsBuilding] = useState(false);
+  const [isPreviewingEstimate, setIsPreviewingEstimate] = useState(false);
+  const [estimatePreview, setEstimatePreview] = useState<SurveyEstimatePreview | null>(null);
   const [showRoomScanBridge, setShowRoomScanBridge] = useState(false);
   const [showHeatLossPanel, setShowHeatLossPanel] = useState(false);
   const [heatLossDraft, setHeatLossDraft] = useState<SurveyHeatLossDraft>(blankHeatLossDraft);
@@ -317,6 +381,10 @@ export default function SurveyPage() {
   const heatLossRoomCount = selectedProject?.rooms.filter((room) => room.heatLoadWatts > 0).length ?? 0;
   const documentCount = projectDocuments.filter((document) => ["Drawing", "Contractor BOQ", "Specification"].includes(document.kind)).length;
   const heatLossResult = useMemo(() => calculateHeatLoss(heatLossDraft), [heatLossDraft]);
+  const visibleEstimatePreview = useMemo(
+    () => estimatePreview ?? buildProjectEstimatePreview(selectedProject),
+    [estimatePreview, selectedProject],
+  );
   const linkedQuote = useMemo(
     () => selectedProject
       ? quotes.find((quote) => quote.id === selectedProject.linkedQuoteId || quote.ref === selectedProject.linkedQuoteRef) ?? null
@@ -356,6 +424,10 @@ export default function SurveyPage() {
   useEffect(() => {
     setQuoteSearch(linkedQuote ? quoteSearchLabel(linkedQuote, clientSites) : "");
   }, [clientSites, linkedQuote]);
+
+  useEffect(() => {
+    setEstimatePreview(null);
+  }, [selectedProjectId]);
 
   function startRoomDrag(event: PointerEvent<HTMLDivElement>) {
     roomDragRef.current = { x: event.clientX, rotation: roomViewRotation };
@@ -535,6 +607,7 @@ export default function SurveyPage() {
       createdAt: nowIso(),
     };
     setDraft("");
+    setEstimatePreview(null);
     setIsSaving(true);
     setError("");
     replaceProject({
@@ -574,6 +647,7 @@ export default function SurveyPage() {
     const formData = new FormData();
     formData.append("kind", kind);
     files.forEach((file) => formData.append("files", file));
+    setEstimatePreview(null);
     setIsUploading(true);
     setError("");
     try {
@@ -606,6 +680,43 @@ export default function SurveyPage() {
     } finally {
       setIsUploading(false);
       event.target.value = "";
+    }
+  }
+
+  async function buildDraftEstimatePreview() {
+    if (!selectedProject) return;
+    setIsPreviewingEstimate(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/survey-plan`, {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ actor: "NeXa Survey" }),
+      });
+      const result = (await response.json()) as {
+        project?: TakeoffProject;
+        provider?: "OpenAI" | "Pilot";
+        preview?: SurveyEstimatePreview;
+        generated?: {
+          materialAllowances: number;
+          labourAllowances: number;
+          supplierRequests: number;
+        };
+        error?: string;
+      };
+      if (!response.ok || !result.project) throw new Error(result.error ?? "Unable to build draft estimate");
+      replaceProject(result.project);
+      setEstimatePreview(result.preview ?? buildProjectEstimatePreview(result.project));
+      setNotice(
+        `Draft price built${result.preview ? ` at about £${result.preview.totalSell.toLocaleString()}` : ""}. Review it before pushing into the quote.`,
+      );
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : "Unable to build draft estimate");
+    } finally {
+      setIsPreviewingEstimate(false);
     }
   }
 
@@ -1047,6 +1158,10 @@ export default function SurveyPage() {
                       <ThermometerSun size={15} />
                       Heat loss
                     </button>
+                    <button className="takeoff-secondary-button" type="button" onClick={buildDraftEstimatePreview} disabled={isPreviewingEstimate}>
+                      {isPreviewingEstimate ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
+                      Build draft price
+                    </button>
                     <button className="takeoff-secondary-button" type="button" onClick={prepareQuotePack} disabled={isBuilding}>
                       {isBuilding ? <Loader2 className="spin" size={15} /> : <Sparkles size={15} />}
                       Push into quote
@@ -1089,6 +1204,31 @@ export default function SurveyPage() {
                     <strong>Survey pack</strong>
                     <small>Site evidence feeding the estimate</small>
                   </div>
+                  {visibleEstimatePreview ? (
+                    <article className="survey-estimate-preview">
+                      <span>Draft quote value</span>
+                      <strong>£{visibleEstimatePreview.totalSell.toLocaleString()}</strong>
+                      <small>
+                        {visibleEstimatePreview.costCentres} cost centre{visibleEstimatePreview.costCentres === 1 ? "" : "s"} ·
+                        {" "}Materials £{visibleEstimatePreview.materialSell.toLocaleString()} ·
+                        {" "}Labour £{visibleEstimatePreview.labourSell.toLocaleString()}
+                      </small>
+                      <div className="survey-estimate-sections">
+                        {visibleEstimatePreview.sections.slice(0, 3).map((section) => (
+                          <b key={section.name}>
+                            {section.name}
+                            <em>£{section.totalSell.toLocaleString()}</em>
+                          </b>
+                        ))}
+                      </div>
+                    </article>
+                  ) : (
+                    <article className="survey-estimate-preview empty">
+                      <span>Draft quote value</span>
+                      <strong>Not priced yet</strong>
+                      <small>Use Build draft price before pushing into Core.</small>
+                    </article>
+                  )}
                   <article>
                     <ImagePlus size={18} />
                     <span>Photos</span>

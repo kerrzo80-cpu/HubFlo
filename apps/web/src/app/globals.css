@@ -3406,6 +3406,23 @@ h1 {
   background: var(--blue-soft);
 }
 
+.cost-centre-options-menu button:disabled {
+  color: #94a8b6;
+  cursor: not-allowed;
+}
+
+.cost-centre-options-menu button:disabled:hover {
+  background: transparent;
+}
+
+.cost-centre-options-menu button.danger {
+  color: #b42318;
+}
+
+.cost-centre-options-menu button.danger:hover {
+  background: #fff1ef;
+}
+
 .cost-centre-rename-row {
   align-items: end;
   background: #f8fbfc;
@@ -17400,6 +17417,47 @@ body {
 .survey-capture-panel strong {
   color: var(--ink);
   font-size: 18px;
+}
+
+.survey-capture-panel .survey-estimate-preview {
+  background: linear-gradient(180deg, #eefaff 0%, #fff 100%);
+  border-color: #b8ddec;
+}
+
+.survey-estimate-preview.empty {
+  background: #f8fbfc;
+  border-color: var(--line-soft);
+}
+
+.survey-estimate-preview small {
+  color: #536979;
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.survey-estimate-sections {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.survey-estimate-sections b {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--ink);
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+  padding: 7px 8px;
+}
+
+.survey-estimate-sections em {
+  color: var(--blue-deep);
+  font-style: normal;
 }
 
 .survey-next-steps {

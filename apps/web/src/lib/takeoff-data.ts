@@ -709,7 +709,7 @@ function lineSellFromMarkup(unitCost: number, markupPercent: number) {
 }
 
 function inferTemplateName(project: TakeoffProject) {
-  const text = `${project.name} ${project.description}`.toLowerCase();
+  const text = `${project.name} ${project.description} ${surveyUserText(project)}`.toLowerCase();
   if (text.includes("boiler")) return "Boiler replacement";
   if (text.includes("heating") || text.includes("radiator")) return "Heating remedials";
   if (text.includes("bathroom")) return "Bathroom refurbishment";
@@ -1127,6 +1127,10 @@ function quoteCentreSell(centre: QuoteCostCentre) {
 
 function quoteDescriptionFromProject(project: TakeoffProject, quote: Quote) {
   const scope = estimateScopeText(project).trim();
+  const focusedText = `${project.name} ${project.description} ${surveyUserText(project) || scope}`.toLowerCase();
+  if (isRadiatorRelocationScope(focusedText, surveyChatText(project).toLowerCase())) {
+    return radiatorRelocationClientScope(project, countRadiatorsFromSurveyText(focusedText));
+  }
   if (!scope || ["customer to confirm", "takeoff scope to review.", "survey conversation started from nexa survey."].includes(scope.toLowerCase())) {
     return quote.description;
   }
@@ -1488,6 +1492,38 @@ function isShowerOnlyScope(focusedText: string, fullText: string) {
   return hasShowerScope && (explicitShowerOnly || !widerBathroomSignals);
 }
 
+function countRadiatorsFromSurveyText(text: string) {
+  const countWords: Record<string, number> = {
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+  };
+  const wordMatch = text.match(/\b(one|two|three|four|five|six|seven|eight)\s+(?:x\s+)?(?:radiators?|rads?)\b/);
+  if (wordMatch?.[1]) return countWords[wordMatch[1]] ?? 1;
+  const digitMatch = text.match(/\b(\d{1,2})\s*(?:x\s*)?(?:radiators?|rads?)\b/);
+  if (digitMatch?.[1]) return Math.max(1, Number(digitMatch[1]));
+  if (/\bboth\s+(?:radiators?|rads?)\b/.test(text)) return 2;
+  return /\bradiators?\b|\brads?\b/.test(text) ? 1 : 0;
+}
+
+function isRadiatorRelocationScope(focusedText: string, fullText: string) {
+  const combined = `${focusedText} ${fullText}`;
+  const mentionsRadiators = /\bradiators?\b|\brads?\b/.test(combined);
+  const relocationIntent = /move|moving|relocat|reposition|shift|alter(?:ing|ed)?\s+(?:the\s+)?(?:pipework|pipes|radiators?)|new\s+position/.test(focusedText);
+  return mentionsRadiators && relocationIntent;
+}
+
+function radiatorRelocationClientScope(project: TakeoffProject, radiatorCount: number) {
+  const count = Math.max(1, radiatorCount || countRadiatorsFromSurveyText(`${project.name} ${project.description} ${surveyUserText(project)}`.toLowerCase()));
+  const radiatorLabel = count === 1 ? "one radiator" : `${count} radiators`;
+  return `Relocate ${radiatorLabel}, including isolation/drain down, pipework alterations, refitting, refill, testing and balancing. Final pipe routes, access and making good remain subject to site conditions confirmed from the survey evidence.`;
+}
+
 function numberFromUnknown(value: unknown, fallback: number) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -1644,6 +1680,67 @@ function buildSurveyChatDraftExtraction(project: TakeoffProject): TakeoffExtract
     questions.add("Is the toilet moving onto the same soil wall or does it need a new soil route?");
     questions.add("Are we supplying sanitaryware/shower items or is the customer supplying them?");
     questions.add("Are tiling, flooring, fan/electrics and decorating included in our price?");
+  } else if (isRadiatorRelocationScope(focusedText, text)) {
+    const radiatorCount = Math.max(1, countRadiatorsFromSurveyText(focusedText));
+    const section = "Radiator relocation";
+    const difficultAccess = /concrete|tile|tiled|laminate|floorboard|joist|boxing|chase|boxed|underfloor|lift\s+(?:floor|carpet)/.test(text);
+    const newRadiatorsRequired = /new\s+(?:radiators?|rads?)|replace\s+(?:the\s+)?(?:radiators?|rads?)|stelrad|heat\s*loss|sizing|size\s+(?:the\s+)?(?:radiators?|rads?)/.test(text);
+    const pipeworkCost = Math.max(85, radiatorCount * 55 + (difficultAccess ? 45 : 0));
+    const relocationHours = Math.max(4, Math.round(radiatorCount * 2.75 * 2) / 2);
+    const clientScope = radiatorRelocationClientScope(project, radiatorCount);
+
+    addMaterial(
+      "radiator-relocation-pipework",
+      section,
+      `${radiatorCount === 1 ? "Pipework and fittings allowance to relocate one radiator" : `Pipework and fittings allowance to relocate ${radiatorCount} radiators`}`,
+      1,
+      "allowance",
+      pipeworkCost,
+      30,
+      false,
+    );
+    addMaterial("radiator-relocation-sundries", section, "Inhibitor/top-up, clips, fixings and testing sundries", 1, "allowance", 45, 30);
+    if (difficultAccess) {
+      addMaterial("radiator-relocation-access", section, "Access and local making-good allowance around pipe routes", 1, "allowance", 95, 30);
+    }
+    if (newRadiatorsRequired) {
+      addMaterial(
+        "radiator-relocation-new-rads",
+        section,
+        `${radiatorCount === 1 ? "New radiator if replacement is required" : `New radiators if replacement is required (${radiatorCount})`}`,
+        radiatorCount,
+        "supplier quote",
+        0,
+        30,
+        true,
+      );
+    }
+
+    addLabour(
+      "radiator-relocation-install",
+      section,
+      "Heating engineer - relocate radiators",
+      relocationHours,
+      "Drain/isolate heating circuit, alter radiator pipework, reposition/refit radiators and prepare for testing.",
+      defaultLabourCostRate,
+      defaultLabourMarkupPercent,
+    );
+    addLabour(
+      "radiator-relocation-test",
+      section,
+      "Refill, test and balance heating system",
+      1.5,
+      "Refill, dose/top up, check for leaks, bleed and balance affected radiators.",
+      defaultLabourCostRate,
+      defaultLabourMarkupPercent,
+    );
+
+    riskFlags.add("Radiator relocation price assumes accessible pipe routes; hidden floor/wall conditions may change labour and making good.");
+    riskFlags.add("Confirm whether existing radiators, valves and brackets are suitable to reuse before final issue.");
+    questions.add(clientScope);
+    questions.add("Are the radiators staying on the same wall/room or moving to a different route?");
+    questions.add("What floor/wall finishes need lifted, opened or made good?");
+    questions.add("Are existing radiator valves being reused or should TRVs/lockshields be added?");
   } else if (/boiler|heating|radiator|heat loss|cylinder|flue|controls|thermostat/.test(focusedText)) {
     addMaterial("heating-survey", "Survey and heat loss", "Heat loss/radiator schedule office allowance", 1, "allowance", 120, 30);
     addLabour("heating-survey", "Survey and heat loss", "Estimator / heating engineer survey review", 4, "Review rooms, heat losses, radiator output and design assumptions.", 42, 35);
