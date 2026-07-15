@@ -120,6 +120,7 @@ const STORAGE_KEYS = {
   quoteSchedulePlans: "hubflo:quote-schedule-plans:v1",
   jobSchedulePlans: "hubflo:job-schedule-plans:v1",
   jobCostCentres: "hubflo:job-cost-centres:v1",
+  jobSections: "hubflo:job-sections:v1",
   jobReviews: "hubflo:job-reviews:v1",
   jobDeliveryEvents: "hubflo:job-delivery-events:v1",
   jobVariationSections: "hubflo:job-variation-sections:v1",
@@ -505,6 +506,7 @@ type HomeView =
   | "lead-create"
   | "lead-record"
   | "quotes"
+  | "quote-create"
   | "schedule"
   | "settings"
   | "addons"
@@ -515,6 +517,7 @@ type HomeView =
   | "client-record"
   | "quote-record"
   | "jobs"
+  | "job-create"
   | "purchase-orders"
   | "purchase-order-record"
   | "invoices"
@@ -523,6 +526,7 @@ type HomeView =
   | "job-record"
   | "quote-cost-centre-record"
   | "cost-centre-record";
+type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
 
 type ClientTab = "overview" | "sites" | "history";
@@ -633,6 +637,7 @@ type JobScheduleDraft = {
 type SchedulerDragDraft = {
   employeeId: string;
   employeeName: string;
+  date: string;
   pointerId: number;
   startSlot: number;
   currentSlot: number;
@@ -1410,6 +1415,9 @@ type EstimateLabourLine = {
 type EstimateCostCentre = {
   id: string;
   name: string;
+  sectionId?: string;
+  sourceQuoteId?: string;
+  sourceQuoteCostCentreId?: string;
   templateName?: string;
   variation?: boolean;
   clientDescription: string;
@@ -1417,6 +1425,12 @@ type EstimateCostCentre = {
   materials: EstimateMaterialLine[];
   labour: EstimateLabourLine[];
   surveyAssets?: SurveyAsset[];
+};
+
+type JobSection = {
+  id: string;
+  name: string;
+  description: string;
 };
 
 type JobSupplierRequestDraft = {
@@ -1434,11 +1448,7 @@ type JobSupplierRequestDraft = {
   sentAt?: string;
 };
 
-type JobVariationSection = {
-  id: string;
-  name: string;
-  description: string;
-};
+type JobVariationSection = JobSection;
 
 type SurveyPackCentre = {
   id: string;
@@ -1473,6 +1483,7 @@ type HubDetailStatePayload = {
   jobSchedulePlans?: Record<string, JobScheduleAssignment[]>;
   customQuoteCatalog?: CatalogItem[];
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
+  jobSections?: Record<string, JobSection[]>;
   jobReviews?: Record<string, JobReviewState>;
   jobDeliveryEvents?: JobDeliveryEvent[];
   jobVariationSections?: Record<string, JobVariationSection[]>;
@@ -3452,9 +3463,23 @@ const retainedWorkflowDemoExamples = {
 };
 void retainedWorkflowDemoExamples;
 
+function defaultJobSectionId(jobId: string) {
+  return `${jobId}-section-main`;
+}
+
+function makeDefaultJobSections(job: Job): JobSection[] {
+  return [
+    {
+      id: defaultJobSectionId(job.id),
+      name: job.ref === "J-1048" ? "Bathroom refurbishment" : "General works",
+      description: "",
+    },
+  ];
+}
+
 function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
   const base = Math.max(job.value, 1000);
-  return [
+  const centres: EstimateCostCentre[] = [
     {
       id: `${job.id}-strip-out`,
       name: "Strip out works",
@@ -3568,6 +3593,7 @@ function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
       ],
     },
   ];
+  return centres.map((centre) => ({ ...centre, sectionId: defaultJobSectionId(job.id) }));
 }
 
 function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[]): EstimateCostCentre[] {
@@ -3595,6 +3621,7 @@ function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[])
     return {
       id: `${job.id}-from-${centre.id}-${centreIndex}`,
       name: centre.name,
+      sectionId: defaultJobSectionId(job.id),
       templateName: centre.templateName,
       clientDescription: centre.clientDescription ?? "",
       engineerDescription: centre.engineerDescription ?? "",
@@ -5624,9 +5651,19 @@ export default function Dashboard() {
   const [quoteSectionNameDraft, setQuoteSectionNameDraft] = useState("");
   const [quoteSectionDescriptionDraft, setQuoteSectionDescriptionDraft] = useState("");
   const [showQuoteCostCentreCreate, setShowQuoteCostCentreCreate] = useState(false);
+  const [jobSectionNameDraft, setJobSectionNameDraft] = useState("");
+  const [jobSectionDescriptionDraft, setJobSectionDescriptionDraft] = useState("");
+  const [editingJobSectionId, setEditingJobSectionId] = useState<string | null>(null);
+  const [jobSectionEditName, setJobSectionEditName] = useState("");
+  const [jobSectionEditDescription, setJobSectionEditDescription] = useState("");
+  const [jobSectionActionMenuId, setJobSectionActionMenuId] = useState<string | null>(null);
   const [jobCostCentreNameDraft, setJobCostCentreNameDraft] = useState("");
   const [jobCostCentreTemplateDraft, setJobCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
-  const [showJobCostCentreCreate, setShowJobCostCentreCreate] = useState(false);
+  const [jobCostCentreCreateSectionId, setJobCostCentreCreateSectionId] = useState<string | null>(null);
+  const [draggedJobCostCentreId, setDraggedJobCostCentreId] = useState<string | null>(null);
+  const [jobCostCentreDropTarget, setJobCostCentreDropTarget] = useState<{ sectionId: string; index: number } | null>(null);
+  const jobCostCentrePointerDragRef = useRef<{ centreId: string; pointerId: number } | null>(null);
+  const jobCostCentreDropTargetRef = useRef<{ sectionId: string; index: number } | null>(null);
   const [costCentreActionMenu, setCostCentreActionMenu] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renamingCostCentre, setRenamingCostCentre] = useState<{ scope: "quote" | "job"; id: string } | null>(null);
   const [renameCostCentreDraft, setRenameCostCentreDraft] = useState("");
@@ -5655,11 +5692,13 @@ export default function Dashboard() {
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
   const [jobInvoiceDraft, setJobInvoiceDraft] = useState<JobInvoiceDraft | null>(null);
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
+  const [jobSections, setJobSections] = useState<Record<string, JobSection[]>>({});
   const [jobVariationSections, setJobVariationSections] = useState<Record<string, JobVariationSection[]>>({});
   const [jobVariationSectionNameDraft, setJobVariationSectionNameDraft] = useState("");
   const [jobVariationSectionDescriptionDraft, setJobVariationSectionDescriptionDraft] = useState("");
   const [jobVariationCostCentreNameDraft, setJobVariationCostCentreNameDraft] = useState("");
   const [jobVariationCostCentreTemplateDraft, setJobVariationCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
+  const [linkedQuoteSectionDrafts, setLinkedQuoteSectionDrafts] = useState<Record<string, string>>({});
   const [jobSchedulePlans, setJobSchedulePlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [editingJobScheduleAssignmentId, setEditingJobScheduleAssignmentId] = useState<string | null>(null);
@@ -5683,6 +5722,7 @@ export default function Dashboard() {
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
+  const [recordSaveStatus, setRecordSaveStatus] = useState<RecordSaveStatus>("saved");
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSetupEditAt = useRef(0);
@@ -5691,6 +5731,7 @@ export default function Dashboard() {
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
+  const savedRecordFingerprintRef = useRef("");
   const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
 
   const activeEmployee = useMemo(
@@ -5916,6 +5957,77 @@ export default function Dashboard() {
     () => (selectedInvoiceId ? invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null : null),
     [invoices, selectedInvoiceId],
   );
+
+  const activeRecordFingerprint = useMemo(() => {
+    if (homeView === "lead-record" && selectedLead) {
+      return JSON.stringify({ type: "lead", record: selectedLead });
+    }
+    if ((homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuote) {
+      return JSON.stringify({
+        type: "quote",
+        record: selectedQuote,
+        costCentres: quoteCostCentres[selectedQuote.id] ?? [],
+        sections: quoteSections[selectedQuote.id] ?? [],
+        schedule: quoteSchedulePlans[selectedQuote.id] ?? [],
+      });
+    }
+    if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) {
+      return JSON.stringify({
+        type: "job",
+        record: selectedJob,
+        costCentres: jobEstimateCostCentres[selectedJob.id] ?? [],
+        sections: jobSections[selectedJob.id] ?? makeDefaultJobSections(selectedJob),
+        schedule: jobSchedulePlans[selectedJob.id] ?? [],
+        variations: jobVariationSections[selectedJob.id] ?? [],
+        review: jobReviewApprovals[selectedJob.id] ?? null,
+        delivery: jobDeliveryEvents.filter((event) => event.jobId === selectedJob.id),
+      });
+    }
+    if (homeView === "invoice-record" && selectedInvoice) {
+      return JSON.stringify({ type: "invoice", record: selectedInvoice });
+    }
+    return "";
+  }, [
+    jobDeliveryEvents,
+    jobEstimateCostCentres,
+    jobReviewApprovals,
+    jobSchedulePlans,
+    jobSections,
+    jobVariationSections,
+    homeView,
+    quoteCostCentres,
+    quoteSchedulePlans,
+    quoteSections,
+    selectedInvoice,
+    selectedJob,
+    selectedLead,
+    selectedQuote,
+  ]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || !hasLoadedHubDetailState) return;
+    savedRecordFingerprintRef.current = activeRecordFingerprint;
+    setRecordSaveStatus("saved");
+  }, [
+    hasHydratedLocalData,
+    hasLoadedHubDetailState,
+    selectedInvoiceId,
+    selectedJobId,
+    selectedLeadId,
+    selectedQuoteId,
+  ]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || !hasLoadedHubDetailState || !activeRecordFingerprint) return;
+    if (!savedRecordFingerprintRef.current) {
+      savedRecordFingerprintRef.current = activeRecordFingerprint;
+      setRecordSaveStatus("saved");
+      return;
+    }
+    if (activeRecordFingerprint !== savedRecordFingerprintRef.current) {
+      setRecordSaveStatus((current) => (current === "saving" ? current : "unsaved"));
+    }
+  }, [activeRecordFingerprint, hasHydratedLocalData, hasLoadedHubDetailState]);
 
   const selectedPurchaseOrderJob = useMemo(
     () =>
@@ -6198,6 +6310,22 @@ export default function Dashboard() {
     () => selectedJobEstimateCostCentres.filter((centre) => !centre.variation),
     [selectedJobEstimateCostCentres],
   );
+
+  const selectedJobSections = useMemo(
+    () => (selectedJob ? jobSections[selectedJob.id] ?? makeDefaultJobSections(selectedJob) : []),
+    [jobSections, selectedJob],
+  );
+
+  const selectedJobSectionsWithCentres = useMemo(() => {
+    const knownSectionIds = new Set(selectedJobSections.map((section) => section.id));
+    const fallbackSectionId = selectedJobSections[0]?.id;
+    return selectedJobSections.map((section) => ({
+      section,
+      centres: selectedJobBaseCostCentres.filter(
+        (centre) => (knownSectionIds.has(centre.sectionId ?? "") ? centre.sectionId : fallbackSectionId) === section.id,
+      ),
+    }));
+  }, [selectedJobBaseCostCentres, selectedJobSections]);
 
   const selectedJobVariationCostCentres = useMemo(
     () => selectedJobEstimateCostCentres.filter((centre) => centre.variation),
@@ -6668,6 +6796,7 @@ export default function Dashboard() {
     setJobSchedulePlans(storedJobSchedulePlans);
     setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
     setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
+    setJobSections(safeLoadStoredJson(STORAGE_KEYS.jobSections, {}));
     setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
     setJobDeliveryEvents(safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
     setJobVariationSections(safeLoadStoredJson(STORAGE_KEYS.jobVariationSections, {}));
@@ -6791,6 +6920,7 @@ export default function Dashboard() {
             if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
             if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
             if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
+            if (hubState.jobSections) setJobSections(hubState.jobSections);
           }
           if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
@@ -6830,6 +6960,37 @@ export default function Dashboard() {
       clearInterval(timer);
     };
   }, [hasHydratedLocalData, requestHeaders]);
+
+  function buildHubDetailStatePayload(): HubDetailStatePayload {
+    return {
+      employees,
+      businessSettings,
+      formTemplates,
+      activeFormTemplateId,
+      workflowRules,
+      financeSettings,
+      documentFolderTemplates,
+      engineerFlowTemplate,
+      engineerFlowTemplates,
+      activeEngineerFlowTemplateId,
+      costCentreTypes: costCentreTypeOptions,
+      costCentreFlowAssignmentDrafts,
+      flowStepCompletion,
+      quoteCostCentres,
+      quoteSections,
+      quoteSchedulePlans,
+      jobSchedulePlans,
+      customQuoteCatalog,
+      jobCostCentres: jobEstimateCostCentres,
+      jobSections,
+      jobReviews: jobReviewApprovals,
+      jobDeliveryEvents,
+      jobVariationSections,
+      communications: communicationRecords,
+      invoices,
+      simproExports,
+    };
+  }
 
   useEffect(() => {
     if (!hasHydratedLocalData) return;
@@ -6993,6 +7154,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.jobSchedulePlans, jobSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
+    safeSaveStoredJson(STORAGE_KEYS.jobSections, jobSections);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
     safeSaveStoredJson(STORAGE_KEYS.jobVariationSections, jobVariationSections);
@@ -7004,33 +7166,7 @@ export default function Dashboard() {
     const costCentreSaveIncludesRecentEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      const payload: HubDetailStatePayload = {
-        employees,
-        businessSettings,
-        formTemplates,
-        activeFormTemplateId,
-        workflowRules,
-        financeSettings,
-        documentFolderTemplates,
-        engineerFlowTemplate,
-        engineerFlowTemplates,
-        activeEngineerFlowTemplateId,
-        costCentreTypes: costCentreTypeOptions,
-        costCentreFlowAssignmentDrafts,
-        flowStepCompletion,
-        quoteCostCentres,
-        quoteSections,
-        quoteSchedulePlans,
-        jobSchedulePlans,
-        customQuoteCatalog,
-        jobCostCentres: jobEstimateCostCentres,
-        jobReviews: jobReviewApprovals,
-        jobDeliveryEvents,
-        jobVariationSections,
-        communications: communicationRecords,
-        invoices,
-        simproExports,
-      };
+      const payload = buildHubDetailStatePayload();
 
       fetch("/api/hub-state", {
         method: "PUT",
@@ -7099,6 +7235,7 @@ export default function Dashboard() {
     jobSchedulePlans,
     customQuoteCatalog,
     jobEstimateCostCentres,
+    jobSections,
     jobReviewApprovals,
     jobDeliveryEvents,
     jobVariationSections,
@@ -8084,7 +8221,6 @@ export default function Dashboard() {
     setSchedulerSelectedCostCentreId(costCentres[0]?.id ?? "");
     setSchedulerJobSearch(`${job.ref} · ${job.customer}`);
     setSchedulerJobSearchOpen(false);
-    if (scheduleView !== "day") setScheduleView("day");
   }
 
   function updateSchedulerJobSearch(value: string) {
@@ -8096,15 +8232,15 @@ export default function Dashboard() {
     }
   }
 
-  function beginSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>, employeeName: string) {
+  function beginSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>, employeeName: string, date: string) {
     if (!schedulerSelectedJob || !schedulerSelectedCostCentreId) {
       showNotice("Search for a job and choose its cost centre before dragging a time.");
       setSchedulerJobSearchOpen(true);
       return;
     }
-    const availability = availabilityForDate(employeeName, scheduleDate);
+    const availability = availabilityForDate(employeeName, date);
     if (!availability.active) {
-      showNotice(`${employeeName} is unavailable on ${formatUkDate(scheduleDate)}.`);
+      showNotice(`${employeeName} is unavailable on ${formatUkDate(date)}.`);
       return;
     }
     const employee = employees.find((item) => item.name === employeeName);
@@ -8116,6 +8252,7 @@ export default function Dashboard() {
     const draft: SchedulerDragDraft = {
       employeeId: employee.id,
       employeeName,
+      date,
       pointerId: event.pointerId,
       startSlot: slot,
       currentSlot: slot,
@@ -8167,8 +8304,8 @@ export default function Dashboard() {
     const startTime = schedulerTimeForSlot(firstSlot);
     const endTime = schedulerTimeForSlot(finalSlot);
     const plannedHours = (finalSlot - firstSlot) / 2;
-    const startAt = new Date(`${scheduleDate}T${startTime}:00`).getTime();
-    const endAt = new Date(`${scheduleDate}T${endTime}:00`).getTime();
+    const startAt = new Date(`${draft.date}T${startTime}:00`).getTime();
+    const endAt = new Date(`${draft.date}T${endTime}:00`).getTime();
 
     const assignmentClash = Object.values(jobSchedulePlans)
       .flat()
@@ -8185,7 +8322,7 @@ export default function Dashboard() {
     }
 
     const leadClash = leadSurveyBookings.find((booking) => {
-      if (booking.surveyor !== draft.employeeName || booking.date !== scheduleDate) return false;
+      if (booking.surveyor !== draft.employeeName || booking.date !== draft.date) return false;
       const surveyStart = timeToMinutes(booking.time);
       const surveyEnd = surveyStart + surveyDurationMinutes;
       return timeToMinutes(startTime) < surveyEnd && timeToMinutes(endTime) > surveyStart;
@@ -8202,9 +8339,9 @@ export default function Dashboard() {
       costCentreName: costCentre.name,
       employeeId: draft.employeeId,
       employeeName: draft.employeeName,
-      startDate: scheduleDate,
+      startDate: draft.date,
       startTime,
-      endDate: scheduleDate,
+      endDate: draft.date,
       endTime,
       plannedHours,
       notes: "Scheduled from the team diary.",
@@ -8237,7 +8374,7 @@ export default function Dashboard() {
         action: "planner allocation added",
         recordType: "job",
         recordId: updated.id,
-        summary: `${draft.employeeName} assigned to ${costCentre.name} on ${formatUkDate(scheduleDate)} from ${startTime} to ${endTime}.`,
+        summary: `${draft.employeeName} assigned to ${costCentre.name} on ${formatUkDate(draft.date)} from ${startTime} to ${endTime}.`,
         source: "team scheduler",
         importance: "high",
       });
@@ -9150,8 +9287,14 @@ export default function Dashboard() {
     if (!confirmPilotDelete(job.ref)) return;
     const previousJobs = jobs;
     const previousCentres = jobEstimateCostCentres;
+    const previousSections = jobSections;
     setJobs((current) => current.filter((item) => item.id !== job.id));
     setJobEstimateCostCentres((current) => {
+      const next = { ...current };
+      delete next[job.id];
+      return next;
+    });
+    setJobSections((current) => {
       const next = { ...current };
       delete next[job.id];
       return next;
@@ -9180,6 +9323,7 @@ export default function Dashboard() {
     } catch {
       setJobs(previousJobs);
       setJobEstimateCostCentres(previousCentres);
+      setJobSections(previousSections);
       showNotice(`Unable to delete ${job.ref}.`);
     }
   }
@@ -9360,6 +9504,91 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
+  async function saveCurrentRecord() {
+    if (!activeRecordFingerprint) {
+      showNotice("Open a lead, quote, job or invoice before saving.");
+      return;
+    }
+
+    setRecordSaveStatus("saving");
+    try {
+      if (homeView === "lead-record" && selectedLead) {
+        const result = await syncLead(selectedLead.id, {
+          status: selectedLead.status,
+          surveyor: selectedLead.surveyor,
+          surveyDate: selectedLead.surveyDate,
+          surveyTime: selectedLead.surveyTime,
+          next: selectedLead.next,
+        });
+        if (!result.ok) throw new Error(result.error);
+        setLeads((current) => current.map((lead) => (lead.id === result.lead.id ? result.lead : lead)));
+      } else if ((homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuote) {
+        const response = await fetch(`/api/quotes/${selectedQuote.id}`, {
+          method: "PATCH",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify(selectedQuote),
+        });
+        if (!response.ok) throw new Error("The quote record could not be saved.");
+        const updated = (await response.json()) as Quote;
+        setQuotes((current) => current.map((quote) => (quote.id === updated.id ? updated : quote)));
+      } else if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) {
+        const response = await fetch(`/api/jobs/${selectedJob.id}`, {
+          method: "PATCH",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify(selectedJob),
+        });
+        if (!response.ok) throw new Error("The job record could not be saved.");
+        const updated = (await response.json()) as Job;
+        setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+      }
+
+      const response = await fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(buildHubDetailStatePayload()),
+      });
+      if (!response.ok) throw new Error("The shared NeXa record details could not be saved.");
+
+      savedRecordFingerprintRef.current = activeRecordFingerprint;
+      setRecordSaveStatus("saved");
+      setSectionError(null);
+      showNotice("Saved to NeXa.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save this record right now.";
+      setRecordSaveStatus("error");
+      setSectionError(message);
+      showNotice(message);
+    }
+  }
+
+  function renderRecordSaveControls() {
+    const statusLabel = recordSaveStatus === "saving"
+      ? "Saving..."
+      : recordSaveStatus === "unsaved"
+        ? "Unsaved changes"
+        : recordSaveStatus === "error"
+          ? "Save failed"
+          : "All changes saved";
+    return (
+      <>
+        <span className={`record-save-status ${recordSaveStatus}`} aria-live="polite">
+          {statusLabel}
+        </span>
+        <button
+          className="primary-button record-save-button"
+          type="button"
+          aria-label={recordSaveStatus === "saving" ? "Saving changes" : "Save changes"}
+          title={recordSaveStatus === "saving" ? "Saving changes" : "Save changes"}
+          disabled={recordSaveStatus === "saving"}
+          onClick={saveCurrentRecord}
+        >
+          <Check size={16} />
+          {recordSaveStatus === "saving" ? "Saving" : "Save changes"}
+        </button>
+      </>
+    );
+  }
+
   async function resetWorkflowForEndToEndTest() {
     if (typeof window !== "undefined") {
       [
@@ -9375,6 +9604,7 @@ export default function Dashboard() {
         STORAGE_KEYS.quoteSchedulePlans,
         STORAGE_KEYS.jobSchedulePlans,
         STORAGE_KEYS.jobCostCentres,
+        STORAGE_KEYS.jobSections,
         STORAGE_KEYS.jobReviews,
         STORAGE_KEYS.jobDeliveryEvents,
         STORAGE_KEYS.jobVariationSections,
@@ -9393,6 +9623,7 @@ export default function Dashboard() {
     setQuoteSchedulePlans({});
     setJobSchedulePlans({});
     setJobEstimateCostCentres({});
+    setJobSections({});
     setJobReviewApprovals({});
     setJobDeliveryEvents([]);
     setJobVariationSections({});
@@ -10448,21 +10679,20 @@ export default function Dashboard() {
     }
   }
 
-  async function sendSelectedQuoteEmail() {
-    if (!selectedQuote || !selectedQuoteEmailDraft) return;
-    if (!selectedQuoteEmailDraft.to.trim()) {
+  async function sendQuoteEmail(quote: Quote, draft: QuoteEmailDraft) {
+    if (!draft.to.trim()) {
       showNotice("Add a recipient before sending the quote.");
-      return;
+      return false;
     }
 
-    const portalToken = selectedQuote.portalToken ?? makeQuotePortalToken(selectedQuote);
+    const portalToken = quote.portalToken ?? makeQuotePortalToken(quote);
     const portalBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
-    const portalUrl = selectedQuote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
+    const portalUrl = quote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
     const sentAt = workflowTimestamp();
-    const outlookMessageId = `outlook-${selectedQuote.ref.toLowerCase()}-${Date.now()}`;
+    const outlookMessageId = `outlook-${quote.ref.toLowerCase()}-${Date.now()}`;
 
     try {
-      await persistQuotePatch(selectedQuote.id, {
+      await persistQuotePatch(quote.id, {
         status: "Sent" as QuoteStatus,
         next: "Await customer response",
         portalToken,
@@ -10474,34 +10704,60 @@ export default function Dashboard() {
       const message = error instanceof Error ? error.message : "Unable to send quote right now.";
       setSectionError(message);
       showNotice(message);
-      return;
+      return false;
     }
 
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "emailed",
       recordType: "quote",
-      recordId: selectedQuote.id,
-      summary: `${selectedQuote.ref} emailed from NeXa via Outlook to ${selectedQuoteEmailDraft.to} with ${documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
+      recordId: quote.id,
+      summary: `${quote.ref} emailed from NeXa via Outlook to ${draft.to} with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
     addCommunicationRecord({
       recordType: "quote",
-      recordId: selectedQuote.id,
-      relatedJobId: selectedQuote.convertedJobId,
+      recordId: quote.id,
+      relatedJobId: quote.convertedJobId,
       direction: "outbound",
       channel: "Outlook",
-      subject: selectedQuoteEmailDraft.subject,
-      body: `${selectedQuoteEmailDraft.body}\n\nPortal link: ${portalUrl}`,
+      subject: draft.subject,
+      body: `${draft.body}\n\nPortal link: ${portalUrl}`,
       from: "office@errolwatsongroup.co.uk",
-      to: selectedQuoteEmailDraft.to.trim(),
-      cc: selectedQuoteEmailDraft.cc.trim(),
+      to: draft.to.trim(),
+      cc: draft.cc.trim(),
       messageId: outlookMessageId,
       status: "Sent",
     });
 
+    if (quote.convertedJobId) {
+      setJobDeliveryEvents((current) => current.map((event) =>
+        event.jobId === quote.convertedJobId && event.kind === "variation" && event.summary.includes(quote.ref)
+          ? { ...event, status: "Awaiting client approval", clientApprovalStatus: "Sent" as const, sellValue: quote.value }
+          : event,
+      ));
+    }
+
     showNotice("Quote sent from NeXa and captured against the quote.");
+    return true;
+  }
+
+  async function sendSelectedQuoteEmail() {
+    if (!selectedQuote || !selectedQuoteEmailDraft) return;
+    await sendQuoteEmail(selectedQuote, selectedQuoteEmailDraft);
+  }
+
+  async function sendLinkedVariationQuoteFromJob(quote: Quote) {
+    const client = quote.clientId ? clients.find((record) => record.id === quote.clientId) ?? null : null;
+    const quoteForEmail = quote.portalToken ? quote : { ...quote, portalToken: makeQuotePortalToken(quote) };
+    const draft = quoteEmailDrafts[quote.id] ?? makeQuoteEmailDraft(quoteForEmail, client);
+    setQuoteEmailDrafts((current) => ({ ...current, [quote.id]: draft }));
+    const sent = await sendQuoteEmail(quote, draft);
+    if (!sent && !draft.to.trim()) {
+      openQuoteDrawer(quote.id);
+      setActiveQuoteTab("preview");
+    }
   }
 
   async function logQuotePortalViewed() {
@@ -10524,62 +10780,56 @@ export default function Dashboard() {
     showNotice("Client portal view logged on the quote timeline.");
   }
 
-  function applyLinkedVariationQuoteToJob(quote: Quote) {
+  function applyLinkedVariationQuoteToJob(quote: Quote, destinationSectionId: string) {
     if (!quote.convertedJobId) return false;
     const linkedJob = jobs.find((job) => job.id === quote.convertedJobId);
     if (!linkedJob) return false;
+    if (quote.status !== "Accepted") return false;
+
+    const availableSections = jobSections[linkedJob.id] ?? makeDefaultJobSections(linkedJob);
+    const destinationSection = availableSections.find((section) => section.id === destinationSectionId) ?? availableSections[0];
+    if (!destinationSection) return false;
+
     const sourceCentres = quoteCostCentres[quote.id] ?? [];
-    setJobVariationSections((current) => {
-      const existing = current[linkedJob.id] ?? [];
-      const sectionId = `${linkedJob.id}-variation-section-from-${quote.id}`;
-      if (existing.some((section) => section.id === sectionId)) return current;
+    if (sourceCentres.length === 0) return false;
+    const currentCentres = jobEstimateCostCentres[linkedJob.id] ?? makeDefaultEstimateCostCentres(linkedJob);
+    if (currentCentres.some((centre) => centre.sourceQuoteId === quote.id)) return false;
+
+    setJobSections((current) => ({
+      ...current,
+      [linkedJob.id]: current[linkedJob.id] ?? availableSections,
+    }));
+    setJobEstimateCostCentres((current) => {
+      const existing = current[linkedJob.id] ?? makeDefaultEstimateCostCentres(linkedJob);
+      if (existing.some((centre) => centre.sourceQuoteId === quote.id)) return current;
+      const imported = estimateCostCentresFromQuote(linkedJob, sourceCentres).map((centre, index) => ({
+        ...centre,
+        id: `${linkedJob.id}-additional-${quote.id}-${sourceCentres[index]?.id ?? index}`,
+        sectionId: destinationSection.id,
+        sourceQuoteId: quote.id,
+        sourceQuoteCostCentreId: sourceCentres[index]?.id,
+        variation: false,
+      }));
       return {
         ...current,
-        [linkedJob.id]: [
-          ...existing,
-          {
-            id: sectionId,
-            name: `${quote.ref} - ${quote.description}`,
-            description: `Accepted online and linked back to ${linkedJob.ref}.`,
-          },
-        ],
+        [linkedJob.id]: [...existing, ...imported],
       };
     });
-    if (sourceCentres.length > 0) {
-      setJobEstimateCostCentres((current) => {
-        const existing = current[linkedJob.id] ?? makeDefaultEstimateCostCentres(linkedJob);
-        const existingIds = new Set(existing.map((centre) => centre.id));
-        const imported = estimateCostCentresFromQuote(linkedJob, sourceCentres).map((centre) => ({
-          ...centre,
-          id: `${linkedJob.id}-variation-from-${quote.id}-${centre.id}`,
-          name: `${quote.ref} - ${centre.name}`,
-          variation: true,
-        }));
-        return {
-          ...current,
-          [linkedJob.id]: [
-            ...existing,
-            ...imported.filter((centre) => !existingIds.has(centre.id)),
-          ],
-        };
-      });
-    }
 
-    let matchedExistingEvent = false;
     setJobDeliveryEvents((current) => {
-      const updated = current.map((event) => {
-        if (event.jobId === linkedJob.id && event.kind === "variation" && event.summary.includes(quote.ref)) {
-          matchedExistingEvent = true;
-          return {
-            ...event,
-            status: "Client approved",
-            clientApprovalStatus: "Approved" as const,
-            sellValue: quote.value,
-          };
-        }
-        return event;
-      });
-      if (matchedExistingEvent) return updated;
+      const existingEvent = current.find(
+        (event) => event.jobId === linkedJob.id && event.kind === "variation" && event.summary.includes(quote.ref),
+      );
+      if (existingEvent) {
+        return current.map((event) => event.id === existingEvent.id
+          ? {
+              ...event,
+              status: "Client approved - added to job",
+              clientApprovalStatus: "Approved" as const,
+              sellValue: quote.value,
+            }
+          : event);
+      }
       return [
         {
           id: `delivery-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -10595,9 +10845,9 @@ export default function Dashboard() {
           reason: "Online variation quote accepted",
           requiresClientApproval: true,
           clientApprovalStatus: "Approved",
-          status: "Client approved",
+          status: "Client approved - added to job",
         },
-        ...updated,
+        ...current,
       ];
     });
 
@@ -10606,10 +10856,18 @@ export default function Dashboard() {
       action: "variation accepted",
       recordType: "job",
       recordId: linkedJob.id,
-      summary: `${quote.ref} accepted online and copied into ${linkedJob.ref} variations.`,
+      summary: `${quote.ref} accepted online and added to ${destinationSection.name} on ${linkedJob.ref} as ${sourceCentres.length} cost centre${sourceCentres.length === 1 ? "" : "s"}.`,
       source: "client portal",
       importance: "high",
     });
+    persistQuotePatch(quote.id, {
+      next: `Added to ${linkedJob.ref} - ${destinationSection.name}`,
+    }).catch(() => {
+      // The job import is retained locally if quote metadata cannot be updated.
+    });
+    if (selectedJob?.id === linkedJob.id) {
+      setActiveJobCostCentreListTab("base");
+    }
     return true;
   }
 
@@ -10644,8 +10902,7 @@ export default function Dashboard() {
       return;
     }
     if (status === "Accepted" && updatedQuote.convertedJobId) {
-      const applied = applyLinkedVariationQuoteToJob(updatedQuote);
-      showNotice(applied ? "Variation quote accepted and copied into the linked job." : "Variation quote accepted online and logged.");
+      showNotice("Variation quote accepted. Open the linked job and choose which section should receive the cost centre.");
       return;
     }
     showNotice(status === "Accepted" ? "Quote accepted online and logged." : "Quote declined online and logged.");
@@ -11551,14 +11808,177 @@ export default function Dashboard() {
     });
   }
 
-  function addJobCostCentre() {
+  function addJobSection() {
+    if (!selectedJob) return;
+    const name = jobSectionNameDraft.trim();
+    if (!name) {
+      showNotice("Add a section name before creating it.");
+      return;
+    }
+    const section: JobSection = {
+      id: `${selectedJob.id}-section-${Date.now()}`,
+      name,
+      description: jobSectionDescriptionDraft.trim(),
+    };
+    markCostCentreEdited();
+    setJobSections((current) => ({
+      ...current,
+      [selectedJob.id]: [...(current[selectedJob.id] ?? makeDefaultJobSections(selectedJob)), section],
+    }));
+    setJobSectionNameDraft("");
+    setJobSectionDescriptionDraft("");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "created",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `Section ${name} added to ${selectedJob.ref}.`,
+      source: "job cost centre list",
+      importance: "normal",
+    });
+    showNotice(`Section ${name} added.`);
+  }
+
+  function startEditingJobSection(section: JobSection) {
+    setEditingJobSectionId(section.id);
+    setJobSectionEditName(section.name);
+    setJobSectionEditDescription(section.description);
+    setJobSectionActionMenuId(null);
+  }
+
+  function cancelEditingJobSection() {
+    setEditingJobSectionId(null);
+    setJobSectionEditName("");
+    setJobSectionEditDescription("");
+  }
+
+  function saveJobSection() {
+    if (!selectedJob || !editingJobSectionId) return;
+    const name = jobSectionEditName.trim();
+    if (!name) {
+      showNotice("The section needs a name.");
+      return;
+    }
+    markCostCentreEdited();
+    setJobSections((current) => ({
+      ...current,
+      [selectedJob.id]: (current[selectedJob.id] ?? makeDefaultJobSections(selectedJob)).map((section) =>
+        section.id === editingJobSectionId
+          ? { ...section, name, description: jobSectionEditDescription.trim() }
+          : section,
+      ),
+    }));
+    cancelEditingJobSection();
+    showNotice(`Section renamed to ${name}.`);
+  }
+
+  function addJobCostCentre(sectionId: string) {
     if (!selectedJob) return;
     setJobCentresForSelected((centres) => [
       ...centres,
-      makeEstimateCostCentre(selectedJob.id, centres.length, jobCostCentreNameDraft, jobCostCentreTemplateDraft),
+      {
+        ...makeEstimateCostCentre(selectedJob.id, centres.length, jobCostCentreNameDraft, jobCostCentreTemplateDraft),
+        sectionId,
+      },
     ]);
     setJobCostCentreNameDraft("");
-    setShowJobCostCentreCreate(false);
+    setJobCostCentreCreateSectionId(null);
+  }
+
+  function moveJobCostCentre(centreId: string, sectionId: string, targetIndex: number) {
+    if (!selectedJob || !centreId) return;
+
+    const sectionIds = selectedJobSections.map((section) => section.id);
+    const fallbackSectionId = sectionIds[0];
+    if (!fallbackSectionId || !sectionIds.includes(sectionId)) return;
+    const resolveSectionId = (centre: EstimateCostCentre) =>
+      sectionIds.includes(centre.sectionId ?? "") ? centre.sectionId as string : fallbackSectionId;
+
+    setJobCentresForSelected((centres) => {
+      const moving = centres.find((centre) => centre.id === centreId && !centre.variation);
+      if (!moving) return centres;
+
+      const baseCentres = centres.filter((centre) => !centre.variation);
+      const variationCentres = centres.filter((centre) => centre.variation);
+      const sourceSectionId = resolveSectionId(moving);
+      const sourceIndex = baseCentres.filter((centre) => resolveSectionId(centre) === sourceSectionId).findIndex((centre) => centre.id === centreId);
+      const remaining = baseCentres.filter((centre) => centre.id !== centreId);
+      const targetGroup = remaining.filter((centre) => resolveSectionId(centre) === sectionId);
+      const adjustedIndex = sourceSectionId === sectionId && sourceIndex >= 0 && sourceIndex < targetIndex
+        ? targetIndex - 1
+        : targetIndex;
+      targetGroup.splice(Math.max(0, Math.min(adjustedIndex, targetGroup.length)), 0, { ...moving, sectionId });
+
+      const reorderedBase = sectionIds.flatMap((currentSectionId) =>
+        currentSectionId === sectionId
+          ? targetGroup
+          : remaining.filter((centre) => resolveSectionId(centre) === currentSectionId),
+      );
+      return [...reorderedBase, ...variationCentres];
+    });
+
+    markCostCentreEdited();
+    setDraggedJobCostCentreId(null);
+    setJobCostCentreDropTarget(null);
+    jobCostCentrePointerDragRef.current = null;
+    jobCostCentreDropTargetRef.current = null;
+    showNotice("Cost centre moved.");
+  }
+
+  function jobCostCentreTargetAtPoint(clientX: number, clientY: number) {
+    if (typeof document === "undefined") return null;
+    const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    const dropZone = target?.closest<HTMLElement>("[data-job-drop-section][data-job-drop-index]");
+    if (!dropZone) return null;
+    const sectionId = dropZone.dataset.jobDropSection;
+    const index = Number(dropZone.dataset.jobDropIndex);
+    if (!sectionId || !Number.isFinite(index)) return null;
+    return { sectionId, index };
+  }
+
+  function beginJobCostCentrePointerDrag(event: ReactPointerEvent<HTMLSpanElement>, centreId: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    jobCostCentrePointerDragRef.current = { centreId, pointerId: event.pointerId };
+    const target = jobCostCentreTargetAtPoint(event.clientX, event.clientY);
+    jobCostCentreDropTargetRef.current = target;
+    setDraggedJobCostCentreId(centreId);
+    setJobCostCentreDropTarget(target);
+  }
+
+  function moveJobCostCentrePointerDrag(event: ReactPointerEvent<HTMLSpanElement>) {
+    const current = jobCostCentrePointerDragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = jobCostCentreTargetAtPoint(event.clientX, event.clientY);
+    jobCostCentreDropTargetRef.current = target;
+    setJobCostCentreDropTarget(target);
+  }
+
+  function finishJobCostCentrePointerDrag(event: ReactPointerEvent<HTMLSpanElement>) {
+    const current = jobCostCentrePointerDragRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const target = jobCostCentreTargetAtPoint(event.clientX, event.clientY) ?? jobCostCentreDropTargetRef.current;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (target) {
+      moveJobCostCentre(current.centreId, target.sectionId, target.index);
+      return;
+    }
+    finishJobCostCentreDrag();
+    showNotice("Drop the cost centre onto a section row.");
+  }
+
+  function finishJobCostCentreDrag() {
+    jobCostCentrePointerDragRef.current = null;
+    jobCostCentreDropTargetRef.current = null;
+    setDraggedJobCostCentreId(null);
+    setJobCostCentreDropTarget(null);
   }
 
   function addJobVariationSection() {
@@ -11627,7 +12047,7 @@ export default function Dashboard() {
       convertedJobId: selectedJob.id,
       convertedJobRef: selectedJob.ref,
       customer: selectedJob.customer,
-      description: `${name} - ${selectedJob.description}`,
+      description: name,
       owner: activeEmployee?.name ?? selectedJob.manager,
       status: "Draft",
       value: 0,
@@ -11654,11 +12074,16 @@ export default function Dashboard() {
     }
 
     setQuotes((current) => [created, ...current.filter((quote) => quote.id !== created.id)]);
+    const quoteSection = baseQuoteSection(created.id);
+    setQuoteSections((current) => ({
+      ...current,
+      [created.id]: [quoteSection],
+    }));
     setQuoteCostCentres((current) => ({
       ...current,
       [created.id]: [
         {
-          ...makeQuoteCostCentre(created.id, 0, name, jobVariationCostCentreTemplateDraft),
+          ...makeQuoteCostCentre(created.id, 0, name, jobVariationCostCentreTemplateDraft, quoteSection.id),
           clientDescription: "Variation works requiring client approval before the site team proceeds.",
           engineerDescription: "Proceed only once this variation is approved online and released by the office.",
         },
@@ -11689,7 +12114,7 @@ export default function Dashboard() {
     });
     setJobVariationCostCentreNameDraft("");
     openQuoteDrawer(created.id);
-    showNotice(`Linked variation quote ${created.ref} created. Build it, then send from Send & Forms.`);
+    showNotice(`${created.ref} created inside ${selectedJob.ref}. Build it, then send it from the quote or the linked quote list.`);
   }
 
   function updateEstimateCostCentre(centreId: string, patch: Partial<EstimateCostCentre>) {
@@ -14049,7 +14474,9 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
+    setHomeView("quote-create");
     setShowCreateQuote(true);
+    scrollWorkspaceToTop();
   }
 
   function createJobFromMenu() {
@@ -14059,7 +14486,9 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
+    setHomeView("job-create");
     setShowCreateJob(true);
+    scrollWorkspaceToTop();
   }
 
   function createRef() {
@@ -16292,12 +16721,16 @@ export default function Dashboard() {
                     ? "Employee card"
                     : homeView === "quotes"
                       ? "Quotes"
+                    : homeView === "quote-create"
+                      ? "New quote"
                     : homeView === "quote-record"
                       ? "Quote"
                     : homeView === "quote-cost-centre-record"
                       ? "Quote cost centre"
                     : homeView === "jobs"
                       ? "Jobs"
+                    : homeView === "job-create"
+                      ? "New job"
                     : homeView === "job-record"
                       ? "Job"
                     : homeView === "cost-centre-record"
@@ -16342,12 +16775,16 @@ export default function Dashboard() {
                   ? employeeProfileDraft.name || activeEditingEmployee?.name || "Employee card"
                   : homeView === "quotes"
                     ? "Quotes"
+                  : homeView === "quote-create"
+                    ? "Create quote"
                   : homeView === "quote-record"
                     ? selectedQuote?.ref ?? "Quote setup"
                   : homeView === "quote-cost-centre-record"
                     ? selectedQuoteCostCentre?.name ?? "Quote cost centre"
                   : homeView === "jobs"
                     ? "Jobs"
+                  : homeView === "job-create"
+                    ? "Create job"
                   : homeView === "job-record"
                     ? selectedJob?.ref ?? "Job record"
                   : homeView === "cost-centre-record"
@@ -16391,12 +16828,16 @@ export default function Dashboard() {
                   ? `${employeeProfileDraft.roleLabel || activeEditingEmployee?.profile?.roleLabel || activeEditingEmployee?.role || "Employee"} · ${employeeProfileDraft.email || activeEditingEmployee?.profile?.email || "No email on file"}`
                   : homeView === "quotes"
                     ? `${filteredQuotes.length} quotes · ${quoteStatusFilter}`
+                  : homeView === "quote-create"
+                    ? "Capture the customer, site, scope, owner and starting value"
                   : homeView === "quote-record"
                     ? `${selectedQuote?.customer ?? "Quote"} · build costs before creating the job`
                   : homeView === "quote-cost-centre-record"
                     ? `${selectedQuote?.ref ?? "Quote"} · parts and labour inside this cost centre`
                   : homeView === "jobs"
                     ? `${filteredJobs.length} jobs · ${statusFilter}`
+                  : homeView === "job-create"
+                    ? "Capture a reactive or direct job with its customer, site and initial schedule"
                   : homeView === "job-record"
                     ? `${selectedJob?.customer ?? "Job"} · summary, cost centres and variations`
                   : homeView === "cost-centre-record"
@@ -16446,13 +16887,35 @@ export default function Dashboard() {
                   </button>
                 </>
               ) : homeView === "cost-centre-record" ? (
-                <button className="secondary-button" onClick={returnToJobRecord}>
-                  Back to job
-                </button>
+                <>
+                  <button className="secondary-button" onClick={returnToJobRecord}>
+                    Back to job
+                  </button>
+                  {renderRecordSaveControls()}
+                </>
               ) : homeView === "quote-cost-centre-record" ? (
-                <button className="secondary-button" onClick={returnToQuoteRecord}>
-                  Back to quote
-                </button>
+                <>
+                  <button className="secondary-button" onClick={returnToQuoteRecord}>
+                    Back to quote
+                  </button>
+                  {renderRecordSaveControls()}
+                </>
+              ) : homeView === "quote-create" ? (
+                <>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setShowCreateQuote(false);
+                      setHomeView("quotes");
+                    }}
+                  >
+                    Back to quotes
+                  </button>
+                  <button className="primary-button" type="button" onClick={submitQuote}>
+                    <Plus size={16} />
+                    Create quote
+                  </button>
+                </>
               ) : homeView === "quotes" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
@@ -16461,6 +16924,22 @@ export default function Dashboard() {
                   <button className="primary-button" onClick={createQuote}>
                     <Plus size={16} />
                     New quote
+                  </button>
+                </>
+              ) : homeView === "job-create" ? (
+                <>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setShowCreateJob(false);
+                      setHomeView("jobs");
+                    }}
+                  >
+                    Back to jobs
+                  </button>
+                  <button className="primary-button" type="button" disabled={Boolean(newJobScheduleWarning)} onClick={createJob}>
+                    <Plus size={16} />
+                    Create job
                   </button>
                 </>
               ) : homeView === "jobs" ? (
@@ -16509,6 +16988,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnFromInvoiceRecord}>
                     Back to source
                   </button>
+                  {renderRecordSaveControls()}
                   <button className="secondary-button" onClick={() => setActiveInvoiceTab("preview")}>
                     Preview client form
                   </button>
@@ -16533,6 +17013,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnFromRecord}>
                     Back to dashboard
                   </button>
+                  {renderRecordSaveControls()}
                   <button
                     className="secondary-button"
                     onClick={() => homeView === "quote-record" ? setActiveQuoteTab("preview") : setActiveJobTab("forms")}
@@ -16614,6 +17095,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToLeadsDirectory}>
                     Back to leads
                   </button>
+                  {renderRecordSaveControls()}
                   {selectedLead ? (
                     <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
                       Create quote
@@ -18149,7 +18631,7 @@ export default function Dashboard() {
                         ) : null}
 
                         <div className="simpro-cost-centre-list">
-                          {centres.map((centre) => {
+                          {centres.map((centre, index) => {
                             const centreCost = centre.lines.reduce((total, line) => total + quoteLineCost(line), 0);
                             const centreSell = centre.lines.reduce((total, line) => total + quoteLineSell(line), 0);
                             return (
@@ -18204,7 +18686,7 @@ export default function Dashboard() {
                                   Options <ChevronDown size={13} />
                                   </button>
                                   {costCentreActionMenu?.scope === "quote" && costCentreActionMenu.id === centre.id ? (
-                                    <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
+                                    <div className={`cost-centre-options-menu${index >= centres.length - 2 ? " open-up" : ""}`} onClick={(event) => event.stopPropagation()}>
                                       <button type="button" onClick={() => startRenameCostCentre("quote", centre)}>Rename display name</button>
                                       <button type="button" onClick={() => openQuoteCostCentreRecord(centre.id)}>Open cost centre</button>
                                       <button type="button" disabled={selectedQuoteCostCentres.length < 2} onClick={() => mergeQuoteCostCentre(centre.id)}>Merge into section above</button>
@@ -20830,7 +21312,7 @@ export default function Dashboard() {
                           scrollWorkspaceToTop();
                         }}
                       >
-                        Variations <span>{selectedJobVariations.length + selectedJobVariationCostCentres.length}</span>
+                        Variations <span>{selectedJobVariations.length + selectedJobVariationCostCentres.length + selectedJobLinkedVariationQuotes.length}</span>
                       </button>
                     </div>
 
@@ -20853,125 +21335,194 @@ export default function Dashboard() {
                         <div className="simpro-section-create">
                           <label>
                             Name
-                            <input />
+                            <input
+                              value={jobSectionNameDraft}
+                              onChange={(event) => setJobSectionNameDraft(event.target.value)}
+                              placeholder="e.g. External works"
+                            />
                           </label>
                           <label>
                             Description <span>(Optional)</span>
-                            <input placeholder="Enter a description..." />
+                            <input
+                              value={jobSectionDescriptionDraft}
+                              onChange={(event) => setJobSectionDescriptionDraft(event.target.value)}
+                              placeholder="Enter a description..."
+                            />
                           </label>
-                          <button className="simpro-blue-button" type="button">ADD</button>
+                          <button className="simpro-blue-button" type="button" onClick={addJobSection}>ADD</button>
                         </div>
 
-                        <section className="simpro-section-card">
-                          <header>
-                            <span className="simpro-drag-handle" aria-hidden="true" />
-                            <strong>Bathroom refurbishment</strong>
-                            <div className="simpro-section-actions">
-                              <button className="simpro-grey-button" type="button">WORK PACKAGES <ChevronDown size={14} /></button>
-                              <button
-                                className="simpro-blue-button"
-                                type="button"
-                                aria-expanded={showJobCostCentreCreate}
-                                onClick={() => setShowJobCostCentreCreate((current) => !current)}
-                              >
-                                {showJobCostCentreCreate ? "CLOSE" : "ADD COST CENTRE"}
-                              </button>
-                              <button className="simpro-options-button" type="button" onClick={() => showNotice("Section options are next to wire up.")}>
-                                Options <ChevronDown size={13} />
-                              </button>
-                            </div>
-                          </header>
-
-                          {showJobCostCentreCreate ? (
-                            <div className="simpro-cost-centre-add">
-                              <label>
-                                Default category
-                                <select
-                                  value={jobCostCentreTemplateDraft}
-                                  onChange={(event) => setJobCostCentreTemplateDraft(event.target.value)}
+                        {selectedJobSectionsWithCentres.map(({ section, centres }) => (
+                          <section className="simpro-section-card job-base-section-card" key={section.id}>
+                            <header>
+                              <span className="simpro-section-anchor" aria-hidden="true" />
+                              <div className="job-section-title">
+                                <strong>{section.name}</strong>
+                                {section.description ? <small>{section.description}</small> : null}
+                              </div>
+                              <div className="simpro-section-actions">
+                                <button
+                                  className="simpro-blue-button"
+                                  type="button"
+                                  aria-expanded={jobCostCentreCreateSectionId === section.id}
+                                  onClick={() => setJobCostCentreCreateSectionId((current) => current === section.id ? null : section.id)}
                                 >
-                                  {costCentreTypeOptions.map((template) => (
-                                    <option key={template} value={template}>{template}</option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label>
-                                Cost Centre Name <span>(Optional)</span>
-                                <input
-                                  placeholder="Enter Name here..."
-                                  value={jobCostCentreNameDraft}
-                                  onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
-                                />
-                              </label>
-                              <button className="simpro-blue-button" type="button" onClick={addJobCostCentre}>ADD</button>
-                            </div>
-                          ) : null}
-
-                          <div className="simpro-cost-centre-list">
-                          {selectedJobBaseCostCentres.map((centre) => {
-                            const totals = estimateCostCentreTotals(centre);
-                            return (
-                              <div
-                                className="simpro-cost-centre-row"
-                                key={centre.id}
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => openCostCentreRecord(centre.id)}
-                                onKeyDown={(event) => {
-                                  if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    openCostCentreRecord(centre.id);
-                                  }
-                                }}
-                              >
-                                <span className="simpro-drag-handle" aria-hidden="true" />
-                                <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
-                                <strong className="simpro-row-title">
-                                  {centre.name}
-                                  <small>{centre.templateName ?? "Uncategorised"}</small>
-                                  {(centre.surveyAssets?.length ?? 0) > 0 ? (
-                                    <small>{centre.surveyAssets?.length} survey records handed over</small>
-                                  ) : null}
-                                </strong>
-                                <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
-                                <div className="simpro-row-actions">
+                                  {jobCostCentreCreateSectionId === section.id ? "CLOSE" : "ADD COST CENTRE"}
+                                </button>
+                                <button
+                                  className="simpro-grey-button"
+                                  type="button"
+                                  onClick={() => startEditingJobSection(section)}
+                                >
+                                  EDIT SECTION
+                                </button>
+                                <div className="job-section-options-wrap">
                                   <button
                                     className="simpro-options-button"
                                     type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setCostCentreActionMenu((current) =>
-                                        current?.scope === "job" && current.id === centre.id ? null : { scope: "job", id: centre.id },
-                                      );
-                                    }}
+                                    aria-expanded={jobSectionActionMenuId === section.id}
+                                    onClick={() => setJobSectionActionMenuId((current) => current === section.id ? null : section.id)}
                                   >
                                     Options <ChevronDown size={13} />
                                   </button>
-                                  {costCentreActionMenu?.scope === "job" && costCentreActionMenu.id === centre.id ? (
-                                    <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
-                                      <button type="button" onClick={() => startRenameCostCentre("job", centre)}>Rename display name</button>
-                                      <button type="button" onClick={() => openCostCentreRecord(centre.id)}>Open cost centre</button>
+                                  {jobSectionActionMenuId === section.id ? (
+                                    <div className="cost-centre-options-menu">
+                                      <button type="button" onClick={() => startEditingJobSection(section)}>Rename section</button>
                                     </div>
                                   ) : null}
                                 </div>
-                                <button className="simpro-kebab-button" type="button" onClick={(event) => { event.stopPropagation(); showNotice("More cost centre actions are next to wire up."); }}>
-                                  <MoreHorizontal size={16} />
-                                </button>
-                                {renamingCostCentre?.scope === "job" && renamingCostCentre.id === centre.id ? (
-                                  <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
-                                    <label>
-                                      Display name
-                                      <input value={renameCostCentreDraft} onChange={(event) => setRenameCostCentreDraft(event.target.value)} />
-                                    </label>
-                                    <button className="simpro-blue-button" type="button" onClick={saveRenameCostCentre}>Save</button>
-                                    <button className="simpro-grey-button" type="button" onClick={cancelRenameCostCentre}>Cancel</button>
-                                  </div>
-                                ) : null}
                               </div>
-                            );
-                          })}
-                          </div>
-                        </section>
+                            </header>
+
+                            {editingJobSectionId === section.id ? (
+                              <div className="job-section-edit-row">
+                                <label>
+                                  Section name
+                                  <input value={jobSectionEditName} onChange={(event) => setJobSectionEditName(event.target.value)} />
+                                </label>
+                                <label>
+                                  Description <span>(Optional)</span>
+                                  <input value={jobSectionEditDescription} onChange={(event) => setJobSectionEditDescription(event.target.value)} />
+                                </label>
+                                <button className="simpro-blue-button" type="button" onClick={saveJobSection}>SAVE</button>
+                                <button className="simpro-grey-button" type="button" onClick={cancelEditingJobSection}>CANCEL</button>
+                              </div>
+                            ) : null}
+
+                            {jobCostCentreCreateSectionId === section.id ? (
+                              <div className="simpro-cost-centre-add">
+                                <label>
+                                  Default category
+                                  <select
+                                    value={jobCostCentreTemplateDraft}
+                                    onChange={(event) => setJobCostCentreTemplateDraft(event.target.value)}
+                                  >
+                                    {costCentreTypeOptions.map((template) => (
+                                      <option key={template} value={template}>{template}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  Cost Centre Name <span>(Optional)</span>
+                                  <input
+                                    placeholder="Enter Name here..."
+                                    value={jobCostCentreNameDraft}
+                                    onChange={(event) => setJobCostCentreNameDraft(event.target.value)}
+                                  />
+                                </label>
+                                <button className="simpro-blue-button" type="button" onClick={() => addJobCostCentre(section.id)}>ADD</button>
+                              </div>
+                            ) : null}
+
+                            <div
+                              className="simpro-cost-centre-list"
+                            >
+                              {centres.map((centre, index) => {
+                                const totals = estimateCostCentreTotals(centre);
+                                const isDropTarget = jobCostCentreDropTarget?.sectionId === section.id && jobCostCentreDropTarget.index === index;
+                                return (
+                                  <div
+                                    className={`simpro-cost-centre-row${draggedJobCostCentreId === centre.id ? " dragging" : ""}${isDropTarget ? " drop-target" : ""}`}
+                                    key={centre.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    data-job-drop-section={section.id}
+                                    data-job-drop-index={index}
+                                    onClick={() => openCostCentreRecord(centre.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault();
+                                        openCostCentreRecord(centre.id);
+                                      }
+                                    }}
+                                  >
+                                    <span
+                                      className="simpro-drag-handle"
+                                      role="button"
+                                      tabIndex={0}
+                                      title={`Move ${centre.name}`}
+                                      aria-label={`Press and drag ${centre.name} to reorder or move section`}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onPointerDown={(event) => beginJobCostCentrePointerDrag(event, centre.id)}
+                                      onPointerMove={moveJobCostCentrePointerDrag}
+                                      onPointerUp={finishJobCostCentrePointerDrag}
+                                      onPointerCancel={finishJobCostCentreDrag}
+                                    />
+                                    <input aria-label={`Select ${centre.name}`} type="checkbox" onClick={(event) => event.stopPropagation()} />
+                                    <strong className="simpro-row-title">
+                                      {centre.name}
+                                      <small>{centre.templateName ?? "Uncategorised"}</small>
+                                      {(centre.surveyAssets?.length ?? 0) > 0 ? (
+                                        <small>{centre.surveyAssets?.length} survey records handed over</small>
+                                      ) : null}
+                                    </strong>
+                                    <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
+                                    <div className="simpro-row-actions">
+                                      <button
+                                        className="simpro-options-button"
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setCostCentreActionMenu((current) =>
+                                            current?.scope === "job" && current.id === centre.id ? null : { scope: "job", id: centre.id },
+                                          );
+                                        }}
+                                      >
+                                        Options <ChevronDown size={13} />
+                                      </button>
+                                      {costCentreActionMenu?.scope === "job" && costCentreActionMenu.id === centre.id ? (
+                                        <div className={`cost-centre-options-menu${index >= centres.length - 2 ? " open-up" : ""}`} onClick={(event) => event.stopPropagation()}>
+                                          <button type="button" onClick={() => startRenameCostCentre("job", centre)}>Rename display name</button>
+                                          <button type="button" onClick={() => openCostCentreRecord(centre.id)}>Open cost centre</button>
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                    <button className="simpro-kebab-button" type="button" onClick={(event) => { event.stopPropagation(); showNotice("Use the handle on the left to move this cost centre."); }}>
+                                      <MoreHorizontal size={16} />
+                                    </button>
+                                    {renamingCostCentre?.scope === "job" && renamingCostCentre.id === centre.id ? (
+                                      <div className="cost-centre-rename-row" onClick={(event) => event.stopPropagation()}>
+                                        <label>
+                                          Display name
+                                          <input value={renameCostCentreDraft} onChange={(event) => setRenameCostCentreDraft(event.target.value)} />
+                                        </label>
+                                        <button className="simpro-blue-button" type="button" onClick={saveRenameCostCentre}>Save</button>
+                                        <button className="simpro-grey-button" type="button" onClick={cancelRenameCostCentre}>Cancel</button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                              <div
+                                className={`job-section-drop-zone${jobCostCentreDropTarget?.sectionId === section.id && jobCostCentreDropTarget.index === centres.length ? " active" : ""}`}
+                                data-job-drop-section={section.id}
+                                data-job-drop-index={centres.length}
+                              >
+                                {draggedJobCostCentreId ? "Release here to move to this section" : centres.length === 0 ? "Add or drag a cost centre into this section" : ""}
+                              </div>
+                            </div>
+                          </section>
+                        ))}
                       </>
                     ) : null}
 
@@ -21011,7 +21562,7 @@ export default function Dashboard() {
                           </section>
 
                           <section className="variation-action-panel">
-                            <h3>Add variation cost centre or quote</h3>
+                            <h3>Add approved cost centre or price additional works</h3>
                             <div className="simpro-cost-centre-add variation-cost-centre-create">
                               <label>
                                 Default category
@@ -21034,7 +21585,7 @@ export default function Dashboard() {
                               </label>
                               <button className="simpro-blue-button" type="button" onClick={addJobVariationCostCentre}>ADD COST CENTRE</button>
                               <button className="simpro-grey-button" type="button" onClick={() => { createLinkedVariationQuote().catch(() => showNotice("Unable to create linked variation quote.")); }}>
-                                LINKED QUOTE
+                                CREATE QUOTE IN JOB
                               </button>
                             </div>
                           </section>
@@ -21074,7 +21625,7 @@ export default function Dashboard() {
                             </div>
                           ) : (
                             <div className="simpro-cost-centre-list">
-                              {selectedJobVariationCostCentres.map((centre) => {
+                              {selectedJobVariationCostCentres.map((centre, index) => {
                                 const totals = estimateCostCentreTotals(centre);
                                 return (
                                   <div
@@ -21111,7 +21662,7 @@ export default function Dashboard() {
                                         Options <ChevronDown size={13} />
                                       </button>
                                       {costCentreActionMenu?.scope === "job" && costCentreActionMenu.id === centre.id ? (
-                                        <div className="cost-centre-options-menu" onClick={(event) => event.stopPropagation()}>
+                                        <div className={`cost-centre-options-menu${index >= selectedJobVariationCostCentres.length - 2 ? " open-up" : ""}`} onClick={(event) => event.stopPropagation()}>
                                           <button type="button" onClick={() => startRenameCostCentre("job", centre)}>Rename display name</button>
                                           <button type="button" onClick={() => openCostCentreRecord(centre.id)}>Open cost centre</button>
                                         </div>
@@ -21126,23 +21677,83 @@ export default function Dashboard() {
 
                         <section className="variation-cost-centre-board">
                           <header>
-                            <strong>Linked variation quotes</strong>
+                            <strong>Additional works quotes</strong>
                             <span>{selectedJobLinkedVariationQuotes.length} quote{selectedJobLinkedVariationQuotes.length === 1 ? "" : "s"}</span>
                           </header>
                           {selectedJobLinkedVariationQuotes.length === 0 ? (
                             <div className="employee-empty-panel">
                               <strong>No linked quotes yet</strong>
-                              <span>Create a linked quote when the client must approve a variation before the works proceed.</span>
+                              <span>Create a quote here when additional works need client approval before they become part of the job.</span>
                             </div>
                           ) : (
                             <div className="linked-variation-quote-list">
-                              {selectedJobLinkedVariationQuotes.map((quote) => (
-                                <button key={quote.id} type="button" onClick={() => openQuoteDrawer(quote.id)}>
-                                  <strong>{quote.ref}</strong>
-                                  <span>{quote.description}</span>
-                                  <b className={`status-pill ${quote.status === "Accepted" ? "green" : quote.status === "Sent" ? "blue" : "amber"}`}>{quote.status}</b>
-                                </button>
-                              ))}
+                              {selectedJobLinkedVariationQuotes.map((quote) => {
+                                const sourceCentreCount = quoteCostCentres[quote.id]?.length ?? 0;
+                                const importedCentres = selectedJobBaseCostCentres.filter((centre) => centre.sourceQuoteId === quote.id);
+                                const importedSection = importedCentres.length > 0
+                                  ? selectedJobSections.find((section) => section.id === importedCentres[0]?.sectionId)
+                                  : null;
+                                const destinationSectionId = linkedQuoteSectionDrafts[quote.id] ?? selectedJobSections[0]?.id ?? "";
+                                return (
+                                  <article className="linked-variation-quote-card" key={quote.id}>
+                                    <div className="linked-variation-quote-summary">
+                                      <div>
+                                        <strong>{quote.ref}</strong>
+                                        <span>{quote.description}</span>
+                                      </div>
+                                      <b>{currency(quote.value)}</b>
+                                      <span className={`status-pill ${quote.status === "Accepted" ? "green" : quote.status === "Sent" ? "blue" : "amber"}`}>{quote.status}</span>
+                                    </div>
+                                    <div className="linked-variation-quote-actions">
+                                      <button className="simpro-grey-button" type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                                        OPEN QUOTE
+                                      </button>
+                                      {quote.status === "Draft" ? (
+                                        <button
+                                          className="simpro-blue-button"
+                                          type="button"
+                                          onClick={() => { sendLinkedVariationQuoteFromJob(quote).catch(() => showNotice("Unable to send the quote right now.")); }}
+                                        >
+                                          <Mail size={14} /> SEND TO CLIENT
+                                        </button>
+                                      ) : null}
+                                      {quote.status === "Accepted" && importedCentres.length === 0 ? (
+                                        <div className="linked-quote-acceptance-action">
+                                          <label>
+                                            Add accepted works to
+                                            <select
+                                              value={destinationSectionId}
+                                              onChange={(event) => setLinkedQuoteSectionDrafts((current) => ({ ...current, [quote.id]: event.target.value }))}
+                                            >
+                                              {selectedJobSections.map((section) => (
+                                                <option key={section.id} value={section.id}>{section.name}</option>
+                                              ))}
+                                            </select>
+                                          </label>
+                                          <button
+                                            className="simpro-blue-button"
+                                            type="button"
+                                            disabled={!destinationSectionId || sourceCentreCount === 0}
+                                            onClick={() => {
+                                              const applied = applyLinkedVariationQuoteToJob(quote, destinationSectionId);
+                                              showNotice(applied
+                                                ? `${quote.ref} added to the selected job section.`
+                                                : `Unable to add ${quote.ref}. Check that it contains a cost centre and has not already been imported.`);
+                                            }}
+                                          >
+                                            ADD {sourceCentreCount === 1 ? "COST CENTRE" : `${sourceCentreCount} COST CENTRES`}
+                                          </button>
+                                        </div>
+                                      ) : null}
+                                      {importedCentres.length > 0 ? (
+                                        <div className="linked-quote-imported-state">
+                                          <Check size={15} /> Added to {importedSection?.name ?? "job section"}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </article>
+                                );
+                              })}
                             </div>
                           )}
                         </section>
@@ -23521,7 +24132,11 @@ export default function Dashboard() {
                     <strong>{schedulerSelectedJob ? schedulerSelectedJob.ref : "Choose the work first"}</strong>
                     <span>
                       {schedulerSelectedJob && schedulerSelectedCostCentreId
-                        ? "Day view is ready. Drag across an engineer's 08:00-18:00 strip to book the exact time."
+                        ? scheduleView === "week"
+                          ? "Week view is ready. Drag across an engineer's day strip to book the exact time."
+                          : scheduleView === "day"
+                            ? "Day view is ready. Drag across an engineer's 08:00-18:00 strip to book the exact time."
+                            : "Choose Day or Week view to drag a booking into the diary."
                         : "Search for a job, then choose the cost centre you are allocating."}
                     </span>
                   </div>
@@ -23568,7 +24183,7 @@ export default function Dashboard() {
                             </div>
                             <div
                               className="scheduler-drag-track"
-                              onPointerDown={(event) => beginSchedulerDrag(event, surveyor)}
+                              onPointerDown={(event) => beginSchedulerDrag(event, surveyor, scheduleDate)}
                               onPointerMove={moveSchedulerDrag}
                               onPointerUp={finishSchedulerDrag}
                               onPointerCancel={cancelSchedulerDrag}
@@ -23592,7 +24207,7 @@ export default function Dashboard() {
                                   </span>
                                 );
                               })}
-                              {schedulerDragDraft?.employeeName === surveyor ? (
+                              {schedulerDragDraft?.employeeName === surveyor && schedulerDragDraft.date === scheduleDate ? (
                                 <span
                                   className="scheduler-drag-selection"
                                   style={{
@@ -23653,6 +24268,53 @@ export default function Dashboard() {
                         return (
                           <section className={availability.active ? "scheduler-week-cell" : "scheduler-week-cell unavailable"} key={day}>
                             <small>{availability.active ? `${availability.from}-${availability.to}` : "Unavailable"}</small>
+                            <div className={schedulerSelectedJob && schedulerSelectedCostCentreId ? "scheduler-week-drag-planner ready" : "scheduler-week-drag-planner"}>
+                              <div className="scheduler-week-drag-scale" aria-hidden="true">
+                                <span>08</span>
+                                <span>12</span>
+                                <span>18</span>
+                              </div>
+                              <div
+                                className="scheduler-drag-track scheduler-week-drag-track"
+                                aria-label={`Book ${surveyor} on ${formatUkDate(day)}`}
+                                onPointerDown={(event) => beginSchedulerDrag(event, surveyor, day)}
+                                onPointerMove={moveSchedulerDrag}
+                                onPointerUp={finishSchedulerDrag}
+                                onPointerCancel={cancelSchedulerDrag}
+                              >
+                                {Array.from({ length: JOB_GANTT_SLOTS_PER_DAY }, (_, index) => (
+                                  <span className="scheduler-drag-slot" key={index} aria-hidden="true" />
+                                ))}
+                                {bookings.map((booking) => {
+                                  const range = schedulerBookingSlotRange(booking, day);
+                                  return (
+                                    <span
+                                      className="scheduler-drag-existing"
+                                      key={`week-timeline-${booking.id}`}
+                                      style={{
+                                        left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                        width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                      }}
+                                      title={`${booking.ref} · ${booking.time}`}
+                                    >
+                                      {booking.ref}
+                                    </span>
+                                  );
+                                })}
+                                {schedulerDragDraft?.employeeName === surveyor && schedulerDragDraft.date === day ? (
+                                  <span
+                                    className="scheduler-drag-selection"
+                                    style={{
+                                      left: `${(Math.min(schedulerDragDraft.startSlot, schedulerDragDraft.currentSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                      width: `${((Math.abs(schedulerDragDraft.currentSlot - schedulerDragDraft.startSlot) + 1) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                    }}
+                                  >
+                                    {schedulerTimeForSlot(Math.min(schedulerDragDraft.startSlot, schedulerDragDraft.currentSlot))}
+                                    -{schedulerTimeForSlot(Math.max(schedulerDragDraft.startSlot, schedulerDragDraft.currentSlot) + 1)}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
                             {bookings.map((booking) => (
                               <button key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>
                                 <time>{booking.date === day ? booking.time : "Continues"}</time>
@@ -26200,14 +26862,25 @@ export default function Dashboard() {
       ) : null}
 
       {showCreateQuote ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-quote-title">
+        <div className={homeView === "quote-create" ? "lead-create-workspace-shell" : "modal-backdrop"} role="presentation">
+          <section
+            className={homeView === "quote-create" ? "lead-create-page" : "modal"}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-quote-title"
+          >
             <div className="form-header">
               <div>
                 <span>Quotes</span>
                 <h2 id="create-quote-title">Create new quote</h2>
               </div>
-              <button aria-label="Close create quote" onClick={() => setShowCreateQuote(false)}>
+              <button
+                aria-label="Close create quote"
+                onClick={() => {
+                  setShowCreateQuote(false);
+                  if (homeView === "quote-create") setHomeView("quotes");
+                }}
+              >
                 <ChevronRight size={19} />
               </button>
             </div>
@@ -26321,7 +26994,13 @@ export default function Dashboard() {
               </label>
             </div>
             <div className="form-footer">
-              <button className="secondary-button" onClick={() => setShowCreateQuote(false)}>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setShowCreateQuote(false);
+                  if (homeView === "quote-create") setHomeView("quotes");
+                }}
+              >
                 Cancel
               </button>
               <button className="primary-button" onClick={submitQuote}>
@@ -26334,14 +27013,25 @@ export default function Dashboard() {
       ) : null}
 
       {showCreateJob ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="create-job-title">
+        <div className={homeView === "job-create" ? "lead-create-workspace-shell" : "modal-backdrop"} role="presentation">
+          <section
+            className={homeView === "job-create" ? "lead-create-page" : "modal"}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-job-title"
+          >
             <div className="form-header">
               <div>
                 <span>Jobs</span>
                 <h2 id="create-job-title">Create new job</h2>
               </div>
-              <button aria-label="Close create job" onClick={() => setShowCreateJob(false)}>
+              <button
+                aria-label="Close create job"
+                onClick={() => {
+                  setShowCreateJob(false);
+                  if (homeView === "job-create") setHomeView("jobs");
+                }}
+              >
                 <ChevronRight size={19} />
               </button>
             </div>
@@ -26477,7 +27167,13 @@ export default function Dashboard() {
               </p>
             ) : null}
             <div className="form-footer">
-              <button className="secondary-button" onClick={() => setShowCreateJob(false)}>
+              <button
+                className="secondary-button"
+                onClick={() => {
+                  setShowCreateJob(false);
+                  if (homeView === "job-create") setHomeView("jobs");
+                }}
+              >
                 Cancel
               </button>
               <button className="primary-button" disabled={Boolean(newJobScheduleWarning)} onClick={createJob}>

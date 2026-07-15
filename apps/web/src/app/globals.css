@@ -1543,6 +1543,30 @@ h1 {
   gap: 8px;
 }
 
+.workspace-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.record-save-status {
+  color: #647781;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.record-save-status.unsaved {
+  color: #9a6a12;
+}
+
+.record-save-status.saving {
+  color: var(--blue-deep);
+}
+
+.record-save-status.error {
+  color: var(--red);
+}
+
 .primary-button,
 .secondary-button,
 .filter-button,
@@ -3525,31 +3549,29 @@ h1 {
 }
 
 .variation-section-list article,
-.linked-variation-quote-list button {
+.linked-variation-quote-card {
   align-items: center;
   background: #fff;
-  border: 0;
   border-bottom: 1px solid var(--line-soft);
   color: var(--ink);
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr) auto;
   min-height: 58px;
   padding: 12px 16px;
-  text-align: left;
 }
 
 .variation-section-list article {
+  display: grid;
+  gap: 12px;
   grid-template-columns: minmax(180px, 0.3fr) minmax(0, 1fr);
 }
 
 .variation-section-list article:last-child,
-.linked-variation-quote-list button:last-child {
+.linked-variation-quote-card:last-child {
   border-bottom: 0;
 }
 
-.linked-variation-quote-list button:hover {
-  background: #f5f8fb;
+.linked-variation-quote-card {
+  display: grid;
+  gap: 12px;
 }
 
 .variation-section-list strong,
@@ -3564,12 +3586,90 @@ h1 {
   line-height: 1.4;
 }
 
+.linked-variation-quote-summary {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.linked-variation-quote-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.linked-variation-quote-summary > div span {
+  overflow-wrap: anywhere;
+}
+
+.linked-variation-quote-summary > b {
+  color: var(--blue-deep);
+  font-size: 13px;
+}
+
+.linked-variation-quote-actions {
+  align-items: end;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding-top: 10px;
+}
+
+.linked-variation-quote-actions > button {
+  min-height: 36px;
+}
+
+.linked-quote-acceptance-action {
+  align-items: end;
+  display: grid;
+  flex: 1 1 480px;
+  gap: 9px;
+  grid-template-columns: minmax(220px, 1fr) auto;
+}
+
+.linked-quote-acceptance-action label {
+  color: var(--muted);
+  display: grid;
+  font-size: 10px;
+  font-weight: 800;
+  gap: 5px;
+}
+
+.linked-quote-acceptance-action select {
+  min-width: 0;
+  width: 100%;
+}
+
+.linked-quote-imported-state {
+  align-items: center;
+  background: #e9f8ef;
+  border: 1px solid #b8e3c8;
+  border-radius: 5px;
+  color: #17683b;
+  display: flex;
+  font-size: 11px;
+  font-weight: 850;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 11px;
+}
+
 .simpro-section-card {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 7px;
   margin: 0 14px 28px;
   overflow: hidden;
+}
+
+.job-base-section-card {
+  overflow: visible;
+}
+
+.job-base-section-card > header {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
 }
 
 .simpro-section-card > header {
@@ -3583,6 +3683,26 @@ h1 {
   font-size: 16px;
 }
 
+.simpro-section-anchor {
+  align-self: stretch;
+  background: #dff3fb;
+  border-right: 1px solid #c5e4ef;
+  display: block;
+  width: 8px;
+}
+
+.job-section-title {
+  display: grid;
+  gap: 3px;
+  padding: 9px 12px;
+}
+
+.job-section-title small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
 .simpro-section-actions {
   align-items: center;
   display: flex;
@@ -3592,6 +3712,34 @@ h1 {
   padding: 10px 16px 10px 0;
 }
 
+.job-section-options-wrap {
+  position: relative;
+}
+
+.job-section-edit-row {
+  align-items: end;
+  background: #f7fbfc;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.6fr) minmax(240px, 1fr) auto auto;
+  padding: 14px 18px;
+}
+
+.job-section-edit-row label {
+  color: var(--subtle);
+  display: grid;
+  font-size: 10px;
+  font-weight: 850;
+  gap: 5px;
+}
+
+.job-section-edit-row input {
+  border: 1px solid var(--line);
+  min-height: 36px;
+  padding: 0 10px;
+}
+
 .simpro-drag-handle {
   align-self: stretch;
   background-image: radial-gradient(#b9c0c5 1px, transparent 1.5px);
@@ -3599,6 +3747,15 @@ h1 {
   border: 1px solid #d4d8dc;
   display: block;
   width: 18px;
+}
+
+.simpro-drag-handle[role="button"] {
+  cursor: grab;
+  touch-action: none;
+}
+
+.simpro-drag-handle[role="button"]:active {
+  cursor: grabbing;
 }
 
 .simpro-cost-centre-add {
@@ -3639,6 +3796,37 @@ h1 {
 
 .simpro-cost-centre-row:hover {
   background: #f6fbff;
+}
+
+.simpro-cost-centre-row.dragging {
+  opacity: 0.45;
+}
+
+.simpro-cost-centre-row.drop-target {
+  box-shadow: inset 0 3px 0 var(--blue);
+}
+
+.job-section-drop-zone {
+  align-items: center;
+  background: #fbfdfe;
+  color: var(--muted);
+  display: flex;
+  font-size: 10px;
+  font-weight: 800;
+  justify-content: center;
+  min-height: 8px;
+  padding: 0 12px;
+  text-align: center;
+}
+
+.job-section-drop-zone:not(:empty) {
+  min-height: 42px;
+}
+
+.job-section-drop-zone.active {
+  background: #e8f7fd;
+  box-shadow: inset 0 0 0 2px var(--blue);
+  color: var(--blue-deep);
 }
 
 .simpro-cost-centre-row strong {
@@ -3686,7 +3874,12 @@ h1 {
   position: absolute;
   right: 0;
   top: calc(100% + 6px);
-  z-index: 20;
+  z-index: 80;
+}
+
+.cost-centre-options-menu.open-up {
+  bottom: calc(100% + 6px);
+  top: auto;
 }
 
 .cost-centre-options-menu button {
@@ -9749,6 +9942,45 @@ h1 {
   font-weight: 800;
 }
 
+.scheduler-week-drag-planner {
+  background: #f5f8fa;
+  border: 1px solid #dbe6eb;
+  display: grid;
+  gap: 2px;
+  padding: 4px;
+}
+
+.scheduler-week-drag-planner.ready {
+  background: #f2fafd;
+  border-color: #9fd3e5;
+}
+
+.scheduler-week-drag-scale {
+  color: #71838d;
+  display: flex;
+  font-size: 6px;
+  font-weight: 850;
+  justify-content: space-between;
+}
+
+.scheduler-week-drag-track {
+  height: 52px;
+}
+
+.scheduler-week-drag-track .scheduler-drag-existing {
+  font-size: 6px;
+  height: 11px;
+  top: 3px;
+}
+
+.scheduler-week-drag-track .scheduler-drag-selection {
+  font-size: 6px;
+  height: 15px;
+  min-height: 15px;
+  padding: 1px 2px;
+  top: 24px;
+}
+
 .scheduler-week-cell > button {
   background: #eaf6fb;
   border: 0;
@@ -10952,6 +11184,7 @@ h1 {
 
   .simpro-section-create,
   .simpro-cost-centre-add,
+  .job-section-edit-row,
   .simpro-service-form,
   .supplier-quote-controls,
   .supplier-quote-preview-head,
@@ -11112,11 +11345,25 @@ h1 {
     display: none;
   }
 
+  .record-save-status {
+    display: none;
+  }
+
   .workspace-actions .primary-button {
     font-size: 0;
     justify-content: center;
     padding: 0;
     width: 36px;
+  }
+
+  .workspace-actions .record-save-button {
+    font-size: 11px;
+    padding: 0 12px;
+    width: auto;
+  }
+
+  .record-save-status {
+    display: inline-flex;
   }
 
   .metric {
@@ -11280,6 +11527,29 @@ h1 {
   .simpro-summary-table .table-row,
   .simpro-breakdown-table div {
     min-width: 640px;
+  }
+
+  .variation-workspace-actions {
+    grid-template-columns: 1fr;
+    margin: 0 10px 14px;
+  }
+
+  .variation-cost-centre-board {
+    margin: 0 10px 14px;
+  }
+
+  .linked-variation-quote-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .linked-variation-quote-summary .status-pill {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .linked-quote-acceptance-action {
+    flex-basis: 100%;
+    grid-template-columns: 1fr;
   }
 }
 
