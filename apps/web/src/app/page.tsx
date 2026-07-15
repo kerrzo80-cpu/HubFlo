@@ -1,6 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ComponentType, type FormEvent, type MouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ComponentType,
+  type FormEvent,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   AlertTriangle,
   Bell,
@@ -620,6 +630,14 @@ type JobScheduleDraft = {
   notes: string;
 };
 
+type SchedulerDragDraft = {
+  employeeId: string;
+  employeeName: string;
+  pointerId: number;
+  startSlot: number;
+  currentSlot: number;
+};
+
 type ScheduleView = "day" | "week" | "month";
 
 type QuoteSection = {
@@ -712,7 +730,9 @@ type InvoicePaymentStatus = "Unpaid" | "Part paid" | "Paid";
 type ValuationLine = {
   id: string;
   costCentreId?: string;
+  category?: "contractual" | "variation";
   description: string;
+  comments?: string;
   contractValue: number;
   previousApplications: number;
   requestedThisPeriod: number;
@@ -1923,15 +1943,31 @@ function ApplicationPaymentPreview({
   useAgreedValues = false,
   bankDetails,
 }: ApplicationPaymentPreviewProps) {
+  const isVariationLine = (row: ValuationLine) =>
+    row.category === "variation" || row.costCentreId?.toLowerCase().includes("variation") === true;
+  const contractualRows = rows.filter((row) => !isVariationLine(row));
+  const variationRows = rows.filter(isVariationLine);
   const activeValues = rows.map((row) => useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod);
   const contractTotal = rows.reduce((sum, row) => sum + row.contractValue, 0);
+  const contractualTotal = contractualRows.reduce((sum, row) => sum + row.contractValue, 0);
+  const additionsTotal = variationRows.reduce((sum, row) => sum + row.contractValue, 0);
   const previousTotal = rows.reduce((sum, row) => sum + row.previousApplications, 0);
   const currentTotal = activeValues.reduce((sum, value) => sum + Math.max(0, value), 0);
   const cumulativeTotal = previousTotal + currentTotal;
-  const retention = currentTotal * (Math.max(0, retentionPercent) / 100);
-  const netApplication = currentTotal - retention;
+  const retentionRate = Math.max(0, retentionPercent) / 100;
+  const retention = currentTotal * retentionRate;
+  const cumulativeRetention = cumulativeTotal * retentionRate;
+  const netClaimedToDate = cumulativeTotal - cumulativeRetention;
+  const previouslyClaimedNet = previousTotal * (1 - retentionRate);
+  const netApplication = netClaimedToDate - previouslyClaimedNet;
   const vat = netApplication * (Math.max(0, vatRate) / 100);
   const amountDue = netApplication + vat;
+  const cumulativeForRows = (sourceRows: ValuationLine[]) => sourceRows.reduce(
+    (sum, row) => sum + row.previousApplications + Math.max(0, useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod),
+    0,
+  );
+  const contractualClaimed = cumulativeForRows(contractualRows);
+  const additionsClaimed = cumulativeForRows(variationRows);
 
   return (
     <div className="pdf-proof-frame application-payment-proof-frame">
@@ -1972,50 +2008,125 @@ function ApplicationPaymentPreview({
           </div>
         </section>
 
-        <table className="application-payment-table">
-          <thead>
-            <tr>
-              <th>Item</th>
-              <th>Description / work package</th>
-              <th>Contract value</th>
-              <th>Previous applications</th>
-              <th>{useAgreedValues ? "Agreed this period" : "This application"}</th>
-              <th>Cumulative value</th>
-              <th>% complete</th>
-              <th>Balance remaining</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, index) => {
-              const current = Math.max(0, useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod);
-              const cumulative = row.previousApplications + current;
-              const completePercent = row.contractValue > 0 ? Math.min(100, (cumulative / row.contractValue) * 100) : 0;
-              return (
-                <tr key={row.id}>
-                  <td>{index + 1}</td>
-                  <td><strong>{row.description}</strong></td>
-                  <td>{documentCurrency(row.contractValue)}</td>
-                  <td>{documentCurrency(row.previousApplications)}</td>
-                  <td>{documentCurrency(current)}</td>
-                  <td>{documentCurrency(cumulative)}</td>
-                  <td>{completePercent.toFixed(1)}%</td>
-                  <td>{documentCurrency(Math.max(0, row.contractValue - cumulative))}</td>
+        <section className="application-valuation-summary">
+          <div className="application-valuation-project">
+            <h3>Summary</h3>
+            <dl>
+              <div><dt>Project name</dt><dd>{subject}</dd></div>
+              <div><dt>Valuation number</dt><dd>{reference}</dd></div>
+              <div><dt>Contractor</dt><dd>{recipient}</dd></div>
+            </dl>
+          </div>
+          <div className="application-valuation-account">
+            <h3>Projected final account</h3>
+            <dl>
+              <div><dt>Contractual works</dt><dd>{documentCurrency(contractualTotal)}</dd></div>
+              <div><dt>Additions</dt><dd>{documentCurrency(additionsTotal)}</dd></div>
+              <div className="total"><dt>Total</dt><dd>{documentCurrency(contractTotal)}</dd></div>
+            </dl>
+          </div>
+          <div className="application-valuation-claim">
+            <dl>
+              <div><dt>Contractual works claimed</dt><dd>{documentCurrency(contractualClaimed)}</dd></div>
+              <div><dt>Additions claimed</dt><dd>{documentCurrency(additionsClaimed)}</dd></div>
+              <div><dt>Gross claimed to date</dt><dd>{documentCurrency(cumulativeTotal)}</dd></div>
+              <div><dt>Retention ({retentionPercent.toFixed(1)}%)</dt><dd>-{documentCurrency(cumulativeRetention)}</dd></div>
+              <div><dt>Net claimed to date</dt><dd>{documentCurrency(netClaimedToDate)}</dd></div>
+              <div><dt>Previously claimed net</dt><dd>-{documentCurrency(previouslyClaimedNet)}</dd></div>
+              <div className="amount-due"><dt>Net due ex VAT</dt><dd>{documentCurrency(netApplication)}</dd></div>
+            </dl>
+          </div>
+          <div className="application-valuation-balance">
+            <dl>
+              <div><dt>Value of works completed to date</dt><dd>{documentCurrency(cumulativeTotal)}</dd></div>
+              <div><dt>Balance of works to claim</dt><dd>{documentCurrency(Math.max(0, contractTotal - cumulativeTotal))}</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section className="application-valuation-section">
+          <h3>Contractual works</h3>
+          <table className="application-valuation-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                <th>Subtotal</th>
+                <th>Percentage complete</th>
+                <th>Total claimed</th>
+                <th>Remaining balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {contractualRows.map((row) => {
+                const current = Math.max(0, useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod);
+                const cumulative = row.previousApplications + current;
+                const completePercent = row.contractValue > 0 ? Math.min(100, (cumulative / row.contractValue) * 100) : 0;
+                return (
+                  <tr key={row.id}>
+                    <td>{row.description}</td>
+                    <td>{documentCurrency(row.contractValue)}</td>
+                    <td>{completePercent.toFixed(1)}%</td>
+                    <td>{documentCurrency(cumulative)}</td>
+                    <td>{documentCurrency(Math.max(0, row.contractValue - cumulative))}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <th>Total</th>
+                <th>{documentCurrency(contractualTotal)}</th>
+                <th>{contractualTotal > 0 ? `${Math.min(100, (contractualClaimed / contractualTotal) * 100).toFixed(1)}%` : "0.0%"}</th>
+                <th>{documentCurrency(contractualClaimed)}</th>
+                <th>{documentCurrency(Math.max(0, contractualTotal - contractualClaimed))}</th>
+              </tr>
+            </tfoot>
+          </table>
+        </section>
+
+        {variationRows.length > 0 ? (
+          <section className="application-valuation-section additions">
+            <h3>Additions / variations</h3>
+            <table className="application-valuation-table application-variation-table">
+              <thead>
+                <tr>
+                  <th>Description</th>
+                  <th>Comments</th>
+                  <th>Cost</th>
+                  <th>Percentage complete</th>
+                  <th>Claimed</th>
+                  <th>Remaining</th>
                 </tr>
-              );
-            })}
-          </tbody>
-          <tfoot>
-            <tr>
-              <th colSpan={2}>Totals</th>
-              <th>{documentCurrency(contractTotal)}</th>
-              <th>{documentCurrency(previousTotal)}</th>
-              <th>{documentCurrency(currentTotal)}</th>
-              <th>{documentCurrency(cumulativeTotal)}</th>
-              <th>{contractTotal > 0 ? `${Math.min(100, (cumulativeTotal / contractTotal) * 100).toFixed(1)}%` : "0.0%"}</th>
-              <th>{documentCurrency(Math.max(0, contractTotal - cumulativeTotal))}</th>
-            </tr>
-          </tfoot>
-        </table>
+              </thead>
+              <tbody>
+                {variationRows.map((row) => {
+                  const current = Math.max(0, useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod);
+                  const cumulative = row.previousApplications + current;
+                  const completePercent = row.contractValue > 0 ? Math.min(100, (cumulative / row.contractValue) * 100) : 0;
+                  return (
+                    <tr key={row.id}>
+                      <td>{row.description}</td>
+                      <td>{row.comments || ""}</td>
+                      <td>{documentCurrency(row.contractValue)}</td>
+                      <td>{completePercent.toFixed(1)}%</td>
+                      <td>{documentCurrency(cumulative)}</td>
+                      <td>{documentCurrency(Math.max(0, row.contractValue - cumulative))}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <th colSpan={2}>Total</th>
+                  <th>{documentCurrency(additionsTotal)}</th>
+                  <th>{additionsTotal > 0 ? `${Math.min(100, (additionsClaimed / additionsTotal) * 100).toFixed(1)}%` : "0.0%"}</th>
+                  <th>{documentCurrency(additionsClaimed)}</th>
+                  <th>{documentCurrency(Math.max(0, additionsTotal - additionsClaimed))}</th>
+                </tr>
+              </tfoot>
+            </table>
+          </section>
+        ) : null}
 
         <section className="application-payment-closing">
           <div>
@@ -5156,6 +5267,45 @@ function jobGanttSlotForTime(time: string, isEnd = false) {
   return Math.min(JOB_GANTT_SLOTS_PER_DAY, Math.max(0, roundedSlot));
 }
 
+function schedulerTimeForSlot(slot: number) {
+  const minutes = JOB_GANTT_START_MINUTES + Math.min(JOB_GANTT_SLOTS_PER_DAY, Math.max(0, slot)) * JOB_GANTT_SLOT_MINUTES;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+}
+
+function schedulerSlotFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
+  const bounds = event.currentTarget.getBoundingClientRect();
+  if (bounds.width <= 0) return 0;
+  const position = Math.min(bounds.width - 1, Math.max(0, event.clientX - bounds.left));
+  return Math.min(JOB_GANTT_SLOTS_PER_DAY - 1, Math.max(0, Math.floor((position / bounds.width) * JOB_GANTT_SLOTS_PER_DAY)));
+}
+
+function schedulerBookingSlotRange(
+  booking: { date: string; time: string; endDate?: string; endTime?: string; plannedHours?: number },
+  day: string,
+) {
+  const startSlot = booking.date < day ? 0 : Math.min(JOB_GANTT_SLOTS_PER_DAY - 1, jobGanttSlotForTime(booking.time));
+  const endSlot = booking.endDate && booking.endDate > day
+    ? JOB_GANTT_SLOTS_PER_DAY
+    : booking.endTime
+      ? jobGanttSlotForTime(booking.endTime, true)
+      : Math.min(JOB_GANTT_SLOTS_PER_DAY, startSlot + Math.max(1, Math.ceil((booking.plannedHours ?? 1) * 2)));
+  return {
+    startSlot,
+    endSlot: Math.min(JOB_GANTT_SLOTS_PER_DAY, Math.max(startSlot + 1, endSlot)),
+  };
+}
+
+function escapeSvgText(value: string) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
 function timeRangesOverlap(firstStart: string, secondStart: string, durationMinutes = surveyDurationMinutes) {
   const first = timeToMinutes(firstStart);
   const second = timeToMinutes(secondStart);
@@ -5513,6 +5663,12 @@ export default function Dashboard() {
   const [jobSchedulePlans, setJobSchedulePlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [editingJobScheduleAssignmentId, setEditingJobScheduleAssignmentId] = useState<string | null>(null);
+  const [schedulerJobSearch, setSchedulerJobSearch] = useState("");
+  const [schedulerJobSearchOpen, setSchedulerJobSearchOpen] = useState(false);
+  const [schedulerSelectedJobId, setSchedulerSelectedJobId] = useState("");
+  const [schedulerSelectedCostCentreId, setSchedulerSelectedCostCentreId] = useState("");
+  const [schedulerDragDraft, setSchedulerDragDraft] = useState<SchedulerDragDraft | null>(null);
+  const schedulerDragDraftRef = useRef<SchedulerDragDraft | null>(null);
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
@@ -7836,6 +7992,39 @@ export default function Dashboard() {
     [leadSurveyBookings, scheduledJobs],
   );
 
+  const schedulerSelectedJob = useMemo(
+    () => jobs.find((job) => job.id === schedulerSelectedJobId) ?? null,
+    [jobs, schedulerSelectedJobId],
+  );
+
+  const schedulerSelectedJobCostCentres = useMemo(
+    () =>
+      schedulerSelectedJob
+        ? refreshedEstimateCostCentresFromRateBook(
+            jobEstimateCostCentres[schedulerSelectedJob.id] ?? makeDefaultEstimateCostCentres(schedulerSelectedJob),
+            availableQuoteCatalogById,
+            normalizedFinanceSettings,
+          )
+        : [],
+    [availableQuoteCatalogById, jobEstimateCostCentres, normalizedFinanceSettings, schedulerSelectedJob],
+  );
+
+  const schedulerJobMatches = useMemo(() => {
+    const needle = schedulerJobSearch.trim().toLowerCase();
+    if (!needle) return [];
+    return jobs
+      .filter((job) => !["Complete", "Archived"].includes(job.status))
+      .filter((job) =>
+        [job.ref, job.customer, job.site, job.description]
+          .some((value) => value.toLowerCase().includes(needle)),
+      )
+      .slice(0, 7);
+  }, [jobs, schedulerJobSearch]);
+
+  const schedulerSelectedJobLabel = schedulerSelectedJob
+    ? `${schedulerSelectedJob.ref} · ${schedulerSelectedJob.customer}`
+    : "";
+
   const bookingsForSelectedDate = useMemo(
     () => allScheduleBookings.filter((booking) => bookingFallsOnDate(booking, scheduleDate)),
     [allScheduleBookings, scheduleDate],
@@ -7883,6 +8072,180 @@ export default function Dashboard() {
       return;
     }
     openLeadRecord(booking.id);
+  }
+
+  function selectSchedulerJob(job: Job) {
+    const costCentres = refreshedEstimateCostCentresFromRateBook(
+      jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job),
+      availableQuoteCatalogById,
+      normalizedFinanceSettings,
+    );
+    setSchedulerSelectedJobId(job.id);
+    setSchedulerSelectedCostCentreId(costCentres[0]?.id ?? "");
+    setSchedulerJobSearch(`${job.ref} · ${job.customer}`);
+    setSchedulerJobSearchOpen(false);
+    if (scheduleView !== "day") setScheduleView("day");
+  }
+
+  function updateSchedulerJobSearch(value: string) {
+    setSchedulerJobSearch(value);
+    setSchedulerJobSearchOpen(true);
+    if (value !== schedulerSelectedJobLabel) {
+      setSchedulerSelectedJobId("");
+      setSchedulerSelectedCostCentreId("");
+    }
+  }
+
+  function beginSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>, employeeName: string) {
+    if (!schedulerSelectedJob || !schedulerSelectedCostCentreId) {
+      showNotice("Search for a job and choose its cost centre before dragging a time.");
+      setSchedulerJobSearchOpen(true);
+      return;
+    }
+    const availability = availabilityForDate(employeeName, scheduleDate);
+    if (!availability.active) {
+      showNotice(`${employeeName} is unavailable on ${formatUkDate(scheduleDate)}.`);
+      return;
+    }
+    const employee = employees.find((item) => item.name === employeeName);
+    if (!employee) {
+      showNotice(`${employeeName} needs an employee profile before they can be scheduled.`);
+      return;
+    }
+    const slot = schedulerSlotFromPointer(event);
+    const draft: SchedulerDragDraft = {
+      employeeId: employee.id,
+      employeeName,
+      pointerId: event.pointerId,
+      startSlot: slot,
+      currentSlot: slot,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    schedulerDragDraftRef.current = draft;
+    setSchedulerDragDraft(draft);
+  }
+
+  function moveSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const current = schedulerDragDraftRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const next = { ...current, currentSlot: schedulerSlotFromPointer(event) };
+    schedulerDragDraftRef.current = next;
+    setSchedulerDragDraft(next);
+  }
+
+  function finishSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const current = schedulerDragDraftRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    const draft = { ...current, currentSlot: schedulerSlotFromPointer(event) };
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    schedulerDragDraftRef.current = null;
+    setSchedulerDragDraft(null);
+    void createSchedulerAssignment(draft);
+  }
+
+  function cancelSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const current = schedulerDragDraftRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    schedulerDragDraftRef.current = null;
+    setSchedulerDragDraft(null);
+  }
+
+  async function createSchedulerAssignment(draft: SchedulerDragDraft) {
+    if (!schedulerSelectedJob) return;
+    const costCentre = schedulerSelectedJobCostCentres.find(
+      (centre) => centre.id === schedulerSelectedCostCentreId,
+    );
+    if (!costCentre) {
+      showNotice("Choose the cost centre to schedule.");
+      return;
+    }
+
+    const firstSlot = Math.min(draft.startSlot, draft.currentSlot);
+    const finalSlot = Math.max(draft.startSlot, draft.currentSlot) + 1;
+    const startTime = schedulerTimeForSlot(firstSlot);
+    const endTime = schedulerTimeForSlot(finalSlot);
+    const plannedHours = (finalSlot - firstSlot) / 2;
+    const startAt = new Date(`${scheduleDate}T${startTime}:00`).getTime();
+    const endAt = new Date(`${scheduleDate}T${endTime}:00`).getTime();
+
+    const assignmentClash = Object.values(jobSchedulePlans)
+      .flat()
+      .find((assignment) => {
+        if (assignment.employeeId !== draft.employeeId) return false;
+        const assignmentStart = new Date(`${assignment.startDate}T${assignment.startTime}:00`).getTime();
+        const assignmentEnd = new Date(`${assignment.endDate}T${assignment.endTime}:00`).getTime();
+        return startAt < assignmentEnd && endAt > assignmentStart;
+      });
+    if (assignmentClash) {
+      const clashJob = jobs.find((job) => job.id === assignmentClash.jobId);
+      showNotice(`${draft.employeeName} already has ${clashJob?.ref ?? "another job"} during that time.`);
+      return;
+    }
+
+    const leadClash = leadSurveyBookings.find((booking) => {
+      if (booking.surveyor !== draft.employeeName || booking.date !== scheduleDate) return false;
+      const surveyStart = timeToMinutes(booking.time);
+      const surveyEnd = surveyStart + surveyDurationMinutes;
+      return timeToMinutes(startTime) < surveyEnd && timeToMinutes(endTime) > surveyStart;
+    });
+    if (leadClash) {
+      showNotice(`${draft.employeeName} already has survey ${leadClash.ref} during that time.`);
+      return;
+    }
+
+    const assignment: JobScheduleAssignment = {
+      id: `${schedulerSelectedJob.id}-plan-${Date.now()}`,
+      jobId: schedulerSelectedJob.id,
+      costCentreId: costCentre.id,
+      costCentreName: costCentre.name,
+      employeeId: draft.employeeId,
+      employeeName: draft.employeeName,
+      startDate: scheduleDate,
+      startTime,
+      endDate: scheduleDate,
+      endTime,
+      plannedHours,
+      notes: "Scheduled from the team diary.",
+    };
+    const nextAssignments = [
+      ...(jobSchedulePlans[schedulerSelectedJob.id] ?? []),
+      assignment,
+    ].sort((first, second) => `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`));
+    const firstAssignment = nextAssignments[0] ?? assignment;
+
+    try {
+      const updated = await patchJobRecord(
+        schedulerSelectedJob.id,
+        {
+          manager: firstAssignment.employeeName,
+          scheduledDate: firstAssignment.startDate,
+          scheduledTime: firstAssignment.startTime,
+          scheduledDurationHours: firstAssignment.plannedHours,
+          status: "In progress",
+          health: "blue",
+          next: `${nextAssignments.length} planned work package${nextAssignments.length === 1 ? "" : "s"}. Track delivery, POs and variations.`,
+        },
+        `${draft.employeeName} booked to ${costCentre.name}, ${startTime}-${endTime}.`,
+      );
+      if (!updated) return;
+      markCostCentreEdited();
+      setJobSchedulePlans((current) => ({ ...current, [schedulerSelectedJob.id]: nextAssignments }));
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "planner allocation added",
+        recordType: "job",
+        recordId: updated.id,
+        summary: `${draft.employeeName} assigned to ${costCentre.name} on ${formatUkDate(scheduleDate)} from ${startTime} to ${endTime}.`,
+        source: "team scheduler",
+        importance: "high",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to schedule this work package.";
+      setSectionError(message);
+      showNotice(message);
+    }
   }
 
   type StaffScheduleClash = {
@@ -9460,7 +9823,9 @@ export default function Dashboard() {
       return {
         id: `valuation-${centre.id}-${Date.now()}`,
         costCentreId: centre.id,
+        category: centre.variation ? "variation" : "contractual",
         description: centre.name,
+        comments: centre.variation ? centre.clientDescription : undefined,
         contractValue: totals.totalSell,
         previousApplications: previousByCentre.get(centre.id) ?? 0,
         requestedThisPeriod: 0,
@@ -10720,14 +11085,13 @@ export default function Dashboard() {
     }
   }
 
-  async function patchSelectedJob(patch: Partial<Job>, successMessage: string) {
-    if (!selectedJob) return null;
+  async function patchJobRecord(jobId: string, patch: Partial<Job>, successMessage: string) {
     type JobScheduleConflict = {
       conflict: true;
       message: string;
     };
 
-    const response = await fetch(`/api/jobs/${selectedJob.id}`, {
+    const response = await fetch(`/api/jobs/${jobId}`, {
       method: "PATCH",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       body: JSON.stringify(patch),
@@ -10749,6 +11113,11 @@ export default function Dashboard() {
     setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
     showNotice(successMessage);
     return updated;
+  }
+
+  async function patchSelectedJob(patch: Partial<Job>, successMessage: string) {
+    if (!selectedJob) return null;
+    return patchJobRecord(selectedJob.id, patch, successMessage);
   }
 
   async function scheduleSelectedJob() {
@@ -10937,6 +11306,82 @@ export default function Dashboard() {
       setSectionError(message);
       showNotice(message);
     }
+  }
+
+  function downloadSelectedJobGantt() {
+    if (!selectedJob || selectedJobScheduleAssignments.length === 0 || selectedJobGanttDays.length === 0) {
+      showNotice("Add at least one work package before downloading the Gantt chart.");
+      return;
+    }
+
+    const width = 1280;
+    const labelWidth = 260;
+    const hoursWidth = 68;
+    const timelineX = labelWidth;
+    const timelineWidth = width - labelWidth - hoursWidth;
+    const titleHeight = 72;
+    const dayHeaderHeight = 42;
+    const rowHeight = 48;
+    const height = titleHeight + dayHeaderHeight + selectedJobScheduleAssignments.length * rowHeight + 34;
+    const totalSlots = selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY;
+    const dayWidth = timelineWidth / selectedJobGanttDays.length;
+    const colours = ["#2f9fc4", "#2377a4", "#2c8f7b", "#9b7b32"];
+
+    const dateHeaders = selectedJobGanttDays.map((day, index) => {
+      const x = timelineX + index * dayWidth;
+      const label = formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" });
+      return [
+        `<line x1="${x}" y1="${titleHeight}" x2="${x}" y2="${height - 34}" stroke="#d8e4e9"/>`,
+        `<text x="${x + dayWidth / 2}" y="${titleHeight + 26}" text-anchor="middle" font-size="12" font-weight="700" fill="#526b78">${escapeSvgText(label)}</text>`,
+      ].join("");
+    }).join("");
+
+    const rows = selectedJobScheduleAssignments.map((assignment, index) => {
+      const y = titleHeight + dayHeaderHeight + index * rowHeight;
+      const startDayIndex = selectedJobGanttDays.indexOf(assignment.startDate);
+      const endDayIndex = selectedJobGanttDays.indexOf(assignment.endDate);
+      const startSlot = startDayIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.startTime);
+      const endSlot = endDayIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.endTime, true);
+      const finalSlot = Math.max(startSlot + 1, endSlot);
+      const barX = timelineX + (startSlot / totalSlots) * timelineWidth;
+      const barWidth = Math.max(8, ((finalSlot - startSlot) / totalSlots) * timelineWidth);
+      const timeLabel = `${assignment.startTime}-${assignment.endTime}`;
+      return [
+        `<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="#e3ecef"/>`,
+        `<text x="18" y="${y + 20}" font-size="13" font-weight="700" fill="#17364a">${escapeSvgText(assignment.costCentreName)}</text>`,
+        `<text x="18" y="${y + 36}" font-size="11" fill="#667b87">${escapeSvgText(assignment.employeeName)}</text>`,
+        `<rect x="${barX}" y="${y + 10}" width="${barWidth}" height="28" rx="4" fill="${colours[index % colours.length]}"/>`,
+        barWidth > 74
+          ? `<text x="${barX + barWidth / 2}" y="${y + 29}" text-anchor="middle" font-size="10" font-weight="700" fill="#ffffff">${escapeSvgText(timeLabel)}</text>`
+          : "",
+        `<text x="${width - hoursWidth / 2}" y="${y + 29}" text-anchor="middle" font-size="12" font-weight="700" fill="#17364a">${assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h</text>`,
+      ].join("");
+    }).join("");
+
+    const svg = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+      `<rect width="${width}" height="${height}" fill="#ffffff"/>`,
+      `<text x="18" y="28" font-size="20" font-weight="800" fill="#17364a">${escapeSvgText(`${selectedJob.ref} - ${selectedJob.customer}`)}</text>`,
+      `<text x="18" y="50" font-size="12" fill="#667b87">${escapeSvgText(`${selectedJob.site} | Cost centre programme`)}</text>`,
+      `<rect x="0" y="${titleHeight}" width="${width}" height="${dayHeaderHeight}" fill="#f3f8fa"/>`,
+      `<text x="18" y="${titleHeight + 26}" font-size="11" font-weight="800" fill="#526b78">WORK PACKAGE</text>`,
+      dateHeaders,
+      `<line x1="${timelineX + timelineWidth}" y1="${titleHeight}" x2="${timelineX + timelineWidth}" y2="${height - 34}" stroke="#d8e4e9"/>`,
+      `<text x="${width - hoursWidth / 2}" y="${titleHeight + 26}" text-anchor="middle" font-size="11" font-weight="800" fill="#526b78">HOURS</text>`,
+      rows,
+      `<line x1="0" y1="${height - 34}" x2="${width}" y2="${height - 34}" stroke="#d8e4e9"/>`,
+      `<text x="18" y="${height - 12}" font-size="10" fill="#7a8c95">Downloaded from NeXa Core</text>`,
+      `</svg>`,
+    ].join("");
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${selectedJob.ref.toLowerCase()}-programme-gantt.svg`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 500);
+    showNotice("Gantt chart downloaded.");
   }
 
   async function startSelectedJob() {
@@ -20272,23 +20717,26 @@ export default function Dashboard() {
                               <span className="permission-heading">Programme</span>
                               <h3>Cost centre Gantt</h3>
                             </div>
-                            <small>{selectedJobGanttDays.length} day{selectedJobGanttDays.length === 1 ? "" : "s"} shown</small>
+                            <div className="job-gantt-title-actions">
+                              <small>{selectedJobGanttDays.length} day{selectedJobGanttDays.length === 1 ? "" : "s"} shown</small>
+                              <button className="simpro-options-button" type="button" onClick={downloadSelectedJobGantt}>
+                                <FileText size={14} />
+                                Download Gantt
+                              </button>
+                            </div>
                           </div>
                           <div className="job-gantt-scroll">
-                            <div
-                              className="job-gantt-grid job-gantt-grid-head"
-                              style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY}, minmax(4px, 1fr)) 58px` }}
-                            >
-                              <span style={{ gridColumn: 1 }}>Work package</span>
-                              {selectedJobGanttDays.map((day, dayIndex) => (
-                                <time
-                                  key={day}
-                                  style={{ gridColumn: `${dayIndex * JOB_GANTT_SLOTS_PER_DAY + 2} / ${dayIndex * JOB_GANTT_SLOTS_PER_DAY + JOB_GANTT_SLOTS_PER_DAY + 2}` }}
-                                >
-                                  {plannerDateLabel(day)}
-                                </time>
-                              ))}
-                              <span style={{ gridColumn: selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY + 2 }}>Hours</span>
+                            <div className="job-gantt-grid job-gantt-grid-head">
+                              <span>Work package</span>
+                              <div
+                                className="job-gantt-axis"
+                                style={{ gridTemplateColumns: `repeat(${selectedJobGanttDays.length}, minmax(0, 1fr))` }}
+                              >
+                                {selectedJobGanttDays.map((day) => (
+                                  <time key={day}>{formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}</time>
+                                ))}
+                              </div>
+                              <span>Hours</span>
                             </div>
                             {selectedJobScheduleAssignments.map((assignment, assignmentIndex) => {
                               const startIndex = selectedJobGanttDays.indexOf(assignment.startDate);
@@ -20296,34 +20744,28 @@ export default function Dashboard() {
                               const startSlot = startIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.startTime);
                               const endSlot = endIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.endTime, true);
                               const finalSlot = Math.max(startSlot + 1, endSlot);
+                              const totalSlots = selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY;
+                              const barLeft = (startSlot / totalSlots) * 100;
+                              const barWidth = ((finalSlot - startSlot) / totalSlots) * 100;
                               return (
-                                <article
-                                  className="job-gantt-grid job-gantt-grid-row"
-                                  key={assignment.id}
-                                  style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY}, minmax(4px, 1fr)) 58px` }}
-                                >
+                                <article className="job-gantt-grid job-gantt-grid-row" key={assignment.id}>
                                   <div className="job-gantt-work-package">
                                     <strong>{assignment.costCentreName}</strong>
                                     <span>{assignment.employeeName}</span>
                                   </div>
-                                  {selectedJobGanttDays.map((day, dayIndex) => (
-                                    <span
-                                      className="job-gantt-day-cell"
-                                      key={day}
-                                      style={{ gridColumn: `${dayIndex * JOB_GANTT_SLOTS_PER_DAY + 2} / ${dayIndex * JOB_GANTT_SLOTS_PER_DAY + JOB_GANTT_SLOTS_PER_DAY + 2}` }}
-                                      aria-hidden="true"
-                                    />
-                                  ))}
-                                  {startIndex >= 0 && endIndex >= startIndex ? (
-                                    <div
-                                      className={`job-gantt-bar tone-${assignmentIndex % 4}`}
-                                      style={{ gridColumn: `${startSlot + 2} / ${finalSlot + 2}` }}
-                                      title={`${assignment.costCentreName}: ${assignment.startDate} ${assignment.startTime} to ${assignment.endDate} ${assignment.endTime}`}
-                                    >
-                                      <span>{assignment.startTime} - {assignment.endTime}</span>
-                                    </div>
-                                  ) : null}
-                                  <b className="job-gantt-hours" style={{ gridColumn: selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY + 2 }}>
+                                  <div className="job-gantt-track">
+                                    {selectedJobGanttDays.map((day) => <span className="job-gantt-day-cell" key={day} aria-hidden="true" />)}
+                                    {startIndex >= 0 && endIndex >= startIndex ? (
+                                      <div
+                                        className={`job-gantt-bar tone-${assignmentIndex % 4}`}
+                                        style={{ left: `${barLeft}%`, width: `${barWidth}%` }}
+                                        title={`${assignment.costCentreName}: ${formatUkDate(assignment.startDate)} ${assignment.startTime} to ${formatUkDate(assignment.endDate)} ${assignment.endTime}`}
+                                      >
+                                        <span>{assignment.startTime} - {assignment.endTime}</span>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  <b className="job-gantt-hours">
                                     {assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h
                                   </b>
                                 </article>
@@ -23017,6 +23459,75 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              <section className="scheduler-create-panel" aria-label="Schedule a job">
+                <div className="scheduler-job-picker">
+                  <span>Search job</span>
+                  <div className="scheduler-job-search-control">
+                    <Search size={15} />
+                    <input
+                      value={schedulerJobSearch}
+                      onChange={(event) => updateSchedulerJobSearch(event.target.value)}
+                      onFocus={() => setSchedulerJobSearchOpen(true)}
+                      placeholder="Job number, client, address or description"
+                      aria-label="Search live jobs"
+                    />
+                    {schedulerSelectedJob ? (
+                      <button
+                        type="button"
+                        title="Clear selected job"
+                        aria-label="Clear selected job"
+                        onClick={() => {
+                          setSchedulerJobSearch("");
+                          setSchedulerSelectedJobId("");
+                          setSchedulerSelectedCostCentreId("");
+                          setSchedulerJobSearchOpen(false);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
+                    ) : null}
+                  </div>
+                  {schedulerJobSearchOpen && schedulerJobSearch.trim() && !schedulerSelectedJob ? (
+                    <div className="scheduler-job-results" role="listbox" aria-label="Matching jobs">
+                      {schedulerJobMatches.map((job) => (
+                        <button key={job.id} type="button" role="option" onClick={() => selectSchedulerJob(job)}>
+                          <strong>{job.ref} · {job.customer}</strong>
+                          <span>{job.site}</span>
+                          <small>{job.description}</small>
+                        </button>
+                      ))}
+                      {schedulerJobMatches.length === 0 ? <p>No live jobs match that search.</p> : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <label className="scheduler-cost-centre-picker">
+                  Cost centre
+                  <select
+                    disabled={!schedulerSelectedJob}
+                    value={schedulerSelectedCostCentreId}
+                    onChange={(event) => setSchedulerSelectedCostCentreId(event.target.value)}
+                  >
+                    <option value="">Select cost centre</option>
+                    {schedulerSelectedJobCostCentres.map((centre) => (
+                      <option key={centre.id} value={centre.id}>{centre.name}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className={schedulerSelectedJob && schedulerSelectedCostCentreId ? "scheduler-drag-instruction ready" : "scheduler-drag-instruction"}>
+                  <Clock3 size={17} />
+                  <div>
+                    <strong>{schedulerSelectedJob ? schedulerSelectedJob.ref : "Choose the work first"}</strong>
+                    <span>
+                      {schedulerSelectedJob && schedulerSelectedCostCentreId
+                        ? "Day view is ready. Drag across an engineer's 08:00-18:00 strip to book the exact time."
+                        : "Search for a job, then choose the cost centre you are allocating."}
+                    </span>
+                  </div>
+                </div>
+              </section>
+
               {scheduleView === "day" ? (
                 <div className="scheduler-grid">
                   {surveyorOptions.map((surveyor) => {
@@ -23045,6 +23556,57 @@ export default function Dashboard() {
                           ) : (
                             <div className="scheduler-closed-window">Unavailable</div>
                           )}
+
+                          <div className={schedulerSelectedJob && schedulerSelectedCostCentreId ? "scheduler-drag-planner ready" : "scheduler-drag-planner"}>
+                            <div className="scheduler-drag-scale" aria-hidden="true">
+                              <span>08:00</span>
+                              <span>10:00</span>
+                              <span>12:00</span>
+                              <span>14:00</span>
+                              <span>16:00</span>
+                              <span>18:00</span>
+                            </div>
+                            <div
+                              className="scheduler-drag-track"
+                              onPointerDown={(event) => beginSchedulerDrag(event, surveyor)}
+                              onPointerMove={moveSchedulerDrag}
+                              onPointerUp={finishSchedulerDrag}
+                              onPointerCancel={cancelSchedulerDrag}
+                            >
+                              {Array.from({ length: JOB_GANTT_SLOTS_PER_DAY }, (_, index) => (
+                                <span className="scheduler-drag-slot" key={index} aria-hidden="true" />
+                              ))}
+                              {bookings.map((booking) => {
+                                const range = schedulerBookingSlotRange(booking, scheduleDate);
+                                return (
+                                  <span
+                                    className="scheduler-drag-existing"
+                                    key={`timeline-${booking.id}`}
+                                    style={{
+                                      left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                      width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                    }}
+                                    title={`${booking.ref} · ${booking.time}`}
+                                  >
+                                    {booking.ref}
+                                  </span>
+                                );
+                              })}
+                              {schedulerDragDraft?.employeeName === surveyor ? (
+                                <span
+                                  className="scheduler-drag-selection"
+                                  style={{
+                                    left: `${(Math.min(schedulerDragDraft.startSlot, schedulerDragDraft.currentSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                    width: `${((Math.abs(schedulerDragDraft.currentSlot - schedulerDragDraft.startSlot) + 1) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
+                                  }}
+                                >
+                                  {schedulerTimeForSlot(Math.min(schedulerDragDraft.startSlot, schedulerDragDraft.currentSlot))}
+                                  -{schedulerTimeForSlot(Math.max(schedulerDragDraft.startSlot, schedulerDragDraft.currentSlot) + 1)}
+                                </span>
+                              ) : null}
+                            </div>
+                            <small>{schedulerSelectedJob ? "Drag to book this engineer" : "Select a job above to enable drag booking"}</small>
+                          </div>
 
                           {bookings.map((booking) => (
                             <button className="scheduler-booking" key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>

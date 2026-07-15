@@ -2439,7 +2439,7 @@ h1 {
   padding: 12px 14px;
 }
 
-.job-gantt-title > div {
+.job-gantt-title > div:first-child {
   display: grid;
   gap: 2px;
 }
@@ -2455,14 +2455,27 @@ h1 {
   font-size: 11px;
 }
 
+.job-gantt-title-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.job-gantt-title-actions .simpro-options-button {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+}
+
 .job-gantt-scroll {
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .job-gantt-grid {
   align-items: stretch;
   display: grid;
-  min-width: max-content;
+  grid-template-columns: minmax(150px, 0.95fr) minmax(0, 4fr) 54px;
+  min-width: 0;
 }
 
 .job-gantt-grid-head {
@@ -2474,7 +2487,7 @@ h1 {
 }
 
 .job-gantt-grid-head > span,
-.job-gantt-grid-head > time {
+.job-gantt-axis > time {
   align-items: center;
   border-right: 1px solid var(--line-soft);
   display: flex;
@@ -2489,23 +2502,30 @@ h1 {
   padding-left: 14px;
 }
 
-.job-gantt-grid-row {
-  border-top: 1px solid var(--line-soft);
-  min-height: 58px;
-  position: relative;
+.job-gantt-axis {
+  display: grid;
+  min-width: 0;
 }
 
-.job-gantt-grid-row > * {
-  grid-row: 1;
+.job-gantt-axis > time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-gantt-grid-row {
+  border-top: 1px solid var(--line-soft);
+  min-height: 46px;
+  position: relative;
 }
 
 .job-gantt-work-package {
   align-content: center;
   display: grid;
   gap: 3px;
-  grid-column: 1;
   min-width: 0;
-  padding: 8px 14px;
+  padding: 6px 12px;
 }
 
 .job-gantt-work-package strong,
@@ -2529,18 +2549,27 @@ h1 {
   border-left: 1px solid var(--line-soft);
 }
 
+.job-gantt-track {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  min-width: 0;
+  position: relative;
+}
+
 .job-gantt-bar {
-  align-self: center;
+  align-items: center;
   background: #2f9fc4;
   border-radius: 4px;
   color: #fff;
   display: flex;
   justify-content: center;
-  margin: 0 4px;
-  min-height: 28px;
+  min-height: 26px;
   overflow: hidden;
-  padding: 7px 8px;
-  position: relative;
+  padding: 5px 6px;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
   white-space: nowrap;
   z-index: 1;
 }
@@ -2564,6 +2593,7 @@ h1 {
 
 .job-gantt-hours {
   align-items: center;
+  border-left: 1px solid var(--line-soft);
   color: var(--ink);
   display: flex;
   font-size: 11px;
@@ -6474,6 +6504,131 @@ h1 {
   font-size: 11px;
 }
 
+.application-valuation-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.application-valuation-summary > div {
+  border: 1px solid #c8d5dc;
+  min-width: 0;
+}
+
+.application-valuation-summary h3 {
+  background: #e6f2f7;
+  border-bottom: 1px solid #c8d5dc;
+  color: #214a60;
+  font-size: 10px;
+  margin: 0;
+  padding: 7px 9px;
+  text-transform: uppercase;
+}
+
+.application-valuation-summary dl {
+  margin: 0;
+}
+
+.application-valuation-summary dl > div {
+  align-items: start;
+  display: grid;
+  font-size: 8px;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 5px 8px;
+}
+
+.application-valuation-summary dl > div + div {
+  border-top: 1px solid #d8e2e7;
+}
+
+.application-valuation-summary dt,
+.application-valuation-summary dd {
+  margin: 0;
+}
+
+.application-valuation-summary dt {
+  color: #516b79;
+}
+
+.application-valuation-summary dd {
+  color: #17384c;
+  font-weight: 800;
+  text-align: right;
+}
+
+.application-valuation-project dl > div {
+  grid-template-columns: 120px minmax(0, 1fr);
+}
+
+.application-valuation-project dd {
+  text-align: left;
+}
+
+.application-valuation-summary .total,
+.application-valuation-summary .amount-due {
+  background: #fff2a8;
+  color: #17384c;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.application-valuation-section {
+  margin-top: 13px;
+}
+
+.application-valuation-section > h3 {
+  color: #17384c;
+  font-size: 11px;
+  margin: 0 0 6px;
+  text-transform: uppercase;
+}
+
+.application-valuation-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.application-valuation-table th,
+.application-valuation-table td {
+  border: 1px solid #c5d2d9;
+  font-size: 7px;
+  padding: 5px 6px;
+  text-align: right;
+  vertical-align: top;
+}
+
+.application-valuation-table th {
+  background: #e6f2f7;
+  color: #214a60;
+  font-size: 6.5px;
+  text-transform: uppercase;
+}
+
+.application-valuation-table th:first-child,
+.application-valuation-table td:first-child {
+  text-align: left;
+  width: 42%;
+}
+
+.application-valuation-table tfoot th {
+  background: #d9ebf3;
+  font-weight: 850;
+}
+
+.application-variation-table th:first-child,
+.application-variation-table td:first-child {
+  width: 34%;
+}
+
+.application-variation-table th:nth-child(2),
+.application-variation-table td:nth-child(2) {
+  text-align: left;
+  width: 22%;
+}
+
 .application-payment-table {
   border-collapse: collapse;
   margin-top: 15px;
@@ -9111,6 +9266,172 @@ h1 {
   outline: 0;
 }
 
+.scheduler-create-panel {
+  align-items: end;
+  background: #f7fbfd;
+  border-bottom: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(280px, 1.35fr) minmax(190px, 0.75fr) minmax(260px, 1fr);
+  padding: 12px 18px;
+}
+
+.scheduler-job-picker,
+.scheduler-cost-centre-picker {
+  color: var(--muted);
+  display: grid;
+  font-size: 10px;
+  font-weight: 850;
+  gap: 6px;
+  min-width: 0;
+  position: relative;
+}
+
+.scheduler-job-search-control {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  display: flex;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
+.scheduler-job-search-control:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(48, 163, 205, 0.12);
+}
+
+.scheduler-job-search-control svg {
+  color: var(--blue-deep);
+  flex: 0 0 auto;
+}
+
+.scheduler-job-search-control input {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  min-width: 0;
+  outline: 0;
+}
+
+.scheduler-job-search-control > button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  display: flex;
+  height: 28px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.scheduler-job-search-control > button:hover {
+  background: #e5f4fa;
+  color: var(--blue-deep);
+}
+
+.scheduler-job-results {
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 28px rgba(18, 54, 73, 0.16);
+  display: grid;
+  left: 0;
+  max-height: 310px;
+  overflow-y: auto;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 5px);
+  z-index: 30;
+}
+
+.scheduler-job-results > button {
+  background: #fff;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--ink);
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.scheduler-job-results > button:hover {
+  background: #e7f5fa;
+  color: var(--ink);
+}
+
+.scheduler-job-results strong {
+  font-size: 11px;
+}
+
+.scheduler-job-results span,
+.scheduler-job-results small,
+.scheduler-job-results p {
+  color: var(--muted);
+  font-size: 9px;
+  margin: 0;
+}
+
+.scheduler-job-results p {
+  padding: 14px;
+}
+
+.scheduler-cost-centre-picker select {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  min-height: 40px;
+  min-width: 0;
+  padding: 0 10px;
+  width: 100%;
+}
+
+.scheduler-cost-centre-picker select:disabled {
+  background: #f1f4f5;
+  color: #89979e;
+}
+
+.scheduler-drag-instruction {
+  align-items: center;
+  background: #fff;
+  border: 1px dashed #cbd9df;
+  color: var(--muted);
+  display: flex;
+  gap: 10px;
+  min-height: 40px;
+  padding: 7px 10px;
+}
+
+.scheduler-drag-instruction.ready {
+  background: #eaf7f1;
+  border-color: #9acdb8;
+  color: #21634f;
+}
+
+.scheduler-drag-instruction > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.scheduler-drag-instruction strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.scheduler-drag-instruction span {
+  font-size: 9px;
+  line-height: 1.35;
+}
+
 .scheduler-date-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -9195,6 +9516,102 @@ h1 {
   gap: 10px;
   min-height: 380px;
   padding: 12px;
+}
+
+.scheduler-drag-planner {
+  background: #f4f7f8;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 4px;
+  padding: 7px 8px 6px;
+}
+
+.scheduler-drag-planner.ready {
+  background: #f5fbfd;
+  border-color: #9fd3e5;
+}
+
+.scheduler-drag-scale {
+  color: #71838d;
+  display: flex;
+  font-size: 7px;
+  font-weight: 800;
+  justify-content: space-between;
+}
+
+.scheduler-drag-track {
+  background: #fff;
+  cursor: crosshair;
+  display: grid;
+  grid-template-columns: repeat(20, minmax(0, 1fr));
+  height: 52px;
+  position: relative;
+  touch-action: none;
+  user-select: none;
+}
+
+.scheduler-drag-slot {
+  border-left: 1px solid #e1eaee;
+}
+
+.scheduler-drag-slot:nth-child(4n + 1) {
+  border-left-color: #bfcfd6;
+}
+
+.scheduler-drag-existing,
+.scheduler-drag-selection {
+  align-items: center;
+  border-radius: 3px;
+  display: flex;
+  font-size: 7px;
+  font-weight: 850;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 3px;
+  pointer-events: none;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.scheduler-drag-existing {
+  background: #c7e8f4;
+  color: #145170;
+  height: 15px;
+  top: 5px;
+}
+
+.scheduler-drag-selection {
+  background: #258eb8;
+  color: #fff;
+  height: 23px;
+  top: 24px;
+  z-index: 2;
+}
+
+.scheduler-drag-planner > small {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+@media (max-width: 1040px) {
+  .scheduler-create-panel {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 0.65fr);
+  }
+
+  .scheduler-drag-instruction {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 620px) {
+  .scheduler-create-panel {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .scheduler-drag-instruction {
+    grid-column: auto;
+  }
 }
 
 .scheduler-availability-window,
@@ -21493,11 +21910,15 @@ body {
     break-inside: avoid;
   }
 
-  .application-payment-table thead {
+  .application-payment-table thead,
+  .application-valuation-table thead {
     display: table-header-group;
   }
 
   .application-payment-table tr,
+  .application-valuation-table tr,
+  .application-valuation-summary,
+  .application-valuation-section,
   .application-payment-details,
   .application-payment-closing,
   .application-payment-signoff {
