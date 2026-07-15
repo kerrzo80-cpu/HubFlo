@@ -1657,6 +1657,163 @@ function normalizeFormTemplates(templates: FormTemplate[]) {
   return [...validTemplates, ...missingDefaults];
 }
 
+type PdfDocumentRow = {
+  id: string;
+  description: string;
+  detail?: string;
+  quantity?: string;
+  unitRate?: string;
+  value?: string;
+};
+
+type PdfDocumentPreviewProps = {
+  template: FormTemplate;
+  business: BusinessSettings;
+  reference: string;
+  recipient: string;
+  recipientAddress: string;
+  issueLine: string;
+  subject: string;
+  rows: PdfDocumentRow[];
+  headerValue?: string;
+  valueHeading?: string;
+  subtotal?: number;
+  vat?: number;
+  total?: number;
+  bankDetails?: string;
+  scheduleLines?: string[];
+  internalSummary?: string;
+  supportingNote?: string;
+};
+
+function PdfDocumentPreview({
+  template,
+  business,
+  reference,
+  recipient,
+  recipientAddress,
+  issueLine,
+  subject,
+  rows,
+  headerValue,
+  valueHeading = "Amount",
+  subtotal,
+  vat,
+  total,
+  bankDetails,
+  scheduleLines = [],
+  internalSummary,
+  supportingNote,
+}: PdfDocumentPreviewProps) {
+  const showQuantity = rows.some((row) => row.quantity);
+  const showUnitRate = rows.some((row) => row.unitRate);
+  const showValue = rows.some((row) => row.value);
+
+  return (
+    <div className="pdf-proof-frame">
+      <article className={`pdf-document-page pdf-layout-${template.layout}`}>
+        <header className="pdf-document-masthead">
+          <img src="/ewg-logo.png" alt={business.tradingName} />
+          <div>
+            <strong>{business.tradingName}</strong>
+            <span>{business.address}</span>
+            <span>{business.phone} · {business.contactEmail}</span>
+            <span>VAT {business.vatNumber} · Company {business.companyNumber}</span>
+          </div>
+        </header>
+
+        <section className="pdf-document-title-band">
+          <div>
+            <span>{template.defaultAudience} document</span>
+            <h2>{template.title}</h2>
+            <small>{reference}</small>
+          </div>
+          {headerValue ? <strong>{headerValue}</strong> : null}
+        </section>
+
+        <section className="pdf-document-address-grid">
+          <div>
+            <span>Prepared for</span>
+            <strong>{recipient}</strong>
+            <p>{recipientAddress || "Address to be confirmed"}</p>
+          </div>
+          <dl>
+            <div><dt>Reference</dt><dd>{reference}</dd></div>
+            <div><dt>Issue details</dt><dd>{issueLine}</dd></div>
+          </dl>
+        </section>
+
+        <section className="pdf-document-scope">
+          <h3>{subject}</h3>
+          <p>{template.intro}</p>
+        </section>
+
+        {rows.length ? (
+          <table className="pdf-document-table">
+            <thead>
+              <tr>
+                <th>Description</th>
+                {showQuantity ? <th>Qty</th> : null}
+                {showUnitRate ? <th>Rate</th> : null}
+                {showValue ? <th>{valueHeading}</th> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td><strong>{row.description}</strong>{row.detail ? <span>{row.detail}</span> : null}</td>
+                  {showQuantity ? <td>{row.quantity || "-"}</td> : null}
+                  {showUnitRate ? <td>{row.unitRate || "-"}</td> : null}
+                  {showValue ? <td>{row.value || "-"}</td> : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : null}
+
+        {scheduleLines.length ? (
+          <section className="pdf-document-schedule">
+            <strong>Planned attendance</strong>
+            {scheduleLines.map((line) => <span key={line}>{line}</span>)}
+          </section>
+        ) : null}
+
+        {supportingNote ? <p className="pdf-document-supporting-note">{supportingNote}</p> : null}
+        {template.includePnl && internalSummary ? <div className="pdf-document-internal">{internalSummary}</div> : null}
+
+        <section className="pdf-document-closing">
+          <div className="pdf-document-terms">
+            <strong>{template.layout === "invoice" ? "Payment terms" : "Terms and notes"}</strong>
+            <p>{template.terms}</p>
+            {template.includeBankDetails && bankDetails ? <p><b>Payment details:</b> {bankDetails}</p> : null}
+            <small>{template.footer}</small>
+          </div>
+          {subtotal !== undefined && total !== undefined ? (
+            <dl className="pdf-document-totals">
+              <div><dt>Subtotal</dt><dd>{documentCurrency(subtotal)}</dd></div>
+              <div><dt>VAT</dt><dd>{documentCurrency(vat ?? 0)}</dd></div>
+              <div><dt>Total</dt><dd>{documentCurrency(total)}</dd></div>
+            </dl>
+          ) : null}
+        </section>
+
+        {template.includeAcceptance ? (
+          <section className="pdf-document-acceptance">
+            <div><span>Accepted by</span><strong>Online acceptance recorded in NeXa</strong></div>
+            <div><span>Date</span><strong>________________</strong></div>
+          </section>
+        ) : null}
+
+        <footer className="pdf-document-footer">
+          <span>{business.tradingName}</span>
+          <span>{business.clientPortalBrandLine}</span>
+          <span>{reference}</span>
+        </footer>
+      </article>
+    </div>
+  );
+}
+
 const quoteCostCentreTabs: Array<{ key: CostCentreTab; label: string }> = [
   { key: "summary", label: "Summary" },
   { key: "info", label: "Info" },
@@ -3298,6 +3455,15 @@ function currency(value: number) {
     style: "currency",
     currency: "GBP",
     maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function documentCurrency(value: number) {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
@@ -8730,6 +8896,11 @@ export default function Dashboard() {
     setActiveSetupSubItem(documentLayouts.find((item) => item.key === layout)?.label ?? null);
     setHomeView("settings");
     scrollWorkspaceToTop();
+  }
+
+  function printDocumentProof() {
+    if (typeof window === "undefined") return;
+    window.print();
   }
 
   function openEmployeeCardView(employeeId: string) {
@@ -16032,52 +16203,39 @@ export default function Dashboard() {
                         <h2>Purchase order exactly as the supplier sees it</h2>
                         <p>Review the PO number, delivery reference, items, totals and terms before sending.</p>
                       </div>
-                      <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("purchase-order")}>Edit form template</button>
+                      <div className="setup-template-actions">
+                        <button className="secondary-button" type="button" onClick={printDocumentProof}><FileText size={15} /> Print / save PDF</button>
+                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("purchase-order")}>Edit form template</button>
+                      </div>
                     </div>
-                    <article className="quote-document-preview record-form-document purchase-order-form-preview">
-                      <header>
-                        <div>
-                          <span>{template.defaultAudience} preview</span>
-                          <h2>{template.title} · {selectedPurchaseOrder.poNumber || "Open PO"}</h2>
-                        </div>
-                        <strong>{currency(orderAmount)}</strong>
-                      </header>
-                      <div className="quote-document-meta">
-                        <span>{businessSettings.tradingName}</span>
-                        <span>{selectedPurchaseOrder.supplier}</span>
-                        <span>{selectedPurchaseOrderJob?.site || "Delivery address to be confirmed"}</span>
-                      </div>
-                      <p className="record-form-intro">{template.intro}</p>
-                      <div className="quote-document-sections">
-                        {selectedPurchaseOrder.lines?.length ? selectedPurchaseOrder.lines.map((line) => (
-                          <div className="quote-document-section" key={line.id}>
-                            <div>
-                              <strong>{line.description || "Open order line"}</strong>
-                              <span>Quantity {line.quantity} · {line.receivedPercent}% received</span>
-                            </div>
-                            <strong>{currency(line.estimatedCost)}</strong>
-                          </div>
-                        )) : (
-                          <div className="quote-document-section">
-                            <div>
-                              <strong>{selectedPurchaseOrder.item || "Open purchase order"}</strong>
-                              <span>Items and value will be populated when confirmed.</span>
-                            </div>
-                            <strong>{currency(selectedPurchaseOrder.estimatedCost)}</strong>
-                          </div>
-                        )}
-                      </div>
-                      <div className="record-form-terms">
-                        <strong>Supplier notes and terms</strong>
-                        <p>{selectedPurchaseOrder.reason || template.terms}</p>
-                        <small>{template.footer}</small>
-                      </div>
-                      <footer>
-                        <span>Subtotal {currency(orderAmount)}</span>
-                        <span>VAT {currency(vatAmount)}</span>
-                        <strong>Total {currency(orderAmount + vatAmount)}</strong>
-                      </footer>
-                    </article>
+                    <PdfDocumentPreview
+                      template={template}
+                      business={businessSettings}
+                      reference={selectedPurchaseOrder.poNumber || "Open PO"}
+                      recipient={selectedPurchaseOrder.supplier}
+                      recipientAddress={selectedPurchaseOrderJob?.site || "Delivery address to be confirmed"}
+                      issueLine={`Created by ${selectedPurchaseOrder.requestedBy} · ${selectedPurchaseOrder.status}`}
+                      subject={selectedPurchaseOrder.item || `Materials for ${selectedPurchaseOrder.jobRef}`}
+                      rows={selectedPurchaseOrder.lines?.length ? selectedPurchaseOrder.lines.map((line) => ({
+                        id: line.id,
+                        description: line.description || "Open order line",
+                        detail: `${line.receivedPercent}% received`,
+                        quantity: String(line.quantity),
+                        unitRate: documentCurrency(line.quantity ? line.estimatedCost / line.quantity : line.estimatedCost),
+                        value: documentCurrency(line.estimatedCost),
+                      })) : [{
+                        id: selectedPurchaseOrder.id,
+                        description: selectedPurchaseOrder.item || "Open purchase order",
+                        detail: "Items and value will be populated when confirmed.",
+                        quantity: "Open",
+                        value: documentCurrency(selectedPurchaseOrder.estimatedCost),
+                      }]}
+                      headerValue={documentCurrency(orderAmount + vatAmount)}
+                      subtotal={orderAmount}
+                      vat={vatAmount}
+                      total={orderAmount + vatAmount}
+                      supportingNote={selectedPurchaseOrder.reason || undefined}
+                    />
                     <div className="record-form-preview-actions">
                       <button className="secondary-button" type="button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                       <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
@@ -17196,9 +17354,14 @@ export default function Dashboard() {
                               <span className="permission-heading">Forms and layouts</span>
                               <h2>Choose the document layout</h2>
                             </div>
-                            <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor(selectedQuoteEmailDraft.layout)}>
-                              Manage templates
-                            </button>
+                            <div className="setup-template-actions">
+                              <button className="secondary-button" type="button" onClick={printDocumentProof}>
+                                <FileText size={15} /> Print / save PDF
+                              </button>
+                              <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor(selectedQuoteEmailDraft.layout)}>
+                                Manage templates
+                              </button>
+                            </div>
                           </div>
                           <div className="document-layout-grid">
                             {documentLayouts.filter((layout) => layout.key !== "purchase-order").map((layout) => (
@@ -17216,83 +17379,38 @@ export default function Dashboard() {
                         </section>
 
                         <section className="quote-send-grid">
-                          <article className="quote-document-preview">
-                            {(() => {
-                              const surveyPack = quoteSurveyPackSummary(selectedQuoteCostCentres);
-                              const template = formTemplateForLayout(selectedQuoteEmailDraft.layout);
-                              return (
-                                <>
-                                  <header>
-                                    <div>
-                                      <span>{documentLayouts.find((layout) => layout.key === selectedQuoteEmailDraft.layout)?.label ?? "Quote"} preview</span>
-                                      <h2>{template.title} · {selectedQuote.ref}</h2>
-                                    </div>
-                                    <strong>{currency(selectedQuoteTotals.sell)}</strong>
-                                  </header>
-                                  <div className="quote-document-meta">
-                                    <span>{selectedQuoteClient?.name ?? selectedQuote.customer}</span>
-                                    <span>{selectedQuoteSite?.name ?? "Site to confirm"}</span>
-                                    <span>Prepared by {selectedQuote.owner}</span>
-                                  </div>
-                                  <p className="record-form-intro">{template.intro}</p>
-                                  <h3>{selectedQuote.description}</h3>
-                                  {template.includeCostCentreBreakdown ? (
-                                    <div className="quote-document-sections">
-                                      {selectedQuoteCostCentres.map((centre) => {
-                                        const totals = quoteCostCentreTotals(centre);
-                                        return (
-                                          <div className="quote-document-section" key={centre.id}>
-                                            <div>
-                                              <strong>{centre.name}</strong>
-                                              <span>{centre.clientDescription || "Scope description to be confirmed before issue."}</span>
-                                            </div>
-                                            <strong>{currency(totals.totalSell)}</strong>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  ) : null}
-                                  {template.includePnl ? (
-                                    <div className="record-form-private-summary">
-                                      Internal preview · Cost {currency(selectedQuoteTotals.cost)} · Profit {currency(selectedQuoteTotals.profit)}
-                                    </div>
-                                  ) : null}
-                                  <div className="quote-survey-pack-preview">
-                                    <div>
-                                      <span>Survey pack</span>
-                                      <strong>{surveyPack.clientVisible.length} client-visible item(s)</strong>
-                                    </div>
-                                    <div className="quote-survey-pack-stats">
-                                      <span>{surveyPack.scans.length} scan(s)</span>
-                                      <span>{surveyPack.photos.length} photo(s)</span>
-                                      <span>{surveyPack.concepts.length} concept(s)</span>
-                                    </div>
-                                    {surveyPack.clientVisible.length ? (
-                                      <div className="quote-survey-pack-list">
-                                        {surveyPack.clientVisible.map((asset) => (
-                                          <span key={asset.id}>{asset.kind}: {asset.title}</span>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <small>No survey records are currently marked client-visible.</small>
-                                    )}
-                                  </div>
-                                  <div className="record-form-terms">
-                                    <strong>Terms</strong>
-                                    <p>{template.terms}</p>
-                                    {template.includeBankDetails ? <p>{normalizedFinanceSettings.bankName} · {normalizedFinanceSettings.sortCode} · {normalizedFinanceSettings.accountNumber}</p> : null}
-                                    {template.includeAcceptance ? <button type="button" disabled>Accept online</button> : null}
-                                    <small>{template.footer}</small>
-                                  </div>
-                                  <footer>
-                                    <span>Subtotal {currency(selectedQuoteTotals.sell)}</span>
-                                    <span>VAT {currency(selectedQuoteTotals.sell * 0.2)}</span>
-                                    <strong>Total {currency(selectedQuoteTotals.sell * 1.2)}</strong>
-                                  </footer>
-                                </>
-                              );
-                            })()}
-                          </article>
+                          {(() => {
+                            const surveyPack = quoteSurveyPackSummary(selectedQuoteCostCentres);
+                            const template = formTemplateForLayout(selectedQuoteEmailDraft.layout);
+                            const vatAmount = selectedQuoteTotals.sell * (numberFromSetting(normalizedFinanceSettings.vatRate, 20) / 100);
+                            const rows = template.includeCostCentreBreakdown
+                              ? selectedQuoteCostCentres.map((centre) => ({
+                                  id: centre.id,
+                                  description: centre.name,
+                                  detail: centre.clientDescription || "Scope description to be confirmed before issue.",
+                                  value: documentCurrency(quoteCostCentreTotals(centre).totalSell),
+                                }))
+                              : [{ id: selectedQuote.id, description: selectedQuote.description, detail: "Quoted works as described above.", value: documentCurrency(selectedQuoteTotals.sell) }];
+                            return (
+                              <PdfDocumentPreview
+                                template={template}
+                                business={businessSettings}
+                                reference={selectedQuote.ref}
+                                recipient={selectedQuoteClient?.name ?? selectedQuote.customer}
+                                recipientAddress={selectedQuoteSite?.address || selectedQuoteSite?.name || "Site to confirm"}
+                                issueLine={`Prepared by ${selectedQuote.owner} · ${selectedQuote.due}`}
+                                subject={selectedQuote.description}
+                                rows={rows}
+                                headerValue={documentCurrency(selectedQuoteTotals.sell + vatAmount)}
+                                subtotal={selectedQuoteTotals.sell}
+                                vat={vatAmount}
+                                total={selectedQuoteTotals.sell + vatAmount}
+                                bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
+                                internalSummary={`Internal preview · Cost ${currency(selectedQuoteTotals.cost)} · Profit ${currency(selectedQuoteTotals.profit)}`}
+                                supportingNote={surveyPack.clientVisible.length ? `${surveyPack.clientVisible.length} client-visible survey attachment(s) will accompany this document.` : undefined}
+                              />
+                            );
+                          })()}
 
                           <aside className="quote-email-panel">
                             <div className="outlook-status-card">
@@ -20010,57 +20128,33 @@ export default function Dashboard() {
                           <h2>Job form exactly as {template.defaultAudience.toLowerCase()} users see it</h2>
                           <p>Check scope, dates and visible financial information before sharing the job pack.</p>
                         </div>
-                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("job-sheet")}>Edit form template</button>
+                        <div className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={printDocumentProof}><FileText size={15} /> Print / save PDF</button>
+                          <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("job-sheet")}>Edit form template</button>
+                        </div>
                       </div>
-                      <article className="quote-document-preview record-form-document">
-                        <header>
-                          <div>
-                            <span>{template.defaultAudience} preview</span>
-                            <h2>{template.title} · {selectedJob.ref}</h2>
-                          </div>
-                          <strong>{selectedJob.status}</strong>
-                        </header>
-                        <div className="quote-document-meta">
-                          <span>{businessSettings.tradingName}</span>
-                          <span>{selectedJob.customer}</span>
-                          <span>{selectedJob.site}</span>
-                        </div>
-                        <p className="record-form-intro">{template.intro}</p>
-                        <h3>{selectedJob.description}</h3>
-                        {template.includeCostCentreBreakdown ? (
-                          <div className="quote-document-sections">
-                            {selectedJobEstimateCostCentres.map((centre) => {
-                              const totals = estimateCostCentreTotals(centre);
-                              return (
-                                <div className="quote-document-section" key={centre.id}>
-                                  <div>
-                                    <strong>{centre.name}</strong>
-                                    <span>{centre.engineerDescription || centre.clientDescription || "Work package details to be confirmed."}</span>
-                                  </div>
-                                  <strong>{template.defaultAudience === "Client" ? currency(totals.totalSell) : `${centre.labour.reduce((sum, line) => sum + line.hours, 0)}h labour`}</strong>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        <div className="record-form-schedule-list">
-                          <strong>Planned visits</strong>
-                          {selectedJobScheduleAssignments.length ? selectedJobScheduleAssignments.map((assignment) => (
-                            <span key={assignment.id}>{assignment.costCentreName} · {assignment.employeeName} · {assignment.startDate} {assignment.startTime} to {assignment.endDate} {assignment.endTime}</span>
-                          )) : <span>No visits scheduled.</span>}
-                        </div>
-                        {template.includePnl ? <div className="record-form-private-summary">Internal preview · Cost {currency(selectedJobCostSummary.totalCost)} · Profit {currency(selectedJobCostSummary.projectedProfit)}</div> : null}
-                        <div className="record-form-terms">
-                          <strong>Notes and terms</strong>
-                          <p>{template.terms}</p>
-                          <small>{template.footer}</small>
-                        </div>
-                        <footer>
-                          <span>{selectedJobEstimateCostCentres.length} cost centres</span>
-                          <span>{selectedJobScheduleAssignments.length} planned visits</span>
-                          <strong>{template.defaultAudience === "Client" ? currency(selectedJobCostSummary.totalCharge) : selectedJob.manager}</strong>
-                        </footer>
-                      </article>
+                      <PdfDocumentPreview
+                        template={template}
+                        business={businessSettings}
+                        reference={selectedJob.ref}
+                        recipient={template.defaultAudience === "Engineer" ? selectedJob.manager : selectedJob.customer}
+                        recipientAddress={selectedJob.site}
+                        issueLine={`${selectedJob.status} · Manager ${selectedJob.manager}`}
+                        subject={selectedJob.description}
+                        rows={(template.includeCostCentreBreakdown ? selectedJobEstimateCostCentres : selectedJobEstimateCostCentres.slice(0, 1)).map((centre) => {
+                          const totals = estimateCostCentreTotals(centre);
+                          return {
+                            id: centre.id,
+                            description: centre.name,
+                            detail: centre.engineerDescription || centre.clientDescription || "Work package details to be confirmed.",
+                            value: template.defaultAudience === "Client" ? documentCurrency(totals.totalSell) : `${centre.labour.reduce((sum, line) => sum + line.hours, 0)}h`,
+                          };
+                        })}
+                        headerValue={template.defaultAudience === "Client" ? documentCurrency(selectedJobCostSummary.totalCharge) : selectedJob.status}
+                        valueHeading={template.defaultAudience === "Client" ? "Amount" : "Planned"}
+                        scheduleLines={selectedJobScheduleAssignments.length ? selectedJobScheduleAssignments.map((assignment) => `${assignment.costCentreName} · ${assignment.employeeName} · ${assignment.startDate} ${assignment.startTime}-${assignment.endDate} ${assignment.endTime}`) : ["No visits scheduled."]}
+                        internalSummary={`Internal preview · Cost ${currency(selectedJobCostSummary.totalCost)} · Profit ${currency(selectedJobCostSummary.projectedProfit)}`}
+                      />
                     </section>
                   );
                 })() : null}
@@ -21547,49 +21641,32 @@ export default function Dashboard() {
                           <h2>Invoice exactly as the customer sees it</h2>
                           <p>Review wording, lines, VAT, payment details and totals before emailing.</p>
                         </div>
-                        <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("invoice")}>Edit form template</button>
+                        <div className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={printDocumentProof}><FileText size={15} /> Print / save PDF</button>
+                          <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("invoice")}>Edit form template</button>
+                        </div>
                       </div>
-                      <article className="quote-document-preview record-form-document">
-                        <header>
-                          <div>
-                            <span>{template.defaultAudience} preview</span>
-                            <h2>{template.title} · {selectedInvoice.ref}</h2>
-                          </div>
-                          <strong>{currency(selectedInvoiceFinancials.grandTotal)}</strong>
-                        </header>
-                        <div className="quote-document-meta">
-                          <span>{businessSettings.tradingName}</span>
-                          <span>{selectedInvoice.customer}</span>
-                          <span>Issued {selectedInvoice.issuedDate} · Due {selectedInvoice.dueDate}</span>
-                        </div>
-                        <p className="record-form-intro">{template.intro}</p>
-                        <h3>{selectedInvoice.title}</h3>
-                        <div className="quote-document-sections">
-                          {selectedInvoice.lines.map((line) => (
-                            <div className="quote-document-section" key={line.id}>
-                              <div>
-                                <strong>{line.description}</strong>
-                                <span>{line.category}</span>
-                              </div>
-                              <strong>{currency(line.chargeToClient)}</strong>
-                            </div>
-                          ))}
-                        </div>
-                        {template.includePnl ? <div className="record-form-private-summary">Internal preview · Cost {currency(selectedInvoice.costTotal)} · Profit {currency(selectedInvoiceFinancials.profit)}</div> : null}
-                        <div className="record-form-terms">
-                          <strong>Payment terms</strong>
-                          <p>{template.terms}</p>
-                          {template.includeBankDetails ? (
-                            <p>{normalizedFinanceSettings.bankName} · {normalizedFinanceSettings.accountName} · Sort code {normalizedFinanceSettings.sortCode} · Account {normalizedFinanceSettings.accountNumber}</p>
-                          ) : null}
-                          <small>{template.footer}</small>
-                        </div>
-                        <footer>
-                          <span>Subtotal {currency(selectedInvoice.chargeTotal)}</span>
-                          <span>VAT {currency(selectedInvoiceFinancials.vatAmount)}</span>
-                          <strong>Total {currency(selectedInvoiceFinancials.grandTotal)}</strong>
-                        </footer>
-                      </article>
+                      <PdfDocumentPreview
+                        template={template}
+                        business={businessSettings}
+                        reference={selectedInvoice.ref}
+                        recipient={selectedInvoice.customer}
+                        recipientAddress={selectedInvoiceSite?.address || selectedInvoiceSourceJob?.site || "Address to be confirmed"}
+                        issueLine={`Issued ${selectedInvoice.issuedDate} · Due ${selectedInvoice.dueDate}`}
+                        subject={selectedInvoice.title}
+                        rows={selectedInvoice.lines.map((line) => ({
+                          id: line.id,
+                          description: line.description,
+                          detail: line.category,
+                          value: documentCurrency(line.chargeToClient),
+                        }))}
+                        headerValue={documentCurrency(selectedInvoiceFinancials.grandTotal)}
+                        subtotal={selectedInvoice.chargeTotal}
+                        vat={selectedInvoiceFinancials.vatAmount}
+                        total={selectedInvoiceFinancials.grandTotal}
+                        bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`}
+                        internalSummary={`Internal preview · Cost ${currency(selectedInvoice.costTotal)} · Profit ${currency(selectedInvoiceFinancials.profit)}`}
+                      />
                       <div className="record-form-preview-actions">
                         <button className="secondary-button" type="button" onClick={() => setActiveInvoiceTab("summary")}>Back to invoice</button>
                         <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}><Mail size={15} /> Email invoice</button>
@@ -22241,18 +22318,63 @@ export default function Dashboard() {
                             </label>
                           </div>
 
-                          <div className="setup-form-preview">
-                            <span>{activeFormTemplate.defaultAudience} preview</span>
-                            <h3>{activeFormTemplate.title}</h3>
-                            <p>{activeFormTemplate.intro}</p>
-                            <ul>
-                              {activeFormTemplate.includeCostCentreBreakdown ? <li>Cost centre summary included</li> : null}
-                              {activeFormTemplate.includePnl ? <li>Internal profit/loss visible</li> : null}
-                              {activeFormTemplate.includeAcceptance ? <li>Online acceptance button included</li> : null}
-                              {activeFormTemplate.includeBankDetails ? <li>Bank details included</li> : null}
-                            </ul>
-                            <small>{activeFormTemplate.footer}</small>
-                          </div>
+                          {(() => {
+                            const sampleRows: Record<QuoteDocumentLayout, PdfDocumentRow[]> = {
+                              quote: [
+                                { id: "sample-quote-1", description: "Strip out and preparation", detail: "Carefully remove existing fittings and prepare the work area.", value: "£840" },
+                                { id: "sample-quote-2", description: "Plumbing and installation", detail: "Alter pipework, install agreed fittings, test and commission.", value: "£1,560" },
+                              ],
+                              "job-sheet": [
+                                { id: "sample-job-1", description: "Strip out works", detail: "Protect finishes, isolate services and record site evidence.", value: "4h" },
+                                { id: "sample-job-2", description: "First fix works", detail: "Complete pipework alterations and pressure test before closing up.", value: "8h" },
+                              ],
+                              "application-payment": [
+                                { id: "sample-app-1", description: "Measured works to date", detail: "Progress agreed through the current valuation period.", value: "£8,400" },
+                                { id: "sample-app-2", description: "Approved variations", detail: "Client-approved additional works completed to date.", value: "£1,600" },
+                              ],
+                              invoice: [
+                                { id: "sample-invoice-1", description: "Completed plumbing works", detail: "Works completed and approved for invoicing.", value: "£2,400" },
+                              ],
+                              "purchase-order": [
+                                { id: "sample-po-1", description: "15mm copper tube 3m", detail: "Deliver to the site address shown above.", quantity: "10", unitRate: "£8.50", value: "£85" },
+                                { id: "sample-po-2", description: "15mm press elbows", detail: "Manufacturer-approved fittings.", quantity: "20", unitRate: "£2.10", value: "£42" },
+                              ],
+                            };
+                            const financialLayout = activeFormTemplate.layout !== "job-sheet";
+                            const subtotal = activeFormTemplate.layout === "purchase-order" ? 127 : activeFormTemplate.layout === "application-payment" ? 10000 : 2400;
+                            const vat = subtotal * 0.2;
+                            return (
+                              <section className="setup-pdf-proof">
+                                <div className="setup-pdf-proof-toolbar">
+                                  <div>
+                                    <span className="permission-heading">Live A4 proof</span>
+                                    <strong>This is the printable form the recipient will receive</strong>
+                                  </div>
+                                  <button className="secondary-button" type="button" onClick={printDocumentProof}>
+                                    <FileText size={15} /> Print / save PDF
+                                  </button>
+                                </div>
+                                <PdfDocumentPreview
+                                  template={activeFormTemplate}
+                                  business={businessSettings}
+                                  reference={activeFormTemplate.layout === "purchase-order" ? "PO-1048" : activeFormTemplate.layout === "invoice" ? "INV-2048" : "Q-2065"}
+                                  recipient={activeFormTemplate.layout === "purchase-order" ? "Plumbase Aberdeen" : "Example Client Ltd"}
+                                  recipientAddress="14 Sample Street, Aberdeen, AB10 1AA"
+                                  issueLine="15 July 2026"
+                                  subject={activeFormTemplate.layout === "purchase-order" ? "Materials order for bathroom works" : "Bathroom refurbishment works"}
+                                  rows={activeFormTemplate.includeCostCentreBreakdown || ["invoice", "purchase-order"].includes(activeFormTemplate.layout) ? sampleRows[activeFormTemplate.layout] : [sampleRows[activeFormTemplate.layout][0]!]}
+                                  headerValue={financialLayout ? documentCurrency(subtotal + vat) : "Engineer copy"}
+                                  valueHeading={activeFormTemplate.layout === "job-sheet" ? "Planned" : "Amount"}
+                                  subtotal={financialLayout ? subtotal : undefined}
+                                  vat={financialLayout ? vat : undefined}
+                                  total={financialLayout ? subtotal + vat : undefined}
+                                  bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
+                                  scheduleLines={activeFormTemplate.layout === "job-sheet" ? ["Strip out works · Brian Kerr · 20 July 2026 · 08:00-12:00", "First fix works · Chris Lawson · 21 July 2026 · 08:00-16:00"] : []}
+                                  internalSummary="Internal preview · Cost £1,420 · Projected profit £980"
+                                />
+                              </section>
+                            );
+                          })()}
                         </div>
                       </div>
                     </section>
