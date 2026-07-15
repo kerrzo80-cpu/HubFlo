@@ -508,6 +508,7 @@ type HomeView =
   | "purchase-orders"
   | "purchase-order-record"
   | "invoices"
+  | "invoice-create"
   | "invoice-record"
   | "job-record"
   | "quote-cost-centre-record"
@@ -703,6 +704,30 @@ type LeadDraft = Omit<Lead, "id" | "ref" | "createdAt" | "next"> & {
 
 type RecordDocumentScope = "lead" | "quote" | "job" | "invoice";
 type InvoiceScopeType = "quote" | "job";
+type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "full";
+type ValuationStatus = "Draft valuation" | "Submitted" | "Agreed" | "Progress claim";
+type AccountsExportStatus = "Not sent" | "Queued" | "Sent";
+type InvoicePaymentStatus = "Unpaid" | "Part paid" | "Paid";
+
+type ValuationLine = {
+  id: string;
+  costCentreId?: string;
+  description: string;
+  contractValue: number;
+  previousApplications: number;
+  requestedThisPeriod: number;
+  agreedThisPeriod: number;
+};
+
+type JobInvoiceDraft = {
+  jobId: string;
+  mode: Exclude<InvoiceClaimType, "progress-claim">;
+  depositPercent: number;
+  retentionPercent: number;
+  valuationPeriod: string;
+  notes: string;
+  valuationLines: ValuationLine[];
+};
 
 type InvoiceLine = {
   id: string;
@@ -735,6 +760,16 @@ type Invoice = {
   sentTo?: string;
   sentAt?: string;
   outlookMessageId?: string;
+  claimType?: InvoiceClaimType;
+  claimPercent?: number;
+  valuationStatus?: ValuationStatus;
+  valuationPeriod?: string;
+  valuationLines?: ValuationLine[];
+  retentionPercent?: number;
+  applicationRef?: string;
+  accountsStatus?: AccountsExportStatus;
+  paymentStatus?: InvoicePaymentStatus;
+  paidAmount?: number;
 };
 
 type InvoiceEmailDraft = {
@@ -769,6 +804,42 @@ function invoiceTotalFromLines(lines: InvoiceLine[]) {
     },
     { cost: 0, charge: 0 },
   );
+}
+
+function buildApplicationRef(existing: Invoice[], prefix = "APP") {
+  const refNumbers = existing
+    .flatMap((invoice) => [invoice.ref, invoice.applicationRef ?? ""])
+    .map((value) => Number(value.replace(/\D/g, "")))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const normalizedPrefix = prefix.trim().replace(/[^a-z0-9]/gi, "").toUpperCase() || "APP";
+  return `${normalizedPrefix}-${Math.max(1000, ...refNumbers) + 1}`;
+}
+
+function valuationLineTotals(lines: ValuationLine[], retentionPercent: number) {
+  const totals = lines.reduce(
+    (totals, line) => {
+      const requested = Math.max(0, line.requestedThisPeriod);
+      const agreed = Math.max(0, line.agreedThisPeriod);
+      totals.contractValue += Math.max(0, line.contractValue);
+      totals.previous += Math.max(0, line.previousApplications);
+      totals.requested += requested;
+      totals.agreed += agreed;
+      return totals;
+    },
+    { contractValue: 0, previous: 0, requested: 0, agreed: 0 },
+  );
+  const retentionRate = Math.max(0, retentionPercent) / 100;
+  return {
+    ...totals,
+    requestedRetention: totals.requested * retentionRate,
+    agreedRetention: totals.agreed * retentionRate,
+    requestedNet: totals.requested * (1 - retentionRate),
+    agreedNet: totals.agreed * (1 - retentionRate),
+  };
+}
+
+function valuationNetAmount(value: number, retentionPercent: number) {
+  return Math.max(0, value) * (1 - Math.max(0, retentionPercent) / 100);
 }
 
 function buildInvoiceRef(prefix: "invoice", existing: string[]) {
@@ -1806,6 +1877,169 @@ function PdfDocumentPreview({
             <div><span>Date</span><strong>________________</strong></div>
           </section>
         ) : null}
+
+        <footer className="pdf-document-footer">
+          <span>{business.tradingName}</span>
+          <span>{business.clientPortalBrandLine}</span>
+          <span>{reference}</span>
+        </footer>
+      </article>
+    </div>
+  );
+}
+
+type ApplicationPaymentPreviewProps = {
+  template: FormTemplate;
+  business: BusinessSettings;
+  reference: string;
+  contractReference: string;
+  recipient: string;
+  recipientAddress: string;
+  valuationDate: string;
+  valuationPeriod: string;
+  subject: string;
+  rows: ValuationLine[];
+  retentionPercent: number;
+  vatRate: number;
+  status: ValuationStatus;
+  useAgreedValues?: boolean;
+  bankDetails?: string;
+};
+
+function ApplicationPaymentPreview({
+  template,
+  business,
+  reference,
+  contractReference,
+  recipient,
+  recipientAddress,
+  valuationDate,
+  valuationPeriod,
+  subject,
+  rows,
+  retentionPercent,
+  vatRate,
+  status,
+  useAgreedValues = false,
+  bankDetails,
+}: ApplicationPaymentPreviewProps) {
+  const activeValues = rows.map((row) => useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod);
+  const contractTotal = rows.reduce((sum, row) => sum + row.contractValue, 0);
+  const previousTotal = rows.reduce((sum, row) => sum + row.previousApplications, 0);
+  const currentTotal = activeValues.reduce((sum, value) => sum + Math.max(0, value), 0);
+  const cumulativeTotal = previousTotal + currentTotal;
+  const retention = currentTotal * (Math.max(0, retentionPercent) / 100);
+  const netApplication = currentTotal - retention;
+  const vat = netApplication * (Math.max(0, vatRate) / 100);
+  const amountDue = netApplication + vat;
+
+  return (
+    <div className="pdf-proof-frame application-payment-proof-frame">
+      <article className="application-payment-page">
+        <header className="application-payment-masthead">
+          <img src="/ewg-logo.png" alt={business.tradingName} />
+          <div>
+            <strong>{business.tradingName}</strong>
+            <span>{business.address}</span>
+            <span>{business.phone} · {business.contactEmail}</span>
+            <span>VAT {business.vatNumber} · Company {business.companyNumber}</span>
+          </div>
+        </header>
+
+        <section className="application-payment-heading">
+          <div>
+            <span>Commercial valuation</span>
+            <h2>{template.title}</h2>
+            <small>{subject}</small>
+          </div>
+          <div className="application-payment-reference">
+            <span>{status}</span>
+            <strong>{reference}</strong>
+          </div>
+        </section>
+
+        <section className="application-payment-details">
+          <dl>
+            <div><dt>Application no.</dt><dd>{reference}</dd></div>
+            <div><dt>Contract / job</dt><dd>{contractReference}</dd></div>
+            <div><dt>Valuation period</dt><dd>{valuationPeriod || "Current period"}</dd></div>
+            <div><dt>Valuation date</dt><dd>{valuationDate}</dd></div>
+          </dl>
+          <div>
+            <span>Application submitted to</span>
+            <strong>{recipient}</strong>
+            <p>{recipientAddress || "Address to be confirmed"}</p>
+          </div>
+        </section>
+
+        <table className="application-payment-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Description / work package</th>
+              <th>Contract value</th>
+              <th>Previous applications</th>
+              <th>{useAgreedValues ? "Agreed this period" : "This application"}</th>
+              <th>Cumulative value</th>
+              <th>% complete</th>
+              <th>Balance remaining</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => {
+              const current = Math.max(0, useAgreedValues ? row.agreedThisPeriod : row.requestedThisPeriod);
+              const cumulative = row.previousApplications + current;
+              const completePercent = row.contractValue > 0 ? Math.min(100, (cumulative / row.contractValue) * 100) : 0;
+              return (
+                <tr key={row.id}>
+                  <td>{index + 1}</td>
+                  <td><strong>{row.description}</strong></td>
+                  <td>{documentCurrency(row.contractValue)}</td>
+                  <td>{documentCurrency(row.previousApplications)}</td>
+                  <td>{documentCurrency(current)}</td>
+                  <td>{documentCurrency(cumulative)}</td>
+                  <td>{completePercent.toFixed(1)}%</td>
+                  <td>{documentCurrency(Math.max(0, row.contractValue - cumulative))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr>
+              <th colSpan={2}>Totals</th>
+              <th>{documentCurrency(contractTotal)}</th>
+              <th>{documentCurrency(previousTotal)}</th>
+              <th>{documentCurrency(currentTotal)}</th>
+              <th>{documentCurrency(cumulativeTotal)}</th>
+              <th>{contractTotal > 0 ? `${Math.min(100, (cumulativeTotal / contractTotal) * 100).toFixed(1)}%` : "0.0%"}</th>
+              <th>{documentCurrency(Math.max(0, contractTotal - cumulativeTotal))}</th>
+            </tr>
+          </tfoot>
+        </table>
+
+        <section className="application-payment-closing">
+          <div>
+            <strong>Declaration and payment details</strong>
+            <p>{template.intro}</p>
+            <p>{template.terms}</p>
+            {template.includeBankDetails && bankDetails ? <p><b>Bank:</b> {bankDetails}</p> : null}
+            <small>{template.footer}</small>
+          </div>
+          <dl>
+            <div><dt>Gross value this period</dt><dd>{documentCurrency(currentTotal)}</dd></div>
+            <div><dt>Retention ({retentionPercent.toFixed(1)}%)</dt><dd>-{documentCurrency(retention)}</dd></div>
+            <div><dt>Net application</dt><dd>{documentCurrency(netApplication)}</dd></div>
+            <div><dt>VAT ({vatRate.toFixed(1)}%)</dt><dd>{documentCurrency(vat)}</dd></div>
+            <div className="amount-due"><dt>Amount now due</dt><dd>{documentCurrency(amountDue)}</dd></div>
+          </dl>
+        </section>
+
+        <section className="application-payment-signoff">
+          <div><span>Submitted by</span><strong>Errol Watson Group Ltd</strong></div>
+          <div><span>Agreed by</span><strong>________________________</strong></div>
+          <div><span>Agreed date</span><strong>________________________</strong></div>
+          <div><span>Agreed amount</span><strong>________________________</strong></div>
+        </section>
 
         <footer className="pdf-document-footer">
           <span>{business.tradingName}</span>
@@ -5269,6 +5503,7 @@ export default function Dashboard() {
   const [checkedQuoteReviewQuestions, setCheckedQuoteReviewQuestions] = useState<Record<string, boolean>>({});
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
+  const [jobInvoiceDraft, setJobInvoiceDraft] = useState<JobInvoiceDraft | null>(null);
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [jobVariationSections, setJobVariationSections] = useState<Record<string, JobVariationSection[]>>({});
   const [jobVariationSectionNameDraft, setJobVariationSectionNameDraft] = useState("");
@@ -5899,13 +6134,41 @@ export default function Dashboard() {
     };
   }, [selectedInvoice]);
 
+  const selectedValuationTotals = useMemo(
+    () => valuationLineTotals(selectedInvoice?.valuationLines ?? [], selectedInvoice?.retentionPercent ?? 0),
+    [selectedInvoice],
+  );
+
+  const jobInvoiceDraftJob = useMemo(
+    () => jobInvoiceDraft ? jobs.find((job) => job.id === jobInvoiceDraft.jobId) ?? null : null,
+    [jobInvoiceDraft, jobs],
+  );
+
+  const jobInvoiceDraftTotals = useMemo(() => {
+    if (!jobInvoiceDraft) return valuationLineTotals([], 0);
+    const lines = jobInvoiceDraft.mode === "deposit"
+      ? jobInvoiceDraft.valuationLines.map((line) => ({
+          ...line,
+          requestedThisPeriod: line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100),
+          agreedThisPeriod: line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100),
+        }))
+      : jobInvoiceDraft.mode === "full"
+        ? jobInvoiceDraft.valuationLines.map((line) => ({
+            ...line,
+            requestedThisPeriod: Math.max(0, line.contractValue - line.previousApplications),
+            agreedThisPeriod: Math.max(0, line.contractValue - line.previousApplications),
+          }))
+        : jobInvoiceDraft.valuationLines;
+    return valuationLineTotals(lines, jobInvoiceDraft.mode === "valuation" ? jobInvoiceDraft.retentionPercent : 0);
+  }, [jobInvoiceDraft]);
+
   const invoiceSourceMap = useMemo(() => {
     const byQuote = new Map<string, Invoice>();
     const byJob = new Map<string, Invoice>();
 
     for (const invoice of invoices) {
-      if (invoice.sourceType === "quote") byQuote.set(invoice.sourceId, invoice);
-      if (invoice.sourceType === "job") byJob.set(invoice.sourceId, invoice);
+      if (invoice.sourceType === "quote" && !byQuote.has(invoice.sourceId)) byQuote.set(invoice.sourceId, invoice);
+      if (invoice.sourceType === "job" && !byJob.has(invoice.sourceId)) byJob.set(invoice.sourceId, invoice);
     }
 
     return { byQuote, byJob };
@@ -7056,6 +7319,13 @@ export default function Dashboard() {
       invoice.dueDate < "2026-07-01";
 
     return [
+      {
+        key: "draft",
+        label: "Drafts / valuations",
+        detail: "Deposits, applications and invoices being prepared",
+        tone: "amber",
+        items: filteredInvoices.filter((invoice) => invoice.status === "Draft"),
+      },
       {
         key: "due",
         label: "Due invoices",
@@ -9161,6 +9431,290 @@ export default function Dashboard() {
     showNotice(`Invoice ${created.ref} created from ${job.ref}.`);
   }
 
+  function openJobInvoiceCreator(job: Job) {
+    closeDirectoryActionMenu();
+    const centres = refreshedEstimateCostCentresFromRateBook(
+      jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job),
+      availableQuoteCatalogById,
+      normalizedFinanceSettings,
+    );
+    const previousByCentre = new Map<string, number>();
+
+    invoices
+      .filter((invoice) =>
+        invoice.sourceType === "job" &&
+        invoice.sourceId === job.id &&
+        invoice.status !== "Cancelled" &&
+        invoice.claimType !== "valuation",
+      )
+      .forEach((invoice) => {
+        invoice.valuationLines?.forEach((line) => {
+          if (!line.costCentreId) return;
+          const value = line.agreedThisPeriod || line.requestedThisPeriod;
+          previousByCentre.set(line.costCentreId, (previousByCentre.get(line.costCentreId) ?? 0) + value);
+        });
+      });
+
+    const valuationLines: ValuationLine[] = centres.map((centre) => {
+      const totals = estimateCostCentreTotals(centre);
+      return {
+        id: `valuation-${centre.id}-${Date.now()}`,
+        costCentreId: centre.id,
+        description: centre.name,
+        contractValue: totals.totalSell,
+        previousApplications: previousByCentre.get(centre.id) ?? 0,
+        requestedThisPeriod: 0,
+        agreedThisPeriod: 0,
+      };
+    });
+
+    if (valuationLines.length === 0) {
+      valuationLines.push({
+        id: `valuation-${job.id}-${Date.now()}`,
+        description: job.description || job.ref,
+        contractValue: job.value,
+        previousApplications: 0,
+        requestedThisPeriod: 0,
+        agreedThisPeriod: 0,
+      });
+    }
+
+    setSelectedJobId(job.id);
+    setSelectedInvoiceId(null);
+    setJobInvoiceDraft({
+      jobId: job.id,
+      mode: "deposit",
+      depositPercent: 30,
+      retentionPercent: 0,
+      valuationPeriod: new Date().toISOString().slice(0, 7),
+      notes: "",
+      valuationLines,
+    });
+    setHomeView("invoice-create");
+    scrollWorkspaceToTop();
+  }
+
+  function updateJobInvoiceDraft(patch: Partial<JobInvoiceDraft>) {
+    setJobInvoiceDraft((current) => current ? { ...current, ...patch } : current);
+  }
+
+  function updateJobValuationLine(lineId: string, patch: Partial<ValuationLine>) {
+    setJobInvoiceDraft((current) => current
+      ? {
+          ...current,
+          valuationLines: current.valuationLines.map((line) => line.id === lineId ? { ...line, ...patch } : line),
+        }
+      : current,
+    );
+  }
+
+  function createInvoiceClaimFromJob() {
+    if (!jobInvoiceDraft) return;
+    const job = jobs.find((item) => item.id === jobInvoiceDraft.jobId);
+    if (!job) {
+      showNotice("The linked job could not be found.");
+      return;
+    }
+
+    const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const centres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
+    const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(centres);
+    const sourceTotals = sourceLineTotals.reduce(
+      (acc, line) => ({
+        cost: acc.cost + line.costToUs,
+        charge: acc.charge + line.chargeToClient,
+        lineItems: [...acc.lineItems, line],
+      }),
+      { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
+    );
+    const base = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job));
+    const contractTotal = jobInvoiceDraft.valuationLines.reduce((sum, line) => sum + line.contractValue, 0) || job.value;
+    const depositPercent = Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent));
+    const retentionPercent = jobInvoiceDraft.mode === "valuation" ? Math.max(0, jobInvoiceDraft.retentionPercent) : 0;
+    let valuationLines = jobInvoiceDraft.valuationLines.map((line) => ({ ...line }));
+
+    if (jobInvoiceDraft.mode === "deposit") {
+      valuationLines = valuationLines.map((line) => {
+        const requestedThisPeriod = line.contractValue * (depositPercent / 100);
+        return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
+      });
+    }
+
+    if (jobInvoiceDraft.mode === "full") {
+      valuationLines = valuationLines.map((line) => {
+        const requestedThisPeriod = Math.max(0, line.contractValue - line.previousApplications);
+        return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
+      });
+    }
+
+    if (jobInvoiceDraft.mode === "valuation") {
+      valuationLines = valuationLines.map((line) => ({
+        ...line,
+        requestedThisPeriod: Math.max(0, line.requestedThisPeriod),
+        agreedThisPeriod: Math.max(0, line.requestedThisPeriod),
+      }));
+    }
+
+    const grossClaim = valuationLines.reduce((sum, line) => sum + line.requestedThisPeriod, 0);
+    if (grossClaim <= 0) {
+      showNotice(jobInvoiceDraft.mode === "valuation" ? "Add at least one value to this valuation." : "The claim value must be greater than zero.");
+      return;
+    }
+
+    const netClaim = valuationNetAmount(grossClaim, retentionPercent);
+    const costRatio = contractTotal > 0 ? Math.min(1, grossClaim / contractTotal) : 0;
+    const lines: InvoiceLine[] = valuationLines
+      .filter((line) => line.requestedThisPeriod > 0)
+      .map((line) => ({
+        id: `invoice-claim-${line.id}`,
+        description: line.description,
+        category: "Other",
+        costToUs: sourceTotals.cost * (line.contractValue / Math.max(1, contractTotal)) * costRatio,
+        chargeToClient: valuationNetAmount(line.requestedThisPeriod, retentionPercent),
+        note: jobInvoiceDraft.mode === "valuation" ? `Application for ${jobInvoiceDraft.valuationPeriod}` : `${depositPercent}% ${jobInvoiceDraft.mode} claim`,
+      }));
+    const isValuation = jobInvoiceDraft.mode === "valuation";
+    const reference = isValuation ? buildApplicationRef(invoices, normalizedFinanceSettings.applicationPrefix) : base.ref;
+    const title = jobInvoiceDraft.mode === "deposit"
+      ? `${depositPercent}% deposit for ${job.ref}`
+      : isValuation
+        ? `Application for payment · ${job.ref} · ${jobInvoiceDraft.valuationPeriod}`
+        : `Invoice in full for ${job.ref}`;
+    const created: Invoice = {
+      ...base,
+      ref: reference,
+      title,
+      lines,
+      costTotal: lines.reduce((sum, line) => sum + line.costToUs, 0),
+      chargeTotal: netClaim,
+      vatRate: Number(normalizedFinanceSettings.vatRate) || 20,
+      notes: jobInvoiceDraft.notes || `${title} created from job cost centres.`,
+      claimType: jobInvoiceDraft.mode,
+      claimPercent: jobInvoiceDraft.mode === "deposit" ? depositPercent : undefined,
+      valuationStatus: isValuation ? "Draft valuation" : undefined,
+      valuationPeriod: jobInvoiceDraft.valuationPeriod,
+      valuationLines,
+      retentionPercent,
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+    };
+
+    setInvoices((current) => [created, ...current]);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: isValuation ? "valuation created" : "invoice created",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `${created.ref} created from ${job.ref} as ${jobInvoiceDraft.mode === "full" ? "an invoice in full" : jobInvoiceDraft.mode}.`,
+      source: "job billing",
+      importance: "high",
+    });
+    setJobInvoiceDraft(null);
+    openInvoiceRecord(created.id);
+    showNotice(`${created.ref} created from ${job.ref}.`);
+  }
+
+  function updateSelectedValuationAgreement(lineId: string, value: number) {
+    if (!selectedInvoice?.valuationLines) return;
+    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      ? {
+          ...invoice,
+          valuationLines: invoice.valuationLines?.map((line) => line.id === lineId
+            ? { ...line, agreedThisPeriod: Math.max(0, value) }
+            : line,
+          ),
+        }
+      : invoice,
+    ));
+  }
+
+  function convertSelectedValuationToProgressClaim() {
+    if (!selectedInvoice?.valuationLines || selectedInvoice.claimType !== "valuation") return;
+    const retentionPercent = selectedInvoice.retentionPercent ?? 0;
+    const agreedGross = selectedInvoice.valuationLines.reduce((sum, line) => sum + line.agreedThisPeriod, 0);
+    if (agreedGross <= 0) {
+      showNotice("Enter the contractor-agreed values before creating the progress claim.");
+      return;
+    }
+    const nextRef = buildInvoiceRef("invoice", invoices.map((item) => item.ref));
+    const contractTotal = selectedInvoice.valuationLines.reduce((sum, line) => sum + line.contractValue, 0);
+    const nextLines: InvoiceLine[] = selectedInvoice.valuationLines
+      .filter((line) => line.agreedThisPeriod > 0)
+      .map((line) => ({
+        id: `progress-${line.id}`,
+        description: line.description,
+        category: "Other",
+        costToUs: selectedInvoice.costTotal * (line.contractValue / Math.max(1, contractTotal)),
+        chargeToClient: valuationNetAmount(line.agreedThisPeriod, retentionPercent),
+        note: `Agreed progress claim from ${selectedInvoice.ref}`,
+      }));
+    const applicationRef = selectedInvoice.applicationRef ?? selectedInvoice.ref;
+    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      ? {
+          ...invoice,
+          ref: nextRef,
+          applicationRef,
+          title: `Progress claim for ${invoice.sourceRef} · ${invoice.valuationPeriod ?? "current period"}`,
+          claimType: "progress-claim",
+          valuationStatus: "Progress claim",
+          status: "Draft",
+          lines: nextLines,
+          costTotal: nextLines.reduce((sum, line) => sum + line.costToUs, 0),
+          chargeTotal: nextLines.reduce((sum, line) => sum + line.chargeToClient, 0),
+          accountsStatus: "Not sent",
+        }
+      : invoice,
+    ));
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "progress claim created",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${applicationRef} agreed at ${currency(valuationNetAmount(agreedGross, retentionPercent))} and converted to ${nextRef}.`,
+      source: "valuation agreement",
+      importance: "high",
+    });
+    showNotice(`${applicationRef} converted to progress claim ${nextRef}.`);
+  }
+
+  function queueSelectedInvoiceToAccounts() {
+    if (!selectedInvoice || selectedInvoice.claimType === "valuation") return;
+    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      ? { ...invoice, accountsStatus: "Queued" }
+      : invoice,
+    ));
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "queued for accounts",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} queued for the accounts connector.`,
+      source: "accounts handoff",
+      importance: "high",
+    });
+    showNotice(`${selectedInvoice.ref} queued. Connect Xero in Setup before live export.`);
+  }
+
+  function updateSelectedInvoicePayment(paymentStatus: InvoicePaymentStatus) {
+    if (!selectedInvoice) return;
+    const paidAmount = paymentStatus === "Paid"
+      ? selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100)
+      : paymentStatus === "Part paid"
+        ? (selectedInvoice.paidAmount || 0)
+        : 0;
+    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      ? {
+          ...invoice,
+          paymentStatus,
+          paidAmount,
+          status: paymentStatus === "Paid" ? "Paid" : paymentStatus === "Part paid" ? "Partially paid" : invoice.status,
+        }
+      : invoice,
+    ));
+    showNotice(`${selectedInvoice.ref} marked ${paymentStatus.toLowerCase()}.`);
+  }
+
   function updateSelectedInvoiceStatus(status: InvoiceStatus) {
     if (!selectedInvoice) return;
     if (selectedInvoice.status === status) return;
@@ -9207,6 +9761,9 @@ export default function Dashboard() {
       selectedInvoice.sourceType === "job"
         ? jobs.find((job) => job.id === selectedInvoice.sourceId) ?? null
         : null;
+    const shouldMarkJobInvoiced = Boolean(
+      sourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full"),
+    );
     setInvoices((current) =>
       current.map((invoice) =>
         invoice.id === selectedInvoice.id
@@ -9220,7 +9777,7 @@ export default function Dashboard() {
           : invoice,
       ),
     );
-    if (sourceJob) {
+    if (sourceJob && shouldMarkJobInvoiced) {
       setJobs((current) =>
         current.map((job) =>
           job.id === sourceJob.id
@@ -9244,7 +9801,7 @@ export default function Dashboard() {
       source: "outlook draft",
       importance: "high",
     });
-    if (sourceJob) {
+    if (sourceJob && shouldMarkJobInvoiced) {
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "invoiced",
@@ -9269,11 +9826,19 @@ export default function Dashboard() {
       messageId: outlookMessageId,
       status: "Sent",
     });
-    showNotice(sourceJob ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.` : `Invoice ${selectedInvoice.ref} sent and logged.`);
+    showNotice(
+      sourceJob && shouldMarkJobInvoiced
+        ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.`
+        : `Invoice ${selectedInvoice.ref} sent and logged.`,
+    );
   }
 
   function submitSelectedValuation() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
+    if (selectedInvoice.claimType !== "valuation") {
+      showNotice("Create a valuation from the job billing menu before submitting an application for payment.");
+      return;
+    }
     if (!selectedInvoiceEmailDraft.to.trim()) {
       showNotice("Add a recipient before submitting the valuation.");
       return;
@@ -9298,6 +9863,18 @@ export default function Dashboard() {
       status: "Sent",
     });
 
+    const sentAt = workflowTimestamp();
+    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      ? {
+          ...invoice,
+          valuationStatus: "Submitted",
+          sentTo: selectedInvoiceEmailDraft.to.trim(),
+          sentAt,
+          outlookMessageId: messageId,
+        }
+      : invoice,
+    ));
+
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "valuation submitted",
@@ -9320,7 +9897,7 @@ export default function Dashboard() {
       });
     }
 
-    showNotice("Application for payment submitted and logged.");
+    showNotice("Application for payment submitted. Add the agreed values when the contractor replies.");
   }
 
   function openQuoteCostCentreRecord(centreId: string) {
@@ -15157,7 +15734,7 @@ export default function Dashboard() {
                   ? "Cost centre"
                 : homeView === "purchase-orders" || homeView === "purchase-order-record"
                   ? "Purchase orders"
-                : homeView === "invoices" || homeView === "invoice-record"
+                : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
                 : homeView === "leads"
                   ? "Leads"
@@ -15286,6 +15863,8 @@ export default function Dashboard() {
                       ? selectedPurchaseOrder?.poNumber || "Purchase order"
                     : homeView === "invoices"
                       ? "Invoices"
+                    : homeView === "invoice-create"
+                      ? "Job billing"
                     : homeView === "invoice-record"
                       ? selectedInvoice?.ref
                         ? `Invoice ${selectedInvoice.ref}`
@@ -15334,6 +15913,8 @@ export default function Dashboard() {
                     ? selectedPurchaseOrder?.poNumber || "Purchase order"
                   : homeView === "invoices"
                     ? "Invoices"
+                  : homeView === "invoice-create"
+                    ? "Create claim"
                   : homeView === "invoice-record"
                     ? selectedInvoice?.ref
                       ? `Invoice ${selectedInvoice.ref}`
@@ -15381,6 +15962,8 @@ export default function Dashboard() {
                     ? `${selectedPurchaseOrder?.supplier ?? "Supplier TBC"} · ${selectedPurchaseOrder?.jobRef ?? "No job linked"}`
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
+                  : homeView === "invoice-create"
+                    ? `${jobInvoiceDraftJob?.ref ?? "Job"} · choose deposit, valuation or invoice in full`
                   : homeView === "invoice-record"
                     ? `${selectedInvoice?.sourceName ?? "Source not linked"} · due ${selectedInvoice?.dueDate ?? "TBC"}`
                   : homeView === "leads"
@@ -15467,6 +16050,15 @@ export default function Dashboard() {
                     </button>
                   ) : null}
                 </>
+              ) : homeView === "invoice-create" ? (
+                <>
+                  <button className="secondary-button" onClick={() => jobInvoiceDraftJob ? openJobDrawer(jobInvoiceDraftJob.id) : setHomeView("jobs")}>
+                    Back to job
+                  </button>
+                  <button className="primary-button" onClick={createInvoiceClaimFromJob} disabled={!jobInvoiceDraft}>
+                    Create {jobInvoiceDraft?.mode === "valuation" ? "valuation" : "invoice"}
+                  </button>
+                </>
               ) : homeView === "invoice-record" ? (
                 <>
                   <button className="secondary-button" onClick={returnFromInvoiceRecord}>
@@ -15517,16 +16109,16 @@ export default function Dashboard() {
                       Create invoice
                     </button>
                   ) : null}
-                  {homeView === "job-record" && !selectedInvoiceFromJob && selectedJob?.status === "Ready to invoice" ? (
+                  {homeView === "job-record" && selectedJob && access.canEditInvoice ? (
                     <button
                       className="primary-button"
                       onClick={() => {
                         if (selectedJob) {
-                          openInvoiceForJob(selectedJob);
+                          openJobInvoiceCreator(selectedJob);
                         }
                       }}
                     >
-                      Create invoice
+                      Invoice job
                     </button>
                   ) : null}
                   {homeView === "job-record" && selectedJob?.status === "Invoiced" ? (
@@ -16080,6 +16672,7 @@ export default function Dashboard() {
                             </span>
                             {renderDirectoryActionMenu("job", job.id, [
                               { label: "Open job", onClick: () => openJobDrawer(job.id) },
+                              { label: "Invoice job", onClick: () => openJobInvoiceCreator(job) },
                               {
                                 label: "Move to pending",
                                 onClick: () =>
@@ -21434,7 +22027,7 @@ export default function Dashboard() {
                               </span>
                               <span className="quote-site">{invoice.sourceName}</span>
                               <span className={`status-pill ${invoice.status === "Cancelled" ? "red" : invoice.status === "Paid" ? "green" : "blue"}`}>
-                                {invoice.status}
+                                {invoice.valuationStatus ?? invoice.status}
                               </span>
                               <strong className="value">{currency(invoice.chargeTotal)}</strong>
                               <span className="next-action quote-workflow-action">
@@ -21485,32 +22078,214 @@ export default function Dashboard() {
                 ))}
               </div>
             </section>
+          ) : homeView === "invoice-create" ? (
+            jobInvoiceDraft && jobInvoiceDraftJob ? (
+              <section className="job-billing-workspace">
+                <header className="job-billing-header">
+                  <div>
+                    <span className="permission-heading">Job billing</span>
+                    <h2>{jobInvoiceDraftJob.ref} · {jobInvoiceDraftJob.customer}</h2>
+                    <p>{jobInvoiceDraftJob.description}</p>
+                  </div>
+                  <dl>
+                    <div><dt>Contract value</dt><dd>{currency(jobInvoiceDraftTotals.contractValue)}</dd></div>
+                    <div><dt>Previously claimed</dt><dd>{currency(jobInvoiceDraftTotals.previous)}</dd></div>
+                    <div><dt>Claim now</dt><dd>{currency(jobInvoiceDraft.mode === "valuation" ? jobInvoiceDraftTotals.requestedNet : jobInvoiceDraftTotals.requested)}</dd></div>
+                  </dl>
+                </header>
+
+                <section className="job-billing-mode-panel">
+                  <div className="job-billing-mode-switch" role="tablist" aria-label="Invoice type">
+                    {([
+                      { key: "deposit", label: "Deposit", detail: "Request a percentage before work starts" },
+                      { key: "valuation", label: "Valuation", detail: "Monthly application for payment by cost centre" },
+                      { key: "full", label: "Invoice in full", detail: "Claim the remaining job value" },
+                    ] as const).map((option) => (
+                      <button
+                        key={option.key}
+                        className={jobInvoiceDraft.mode === option.key ? "active" : ""}
+                        type="button"
+                        role="tab"
+                        aria-selected={jobInvoiceDraft.mode === option.key}
+                        onClick={() => updateJobInvoiceDraft({ mode: option.key, retentionPercent: option.key === "valuation" ? jobInvoiceDraft.retentionPercent : 0 })}
+                      >
+                        <strong>{option.label}</strong>
+                        <span>{option.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {jobInvoiceDraft.mode === "deposit" ? (
+                    <div className="deposit-claim-editor">
+                      <div>
+                        <span className="permission-heading">Deposit percentage</span>
+                        <div className="deposit-preset-row">
+                          {[10, 20, 30, 50].map((percent) => (
+                            <button
+                              key={percent}
+                              className={jobInvoiceDraft.depositPercent === percent ? "active" : ""}
+                              type="button"
+                              onClick={() => updateJobInvoiceDraft({ depositPercent: percent })}
+                            >
+                              {percent}%
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <label>
+                        Custom percentage
+                        <div className="input-with-suffix">
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={jobInvoiceDraft.depositPercent}
+                            onChange={(event) => updateJobInvoiceDraft({ depositPercent: Number(event.target.value) || 0 })}
+                          />
+                          <span>%</span>
+                        </div>
+                      </label>
+                      <div className="claim-amount-callout">
+                        <span>Deposit excluding VAT</span>
+                        <strong>{currency(jobInvoiceDraftTotals.requested)}</strong>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {jobInvoiceDraft.mode === "valuation" ? (
+                    <div className="valuation-editor">
+                      <div className="valuation-editor-controls">
+                        <label>
+                          Valuation period
+                          <input
+                            type="month"
+                            value={jobInvoiceDraft.valuationPeriod}
+                            onChange={(event) => updateJobInvoiceDraft({ valuationPeriod: event.target.value })}
+                          />
+                        </label>
+                        <label>
+                          Retention
+                          <div className="input-with-suffix">
+                            <input
+                              type="number"
+                              min="0"
+                              max="20"
+                              step="0.5"
+                              value={jobInvoiceDraft.retentionPercent}
+                              onChange={(event) => updateJobInvoiceDraft({ retentionPercent: Number(event.target.value) || 0 })}
+                            />
+                            <span>%</span>
+                          </div>
+                        </label>
+                      </div>
+                      <div className="valuation-entry-table">
+                        <div className="valuation-entry-head">
+                          <span>Cost centre / work package</span>
+                          <span>Contract value</span>
+                          <span>Previous</span>
+                          <span>This application</span>
+                          <span>Cumulative</span>
+                          <span>Complete</span>
+                        </div>
+                        {jobInvoiceDraft.valuationLines.map((line) => {
+                          const cumulative = line.previousApplications + line.requestedThisPeriod;
+                          const completion = line.contractValue > 0 ? Math.min(100, cumulative / line.contractValue * 100) : 0;
+                          return (
+                            <div className="valuation-entry-row" key={line.id}>
+                              <strong>{line.description}</strong>
+                              <span>{currency(line.contractValue)}</span>
+                              <span>{currency(line.previousApplications)}</span>
+                              <label className="currency-input compact">
+                                <span>£</span>
+                                <input
+                                  aria-label={`${line.description} amount this application`}
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={line.requestedThisPeriod || ""}
+                                  onChange={(event) => updateJobValuationLine(line.id, { requestedThisPeriod: Number(event.target.value) || 0 })}
+                                />
+                              </label>
+                              <span>{currency(cumulative)}</span>
+                              <span>{completion.toFixed(1)}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="valuation-totals-strip">
+                        <div><span>Gross this application</span><strong>{currency(jobInvoiceDraftTotals.requested)}</strong></div>
+                        <div><span>Retention</span><strong>-{currency(jobInvoiceDraftTotals.requestedRetention)}</strong></div>
+                        <div><span>Net claim excluding VAT</span><strong>{currency(jobInvoiceDraftTotals.requestedNet)}</strong></div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {jobInvoiceDraft.mode === "full" ? (
+                    <div className="full-invoice-summary">
+                      <div><span>Original contract value</span><strong>{currency(jobInvoiceDraftTotals.contractValue)}</strong></div>
+                      <div><span>Previous certified claims</span><strong>-{currency(jobInvoiceDraftTotals.previous)}</strong></div>
+                      <div><span>Invoice now excluding VAT</span><strong>{currency(jobInvoiceDraftTotals.requested)}</strong></div>
+                    </div>
+                  ) : null}
+
+                  <label className="job-billing-notes">
+                    Commercial note
+                    <textarea
+                      value={jobInvoiceDraft.notes}
+                      onChange={(event) => updateJobInvoiceDraft({ notes: event.target.value })}
+                      placeholder="Add valuation period, contractor reference, deposit terms or any office note..."
+                    />
+                  </label>
+
+                  <footer className="job-billing-actions">
+                    <button className="secondary-button" type="button" onClick={() => openJobDrawer(jobInvoiceDraftJob.id)}>Cancel</button>
+                    <button className="primary-button" type="button" onClick={createInvoiceClaimFromJob}>
+                      Create {jobInvoiceDraft.mode === "deposit" ? "deposit invoice" : jobInvoiceDraft.mode === "valuation" ? "application for payment" : "invoice in full"}
+                    </button>
+                  </footer>
+                </section>
+              </section>
+            ) : (
+              <div className="simpro-empty-workspace">Select a job before creating a claim.</div>
+            )
           ) : homeView === "invoice-record" ? (
             selectedInvoice ? (
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
                   <div>
-                    <span className="employee-record-eyebrow">Invoice</span>
+                    <span className="employee-record-eyebrow">{selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice"}</span>
                     <h2>{selectedInvoice.ref}</h2>
                     <p>{selectedInvoice.title}</p>
                   </div>
                   <div className="quote-record-stats">
-                    <div>
-                      <strong>{currency(selectedInvoice.chargeTotal)}</strong>
-                      <span>Charge total</span>
-                    </div>
-                    <div>
-                      <strong>{currency(selectedInvoice.costTotal)}</strong>
-                      <span>Cost total</span>
-                    </div>
-                    <div className={selectedInvoiceFinancials.profit >= 0 ? "profit-positive" : "profit-negative"}>
-                      <strong>{currency(selectedInvoiceFinancials.profit)}</strong>
-                      <span>{selectedInvoiceFinancials.margin}% margin</span>
-                    </div>
-                    <div>
-                      <strong>{currency(selectedInvoiceFinancials.grandTotal)}</strong>
-                      <span>Grand total</span>
-                    </div>
+                    {selectedInvoice.claimType === "valuation" ? (
+                      <>
+                        <div><strong>{currency(selectedValuationTotals.contractValue)}</strong><span>Contract value</span></div>
+                        <div><strong>{currency(selectedValuationTotals.previous)}</strong><span>Previous claims</span></div>
+                        <div><strong>{currency(selectedValuationTotals.requestedNet)}</strong><span>Requested net</span></div>
+                        <div><strong>{currency(selectedValuationTotals.agreedNet)}</strong><span>Agreed net</span></div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <strong>{currency(selectedInvoice.chargeTotal)}</strong>
+                          <span>Charge total</span>
+                        </div>
+                        <div>
+                          <strong>{currency(selectedInvoice.costTotal)}</strong>
+                          <span>Cost total</span>
+                        </div>
+                        <div className={selectedInvoiceFinancials.profit >= 0 ? "profit-positive" : "profit-negative"}>
+                          <strong>{currency(selectedInvoiceFinancials.profit)}</strong>
+                          <span>{selectedInvoiceFinancials.margin}% margin</span>
+                        </div>
+                        <div>
+                          <strong>{currency(selectedInvoiceFinancials.grandTotal)}</strong>
+                          <span>Grand total</span>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -21587,6 +22362,120 @@ export default function Dashboard() {
                       </article>
                     </div>
 
+                    {selectedInvoice.valuationLines?.length ? (
+                      <section className="commercial-claim-panel">
+                        <header>
+                          <div>
+                            <span className="permission-heading">Commercial claim</span>
+                            <h2>
+                              {selectedInvoice.claimType === "valuation"
+                                ? "Application for payment"
+                                : selectedInvoice.claimType === "progress-claim"
+                                  ? "Agreed progress claim"
+                                  : selectedInvoice.claimType === "deposit"
+                                    ? "Deposit claim"
+                                    : "Job claim"}
+                            </h2>
+                            <p>
+                              {selectedInvoice.applicationRef ? `${selectedInvoice.applicationRef} · ` : ""}
+                              {selectedInvoice.valuationPeriod || "Current period"}
+                            </p>
+                          </div>
+                          <span className={`status-pill ${selectedInvoice.valuationStatus === "Submitted" ? "amber" : selectedInvoice.valuationStatus === "Progress claim" ? "green" : "blue"}`}>
+                            {selectedInvoice.valuationStatus ?? selectedInvoice.status}
+                          </span>
+                        </header>
+
+                        <div className="valuation-entry-table commercial-review-table">
+                          <div className="valuation-entry-head">
+                            <span>Cost centre / work package</span>
+                            <span>Contract value</span>
+                            <span>Previous</span>
+                            <span>Requested</span>
+                            <span>Agreed</span>
+                            <span>Cumulative agreed</span>
+                          </div>
+                          {selectedInvoice.valuationLines.map((line) => (
+                            <div className="valuation-entry-row" key={line.id}>
+                              <strong>{line.description}</strong>
+                              <span>{currency(line.contractValue)}</span>
+                              <span>{currency(line.previousApplications)}</span>
+                              <span>{currency(line.requestedThisPeriod)}</span>
+                              {selectedInvoice.claimType === "valuation" ? (
+                                <label className="currency-input compact">
+                                  <span>£</span>
+                                  <input
+                                    aria-label={`${line.description} contractor agreed amount`}
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={line.agreedThisPeriod || ""}
+                                    onChange={(event) => updateSelectedValuationAgreement(line.id, Number(event.target.value) || 0)}
+                                  />
+                                </label>
+                              ) : (
+                                <span>{currency(line.agreedThisPeriod)}</span>
+                              )}
+                              <span>{currency(line.previousApplications + line.agreedThisPeriod)}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="valuation-totals-strip">
+                          <div><span>Requested gross</span><strong>{currency(selectedValuationTotals.requested)}</strong></div>
+                          <div><span>Contractor agreed</span><strong>{currency(selectedValuationTotals.agreed)}</strong></div>
+                          <div><span>Retention</span><strong>-{currency(selectedValuationTotals.agreedRetention)}</strong></div>
+                          <div><span>Agreed net claim</span><strong>{currency(selectedValuationTotals.agreedNet)}</strong></div>
+                        </div>
+
+                        {selectedInvoice.claimType === "valuation" ? (
+                          <div className="commercial-claim-actions">
+                            <button className="secondary-button" type="button" onClick={() => setActiveInvoiceTab("preview")}>
+                              Preview application PDF
+                            </button>
+                            {selectedInvoice.valuationStatus === "Draft valuation" ? (
+                              <button className="secondary-button" type="button" onClick={submitSelectedValuation}>
+                                Submit valuation
+                              </button>
+                            ) : null}
+                            <button className="primary-button" type="button" onClick={convertSelectedValuationToProgressClaim}>
+                              Agree &amp; create progress claim
+                            </button>
+                          </div>
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    {selectedInvoice.claimType !== "valuation" ? (
+                      <section className="accounts-handoff-panel">
+                        <header>
+                          <div>
+                            <span className="permission-heading">Accounts and payment</span>
+                            <h2>Xero handoff</h2>
+                          </div>
+                          <span className={`status-pill ${selectedInvoice.accountsStatus === "Sent" ? "green" : selectedInvoice.accountsStatus === "Queued" ? "amber" : "blue"}`}>
+                            {selectedInvoice.accountsStatus ?? "Not sent"}
+                          </span>
+                        </header>
+                        <div className="accounts-handoff-grid">
+                          <div><span>Claim type</span><strong>{selectedInvoice.claimType === "deposit" ? `${selectedInvoice.claimPercent ?? 0}% deposit` : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice in full"}</strong></div>
+                          <div><span>Payment status</span><strong>{selectedInvoice.paymentStatus ?? "Unpaid"}</strong></div>
+                          <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
+                          <div><span>Connector</span><strong>Xero · Not connected</strong></div>
+                        </div>
+                        <footer>
+                          <small>Queueing preserves this handoff. Live export and payment reconciliation will switch on when the Xero connection is configured in Setup.</small>
+                          <div>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Mark part paid</button>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Mark paid</button>
+                            <button className="primary-button" type="button" onClick={queueSelectedInvoiceToAccounts} disabled={selectedInvoice.accountsStatus === "Queued"}>
+                              Queue for Xero
+                            </button>
+                          </div>
+                        </footer>
+                      </section>
+                    ) : null}
+
                     <section className="job-readiness-panel invoice-readiness-panel">
                       <header>
                         <div>
@@ -21620,7 +22509,7 @@ export default function Dashboard() {
                         <header>
                           <div>
                             <span className="permission-heading">Outlook invoice email</span>
-                            <h2>Send final invoice</h2>
+                            <h2>{selectedInvoice.claimType === "valuation" ? "Submit application for payment" : "Send invoice"}</h2>
                           </div>
                           <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
                             {selectedInvoice.status}
@@ -21668,18 +22557,21 @@ export default function Dashboard() {
                           <small>
                             {selectedInvoice.sentAt
                               ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
-                              : selectedInvoiceSourceJob
+                              : selectedInvoiceSourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full")
                                 ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
                                 : "Not sent yet"}
                           </small>
-                          <button className="secondary-button" type="button" onClick={submitSelectedValuation}>
-                            <FileText size={15} />
-                            Submit valuation
-                          </button>
-                          <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
-                            <Mail size={15} />
-                            Email invoice
-                          </button>
+                          {selectedInvoice.claimType === "valuation" ? (
+                            <button className="primary-button" type="button" onClick={submitSelectedValuation}>
+                              <FileText size={15} />
+                              Submit valuation
+                            </button>
+                          ) : (
+                            <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
+                              <Mail size={15} />
+                              Email invoice
+                            </button>
+                          )}
                         </div>
                       </section>
                     ) : null}
@@ -21746,44 +22638,69 @@ export default function Dashboard() {
                 {activeInvoiceTab === "documents" ? <div className="simpro-empty-workspace">{renderDocumentWorkspace("invoice", selectedInvoice.ref)}</div> : null}
 
                 {activeInvoiceTab === "preview" ? (() => {
-                  const template = formTemplateForLayout("invoice");
+                  const isApplication = selectedInvoice.claimType === "valuation" || selectedInvoice.claimType === "progress-claim";
+                  const template = formTemplateForLayout(isApplication ? "application-payment" : "invoice");
                   return (
                     <section className="record-form-preview-workspace">
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Client preview</span>
-                          <h2>Invoice exactly as the customer sees it</h2>
-                          <p>Review wording, lines, VAT, payment details and totals before emailing.</p>
+                          <h2>{isApplication ? "Application exactly as the contractor sees it" : "Invoice exactly as the customer sees it"}</h2>
+                          <p>{isApplication ? "Review the spreadsheet-style valuation, retention and agreed figures before issuing it." : "Review wording, lines, VAT, payment details and totals before emailing."}</p>
                         </div>
                         <div className="setup-template-actions">
                           <button className="secondary-button" type="button" onClick={printDocumentProof}><FileText size={15} /> Print / save PDF</button>
-                          <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor("invoice")}>Edit form template</button>
+                          <button className="secondary-button" type="button" onClick={() => openFormTemplateEditor(isApplication ? "application-payment" : "invoice")}>Edit form template</button>
                         </div>
                       </div>
-                      <PdfDocumentPreview
-                        template={template}
-                        business={businessSettings}
-                        reference={selectedInvoice.ref}
-                        recipient={selectedInvoice.customer}
-                        recipientAddress={selectedInvoiceSite?.address || selectedInvoiceSourceJob?.site || "Address to be confirmed"}
-                        issueLine={`Issued ${selectedInvoice.issuedDate} · Due ${selectedInvoice.dueDate}`}
-                        subject={selectedInvoice.title}
-                        rows={selectedInvoice.lines.map((line) => ({
-                          id: line.id,
-                          description: line.description,
-                          detail: line.category,
-                          value: documentCurrency(line.chargeToClient),
-                        }))}
-                        headerValue={documentCurrency(selectedInvoiceFinancials.grandTotal)}
-                        subtotal={selectedInvoice.chargeTotal}
-                        vat={selectedInvoiceFinancials.vatAmount}
-                        total={selectedInvoiceFinancials.grandTotal}
-                        bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`}
-                        internalSummary={`Internal preview · Cost ${currency(selectedInvoice.costTotal)} · Profit ${currency(selectedInvoiceFinancials.profit)}`}
-                      />
+                      {isApplication && selectedInvoice.valuationLines?.length ? (
+                        <ApplicationPaymentPreview
+                          template={template}
+                          business={businessSettings}
+                          reference={selectedInvoice.applicationRef ?? selectedInvoice.ref}
+                          contractReference={selectedInvoice.sourceRef}
+                          recipient={selectedInvoice.customer}
+                          recipientAddress={selectedInvoiceSite?.address || selectedInvoiceSourceJob?.site || "Address to be confirmed"}
+                          valuationDate={selectedInvoice.issuedDate}
+                          valuationPeriod={selectedInvoice.valuationPeriod ?? "Current period"}
+                          subject={selectedInvoiceSourceJob?.description ?? selectedInvoice.title}
+                          rows={selectedInvoice.valuationLines}
+                          retentionPercent={selectedInvoice.retentionPercent ?? 0}
+                          vatRate={selectedInvoice.vatRate}
+                          status={selectedInvoice.valuationStatus ?? "Draft valuation"}
+                          useAgreedValues={selectedInvoice.claimType === "progress-claim"}
+                          bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`}
+                        />
+                      ) : (
+                        <PdfDocumentPreview
+                          template={template}
+                          business={businessSettings}
+                          reference={selectedInvoice.ref}
+                          recipient={selectedInvoice.customer}
+                          recipientAddress={selectedInvoiceSite?.address || selectedInvoiceSourceJob?.site || "Address to be confirmed"}
+                          issueLine={`Issued ${selectedInvoice.issuedDate} · Due ${selectedInvoice.dueDate}`}
+                          subject={selectedInvoice.title}
+                          rows={selectedInvoice.lines.map((line) => ({
+                            id: line.id,
+                            description: line.description,
+                            detail: line.category,
+                            value: documentCurrency(line.chargeToClient),
+                          }))}
+                          headerValue={documentCurrency(selectedInvoiceFinancials.grandTotal)}
+                          subtotal={selectedInvoice.chargeTotal}
+                          vat={selectedInvoiceFinancials.vatAmount}
+                          total={selectedInvoiceFinancials.grandTotal}
+                          bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · Sort code ${normalizedFinanceSettings.sortCode} · Account ${normalizedFinanceSettings.accountNumber}`}
+                          internalSummary={`Internal preview · Cost ${currency(selectedInvoice.costTotal)} · Profit ${currency(selectedInvoiceFinancials.profit)}`}
+                        />
+                      )}
                       <div className="record-form-preview-actions">
                         <button className="secondary-button" type="button" onClick={() => setActiveInvoiceTab("summary")}>Back to invoice</button>
-                        <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}><Mail size={15} /> Email invoice</button>
+                        {selectedInvoice.claimType === "valuation" ? (
+                          <button className="primary-button" type="button" onClick={submitSelectedValuation}><Mail size={15} /> Submit valuation</button>
+                        ) : (
+                          <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}><Mail size={15} /> Email invoice</button>
+                        )}
                       </div>
                     </section>
                   );
@@ -22539,24 +23456,48 @@ export default function Dashboard() {
                                     <FileText size={15} /> Print / save PDF
                                   </button>
                                 </div>
-                                <PdfDocumentPreview
-                                  template={activeFormTemplate}
-                                  business={businessSettings}
-                                  reference={activeFormTemplate.layout === "purchase-order" ? "PO-1048" : activeFormTemplate.layout === "invoice" ? "INV-2048" : "Q-2065"}
-                                  recipient={activeFormTemplate.layout === "purchase-order" ? "Plumbase Aberdeen" : "Example Client Ltd"}
-                                  recipientAddress="14 Sample Street, Aberdeen, AB10 1AA"
-                                  issueLine="15 July 2026"
-                                  subject={activeFormTemplate.layout === "purchase-order" ? "Materials order for bathroom works" : "Bathroom refurbishment works"}
-                                  rows={activeFormTemplate.includeCostCentreBreakdown || ["invoice", "purchase-order"].includes(activeFormTemplate.layout) ? sampleRows[activeFormTemplate.layout] : [sampleRows[activeFormTemplate.layout][0]!]}
-                                  headerValue={financialLayout ? documentCurrency(subtotal + vat) : "Engineer copy"}
-                                  valueHeading={activeFormTemplate.layout === "job-sheet" ? "Planned" : "Amount"}
-                                  subtotal={financialLayout ? subtotal : undefined}
-                                  vat={financialLayout ? vat : undefined}
-                                  total={financialLayout ? subtotal + vat : undefined}
-                                  bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
-                                  scheduleLines={activeFormTemplate.layout === "job-sheet" ? ["Strip out works · Brian Kerr · 20 July 2026 · 08:00-12:00", "First fix works · Chris Lawson · 21 July 2026 · 08:00-16:00"] : []}
-                                  internalSummary="Internal preview · Cost £1,420 · Projected profit £980"
-                                />
+                                {activeFormTemplate.layout === "application-payment" ? (
+                                  <ApplicationPaymentPreview
+                                    template={activeFormTemplate}
+                                    business={businessSettings}
+                                    reference="APP-1004"
+                                    contractReference="J-1048 · Main contractor package"
+                                    recipient="Example Main Contractor Ltd"
+                                    recipientAddress="14 Sample Street, Aberdeen, AB10 1AA"
+                                    valuationDate="15 July 2026"
+                                    valuationPeriod="July 2026"
+                                    subject="Bathroom refurbishment works"
+                                    rows={[
+                                      { id: "sample-val-1", description: "Strip out works", contractValue: 4200, previousApplications: 2100, requestedThisPeriod: 1050, agreedThisPeriod: 1050 },
+                                      { id: "sample-val-2", description: "First fix plumbing", contractValue: 6800, previousApplications: 1700, requestedThisPeriod: 2380, agreedThisPeriod: 2250 },
+                                      { id: "sample-val-3", description: "Joinery and finishes", contractValue: 5000, previousApplications: 0, requestedThisPeriod: 1500, agreedThisPeriod: 1450 },
+                                      { id: "sample-val-4", description: "Approved variations", contractValue: 1200, previousApplications: 0, requestedThisPeriod: 1200, agreedThisPeriod: 1200 },
+                                    ]}
+                                    retentionPercent={5}
+                                    vatRate={20}
+                                    status="Submitted"
+                                    bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
+                                  />
+                                ) : (
+                                  <PdfDocumentPreview
+                                    template={activeFormTemplate}
+                                    business={businessSettings}
+                                    reference={activeFormTemplate.layout === "purchase-order" ? "PO-1048" : activeFormTemplate.layout === "invoice" ? "INV-2048" : "Q-2065"}
+                                    recipient={activeFormTemplate.layout === "purchase-order" ? "Plumbase Aberdeen" : "Example Client Ltd"}
+                                    recipientAddress="14 Sample Street, Aberdeen, AB10 1AA"
+                                    issueLine="15 July 2026"
+                                    subject={activeFormTemplate.layout === "purchase-order" ? "Materials order for bathroom works" : "Bathroom refurbishment works"}
+                                    rows={activeFormTemplate.includeCostCentreBreakdown || ["invoice", "purchase-order"].includes(activeFormTemplate.layout) ? sampleRows[activeFormTemplate.layout] : [sampleRows[activeFormTemplate.layout][0]!]}
+                                    headerValue={financialLayout ? documentCurrency(subtotal + vat) : "Engineer copy"}
+                                    valueHeading={activeFormTemplate.layout === "job-sheet" ? "Planned" : "Amount"}
+                                    subtotal={financialLayout ? subtotal : undefined}
+                                    vat={financialLayout ? vat : undefined}
+                                    total={financialLayout ? subtotal + vat : undefined}
+                                    bankDetails={`${normalizedFinanceSettings.bankName} · ${normalizedFinanceSettings.accountName} · ${normalizedFinanceSettings.sortCode} · ${normalizedFinanceSettings.accountNumber}`}
+                                    scheduleLines={activeFormTemplate.layout === "job-sheet" ? ["Strip out works · Brian Kerr · 20 July 2026 · 08:00-12:00", "First fix works · Chris Lawson · 21 July 2026 · 08:00-16:00"] : []}
+                                    internalSummary="Internal preview · Cost £1,420 · Projected profit £980"
+                                  />
+                                )}
                               </section>
                             );
                           })()}
@@ -23213,6 +24154,11 @@ export default function Dashboard() {
                           <span>Bank details</span>
                           <strong>{financeSettings.accountName}</strong>
                           <small>{financeSettings.bankName} · {financeSettings.sortCode} · {financeSettings.accountNumber}</small>
+                        </article>
+                        <article>
+                          <span>Accounts connector</span>
+                          <strong>Xero · Not connected</strong>
+                          <small>Invoices and agreed progress claims can be queued now. OAuth export and payment reconciliation are the next integration step.</small>
                         </article>
                       </div>
                     </section>

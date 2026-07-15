@@ -6013,6 +6013,592 @@ h1 {
   padding-top: 10px;
 }
 
+.job-billing-workspace {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.job-billing-header,
+.job-billing-mode-panel,
+.commercial-claim-panel,
+.accounts-handoff-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.job-billing-header {
+  align-items: center;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.job-billing-header h2,
+.commercial-claim-panel h2,
+.accounts-handoff-panel h2 {
+  font-size: 18px;
+  margin: 4px 0;
+}
+
+.job-billing-header p,
+.commercial-claim-panel p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.job-billing-header dl {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  margin: 0;
+  min-width: min(520px, 55%);
+}
+
+.job-billing-header dl > div,
+.accounts-handoff-grid > div,
+.full-invoice-summary > div {
+  background: #f4f9fc;
+  border: 1px solid #dbe8ef;
+  display: grid;
+  gap: 4px;
+  padding: 11px 12px;
+}
+
+.job-billing-header dt,
+.accounts-handoff-grid span,
+.full-invoice-summary span,
+.claim-amount-callout span,
+.valuation-totals-strip span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.job-billing-header dd {
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.job-billing-mode-panel {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+}
+
+.job-billing-mode-switch {
+  background: #eef5f8;
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 1px;
+}
+
+.job-billing-mode-switch button {
+  background: #fff;
+  border: 0;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  min-height: 72px;
+  padding: 13px 15px;
+  text-align: left;
+}
+
+.job-billing-mode-switch button.active {
+  background: #e3f4fb;
+  box-shadow: inset 0 -3px 0 var(--brand);
+}
+
+.job-billing-mode-switch strong {
+  font-size: 13px;
+}
+
+.job-billing-mode-switch span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.deposit-claim-editor,
+.full-invoice-summary {
+  align-items: end;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 0.35fr) minmax(210px, 0.45fr);
+}
+
+.deposit-preset-row {
+  display: flex;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.deposit-preset-row button {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  cursor: pointer;
+  min-height: 36px;
+  padding: 0 16px;
+}
+
+.deposit-preset-row button.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.deposit-claim-editor label,
+.valuation-editor-controls label,
+.job-billing-notes {
+  color: #526169;
+  display: grid;
+  font-size: 10px;
+  font-weight: 800;
+  gap: 7px;
+}
+
+.input-with-suffix {
+  align-items: stretch;
+  border: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+}
+
+.input-with-suffix input {
+  border: 0;
+  min-width: 0;
+}
+
+.input-with-suffix > span {
+  align-items: center;
+  background: #edf5f8;
+  color: var(--ink);
+  display: flex;
+  font-weight: 800;
+  justify-content: center;
+}
+
+.claim-amount-callout {
+  background: #173f59;
+  color: #fff;
+  display: grid;
+  gap: 5px;
+  min-height: 62px;
+  padding: 12px 15px;
+}
+
+.claim-amount-callout span {
+  color: #cfe5ef;
+}
+
+.claim-amount-callout strong {
+  font-size: 21px;
+}
+
+.valuation-editor {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.valuation-editor-controls {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.4fr) minmax(140px, 0.25fr);
+}
+
+.valuation-entry-table {
+  border: 1px solid var(--line);
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.valuation-entry-head,
+.valuation-entry-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(190px, 1.5fr) repeat(5, minmax(105px, 0.65fr));
+  min-width: 820px;
+  padding: 9px 11px;
+}
+
+.valuation-entry-head {
+  background: #edf5f8;
+  color: #476171;
+  font-size: 8px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.valuation-entry-row {
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.valuation-entry-row > span:not(:first-child),
+.valuation-entry-head > span:not(:first-child) {
+  text-align: right;
+}
+
+.currency-input.compact {
+  align-items: stretch;
+  border: 1px solid #cbdde7;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.currency-input.compact > span {
+  align-items: center;
+  background: #edf5f8;
+  color: #496474;
+  display: flex;
+  font-size: 10px;
+  justify-content: center;
+  position: static;
+}
+
+.currency-input.compact input {
+  border: 0;
+  min-width: 0;
+  padding: 8px;
+  text-align: right;
+}
+
+.valuation-totals-strip,
+.accounts-handoff-grid,
+.full-invoice-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.valuation-totals-strip > div {
+  background: #f3f8fa;
+  border-top: 3px solid #3ea8d1;
+  display: grid;
+  gap: 5px;
+  padding: 11px 12px;
+}
+
+.valuation-totals-strip strong,
+.accounts-handoff-grid strong,
+.full-invoice-summary strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.full-invoice-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.job-billing-notes textarea {
+  min-height: 90px;
+}
+
+.job-billing-actions,
+.commercial-claim-actions,
+.accounts-handoff-panel footer {
+  align-items: center;
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+.commercial-claim-panel,
+.accounts-handoff-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.commercial-claim-panel > header,
+.accounts-handoff-panel > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.accounts-handoff-panel footer {
+  justify-content: space-between;
+}
+
+.accounts-handoff-panel footer small {
+  color: var(--muted);
+  line-height: 1.45;
+  max-width: 620px;
+}
+
+.accounts-handoff-panel footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.application-payment-proof-frame {
+  padding: 20px;
+}
+
+.application-payment-page {
+  aspect-ratio: 297 / 210;
+  background: #fff;
+  box-shadow: 0 5px 20px rgba(24, 52, 67, 0.14);
+  box-sizing: border-box;
+  color: #17384c;
+  display: flex;
+  flex-direction: column;
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0 auto;
+  max-width: 1123px;
+  min-width: 900px;
+  padding: 30px 36px 24px;
+  width: 100%;
+}
+
+.application-payment-masthead {
+  align-items: flex-start;
+  border: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 0 16px;
+}
+
+.application-payment-masthead img {
+  height: auto;
+  object-fit: contain;
+  width: 132px;
+}
+
+.application-payment-masthead > div {
+  align-items: flex-end;
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.application-payment-masthead strong {
+  font-size: 11px;
+}
+
+.application-payment-masthead span {
+  color: #667a87;
+  font-size: 8px;
+}
+
+.application-payment-heading {
+  align-items: center;
+  background: #173f59;
+  border-left: 7px solid #3ea8d1;
+  color: #fff;
+  display: flex;
+  justify-content: space-between;
+  min-height: 70px;
+  padding: 12px 18px;
+}
+
+.application-payment-heading h2 {
+  color: #fff;
+  font-size: 23px;
+  margin: 2px 0;
+}
+
+.application-payment-heading span,
+.application-payment-heading small {
+  color: #d7e9f2;
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.application-payment-reference {
+  align-items: flex-end;
+  display: grid;
+  gap: 3px;
+  text-align: right;
+}
+
+.application-payment-reference strong {
+  color: #fff;
+  font-size: 19px;
+}
+
+.application-payment-details {
+  border-bottom: 1px solid #d7e0e5;
+  display: grid;
+  gap: 24px;
+  grid-template-columns: minmax(0, 1.5fr) minmax(250px, 0.8fr);
+  padding: 14px 0;
+}
+
+.application-payment-details dl {
+  display: grid;
+  gap: 0 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.application-payment-details dl > div,
+.application-payment-details > div {
+  display: grid;
+  gap: 3px;
+}
+
+.application-payment-details dt,
+.application-payment-details > div > span {
+  color: #72838e;
+  font-size: 7px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.application-payment-details dd,
+.application-payment-details p {
+  color: #334f5f;
+  font-size: 9px;
+  margin: 0;
+}
+
+.application-payment-details strong {
+  font-size: 11px;
+}
+
+.application-payment-table {
+  border-collapse: collapse;
+  margin-top: 15px;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.application-payment-table th,
+.application-payment-table td {
+  border: 1px solid #ccd9e0;
+  font-size: 8px;
+  padding: 7px 6px;
+  text-align: right;
+  vertical-align: top;
+}
+
+.application-payment-table th {
+  background: #e6f2f7;
+  color: #234b61;
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.application-payment-table th:nth-child(1),
+.application-payment-table td:nth-child(1) {
+  text-align: center;
+  width: 28px;
+}
+
+.application-payment-table th:nth-child(2),
+.application-payment-table td:nth-child(2) {
+  text-align: left;
+  width: 24%;
+}
+
+.application-payment-table tfoot th {
+  background: #d9ebf3;
+  font-weight: 800;
+}
+
+.application-payment-closing {
+  align-items: start;
+  display: grid;
+  gap: 26px;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 0.38fr);
+  margin-top: 15px;
+}
+
+.application-payment-closing > div {
+  display: grid;
+  gap: 4px;
+}
+
+.application-payment-closing > div strong {
+  font-size: 9px;
+}
+
+.application-payment-closing p,
+.application-payment-closing small {
+  color: #607480;
+  font-size: 7px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.application-payment-closing dl {
+  border: 1px solid #cbd9e0;
+  margin: 0;
+}
+
+.application-payment-closing dl > div {
+  display: grid;
+  font-size: 8px;
+  grid-template-columns: 1fr auto;
+  padding: 6px 8px;
+}
+
+.application-payment-closing dl > div + div {
+  border-top: 1px solid #d8e1e6;
+}
+
+.application-payment-closing dt,
+.application-payment-closing dd {
+  margin: 0;
+}
+
+.application-payment-closing dd {
+  font-weight: 800;
+}
+
+.application-payment-closing .amount-due {
+  background: #173f59;
+  color: #fff;
+  font-size: 10px;
+}
+
+.application-payment-signoff {
+  border: 1px solid #cedbe1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-top: 14px;
+}
+
+.application-payment-signoff > div {
+  display: grid;
+  gap: 6px;
+  min-height: 46px;
+  padding: 7px 9px;
+}
+
+.application-payment-signoff > div + div {
+  border-left: 1px solid #cedbe1;
+}
+
+.application-payment-signoff span {
+  color: #72838e;
+  font-size: 7px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.application-payment-signoff strong {
+  font-size: 8px;
+}
+
 .purchase-order-record-shell {
   display: grid;
   gap: 16px;
@@ -20793,12 +21379,53 @@ body {
     min-width: 520px;
     padding: 30px 32px 24px;
   }
+
+  .job-billing-header,
+  .accounts-handoff-panel footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .job-billing-header dl,
+  .job-billing-mode-switch,
+  .deposit-claim-editor,
+  .full-invoice-summary,
+  .valuation-editor-controls,
+  .valuation-totals-strip,
+  .accounts-handoff-grid {
+    grid-template-columns: 1fr;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .job-billing-actions,
+  .commercial-claim-actions,
+  .accounts-handoff-panel footer > div {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .job-billing-actions button,
+  .commercial-claim-actions button,
+  .accounts-handoff-panel footer button {
+    width: 100%;
+  }
+
+  .application-payment-page {
+    min-width: 860px;
+  }
 }
 
 @media print {
   @page {
     margin: 0;
     size: A4 portrait;
+  }
+
+  @page application-landscape {
+    margin: 0;
+    size: A4 landscape;
   }
 
   body * {
@@ -20836,6 +21463,25 @@ body {
     -webkit-print-color-adjust: exact;
   }
 
+  .pdf-proof-frame:has(.application-payment-page) {
+    height: 210mm !important;
+    width: 297mm !important;
+  }
+
+  .application-payment-page {
+    aspect-ratio: auto !important;
+    box-shadow: none !important;
+    margin: 0 !important;
+    max-width: none !important;
+    min-height: 210mm !important;
+    min-width: 297mm !important;
+    page: application-landscape;
+    padding: 9mm 10mm 7mm !important;
+    print-color-adjust: exact;
+    width: 297mm !important;
+    -webkit-print-color-adjust: exact;
+  }
+
   .pdf-document-table thead {
     display: table-header-group;
   }
@@ -20844,6 +21490,17 @@ body {
   .pdf-document-address-grid,
   .pdf-document-closing,
   .pdf-document-acceptance {
+    break-inside: avoid;
+  }
+
+  .application-payment-table thead {
+    display: table-header-group;
+  }
+
+  .application-payment-table tr,
+  .application-payment-details,
+  .application-payment-closing,
+  .application-payment-signoff {
     break-inside: avoid;
   }
 }
