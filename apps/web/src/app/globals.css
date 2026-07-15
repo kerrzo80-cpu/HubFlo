@@ -7948,9 +7948,14 @@ h1 {
 
 .money-input {
   align-items: center;
+  background: #fff;
   border: 1px solid #cfd9de;
+  border-radius: 8px;
+  box-sizing: border-box;
   display: flex;
   height: 39px;
+  overflow: hidden;
+  width: 100%;
 }
 
 .money-input:focus-within {
@@ -7959,18 +7964,109 @@ h1 {
 }
 
 .money-input span {
+  align-items: center;
+  align-self: stretch;
+  background: #f8fafb;
+  border-right: 1px solid #dfe8ed;
   color: var(--muted);
-  padding-left: 10px;
+  display: flex;
+  justify-content: center;
+  min-width: 34px;
+  padding: 0 10px;
 }
 
 .money-input input {
+  background: transparent;
   border: 0;
   box-shadow: none;
+  height: 100%;
+  min-width: 0;
+  padding: 0 10px;
   width: 100%;
 }
 
 .money-input input:focus {
   box-shadow: none;
+}
+
+.po-line-editor {
+  border: 1px solid #dce9ef;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.po-line-editor-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.po-line-editor-header div {
+  display: grid;
+  gap: 3px;
+}
+
+.po-line-editor-header strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.po-line-editor-header span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.po-line-editor-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.po-line-editor-row {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(180px, 1.5fr) minmax(58px, 0.45fr) minmax(110px, 0.75fr) minmax(110px, 0.75fr) minmax(84px, 0.55fr) auto;
+}
+
+.po-line-editor-row label {
+  min-width: 0;
+}
+
+.po-line-editor-row .icon-only {
+  height: 39px;
+  justify-content: center;
+  min-width: 39px;
+  padding: 0;
+}
+
+.po-line-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.po-line-summary span {
+  background: #eef8fc;
+  border: 1px solid #d5edf7;
+  border-radius: 999px;
+  color: #22546b;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+@media (max-width: 900px) {
+  .po-line-editor-row {
+    grid-template-columns: 1fr 72px;
+  }
+
+  .po-line-editor-row label:first-child,
+  .po-line-editor-row .icon-only {
+    grid-column: 1 / -1;
+  }
 }
 
 .form-footer {

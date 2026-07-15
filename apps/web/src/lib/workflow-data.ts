@@ -13,6 +13,7 @@ export type PurchaseStatus =
   | "Requested"
   | "Draft"
   | "Pending cost"
+  | "Part received"
   | "Received"
   | "Disputed"
   | "Approved"
@@ -81,6 +82,7 @@ export interface PurchaseRequest {
   supplier: string;
   supplierEmail?: string;
   item: string;
+  lines?: PurchaseOrderLine[];
   estimatedCost: number;
   actualCost?: number;
   reason: string;
@@ -92,6 +94,15 @@ export interface PurchaseRequest {
   invoiceReceivedAt?: string;
   receivedAt?: string;
   updatedAt?: string;
+}
+
+export interface PurchaseOrderLine {
+  id: string;
+  description: string;
+  quantity: number;
+  estimatedCost: number;
+  actualCost?: number;
+  receivedPercent: number;
 }
 
 export interface WorkflowStore {
@@ -356,7 +367,7 @@ function workflowStoreTimestamp() {
 }
 
 function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
-  return ["Approved", "Issued", "Pending cost", "Received"].includes(status);
+  return ["Approved", "Issued", "Pending cost", "Part received", "Received"].includes(status);
 }
 
 export function getJobs(): Job[] {
@@ -649,6 +660,7 @@ export function createPurchaseRequest(
     estimatedCost: payload.estimatedCost,
     actualCost: payload.actualCost,
     item: payload.item,
+    lines: payload.lines,
     jobId: payload.jobId,
     jobRef: payload.jobRef,
     costCentreId: payload.costCentreId,

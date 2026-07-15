@@ -385,7 +385,7 @@ export function getOfficePoRequests(): EngineerPoRequest[] {
     const status: EngineerPoRequest["status"] = (() => {
       if (request.status === "Rejected") return "Rejected";
       if (request.status === "Approved") return "Approved";
-      if (request.status === "Issued" || request.status === "Received" || request.status === "Pending cost") return "Ordered";
+      if (request.status === "Issued" || request.status === "Received" || request.status === "Pending cost" || request.status === "Part received") return "Ordered";
       return "New";
     })();
     return {

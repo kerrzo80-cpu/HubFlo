@@ -44,6 +44,7 @@ export async function POST(request: Request) {
     supplier: payload.supplier,
     supplierEmail: payload.supplierEmail,
     item: payload.item,
+    lines: payload.lines,
     estimatedCost: payload.estimatedCost ?? 0,
     actualCost: payload.actualCost,
     reason: payload.reason ?? "",

@@ -33,6 +33,7 @@ import {
   UserCheck,
   Users,
   Wrench,
+  X,
 } from "lucide-react";
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
@@ -2983,6 +2984,26 @@ const blankLead: LeadDraft = {
   createdBy: "Carol",
 };
 
+type PurchaseOrderLineDraft = {
+  id: string;
+  description: string;
+  quantity: string;
+  estimatedCost: string;
+  actualCost: string;
+  receivedPercent: string;
+};
+
+function makePurchaseOrderLineDraft(index = 0): PurchaseOrderLineDraft {
+  return {
+    id: `po-line-${index + 1}`,
+    description: "",
+    quantity: "1",
+    estimatedCost: "",
+    actualCost: "",
+    receivedPercent: "0",
+  };
+}
+
 const blankPurchaseRequest = {
   supplier: "",
   supplierEmail: "",
@@ -2992,6 +3013,7 @@ const blankPurchaseRequest = {
   reason: "",
   costCentreId: "",
   invoiceFileName: "",
+  lines: [makePurchaseOrderLineDraft()],
 };
 
 const supplierDirectory = [
@@ -4530,6 +4552,48 @@ function estimateCostCentreTotals(centre: EstimateCostCentre) {
     profit,
     margin: totalSell > 0 ? Math.round((profit / totalSell) * 100) : 0,
   };
+}
+
+function purchaseRequestActualCost(request: PurchaseRequest) {
+  if (request.status === "Rejected") return 0;
+  if (request.lines?.length) {
+    return request.lines.reduce((total, line) => {
+      const receivedRatio = Math.min(100, Math.max(0, line.receivedPercent || 0)) / 100;
+      const lineActual = line.actualCost ?? line.estimatedCost;
+      return total + lineActual * receivedRatio;
+    }, 0);
+  }
+  if (request.status === "Received") return request.actualCost ?? request.estimatedCost;
+  return request.actualCost ?? 0;
+}
+
+function purchaseRequestPendingCost(request: PurchaseRequest) {
+  if (request.status === "Rejected" || request.status === "Received") return 0;
+  if (request.lines?.length) {
+    return request.lines.reduce((total, line) => {
+      const receivedRatio = Math.min(100, Math.max(0, line.receivedPercent || 0)) / 100;
+      return total + line.estimatedCost * (1 - receivedRatio);
+    }, 0);
+  }
+  return request.estimatedCost;
+}
+
+function purchaseRequestReceiptPercent(request: PurchaseRequest) {
+  if (request.lines?.length) {
+    const totalEstimated = request.lines.reduce((total, line) => total + line.estimatedCost, 0);
+    if (totalEstimated <= 0) {
+      const receivedLines = request.lines.filter((line) => (line.receivedPercent || 0) >= 100).length;
+      return Math.round((receivedLines / request.lines.length) * 100);
+    }
+    const receivedValue = request.lines.reduce((total, line) => {
+      const receivedRatio = Math.min(100, Math.max(0, line.receivedPercent || 0)) / 100;
+      return total + line.estimatedCost * receivedRatio;
+    }, 0);
+    return Math.round((receivedValue / totalEstimated) * 100);
+  }
+  if (request.status === "Received") return 100;
+  if (request.status === "Part received") return 50;
+  return 0;
 }
 
 function makeEstimateCostCentre(jobId: string, index: number, name?: string, templateName = "General plumbing"): EstimateCostCentre {
@@ -12713,14 +12777,53 @@ export default function Dashboard() {
     }));
   }
 
+  function updatePurchaseLineDraft(lineId: string, patch: Partial<PurchaseOrderLineDraft>) {
+    setPurchaseDraft((current) => ({
+      ...current,
+      lines: current.lines.map((line) => (line.id === lineId ? { ...line, ...patch } : line)),
+    }));
+  }
+
+  function addPurchaseLineDraft() {
+    setPurchaseDraft((current) => ({
+      ...current,
+      lines: [...current.lines, makePurchaseOrderLineDraft(current.lines.length + 1)],
+    }));
+  }
+
+  function removePurchaseLineDraft(lineId: string) {
+    setPurchaseDraft((current) => ({
+      ...current,
+      lines: current.lines.length > 1 ? current.lines.filter((line) => line.id !== lineId) : [makePurchaseOrderLineDraft()],
+    }));
+  }
+
   async function createPurchaseRequest() {
     const job = selectedJob ?? jobs[0];
-    if (!job || !purchaseDraft.supplier.trim() || !purchaseDraft.item.trim()) return;
+    if (!job || !purchaseDraft.supplier.trim()) return;
     const selectedCostCentre =
       selectedJobEstimateCostCentres.find((centre) => centre.id === purchaseDraft.costCentreId) ??
       selectedJobEstimateCostCentres[0];
 
     try {
+      const lines = purchaseDraft.lines
+        .filter((line) => line.description.trim() || line.estimatedCost.trim() || line.actualCost.trim() || Number(line.receivedPercent) > 0)
+        .map((line, index) => {
+          const receivedPercent = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
+          return {
+            id: line.id || `po-line-${index + 1}`,
+            description: line.description.trim() || `Open material line ${index + 1}`,
+            quantity: Number(line.quantity) || 0,
+            estimatedCost: Number(line.estimatedCost) || 0,
+            actualCost: line.actualCost.trim() ? Number(line.actualCost) || 0 : undefined,
+            receivedPercent,
+          };
+        });
+      const lineEstimatedCost = lines.reduce((total, line) => total + line.estimatedCost, 0);
+      const lineActualCost = lines.reduce((total, line) => total + (line.actualCost ?? 0), 0);
+      const anyLineReceived = lines.some((line) => line.receivedPercent > 0);
+      const allLinesReceived = lines.length > 0 && lines.every((line) => line.receivedPercent >= 100);
+      const receiptStatus = anyLineReceived ? (allLinesReceived ? "Received" : "Part received") : undefined;
       const payload = {
         jobId: job.id,
         jobRef: job.ref,
@@ -12729,16 +12832,17 @@ export default function Dashboard() {
         requestedBy: activeEmployee?.name ?? "NeXa user",
         supplier: purchaseDraft.supplier.trim(),
         supplierEmail: purchaseDraft.supplierEmail.trim(),
-        item: purchaseDraft.item.trim(),
-        estimatedCost: Number(purchaseDraft.estimatedCost) || 0,
-        actualCost: purchaseDraft.actualCost ? Number(purchaseDraft.actualCost) || 0 : undefined,
+        item: purchaseDraft.item.trim() || lines.map((line) => line.description).join("; ") || "Open purchase order - details to follow",
+        lines,
+        estimatedCost: Number(purchaseDraft.estimatedCost) || lineEstimatedCost,
+        actualCost: purchaseDraft.actualCost ? Number(purchaseDraft.actualCost) || 0 : lineActualCost > 0 ? lineActualCost : undefined,
         reason: purchaseDraft.reason.trim() || "Raised by office from cost centre",
         invoiceFileName: purchaseDraft.invoiceFileName.trim(),
       };
       const response = await fetch(editingPurchaseRequestId ? `/api/purchase-requests/${editingPurchaseRequestId}` : "/api/purchase-requests", {
         method: editingPurchaseRequestId ? "PATCH" : "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify(editingPurchaseRequestId ? payload : { ...payload, status: "Draft", createdAt: workflowTimestamp() }),
+        body: JSON.stringify(editingPurchaseRequestId ? { ...payload, ...(receiptStatus ? { status: receiptStatus } : {}) } : { ...payload, status: "Draft", createdAt: workflowTimestamp() }),
       });
 
       if (!response.ok) throw new Error("Unable to save purchase order");
@@ -12785,6 +12889,22 @@ export default function Dashboard() {
       reason: request.reason,
       costCentreId: request.costCentreId ?? "",
       invoiceFileName: request.invoiceFileName ?? "",
+      lines: request.lines?.length
+        ? request.lines.map((line, index) => ({
+            id: line.id || `po-line-${index + 1}`,
+            description: line.description,
+            quantity: String(line.quantity || ""),
+            estimatedCost: String(line.estimatedCost || ""),
+            actualCost: line.actualCost !== undefined ? String(line.actualCost) : "",
+            receivedPercent: String(line.receivedPercent ?? 0),
+          }))
+        : [{
+            ...makePurchaseOrderLineDraft(),
+            description: request.item === "Open purchase order - details to follow" ? "" : request.item,
+            estimatedCost: request.estimatedCost ? String(request.estimatedCost) : "",
+            actualCost: request.actualCost !== undefined ? String(request.actualCost) : "",
+            receivedPercent: request.status === "Received" ? "100" : "0",
+          }],
     });
     setShowPurchaseForm(true);
   }
@@ -12833,11 +12953,20 @@ export default function Dashboard() {
   }
 
   async function receivePurchaseOrderInvoice(request: PurchaseRequest) {
+    const receivedLines = request.lines?.map((line) => ({
+      ...line,
+      actualCost: line.actualCost ?? line.estimatedCost,
+      receivedPercent: 100,
+    }));
+    const actualCost = receivedLines?.length
+      ? receivedLines.reduce((total, line) => total + (line.actualCost ?? line.estimatedCost), 0)
+      : request.actualCost ?? request.estimatedCost;
     await patchPurchaseRequest(
       request.id,
       {
         status: "Received",
-        actualCost: request.actualCost ?? request.estimatedCost,
+        lines: receivedLines,
+        actualCost,
         invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
         invoiceReceivedAt: workflowTimestamp(),
         receivedAt: workflowTimestamp(),
@@ -18446,11 +18575,9 @@ export default function Dashboard() {
                           (!request.costCentreId && request.costCentreName === selectedCostCentre.name),
                         );
                         const pendingPoCost = centrePurchaseRequests
-                          .filter((request) => !["Received", "Rejected"].includes(request.status))
-                          .reduce((total, request) => total + request.estimatedCost, 0);
+                          .reduce((total, request) => total + purchaseRequestPendingCost(request), 0);
                         const actualPoCost = centrePurchaseRequests
-                          .filter((request) => request.status === "Received")
-                          .reduce((total, request) => total + (request.actualCost ?? request.estimatedCost), 0);
+                          .reduce((total, request) => total + purchaseRequestActualCost(request), 0);
                         return (
                           <>
                             <div className="hubflo-total-strip">
@@ -19222,11 +19349,9 @@ export default function Dashboard() {
                       );
                       const requestedCount = costCentrePurchaseRequests.filter((request) => request.status === "Requested").length;
                       const pendingCostTotal = costCentrePurchaseRequests
-                        .filter((request) => !["Received", "Rejected"].includes(request.status))
-                        .reduce((total, request) => total + request.estimatedCost, 0);
+                        .reduce((total, request) => total + purchaseRequestPendingCost(request), 0);
                       const actualCostTotal = costCentrePurchaseRequests
-                        .filter((request) => request.status === "Received")
-                        .reduce((total, request) => total + (request.actualCost ?? request.estimatedCost), 0);
+                        .reduce((total, request) => total + purchaseRequestActualCost(request), 0);
                       return (
                         <>
                           <div className="simpro-parts-header">
@@ -19274,10 +19399,21 @@ export default function Dashboard() {
                                     <strong>{request.poNumber ? `${request.poNumber} · ${request.supplier}` : request.supplier}</strong>
                                     <p>{request.item}</p>
                                     <small>
-                                      {request.reason || "No reason added"} · Est {currency(request.estimatedCost)}
-                                      {request.actualCost !== undefined ? ` · Actual ${currency(request.actualCost)}` : ""}
+                                      {request.reason || "No reason added"} · Pending {currency(purchaseRequestPendingCost(request))}
+                                      {purchaseRequestActualCost(request) > 0 ? ` · Actual ${currency(purchaseRequestActualCost(request))}` : ""}
+                                      {request.lines?.length ? ` · ${purchaseRequestReceiptPercent(request)}% received` : ""}
                                       {request.invoiceFileName ? ` · ${request.invoiceFileName}` : ""}
                                     </small>
+                                    {request.lines?.length ? (
+                                      <div className="po-line-summary">
+                                        {request.lines.slice(0, 3).map((line) => (
+                                          <span key={line.id}>
+                                            {line.description} · {line.receivedPercent}% received
+                                          </span>
+                                        ))}
+                                        {request.lines.length > 3 ? <span>+{request.lines.length - 3} more line(s)</span> : null}
+                                      </div>
+                                    ) : null}
                                   </div>
                                   <div className="cost-centre-po-actions">
                                     <b>{request.poNumber || "Draft PO"}</b>
@@ -19299,7 +19435,7 @@ export default function Dashboard() {
                                         Send to supplier
                                       </button>
                                     ) : null}
-                                    {request.status === "Pending cost" ? (
+                                    {request.status === "Pending cost" || request.status === "Part received" ? (
                                       <button className="primary-button" type="button" onClick={() => receivePurchaseOrderInvoice(request)}>
                                         Mark invoice received
                                       </button>
@@ -22647,9 +22783,60 @@ export default function Dashboard() {
                 </div>
               </label>
               <label className="full-field">
-                Materials / order details
-                <input value={purchaseDraft.item} onChange={(event) => setPurchaseDraft((current) => ({ ...current, item: event.target.value }))} />
+                Order summary (optional)
+                <input
+                  placeholder="Leave blank for an open PO"
+                  value={purchaseDraft.item}
+                  onChange={(event) => setPurchaseDraft((current) => ({ ...current, item: event.target.value }))}
+                />
               </label>
+              <div className="full-field po-line-editor">
+                <div className="po-line-editor-header">
+                  <div>
+                    <strong>Materials / receipt lines</strong>
+                    <span>Add items now, or leave them blank and populate when the supplier invoice arrives.</span>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={addPurchaseLineDraft}>
+                    <Plus size={14} />
+                    Add line
+                  </button>
+                </div>
+                <div className="po-line-editor-grid">
+                  {purchaseDraft.lines.map((line, index) => (
+                    <div className="po-line-editor-row" key={line.id}>
+                      <label>
+                        Item {index + 1}
+                        <input value={line.description} onChange={(event) => updatePurchaseLineDraft(line.id, { description: event.target.value })} />
+                      </label>
+                      <label>
+                        Qty
+                        <input value={line.quantity} onChange={(event) => updatePurchaseLineDraft(line.id, { quantity: event.target.value })} />
+                      </label>
+                      <label>
+                        Est cost
+                        <div className="money-input">
+                          <span>£</span>
+                          <input value={line.estimatedCost} onChange={(event) => updatePurchaseLineDraft(line.id, { estimatedCost: event.target.value })} />
+                        </div>
+                      </label>
+                      <label>
+                        Invoice cost
+                        <div className="money-input">
+                          <span>£</span>
+                          <input value={line.actualCost} onChange={(event) => updatePurchaseLineDraft(line.id, { actualCost: event.target.value })} />
+                        </div>
+                      </label>
+                      <label>
+                        Received %
+                        <input value={line.receivedPercent} onChange={(event) => updatePurchaseLineDraft(line.id, { receivedPercent: event.target.value })} />
+                      </label>
+                      <button className="secondary-button icon-only" type="button" aria-label="Remove PO line" onClick={() => removePurchaseLineDraft(line.id)}>
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
               <label className="full-field">
                 Office note
                 <input value={purchaseDraft.reason} onChange={(event) => setPurchaseDraft((current) => ({ ...current, reason: event.target.value }))} />
