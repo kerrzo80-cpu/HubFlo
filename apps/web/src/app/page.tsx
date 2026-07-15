@@ -4646,6 +4646,62 @@ function timeToMinutes(time: string) {
   return hours * 60 + minutes;
 }
 
+function plannerDateTime(date: string, time: string) {
+  const dateMatch = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const timeMatch = time.match(/^(\d{2}):(\d{2})$/);
+  if (!dateMatch || !timeMatch) return null;
+
+  const [, year, month, day] = dateMatch;
+  const [, hours, minutes] = timeMatch;
+  const value = new Date(Number(year), Number(month) - 1, Number(day), Number(hours), Number(minutes));
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function plannerInputDate(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function plannerInputTime(value: Date) {
+  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+}
+
+function finishFromPlannedHours(startDate: string, startTime: string, hours: string | number) {
+  const start = plannerDateTime(startDate, startTime);
+  const plannedHours = Number(hours);
+  if (!start || !Number.isFinite(plannedHours) || plannedHours <= 0) return null;
+
+  const dailyHours = 8;
+  const anchorHours = start.getHours();
+  const anchorMinutes = start.getMinutes();
+  const finish = new Date(start);
+  let remaining = plannedHours;
+
+  while (remaining > 0) {
+    const currentDayHours = Math.min(dailyHours, remaining);
+    finish.setMinutes(finish.getMinutes() + Math.round(currentDayHours * 60));
+    remaining = Math.max(0, remaining - currentDayHours);
+    if (remaining > 0) {
+      finish.setDate(finish.getDate() + 1);
+      finish.setHours(anchorHours, anchorMinutes, 0, 0);
+    }
+  }
+
+  return {
+    endDate: plannerInputDate(finish),
+    endTime: plannerInputTime(finish),
+  };
+}
+
+function plannerDateLabel(value: string) {
+  const date = plannerDateTime(value, "12:00");
+  return date
+    ? new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short" }).format(date)
+    : value;
+}
+
 function timeRangesOverlap(firstStart: string, secondStart: string, durationMinutes = surveyDurationMinutes) {
   const first = timeToMinutes(firstStart);
   const second = timeToMinutes(secondStart);
@@ -5334,20 +5390,41 @@ export default function Dashboard() {
     [jobSchedulePlans, selectedJob],
   );
 
+  const selectedJobGanttDays = useMemo(() => {
+    if (selectedJobScheduleAssignments.length === 0) return [];
+    const serials = selectedJobScheduleAssignments.flatMap((assignment) => [
+      dateOnlySerial(assignment.startDate),
+      dateOnlySerial(assignment.endDate),
+    ]).filter((value): value is number => value !== null);
+    if (serials.length === 0) return [];
+
+    const firstDay = Math.min(...serials);
+    const lastDay = Math.max(...serials);
+    const dayCount = Math.max(1, Math.round((lastDay - firstDay) / 86_400_000) + 1);
+    return Array.from({ length: dayCount }, (_, index) => {
+      const value = new Date(firstDay + index * 86_400_000);
+      return value.toISOString().slice(0, 10);
+    });
+  }, [selectedJobScheduleAssignments]);
+
   const selectedJobScheduleDraft = useMemo(
-    () =>
-      selectedJob
-        ? jobScheduleDrafts[selectedJob.id] ?? {
+    () => {
+      if (!selectedJob) return null;
+      const startDate = selectedJob.scheduledDate ?? "";
+      const startTime = selectedJob.scheduledTime ?? "08:00";
+      const plannedHours = String(selectedJob.scheduledDurationHours ?? 4);
+      const automaticFinish = finishFromPlannedHours(startDate, startTime, plannedHours);
+      return jobScheduleDrafts[selectedJob.id] ?? {
             costCentreId: "",
             employeeId: employees.find((employee) => employee.name === selectedJob.manager)?.id ?? employees[0]?.id ?? "",
-            startDate: selectedJob.scheduledDate ?? "",
-            startTime: selectedJob.scheduledTime ?? "08:00",
-            endDate: selectedJob.scheduledDate ?? "",
-            endTime: "12:00",
-            plannedHours: String(selectedJob.scheduledDurationHours ?? 4),
+            startDate,
+            startTime,
+            endDate: automaticFinish?.endDate ?? startDate,
+            endTime: automaticFinish?.endTime ?? "12:00",
+            plannedHours,
             notes: "",
-          }
-        : null,
+          };
+    },
     [employees, jobScheduleDrafts, selectedJob],
   );
 
@@ -9382,9 +9459,17 @@ export default function Dashboard() {
         plannedHours: String(selectedJob.scheduledDurationHours ?? 4),
         notes: "",
       };
+      const next = { ...existing, ...patch };
+      if ("startDate" in patch || "startTime" in patch || "plannedHours" in patch) {
+        const automaticFinish = finishFromPlannedHours(next.startDate, next.startTime, next.plannedHours);
+        if (automaticFinish) {
+          next.endDate = automaticFinish.endDate;
+          next.endTime = automaticFinish.endTime;
+        }
+      }
       return {
         ...current,
-        [selectedJob.id]: { ...existing, ...patch },
+        [selectedJob.id]: next,
       };
     });
   }
@@ -19329,6 +19414,9 @@ export default function Dashboard() {
                               onChange={(event) => updateSelectedJobScheduleDraft({ plannedHours: event.target.value })}
                             />
                           </label>
+                          <p className="job-plan-finish-note">
+                            Finish updates automatically using 8-hour workdays. You can overwrite the end date or time.
+                          </p>
                           <label className="job-plan-notes-field">
                             Work notes
                             <input
@@ -19362,30 +19450,88 @@ export default function Dashboard() {
                     </section>
 
                     {selectedJobScheduleAssignments.length > 0 ? (
-                      <div className="job-plan-programme">
-                        <div className="job-plan-programme-head">
-                          <span>Cost centre / engineer</span>
-                          <span>Start</span>
-                          <span>Finish</span>
-                          <span>Hours</span>
-                          <span>Actions</span>
-                        </div>
-                        {selectedJobScheduleAssignments.map((assignment) => (
-                          <article className="job-plan-programme-row" key={assignment.id}>
+                      <div className="job-plan-results">
+                        <section className="job-gantt-board" aria-label="Job programme Gantt chart">
+                          <div className="job-gantt-title">
                             <div>
-                              <strong>{assignment.costCentreName}</strong>
-                              <span>{assignment.employeeName}</span>
-                              {assignment.notes ? <small>{assignment.notes}</small> : null}
+                              <span className="permission-heading">Programme</span>
+                              <h3>Cost centre Gantt</h3>
                             </div>
-                            <time>{assignment.startDate}<strong>{assignment.startTime}</strong></time>
-                            <time>{assignment.endDate}<strong>{assignment.endTime}</strong></time>
-                            <b>{assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h</b>
-                            <div className="job-plan-row-actions">
-                              <button className="simpro-options-button" type="button" onClick={() => editJobScheduleAssignment(assignment)}>Edit</button>
-                              <button className="simpro-options-button danger" type="button" onClick={() => removeJobScheduleAssignment(assignment.id)}>Delete</button>
+                            <small>{selectedJobGanttDays.length} day{selectedJobGanttDays.length === 1 ? "" : "s"} shown</small>
+                          </div>
+                          <div className="job-gantt-scroll">
+                            <div
+                              className="job-gantt-grid job-gantt-grid-head"
+                              style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length}, minmax(48px, 1fr)) 58px` }}
+                            >
+                              <span>Work package</span>
+                              {selectedJobGanttDays.map((day) => <time key={day}>{plannerDateLabel(day)}</time>)}
+                              <span>Hours</span>
                             </div>
-                          </article>
-                        ))}
+                            {selectedJobScheduleAssignments.map((assignment, assignmentIndex) => {
+                              const startIndex = selectedJobGanttDays.indexOf(assignment.startDate);
+                              const endIndex = selectedJobGanttDays.indexOf(assignment.endDate);
+                              return (
+                                <article
+                                  className="job-gantt-grid job-gantt-grid-row"
+                                  key={assignment.id}
+                                  style={{ gridTemplateColumns: `minmax(190px, 1.2fr) repeat(${selectedJobGanttDays.length}, minmax(48px, 1fr)) 58px` }}
+                                >
+                                  <div className="job-gantt-work-package">
+                                    <strong>{assignment.costCentreName}</strong>
+                                    <span>{assignment.employeeName}</span>
+                                  </div>
+                                  {selectedJobGanttDays.map((day, dayIndex) => (
+                                    <span
+                                      className="job-gantt-day-cell"
+                                      key={day}
+                                      style={{ gridColumn: dayIndex + 2 }}
+                                      aria-hidden="true"
+                                    />
+                                  ))}
+                                  {startIndex >= 0 && endIndex >= startIndex ? (
+                                    <div
+                                      className={`job-gantt-bar tone-${assignmentIndex % 4}`}
+                                      style={{ gridColumn: `${startIndex + 2} / ${endIndex + 3}` }}
+                                      title={`${assignment.costCentreName}: ${assignment.startDate} ${assignment.startTime} to ${assignment.endDate} ${assignment.endTime}`}
+                                    >
+                                      <span>{assignment.startTime} - {assignment.endTime}</span>
+                                    </div>
+                                  ) : null}
+                                  <b className="job-gantt-hours" style={{ gridColumn: selectedJobGanttDays.length + 2 }}>
+                                    {assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h
+                                  </b>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        </section>
+
+                        <div className="job-plan-programme">
+                          <div className="job-plan-programme-head">
+                            <span>Cost centre / engineer</span>
+                            <span>Start</span>
+                            <span>Finish</span>
+                            <span>Hours</span>
+                            <span>Actions</span>
+                          </div>
+                          {selectedJobScheduleAssignments.map((assignment) => (
+                            <article className="job-plan-programme-row" key={assignment.id}>
+                              <div>
+                                <strong>{assignment.costCentreName}</strong>
+                                <span>{assignment.employeeName}</span>
+                                {assignment.notes ? <small>{assignment.notes}</small> : null}
+                              </div>
+                              <time>{assignment.startDate}<strong>{assignment.startTime}</strong></time>
+                              <time>{assignment.endDate}<strong>{assignment.endTime}</strong></time>
+                              <b>{assignment.plannedHours.toFixed(assignment.plannedHours % 1 ? 2 : 0)}h</b>
+                              <div className="job-plan-row-actions">
+                                <button className="simpro-options-button" type="button" onClick={() => editJobScheduleAssignment(assignment)}>Edit</button>
+                                <button className="simpro-options-button danger" type="button" onClick={() => removeJobScheduleAssignment(assignment.id)}>Delete</button>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
                       </div>
                     ) : (
                       <div className="quote-planner-empty">

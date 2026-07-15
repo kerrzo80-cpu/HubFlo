@@ -2410,6 +2410,166 @@ h1 {
   grid-column: span 2;
 }
 
+.job-plan-finish-note {
+  align-self: center;
+  color: var(--muted);
+  font-size: 11px;
+  grid-column: span 2;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.job-plan-results {
+  display: grid;
+  gap: 14px;
+}
+
+.job-gantt-board {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.job-gantt-title {
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.job-gantt-title > div {
+  display: grid;
+  gap: 2px;
+}
+
+.job-gantt-title h3 {
+  color: var(--ink);
+  font-size: 15px;
+  margin: 0;
+}
+
+.job-gantt-title small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.job-gantt-scroll {
+  overflow-x: auto;
+}
+
+.job-gantt-grid {
+  align-items: stretch;
+  display: grid;
+  min-width: max-content;
+}
+
+.job-gantt-grid-head {
+  background: #f4f9fb;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.job-gantt-grid-head > span,
+.job-gantt-grid-head > time {
+  align-items: center;
+  border-right: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: center;
+  min-height: 38px;
+  padding: 5px;
+  text-align: center;
+}
+
+.job-gantt-grid-head > span:first-child {
+  justify-content: flex-start;
+  padding-left: 14px;
+}
+
+.job-gantt-grid-row {
+  border-top: 1px solid var(--line-soft);
+  min-height: 58px;
+  position: relative;
+}
+
+.job-gantt-grid-row > * {
+  grid-row: 1;
+}
+
+.job-gantt-work-package {
+  align-content: center;
+  display: grid;
+  gap: 3px;
+  grid-column: 1;
+  min-width: 0;
+  padding: 8px 14px;
+}
+
+.job-gantt-work-package strong,
+.job-gantt-work-package span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-gantt-work-package strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.job-gantt-work-package span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.job-gantt-day-cell {
+  border-left: 1px solid var(--line-soft);
+}
+
+.job-gantt-bar {
+  align-self: center;
+  background: #2f9fc4;
+  border-radius: 4px;
+  color: #fff;
+  display: flex;
+  justify-content: center;
+  margin: 0 4px;
+  min-height: 28px;
+  overflow: hidden;
+  padding: 7px 8px;
+  position: relative;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.job-gantt-bar span {
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.job-gantt-bar.tone-1 {
+  background: #2377a4;
+}
+
+.job-gantt-bar.tone-2 {
+  background: #2c8f7b;
+}
+
+.job-gantt-bar.tone-3 {
+  background: #9b7b32;
+}
+
+.job-gantt-hours {
+  align-items: center;
+  color: var(--ink);
+  display: flex;
+  font-size: 11px;
+  justify-content: center;
+}
+
 .job-plan-programme {
   background: #fff;
   border: 1px solid var(--line);
@@ -19088,9 +19248,16 @@ body {
 
   .job-plan-cost-centre-field,
   .job-plan-notes-field,
+  .job-plan-finish-note,
   .job-plan-programme-row > div:first-child,
   .job-plan-row-actions {
     grid-column: auto;
+  }
+
+  .job-gantt-title {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .job-planner-summary-strip {
