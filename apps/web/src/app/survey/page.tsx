@@ -6,6 +6,7 @@ import {
   Bot,
   Camera,
   CheckCircle2,
+  ClipboardCheck,
   FileText,
   ImagePlus,
   Info,
@@ -876,6 +877,10 @@ export default function SurveyPage() {
           <span>NeXa Survey</span>
         </div>
         <div className="takeoff-header-actions">
+          <a className="takeoff-ghost-button" href="/survey/guided">
+            <ClipboardCheck size={16} />
+            Guided surveys
+          </a>
           <a className="takeoff-ghost-button" href="/">
             <ArrowLeft size={16} />
             Core
