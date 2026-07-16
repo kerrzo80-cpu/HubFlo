@@ -1,11 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { employeeHeaderName, permissionHeaderName, roleHeaderName } from "@/lib/access";
+import { getAuthUserForSession, isUserAuthenticationEnabled, nexaSessionCookie } from "@/lib/auth-store";
+
 const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const publicAssetPrefixes = ["/app-icons/"];
+const userAuthPublicPaths = new Set(["/api/auth/login", "/api/health"]);
 const publicAssetPaths = new Set([
+  "/ewg-logo.png",
   "/apple-icon.png",
   "/icon.png",
   "/manifest-core.json",
@@ -52,6 +57,37 @@ export function proxy(request: NextRequest) {
   if (publicAssetPaths.has(pathname) || publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
+
+  if (isUserAuthenticationEnabled()) {
+    if (userAuthPublicPaths.has(pathname)) return NextResponse.next();
+    const user = getAuthUserForSession(request.cookies.get(nexaSessionCookie)?.value);
+    if (pathname === "/login") {
+      if (!user) return NextResponse.next();
+      const workspaceUrl = request.nextUrl.clone();
+      workspaceUrl.pathname = "/";
+      workspaceUrl.search = "";
+      return NextResponse.redirect(workspaceUrl);
+    }
+    if (!user) {
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+      }
+      const loginUrl = request.nextUrl.clone();
+      loginUrl.pathname = "/login";
+      loginUrl.search = "";
+      loginUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(roleHeaderName, user.role);
+    requestHeaders.set(employeeHeaderName, user.employeeId || user.id);
+    requestHeaders.set(permissionHeaderName, JSON.stringify(user.permissions));
+    requestHeaders.set("x-nexa-auth-user-id", user.id);
+    requestHeaders.set("x-nexa-auth-user-name", user.name);
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   if (!pilotPin) return NextResponse.next();
 
   const expectedPilotSession = expectedPilotSessionValue();

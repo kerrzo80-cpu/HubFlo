@@ -1,6 +1,7 @@
 import { appendAuditEvent, getClientSites, type AuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
@@ -647,7 +648,7 @@ const seedProject: TakeoffProject = {
 };
 
 const defaultTakeoffStore: TakeoffStore = {
-  projects: [seedProject],
+  projects: useDemoSeedData() ? [seedProject] : [],
 };
 
 const takeoffStore = loadServerStore("takeoff-store", defaultTakeoffStore);
@@ -1927,7 +1928,7 @@ export function deleteTakeoffProject(id: string): TakeoffProject | null {
 }
 
 export function resetTakeoffStore(): TakeoffStore {
-  takeoffStore.projects = [clone(seedProject)];
+  takeoffStore.projects = useDemoSeedData() ? [clone(seedProject)] : [];
   persistTakeoffStore();
   return clone(takeoffStore);
 }

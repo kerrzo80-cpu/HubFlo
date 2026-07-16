@@ -1563,6 +1563,18 @@ type LoginDraft = {
   password: string;
 };
 
+type ServerAuthUser = {
+  id: string;
+  employeeId?: string;
+  name: string;
+  username: string;
+  role: HubRole;
+  permissions: AccessOverride;
+  enabled: boolean;
+};
+
+type ServerWorkspaceMode = "checking" | "demo" | "live";
+
 type TrustedEmployeeSession = {
   employeeId: string;
   issuedAt: string;
@@ -2627,8 +2639,16 @@ function withDefaultEmployeeLogin(employee: EmployeeCard): EmployeeCard {
   };
 }
 
-function normalizeEmployeeCards(records: EmployeeCard[]) {
-  const normalized = records.map(withDefaultEmployeeLogin);
+function normalizeEmployeeCards(records: EmployeeCard[], includeSeedEmployees = true) {
+  const normalized = includeSeedEmployees
+    ? records.map(withDefaultEmployeeLogin)
+    : records.map((employee) => ({
+        ...employee,
+        permissions: { ...(employee.permissions ?? {}) },
+        profile: employee.profile ? { ...employee.profile } : undefined,
+        login: undefined,
+      }));
+  if (!includeSeedEmployees) return normalized;
   const seedById = new Map(seedEmployees.map((employee) => [employee.id, employee]));
   const retiredDemoEmployeeIds = new Set(["emp-kerry", "emp-scott", "emp-jamie"]);
   const retiredDemoEmployeeNames = new Set(["Kerry Watson", "Scott Reid", "Jamie Fox", "Chris Watson"]);
@@ -3134,8 +3154,13 @@ const leadSources: LeadSource[] = ["Phone call", "Checkatrade", "Email", "Websit
 const leadStatuses: LeadStatus[] = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"];
 const surveyorOptions = ["Brian Kerr", "Errol Watson", "Chris Lawson"];
 const surveyDurationMinutes = 60;
-const currentOperatingDate = "2026-07-01";
-const scheduleToday = "2026-07-15";
+const currentOperatingDate = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/London",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+}).format(new Date());
+const scheduleToday = currentOperatingDate;
 const defaultLeadQuoteGraceDays = 3;
 const defaultQuoteResponseGraceDays = 3;
 const defaultWorkflowRules: WorkflowRulesSettings = {
@@ -3209,13 +3234,29 @@ const surveyorAvailability: Record<string, EmployeeAvailability> = {
   },
 };
 
-const schedulerDays = [
-  { date: "2026-06-22", label: "Mon 22 Jun" },
-  { date: "2026-06-23", label: "Tue 23 Jun" },
-  { date: "2026-06-24", label: "Wed 24 Jun" },
-  { date: "2026-06-25", label: "Thu 25 Jun" },
-  { date: "2026-06-26", label: "Fri 26 Jun" },
-];
+function makeSchedulerWeek(anchorDate: string) {
+  const anchor = new Date(`${anchorDate}T12:00:00Z`);
+  const mondayOffset = anchor.getUTCDay() === 0 ? -6 : 1 - anchor.getUTCDay();
+  return Array.from({ length: 5 }, (_, index) => {
+    const date = new Date(anchor);
+    date.setUTCDate(anchor.getUTCDate() + mondayOffset + index);
+    return {
+      date: date.toISOString().slice(0, 10),
+      label: new Intl.DateTimeFormat("en-GB", {
+        timeZone: "UTC",
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+      }).format(date),
+    };
+  });
+}
+
+const schedulerDays = makeSchedulerWeek(scheduleToday);
+const currentOperatingDateLabel = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  dateStyle: "full",
+}).format(new Date(`${currentOperatingDate}T12:00:00Z`));
 
 const postcodeDirectory = [
   {
@@ -5565,8 +5606,12 @@ export default function Dashboard() {
   const [loggedInEmployeeId, setLoggedInEmployeeId] = useState<string | null>(null);
   const [loginDraft, setLoginDraft] = useState<LoginDraft>({ username: "", password: "" });
   const [loginError, setLoginError] = useState("");
+  const [serverAuthMode, setServerAuthMode] = useState<"checking" | "pilot" | "users">("checking");
+  const [serverWorkspaceMode, setServerWorkspaceMode] = useState<ServerWorkspaceMode>("checking");
+  const [serverAuthUser, setServerAuthUser] = useState<ServerAuthUser | null>(null);
   const [activeClientId, setActiveClientId] = useState(seedClients[0]?.id ?? "");
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
+  const [newEmployeeId, setNewEmployeeId] = useState<string | null>(null);
   const [employeePermissionDraft, setEmployeePermissionDraft] = useState<AccessOverride>({});
   const [employeeRoleDraft, setEmployeeRoleDraft] = useState<HubRole>("Manager");
   const [employeeProfileDraft, setEmployeeProfileDraft] = useState<EmployeeProfileDraft>(
@@ -6714,11 +6759,61 @@ export default function Dashboard() {
   ]);
 
   useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/me")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to read authentication session");
+        return (await response.json()) as {
+          mode?: "pilot" | "users";
+          workspaceMode?: "demo" | "live";
+          user?: ServerAuthUser | null;
+        };
+      })
+      .then((result) => {
+        if (cancelled) return;
+        setServerAuthMode(result.mode === "users" ? "users" : "pilot");
+        setServerWorkspaceMode(result.workspaceMode === "live" ? "live" : "demo");
+        setServerAuthUser(result.user ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setServerAuthMode("pilot");
+          setServerWorkspaceMode("demo");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (serverAuthMode !== "users" || !serverAuthUser) return;
+    const employeeId = serverAuthUser.employeeId || serverAuthUser.id;
+    setEmployees((current) => {
+      if (current.some((employee) => employee.id === employeeId)) return current;
+      return [
+        ...current,
+        {
+          id: employeeId,
+          name: serverAuthUser.name,
+          role: serverAuthUser.role,
+          permissions: { ...serverAuthUser.permissions },
+          profile: { roleLabel: serverAuthUser.role },
+        },
+      ];
+    });
+    setLoggedInEmployeeId(employeeId);
+    setActiveEmployeeId(employeeId);
+  }, [serverAuthMode, serverAuthUser]);
+
+  useEffect(() => {
     if (!editingEmployeeId || !activeEditingEmployee) return;
+    if (editingEmployeeId === newEmployeeId) return;
     setEmployeeRoleDraft(activeEditingEmployee.role);
     setEmployeePermissionDraft({ ...(activeEditingEmployee.permissions ?? {}) });
-    setEmployeeProfileDraft(makeEmployeeProfileDraft(activeEditingEmployee));
-  }, [editingEmployeeId, activeEditingEmployee]);
+    const draft = makeEmployeeProfileDraft(activeEditingEmployee);
+    setEmployeeProfileDraft(serverAuthMode === "users" ? { ...draft, loginPassword: "" } : draft);
+  }, [editingEmployeeId, activeEditingEmployee, newEmployeeId, serverAuthMode]);
 
   useEffect(() => {
     if (homeView !== "dashboard" && isDashboardCustomising) {
@@ -6731,16 +6826,28 @@ export default function Dashboard() {
   }, [quoteCostCentres]);
 
   useEffect(() => {
-    const storedEmployees = normalizeEmployeeCards(
-      safeLoadStoredJson(STORAGE_KEYS.employees, normalizeEmployeeCards(seedEmployees)),
-    );
-    const storedEmployeeSession = safeLoadStoredJson<string | TrustedEmployeeSession | null>(
-      STORAGE_KEYS.activeEmployeeSession,
-      null,
-    );
+    if (serverAuthMode === "checking" || serverWorkspaceMode === "checking" || hasHydratedLocalData) return;
+    const isLiveWorkspace = serverWorkspaceMode === "live";
+    const authenticatedEmployee = serverAuthUser
+      ? normalizeEmployeeCards([{
+          id: serverAuthUser.employeeId || serverAuthUser.id,
+          name: serverAuthUser.name,
+          role: serverAuthUser.role,
+          permissions: { ...serverAuthUser.permissions },
+          profile: { roleLabel: serverAuthUser.role },
+        }], false)[0]
+      : undefined;
+    const storedEmployees = isLiveWorkspace
+      ? (authenticatedEmployee ? [authenticatedEmployee] : [])
+      : normalizeEmployeeCards(
+          safeLoadStoredJson(STORAGE_KEYS.employees, normalizeEmployeeCards(seedEmployees)),
+        );
+    const storedEmployeeSession = isLiveWorkspace
+      ? authenticatedEmployee?.id ?? null
+      : safeLoadStoredJson<string | TrustedEmployeeSession | null>(STORAGE_KEYS.activeEmployeeSession, null);
     const storedSessionEmployeeId = resolveTrustedEmployeeSession(storedEmployeeSession, storedEmployees);
     const storedSessionEmployee = storedEmployees.find((employee) => employee.id === storedSessionEmployeeId);
-    const storedClients = safeLoadStoredJson(STORAGE_KEYS.clients, seedClients);
+    const storedClients = isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.clients, seedClients);
 
     setEmployees(storedEmployees);
     setDashboardLayouts(normalizeDashboardLayouts(safeLoadStoredJson(STORAGE_KEYS.dashboardLayouts, {})));
@@ -6750,18 +6857,18 @@ export default function Dashboard() {
       clearTrustedEmployeeSession();
     }
     setClients(storedClients);
-    setClientSites(safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
-    setAuditEvents(safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
-    setActiveClientId(storedClients[0]?.id ?? seedClients[0]?.id ?? "");
-    const storedQuoteCostCentres = safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
-    const storedQuoteSections = safeLoadStoredJson(STORAGE_KEYS.quoteSections, {});
-    const storedQuoteSchedulePlans = safeLoadStoredJson(STORAGE_KEYS.quoteSchedulePlans, {});
-    const storedJobSchedulePlans = safeLoadStoredJson(STORAGE_KEYS.jobSchedulePlans, {});
-    setJobs(safeLoadStoredJson(STORAGE_KEYS.jobs, demoJobs));
-    setQuotes(safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes).map((quote) => quoteWithCostCentreValue(quote, storedQuoteCostCentres)));
-    setLeads(safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
-    setPurchaseRequests(safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
-    setInvoices(safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices));
+    setClientSites(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
+    setAuditEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
+    setActiveClientId(storedClients[0]?.id ?? "");
+    const storedQuoteCostCentres = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
+    const storedQuoteSections = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.quoteSections, {});
+    const storedQuoteSchedulePlans = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.quoteSchedulePlans, {});
+    const storedJobSchedulePlans = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobSchedulePlans, {});
+    setJobs(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.jobs, demoJobs));
+    setQuotes(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.quotes, demoQuotes).map((quote) => quoteWithCostCentreValue(quote, storedQuoteCostCentres)));
+    setLeads(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.leads, demoLeads));
+    setPurchaseRequests(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.purchaseRequests, []));
+    setInvoices(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.invoices, demoInvoices));
     setBusinessSettings(safeLoadStoredJson(STORAGE_KEYS.businessSettings, defaultBusinessSettings));
     const storedFormTemplates = normalizeFormTemplates(safeLoadStoredJson(STORAGE_KEYS.formTemplates, defaultFormTemplates));
     setFormTemplates(storedFormTemplates);
@@ -6789,20 +6896,20 @@ export default function Dashboard() {
         storedCostCentreTypes,
       ),
     );
-    setFlowStepCompletion(safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
+    setFlowStepCompletion(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
     setQuoteCostCentres(storedQuoteCostCentres);
     setQuoteSections(storedQuoteSections);
     setQuoteSchedulePlans(storedQuoteSchedulePlans);
     setJobSchedulePlans(storedJobSchedulePlans);
-    setCustomQuoteCatalog(safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
-    setJobEstimateCostCentres(safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
-    setJobSections(safeLoadStoredJson(STORAGE_KEYS.jobSections, {}));
-    setJobReviewApprovals(safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
-    setJobDeliveryEvents(safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
-    setJobVariationSections(safeLoadStoredJson(STORAGE_KEYS.jobVariationSections, {}));
-    setCommunicationRecords(safeLoadStoredJson(STORAGE_KEYS.communications, []));
+    setCustomQuoteCatalog(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
+    setJobEstimateCostCentres(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
+    setJobSections(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobSections, {}));
+    setJobReviewApprovals(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
+    setJobDeliveryEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
+    setJobVariationSections(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobVariationSections, {}));
+    setCommunicationRecords(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.communications, []));
     setHasHydratedLocalData(true);
-  }, []);
+  }, [hasHydratedLocalData, serverAuthMode, serverAuthUser, serverWorkspaceMode]);
 
   useEffect(() => {
     if (!hasHydratedLocalData) return;
@@ -6868,7 +6975,10 @@ export default function Dashboard() {
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
           if (hubState.employees?.length) {
-            const nextEmployees = normalizeEmployeeCards(hubState.employees);
+            const nextEmployees = normalizeEmployeeCards(
+              hubState.employees as EmployeeCard[],
+              serverWorkspaceMode !== "live",
+            );
             setEmployees(nextEmployees);
             setLoggedInEmployeeId((current) => {
               if (current && nextEmployees.some((employee) => employee.id === current)) return current;
@@ -6959,7 +7069,7 @@ export default function Dashboard() {
       stopped = true;
       clearInterval(timer);
     };
-  }, [hasHydratedLocalData, requestHeaders]);
+  }, [hasHydratedLocalData, requestHeaders, serverWorkspaceMode]);
 
   function buildHubDetailStatePayload(): HubDetailStatePayload {
     return {
@@ -9037,6 +9147,12 @@ export default function Dashboard() {
   }
 
   function signOutEmployee() {
+    if (serverAuthMode === "users") {
+      fetch("/api/auth/logout", { method: "POST" })
+        .catch(() => null)
+        .finally(() => window.location.assign("/login"));
+      return;
+    }
     if (activeEmployee) {
       logAuditEvent({
         actor: activeEmployee.name,
@@ -9877,7 +9993,38 @@ export default function Dashboard() {
     setHomeView("employee-card");
   }
 
+  function createEmployeeCard() {
+    const employeeId = `emp-${crypto.randomUUID()}`;
+    const employee: EmployeeCard = {
+      id: employeeId,
+      name: "New employee",
+      role: "Engineer",
+      permissions: {},
+      profile: {
+        roleLabel: "Engineer",
+        licenses: [],
+        documents: [],
+        emergencyContacts: [],
+        availability: { ...blankEmployeeAvailability },
+      },
+      login: { username: "", password: "", enabled: true },
+    };
+    setEmployees((current) => [...current, employee]);
+    setNewEmployeeId(employeeId);
+    setEditingEmployeeId(employeeId);
+    setEmployeeRoleDraft("Engineer");
+    setEmployeePermissionDraft({});
+    setEmployeeProfileDraft({ ...createBlankEmployeeProfileDraft(), name: "", roleLabel: "Engineer" });
+    setActiveEmployeeTab("details");
+    setHomeView("employee-card");
+    scrollWorkspaceToTop();
+  }
+
   function returnToEmployeeDirectory() {
+    if (newEmployeeId) {
+      setEmployees((current) => current.filter((employee) => employee.id !== newEmployeeId));
+      setNewEmployeeId(null);
+    }
     setHomeView("employees");
     clearEmployeeEditingState();
   }
@@ -14356,7 +14503,7 @@ export default function Dashboard() {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
 
-  function saveEmployeeDetails() {
+  async function saveEmployeeDetails() {
     if (!editingEmployeeId) return;
 
     const cleanedLicenses = employeeProfileDraft.licenses.filter(
@@ -14377,7 +14524,11 @@ export default function Dashboard() {
       (document) => document.label.trim() || document.fileName.trim(),
     );
 
-    const savedEmployeeName = employeeProfileDraft.name.trim() || activeEditingEmployee?.name || "Employee";
+    const savedEmployeeName = employeeProfileDraft.name.trim();
+    if (!savedEmployeeName) {
+      showNotice("Enter the employee's name before saving.");
+      return;
+    }
     const savedEmployeeEmail = employeeProfileDraft.email.trim();
     const savedLoginUsername =
       normalizeLoginInput(employeeProfileDraft.loginUsername) ||
@@ -14385,10 +14536,54 @@ export default function Dashboard() {
         name: savedEmployeeName,
         profile: savedEmployeeEmail ? { email: savedEmployeeEmail } : undefined,
       });
-    const savedLoginPassword =
-      employeeProfileDraft.loginPassword.trim() ||
-      activeEditingEmployee?.login?.password ||
-      "EWG2026";
+    const enteredLoginPassword = employeeProfileDraft.loginPassword.trim();
+    const savedLoginPassword = serverAuthMode === "users"
+      ? ""
+      : enteredLoginPassword || activeEditingEmployee?.login?.password || "EWG2026";
+
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (!usersResponse.ok) throw new Error("Unable to read secure user accounts.");
+        const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+        const existingAuthUser = authUsers.find((user) => user.employeeId === editingEmployeeId);
+        if (employeeProfileDraft.loginEnabled && !existingAuthUser && enteredLoginPassword.length < 10) {
+          showNotice("Set a password of at least 10 characters for this new login.");
+          setActiveEmployeeTab("login");
+          return;
+        }
+
+        const payload = {
+          employeeId: editingEmployeeId,
+          name: savedEmployeeName,
+          username: savedLoginUsername,
+          role: employeeRoleDraft,
+          permissions: employeePermissionDraft,
+          enabled: employeeProfileDraft.loginEnabled,
+          ...(enteredLoginPassword ? { password: enteredLoginPassword } : {}),
+        };
+        const response = existingAuthUser
+          ? await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            })
+          : employeeProfileDraft.loginEnabled
+            ? await fetch("/api/auth/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              })
+            : null;
+        if (response && !response.ok) {
+          const result = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(result.error || "Unable to save the secure login.");
+        }
+      } catch (error) {
+        showNotice(error instanceof Error ? error.message : "Unable to save the secure login.");
+        return;
+      }
+    }
 
     setEmployees((current) =>
       current.map((employee) =>
@@ -14441,6 +14636,7 @@ export default function Dashboard() {
       source: "web",
       importance: employeeRoleDraft === "Finance" ? "high" : "normal",
     });
+    setNewEmployeeId(null);
     showNotice("Employee card updated.");
   }
 
@@ -16322,7 +16518,7 @@ export default function Dashboard() {
     { label: "New job", icon: Wrench, onClick: createJobFromMenu },
   ];
 
-  if (!hasHydratedLocalData) {
+  if (!hasHydratedLocalData || serverAuthMode === "checking") {
     return (
       <div className="employee-login-shell">
         <section className="employee-login-card loading">
@@ -16333,7 +16529,7 @@ export default function Dashboard() {
     );
   }
 
-  if (!isEmployeeLoggedIn) {
+  if (serverAuthMode !== "users" && !isEmployeeLoggedIn) {
     const enabledEmployeeLogins = employees
       .map(withDefaultEmployeeLogin)
       .filter((employee) => employee.login?.enabled);
@@ -16872,7 +17068,7 @@ export default function Dashboard() {
                       ? `${clients.length} client accounts and ${clientSites.length} live sites in NeXa`
                   : homeView === "employees"
                     ? `${employees.length} employees onboarded in NeXa`
-                    : "Monday, 22 June 2026 · Live business position"}
+                    : `${currentOperatingDateLabel} · Live business position`}
               </p>
             </div>
 
@@ -25750,9 +25946,15 @@ export default function Dashboard() {
                   <h2>Employee cards</h2>
                   <p>Select an employee to open their full employee card.</p>
                 </div>
-                <button className="link-button" onClick={returnToDashboard}>
-                  Back to dashboard
-                </button>
+                <div className="panel-header-actions">
+                  <button className="secondary-button" type="button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button className="primary-button" type="button" onClick={createEmployeeCard}>
+                    <Plus size={16} />
+                    Add employee
+                  </button>
+                </div>
               </div>
 
               <div className="employee-directory-grid">
@@ -26245,7 +26447,9 @@ export default function Dashboard() {
                         <div>
                           <strong>Employee login</strong>
                           <small>
-                            This pilot login controls who the audit log records as the active user.
+                            {serverAuthMode === "users"
+                              ? "This account is verified by the server and controls permissions and audit history."
+                              : "This pilot login controls who the audit log records as the active user."}
                           </small>
                         </div>
                         <label className="employee-login-toggle">
@@ -26276,10 +26480,11 @@ export default function Dashboard() {
                         />
                       </label>
                       <label>
-                        Pilot password
+                        {serverAuthMode === "users" ? "New password" : "Pilot password"}
                         <input
                           autoComplete="new-password"
-                          type="text"
+                          placeholder={serverAuthMode === "users" ? "Leave blank to keep the current password" : undefined}
+                          type={serverAuthMode === "users" ? "password" : "text"}
                           value={employeeProfileDraft.loginPassword}
                           onChange={(event) =>
                             setEmployeeProfileDraft((current) => ({
@@ -26292,7 +26497,9 @@ export default function Dashboard() {
                       <div className="full-field employee-empty-panel">
                         <strong>Activity trace</strong>
                         <span>
-                          Last sign-in: {activeEditingEmployee.login?.lastLoginAt ?? "No login recorded yet"}
+                          {serverAuthMode === "users"
+                            ? "Secure sign-ins and account changes are recorded in the audit log."
+                            : `Last sign-in: ${activeEditingEmployee.login?.lastLoginAt ?? "No login recorded yet"}`}
                         </span>
                       </div>
                     </div>

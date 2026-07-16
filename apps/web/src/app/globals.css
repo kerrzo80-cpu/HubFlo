@@ -249,6 +249,57 @@
 .estimate-source p { color: var(--est-muted); display: grid; font-size: 11px; gap: 5px; line-height: 1.5; margin: 9px 0; }
 .estimate-source p strong { color: var(--est-ink); }
 
+.nexa-secure-login {
+  align-items: center;
+  background: #eef7fa;
+  color: #17212b;
+  display: flex;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.nexa-secure-login > section {
+  background: #fff;
+  border: 1px solid #d5e3e9;
+  border-radius: 8px;
+  box-shadow: 0 18px 55px rgba(23, 69, 88, 0.12);
+  display: grid;
+  gap: 26px;
+  margin: auto;
+  max-width: 460px;
+  padding: 30px;
+  width: 100%;
+}
+
+.nexa-secure-login-brand {
+  align-items: center;
+  border-bottom: 1px solid #e5edf1;
+  display: flex;
+  gap: 16px;
+  padding-bottom: 20px;
+}
+
+.nexa-secure-login-brand img { height: 54px; object-fit: contain; width: 150px; }
+.nexa-secure-login-brand span { border-left: 1px solid #d5e3e9; display: grid; gap: 2px; padding-left: 16px; }
+.nexa-secure-login-brand strong { font-size: 20px; }
+.nexa-secure-login-brand small { color: #667680; font-size: 11px; }
+.nexa-secure-login-heading { align-items: flex-start; display: flex; gap: 12px; }
+.nexa-secure-login-heading > span { align-items: center; background: #e7f5f2; border-radius: 6px; color: #237567; display: flex; height: 36px; justify-content: center; width: 36px; }
+.nexa-secure-login-heading h1 { font-size: 25px; margin: 0 0 5px; }
+.nexa-secure-login-heading p { color: #667680; line-height: 1.5; margin: 0; }
+.nexa-secure-login form { display: grid; gap: 16px; }
+.nexa-secure-login label { color: #44545e; display: grid; font-size: 12px; font-weight: 700; gap: 7px; }
+.nexa-secure-login input { border: 1px solid #bfcfd7; border-radius: 6px; color: #17212b; font: inherit; min-height: 44px; padding: 0 12px; }
+.nexa-secure-login input:focus { border-color: #2e8c7d; box-shadow: 0 0 0 3px rgba(46, 140, 125, 0.12); outline: 0; }
+.nexa-secure-login button { align-items: center; background: #087eac; border: 1px solid #087eac; border-radius: 6px; color: #fff; display: flex; font: inherit; font-weight: 700; gap: 8px; justify-content: center; min-height: 44px; }
+.nexa-secure-login-error { background: #fff0f1; border: 1px solid #efc7ca; border-radius: 6px; color: #a53036; font-size: 12px; margin: 0; padding: 10px 12px; }
+
+@media (max-width: 520px) {
+  .nexa-secure-login { align-items: stretch; padding: 0; }
+  .nexa-secure-login > section { border: 0; border-radius: 0; box-shadow: none; max-width: none; min-height: 100vh; padding: 28px 22px; }
+  .nexa-secure-login-brand img { width: 130px; }
+}
+
 .estimator-modal-backdrop { align-items: center; background: rgb(11 32 43 / 54%); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 100; }
 .estimator-modal { background: #fff; border-radius: 8px; box-shadow: 0 20px 60px rgb(8 40 54 / 22%); max-height: calc(100vh - 40px); max-width: 720px; overflow-y: auto; width: 100%; }
 .estimator-modal > header { align-items: flex-start; border-bottom: 1px solid var(--est-line); display: flex; justify-content: space-between; padding: 18px 20px; }
@@ -1640,9 +1691,14 @@ body {
   background: var(--canvas);
   color: var(--ink);
   font-family:
-    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
   font-size: 13px;
+  font-synthesis: none;
+  line-height: 1.45;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
@@ -2335,6 +2391,13 @@ kbd {
   gap: 12px;
   margin: 0 auto;
   max-width: 1540px;
+}
+
+.panel-header-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .client-directory-panel,
@@ -15804,7 +15867,7 @@ body {
     radial-gradient(circle at 90% 0%, rgba(13, 110, 253, 0.12), transparent 25rem),
     linear-gradient(180deg, #050506 0%, #0a0a0c 54%, #070809 100%);
   color: var(--ivory);
-  font-family: Sora, Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 .platform {
@@ -17698,8 +17761,8 @@ body {
 .engineer-brand-copy strong,
 .verrova-client-lockup strong {
   color: var(--nexa-slate) !important;
-  font-family: Sora, "Space Grotesk", Inter, ui-sans-serif, system-ui, sans-serif !important;
-  font-weight: 760 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+  font-weight: 700 !important;
   letter-spacing: 0 !important;
 }
 

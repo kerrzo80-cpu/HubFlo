@@ -1,5 +1,6 @@
 import { getHubDetailState } from "@/lib/hub-detail-store";
 import { getJobs, getPurchaseRequests, type Job } from "@/lib/workflow-data";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type EngineerJobStatus = "Scheduled" | "Needs parts" | "Ready to complete";
 export type RequirementStatus = "done" | "missing" | "optional";
@@ -186,6 +187,10 @@ export const engineerSchedule: EngineerScheduleItem[] = [
     ],
   },
 ];
+
+function demoEngineerSchedule() {
+  return useDemoSeedData() ? engineerSchedule : [];
+}
 
 function addHours(time: string, hours: number) {
   const [hourRaw, minuteRaw] = time.split(":");
@@ -480,7 +485,7 @@ export function getEngineerSchedule(engineerId?: string) {
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [
     ...liveItems,
-    ...engineerSchedule.filter((item) => !liveJobIds.has(item.jobId)),
+    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId)),
   ].map(withCostCentreOptions);
   return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
 }
@@ -511,7 +516,7 @@ export function getOfficePoRequests(): EngineerPoRequest[] {
     };
   });
 
-  const seedRequests: EngineerPoRequest[] = engineerSchedule
+  const seedRequests: EngineerPoRequest[] = demoEngineerSchedule()
     .filter((item) => item.status === "Needs parts")
     .map((item) => ({
       id: `po-${item.scheduleId}`,
@@ -531,7 +536,7 @@ export function getOfficePoRequests(): EngineerPoRequest[] {
 }
 
 export function getOfficeAlerts(): OfficeAlert[] {
-  const stopGoAlerts = engineerSchedule
+  const stopGoAlerts = demoEngineerSchedule()
     .flatMap((item) =>
       item.requirements
         .filter((requirement) => requirement.status === "missing")
@@ -549,7 +554,7 @@ export function getOfficeAlerts(): OfficeAlert[] {
         })),
     );
 
-  const outcomeAlerts = engineerSchedule
+  const outcomeAlerts = demoEngineerSchedule()
     .filter((item) => item.status === "Needs parts")
     .map((item) => ({
       id: `alert-${item.scheduleId}-parts`,

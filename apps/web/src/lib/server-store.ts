@@ -85,6 +85,13 @@ export function loadServerStore<T>(name: string, fallback: T): T {
   const sqliteValue = readSqliteStore<T>(name);
   if (sqliteValue) return sqliteValue;
 
+  // A production workspace must never inherit local pilot/demo JSON when its
+  // persistent SQLite disk is created for the first time.
+  if (getSqliteStore() && process.env.NEXA_WORKSPACE_MODE?.trim().toLowerCase() === "live") {
+    writeServerStore(name, seeded);
+    return seeded;
+  }
+
   const jsonValue = readJsonStore<T>(name);
   if (jsonValue) {
     writeServerStore(name, jsonValue);

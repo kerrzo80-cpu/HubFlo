@@ -1,4 +1,5 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 import {
   seedClientSites,
   seedClients,
@@ -35,8 +36,8 @@ function timestamp() {
 }
 
 const seedPeopleStore: PeopleStore = {
-  clients: clone(seedClients),
-  clientSites: clone(seedClientSites),
+  clients: useDemoSeedData() ? clone(seedClients) : [],
+  clientSites: useDemoSeedData() ? clone(seedClientSites) : [],
   auditEvents: [],
 };
 

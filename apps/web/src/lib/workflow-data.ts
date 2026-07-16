@@ -6,6 +6,7 @@ import {
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type JobHealth = "red" | "amber" | "green" | "blue";
 export type QuoteStatus = "Draft" | "Sent" | "Accepted" | "Declined" | "Converted" | "Lost";
@@ -272,9 +273,9 @@ export const quoteStatuses: QuoteStatus[] = [
 ];
 
 const defaultStore: WorkflowStore = {
-  jobs: clone(seedJobs),
-  quotes: clone(seedQuotes),
-  purchaseRequests: clone(seedPurchaseRequests),
+  jobs: useDemoSeedData() ? clone(seedJobs) : [],
+  quotes: useDemoSeedData() ? clone(seedQuotes) : [],
+  purchaseRequests: useDemoSeedData() ? clone(seedPurchaseRequests) : [],
 };
 
 const workflowStore = loadServerStore("workflow-store", defaultStore);

@@ -1,47 +1,43 @@
 services:
   - type: web
-    name: nexa-pilot
+    name: nexa-live
     runtime: node
     region: frankfurt
     plan: starter
-    autoDeploy: true
+    autoDeploy: false
     healthCheckPath: /api/health
     buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm --filter @hubflo/web build
     startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
     disk:
-      name: nexa-pilot-data
+      name: nexa-live-data
       mountPath: /var/data
       sizeGB: 5
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
       - key: NEXA_STORE_PATH
-        value: /var/data/nexa-pilot.sqlite
+        value: /var/data/nexa-live.sqlite
       - key: NEXA_WORKSPACE_MODE
-        value: demo
-      - key: NEXA_PILOT_USER
-        value: nexa
-      - key: NEXA_PILOT_PIN
+        value: live
+      - key: NEXA_AUTH_MODE
+        value: users
+      - key: NEXA_ADMIN_NAME
+        value: Brian Kerr
+      - key: NEXA_ADMIN_USERNAME
+        value: brian.kerr
+      - key: NEXA_ADMIN_EMPLOYEE_ID
+        value: emp-brian
+      - key: NEXA_ADMIN_PASSWORD
         sync: false
       - key: NEXT_PUBLIC_APP_URL
-        value: https://nexa-pilot.onrender.com
-      - key: SIMPRO_QUOTE_PUSH_URL
-        sync: false
-      - key: SIMPRO_QUOTE_PUSH_TOKEN
-        sync: false
-      - key: SIMPRO_SCHEDULER_BASE_URL
-        value: https://ewg-hub-scheduler.onrender.com
-      - key: SIMPRO_SCHEDULER_QUOTE_PUSH_URL
-        sync: false
-      - key: SIMPRO_SCHEDULER_HUB_PASSWORD
-        sync: false
+        value: https://nexa-live.onrender.com
       - key: SIMPRO_API_BASE_URL
         sync: false
       - key: SIMPRO_ACCESS_TOKEN
         sync: false
       - key: SIMPRO_COMPANY_ID
         sync: false
-      - key: SIMPRO_DEFAULT_CUSTOMER_ID
+      - key: SIMPRO_WEBHOOK_SECRET
         sync: false
-      - key: SIMPRO_DEFAULT_SITE_ID
+      - key: OPENAI_API_KEY
         sync: false

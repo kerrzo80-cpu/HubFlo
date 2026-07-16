@@ -295,20 +295,6 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     };
   }
 
-  if (scheduler.hasAnyConfig) {
-    return {
-      configured: false,
-      mode: "missing",
-      missing: scheduler.missing,
-      endpoint: scheduler.endpoint,
-      detectedEnvKeys,
-      sourceNames: {
-        schedulerUrl: scheduler.sourceNames.schedulerUrl,
-        schedulerPassword: scheduler.sourceNames.schedulerPassword,
-      },
-    };
-  }
-
   const direct = getDirectConfig();
   if (direct.configured) {
     return {
@@ -318,6 +304,23 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       endpoint: `${direct.baseUrl}/companies/${direct.companyId}/quotes/`,
       detectedEnvKeys,
       sourceNames: {
+        directBaseUrl: direct.sourceNames.baseUrl,
+        directToken: direct.sourceNames.token,
+        companyId: direct.sourceNames.companyId,
+      },
+    };
+  }
+
+  if (scheduler.hasAnyConfig) {
+    return {
+      configured: false,
+      mode: "missing",
+      missing: [...scheduler.missing, ...direct.missing],
+      endpoint: scheduler.endpoint,
+      detectedEnvKeys,
+      sourceNames: {
+        schedulerUrl: scheduler.sourceNames.schedulerUrl,
+        schedulerPassword: scheduler.sourceNames.schedulerPassword,
         directBaseUrl: direct.sourceNames.baseUrl,
         directToken: direct.sourceNames.token,
         companyId: direct.sourceNames.companyId,

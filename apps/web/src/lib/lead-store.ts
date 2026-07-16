@@ -8,6 +8,7 @@ import {
   type ClientSite,
 } from "@/lib/people-data";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
 export type LeadStatus = "New enquiry" | "Needs scheduling" | "Survey booked" | "Quoted" | "Lost";
@@ -137,7 +138,7 @@ type LeadStoreState = {
 };
 
 const defaultLeadStore: LeadStoreState = {
-  leads: clone(seedLeads),
+  leads: useDemoSeedData() ? clone(seedLeads) : [],
 };
 
 const leadStore = loadServerStore("lead-store", defaultLeadStore);

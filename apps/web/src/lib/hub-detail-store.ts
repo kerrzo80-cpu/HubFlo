@@ -1,4 +1,5 @@
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { useDemoSeedData } from "@/lib/workspace-mode";
 
 export type HubDetailState = {
   businessSettings?: Record<string, unknown>;
@@ -30,7 +31,14 @@ export type HubDetailState = {
   updatedAt?: string;
 };
 
-const defaultHubDetailState: HubDetailState = {};
+const defaultHubDetailState: HubDetailState = useDemoSeedData()
+  ? {}
+  : {
+      invoices: [],
+      communications: [],
+      jobDeliveryEvents: [],
+      simproExports: [],
+    };
 
 const hubDetailState = loadServerStore("hub-detail-store", defaultHubDetailState);
 
