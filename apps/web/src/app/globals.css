@@ -765,9 +765,58 @@
 .guided-form-grid label.wide,
 .guided-add-form label.wide,
 .guided-photo-upload label.wide,
+.guided-job-type-suggestion.wide,
 .guided-add-form .guided-checkboxes,
 .guided-add-form .guided-primary-action {
   grid-column: 1 / -1;
+}
+
+.guided-form-grid label small {
+  color: #66818d;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.guided-job-type-suggestion {
+  align-items: center;
+  background: linear-gradient(135deg, #e9fbf9, #fffaf0);
+  border: 1px solid #bfeeea;
+  border-radius: 8px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 13px 14px;
+}
+
+.guided-job-type-suggestion span {
+  display: grid;
+  gap: 3px;
+}
+
+.guided-job-type-suggestion strong {
+  color: var(--guided-ink);
+  font-size: 13px;
+}
+
+.guided-job-type-suggestion small {
+  color: #5f7b85;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.guided-job-type-suggestion button,
+.guided-question-set-meta button {
+  background: #fff;
+  border: 1px solid #a9deda;
+  border-radius: 7px;
+  color: var(--guided-blue-dark);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  min-height: 36px;
+  padding: 0 13px;
 }
 
 .guided-additional-contacts,
@@ -890,6 +939,27 @@
 
 .guided-question-list {
   display: grid;
+}
+
+.guided-question-set-card {
+  margin-bottom: 14px;
+}
+
+.guided-question-set-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.guided-question-set-meta span {
+  background: var(--guided-blue-soft);
+  border-radius: 999px;
+  color: var(--guided-blue-dark);
+  font-size: 11px;
+  font-weight: 900;
+  padding: 7px 10px;
 }
 
 .guided-question-list > article {

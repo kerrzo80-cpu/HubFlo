@@ -220,6 +220,12 @@ export type SurveyQuestionDefinition = {
   jobTypes?: SurveyJobType[];
 };
 
+export type SurveyQuestionSet = {
+  jobType: SurveyJobType;
+  intro: string;
+  questions: SurveyQuestionDefinition[];
+};
+
 export type SurveyCompletionIssue = {
   code: string;
   section: string;
@@ -373,18 +379,33 @@ export type EstimateRecord = {
   updatedAt: string;
 };
 
-const commonQuestions: SurveyQuestionDefinition[] = [
-  { key: "water-supply-stopcock", section: "Existing conditions", question: "Where are the incoming water supply and stopcock, and are they accessible?", required: true },
-  { key: "drainage-waste-routes", section: "Existing conditions", question: "What drainage and waste routes are available?", required: true },
-  { key: "electrical-supply", section: "Existing conditions", question: "What electrical supply and controls are present?", required: true },
-  { key: "heating-drain-down", section: "Existing conditions", question: "How can the heating system be drained down and refilled?", required: false },
+const siteBaselineQuestions: SurveyQuestionDefinition[] = [
   { key: "access-construction", section: "Access and construction", question: "Record loft, floor and wall access plus wall, floor and ceiling construction.", required: true },
   { key: "parking-restrictions", section: "Access and construction", question: "Record parking, access and working restrictions.", required: false },
   { key: "asbestos-safety", section: "Safety", question: "Are there known or suspected asbestos or other safety concerns?", required: true, safetyCritical: true },
   { key: "builders-work", section: "Access and construction", question: "What builder's work, core drilling, fire stopping or making good is required?", required: false },
 ];
 
+const waterAndWasteQuestions: SurveyQuestionDefinition[] = [
+  { key: "water-supply-stopcock", section: "Existing conditions", question: "Where are the incoming water supply and stopcock, and are they accessible?", required: true },
+  { key: "drainage-waste-routes", section: "Existing conditions", question: "What drainage and waste routes are available?", required: true },
+];
+
+const heatingSystemQuestions: SurveyQuestionDefinition[] = [
+  { key: "existing-heating-system", section: "Heating", question: "Record the existing heat source, controls, pipe sizes and system condition.", required: true },
+  { key: "heating-drain-down", section: "Heating", question: "How can the heating system be isolated, drained down, refilled and tested?", required: true },
+];
+
+const electricalSupplyQuestion: SurveyQuestionDefinition = {
+  key: "electrical-supply",
+  section: "Electrical",
+  question: "What electrical supply, isolators and controls are present or affected by these works?",
+  required: true,
+};
+
 const boilerQuestions: SurveyQuestionDefinition[] = [
+  ...heatingSystemQuestions,
+  electricalSupplyQuestion,
   { key: "existing-boiler", section: "Boiler", question: "Record the existing boiler make, model, serial number, condition and whether it will be reused.", required: true },
   { key: "gas-meter-supply", section: "Gas", question: "Record the gas meter position, incoming supply and existing pipe size.", required: true, safetyCritical: true },
   { key: "proposed-boiler-position", section: "Boiler", question: "Where is the proposed boiler position and what clearances or cupboard access apply?", required: true },
@@ -395,38 +416,99 @@ const boilerQuestions: SurveyQuestionDefinition[] = [
 
 const jobSpecificQuestions: Partial<Record<SurveyJobType, SurveyQuestionDefinition[]>> = {
   "Bathroom or wet room": [
+    ...waterAndWasteQuestions,
     { key: "sanitaryware", section: "Bathroom", question: "Record sanitaryware, showers and baths to remove, reuse or install.", required: true },
     { key: "waterproofing-finishes", section: "Bathroom", question: "Record tanking, wet wall, tiling, flooring and making-good scope.", required: true },
+    { ...electricalSupplyQuestion, required: false, question: "Record fan, lighting, shaver point, electric shower or other electrical items only if affected." },
   ],
   "Boiler change": boilerQuestions,
   "Boiler relocation": boilerQuestions,
   "Heating alterations": [
-    { key: "existing-heating-system", section: "Heating", question: "Record the existing heat source, controls, pipe sizes and system condition.", required: true },
+    ...heatingSystemQuestions,
     { key: "heating-alterations", section: "Heating", question: "Record each heating alteration and the proposed pipe route.", required: true },
+    { key: "heating-controls-affected", section: "Controls", question: "Are controls, wiring or thermostats affected by the heating alteration?", required: false },
   ],
   "Full heating system": [
-    { key: "existing-heating-system", section: "Heating", question: "Record the existing heat source, controls, pipe sizes and system condition.", required: true },
+    ...heatingSystemQuestions,
+    electricalSupplyQuestion,
     { key: "design-temperatures", section: "Heating", question: "Record design temperatures, heat-loss dependencies and emitter requirements.", required: true },
   ],
   "Radiators or towel rails": [
-    { key: "emitter-requirements", section: "Heating", question: "Record each emitter position, size/output requirement, valves and pipe route.", required: true },
+    ...heatingSystemQuestions,
+    { key: "emitter-requirements", section: "Radiators", question: "Record each radiator or towel rail being moved, reused, replaced or newly supplied.", required: true },
+    { key: "radiator-pipe-routes", section: "Radiators", question: "Record existing and proposed radiator positions, pipe routes, pipe sizes, valves and access/making-good.", required: true },
   ],
   ASHP: [
+    ...heatingSystemQuestions,
+    electricalSupplyQuestion,
     { key: "ashp-design", section: "ASHP", question: "Record outdoor unit, cylinder, emitter, noise, heat-loss and electrical design dependencies.", required: true },
   ],
   "Underfloor heating": [
+    ...heatingSystemQuestions,
+    electricalSupplyQuestion,
     { key: "ufh-build-up", section: "UFH", question: "Record floor build-up, manifold, zones, insulation, coverings and controls.", required: true },
   ],
   "Kitchen plumbing": [
+    ...waterAndWasteQuestions,
     { key: "kitchen-appliances", section: "Kitchen", question: "Record sink, appliances, hot/cold and waste connections.", required: true },
   ],
   "Commercial or tender work": [
     { key: "tender-documents", section: "Tender", question: "Record drawing, specification, programme, access and commercial dependencies.", required: true },
   ],
+  "General plumbing": waterAndWasteQuestions,
 };
 
+const questionSetIntros: Record<SurveyJobType, string> = {
+  "Bathroom or wet room": "Bathroom surveys ask about water, waste, sanitaryware, waterproofing, finishes and only affected electrics.",
+  "Boiler change": "Boiler change surveys focus on heating isolation, boiler data, gas, flue, condensate and controls.",
+  "Boiler relocation": "Boiler relocation surveys focus on existing boiler data, gas sizing, flue, condensate, controls and altered pipe routes.",
+  "Heating alterations": "Heating alteration surveys focus on the existing system, drain-down, altered pipe routes, controls only if affected and making-good.",
+  "Full heating system": "Full heating surveys include heat source, emitters, controls, electrical supply and heat-loss dependencies.",
+  "Radiators or towel rails": "Radiator surveys focus on the existing heating system, drain-down, emitter positions, valves and pipe routes.",
+  ASHP: "ASHP surveys capture outdoor unit, cylinder, emitter, noise, heat-loss, electrical and control dependencies.",
+  "Underfloor heating": "Underfloor heating surveys capture floor build-up, manifold, zones, insulation, coverings, controls and electrical interfaces.",
+  "Kitchen plumbing": "Kitchen plumbing surveys focus on hot, cold, waste, sink and appliance connections.",
+  "Commercial or tender work": "Commercial and tender surveys focus on drawings, specifications, programme, access and commercial dependencies.",
+  "General plumbing": "General plumbing surveys focus on the water supply, isolation, drainage, access and any job-specific scope items.",
+  "Custom survey": "Custom surveys keep the baseline site and safety checks, then rely on the scope, measurements and Ask NeXa prompts.",
+};
+
+function uniqueQuestions(questions: SurveyQuestionDefinition[]) {
+  const seen = new Set<string>();
+  return questions.filter((question) => {
+    if (seen.has(question.key)) return false;
+    seen.add(question.key);
+    return true;
+  });
+}
+
+export function inferSurveyJobTypeFromText(text: string): SurveyJobType | undefined {
+  const normalised = text.toLowerCase();
+  if (!normalised.trim()) return undefined;
+  if (/boiler/.test(normalised) && /relocat|move|moving|reposition|new\s+position/.test(normalised)) return "Boiler relocation";
+  if (/boiler|combi|system\s+boiler|heat\s+only/.test(normalised)) return "Boiler change";
+  if (/bathroom|wet\s*room|shower\s*(?:room|cubicle|tray|screen)|en-suite|ensuite/.test(normalised)) return "Bathroom or wet room";
+  if (/air\s*source|ashp|heat\s*pump/.test(normalised)) return "ASHP";
+  if (/underfloor|ufh/.test(normalised)) return "Underfloor heating";
+  if (/full\s+heating|whole\s+heating|heating\s+system/.test(normalised)) return "Full heating system";
+  if (/radiator|radiators|rad\b|rads\b|towel\s*rail|towel\s*rails/.test(normalised)) return "Radiators or towel rails";
+  if (/heating|pipework\s+alteration|alter\s+pipe|move\s+pipe|relocate\s+pipe/.test(normalised)) return "Heating alterations";
+  if (/kitchen|sink|dishwasher|washing\s+machine|appliance/.test(normalised)) return "Kitchen plumbing";
+  if (/tender|boq|bill\s+of\s+quantities|commercial|specification|drawing/.test(normalised)) return "Commercial or tender work";
+  if (/tap|toilet|wc|leak|waste|soil|hot\s+water|cold\s+water|stopcock|plumb/.test(normalised)) return "General plumbing";
+  return undefined;
+}
+
+export function surveyQuestionSetForJobType(jobType: SurveyJobType): SurveyQuestionSet {
+  return {
+    jobType,
+    intro: questionSetIntros[jobType],
+    questions: uniqueQuestions([...siteBaselineQuestions, ...(jobSpecificQuestions[jobType] ?? [])]),
+  };
+}
+
 export function surveyQuestionsForJobType(jobType: SurveyJobType) {
-  return [...commonQuestions, ...(jobSpecificQuestions[jobType] ?? [])];
+  return surveyQuestionSetForJobType(jobType).questions;
 }
 
 function hasAnswerValue(answer: SurveyAnswer | undefined) {

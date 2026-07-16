@@ -27,8 +27,9 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  inferSurveyJobTypeFromText,
+  surveyQuestionSetForJobType,
   surveyJobTypes,
-  surveyQuestionsForJobType,
   type SurveyAnswer,
   type SurveyCompletionReview,
   type SurveyEquipmentItem,
@@ -268,7 +269,7 @@ export default function GuidedSurveyPage() {
   function updateAnswer(key: string, patch: Partial<SurveyAnswer>) {
     const current = surveyRef.current;
     if (!current) return;
-    const definition = surveyQuestionsForJobType(current.jobType).find((question) => question.key === key);
+    const definition = surveyQuestionSetForJobType(current.jobType).questions.find((question) => question.key === key);
     if (!definition) return;
     const existing = current.answers.find((answer) => answer.key === key);
     const answer: SurveyAnswer = {
@@ -426,8 +427,20 @@ export default function GuidedSurveyPage() {
     }
   }
 
-  const questions = useMemo(() => survey ? surveyQuestionsForJobType(survey.jobType) : [], [survey]);
+  const questionSet = useMemo(() => survey ? surveyQuestionSetForJobType(survey.jobType) : null, [survey]);
+  const questions = questionSet?.questions ?? [];
+  const suggestedJobType = useMemo(() => survey ? inferSurveyJobTypeFromText(survey.customerRequirements) : undefined, [survey?.customerRequirements]);
   const currentStepIndex = steps.findIndex((step) => step.key === activeStep);
+
+  function updateCustomerRequirement(value: string) {
+    if (!survey) return;
+    const suggestion = inferSurveyJobTypeFromText(value);
+    const shouldAutoSet = suggestion
+      && suggestion !== survey.jobType
+      && !survey.answers.length
+      && (survey.jobType === "General plumbing" || survey.jobType === "Custom survey");
+    queuePatch(shouldAutoSet ? { customerRequirements: value, jobType: suggestion } : { customerRequirements: value });
+  }
 
   if (!survey) {
     return <main className="guided-loading"><Loader2 className="spin" size={22} /><strong>{error || "Opening guided survey"}</strong><a href="/survey/guided">Back to surveys</a></main>;
@@ -511,32 +524,48 @@ export default function GuidedSurveyPage() {
                 <label>Surveyor<input value={survey.surveyorName} onChange={(event) => queuePatch({ surveyorName: event.target.value })} /></label>
                 <label>Survey date<input type="date" value={survey.surveyDate} onChange={(event) => queuePatch({ surveyDate: event.target.value })} /></label>
                 <label>Required by<input type="date" value={survey.requiredByDate || ""} onChange={(event) => queuePatch({ requiredByDate: event.target.value })} /></label>
-                <label>Job type<select value={survey.jobType} onChange={(event) => queuePatch({ jobType: event.target.value as SurveyRecord["jobType"] })}>{surveyJobTypes.map((type) => <option key={type}>{type}</option>)}</select></label>
+                <label>Job type<select value={survey.jobType} onChange={(event) => queuePatch({ jobType: event.target.value as SurveyRecord["jobType"] })}>{surveyJobTypes.map((type) => <option key={type}>{type}</option>)}</select><small>The selected job type controls the next questions.</small></label>
                 <label>Property<select value={survey.occupancy} onChange={(event) => queuePatch({ occupancy: event.target.value as SurveyRecord["occupancy"] })}><option>Occupied</option><option>Vacant</option><option>Unknown</option></select></label>
                 <label>Pricing market<select value={survey.market} onChange={(event) => queuePatch({ market: event.target.value as SurveyRecord["market"] })}><option>Domestic</option><option>Commercial</option></select></label>
-                <label className="wide">Customer requirement / outcome (required for pricing)<textarea value={survey.customerRequirements} onChange={(event) => queuePatch({ customerRequirements: event.target.value })} placeholder="What exactly does the customer want us to price?" /></label>
+                <label className="wide">What are we doing? (required for pricing)<textarea value={survey.customerRequirements} onChange={(event) => updateCustomerRequirement(event.target.value)} placeholder="Example: move two existing radiators to new positions and alter the pipework..." /></label>
+                {suggestedJobType && suggestedJobType !== survey.jobType ? (
+                  <div className="guided-job-type-suggestion wide">
+                    <span><strong>Suggested question set: {suggestedJobType}</strong><small>NeXa will ask different questions for a radiator move than a boiler change or bathroom refurb.</small></span>
+                    <button type="button" onClick={() => queuePatch({ jobType: suggestedJobType })}>Use this</button>
+                  </div>
+                ) : null}
               </div>
             </section>
           ) : null}
 
           {activeStep === "conditions" ? (
-            <section className="guided-question-list">
-              {questions.map((question, index) => {
-                const answer = survey.answers.find((item) => item.key === question.key);
-                return <article key={question.key}>
-                  <div className="guided-question-number">{index + 1}</div>
-                  <div className="guided-question-body">
-                    <span><b>{question.section}</b>{question.required ? <em>{question.safetyCritical ? "Safety required" : "Required"}</em> : null}</span>
-                    <h2>{question.question}</h2>
-                    <div className="guided-answer-status">
-                      {(["Confirmed", "TBC", "Not applicable"] as SurveyValueStatus[]).map((status) => <button className={answer?.status === status ? "active" : ""} type="button" key={status} onClick={() => updateAnswer(question.key, { status, value: status === "Not applicable" ? "Not applicable" : answer?.value ?? "" })}>{status}</button>)}
+            <>
+              <section className="guided-form-section guided-question-set-card">
+                <div className="guided-section-title"><ClipboardCheck size={18} /><span><h2>{survey.jobType} question set</h2><p>{questionSet?.intro}</p></span></div>
+                <div className="guided-question-set-meta">
+                  <span>{questions.length} focused checks</span>
+                  <span>{questions.filter((item) => item.required).length} required</span>
+                  <button type="button" onClick={() => void goToStep("details")}>Change job type</button>
+                </div>
+              </section>
+              <section className="guided-question-list">
+                {questions.map((question, index) => {
+                  const answer = survey.answers.find((item) => item.key === question.key);
+                  return <article key={question.key}>
+                    <div className="guided-question-number">{index + 1}</div>
+                    <div className="guided-question-body">
+                      <span><b>{question.section}</b>{question.required ? <em>{question.safetyCritical ? "Safety required" : "Required"}</em> : null}</span>
+                      <h2>{question.question}</h2>
+                      <div className="guided-answer-status">
+                        {(["Confirmed", "TBC", "Not applicable"] as SurveyValueStatus[]).map((status) => <button className={answer?.status === status ? "active" : ""} type="button" key={status} onClick={() => updateAnswer(question.key, { status, value: status === "Not applicable" ? "Not applicable" : answer?.value ?? "" })}>{status}</button>)}
+                      </div>
+                      <textarea value={answer?.value?.toString() || ""} onChange={(event) => updateAnswer(question.key, { value: event.target.value })} placeholder="Record the site facts. Do not guess." disabled={answer?.status === "Not applicable"} />
+                      {answer?.status === "TBC" ? <label className="guided-tbc-reason">Why is this TBC?<input value={answer.tbcReason || ""} onChange={(event) => updateAnswer(question.key, { tbcReason: event.target.value })} placeholder="Supplier confirmation, inaccessible route, design check..." /></label> : null}
                     </div>
-                    <textarea value={answer?.value?.toString() || ""} onChange={(event) => updateAnswer(question.key, { value: event.target.value })} placeholder="Record the site facts. Do not guess." disabled={answer?.status === "Not applicable"} />
-                    {answer?.status === "TBC" ? <label className="guided-tbc-reason">Why is this TBC?<input value={answer.tbcReason || ""} onChange={(event) => updateAnswer(question.key, { tbcReason: event.target.value })} placeholder="Supplier confirmation, inaccessible route, design check..." /></label> : null}
-                  </div>
-                </article>;
-              })}
-            </section>
+                  </article>;
+                })}
+              </section>
+            </>
           ) : null}
 
           {activeStep === "scope" ? (

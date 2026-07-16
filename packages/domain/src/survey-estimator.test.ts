@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  inferSurveyJobTypeFromText,
   reviewSurveyCompletion,
   seededPricingProfiles,
   surveyQuestionsForJobType,
@@ -147,6 +148,15 @@ test("a captured survey cannot be sent for pricing without a customer outcome an
   assert.equal(review.canSendToEstimator, false);
   assert.ok(review.pricingReadinessIssues.some((item) => item.code === "CUSTOMER_REQUIREMENT_REQUIRED"));
   assert.ok(review.pricingReadinessIssues.some((item) => item.code === "SCOPE_REQUIRED"));
+});
+
+test("radiator surveys use focused heating questions without generic electrical checks", () => {
+  assert.equal(inferSurveyJobTypeFromText("Move two radiators to new positions in the lounge"), "Radiators or towel rails");
+  const questions = surveyQuestionsForJobType("Radiators or towel rails");
+
+  assert.ok(questions.some((question) => question.key === "emitter-requirements"));
+  assert.ok(questions.some((question) => question.key === "radiator-pipe-routes"));
+  assert.equal(questions.some((question) => question.key === "electrical-supply"), false);
 });
 
 test("completion blocks an unlinked survey", () => {
