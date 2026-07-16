@@ -63,6 +63,7 @@ function surveyContext(survey: SurveyRecord, activeStep: string) {
     `Work by others: ${survey.workByOthers.join(" | ") || "none"}`,
     `Assumptions: ${survey.assumptions.join(" | ") || "none"}`,
     `Completion blockers: ${review.blockers.map((item) => item.message).join(" | ") || "none"}`,
+    `Pricing-readiness issues: ${review.pricingReadinessIssues.map((item) => item.message).join(" | ") || "none"}`,
     `Missing information: ${review.missingInformation.map((item) => item.message).join(" | ") || "none"}`,
     `Supplier RFQs: ${review.supplierRfqs.map((item) => item.message).join(" | ") || "none"}`,
   ].join("\n");
@@ -97,6 +98,7 @@ function fallbackReply(survey: SurveyRecord, activeStep: string) {
     if (survey.photos.some((photo) => !photo.caption.trim())) items.push("Caption every photograph with what it proves.");
   } else {
     items.push(...review.blockers.slice(0, 3).map((item) => item.message));
+    if (!items.length) items.push(...review.pricingReadinessIssues.slice(0, 3).map((item) => item.message));
     if (!items.length) items.push(...review.missingInformation.slice(0, 3).map((item) => item.message));
     if (!items.length) items.push("The essential survey checks are complete. Review TBC items and supplier RFQs before sending to Estimator.");
   }

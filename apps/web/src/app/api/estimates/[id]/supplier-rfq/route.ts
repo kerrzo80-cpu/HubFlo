@@ -14,7 +14,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const estimate = getEstimate(tenantId, id);
   if (!estimate) return NextResponse.json({ error: "Estimate not found" }, { status: 404 });
   const survey = getSurvey(tenantId, estimate.surveyId);
-  const lines = estimate.materialLines.filter((line) => line.status === "Supplier RFQ");
+  const lines = estimate.materialLines.filter((line) => line.status === "Supplier RFQ" || line.unitCost === undefined);
   const rows = [
     ["Estimate", "Survey", "Customer", "Site", "Cost centre", "Description", "Quantity", "Unit", "Supplier", "Source", "Confirmation required"],
     ...lines.map((line) => [estimate.reference, survey?.reference || estimate.surveyId, survey?.customerName || "", survey?.siteAddress || "", line.costCentre, line.description, line.quantity, line.unit, line.supplier || "", `${line.sourceType}: ${line.sourceId}`, line.notes]),

@@ -66,6 +66,9 @@ export type EstimateGenerationConfig = {
   ruleVersion: string;
   pipeWastePercent: number;
   pipeClipSpacingM: Record<string, number>;
+  pipeLabourSetupHours: number;
+  pipeLabourHoursPerM: Record<string, number>;
+  pipeAccessMultipliers: Record<SurveyPipeRun["accessDifficulty"], number>;
   labourCostRates: Record<string, number>;
 };
 
@@ -73,6 +76,9 @@ export const defaultEstimateGenerationConfig: EstimateGenerationConfig = {
   ruleVersion: "survey-estimator-assemblies-v1",
   pipeWastePercent: 10,
   pipeClipSpacingM: { Copper: 1.2, Plastic: 0.8, Steel: 1.8, Default: 1.2 },
+  pipeLabourSetupHours: 1,
+  pipeLabourHoursPerM: { Copper: 0.25, Plastic: 0.2, Steel: 0.35, Default: 0.25 },
+  pipeAccessMultipliers: { Normal: 1, Restricted: 1.25, Difficult: 1.5, TBC: 1.25 },
   labourCostRates: { Plumber: 40, Joiner: 30, Electrician: 40, Other: 35 },
 };
 
@@ -240,6 +246,20 @@ function addPipeRunMaterials(
     notes: "Confirm support type against the actual construction.",
   });
 
+  addMaterial({
+    idKey: `connections-${run.id}`,
+    costCentre,
+    trade: "Plumbing/Heating",
+    description: `${run.pipeSize || "Size TBC"} connection/adaptor for ${run.service.toLowerCase()} pipe termination`,
+    quantity: 2,
+    unit: "each",
+    status: "TBC",
+    sourceType: "Pipe run",
+    sourceId: run.id,
+    calculationExplanation: `One connection is required at ${run.fromLocation || "the start"} and one at ${run.toLocation || "the end"}; exact fitting types must be confirmed against the existing connections.`,
+    notes: "Confirm both connection types before ordering.",
+  });
+
   if (run.insulationRequired) {
     addMaterial({
       idKey: `insulation-${run.id}`,
@@ -257,18 +277,23 @@ function addPipeRunMaterials(
   }
 
   for (const change of run.directionChanges.filter((item) => item.quantity > 0)) {
+    const fittingTypeKnown = /[a-z]/i.test(change.type);
     addMaterial({
       idKey: `direction-${run.id}-${change.type}`,
       costCentre,
       trade: "Plumbing/Heating",
-      description: `${run.pipeSize || "Size TBC"} ${change.type} for ${run.service.toLowerCase()}`,
+      description: fittingTypeKnown
+        ? `${run.pipeSize || "Size TBC"} ${change.type} for ${run.service.toLowerCase()}`
+        : `${run.pipeSize || "Size TBC"} direction fitting for ${run.service.toLowerCase()} - type TBC`,
       quantity: change.quantity,
       unit: "each",
-      status: "Calculated",
+      status: fittingTypeKnown ? "Calculated" : "TBC",
       sourceType: "Pipe run",
       sourceId: run.id,
-      calculationExplanation: `${change.quantity} ${change.type.toLowerCase()} direction change(s) recorded against the surveyed route.`,
-      notes: "Final fitting type must suit the selected pipe system.",
+      calculationExplanation: fittingTypeKnown
+        ? `${change.quantity} ${change.type.toLowerCase()} direction change(s) recorded against the surveyed route.`
+        : `${change.quantity} direction change(s) were recorded, but the fitting type was not identified safely.`,
+      notes: fittingTypeKnown ? "Final fitting type must suit the selected pipe system." : "Return to the survey and select elbow, bend, offset, tee or the actual fitting required.",
     });
   }
 
@@ -302,6 +327,31 @@ function addPipeRunMaterials(
       notes: "Obtain the correct tested system for the surveyed construction.",
     });
   }
+}
+
+function addPipeRunLabour(
+  run: SurveyPipeRun,
+  config: EstimateGenerationConfig,
+  addLabour: (input: LabourInput) => EstimateLabourLine,
+) {
+  if (!run.measuredLengthM || run.measurementStatus === "TBC") return;
+  const hoursPerM = config.pipeLabourHoursPerM[run.material] ?? config.pipeLabourHoursPerM.Default ?? 0.25;
+  const accessMultiplier = config.pipeAccessMultipliers[run.accessDifficulty] ?? 1;
+  const hours = round((config.pipeLabourSetupHours + run.measuredLengthM * hoursPerM) * accessMultiplier, 1);
+  addLabour({
+    idKey: `pipe-run-${run.id}`,
+    costCentre: pipeCostCentre(run.service),
+    trade: "Plumbing/Heating",
+    labourType: "Plumber",
+    description: `Install, connect and test ${pipeDescription(run)}`,
+    hours,
+    costRate: config.labourCostRates.Plumber,
+    status: "Calculated",
+    calculationBasis: `${config.pipeLabourSetupHours} setup hour(s) + ${round(run.measuredLengthM, 2)}m at ${hoursPerM} hours/m, with ${accessMultiplier}x ${run.accessDifficulty.toLowerCase()} access factor = ${hours} hours.`,
+    sourceType: "Pipe run",
+    sourceId: run.id,
+    notes: "Includes installation and local testing; isolation, drain-down, commissioning and return visits must be added by the relevant task assembly.",
+  });
 }
 
 function addFlueEquipment(
@@ -436,21 +486,6 @@ function addBoilerRelocationAssembly(
     sourceId: scope.id,
     notes: "Does not include asbestos or hazardous-material remediation.",
   });
-  const measuredPipeLength = survey.pipeRuns.reduce((sum, run) => sum + (run.measuredLengthM || 0), 0);
-  addLabour({
-    idKey: `boiler-pipework-${scope.id}`,
-    costCentre: "Heating",
-    trade: "Plumbing/Heating",
-    labourType: "Plumber",
-    description: "Alter and install surveyed service pipework",
-    hours: round(4 + measuredPipeLength * 0.25, 1),
-    costRate: config.labourCostRates.Plumber,
-    status: measuredPipeLength ? "Calculated" : "TBC",
-    calculationBasis: measuredPipeLength ? `Four-hour setup allowance + ${measuredPipeLength} measured metre(s) at 0.25 hours/m.` : "Pipe runs are not sufficiently measured for calculated labour.",
-    sourceType: "Scope item",
-    sourceId: scope.id,
-    notes: "Access difficulty and return visits remain estimator review items.",
-  });
   addLabour({
     idKey: `boiler-flue-${scope.id}`,
     costCentre: "Heating",
@@ -534,10 +569,17 @@ function addRadiatorAssembly(
   addLabour: (input: LabourInput) => EstimateLabourLine,
 ) {
   const quantity = Math.max(scope.quantity || equipment?.quantity || 1, 1);
-  addMaterial({ idKey: `radiator-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", description: equipment?.description || "Radiator - output and dimensions TBC", quantity, unit: "each", unitCost: equipment?.confirmedSupplierPrice, status: equipment?.rfqRequired ? "Supplier RFQ" : equipment?.status === "Confirmed" ? "Confirmed" : "TBC", sourceType: equipment ? "Equipment" : "Scope item", sourceId: equipment?.id || scope.id, calculationExplanation: equipment ? "Quantity and selection taken from the linked surveyed equipment item." : "Scope quantity is known but radiator selection requires equipment/heat-loss confirmation.", notes: equipment?.notes || "Confirm output, dimensions and connection orientation." });
-  addMaterial({ idKey: `radiator-valves-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", description: "Radiator valve set", quantity, unit: "set", status: "Standard allowance", sourceType: "Assembly", sourceId: scope.id, calculationExplanation: `One valve set per radiator x ${quantity}.`, notes: "Confirm TRV/lockshield style and finish." });
-  addMaterial({ idKey: `radiator-fixings-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", description: "Radiator brackets and fixings", quantity, unit: "set", status: "Standard allowance", sourceType: "Assembly", sourceId: scope.id, calculationExplanation: `One fixing set per radiator x ${quantity}.`, notes: "Fixings must suit the recorded wall construction." });
-  addLabour({ idKey: `radiator-labour-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", labourType: "Plumber", description: "Install, connect, test and balance radiator", hours: round(quantity * 2.5, 1), costRate: config.labourCostRates.Plumber, status: "Allowance", calculationBasis: `${quantity} radiator(s) at an initial 2.5 hours each, excluding unmeasured pipe routes.`, sourceType: "Scope item", sourceId: scope.id, notes: "Adjust for access, drain-down and measured pipe alterations." });
+  const scopeText = `${scope.taskType} ${scope.notes} ${scope.existingPosition} ${scope.proposedPosition}`;
+  const suppliesNewRadiator = /\b(replace|renew|supply)\b/i.test(scopeText)
+    || /install\s+(?:a\s+)?new\s+radiator/i.test(scopeText)
+    || /new\s+radiator(?!\s+position)/i.test(scopeText);
+  const relocatesExisting = /\b(relocat|move|reposition)/i.test(scopeText) && !suppliesNewRadiator && !equipment;
+  if (!relocatesExisting) {
+    addMaterial({ idKey: `radiator-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", description: equipment?.description || "Radiator - output and dimensions TBC", quantity, unit: "each", unitCost: equipment?.confirmedSupplierPrice, status: equipment?.rfqRequired ? "Supplier RFQ" : equipment?.status === "Confirmed" ? "Confirmed" : "TBC", sourceType: equipment ? "Equipment" : "Scope item", sourceId: equipment?.id || scope.id, calculationExplanation: equipment ? "Quantity and selection taken from the linked surveyed equipment item." : "Scope quantity is known but radiator selection requires equipment/heat-loss confirmation.", notes: equipment?.notes || "Confirm output, dimensions and connection orientation." });
+    addMaterial({ idKey: `radiator-valves-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", description: "Radiator valve set", quantity, unit: "set", status: "Standard allowance", sourceType: "Assembly", sourceId: scope.id, calculationExplanation: `One valve set per radiator x ${quantity}.`, notes: "Confirm TRV/lockshield style and finish." });
+  }
+  addMaterial({ idKey: `radiator-fixings-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", description: relocatesExisting ? "Compatible brackets and fixings for relocated existing radiator" : "Radiator brackets and fixings", quantity, unit: "set", status: relocatesExisting ? "TBC" : "Standard allowance", sourceType: "Assembly", sourceId: scope.id, calculationExplanation: relocatesExisting ? `The existing radiator is being reused in a new position; confirm whether its brackets can be reused or source a compatible set for ${quantity} radiator(s).` : `One fixing set per radiator x ${quantity}.`, notes: "Fixings must suit the radiator and recorded wall construction." });
+  addLabour({ idKey: `radiator-labour-${scope.id}`, costCentre: "Heating", trade: "Plumbing/Heating", labourType: "Plumber", description: relocatesExisting ? "Remove, relocate, reconnect, test and balance existing radiator" : "Install, connect, test and balance radiator", hours: round(quantity * (relocatesExisting ? 3.5 : 2.5), 1), costRate: config.labourCostRates.Plumber, status: "Allowance", calculationBasis: relocatesExisting ? `${quantity} existing radiator(s) at an initial 3.5 hours each for careful removal and refitting, excluding measured pipe routes.` : `${quantity} radiator(s) at an initial 2.5 hours each, excluding unmeasured pipe routes.`, sourceType: "Scope item", sourceId: scope.id, notes: "Adjust for access, drain-down and measured pipe alterations." });
 }
 
 function addWcAssembly(
@@ -569,12 +611,17 @@ export function generateEstimateFromSurvey(
     ...defaultEstimateGenerationConfig,
     ...partialConfig,
     pipeClipSpacingM: { ...defaultEstimateGenerationConfig.pipeClipSpacingM, ...(partialConfig.pipeClipSpacingM || {}) },
+    pipeLabourHoursPerM: { ...defaultEstimateGenerationConfig.pipeLabourHoursPerM, ...(partialConfig.pipeLabourHoursPerM || {}) },
+    pipeAccessMultipliers: { ...defaultEstimateGenerationConfig.pipeAccessMultipliers, ...(partialConfig.pipeAccessMultipliers || {}) },
     labourCostRates: { ...defaultEstimateGenerationConfig.labourCostRates, ...(partialConfig.labourCostRates || {}) },
   };
   const { addMaterial, addLabour, materialMap, labourMap } = makeLineCollectors(pricingProfile);
   const completion = reviewSurveyCompletion(survey);
 
-  survey.pipeRuns.forEach((run) => addPipeRunMaterials(run, config, addMaterial));
+  survey.pipeRuns.forEach((run) => {
+    addPipeRunMaterials(run, config, addMaterial);
+    addPipeRunLabour(run, config, addLabour);
+  });
   survey.equipmentItems.forEach((item) => addFlueEquipment(item, addMaterial));
 
   for (const scope of survey.scopeItems) {

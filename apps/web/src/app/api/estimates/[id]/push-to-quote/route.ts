@@ -21,6 +21,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   const survey = getSurvey(tenantId, estimate.surveyId);
   if (!survey) return NextResponse.json({ error: "Source survey not found" }, { status: 422 });
+  if (!estimate.scopeOfWorks.length) {
+    return NextResponse.json({ error: "Add structured scope items in the source survey and regenerate this estimate before pushing it to a quote." }, { status: 422 });
+  }
+  if (estimate.materialLines.some((line) => line.unitCost === undefined)) {
+    return NextResponse.json({ error: "Price every unpriced supplier RFQ item before pushing this estimate to a quote." }, { status: 422 });
+  }
   if (estimate.materialLines.some((line) => line.status === "TBC" && !line.notes.trim())) {
     return NextResponse.json({ error: "Review TBC materials before pushing the estimate into a quote." }, { status: 422 });
   }

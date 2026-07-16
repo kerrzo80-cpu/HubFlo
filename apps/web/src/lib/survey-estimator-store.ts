@@ -3,6 +3,7 @@ import {
   reviewSurveyCompletion,
   seededPricingProfiles,
   seededSimproEstimateMappings,
+  type EstimateGenerationConfig,
   type EstimateCorrection,
   type EstimateLabourLine,
   type EstimateMaterialLine,
@@ -20,6 +21,7 @@ import {
 } from "@hubflo/domain";
 
 import { getTakeoffProjects, type TakeoffPipeRun, type TakeoffProject } from "@/lib/takeoff-data";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 const storeName = "survey-estimator-v1";
@@ -62,6 +64,36 @@ function nowIso() {
 
 function makeId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+function configuredEstimateDefaults(market: SurveyRecord["market"]) {
+  const base = seededPricingProfiles.find((profile) => profile.market === market) || seededPricingProfiles[0]!;
+  const finance = getHubDetailState().financeSettings || {};
+  const numberSetting = (value: unknown, fallback: number) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+  const labourRates = Array.isArray(finance.labourRates) ? finance.labourRates.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object")) : [];
+  const findRate = (pattern: RegExp) => labourRates.find((item) => pattern.test(`${item.id || ""} ${item.name || ""}`));
+  const engineer = findRate(/engineer|plumber/i);
+  const joiner = findRate(/joiner/i);
+  const electrician = findRate(/electric/i);
+  const pricingProfile: PricingProfile = market === "Domestic" ? {
+    ...base,
+    labourSellRate: numberSetting(engineer?.sellRate, base.labourSellRate),
+    materialMarkupPercent: numberSetting(finance.defaultMaterialMarkupPercent, base.materialMarkupPercent),
+    plantMarkupPercent: numberSetting(finance.defaultPlantMarkupPercent, base.plantMarkupPercent),
+    vatPercent: numberSetting(finance.vatRate, base.vatPercent),
+  } : { ...base, vatPercent: numberSetting(finance.vatRate, base.vatPercent) };
+  const generationConfig: Partial<EstimateGenerationConfig> = {
+    labourCostRates: {
+      Plumber: numberSetting(engineer?.costRate, 40),
+      Joiner: numberSetting(joiner?.costRate, 30),
+      Electrician: numberSetting(electrician?.costRate, 40),
+      Other: 35,
+    },
+  };
+  return { pricingProfile, generationConfig };
 }
 
 function normaliseStore(value: SurveyEstimatorStore): SurveyEstimatorStore {
@@ -432,8 +464,8 @@ export function completeSurvey(
 
 function createEstimateFromSurvey(survey: SurveyRecord): EstimateRecord {
   const createdAt = nowIso();
-  const pricingProfile = seededPricingProfiles.find((profile) => profile.market === survey.market) || seededPricingProfiles[0]!;
-  const generated = generateEstimateFromSurvey(survey, pricingProfile, {}, createdAt);
+  const { pricingProfile, generationConfig } = configuredEstimateDefaults(survey.market);
+  const generated = generateEstimateFromSurvey(survey, pricingProfile, generationConfig, createdAt);
   return {
     id: makeId("estimate"),
     tenantId: survey.tenantId,
@@ -460,9 +492,14 @@ function createEstimateFromSurvey(survey: SurveyRecord): EstimateRecord {
 
 function regenerateEstimateFromSurvey(estimate: EstimateRecord, survey: SurveyRecord, actor: string): EstimateRecord {
   const updatedAt = nowIso();
-  const generated = generateEstimateFromSurvey(survey, estimate.pricingProfile, {}, updatedAt);
+  const configured = configuredEstimateDefaults(survey.market);
+  const pricingProfile = estimate.corrections.some((item) => item.lineId === "pricing-profile")
+    ? estimate.pricingProfile
+    : configured.pricingProfile;
+  const generated = generateEstimateFromSurvey(survey, pricingProfile, configured.generationConfig, updatedAt);
   return {
     ...estimate,
+    pricingProfile,
     sourceSurveyVersion: survey.version,
     version: estimate.version + 1,
     status: "In review",
@@ -491,6 +528,14 @@ export function sendSurveyToEstimator(
   if (!survey) return { ok: false, reason: "not_found", message: "Survey not found." };
   if (survey.status !== "Complete" && survey.status !== "Sent to estimator") {
     return { ok: false, reason: "invalid_state", current: undefined, message: "Complete the survey review before sending it to Estimator." };
+  }
+  const review = reviewSurveyCompletion(survey);
+  if (!review.canSendToEstimator) {
+    return {
+      ok: false,
+      reason: "invalid_state",
+      message: review.pricingReadinessIssues[0]?.message || review.blockers[0]?.message || "Complete the pricing information before sending this survey to Estimator.",
+    };
   }
   if (expectedVersion !== undefined && expectedVersion !== survey.version) {
     return { ok: false, reason: "version_conflict", message: "The survey changed before it was sent. Reload and try again." };

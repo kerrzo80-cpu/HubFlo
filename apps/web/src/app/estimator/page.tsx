@@ -123,7 +123,7 @@ export default function EstimatorPage() {
   }, []);
 
   const totals = useMemo(() => estimate ? estimateTotals(estimate) : null, [estimate]);
-  const rfqLines = useMemo(() => estimate?.materialLines.filter((line) => line.status === "Supplier RFQ") || [], [estimate]);
+  const rfqLines = useMemo(() => estimate?.materialLines.filter((line) => line.status === "Supplier RFQ" || line.unitCost === undefined) || [], [estimate]);
   const groupedMaterials = useMemo(() => {
     const groups = new Map<string, EstimateMaterialLine[]>();
     estimate?.materialLines.forEach((line) => groups.set(line.costCentre, [...(groups.get(line.costCentre) || []), line]));
@@ -315,7 +315,7 @@ export default function EstimatorPage() {
             <>
               <div className="estimator-titlebar">
                 <div><span className="guided-eyebrow">{estimate.reference} · {estimate.pricingProfile.name}</span><h1>{survey?.customerName || "Survey estimate"}</h1><p>{survey?.siteAddress || estimate.scopeOfWorks[0]}</p></div>
-                <div><b data-status={estimate.status}>{estimate.coreQuoteRef ? `${estimate.status} · ${estimate.coreQuoteRef}` : estimate.status}</b><button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}><RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate</button><button type="button" onClick={() => void pushToQuote()} disabled={working}><Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}</button></div>
+                <div><b data-status={estimate.status}>{estimate.coreQuoteRef ? `${estimate.status} · ${estimate.coreQuoteRef}` : estimate.status}</b><button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}><RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate</button><button type="button" title={totals.unpriced ? "Price the supplier RFQ items before pushing this estimate" : undefined} onClick={() => void pushToQuote()} disabled={working || Boolean(totals.unpriced) || !estimate.scopeOfWorks.length}><Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}</button></div>
               </div>
               {error ? <p className="estimator-message error"><AlertTriangle size={16} /> {error}</p> : null}
               {notice ? <p className="estimator-message"><CheckCircle2 size={16} /> {notice}</p> : null}
@@ -355,7 +355,7 @@ export default function EstimatorPage() {
               ) : null}
 
               {activeTab === "rfq" ? (
-                <div className="estimator-content"><section className="estimate-line-section"><div><h2>Supplier price request</h2><span>{rfqLines.length} items need a price or confirmation</span></div><EstimateMaterialTable lines={rfqLines} onEdit={(line) => startEdit({ type: "Material", line })} /><div className="estimator-rfq-action"><p>Export one structured request containing only items marked Supplier RFQ.</p><a href={`/api/estimates/${encodeURIComponent(estimate.id)}/supplier-rfq`}><Download size={16} /> Export supplier RFQ</a></div></section></div>
+                <div className="estimator-content"><section className="estimate-line-section"><div><h2>Supplier price request</h2><span>{rfqLines.length} items need a price or confirmation</span></div><EstimateMaterialTable lines={rfqLines} onEdit={(line) => startEdit({ type: "Material", line })} /><div className="estimator-rfq-action"><p>Every material without a ratebook or confirmed supplier cost is collected here. Add prices manually after the quote returns, or export one request.</p><a href={`/api/estimates/${encodeURIComponent(estimate.id)}/supplier-rfq`}><Download size={16} /> Export supplier RFQ</a></div></section></div>
               ) : null}
 
               {activeTab === "simpro" ? (

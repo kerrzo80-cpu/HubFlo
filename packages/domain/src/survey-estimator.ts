@@ -229,7 +229,9 @@ export type SurveyCompletionIssue = {
 
 export type SurveyCompletionReview = {
   canComplete: boolean;
+  canSendToEstimator: boolean;
   blockers: SurveyCompletionIssue[];
+  pricingReadinessIssues: SurveyCompletionIssue[];
   missingInformation: SurveyCompletionIssue[];
   tbcItems: SurveyCompletionIssue[];
   designDependencies: SurveyCompletionIssue[];
@@ -443,6 +445,7 @@ function photoCategoriesRequired(jobType: SurveyJobType): SurveyPhotoCategory[] 
 
 export function reviewSurveyCompletion(survey: SurveyRecord): SurveyCompletionReview {
   const blockers: SurveyCompletionIssue[] = [];
+  const pricingReadinessIssues: SurveyCompletionIssue[] = [];
   const missingInformation: SurveyCompletionIssue[] = [];
   const tbcItems: SurveyCompletionIssue[] = [];
   const designDependencies: SurveyCompletionIssue[] = [];
@@ -454,6 +457,12 @@ export function reviewSurveyCompletion(survey: SurveyRecord): SurveyCompletionRe
   if (!survey.jobLink?.id || !survey.jobLink.reference.trim()) blockers.push({ code: "JOB_LINK_REQUIRED", section: "Job details", message: "Link the survey to a lead, quote or job." });
   if (!survey.surveyorName.trim()) blockers.push({ code: "SURVEYOR_REQUIRED", section: "Job details", message: "Surveyor is required." });
   if (!survey.surveyDate) blockers.push({ code: "SURVEY_DATE_REQUIRED", section: "Job details", message: "Survey date is required." });
+  if (!survey.customerRequirements.trim()) {
+    pricingReadinessIssues.push({ code: "CUSTOMER_REQUIREMENT_REQUIRED", section: "Job details", message: "Record what the customer wants priced and the required outcome." });
+  }
+  if (!survey.scopeItems.length) {
+    pricingReadinessIssues.push({ code: "SCOPE_REQUIRED", section: "Proposed scope", message: "Add at least one structured scope item before sending this survey to Estimator." });
+  }
 
   const answersByKey = new Map<string, SurveyAnswer[]>();
   survey.answers.forEach((answer) => answersByKey.set(answer.key, [...(answersByKey.get(answer.key) ?? []), answer]));
@@ -488,6 +497,12 @@ export function reviewSurveyCompletion(survey: SurveyRecord): SurveyCompletionRe
     if (run.service === "Gas" && (!run.pipeSize.trim() || run.measurementStatus !== "Measured")) {
       designDependencies.push({ code: "GAS_DESIGN_DEPENDENCY", section: "Pipe runs", message: "Gas sizing remains design-dependent until route, measured length and pipe size are confirmed.", recordId: run.id });
     }
+    if (run.directionChanges.some((change) => change.quantity > 0 && !/[a-z]/i.test(change.type))) {
+      pricingReadinessIssues.push({ code: "PIPE_FITTING_TYPE_REQUIRED", section: "Pipe runs", message: `Choose a fitting type for the ${run.service.toLowerCase()} pipe direction changes.`, recordId: run.id });
+    }
+    if ((run.service === "Hot" || run.service === "Cold") && /radiator|heating/i.test(run.toLocation)) {
+      pricingReadinessIssues.push({ code: "PIPE_SERVICE_CHECK", section: "Pipe runs", message: `Check whether the ${run.service.toLowerCase()} pipe run to ${run.toLocation} should be heating flow or heating return.`, recordId: run.id });
+    }
   });
   survey.equipmentItems.forEach((item) => {
     if (item.rfqRequired) supplierRfqs.push({ code: "SUPPLIER_RFQ", section: "Equipment", message: `${item.description || item.category} requires supplier confirmation.`, recordId: item.id });
@@ -499,6 +514,9 @@ export function reviewSurveyCompletion(survey: SurveyRecord): SurveyCompletionRe
       missingInformation.push({ code: "PHOTO_EVIDENCE_MISSING", section: "Photographs", message: `${category} photograph is still required or must be marked unavailable in the survey notes.` });
     }
   }
+  survey.photos.forEach((photo) => {
+    if (!photo.caption.trim()) pricingReadinessIssues.push({ code: "PHOTO_CAPTION_REQUIRED", section: "Photographs", message: `Add a caption explaining what ${photo.fileName} proves.`, recordId: photo.id });
+  });
 
   const completedSections = Array.from(new Set(survey.answers.filter(hasAnswerValue).map((answer) => answer.section)));
   if (survey.rooms.length) completedSections.push("Rooms and measurements");
@@ -509,7 +527,9 @@ export function reviewSurveyCompletion(survey: SurveyRecord): SurveyCompletionRe
 
   return {
     canComplete: blockers.length === 0,
+    canSendToEstimator: blockers.length === 0 && pricingReadinessIssues.length === 0,
     blockers,
+    pricingReadinessIssues,
     missingInformation,
     tbcItems,
     designDependencies,

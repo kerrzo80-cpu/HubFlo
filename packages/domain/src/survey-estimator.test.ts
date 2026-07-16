@@ -130,10 +130,23 @@ function atagSurvey(): SurveyRecord {
 test("ATAG boiler-relocation survey passes essential completion gates while exposing design and RFQ items", () => {
   const review = reviewSurveyCompletion(atagSurvey());
   assert.equal(review.canComplete, true);
+  assert.equal(review.canSendToEstimator, true);
   assert.equal(review.blockers.length, 0);
   assert.ok(review.supplierRfqs.some((item) => item.recordId === "equipment-flue"));
   assert.ok(review.designDependencies.some((item) => item.recordId === "equipment-flue"));
   assert.deepEqual(review.workByOthers, ["Decoration beyond local making good"]);
+});
+
+test("a captured survey cannot be sent for pricing without a customer outcome and structured scope", () => {
+  const survey = atagSurvey();
+  survey.customerRequirements = "";
+  survey.scopeItems = [];
+  const review = reviewSurveyCompletion(survey);
+
+  assert.equal(review.canComplete, true, "Non-safety pricing omissions can remain in a captured survey");
+  assert.equal(review.canSendToEstimator, false);
+  assert.ok(review.pricingReadinessIssues.some((item) => item.code === "CUSTOMER_REQUIREMENT_REQUIRED"));
+  assert.ok(review.pricingReadinessIssues.some((item) => item.code === "SCOPE_REQUIRED"));
 });
 
 test("completion blocks an unlinked survey", () => {
@@ -197,4 +210,44 @@ test("repeated boiler scope lines do not duplicate system chemicals", () => {
   assert.equal(estimate.materialLines.filter((line) => line.description === "Heating system cleaner").length, 1);
   assert.equal(estimate.materialLines.filter((line) => line.description === "Heating system inhibitor").length, 1);
   assert.equal(new Set(estimate.materialLines.map((line) => line.id)).size, estimate.materialLines.length);
+});
+
+test("a measured general pipe run generates itemised materials and traceable labour", () => {
+  const survey = atagSurvey();
+  survey.jobType = "General plumbing";
+  survey.customerRequirements = "Alter the heating pipe route to suit the new radiator position.";
+  survey.scopeItems = [{
+    ...survey.scopeItems[0]!,
+    id: "scope-heating-alteration",
+    taskType: "Alter heating pipework",
+    proposedPosition: "New radiator position",
+    notes: "Run new pipework to the relocated radiator position and test.",
+  }];
+  survey.pipeRuns = [{
+    ...survey.pipeRuns[0]!,
+    id: "pipe-heating-flow",
+    service: "Heating flow",
+    fromLocation: "Existing heating circuit",
+    toLocation: "Relocated radiator",
+    measuredLengthM: 9,
+    pipeSize: "15mm",
+    accessDifficulty: "Normal",
+    coreDrilling: false,
+    directionChanges: [{ type: "Elbow", quantity: 4 }],
+  }];
+  const estimate = generateEstimateFromSurvey(survey, seededPricingProfiles[0]!, {}, now);
+
+  assert.ok(estimate.materialLines.some((line) => line.sourceId === "pipe-heating-flow" && line.unit === "m" && line.quantity === 9.9));
+  assert.ok(estimate.materialLines.some((line) => /clips\/supports/i.test(line.description)));
+  assert.ok(estimate.materialLines.some((line) => /connection\/adaptor/i.test(line.description) && line.quantity === 2));
+  assert.ok(estimate.materialLines.some((line) => /elbow/i.test(line.description) && line.quantity === 4));
+  assert.equal(estimate.materialLines.some((line) => /^Radiator -/i.test(line.description)), false, "Relocating an existing radiator must not add a new radiator");
+  assert.equal(estimate.materialLines.some((line) => /valve set/i.test(line.description)), false, "Existing valves are not replaced unless the scope says so");
+  assert.ok(estimate.materialLines.some((line) => /compatible brackets and fixings/i.test(line.description)));
+  const labour = estimate.labourLines.find((line) => line.sourceId === "pipe-heating-flow");
+  assert.ok(labour);
+  assert.equal(labour.hours, 3.3);
+  assert.equal(labour.costRate, 40);
+  assert.equal(labour.sellRate, 70);
+  assert.ok(estimate.labourLines.some((line) => /relocate.*existing radiator/i.test(line.description) && line.hours === 3.5));
 });
