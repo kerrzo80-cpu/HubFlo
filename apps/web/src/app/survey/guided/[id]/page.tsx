@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Bot,
   Building2,
   Camera,
   Check,
   CheckCircle2,
+  ChevronUp,
   ClipboardCheck,
   Download,
   HardHat,
@@ -153,7 +155,12 @@ export default function GuidedSurveyPage() {
   const [photoCategory, setPhotoCategory] = useState<SurveyPhotoCategory>("Existing condition");
   const [photoCaption, setPhotoCaption] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantDraft, setAssistantDraft] = useState("");
+  const [assistantSending, setAssistantSending] = useState(false);
+  const [assistantWarning, setAssistantWarning] = useState("");
   const surveyRef = useRef<SurveyRecord | null>(null);
+  const assistantListRef = useRef<HTMLDivElement | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingPromiseRef = useRef<Promise<SurveyRecord | null> | null>(null);
@@ -196,6 +203,11 @@ export default function GuidedSurveyPage() {
   useEffect(() => () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!assistantOpen || !assistantListRef.current) return;
+    assistantListRef.current.scrollTop = assistantListRef.current.scrollHeight;
+  }, [assistantOpen, survey?.assistantMessages?.length]);
 
   async function flushAutosave(): Promise<SurveyRecord | null> {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -377,6 +389,42 @@ export default function GuidedSurveyPage() {
     }
   }
 
+  async function askNexa(event?: FormEvent<HTMLFormElement>, promptOverride?: string) {
+    event?.preventDefault();
+    const message = (promptOverride || assistantDraft).trim();
+    if (!message || assistantSending) return;
+    const current = await flushAutosave();
+    if (!current) return;
+    setAssistantOpen(true);
+    setAssistantSending(true);
+    setAssistantWarning("");
+    setError("");
+    if (!promptOverride) setAssistantDraft("");
+    try {
+      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/ask-nexa`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ message, activeStep, expectedVersion: current.version }),
+      });
+      const body = await response.json() as { survey?: SurveyRecord; warning?: string; error?: string; current?: SurveyRecord };
+      if (!response.ok || !body.survey) {
+        if (body.current) {
+          setSurvey(body.current);
+          surveyRef.current = body.current;
+        }
+        throw new Error(body.error || "NeXa could not answer that question.");
+      }
+      setSurvey(body.survey);
+      surveyRef.current = body.survey;
+      setAssistantWarning(body.warning || "");
+    } catch (assistantError) {
+      setError(assistantError instanceof Error ? assistantError.message : "NeXa could not answer that question.");
+      if (!promptOverride) setAssistantDraft(message);
+    } finally {
+      setAssistantSending(false);
+    }
+  }
+
   const questions = useMemo(() => survey ? surveyQuestionsForJobType(survey.jobType) : [], [survey]);
   const currentStepIndex = steps.findIndex((step) => step.key === activeStep);
 
@@ -408,10 +456,38 @@ export default function GuidedSurveyPage() {
         <section className="guided-workspace">
           <header className="guided-workspace-heading">
             <div><span className="guided-eyebrow">{survey.jobType}</span><h1>{steps[currentStepIndex]?.label}</h1><p>{survey.customerName || "Customer not selected"} · {survey.siteAddress || "Site address required"}</p></div>
-            <b data-status={survey.status}>{survey.status}</b>
+            <div className="guided-workspace-actions">
+              <button className="guided-ask-toggle" type="button" aria-expanded={assistantOpen} onClick={() => setAssistantOpen((open) => !open)}><Bot size={16} /> Ask NeXa</button>
+              <b data-status={survey.status}>{survey.status}</b>
+            </div>
           </header>
           {notice ? <p className="guided-notice">{notice}</p> : null}
           {error ? <p className="guided-error">{error}</p> : null}
+
+          {assistantOpen ? (
+            <aside className="guided-assistant-panel" aria-label="Ask NeXa survey assistant">
+              <header>
+                <div><span className="guided-assistant-icon"><Bot size={17} /></span><span><strong>Ask NeXa</strong><small>Using this survey and the {steps[currentStepIndex]?.label.toLowerCase()} stage</small></span></div>
+                <button type="button" title="Close Ask NeXa" aria-label="Close Ask NeXa" onClick={() => setAssistantOpen(false)}><ChevronUp size={18} /></button>
+              </header>
+              <div className="guided-assistant-messages" ref={assistantListRef}>
+                {survey.assistantMessages?.length ? survey.assistantMessages.map((message) => (
+                  <article className={message.role} key={message.id}><span>{message.role === "assistant" ? "NeXa" : "You"}</span><p>{message.text}</p><small>{message.step}</small></article>
+                )) : <p className="guided-assistant-empty">Ask NeXa to check what is missing, explain what to capture, or challenge the survey before it reaches Estimator.</p>}
+                {assistantSending ? <article className="assistant thinking"><span>NeXa</span><p><Loader2 className="spin" size={16} /> Reviewing the live survey...</p></article> : null}
+              </div>
+              <div className="guided-assistant-prompts">
+                <button type="button" disabled={assistantSending} onClick={() => void askNexa(undefined, "What is missing from this stage?")}>What is missing?</button>
+                <button type="button" disabled={assistantSending} onClick={() => void askNexa(undefined, "Check the evidence I have recorded and tell me the next three useful checks.")}>Check evidence</button>
+                <button type="button" disabled={assistantSending} onClick={() => void askNexa(undefined, "What should I capture next before this survey can be priced reliably?")}>What next?</button>
+              </div>
+              <form className="guided-assistant-compose" onSubmit={(event) => void askNexa(event)}>
+                <textarea aria-label="Ask NeXa" value={assistantDraft} onChange={(event) => setAssistantDraft(event.target.value)} placeholder="Ask about this job, the evidence or anything that may have been missed..." />
+                <button type="submit" title="Send to NeXa" aria-label="Send to NeXa" disabled={assistantSending || !assistantDraft.trim()}>{assistantSending ? <Loader2 className="spin" size={17} /> : <Send size={17} />}</button>
+              </form>
+              {assistantWarning ? <p className="guided-assistant-warning">{assistantWarning}</p> : null}
+            </aside>
+          ) : null}
 
           {activeStep === "details" ? (
             <section className="guided-form-section">

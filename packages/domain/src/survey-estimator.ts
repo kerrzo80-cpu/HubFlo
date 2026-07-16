@@ -164,6 +164,14 @@ export type SurveyAuditEntry = {
   detail: string;
 };
 
+export type SurveyAssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  step: string;
+  createdAt: string;
+};
+
 export type SurveyRecord = {
   id: string;
   tenantId: string;
@@ -193,6 +201,7 @@ export type SurveyRecord = {
   photos: SurveyPhoto[];
   workByOthers: string[];
   assumptions: string[];
+  assistantMessages?: SurveyAssistantMessage[];
   legacyTakeoffProjectId?: string;
   estimateId?: string;
   audit: SurveyAuditEntry[];

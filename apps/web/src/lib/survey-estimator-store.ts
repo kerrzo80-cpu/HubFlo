@@ -249,6 +249,7 @@ function migrateTakeoffProject(project: TakeoffProject, tenantId = "pilot-ewg"):
     photos: surveyPhotos,
     workByOthers: [],
     assumptions: ["Imported from the previous Survey/Takeoff record for review."],
+    assistantMessages: [],
     legacyTakeoffProjectId: project.id,
     audit: [audit("NeXa migration", "Imported", `${project.reference} evidence imported without generated estimate prices.`)],
     createdAt: project.createdAt,
@@ -299,6 +300,7 @@ function defaultSurvey(input: Partial<SurveyRecord>, context: MutationContext): 
     photos: input.photos || [],
     workByOthers: input.workByOthers || [],
     assumptions: input.assumptions || [],
+    assistantMessages: input.assistantMessages || [],
     legacyTakeoffProjectId: input.legacyTakeoffProjectId,
     audit: [audit(context.actor, "Created", "Survey draft created.")],
     createdAt,
@@ -341,6 +343,7 @@ export function updateSurvey(
   patch: Partial<SurveyRecord>,
   expectedVersion: number | undefined,
   actor: string,
+  auditOverride?: { action: string; detail: string },
 ): VersionedMutationResult<SurveyRecord> {
   ensureLegacyMigration();
   const index = store.surveys.findIndex((item) => item.tenantId === tenantId && (item.id === id || item.reference === id));
@@ -362,7 +365,14 @@ export function updateSurvey(
     tenantId: current.tenantId,
     reference: current.reference,
     version: current.version + 1,
-    audit: [...current.audit, audit(actor, "Autosaved", `Survey version ${current.version + 1} saved.`)].slice(-200),
+    audit: [
+      ...current.audit,
+      audit(
+        actor,
+        auditOverride?.action || "Autosaved",
+        auditOverride?.detail || `Survey version ${current.version + 1} saved.`,
+      ),
+    ].slice(-200),
     createdAt: current.createdAt,
     updatedAt,
   };

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, ClipboardCheck, Loader2, Plus } from "lucide-react";
+import { ClipboardCheck, FileSearch, LayoutDashboard, Loader2, Plus } from "lucide-react";
 import type { SurveyRecord } from "@hubflo/domain";
 
 const requestHeaders: HeadersInit = {
@@ -50,7 +50,10 @@ export default function GuidedSurveyDirectory() {
           <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa" />
           <span><strong>NeXa Surveyor</strong><small>Guided site capture</small></span>
         </div>
-        <a href="/survey"><ArrowLeft size={17} /> Survey chat</a>
+        <div className="guided-header-actions">
+          <a href="/"><LayoutDashboard size={17} /> Core</a>
+          <a href="/takeoff"><FileSearch size={17} /> Takeoffs</a>
+        </div>
       </header>
       <section className="guided-directory-content">
         <div className="guided-directory-heading">

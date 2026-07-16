@@ -78,10 +78,10 @@ type HeatCalcDraft = {
 };
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
-  { key: "intake", label: "Documents", icon: Upload },
-  { key: "rooms", label: "Rooms", icon: Ruler },
-  { key: "boq", label: "BOQ / supplier", icon: PackageSearch },
-  { key: "review", label: "Estimate pack", icon: CheckCircle2 },
+  { key: "intake", label: "1. Documents", icon: Upload },
+  { key: "rooms", label: "2. Zones / rooms", icon: Ruler },
+  { key: "boq", label: "3. Quantities / RFQ", icon: PackageSearch },
+  { key: "review", label: "4. Review & handoff", icon: CheckCircle2 },
 ];
 
 const requestHeaders: HeadersInit = {
@@ -1823,7 +1823,7 @@ export default function TakeoffPage() {
                 <article>
                   <span>1</span>
                   <strong>Survey</strong>
-                  <small>Site chat, photos, LiDAR, heat loss</small>
+                  <small>Guided survey, photos, LiDAR, heat loss</small>
                 </article>
                 <article className="active">
                   <span>2</span>
@@ -1850,9 +1850,9 @@ export default function TakeoffPage() {
                   </span>
                 </div>
                 <div className="takeoff-ai-handoff-actions">
-                  <a className="takeoff-primary-button" href="/survey">
+                  <a className="takeoff-primary-button" href="/survey/guided">
                     <MessageCircle size={15} />
-                    Open Survey
+                    Open Guided Survey
                   </a>
                   <button
                     className="takeoff-secondary-button"
