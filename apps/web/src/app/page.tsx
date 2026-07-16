@@ -49,6 +49,16 @@ import {
 import { checkInvoiceReadiness, type InvoiceReadinessInput } from "@hubflo/domain";
 import type { Job, PurchaseRequest, PurchaseStatus, Quote, QuoteStatus } from "@/lib/workflow-data";
 import {
+  businessImportLabels,
+  businessImportTemplateHeaders,
+  importNumber,
+  importValue,
+  parseBusinessImport,
+  validateBusinessImportRow,
+  type BusinessImportRow,
+  type BusinessImportType,
+} from "@/lib/business-import";
+import {
   seedClients,
   seedClientSites,
   type AuditEvent,
@@ -549,6 +559,7 @@ type SetupCategory =
   | "cost-centres"
   | "engineer-checklists"
   | "workflow-rules"
+  | "imports"
   | "catalogue"
   | "rates"
   | "communications"
@@ -675,6 +686,12 @@ type QuoteScheduleDraft = {
 type CatalogImportDraft = {
   folder: string;
   type: CatalogItem["type"];
+};
+
+type BusinessImportResult = {
+  imported: number;
+  skipped: number;
+  errors: string[];
 };
 
 type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
@@ -2242,6 +2259,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
+  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
@@ -2360,6 +2378,33 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       summary: "Configure approval gates for POs, variations, invoices and commercial reviews.",
       focus: ["PO approval threshold", "Variation approval routing", "Invoice review gates"],
       status: "Editable now",
+    },
+  },
+  imports: {
+    Employees: {
+      summary: "Import employee cards from a CSV or spreadsheet export. Logins stay disabled until a secure password is set inside the employee card.",
+      focus: ["Employee name and role", "Contact and employment details", "Duplicate protection"],
+      status: "Working import",
+    },
+    Leads: {
+      summary: "Import open enquiries while creating reusable customer and site records from their contact and address details.",
+      focus: ["Customer and site", "Lead source and status", "Survey booking details"],
+      status: "Working import",
+    },
+    Quotes: {
+      summary: "Import quote headers and values. Detailed cost centres can then be built in NeXa or migrated during the Simpro reconciliation stage.",
+      focus: ["Quote reference", "Customer and scope", "Status, value and next action"],
+      status: "Working import",
+    },
+    Jobs: {
+      summary: "Import existing jobs with customer, site, programme status, manager and headline value.",
+      focus: ["Job reference", "Customer, site and scope", "Schedule and delivery status"],
+      status: "Working import",
+    },
+    Invoices: {
+      summary: "Import invoice headers and net values into the invoice register for migration and reconciliation.",
+      focus: ["Invoice reference", "Customer and source reference", "Net value, VAT and due date"],
+      status: "Working import",
     },
   },
   catalogue: {
@@ -5727,6 +5772,12 @@ export default function Dashboard() {
     folder: quoteCatalogFolders[0] ?? "General materials",
     type: "Material",
   });
+  const [businessImportType, setBusinessImportType] = useState<BusinessImportType>("employees");
+  const [businessImportFileName, setBusinessImportFileName] = useState("");
+  const [businessImportHeaders, setBusinessImportHeaders] = useState<string[]>([]);
+  const [businessImportRows, setBusinessImportRows] = useState<BusinessImportRow[]>([]);
+  const [businessImportBusy, setBusinessImportBusy] = useState(false);
+  const [businessImportResult, setBusinessImportResult] = useState<BusinessImportResult | null>(null);
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
@@ -5772,9 +5823,11 @@ export default function Dashboard() {
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
+  const lastLocalEmployeeEditAt = useRef(0);
   const hasAppliedHubSetupState = useRef(false);
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
+  const pendingEmployeeSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
   const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
@@ -5792,6 +5845,11 @@ export default function Dashboard() {
     () => activeDashboardLayout.order.filter((panelId) => !activeDashboardLayout.hidden.includes(panelId)),
     [activeDashboardLayout],
   );
+  const businessImportRowReviews = useMemo(
+    () => businessImportRows.map((row, index) => ({ index, missing: validateBusinessImportRow(businessImportType, row) })),
+    [businessImportRows, businessImportType],
+  );
+  const businessImportValidCount = businessImportRowReviews.filter((row) => row.missing.length === 0).length;
 
   const isEmployeeLoggedIn = useMemo(
     () => Boolean(loggedInEmployeeId && employees.some((employee) => employee.id === loggedInEmployeeId)),
@@ -6974,7 +7032,8 @@ export default function Dashboard() {
           const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
-          if (hubState.employees?.length) {
+          const hasRecentLocalEmployeeEdit = Date.now() - lastLocalEmployeeEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
+          if (hubState.employees?.length && !hasRecentLocalEmployeeEdit && !pendingEmployeeSaveRef.current) {
             const nextEmployees = normalizeEmployeeCards(
               hubState.employees as EmployeeCard[],
               serverWorkspaceMode !== "live",
@@ -7073,7 +7132,7 @@ export default function Dashboard() {
 
   function buildHubDetailStatePayload(): HubDetailStatePayload {
     return {
-      employees,
+      employees: newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
       businessSettings,
       formTemplates,
       activeFormTemplateId,
@@ -8666,6 +8725,11 @@ export default function Dashboard() {
     pendingCostCentreSaveRef.current = true;
   }
 
+  function markEmployeeEdited() {
+    lastLocalEmployeeEditAt.current = Date.now();
+    pendingEmployeeSaveRef.current = true;
+  }
+
   function costCentreNumberInputValue(key: string, value: number, blankWhenZero = false) {
     return costCentreInputDrafts[key] ?? formatEditableNumber(value, blankWhenZero);
   }
@@ -9035,6 +9099,353 @@ export default function Dashboard() {
       showNotice("Unable to import that catalogue file.");
     } finally {
       event.currentTarget.value = "";
+    }
+  }
+
+  function resetBusinessImportFile() {
+    setBusinessImportFileName("");
+    setBusinessImportHeaders([]);
+    setBusinessImportRows([]);
+    setBusinessImportResult(null);
+  }
+
+  function selectBusinessImportType(type: BusinessImportType) {
+    setBusinessImportType(type);
+    setActiveSetupSubItem(businessImportLabels[type]);
+    resetBusinessImportFile();
+  }
+
+  async function loadBusinessImportFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = parseBusinessImport(await file.text());
+      setBusinessImportFileName(file.name);
+      setBusinessImportHeaders(parsed.headers);
+      setBusinessImportRows(parsed.rows);
+      setBusinessImportResult(null);
+      showNotice(`${parsed.rows.length} ${businessImportLabels[businessImportType].toLowerCase()} row(s) ready to review.`);
+    } catch (error) {
+      resetBusinessImportFile();
+      showNotice(error instanceof Error ? error.message : "Unable to read that import file.");
+    } finally {
+      event.currentTarget.value = "";
+    }
+  }
+
+  function downloadBusinessImportTemplate() {
+    if (typeof window === "undefined") return;
+    const headers = businessImportTemplateHeaders[businessImportType];
+    const blob = new Blob([`${headers.join(",")}\n`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `nexa-${businessImportType}-import-template.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importBusinessRecords() {
+    if (!businessImportRows.length || businessImportBusy) return;
+    const rowErrors = businessImportRows.map((row, index) => ({
+      index,
+      missing: validateBusinessImportRow(businessImportType, row),
+    }));
+    const validRows = rowErrors
+      .filter((row) => row.missing.length === 0)
+      .map((row) => businessImportRows[row.index])
+      .filter((row): row is BusinessImportRow => Boolean(row));
+    const errors = rowErrors
+      .filter((row) => row.missing.length > 0)
+      .map((row) => `Row ${row.index + 2}: missing ${row.missing.join(", ")}.`);
+    let imported = 0;
+    let skipped = errors.length;
+    setBusinessImportBusy(true);
+
+    try {
+      if (businessImportType === "employees") {
+        const existingKeys = new Set(
+          employees.flatMap((employee) => [
+            employee.name.trim().toLowerCase(),
+            employee.profile?.email?.trim().toLowerCase() ?? "",
+          ]).filter(Boolean),
+        );
+        const importedEmployees: EmployeeCard[] = [];
+        validRows.forEach((row, index) => {
+          const name = importValue(row, ["name", "employee", "employee_name"]);
+          const email = importValue(row, ["email", "email_address"]);
+          const duplicateKey = email.toLowerCase() || name.toLowerCase();
+          if (existingKeys.has(name.toLowerCase()) || existingKeys.has(duplicateKey)) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists.`);
+            return;
+          }
+          const roleValue = importValue(row, ["role", "access_role"]);
+          const role = roleChoices.find((choice) => choice.toLowerCase() === roleValue.toLowerCase()) ?? "Engineer";
+          importedEmployees.push({
+            id: `emp-${crypto.randomUUID()}`,
+            name,
+            role,
+            permissions: {},
+            profile: {
+              email: email || undefined,
+              phone: importValue(row, ["phone", "mobile", "telephone"]) || undefined,
+              startDate: importValue(row, ["start_date", "started", "employment_start"]) || undefined,
+              roleLabel: importValue(row, ["job_title", "title", "role_label"]) || role,
+              licenses: [],
+              documents: [],
+              emergencyContacts: [],
+              availability: { ...blankEmployeeAvailability },
+            },
+            login: {
+              username: makeDefaultEmployeeUsername({ name, profile: email ? { email } : undefined }),
+              password: "",
+              enabled: false,
+            },
+          });
+          existingKeys.add(name.toLowerCase());
+          if (email) existingKeys.add(email.toLowerCase());
+          imported += 1;
+        });
+        if (importedEmployees.length) {
+          const nextEmployees = [...employees, ...importedEmployees];
+          markEmployeeEdited();
+          const response = await fetch("/api/hub-state", {
+            method: "PUT",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ ...buildHubDetailStatePayload(), employees: nextEmployees }),
+          });
+          if (!response.ok) throw new Error("Employee cards could not be saved to the shared workspace.");
+          setEmployees(nextEmployees);
+          pendingEmployeeSaveRef.current = false;
+        }
+      }
+
+      if (businessImportType === "leads") {
+        const existingRefs = new Set(leads.map((lead) => lead.ref.toLowerCase()));
+        const createdLeads: Lead[] = [];
+        let nextClients = clients;
+        let nextSites = clientSites;
+        for (let index = 0; index < validRows.length; index += 1) {
+          const row = validRows[index]!;
+          const ref = importValue(row, ["reference", "ref", "lead", "lead_number"]);
+          if (ref && existingRefs.has(ref.toLowerCase())) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${ref} already exists.`);
+            continue;
+          }
+          const sourceValue = importValue(row, ["source", "lead_source"]);
+          const source: LeadSource = ["Phone call", "Checkatrade", "Email", "Website", "Referral"].includes(sourceValue)
+            ? sourceValue as LeadSource
+            : "Email";
+          const statusValue = importValue(row, ["status", "lead_status"]);
+          const status: LeadStatus = ["New enquiry", "Needs scheduling", "Survey booked", "Quoted", "Lost"].includes(statusValue)
+            ? statusValue as LeadStatus
+            : "Needs scheduling";
+          const customerName = importValue(row, ["customer", "client", "customer_name", "client_name", "name"]);
+          const phone = importValue(row, ["phone", "mobile", "telephone"]);
+          const email = importValue(row, ["email", "email_address"]);
+          const response = await fetch("/api/leads", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: `lead-${crypto.randomUUID()}`,
+              ...(ref ? { ref } : {}),
+              source,
+              customerName,
+              phone,
+              email,
+              address: importValue(row, ["address", "site", "site_address"]),
+              description: importValue(row, ["description", "scope", "work_description"]),
+              status,
+              surveyor: importValue(row, ["surveyor", "owner", "assigned_to"]),
+              surveyDate: importValue(row, ["survey_date", "appointment_date"]),
+              surveyTime: importValue(row, ["survey_time", "appointment_time"]),
+              createdBy: activeEmployee?.name ?? "NeXa import",
+              mainContact: { id: `contact-${crypto.randomUUID()}`, name: customerName, role: "Main contact", phone, email, notes: "Imported contact" },
+              additionalContacts: [],
+            }),
+          });
+          if (!response.ok) {
+            const result = await response.json().catch(() => ({})) as { error?: string };
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${result.error || "lead import failed"}.`);
+            continue;
+          }
+          const result = await response.json() as { lead: Lead; clients: ClientRecord[]; clientSites: ClientSite[] };
+          createdLeads.push(result.lead);
+          nextClients = result.clients;
+          nextSites = result.clientSites;
+          existingRefs.add(result.lead.ref.toLowerCase());
+          imported += 1;
+        }
+        if (createdLeads.length) setLeads((current) => [...createdLeads, ...current]);
+        setClients(nextClients);
+        setClientSites(nextSites);
+      }
+
+      if (businessImportType === "quotes") {
+        const existingRefs = new Set(quotes.map((quote) => quote.ref.toLowerCase()));
+        const created: Quote[] = [];
+        for (let index = 0; index < validRows.length; index += 1) {
+          const row = validRows[index]!;
+          const ref = importValue(row, ["reference", "ref", "quote", "quote_number"]);
+          if (existingRefs.has(ref.toLowerCase())) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${ref} already exists.`);
+            continue;
+          }
+          const statusValue = importValue(row, ["status", "quote_status"]);
+          const status: QuoteStatus = ["Draft", "Sent", "Accepted", "Declined", "Converted", "Lost"].includes(statusValue)
+            ? statusValue as QuoteStatus
+            : "Draft";
+          const response = await fetch("/api/quotes", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ref,
+              customer: importValue(row, ["customer", "client", "customer_name", "client_name"]),
+              description: importValue(row, ["description", "scope", "work_description"]),
+              owner: importValue(row, ["owner", "estimator", "created_by"]) || activeEmployee?.name || "NeXa import",
+              status,
+              value: importNumber(row, ["value", "quote_value", "amount", "net"]),
+              next: importValue(row, ["next_action", "next", "action"]),
+              due: importValue(row, ["due", "due_date", "expiry_date"]) || "Not set",
+            }),
+          });
+          if (!response.ok) {
+            const result = await response.json().catch(() => ({})) as { error?: string };
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${result.error || "quote import failed"}.`);
+            continue;
+          }
+          const quote = await response.json() as Quote;
+          created.push(quote);
+          existingRefs.add(ref.toLowerCase());
+          imported += 1;
+        }
+        if (created.length) setQuotes((current) => [...created, ...current]);
+      }
+
+      if (businessImportType === "jobs") {
+        const existingRefs = new Set(jobs.map((job) => job.ref.toLowerCase()));
+        const created: Job[] = [];
+        for (let index = 0; index < validRows.length; index += 1) {
+          const row = validRows[index]!;
+          const ref = importValue(row, ["reference", "ref", "job", "job_number"]);
+          if (existingRefs.has(ref.toLowerCase())) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${ref} already exists.`);
+            continue;
+          }
+          const healthValue = importValue(row, ["health", "rag"]);
+          const health = ["red", "amber", "green", "blue"].includes(healthValue.toLowerCase())
+            ? healthValue.toLowerCase() as Job["health"]
+            : "blue";
+          const response = await fetch("/api/jobs", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ref,
+              customer: importValue(row, ["customer", "client", "customer_name", "client_name"]),
+              site: importValue(row, ["site", "address", "site_address"]),
+              description: importValue(row, ["description", "scope", "work_description"]),
+              manager: importValue(row, ["manager", "owner", "assigned_to"]),
+              scheduledDate: importValue(row, ["scheduled_date", "start_date"]),
+              scheduledTime: importValue(row, ["scheduled_time", "start_time"]),
+              status: importValue(row, ["status", "job_status"]) || "Pending",
+              health,
+              value: importNumber(row, ["value", "job_value", "amount", "net"]),
+              next: importValue(row, ["next_action", "next", "action"]),
+              due: importValue(row, ["due", "due_date", "finish_date"]) || "Not set",
+            }),
+          });
+          if (!response.ok) {
+            const result = await response.json().catch(() => ({})) as { error?: string };
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${result.error || "job import failed"}.`);
+            continue;
+          }
+          const job = await response.json() as Job;
+          created.push(job);
+          existingRefs.add(ref.toLowerCase());
+          imported += 1;
+        }
+        if (created.length) setJobs((current) => [...created, ...current]);
+      }
+
+      if (businessImportType === "invoices") {
+        const existingRefs = new Set(invoices.map((invoice) => invoice.ref.toLowerCase()));
+        const created: Invoice[] = [];
+        validRows.forEach((row, index) => {
+          const ref = importValue(row, ["reference", "ref", "invoice", "invoice_number"]);
+          if (existingRefs.has(ref.toLowerCase())) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${ref} already exists.`);
+            return;
+          }
+          const statusValue = importValue(row, ["status", "invoice_status"]);
+          const status: InvoiceStatus = invoiceStatuses.includes(statusValue as InvoiceStatus)
+            ? statusValue as InvoiceStatus
+            : "Draft";
+          const customer = importValue(row, ["customer", "client", "customer_name", "client_name"]);
+          const chargeTotal = importNumber(row, ["value_ex_vat", "value", "amount", "net"]);
+          const costTotal = importNumber(row, ["cost", "cost_total"]);
+          const sourceRef = importValue(row, ["source_reference", "job_reference", "quote_reference"]);
+          const sourceType: InvoiceScopeType = sourceRef.toUpperCase().startsWith("Q") ? "quote" : "job";
+          created.push({
+            id: `invoice-${crypto.randomUUID()}`,
+            ref,
+            status,
+            sourceType,
+            sourceId: "",
+            sourceRef,
+            sourceName: sourceRef || "Imported invoice",
+            customer,
+            issuedDate: importValue(row, ["issued_date", "invoice_date", "date"]) || currentOperatingDate,
+            dueDate: importValue(row, ["due_date", "due"]) || currentOperatingDate,
+            title: importValue(row, ["title", "description"]) || `Invoice ${ref}`,
+            lines: [{ id: `invoice-line-${crypto.randomUUID()}`, description: importValue(row, ["title", "description"]) || `Imported invoice ${ref}`, category: "Other", costToUs: costTotal, chargeToClient: chargeTotal }],
+            costTotal,
+            chargeTotal,
+            vatRate: importNumber(row, ["vat_rate", "vat"], 20),
+            notes: importValue(row, ["notes", "note"]),
+          });
+          existingRefs.add(ref.toLowerCase());
+          imported += 1;
+        });
+        if (created.length) {
+          const nextInvoices = [...created, ...invoices];
+          const response = await fetch("/api/hub-state", {
+            method: "PUT",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
+          });
+          if (!response.ok) throw new Error("Invoices could not be saved to the shared workspace.");
+          setInvoices(nextInvoices);
+        }
+      }
+
+      setBusinessImportResult({ imported, skipped, errors });
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "imported",
+        recordType: "setup",
+        recordId: `import-${businessImportType}-${Date.now()}`,
+        summary: `${imported} ${businessImportLabels[businessImportType].toLowerCase()} imported from ${businessImportFileName}; ${skipped} skipped.`,
+        source: "data import",
+        importance: errors.length ? "high" : "normal",
+      });
+      showNotice(`${imported} imported, ${skipped} skipped.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "The import could not be completed.";
+      setBusinessImportResult({ imported, skipped: skipped + validRows.length - imported, errors: [...errors, message] });
+      setSectionError(message);
+      showNotice(message);
+    } finally {
+      setBusinessImportBusy(false);
     }
   }
 
@@ -9951,6 +10362,15 @@ export default function Dashboard() {
     setActiveSetupCategory(category.key);
     setActiveSetupSubItem(item);
 
+    if (category.key === "imports") {
+      const importType = (Object.entries(businessImportLabels).find(([, label]) => label === item)?.[0] ?? "employees") as BusinessImportType;
+      setBusinessImportType(importType);
+      setBusinessImportFileName("");
+      setBusinessImportHeaders([]);
+      setBusinessImportRows([]);
+      setBusinessImportResult(null);
+    }
+
     if (category.key === "forms") {
       const layoutByItem: Partial<Record<string, QuoteDocumentLayout>> = {
         Quote: "quote",
@@ -10009,6 +10429,7 @@ export default function Dashboard() {
       },
       login: { username: "", password: "", enabled: true },
     };
+    markEmployeeEdited();
     setEmployees((current) => [...current, employee]);
     setNewEmployeeId(employeeId);
     setEditingEmployeeId(employeeId);
@@ -10024,6 +10445,7 @@ export default function Dashboard() {
     if (newEmployeeId) {
       setEmployees((current) => current.filter((employee) => employee.id !== newEmployeeId));
       setNewEmployeeId(null);
+      pendingEmployeeSaveRef.current = false;
     }
     setHomeView("employees");
     clearEmployeeEditingState();
@@ -14585,8 +15007,8 @@ export default function Dashboard() {
       }
     }
 
-    setEmployees((current) =>
-      current.map((employee) =>
+    markEmployeeEdited();
+    const nextEmployees = employees.map((employee) =>
         employee.id === editingEmployeeId
           ? {
               ...employee,
@@ -14624,8 +15046,22 @@ export default function Dashboard() {
               },
             }
           : employee,
-      ),
     );
+    setEmployees(nextEmployees);
+
+    try {
+      const hubResponse = await fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...buildHubDetailStatePayload(), employees: nextEmployees }),
+      });
+      if (!hubResponse.ok) throw new Error("The employee card could not be saved to the shared workspace.");
+      pendingEmployeeSaveRef.current = false;
+    } catch (error) {
+      setSectionError(error instanceof Error ? error.message : "The employee card could not be saved.");
+      showNotice(error instanceof Error ? error.message : "The employee card could not be saved.");
+      return;
+    }
 
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -14637,6 +15073,7 @@ export default function Dashboard() {
       importance: employeeRoleDraft === "Finance" ? "high" : "normal",
     });
     setNewEmployeeId(null);
+    setSectionError(null);
     showNotice("Employee card updated.");
   }
 
@@ -25060,6 +25497,104 @@ export default function Dashboard() {
                           );
                         })}
                       </div>
+                    </section>
+                  ) : null}
+
+                  {activeSetupCategory === "imports" ? (
+                    <section className="setup-panel setup-import-panel">
+                      <div className="documents-toolbar">
+                        <div>
+                          <span className="permission-heading">Migration workspace</span>
+                          <h2>Import existing records</h2>
+                          <p>Upload one record type at a time, review the rows, then commit them to the shared NeXa database.</p>
+                        </div>
+                        <button className="secondary-button" type="button" onClick={downloadBusinessImportTemplate}>
+                          <FileText size={15} /> Download template
+                        </button>
+                      </div>
+
+                      <div className="setup-import-types" role="tablist" aria-label="Import record type">
+                        {(Object.keys(businessImportLabels) as BusinessImportType[]).map((type) => (
+                          <button
+                            className={businessImportType === type ? "active" : ""}
+                            key={type}
+                            type="button"
+                            role="tab"
+                            aria-selected={businessImportType === type}
+                            onClick={() => selectBusinessImportType(type)}
+                          >
+                            {businessImportLabels[type]}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="setup-import-upload">
+                        <div>
+                          <strong>{businessImportLabels[businessImportType]} file</strong>
+                          <span>CSV or TSV with a header row. Existing references and employee identities are skipped.</span>
+                          {businessImportType === "employees" ? <small>Imported employee cards have login disabled until a secure password is set in the employee card.</small> : null}
+                        </div>
+                        <label className="primary-button setup-import-file-button">
+                          <Plus size={15} /> Choose file
+                          <input accept=".csv,.tsv,.txt" type="file" onChange={loadBusinessImportFile} />
+                        </label>
+                      </div>
+
+                      {businessImportFileName ? (
+                        <div className="setup-import-review">
+                          <div className="setup-import-summary">
+                            <div><span>File</span><strong>{businessImportFileName}</strong></div>
+                            <div><span>Rows found</span><strong>{businessImportRows.length}</strong></div>
+                            <div><span>Ready</span><strong>{businessImportValidCount}</strong></div>
+                            <div><span>Need attention</span><strong>{businessImportRows.length - businessImportValidCount}</strong></div>
+                          </div>
+
+                          <div className="setup-import-table-wrap">
+                            <table className="setup-import-table">
+                              <thead>
+                                <tr>
+                                  <th>Row</th>
+                                  {businessImportHeaders.slice(0, 5).map((header) => <th key={header}>{header.replaceAll("_", " ")}</th>)}
+                                  <th>Check</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {businessImportRows.slice(0, 10).map((row, index) => {
+                                  const review = businessImportRowReviews[index];
+                                  return (
+                                    <tr key={`import-preview-${index}`}>
+                                      <td>{index + 2}</td>
+                                      {businessImportHeaders.slice(0, 5).map((header) => <td key={header}>{row[header] || "-"}</td>)}
+                                      <td><span className={review?.missing.length ? "setup-import-check warning" : "setup-import-check ready"}>{review?.missing.length ? `Missing ${review.missing.join(", ")}` : "Ready"}</span></td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                          {businessImportRows.length > 10 ? <p className="setup-import-more">Showing the first 10 of {businessImportRows.length} rows.</p> : null}
+
+                          <div className="setup-import-actions">
+                            <button className="secondary-button" type="button" onClick={resetBusinessImportFile} disabled={businessImportBusy}>Clear file</button>
+                            <button className="primary-button" type="button" onClick={() => void importBusinessRecords()} disabled={!businessImportValidCount || businessImportBusy}>
+                              {businessImportBusy ? "Importing..." : `Import ${businessImportValidCount} ${businessImportLabels[businessImportType].toLowerCase()}`}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="employee-empty-panel setup-import-empty">
+                          <strong>No file selected</strong>
+                          <span>Download the template to see the preferred headings, or choose an existing export and NeXa will match common column names.</span>
+                        </div>
+                      )}
+
+                      {businessImportResult ? (
+                        <div className={businessImportResult.errors.length ? "setup-import-result warning" : "setup-import-result"}>
+                          <strong>{businessImportResult.imported} imported · {businessImportResult.skipped} skipped</strong>
+                          {businessImportResult.errors.slice(0, 8).map((error) => <span key={error}>{error}</span>)}
+                          {businessImportResult.errors.length > 8 ? <span>+{businessImportResult.errors.length - 8} more issues</span> : null}
+                        </div>
+                      ) : null}
                     </section>
                   ) : null}
 
