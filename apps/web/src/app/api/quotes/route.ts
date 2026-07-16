@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createQuote, getQuotes, type Quote } from "@/lib/workflow-data";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
+import { appendAuditEvent } from "@/lib/people-data";
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -59,5 +60,14 @@ export async function POST(request: Request) {
   }
 
   const created = createQuote(payload as Omit<Quote, "id">);
+  appendAuditEvent({
+    actor: created.owner || "HubFlo user",
+    action: "created",
+    recordType: "quote",
+    recordId: created.id,
+    summary: `${created.ref} created for ${created.customer}${created.sourceLeadRef ? ` from ${created.sourceLeadRef}` : ""}.`,
+    source: "quote workflow",
+    importance: "normal",
+  });
   return NextResponse.json(created, { status: 201 });
 }

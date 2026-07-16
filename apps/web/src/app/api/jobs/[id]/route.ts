@@ -10,8 +10,9 @@ import {
 import { getLeads, type LeadRecord } from "@/lib/lead-store";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
+import { appendAuditEvent } from "@/lib/people-data";
 
-const jobScheduleDurationMinutes = 60;
+const defaultJobScheduleDurationMinutes = 60;
 
 function toMinutes(value: string) {
   const [hours = 0, minutes = 0] = value.split(":").map(Number);
@@ -19,10 +20,15 @@ function toMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
-function overlap(firstStart: string, secondStart: string, durationMinutes = jobScheduleDurationMinutes) {
+function overlap(
+  firstStart: string,
+  secondStart: string,
+  firstDurationMinutes = defaultJobScheduleDurationMinutes,
+  secondDurationMinutes = defaultJobScheduleDurationMinutes,
+) {
   const first = toMinutes(firstStart);
   const second = toMinutes(secondStart);
-  return first < second + durationMinutes && first + durationMinutes > second;
+  return first < second + secondDurationMinutes && first + firstDurationMinutes > second;
 }
 
 type JobScheduleBooking = {
@@ -30,6 +36,7 @@ type JobScheduleBooking = {
   manager: string;
   scheduledDate: string;
   scheduledTime: string;
+  scheduledDurationHours?: number;
 };
 
 function findJobOverlappingLead(booking: JobScheduleBooking, leads: LeadRecord[]) {
@@ -41,7 +48,12 @@ function findJobOverlappingLead(booking: JobScheduleBooking, leads: LeadRecord[]
         lead.status !== "Lost" &&
         lead.surveyor === booking.manager &&
         lead.surveyDate === booking.scheduledDate &&
-        overlap(booking.scheduledTime, lead.surveyTime),
+        overlap(
+          booking.scheduledTime,
+          lead.surveyTime,
+          (booking.scheduledDurationHours ?? 1) * 60,
+          60,
+        ),
     ) ?? null
   );
 }
@@ -56,7 +68,12 @@ function findJobScheduleClash(booking: JobScheduleBooking, jobs: Job[], leads: L
         Boolean(job.scheduledTime) &&
         job.manager === booking.manager &&
         job.scheduledDate === booking.scheduledDate &&
-        overlap(booking.scheduledTime, job.scheduledTime ?? ""),
+        overlap(
+          booking.scheduledTime,
+          job.scheduledTime ?? "",
+          (booking.scheduledDurationHours ?? 1) * 60,
+          (job.scheduledDurationHours ?? 1) * 60,
+        ),
     ) ?? null;
   if (jobClash) return jobClash;
   return findJobOverlappingLead(booking, leads);
@@ -110,6 +127,7 @@ export async function PATCH(
   const nextManager = body.manager ?? current.manager;
   const nextDate = body.scheduledDate ?? current.scheduledDate;
   const nextTime = body.scheduledTime ?? current.scheduledTime;
+  const nextDurationHours = body.scheduledDurationHours ?? current.scheduledDurationHours;
   if (nextManager && nextDate && nextTime) {
     const conflict = jobScheduleClashErrorPayload(
       {
@@ -117,6 +135,7 @@ export async function PATCH(
         manager: nextManager,
         scheduledDate: nextDate,
         scheduledTime: nextTime,
+        scheduledDurationHours: nextDurationHours,
       },
       getJobs(),
       getLeads(),
@@ -126,9 +145,41 @@ export async function PATCH(
     }
   }
 
-  const updated = updateJob(id, body);
+  const isBeingScheduled = Boolean(nextManager && nextDate && nextTime);
+  const shouldEnterActiveWorkflow = isBeingScheduled && ["Pending", "Scheduled"].includes(current.status);
+  const updated = updateJob(id, {
+    ...body,
+    status: body.status ?? (shouldEnterActiveWorkflow ? "In progress" : current.status),
+    next: body.next ?? (shouldEnterActiveWorkflow ? "Complete scheduled work" : current.next),
+  });
   if (!updated) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
+  }
+
+  if (
+    updated.manager !== current.manager ||
+    updated.scheduledDate !== current.scheduledDate ||
+    updated.scheduledTime !== current.scheduledTime
+  ) {
+    appendAuditEvent({
+      actor: "HubFlo user",
+      action: "scheduled",
+      recordType: "job",
+      recordId: updated.id,
+      summary: `${updated.ref} scheduled to ${updated.manager} on ${updated.scheduledDate} at ${updated.scheduledTime}.`,
+      source: "job planner",
+      importance: "high",
+    });
+  } else if (updated.status !== current.status) {
+    appendAuditEvent({
+      actor: "HubFlo user",
+      action: "status changed",
+      recordType: "job",
+      recordId: updated.id,
+      summary: `${updated.ref} changed from ${current.status} to ${updated.status}.`,
+      source: "job workflow",
+      importance: "normal",
+    });
   }
   return NextResponse.json(updated);
 }

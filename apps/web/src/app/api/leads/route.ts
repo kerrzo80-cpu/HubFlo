@@ -27,10 +27,15 @@ function toMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
-function overlap(firstStart: string, secondStart: string, durationMinutes = surveyDurationMinutes) {
+function overlap(
+  firstStart: string,
+  secondStart: string,
+  secondDurationMinutes = surveyDurationMinutes,
+  firstDurationMinutes = surveyDurationMinutes,
+) {
   const first = toMinutes(firstStart);
   const second = toMinutes(secondStart);
-  return first < second + durationMinutes && first + durationMinutes > second;
+  return first < second + secondDurationMinutes && first + firstDurationMinutes > second;
 }
 
 function findLeadSurveyClash(booking: LeadSurveyBooking, leads: LeadRecord[]) {
@@ -58,7 +63,7 @@ function findLeadOverlappingJob(booking: LeadSurveyBooking, jobs: Job[]) {
         job.manager === booking.surveyor &&
         job.scheduledDate === booking.surveyDate &&
         Boolean(job.scheduledTime) &&
-        overlap(booking.surveyTime, job.scheduledTime ?? ""),
+        overlap(booking.surveyTime, job.scheduledTime ?? "", (job.scheduledDurationHours ?? 1) * 60),
     ) ?? null
   );
 }

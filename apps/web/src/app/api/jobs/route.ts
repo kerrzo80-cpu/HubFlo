@@ -9,7 +9,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { getLeads, type LeadRecord } from "@/lib/lead-store";
 import { parseJsonRequestBody } from "@/lib/http";
 
-const jobScheduleDurationMinutes = 60;
+const defaultJobScheduleDurationMinutes = 60;
 
 function toMinutes(value: string) {
   const [hours = 0, minutes = 0] = value.split(":").map(Number);
@@ -17,10 +17,15 @@ function toMinutes(value: string) {
   return hours * 60 + minutes;
 }
 
-function overlap(firstStart: string, secondStart: string, durationMinutes = jobScheduleDurationMinutes) {
+function overlap(
+  firstStart: string,
+  secondStart: string,
+  firstDurationMinutes = defaultJobScheduleDurationMinutes,
+  secondDurationMinutes = defaultJobScheduleDurationMinutes,
+) {
   const first = toMinutes(firstStart);
   const second = toMinutes(secondStart);
-  return first < second + durationMinutes && first + durationMinutes > second;
+  return first < second + secondDurationMinutes && first + firstDurationMinutes > second;
 }
 
 type JobScheduleBooking = {
@@ -28,6 +33,7 @@ type JobScheduleBooking = {
   manager: string;
   scheduledDate: string;
   scheduledTime: string;
+  scheduledDurationHours?: number;
 };
 
 function findJobOverlappingLead(booking: JobScheduleBooking, leads: LeadRecord[]) {
@@ -39,7 +45,12 @@ function findJobOverlappingLead(booking: JobScheduleBooking, leads: LeadRecord[]
         lead.status !== "Lost" &&
         lead.surveyor === booking.manager &&
         lead.surveyDate === booking.scheduledDate &&
-        overlap(booking.scheduledTime, lead.surveyTime),
+        overlap(
+          booking.scheduledTime,
+          lead.surveyTime,
+          (booking.scheduledDurationHours ?? 1) * 60,
+          60,
+        ),
     ) ?? null
   );
 }
@@ -54,7 +65,12 @@ function findJobScheduleClash(booking: JobScheduleBooking, jobs: Job[], leads: L
         Boolean(job.scheduledTime) &&
         job.manager === booking.manager &&
         job.scheduledDate === booking.scheduledDate &&
-        overlap(booking.scheduledTime, job.scheduledTime ?? ""),
+        overlap(
+          booking.scheduledTime,
+          job.scheduledTime ?? "",
+          (booking.scheduledDurationHours ?? 1) * 60,
+          (job.scheduledDurationHours ?? 1) * 60,
+        ),
     ) ?? null;
   if (jobClash) return jobClash;
   return findJobOverlappingLead(booking, leads);
@@ -112,6 +128,7 @@ export async function POST(request: Request) {
         manager: payload.manager,
         scheduledDate: payload.scheduledDate,
         scheduledTime: payload.scheduledTime,
+        scheduledDurationHours: payload.scheduledDurationHours,
       },
       getJobs(),
       getLeads(),

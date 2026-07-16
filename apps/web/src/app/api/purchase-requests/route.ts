@@ -8,6 +8,7 @@ import {
 } from "@/lib/workflow-data";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
+import { appendAuditEvent } from "@/lib/people-data";
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -60,6 +61,16 @@ export async function POST(request: Request) {
     receivedAt: payload.receivedAt,
     updatedAt: payload.updatedAt,
   } as PurchaseRequestInput);
+
+  appendAuditEvent({
+    actor: created.requestedBy,
+    action: created.status === "Requested" ? "requested" : "created",
+    recordType: "purchase order",
+    recordId: created.id,
+    summary: `${created.status === "Requested" ? "Purchase request" : created.poNumber || "Purchase order"} created for ${created.jobRef} / ${created.costCentreName || "unassigned cost centre"}.`,
+    source: created.status === "Requested" ? "engineer app" : "purchase orders",
+    importance: "normal",
+  });
 
   return NextResponse.json(created, { status: 201 });
 }
