@@ -325,7 +325,12 @@
   --guided-line: #cfdee5;
   background: #f2f7f9;
   color: var(--guided-ink);
+  height: 100dvh;
   min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .guided-app-header {
