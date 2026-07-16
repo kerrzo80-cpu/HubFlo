@@ -1399,6 +1399,9 @@ type QuoteCostCentre = {
   name: string;
   sectionId?: string;
   templateName?: string;
+  isOption?: boolean;
+  optionSourceCentreId?: string;
+  optionStatus?: "Draft" | "Offered" | "Selected" | "Declined";
   clientDescription?: string;
   engineerDescription?: string;
   lines: QuoteCostLine[];
@@ -1433,6 +1436,7 @@ type EstimateCostCentre = {
   id: string;
   name: string;
   sectionId?: string;
+  variationSectionId?: string;
   sourceQuoteId?: string;
   sourceQuoteCostCentreId?: string;
   templateName?: string;
@@ -5028,7 +5032,7 @@ function roundCurrencyValue(value: number) {
 function quoteValueFromCostCentres(centres: QuoteCostCentre[] | undefined) {
   if (!centres?.length) return null;
   return roundCurrencyValue(
-    centres.reduce(
+    centres.filter((centre) => !centre.isOption || centre.optionStatus === "Selected").reduce(
       (total, centre) => total + centre.lines.reduce((lineTotal, line) => lineTotal + quoteLineSell(line), 0),
       0,
     ),
@@ -5719,6 +5723,7 @@ export default function Dashboard() {
   const [activeQuoteTab, setActiveQuoteTab] = useState<QuoteDetailTab>("setup");
   const [activeCostCentreTab, setActiveCostCentreTab] = useState<CostCentreTab>("summary");
   const [activeJobCostCentreListTab, setActiveJobCostCentreListTab] = useState<JobCostCentreListTab>("base");
+  const [activeQuoteBuildScope, setActiveQuoteBuildScope] = useState<"base" | "options">("base");
   const [activeQuoteBuildTab, setActiveQuoteBuildTab] = useState<QuoteBuildTab>("summary");
   const [activeJobBuildTab, setActiveJobBuildTab] = useState<JobBuildTab>("summary");
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
@@ -5792,6 +5797,7 @@ export default function Dashboard() {
   const [jobVariationSections, setJobVariationSections] = useState<Record<string, JobVariationSection[]>>({});
   const [jobVariationSectionNameDraft, setJobVariationSectionNameDraft] = useState("");
   const [jobVariationSectionDescriptionDraft, setJobVariationSectionDescriptionDraft] = useState("");
+  const [jobVariationSectionDraft, setJobVariationSectionDraft] = useState("");
   const [jobVariationCostCentreNameDraft, setJobVariationCostCentreNameDraft] = useState("");
   const [jobVariationCostCentreTemplateDraft, setJobVariationCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
   const [linkedQuoteSectionDrafts, setLinkedQuoteSectionDrafts] = useState<Record<string, string>>({});
@@ -6329,6 +6335,21 @@ export default function Dashboard() {
     [quoteCostCentres, selectedQuote],
   );
 
+  const selectedQuoteBaseCostCentres = useMemo(
+    () => selectedQuoteCostCentres.filter((centre) => !centre.isOption),
+    [selectedQuoteCostCentres],
+  );
+
+  const selectedQuoteOptionCostCentres = useMemo(
+    () => selectedQuoteCostCentres.filter((centre) => centre.isOption),
+    [selectedQuoteCostCentres],
+  );
+
+  const selectedQuotePricedCostCentres = useMemo(
+    () => selectedQuoteCostCentres.filter((centre) => !centre.isOption || centre.optionStatus === "Selected"),
+    [selectedQuoteCostCentres],
+  );
+
   const selectedQuoteSections = useMemo(() => {
     if (!selectedQuote) return [];
     const baseSection = baseQuoteSection(selectedQuote.id);
@@ -6343,9 +6364,9 @@ export default function Dashboard() {
     () =>
       selectedQuoteSections.map((section) => ({
         section,
-        centres: selectedQuoteCostCentres.filter((centre) => (centre.sectionId ?? selectedQuoteSections[0]?.id) === section.id),
+        centres: selectedQuoteBaseCostCentres.filter((centre) => (centre.sectionId ?? selectedQuoteSections[0]?.id) === section.id),
       })),
-    [selectedQuoteCostCentres, selectedQuoteSections],
+    [selectedQuoteBaseCostCentres, selectedQuoteSections],
   );
 
   const selectedQuoteScheduleAssignments = useMemo(
@@ -6362,7 +6383,7 @@ export default function Dashboard() {
   );
 
   const selectedQuoteTotals = useMemo(() => {
-    const lines = selectedQuoteCostCentres.flatMap((centre) => centre.lines);
+    const lines = selectedQuotePricedCostCentres.flatMap((centre) => centre.lines);
     const cost = lines.reduce((total, line) => total + quoteLineCost(line), 0);
     const sell = lines.reduce((total, line) => total + quoteLineSell(line), 0);
     const profit = sell - cost;
@@ -6374,7 +6395,7 @@ export default function Dashboard() {
       margin: sell > 0 ? Math.round((profit / sell) * 100) : 0,
       lineCount: lines.length,
     };
-  }, [selectedQuoteCostCentres]);
+  }, [selectedQuotePricedCostCentres]);
 
   const selectedQuoteReviewQuestions = useMemo(
     () =>
@@ -6439,6 +6460,20 @@ export default function Dashboard() {
     () => (selectedJob ? jobVariationSections[selectedJob.id] ?? [] : []),
     [jobVariationSections, selectedJob],
   );
+
+  const selectedJobVariationSectionsWithCentres = useMemo(() => {
+    const knownSectionIds = new Set(selectedJobVariationSections.map((section) => section.id));
+    const fallbackSectionId = selectedJobVariationSections[0]?.id ?? "";
+    return selectedJobVariationSections.map((section) => ({
+      section,
+      centres: selectedJobVariationCostCentres.filter((centre) => {
+        const centreSectionId = knownSectionIds.has(centre.variationSectionId ?? "")
+          ? centre.variationSectionId
+          : fallbackSectionId;
+        return centreSectionId === section.id;
+      }),
+    }));
+  }, [selectedJobVariationCostCentres, selectedJobVariationSections]);
 
   const selectedJobLinkedVariationQuotes = useMemo(
     () =>
@@ -10777,7 +10812,11 @@ export default function Dashboard() {
     });
     setJobInvoiceDraft(null);
     openInvoiceRecord(created.id);
-    showNotice(`${created.ref} created from ${job.ref}.`);
+    showNotice(
+      isValuation
+        ? `${created.ref} saved in Invoices > Drafts / valuations. Open Preview to see the application form.`
+        : `${created.ref} created from ${job.ref}.`,
+    );
   }
 
   function updateSelectedValuationAgreement(lineId: string, value: number) {
@@ -12563,6 +12602,7 @@ export default function Dashboard() {
       ...current,
       [selectedJob.id]: [...(current[selectedJob.id] ?? []), section],
     }));
+    setJobVariationSectionDraft(section.id);
     setJobVariationSectionNameDraft("");
     setJobVariationSectionDescriptionDraft("");
     logAuditEvent({
@@ -12580,6 +12620,20 @@ export default function Dashboard() {
   function addJobVariationCostCentre() {
     if (!selectedJob) return;
     const name = jobVariationCostCentreNameDraft.trim() || `Variation cost centre ${selectedJobVariationCostCentres.length + 1}`;
+    let variationSectionId = jobVariationSectionDraft;
+    if (!variationSectionId || !selectedJobVariationSections.some((section) => section.id === variationSectionId)) {
+      const fallbackSection: JobVariationSection = {
+        id: `${selectedJob.id}-variation-section-${Date.now()}`,
+        name: "Variation works",
+        description: "Approved or quoted additional works.",
+      };
+      variationSectionId = fallbackSection.id;
+      setJobVariationSections((current) => ({
+        ...current,
+        [selectedJob.id]: [...(current[selectedJob.id] ?? []), fallbackSection],
+      }));
+      setJobVariationSectionDraft(fallbackSection.id);
+    }
     setJobCentresForSelected((centres) => {
       const centre = makeEstimateCostCentre(selectedJob.id, centres.length, name, jobVariationCostCentreTemplateDraft);
       return [
@@ -12587,6 +12641,7 @@ export default function Dashboard() {
         {
           ...centre,
           variation: true,
+          variationSectionId,
           clientDescription: "Variation works to be reviewed and approved before proceeding.",
           engineerDescription: "Do not proceed until the office confirms client approval.",
         },
@@ -12603,6 +12658,12 @@ export default function Dashboard() {
       importance: "high",
     });
     showNotice(`Variation cost centre ${name} added.`);
+  }
+
+  function updateJobVariationCostCentreSection(centreId: string, variationSectionId: string) {
+    if (!selectedJob) return;
+    updateEstimateCostCentre(centreId, { variationSectionId });
+    showNotice("Variation cost centre moved to section.");
   }
 
   async function createLinkedVariationQuote() {
@@ -13534,6 +13595,77 @@ export default function Dashboard() {
     });
     setQuoteCostCentreNameDraft("");
     setShowQuoteCostCentreCreate(false);
+  }
+
+  function createQuoteOptionFromCostCentre(sourceCentre?: QuoteCostCentre | null) {
+    if (!selectedQuote) return;
+    const source = sourceCentre ?? selectedQuoteCostCentre ?? selectedQuoteBaseCostCentres[0] ?? null;
+    if (!source) {
+      showNotice("Create a base cost centre before adding a client option.");
+      return;
+    }
+
+    const optionIndex = selectedQuoteOptionCostCentres.filter((centre) => centre.optionSourceCentreId === source.id).length + 1;
+    const optionId = `${selectedQuote.id}-option-${Date.now()}-${optionIndex}`;
+    const clonedLines = source.lines.map((line, index) => ({
+      ...line,
+      id: `${optionId}-line-${index}`,
+    }));
+    const optionCentre: QuoteCostCentre = {
+      ...source,
+      id: optionId,
+      name: `${source.name} option ${optionIndex}`,
+      isOption: true,
+      optionSourceCentreId: source.id,
+      optionStatus: "Draft",
+      clientDescription:
+        source.clientDescription ||
+        "Optional works for the client to review. This will only be included in the quote total once selected.",
+      engineerDescription:
+        source.engineerDescription ||
+        "Optional works. Do not deliver unless the option has been accepted and moved into the job.",
+      lines: clonedLines,
+    };
+
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: [...(current[selectedQuote.id] ?? []), optionCentre],
+    }));
+    setSelectedQuoteCostCentreId(optionId);
+    setActiveQuoteTab("cost-build");
+    setActiveQuoteBuildScope("options");
+    showNotice(`${optionCentre.name} added as a client option.`);
+  }
+
+  function updateQuoteOptionStatus(centreId: string, optionStatus: NonNullable<QuoteCostCentre["optionStatus"]>) {
+    if (!selectedQuote) return;
+    const option = selectedQuoteOptionCostCentres.find((centre) => centre.id === centreId);
+    if (!option) return;
+
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) => {
+        if (centre.id === centreId) return { ...centre, optionStatus };
+        if (
+          optionStatus === "Selected" &&
+          centre.isOption &&
+          centre.optionSourceCentreId &&
+          centre.optionSourceCentreId === option.optionSourceCentreId &&
+          centre.id !== centreId &&
+          centre.optionStatus === "Selected"
+        ) {
+          return { ...centre, optionStatus: "Declined" };
+        }
+        return centre;
+      }),
+    }));
+    showNotice(
+      optionStatus === "Selected"
+        ? `${option.name} selected and included in the quote total.`
+        : `${option.name} marked ${optionStatus.toLowerCase()}.`,
+    );
   }
 
   function updateQuotePlannerDraft(patch: Partial<QuoteScheduleDraft>) {
@@ -18692,7 +18824,7 @@ export default function Dashboard() {
                       </header>
                       <div className="ai-review-summary">
                         <strong>{selectedQuoteReviewQuestions.filter((question) => !checkedQuoteReviewQuestions[question.id]).length}</strong>
-                        <span>open questions from {selectedQuoteCostCentres.length} cost centres</span>
+                        <span>open questions from {selectedQuotePricedCostCentres.length} priced cost centres</span>
                       </div>
                       {selectedQuoteReviewQuestions.length > 0 ? (
                         <div className="ai-review-question-list">
@@ -18757,7 +18889,7 @@ export default function Dashboard() {
                           <span>Charge</span>
                           <span>Profit</span>
                         </div>
-                        {selectedQuoteCostCentres.map((centre) => {
+                        {selectedQuotePricedCostCentres.map((centre) => {
                           const totals = quoteCostCentreTotals(centre);
                           return (
                             <button
@@ -18781,7 +18913,7 @@ export default function Dashboard() {
                       <h3>Combined breakdown</h3>
                       <div className="simpro-breakdown-table quote-combined-breakdown">
                         {(() => {
-                          const totals = selectedQuoteCostCentres.reduce(
+                          const totals = selectedQuotePricedCostCentres.reduce(
                             (acc, centre) => {
                               const centreTotals = quoteCostCentreTotals(centre);
                               return {
@@ -19159,10 +19291,24 @@ export default function Dashboard() {
                 {activeQuoteTab === "cost-build" ? (
                   <section className="simpro-estimate-page">
                     <div className="simpro-sub-tabs" role="tablist" aria-label="Quote cost centre categories">
-                      <button className="active" type="button">Base scope <span>{selectedQuoteCostCentres.length}</span></button>
-                      <button type="button">Options</button>
+                      <button
+                        className={activeQuoteBuildScope === "base" ? "active" : ""}
+                        type="button"
+                        onClick={() => setActiveQuoteBuildScope("base")}
+                      >
+                        Base scope <span>{selectedQuoteBaseCostCentres.length}</span>
+                      </button>
+                      <button
+                        className={activeQuoteBuildScope === "options" ? "active" : ""}
+                        type="button"
+                        onClick={() => setActiveQuoteBuildScope("options")}
+                      >
+                        Options <span>{selectedQuoteOptionCostCentres.length}</span>
+                      </button>
                     </div>
 
+                    {activeQuoteBuildScope === "base" ? (
+                      <>
                     <h2 className="simpro-page-title">Base Scope Cost Centres</h2>
 
                     <div className="simpro-filter-band">
@@ -19349,6 +19495,71 @@ export default function Dashboard() {
                         </div>
                       </section>
                     ))}
+                      </>
+                    ) : (
+                      <section className="quote-options-workspace">
+                        <header className="quote-options-header">
+                          <div>
+                            <h2 className="simpro-page-title">Client Options</h2>
+                            <p>Use options for alternatives the customer can choose from, such as different boiler models or optional extra works. Only selected options are included in the quote total.</p>
+                          </div>
+                          <button className="simpro-blue-button" type="button" onClick={() => createQuoteOptionFromCostCentre()}>
+                            ADD OPTION FROM BASE
+                          </button>
+                        </header>
+
+                        {selectedQuoteOptionCostCentres.length === 0 ? (
+                          <div className="simpro-cost-centre-empty option-empty">
+                            <strong>No client options yet.</strong>
+                            <span>Open a base cost centre and use its Options tab, or create an option from the first base cost centre here.</span>
+                          </div>
+                        ) : (
+                          <div className="linked-variation-quote-list quote-option-list">
+                            {selectedQuoteOptionCostCentres.map((centre) => {
+                              const source = selectedQuoteBaseCostCentres.find((item) => item.id === centre.optionSourceCentreId);
+                              const totals = quoteCostCentreTotals(centre);
+                              return (
+                                <article className="linked-variation-quote-card quote-option-card" key={centre.id}>
+                                  <div className="linked-variation-quote-summary">
+                                    <div>
+                                      <strong>{centre.name}</strong>
+                                      <span>{source ? `Alternative to ${source.name}` : "Standalone option"}</span>
+                                    </div>
+                                    <b>{currency(totals.totalSell)}</b>
+                                    <span className={`status-pill ${centre.optionStatus === "Selected" ? "green" : centre.optionStatus === "Offered" ? "blue" : centre.optionStatus === "Declined" ? "red" : "amber"}`}>
+                                      {centre.optionStatus ?? "Draft"}
+                                    </span>
+                                  </div>
+                                  <div className="linked-variation-quote-actions">
+                                    <button className="simpro-grey-button" type="button" onClick={() => openQuoteCostCentreRecord(centre.id)}>
+                                      OPEN OPTION
+                                    </button>
+                                    <label className="quote-option-status">
+                                      Status
+                                      <select
+                                        value={centre.optionStatus ?? "Draft"}
+                                        onChange={(event) => updateQuoteOptionStatus(centre.id, event.target.value as NonNullable<QuoteCostCentre["optionStatus"]>)}
+                                      >
+                                        <option>Draft</option>
+                                        <option>Offered</option>
+                                        <option>Selected</option>
+                                        <option>Declined</option>
+                                      </select>
+                                    </label>
+                                    <button className="simpro-blue-button" type="button" onClick={() => updateQuoteOptionStatus(centre.id, "Selected")}>
+                                      INCLUDE IN TOTAL
+                                    </button>
+                                    <button className="simpro-options-button danger" type="button" onClick={() => deleteQuoteCostCentre(centre.id)}>
+                                      DELETE
+                                    </button>
+                                  </div>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </section>
+                    )}
                   </section>
                 ) : null}
 
@@ -19637,11 +19848,11 @@ export default function Dashboard() {
 
                         <section className="quote-send-grid">
                           {(() => {
-                            const surveyPack = quoteSurveyPackSummary(selectedQuoteCostCentres);
+                            const surveyPack = quoteSurveyPackSummary(selectedQuotePricedCostCentres);
                             const template = formTemplateForLayout(selectedQuoteEmailDraft.layout);
                             const vatAmount = selectedQuoteTotals.sell * (numberFromSetting(normalizedFinanceSettings.vatRate, 20) / 100);
                             const rows = template.includeCostCentreBreakdown
-                              ? selectedQuoteCostCentres.map((centre) => ({
+                              ? selectedQuotePricedCostCentres.map((centre) => ({
                                   id: centre.id,
                                   description: centre.name,
                                   detail: centre.clientDescription || "Scope description to be confirmed before issue.",
@@ -21359,9 +21570,47 @@ export default function Dashboard() {
                 ) : null}
 
                 {activeCostCentreTab === "options" ? (
-                  <section className="simpro-empty-workspace">
-                    <h2>Options</h2>
-                    <p>Quote options will sit here so a customer can choose between alternatives such as boiler models before online acceptance creates the final cost centre.</p>
+                  <section className="quote-options-workspace cost-centre-option-workspace">
+                    <header className="quote-options-header">
+                      <div>
+                        <h2>Options</h2>
+                        <p>Create an alternative version of this cost centre for the client to choose. Selected options are included in the quote total.</p>
+                      </div>
+                      <button className="simpro-blue-button" type="button" onClick={() => createQuoteOptionFromCostCentre(selectedQuoteCostCentre)}>
+                        CREATE OPTION FROM THIS COST CENTRE
+                      </button>
+                    </header>
+                    <div className="quote-option-linked-list">
+                      {selectedQuoteOptionCostCentres.filter((option) => option.optionSourceCentreId === selectedQuoteCostCentre.id).length === 0 ? (
+                        <div className="simpro-cost-centre-empty option-empty">
+                          <strong>No options created from {selectedQuoteCostCentre.name} yet.</strong>
+                          <span>Create one above, then open it to adjust materials, labour and wording.</span>
+                        </div>
+                      ) : (
+                        selectedQuoteOptionCostCentres
+                          .filter((option) => option.optionSourceCentreId === selectedQuoteCostCentre.id)
+                          .map((option) => {
+                            const totals = quoteCostCentreTotals(option);
+                            return (
+                              <article className="quote-option-mini-card" key={option.id}>
+                                <div>
+                                  <strong>{option.name}</strong>
+                                  <span>{currency(totals.totalSell)} sell · {currency(totals.totalCost)} cost</span>
+                                </div>
+                                <span className={`status-pill ${option.optionStatus === "Selected" ? "green" : option.optionStatus === "Offered" ? "blue" : option.optionStatus === "Declined" ? "red" : "amber"}`}>
+                                  {option.optionStatus ?? "Draft"}
+                                </span>
+                                <button className="simpro-grey-button" type="button" onClick={() => openQuoteCostCentreRecord(option.id)}>
+                                  Open
+                                </button>
+                                <button className="simpro-blue-button" type="button" onClick={() => updateQuoteOptionStatus(option.id, "Selected")}>
+                                  Include
+                                </button>
+                              </article>
+                            );
+                          })
+                      )}
+                    </div>
                   </section>
                 ) : null}
 
@@ -22198,6 +22447,18 @@ export default function Dashboard() {
                             <h3>Add approved cost centre or price additional works</h3>
                             <div className="simpro-cost-centre-add variation-cost-centre-create">
                               <label>
+                                Variation section
+                                <select
+                                  value={jobVariationSectionDraft}
+                                  onChange={(event) => setJobVariationSectionDraft(event.target.value)}
+                                >
+                                  <option value="">Create/use Variation works</option>
+                                  {selectedJobVariationSections.map((section) => (
+                                    <option key={section.id} value={section.id}>{section.name}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
                                 Default category
                                 <select
                                   value={jobVariationCostCentreTemplateDraft}
@@ -22236,10 +22497,11 @@ export default function Dashboard() {
                             </div>
                           ) : (
                             <div className="variation-section-list">
-                              {selectedJobVariationSections.map((section) => (
+                              {selectedJobVariationSectionsWithCentres.map(({ section, centres }) => (
                                 <article key={section.id}>
                                   <strong>{section.name}</strong>
                                   <span>{section.description || "No description added yet."}</span>
+                                  <em>{centres.length} cost centre{centres.length === 1 ? "" : "s"}</em>
                                 </article>
                               ))}
                             </div>
@@ -22280,6 +22542,19 @@ export default function Dashboard() {
                                       {centre.name}
                                       <small>{centre.templateName ?? "Variation"}</small>
                                     </strong>
+                                    {selectedJobVariationSections.length > 0 ? (
+                                      <label className="simpro-row-section-select" onClick={(event) => event.stopPropagation()}>
+                                        Section
+                                        <select
+                                          value={centre.variationSectionId ?? selectedJobVariationSections[0]?.id ?? ""}
+                                          onChange={(event) => updateJobVariationCostCentreSection(centre.id, event.target.value)}
+                                        >
+                                          {selectedJobVariationSections.map((section) => (
+                                            <option key={section.id} value={section.id}>{section.name}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                    ) : null}
                                     <span className="simpro-row-total">Total: {currency(totals.totalSell)}</span>
                                     <div className="simpro-row-actions">
                                       <button
