@@ -21707,27 +21707,79 @@ body {
   justify-content: flex-end;
 }
 
-.services-markup-canvas {
+.services-markup-plan-stage {
   background: #f4f9fb;
   border: 1px solid #cfe2ec;
   border-radius: 10px;
-  cursor: crosshair;
-  display: block;
   height: min(58vh, 640px);
   min-height: 430px;
-  touch-action: manipulation;
+  overflow: hidden;
+  position: relative;
   width: 100%;
 }
 
-.services-markup-workspace.expanded .services-markup-canvas {
+.services-markup-canvas {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  cursor: crosshair;
+  display: block;
+  height: 100%;
+  inset: 0;
+  min-height: 0;
+  position: absolute;
+  touch-action: manipulation;
+  width: 100%;
+  z-index: 2;
+}
+
+.services-markup-workspace.expanded .services-markup-plan-stage {
   height: calc(100vh - 350px);
   min-height: 680px;
+}
+
+.markup-document-preview,
+.markup-document-placeholder {
+  background: #fff;
+  border: 0;
+  height: 100%;
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+  z-index: 1;
+}
+
+img.markup-document-preview {
+  object-fit: contain;
+}
+
+.markup-document-placeholder {
+  align-content: center;
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.markup-document-placeholder strong {
+  color: var(--ink);
+}
+
+.markup-document-placeholder span {
+  max-width: 360px;
 }
 
 .markup-plan-bg {
   fill: #fbfdfe;
   stroke: #d4e4ec;
   stroke-width: 2;
+}
+
+.markup-plan-bg.overlay {
+  fill: rgba(251, 253, 254, 0.1);
 }
 
 .markup-grid-line {
@@ -21973,7 +22025,7 @@ body {
     max-height: none;
   }
 
-  .services-markup-canvas {
+  .services-markup-plan-stage {
     height: 520px;
   }
 }
@@ -22003,7 +22055,7 @@ body {
     grid-template-columns: 1fr;
   }
 
-  .services-markup-canvas {
+  .services-markup-plan-stage {
     height: 420px;
     min-height: 360px;
   }

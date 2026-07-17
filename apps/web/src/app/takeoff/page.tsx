@@ -876,6 +876,16 @@ export default function TakeoffPage() {
     [drawingDocuments, servicesMarkup.drawingDocumentId],
   );
 
+  const markupDrawingFileUrl = useMemo(() => (
+    selectedProject && markupSelectedDrawing?.storageKey
+      ? `/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/documents/${encodeURIComponent(markupSelectedDrawing.id)}/file`
+      : ""
+  ), [markupSelectedDrawing, selectedProject]);
+
+  const markupDrawingPreviewUrl = markupSelectedDrawing?.previewImageDataUrl || markupDrawingFileUrl;
+  const markupDrawingIsPdf = Boolean(markupSelectedDrawing?.mimeType?.toLowerCase().includes("pdf") || markupSelectedDrawing?.fileName.toLowerCase().endsWith(".pdf"));
+  const markupDrawingIsImage = Boolean(markupSelectedDrawing?.previewImageDataUrl || markupSelectedDrawing?.mimeType?.toLowerCase().startsWith("image/"));
+
   const markupCalibrationPixelLength = useMemo(() => {
     if (markupCalibrationPoints.length < 2) return 0;
     const first = markupCalibrationPoints[0];
@@ -2834,20 +2844,46 @@ export default function TakeoffPage() {
                         </div>
                       </div>
 
-                      <svg
-                        className="services-markup-canvas"
-                        role="img"
-                        aria-label="Editable services markup drawing"
-                        viewBox={`0 0 ${markupCanvasWidth} ${markupCanvasHeight}`}
-                        onClick={handleMarkupCanvasClick}
-                        onDoubleClick={() => {
-                          if (markupDraftPipe?.points.length && markupDraftPipe.points.length >= 2) finishMarkupRoute();
-                        }}
-                      >
-                        <rect className="markup-plan-bg" width={markupCanvasWidth} height={markupCanvasHeight} rx="18" />
-                        {markupSelectedDrawing?.previewImageDataUrl ? (
-                          <image href={markupSelectedDrawing.previewImageDataUrl} x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight} preserveAspectRatio="xMidYMid slice" opacity="0.72" />
-                        ) : null}
+                      <div className="services-markup-plan-stage">
+                        {markupDrawingPreviewUrl ? (
+                          markupDrawingIsPdf ? (
+                            <iframe
+                              className="markup-document-preview"
+                              src={`${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                              title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                            />
+                          ) : markupDrawingIsImage ? (
+                            <img
+                              className="markup-document-preview"
+                              src={markupDrawingPreviewUrl}
+                              alt={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                            />
+                          ) : (
+                            <div className="markup-document-placeholder">
+                              <FileText size={22} />
+                              <strong>{markupSelectedDrawing?.fileName}</strong>
+                              <span>This file is uploaded, but cannot be drawn as a visual plan preview yet.</span>
+                            </div>
+                          )
+                        ) : (
+                          <div className="markup-document-placeholder">
+                            <Upload size={22} />
+                            <strong>No visible drawing selected</strong>
+                            <span>Upload a PDF, JPG or PNG drawing, then choose it as the locked drawing.</span>
+                          </div>
+                        )}
+
+                        <svg
+                          className="services-markup-canvas"
+                          role="img"
+                          aria-label="Editable services markup drawing"
+                          viewBox={`0 0 ${markupCanvasWidth} ${markupCanvasHeight}`}
+                          onClick={handleMarkupCanvasClick}
+                          onDoubleClick={() => {
+                            if (markupDraftPipe?.points.length && markupDraftPipe.points.length >= 2) finishMarkupRoute();
+                          }}
+                        >
+                        <rect className={markupDrawingPreviewUrl ? "markup-plan-bg overlay" : "markup-plan-bg"} width={markupCanvasWidth} height={markupCanvasHeight} rx="18" />
                         {servicesMarkup.settings.showGrid ? (
                           <>
                             {Array.from({ length: 20 }).map((_, index) => (
@@ -2955,7 +2991,8 @@ export default function TakeoffPage() {
                             <text y="5">{markupSymbolLabel(symbol.kind)}</text>
                           </g>
                         ))}
-                      </svg>
+                        </svg>
+                      </div>
                     </article>
 
                     <aside className="takeoff-panel services-markup-properties">
