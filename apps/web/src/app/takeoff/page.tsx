@@ -3152,7 +3152,7 @@ export default function TakeoffPage() {
                           markupDrawingIsPdf ? (
                             <foreignObject className="markup-document-foreign" x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight}>
                               <iframe
-                                src={`${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                                src={`${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
                                 title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
                               />
                             </foreignObject>
