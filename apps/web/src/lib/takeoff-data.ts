@@ -218,6 +218,98 @@ export type TakeoffExtractionDraft = {
   questions: string[];
 };
 
+export type TakeoffMarkupService =
+  | "Cold water"
+  | "Hot water"
+  | "Heating flow"
+  | "Heating return"
+  | "Gas"
+  | "Waste"
+  | "Soil"
+  | "UFH"
+  | "Condensate"
+  | "Other";
+
+export type TakeoffMarkupPoint = {
+  x: number;
+  y: number;
+};
+
+export type TakeoffMarkupPipe = {
+  id: string;
+  type: "pipe";
+  service: TakeoffMarkupService;
+  material: string;
+  diameter: string;
+  colour: string;
+  points: TakeoffMarkupPoint[];
+  floor: string;
+  riseDropM: number;
+  notes: string;
+  included: boolean;
+};
+
+export type TakeoffMarkupSymbolCategory = "Fitting" | "Valve" | "Plant";
+
+export type TakeoffMarkupSymbolKind =
+  | "45 elbow"
+  | "90 elbow"
+  | "Tee"
+  | "Reducer"
+  | "Stop valve"
+  | "Isolation valve"
+  | "TRV"
+  | "Lockshield"
+  | "Drain cock"
+  | "Gas boiler"
+  | "Combi boiler"
+  | "System boiler"
+  | "Cylinder"
+  | "ASHP"
+  | "UFH manifold"
+  | "Pump"
+  | "Expansion vessel"
+  | "Gas meter"
+  | "Water main"
+  | "Soil stack"
+  | "Tundish";
+
+export type TakeoffMarkupSymbol = {
+  id: string;
+  type: "symbol";
+  category: TakeoffMarkupSymbolCategory;
+  kind: TakeoffMarkupSymbolKind;
+  x: number;
+  y: number;
+  rotation: number;
+  service?: TakeoffMarkupService;
+  material?: string;
+  diameter?: string;
+  manufacturer?: string;
+  model?: string;
+  notes: string;
+  included: boolean;
+};
+
+export type TakeoffServicesMarkup = {
+  drawingDocumentId?: string;
+  calibration: {
+    status: "Uncalibrated" | "Calibrated";
+    pixelsPerMetre?: number;
+    realLengthM?: number;
+    scaleLabel?: string;
+  };
+  settings: {
+    wastagePercent: number;
+    pipeStockLengthM: number;
+    showGrid: boolean;
+  };
+  pipes: TakeoffMarkupPipe[];
+  symbols: TakeoffMarkupSymbol[];
+  assumptions: string[];
+  updatedAt?: string;
+};
+
 export type TakeoffProject = {
   id: string;
   reference: string;
@@ -240,6 +332,7 @@ export type TakeoffProject = {
   supplierRequests: TakeoffSupplierRequestItem[];
   surveyWorkflow?: TakeoffSurveyWorkflow;
   surveyChat?: TakeoffSurveyChatMessage[];
+  servicesMarkup?: TakeoffServicesMarkup;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;

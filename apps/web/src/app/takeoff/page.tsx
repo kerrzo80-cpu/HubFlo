@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -32,6 +32,11 @@ import type { Quote } from "@/lib/workflow-data";
 import type {
   TakeoffDocumentKind,
   TakeoffLabourAllowance,
+  TakeoffMarkupPipe,
+  TakeoffMarkupService,
+  TakeoffMarkupSymbol,
+  TakeoffMarkupSymbolCategory,
+  TakeoffMarkupSymbolKind,
   TakeoffMaterialAllowance,
   TakeoffMeasurement,
   TakeoffPipeRun,
@@ -42,10 +47,12 @@ import type {
   TakeoffSurveyQuestion,
   TakeoffSurveyStopGoItem,
   TakeoffSurveyWorkflow,
+  TakeoffServicesMarkup,
   TakeoffSupplierRequestItem,
 } from "@/lib/takeoff-data";
 
-type TakeoffTab = "intake" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
+type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
+type MarkupToolMode = "pipe" | "symbol" | "select";
 
 type NewProjectDraft = {
   name: string;
@@ -79,9 +86,10 @@ type HeatCalcDraft = {
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
   { key: "intake", label: "1. Documents", icon: Upload },
-  { key: "rooms", label: "2. Zones / rooms", icon: Ruler },
-  { key: "boq", label: "3. Quantities / RFQ", icon: PackageSearch },
-  { key: "review", label: "4. Review & handoff", icon: CheckCircle2 },
+  { key: "markup", label: "2. Services markup", icon: Wrench },
+  { key: "rooms", label: "3. Zones / rooms", icon: Ruler },
+  { key: "boq", label: "4. Quantities / RFQ", icon: PackageSearch },
+  { key: "review", label: "5. Review & handoff", icon: CheckCircle2 },
 ];
 
 const requestHeaders: HeadersInit = {
@@ -180,6 +188,64 @@ const takeoffRadiatorCatalogue = [
   { range: "Vertical", model: "K2 1800 x 600", outputWatts: 2095 },
 ];
 
+const markupCanvasWidth = 1000;
+const markupCanvasHeight = 620;
+
+const markupServices: Array<{ id: TakeoffMarkupService; label: string; colour: string }> = [
+  { id: "Cold water", label: "Cold", colour: "#2878c8" },
+  { id: "Hot water", label: "Hot", colour: "#d64545" },
+  { id: "Heating flow", label: "Heat flow", colour: "#f08a24" },
+  { id: "Heating return", label: "Heat return", colour: "#7c4dff" },
+  { id: "Gas", label: "Gas", colour: "#e6b800" },
+  { id: "Waste", label: "Waste", colour: "#8a5a32" },
+  { id: "Soil", label: "Soil", colour: "#4a4f55" },
+  { id: "UFH", label: "UFH", colour: "#2ea66f" },
+  { id: "Condensate", label: "Condensate", colour: "#00a6b5" },
+  { id: "Other", label: "Other", colour: "#607084" },
+];
+
+const markupPipeTools = [
+  { id: "cu-15", label: "15mm copper", material: "Copper", diameter: "15mm" },
+  { id: "cu-22", label: "22mm copper", material: "Copper", diameter: "22mm" },
+  { id: "cu-28", label: "28mm copper", material: "Copper", diameter: "28mm" },
+  { id: "cu-35", label: "35mm copper", material: "Copper", diameter: "35mm" },
+  { id: "hep-15", label: "15mm Hep2O", material: "Hep2O", diameter: "15mm" },
+  { id: "hep-22", label: "22mm Hep2O", material: "Hep2O", diameter: "22mm" },
+  { id: "ufh-16", label: "16mm UFH", material: "UFH pipe", diameter: "16mm" },
+  { id: "waste-32", label: "32mm waste", material: "Waste pipe", diameter: "32mm" },
+  { id: "waste-40", label: "40mm waste", material: "Waste pipe", diameter: "40mm" },
+  { id: "waste-50", label: "50mm waste", material: "Waste pipe", diameter: "50mm" },
+  { id: "soil-110", label: "110mm soil", material: "Soil pipe", diameter: "110mm" },
+  { id: "gas", label: "Gas pipework", material: "Gas pipework", diameter: "TBC" },
+];
+
+const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: TakeoffMarkupSymbolCategory }> = [
+  { kind: "45 elbow", category: "Fitting" },
+  { kind: "90 elbow", category: "Fitting" },
+  { kind: "Tee", category: "Fitting" },
+  { kind: "Reducer", category: "Fitting" },
+  { kind: "Stop valve", category: "Valve" },
+  { kind: "Isolation valve", category: "Valve" },
+  { kind: "TRV", category: "Valve" },
+  { kind: "Lockshield", category: "Valve" },
+  { kind: "Drain cock", category: "Valve" },
+];
+
+const markupPlantTools: Array<{ kind: TakeoffMarkupSymbolKind; category: TakeoffMarkupSymbolCategory }> = [
+  { kind: "Gas boiler", category: "Plant" },
+  { kind: "Combi boiler", category: "Plant" },
+  { kind: "System boiler", category: "Plant" },
+  { kind: "Cylinder", category: "Plant" },
+  { kind: "ASHP", category: "Plant" },
+  { kind: "UFH manifold", category: "Plant" },
+  { kind: "Pump", category: "Plant" },
+  { kind: "Expansion vessel", category: "Plant" },
+  { kind: "Gas meter", category: "Plant" },
+  { kind: "Water main", category: "Plant" },
+  { kind: "Soil stack", category: "Plant" },
+  { kind: "Tundish", category: "Plant" },
+];
+
 const gbp = new Intl.NumberFormat("en-GB", {
   style: "currency",
   currency: "GBP",
@@ -208,6 +274,75 @@ function lineSell(unitCost: number, markupPercent: number) {
 
 function selectedHeatOption<T extends { id: string }>(options: T[], id: string) {
   return options.find((option) => option.id === id) ?? options[0];
+}
+
+function createDefaultServicesMarkup(): TakeoffServicesMarkup {
+  return {
+    calibration: {
+      status: "Uncalibrated",
+      pixelsPerMetre: 70,
+      realLengthM: 5,
+      scaleLabel: "Manual",
+    },
+    settings: {
+      wastagePercent: 10,
+      pipeStockLengthM: 3,
+      showGrid: true,
+    },
+    pipes: [],
+    symbols: [],
+    assumptions: [
+      "Lengths are measured from the marked-up drawing and should be checked against site conditions before order.",
+      "Fittings are counted as placed items; corners are not automatically converted into fittings until approved.",
+    ],
+  };
+}
+
+function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffServicesMarkup {
+  const fallback = createDefaultServicesMarkup();
+  return {
+    ...fallback,
+    ...markup,
+    calibration: {
+      ...fallback.calibration,
+      ...(markup?.calibration ?? {}),
+    },
+    settings: {
+      ...fallback.settings,
+      ...(markup?.settings ?? {}),
+    },
+    pipes: markup?.pipes ?? fallback.pipes,
+    symbols: markup?.symbols ?? fallback.symbols,
+    assumptions: markup?.assumptions ?? fallback.assumptions,
+  };
+}
+
+function markupServiceColour(service: TakeoffMarkupService) {
+  return markupServices.find((item) => item.id === service)?.colour ?? "#607084";
+}
+
+function markupPointDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+function markupPipeLengthM(pipe: TakeoffMarkupPipe, calibration: TakeoffServicesMarkup["calibration"]) {
+  if (pipe.points.length < 2) return Math.max(0, pipe.riseDropM || 0);
+  const pixelsPerMetre = calibration.status === "Calibrated" && calibration.pixelsPerMetre ? calibration.pixelsPerMetre : 70;
+  let flatPixels = 0;
+  for (let index = 1; index < pipe.points.length; index += 1) {
+    const previous = pipe.points[index - 1];
+    const current = pipe.points[index];
+    if (previous && current) flatPixels += markupPointDistance(previous, current);
+  }
+  return flatPixels / pixelsPerMetre + Math.max(0, pipe.riseDropM || 0);
+}
+
+function markupSymbolLabel(kind: TakeoffMarkupSymbolKind) {
+  const words = kind.split(" ");
+  if (kind === "ASHP") return "AS";
+  if (kind === "UFH manifold") return "UFH";
+  if (words.length === 1) return (words[0] ?? kind).slice(0, 3).toUpperCase();
+  return words.map((word) => word[0]).join("").slice(0, 3).toUpperCase();
 }
 
 function inferHeatRoomType(name: string): HeatCalcDraft["roomType"] {
@@ -652,6 +787,13 @@ export default function TakeoffPage() {
   const [openAiKeyDraft, setOpenAiKeyDraft] = useState("");
   const [isSavingAiKey, setIsSavingAiKey] = useState(false);
   const [heatCalc, setHeatCalc] = useState<HeatCalcDraft>(blankHeatCalc);
+  const [markupToolMode, setMarkupToolMode] = useState<MarkupToolMode>("pipe");
+  const [activeMarkupService, setActiveMarkupService] = useState<TakeoffMarkupService>("Heating flow");
+  const [activeMarkupPipeToolId, setActiveMarkupPipeToolId] = useState("cu-22");
+  const [activeMarkupSymbolKind, setActiveMarkupSymbolKind] = useState<TakeoffMarkupSymbolKind>("Combi boiler");
+  const [activeMarkupSymbolCategory, setActiveMarkupSymbolCategory] = useState<TakeoffMarkupSymbolCategory>("Plant");
+  const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
+  const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -699,6 +841,96 @@ export default function TakeoffPage() {
     () => surveyEvidenceDocuments.filter((document) => document.storageKey).length,
     [surveyEvidenceDocuments],
   );
+
+  const drawingDocuments = useMemo(
+    () => selectedProject?.documents.filter((document) => document.kind === "Drawing") ?? [],
+    [selectedProject],
+  );
+
+  const servicesMarkup = useMemo(
+    () => normaliseServicesMarkup(selectedProject?.servicesMarkup),
+    [selectedProject?.servicesMarkup],
+  );
+
+  const activeMarkupPipeTool = useMemo(
+    () => markupPipeTools.find((tool) => tool.id === activeMarkupPipeToolId) ?? markupPipeTools[0]!,
+    [activeMarkupPipeToolId],
+  );
+
+  const selectedMarkupPipe = useMemo(
+    () => servicesMarkup.pipes.find((pipe) => pipe.id === selectedMarkupElementId) ?? null,
+    [selectedMarkupElementId, servicesMarkup.pipes],
+  );
+
+  const selectedMarkupSymbol = useMemo(
+    () => servicesMarkup.symbols.find((symbol) => symbol.id === selectedMarkupElementId) ?? null,
+    [selectedMarkupElementId, servicesMarkup.symbols],
+  );
+
+  const markupSelectedDrawing = useMemo(
+    () => drawingDocuments.find((document) => document.id === servicesMarkup.drawingDocumentId) ?? drawingDocuments[0] ?? null,
+    [drawingDocuments, servicesMarkup.drawingDocumentId],
+  );
+
+  const servicesMarkupSummary = useMemo(() => {
+    const pipeRows = new Map<string, {
+      id: string;
+      label: string;
+      service: TakeoffMarkupService;
+      material: string;
+      diameter: string;
+      measuredM: number;
+      orderM: number;
+      stockQuantity: number;
+      colour: string;
+    }>();
+    servicesMarkup.pipes.filter((pipe) => pipe.included).forEach((pipe) => {
+      const length = markupPipeLengthM(pipe, servicesMarkup.calibration);
+      const key = `${pipe.service}-${pipe.material}-${pipe.diameter}`;
+      const existing = pipeRows.get(key);
+      const measuredM = (existing?.measuredM ?? 0) + length;
+      const pipeStockLengthM = Math.max(1, servicesMarkup.settings.pipeStockLengthM || 3);
+      const orderM = measuredM * (1 + Math.max(0, servicesMarkup.settings.wastagePercent || 0) / 100);
+      pipeRows.set(key, {
+        id: key,
+        label: `${pipe.diameter} ${pipe.material}`,
+        service: pipe.service,
+        material: pipe.material,
+        diameter: pipe.diameter,
+        measuredM,
+        orderM,
+        stockQuantity: Math.max(1, Math.ceil(orderM / pipeStockLengthM)),
+        colour: pipe.colour,
+      });
+    });
+
+    const symbolRows = new Map<string, {
+      id: string;
+      label: string;
+      category: TakeoffMarkupSymbolCategory;
+      count: number;
+    }>();
+    servicesMarkup.symbols.filter((symbol) => symbol.included).forEach((symbol) => {
+      const key = `${symbol.category}-${symbol.kind}`;
+      const existing = symbolRows.get(key);
+      symbolRows.set(key, {
+        id: key,
+        label: symbol.kind,
+        category: symbol.category,
+        count: (existing?.count ?? 0) + 1,
+      });
+    });
+
+    const pipeSummary = Array.from(pipeRows.values());
+    const symbolSummary = Array.from(symbolRows.values());
+    return {
+      pipeRows: pipeSummary,
+      symbolRows: symbolSummary,
+      pipeTotalM: pipeSummary.reduce((sum, row) => sum + row.measuredM, 0),
+      fittingCount: symbolSummary.filter((row) => row.category !== "Plant").reduce((sum, row) => sum + row.count, 0),
+      plantCount: symbolSummary.filter((row) => row.category === "Plant").reduce((sum, row) => sum + row.count, 0),
+    };
+  }, [servicesMarkup]);
 
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
@@ -947,6 +1179,240 @@ export default function TakeoffPage() {
   function updateProject(patch: Partial<TakeoffProject>, successMessage?: string) {
     if (!selectedProject) return;
     patchProject(selectedProject.id, patch, successMessage).catch(() => {});
+  }
+
+  function updateServicesMarkup(updater: (current: TakeoffServicesMarkup) => TakeoffServicesMarkup, successMessage?: string) {
+    if (!selectedProject) return;
+    const nextMarkup = updater(normaliseServicesMarkup(selectedProject.servicesMarkup));
+    updateProject({
+      servicesMarkup: {
+        ...nextMarkup,
+        updatedAt: new Date().toISOString(),
+      },
+    }, successMessage);
+  }
+
+  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.round(((event.clientX - bounds.left) / bounds.width) * markupCanvasWidth),
+      y: Math.round(((event.clientY - bounds.top) / bounds.height) * markupCanvasHeight),
+    };
+  }
+
+  function createMarkupPipe(points: Array<{ x: number; y: number }>): TakeoffMarkupPipe {
+    return {
+      id: makeId("markup-pipe"),
+      type: "pipe",
+      service: activeMarkupService,
+      material: activeMarkupPipeTool.material,
+      diameter: activeMarkupPipeTool.diameter,
+      colour: markupServiceColour(activeMarkupService),
+      points,
+      floor: "Ground floor",
+      riseDropM: 0,
+      notes: "",
+      included: true,
+    };
+  }
+
+  function createMarkupSymbol(point: { x: number; y: number }): TakeoffMarkupSymbol {
+    return {
+      id: makeId("markup-symbol"),
+      type: "symbol",
+      category: activeMarkupSymbolCategory,
+      kind: activeMarkupSymbolKind,
+      x: point.x,
+      y: point.y,
+      rotation: 0,
+      service: activeMarkupService,
+      material: activeMarkupPipeTool.material,
+      diameter: activeMarkupPipeTool.diameter,
+      notes: "",
+      included: true,
+    };
+  }
+
+  function handleMarkupCanvasClick(event: ReactMouseEvent<SVGSVGElement>) {
+    const point = markupCanvasPoint(event);
+    if (markupToolMode === "select") {
+      setSelectedMarkupElementId("");
+      return;
+    }
+
+    if (markupToolMode === "symbol") {
+      const nextSymbol = createMarkupSymbol(point);
+      updateServicesMarkup((current) => ({
+        ...current,
+        symbols: [...current.symbols, nextSymbol],
+      }));
+      setSelectedMarkupElementId(nextSymbol.id);
+      return;
+    }
+
+    setMarkupDraftPipe((current) => {
+      if (!current) return createMarkupPipe([point]);
+      return {
+        ...current,
+        service: activeMarkupService,
+        material: activeMarkupPipeTool.material,
+        diameter: activeMarkupPipeTool.diameter,
+        colour: markupServiceColour(activeMarkupService),
+        points: [...current.points, point],
+      };
+    });
+  }
+
+  function finishMarkupRoute() {
+    if (!markupDraftPipe || markupDraftPipe.points.length < 2) {
+      setError("Tap at least two points before finishing the pipe route.");
+      return;
+    }
+    const completedPipe = {
+      ...markupDraftPipe,
+      id: makeId("markup-pipe"),
+      service: activeMarkupService,
+      material: activeMarkupPipeTool.material,
+      diameter: activeMarkupPipeTool.diameter,
+      colour: markupServiceColour(activeMarkupService),
+    };
+    updateServicesMarkup((current) => ({
+      ...current,
+      pipes: [...current.pipes, completedPipe],
+    }), "Pipe route added to the services markup.");
+    setMarkupDraftPipe(null);
+    setSelectedMarkupElementId(completedPipe.id);
+  }
+
+  function updateSelectedMarkupPipe(patch: Partial<TakeoffMarkupPipe>) {
+    if (!selectedMarkupPipe) return;
+    updateServicesMarkup((current) => ({
+      ...current,
+      pipes: current.pipes.map((pipe) => pipe.id === selectedMarkupPipe.id ? {
+        ...pipe,
+        ...patch,
+        colour: patch.service && !patch.colour ? markupServiceColour(patch.service) : patch.colour ?? pipe.colour,
+      } : pipe),
+    }));
+  }
+
+  function updateSelectedMarkupSymbol(patch: Partial<TakeoffMarkupSymbol>) {
+    if (!selectedMarkupSymbol) return;
+    updateServicesMarkup((current) => ({
+      ...current,
+      symbols: current.symbols.map((symbol) => symbol.id === selectedMarkupSymbol.id ? {
+        ...symbol,
+        ...patch,
+      } : symbol),
+    }));
+  }
+
+  function deleteSelectedMarkupElement() {
+    if (!selectedMarkupElementId) return;
+    updateServicesMarkup((current) => ({
+      ...current,
+      pipes: current.pipes.filter((pipe) => pipe.id !== selectedMarkupElementId),
+      symbols: current.symbols.filter((symbol) => symbol.id !== selectedMarkupElementId),
+    }), "Markup item deleted.");
+    setSelectedMarkupElementId("");
+  }
+
+  function duplicateSelectedMarkupElement() {
+    if (selectedMarkupPipe) {
+      const duplicate: TakeoffMarkupPipe = {
+        ...selectedMarkupPipe,
+        id: makeId("markup-pipe"),
+        points: selectedMarkupPipe.points.map((point) => ({ x: point.x + 22, y: point.y + 22 })),
+      };
+      updateServicesMarkup((current) => ({
+        ...current,
+        pipes: [...current.pipes, duplicate],
+      }), "Pipe route duplicated.");
+      setSelectedMarkupElementId(duplicate.id);
+      return;
+    }
+
+    if (selectedMarkupSymbol) {
+      const duplicate: TakeoffMarkupSymbol = {
+        ...selectedMarkupSymbol,
+        id: makeId("markup-symbol"),
+        x: selectedMarkupSymbol.x + 22,
+        y: selectedMarkupSymbol.y + 22,
+      };
+      updateServicesMarkup((current) => ({
+        ...current,
+        symbols: [...current.symbols, duplicate],
+      }), "Symbol duplicated.");
+      setSelectedMarkupElementId(duplicate.id);
+    }
+  }
+
+  function undoLastMarkupAction() {
+    if (markupDraftPipe) {
+      if (markupDraftPipe.points.length > 1) {
+        setMarkupDraftPipe({ ...markupDraftPipe, points: markupDraftPipe.points.slice(0, -1) });
+      } else {
+        setMarkupDraftPipe(null);
+      }
+      return;
+    }
+
+    updateServicesMarkup((current) => {
+      if (current.symbols.length > 0) {
+        return { ...current, symbols: current.symbols.slice(0, -1) };
+      }
+      return { ...current, pipes: current.pipes.slice(0, -1) };
+    }, "Last markup item removed.");
+    setSelectedMarkupElementId("");
+  }
+
+  function pushMarkupToBoq() {
+    if (!selectedProject) return;
+    const stockLength = Math.max(1, servicesMarkup.settings.pipeStockLengthM || 3);
+    const materialRows: TakeoffMaterialAllowance[] = servicesMarkupSummary.pipeRows.map((row) => ({
+      id: makeId("markup-material"),
+      section: "Services markup",
+      description: `${row.service} - ${row.label} (${row.measuredM.toFixed(1)}m measured, ${row.stockQuantity} x ${stockLength}m lengths)`,
+      quantity: Number(row.orderM.toFixed(2)),
+      unit: "m",
+      unitCost: 0,
+      markupPercent: 30,
+      supplierRequired: true,
+      preferredSupplier: "",
+    }));
+    const symbolRows: TakeoffMaterialAllowance[] = servicesMarkupSummary.symbolRows.map((row) => ({
+      id: makeId("markup-symbol-material"),
+      section: row.category === "Plant" ? "Plant / equipment" : "Services fittings",
+      description: row.label,
+      quantity: row.count,
+      unit: "each",
+      unitCost: 0,
+      markupPercent: 30,
+      supplierRequired: true,
+      preferredSupplier: "",
+    }));
+    const supplierRows: TakeoffSupplierRequestItem[] = [...materialRows, ...symbolRows].map((row) => ({
+      id: makeId("markup-rfq"),
+      supplier: "",
+      description: row.description,
+      quantity: row.quantity,
+      unit: row.unit,
+      linkedMaterialId: row.id,
+      notes: "From Services Markup",
+    }));
+
+    updateProject({
+      materialAllowances: [
+        ...selectedProject.materialAllowances.filter((line) => !line.id.startsWith("markup-material") && !line.id.startsWith("markup-symbol-material")),
+        ...materialRows,
+        ...symbolRows,
+      ],
+      supplierRequests: [
+        ...selectedProject.supplierRequests.filter((line) => line.notes !== "From Services Markup"),
+        ...supplierRows,
+      ],
+    }, "Services markup sent to Quantities / RFQ.");
+    setActiveTab("boq");
   }
 
   async function linkQuoteToProject(quote: Quote) {
@@ -2033,6 +2499,476 @@ export default function TakeoffPage() {
                       ))}
                       {!selectedProject.documents.length ? (
                         <div className="takeoff-empty">No drawings, specs or BOQs registered.</div>
+                      ) : null}
+                    </div>
+                  </article>
+                </section>
+              ) : null}
+
+              {activeTab === "markup" ? (
+                <section className="services-markup-workspace">
+                  <article className="takeoff-panel services-markup-toolbar">
+                    <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
+                      <button className="takeoff-small-button" type="button" onClick={pushMarkupToBoq}>
+                        <PackageSearch size={14} />
+                        Send to Quantities / RFQ
+                      </button>
+                    </PanelTitle>
+
+                    <div className="services-markup-setup">
+                      <label>
+                        Locked drawing
+                        <select
+                          value={servicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
+                          onChange={(event) => updateServicesMarkup((current) => ({ ...current, drawingDocumentId: event.target.value || undefined }))}
+                        >
+                          {!drawingDocuments.length ? <option value="">Upload a drawing first</option> : null}
+                          {drawingDocuments.map((document) => (
+                            <option value={document.id} key={document.id}>{document.fileName}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label>
+                        Pixels per metre
+                        <input
+                          min="1"
+                          type="number"
+                          value={servicesMarkup.calibration.pixelsPerMetre ?? 70}
+                          onChange={(event) => updateServicesMarkup((current) => ({
+                            ...current,
+                            calibration: {
+                              ...current.calibration,
+                              pixelsPerMetre: Number(event.target.value) || 70,
+                              status: "Calibrated",
+                              scaleLabel: "Manual",
+                            },
+                          }))}
+                        />
+                      </label>
+                      <label>
+                        Wastage %
+                        <input
+                          min="0"
+                          type="number"
+                          value={servicesMarkup.settings.wastagePercent}
+                          onChange={(event) => updateServicesMarkup((current) => ({
+                            ...current,
+                            settings: { ...current.settings, wastagePercent: Number(event.target.value) || 0 },
+                          }))}
+                        />
+                      </label>
+                      <label>
+                        Stock length m
+                        <input
+                          min="1"
+                          step="0.5"
+                          type="number"
+                          value={servicesMarkup.settings.pipeStockLengthM}
+                          onChange={(event) => updateServicesMarkup((current) => ({
+                            ...current,
+                            settings: { ...current.settings, pipeStockLengthM: Number(event.target.value) || 3 },
+                          }))}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="services-markup-scale-actions">
+                      <button
+                        className="takeoff-small-button"
+                        type="button"
+                        onClick={() => updateServicesMarkup((current) => ({
+                          ...current,
+                          calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 100, scaleLabel: "1:50" },
+                        }), "Markup scale set to 1:50.")}
+                      >
+                        1:50
+                      </button>
+                      <button
+                        className="takeoff-small-button"
+                        type="button"
+                        onClick={() => updateServicesMarkup((current) => ({
+                          ...current,
+                          calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 70, scaleLabel: "1:100" },
+                        }), "Markup scale set to 1:100.")}
+                      >
+                        1:100
+                      </button>
+                      <label className="services-markup-check">
+                        <input
+                          type="checkbox"
+                          checked={servicesMarkup.settings.showGrid}
+                          onChange={(event) => updateServicesMarkup((current) => ({
+                            ...current,
+                            settings: { ...current.settings, showGrid: event.target.checked },
+                          }))}
+                        />
+                        Show grid
+                      </label>
+                      <span>
+                        {markupSelectedDrawing
+                          ? `${markupSelectedDrawing.fileName} is the locked background. NeXa markup remains editable.`
+                          : "Upload a drawing to use as the locked background."}
+                      </span>
+                    </div>
+
+                    <div className="services-markup-mode-row" aria-label="Markup modes">
+                      {(["pipe", "symbol", "select"] as MarkupToolMode[]).map((mode) => (
+                        <button
+                          className={markupToolMode === mode ? "active" : ""}
+                          type="button"
+                          key={mode}
+                          onClick={() => setMarkupToolMode(mode)}
+                        >
+                          {mode === "pipe" ? "Draw pipe" : mode === "symbol" ? "Place item" : "Select / edit"}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="services-markup-palette">
+                      <section>
+                        <strong>Pipe</strong>
+                        <div className="services-markup-tool-grid">
+                          {markupPipeTools.map((tool) => (
+                            <button
+                              className={activeMarkupPipeToolId === tool.id ? "active" : ""}
+                              type="button"
+                              key={tool.id}
+                              onClick={() => {
+                                setMarkupToolMode("pipe");
+                                setActiveMarkupPipeToolId(tool.id);
+                              }}
+                            >
+                              {tool.label}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                      <section>
+                        <strong>Service colour</strong>
+                        <div className="services-markup-service-grid">
+                          {markupServices.map((service) => (
+                            <button
+                              className={activeMarkupService === service.id ? "active" : ""}
+                              style={{ "--service-colour": service.colour } as CSSProperties}
+                              type="button"
+                              key={service.id}
+                              onClick={() => setActiveMarkupService(service.id)}
+                            >
+                              <i />
+                              {service.label}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                      <section>
+                        <strong>Fittings / valves</strong>
+                        <div className="services-markup-tool-grid compact">
+                          {markupFittingTools.map((tool) => (
+                            <button
+                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              type="button"
+                              key={tool.kind}
+                              onClick={() => {
+                                setMarkupToolMode("symbol");
+                                setActiveMarkupSymbolKind(tool.kind);
+                                setActiveMarkupSymbolCategory(tool.category);
+                              }}
+                            >
+                              {tool.kind}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                      <section>
+                        <strong>Plant / equipment</strong>
+                        <div className="services-markup-tool-grid compact plant">
+                          {markupPlantTools.map((tool) => (
+                            <button
+                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              type="button"
+                              key={tool.kind}
+                              onClick={() => {
+                                setMarkupToolMode("symbol");
+                                setActiveMarkupSymbolKind(tool.kind);
+                                setActiveMarkupSymbolCategory(tool.category);
+                              }}
+                            >
+                              {tool.kind}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    </div>
+                  </article>
+
+                  <div className="services-markup-layout">
+                    <article className="takeoff-panel services-markup-canvas-card">
+                      <div className="services-markup-canvas-header">
+                        <span>
+                          <strong>{markupToolMode === "pipe" ? "Tap points to draw a pipe route" : markupToolMode === "symbol" ? `Tap to place ${activeMarkupSymbolKind}` : "Select an item to edit it"}</strong>
+                          <small>{markupDraftPipe ? `${markupDraftPipe.points.length} point(s) in route` : `${servicesMarkup.pipes.length} routes - ${servicesMarkup.symbols.length} symbols`}</small>
+                        </span>
+                        <div>
+                          <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe || markupDraftPipe.points.length < 2} onClick={finishMarkupRoute}>
+                            Finish route
+                          </button>
+                          <button className="takeoff-small-button" type="button" onClick={undoLastMarkupAction}>
+                            Undo last
+                          </button>
+                          <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe} onClick={() => setMarkupDraftPipe(null)}>
+                            Cancel route
+                          </button>
+                        </div>
+                      </div>
+
+                      <svg
+                        className="services-markup-canvas"
+                        role="img"
+                        aria-label="Editable services markup drawing"
+                        viewBox={`0 0 ${markupCanvasWidth} ${markupCanvasHeight}`}
+                        onClick={handleMarkupCanvasClick}
+                        onDoubleClick={() => {
+                          if (markupDraftPipe?.points.length && markupDraftPipe.points.length >= 2) finishMarkupRoute();
+                        }}
+                      >
+                        <rect className="markup-plan-bg" width={markupCanvasWidth} height={markupCanvasHeight} rx="18" />
+                        {markupSelectedDrawing?.previewImageDataUrl ? (
+                          <image href={markupSelectedDrawing.previewImageDataUrl} x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight} preserveAspectRatio="xMidYMid slice" opacity="0.72" />
+                        ) : null}
+                        {servicesMarkup.settings.showGrid ? (
+                          <>
+                            {Array.from({ length: 20 }).map((_, index) => (
+                              <line className="markup-grid-line" x1={index * 52} x2={index * 52} y1="0" y2={markupCanvasHeight} key={`v-${index}`} />
+                            ))}
+                            {Array.from({ length: 13 }).map((_, index) => (
+                              <line className="markup-grid-line" x1="0" x2={markupCanvasWidth} y1={index * 52} y2={index * 52} key={`h-${index}`} />
+                            ))}
+                          </>
+                        ) : null}
+                        <text className="markup-plan-label" x="32" y="42">
+                          {markupSelectedDrawing ? `Locked plan: ${markupSelectedDrawing.fileName}` : "Locked PDF background placeholder"}
+                        </text>
+                        <text className="markup-plan-scale" x="32" y="68">
+                          {servicesMarkup.calibration.status} {servicesMarkup.calibration.scaleLabel ? `- ${servicesMarkup.calibration.scaleLabel}` : ""}
+                        </text>
+
+                        {servicesMarkup.pipes.map((pipe) => (
+                          <g key={pipe.id}>
+                            <polyline
+                              className="markup-pipe-hit"
+                              points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedMarkupElementId(pipe.id);
+                                setMarkupToolMode("select");
+                              }}
+                            />
+                            <polyline
+                              className={selectedMarkupElementId === pipe.id ? "markup-pipe selected" : "markup-pipe"}
+                              points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                              stroke={pipe.colour}
+                            />
+                            {pipe.points.map((point, index) => (
+                              <circle
+                                className={selectedMarkupElementId === pipe.id ? "markup-route-point selected" : "markup-route-point"}
+                                cx={point.x}
+                                cy={point.y}
+                                r="5"
+                                fill={pipe.colour}
+                                key={`${pipe.id}-${index}`}
+                              />
+                            ))}
+                          </g>
+                        ))}
+
+                        {markupDraftPipe ? (
+                          <g>
+                            <polyline
+                              className="markup-pipe draft"
+                              points={markupDraftPipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                              stroke={markupDraftPipe.colour}
+                            />
+                            {markupDraftPipe.points.map((point, index) => (
+                              <circle className="markup-route-point draft" cx={point.x} cy={point.y} r="6" fill={markupDraftPipe.colour} key={`draft-${index}`} />
+                            ))}
+                          </g>
+                        ) : null}
+
+                        {servicesMarkup.symbols.map((symbol) => (
+                          <g
+                            className={selectedMarkupElementId === symbol.id ? "markup-symbol selected" : "markup-symbol"}
+                            transform={`translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})`}
+                            key={symbol.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedMarkupElementId(symbol.id);
+                              setMarkupToolMode("select");
+                            }}
+                          >
+                            {symbol.category === "Plant" ? (
+                              <rect x="-39" y="-24" width="78" height="48" rx="12" />
+                            ) : symbol.category === "Valve" ? (
+                              <path d="M-28 0 L0 -22 L28 0 L0 22 Z" />
+                            ) : (
+                              <circle cx="0" cy="0" r="27" />
+                            )}
+                            <text y="5">{markupSymbolLabel(symbol.kind)}</text>
+                          </g>
+                        ))}
+                      </svg>
+                    </article>
+
+                    <aside className="takeoff-panel services-markup-properties">
+                      <PanelTitle icon={ClipboardList} title="Selected item" action={selectedMarkupPipe ? "Pipe" : selectedMarkupSymbol?.category ?? "None"} />
+                      {selectedMarkupPipe ? (
+                        <div className="takeoff-form-grid">
+                          <label>
+                            Service
+                            <select value={selectedMarkupPipe.service} onChange={(event) => updateSelectedMarkupPipe({ service: event.target.value as TakeoffMarkupService })}>
+                              {markupServices.map((service) => <option value={service.id} key={service.id}>{service.id}</option>)}
+                            </select>
+                          </label>
+                          <label>
+                            Material
+                            <input value={selectedMarkupPipe.material} onChange={(event) => updateSelectedMarkupPipe({ material: event.target.value })} />
+                          </label>
+                          <label>
+                            Diameter
+                            <input value={selectedMarkupPipe.diameter} onChange={(event) => updateSelectedMarkupPipe({ diameter: event.target.value })} />
+                          </label>
+                          <label>
+                            Floor
+                            <input value={selectedMarkupPipe.floor} onChange={(event) => updateSelectedMarkupPipe({ floor: event.target.value })} />
+                          </label>
+                          <label>
+                            Rise / drop m
+                            <input type="number" step="0.1" value={selectedMarkupPipe.riseDropM} onChange={(event) => updateSelectedMarkupPipe({ riseDropM: Number(event.target.value) || 0 })} />
+                          </label>
+                          <label>
+                            Measured length
+                            <input readOnly value={`${markupPipeLengthM(selectedMarkupPipe, servicesMarkup.calibration).toFixed(2)}m`} />
+                          </label>
+                          <label className="services-markup-check wide">
+                            <input type="checkbox" checked={selectedMarkupPipe.included} onChange={(event) => updateSelectedMarkupPipe({ included: event.target.checked })} />
+                            Include in material schedule
+                          </label>
+                          <label className="wide">
+                            Notes
+                            <textarea value={selectedMarkupPipe.notes} onChange={(event) => updateSelectedMarkupPipe({ notes: event.target.value })} />
+                          </label>
+                        </div>
+                      ) : selectedMarkupSymbol ? (
+                        <div className="takeoff-form-grid">
+                          <label>
+                            Item
+                            <select
+                              value={selectedMarkupSymbol.kind}
+                              onChange={(event) => {
+                                const kind = event.target.value as TakeoffMarkupSymbolKind;
+                                const tool = [...markupFittingTools, ...markupPlantTools].find((item) => item.kind === kind);
+                                updateSelectedMarkupSymbol({ kind, category: tool?.category ?? selectedMarkupSymbol.category });
+                              }}
+                            >
+                              {[...markupFittingTools, ...markupPlantTools].map((tool) => <option value={tool.kind} key={tool.kind}>{tool.kind}</option>)}
+                            </select>
+                          </label>
+                          <label>
+                            Category
+                            <select value={selectedMarkupSymbol.category} onChange={(event) => updateSelectedMarkupSymbol({ category: event.target.value as TakeoffMarkupSymbolCategory })}>
+                              <option>Fitting</option>
+                              <option>Valve</option>
+                              <option>Plant</option>
+                            </select>
+                          </label>
+                          <label>
+                            Material
+                            <input value={selectedMarkupSymbol.material ?? ""} onChange={(event) => updateSelectedMarkupSymbol({ material: event.target.value })} />
+                          </label>
+                          <label>
+                            Diameter
+                            <input value={selectedMarkupSymbol.diameter ?? ""} onChange={(event) => updateSelectedMarkupSymbol({ diameter: event.target.value })} />
+                          </label>
+                          <label>
+                            Manufacturer
+                            <input value={selectedMarkupSymbol.manufacturer ?? ""} onChange={(event) => updateSelectedMarkupSymbol({ manufacturer: event.target.value })} />
+                          </label>
+                          <label>
+                            Model
+                            <input value={selectedMarkupSymbol.model ?? ""} onChange={(event) => updateSelectedMarkupSymbol({ model: event.target.value })} />
+                          </label>
+                          <label>
+                            Rotation
+                            <input type="number" value={selectedMarkupSymbol.rotation} onChange={(event) => updateSelectedMarkupSymbol({ rotation: Number(event.target.value) || 0 })} />
+                          </label>
+                          <label className="services-markup-check wide">
+                            <input type="checkbox" checked={selectedMarkupSymbol.included} onChange={(event) => updateSelectedMarkupSymbol({ included: event.target.checked })} />
+                            Include in material schedule
+                          </label>
+                          <label className="wide">
+                            Notes
+                            <textarea value={selectedMarkupSymbol.notes} onChange={(event) => updateSelectedMarkupSymbol({ notes: event.target.value })} />
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="services-markup-empty">
+                          <Wrench size={22} />
+                          <strong>No item selected</strong>
+                          <span>Draw a pipe route or place a boiler, cylinder, valve or fitting, then click it here to edit.</span>
+                        </div>
+                      )}
+
+                      <div className="services-markup-property-actions">
+                        <button className="takeoff-secondary-button" type="button" disabled={!selectedMarkupElementId} onClick={duplicateSelectedMarkupElement}>
+                          Duplicate
+                        </button>
+                        <button className="takeoff-secondary-button danger" type="button" disabled={!selectedMarkupElementId} onClick={deleteSelectedMarkupElement}>
+                          Delete
+                        </button>
+                      </div>
+                    </aside>
+                  </div>
+
+                  <article className="takeoff-panel services-markup-summary">
+                    <PanelTitle icon={PackageSearch} title="Live service schedule" action={`${servicesMarkupSummary.pipeTotalM.toFixed(1)}m measured`} />
+                    <div className="services-markup-summary-grid">
+                      <div>
+                        <span>Pipework</span>
+                        <strong>{servicesMarkupSummary.pipeRows.length}</strong>
+                      </div>
+                      <div>
+                        <span>Fittings / valves</span>
+                        <strong>{servicesMarkupSummary.fittingCount}</strong>
+                      </div>
+                      <div>
+                        <span>Plant / equipment</span>
+                        <strong>{servicesMarkupSummary.plantCount}</strong>
+                      </div>
+                    </div>
+                    <div className="services-markup-table">
+                      <div className="table-head">
+                        <span>Item</span>
+                        <span>Service / type</span>
+                        <span>Measured</span>
+                        <span>Order qty</span>
+                      </div>
+                      {servicesMarkupSummary.pipeRows.map((row) => (
+                        <div className="table-row" key={row.id}>
+                          <span><i style={{ backgroundColor: row.colour }} />{row.label}</span>
+                          <span>{row.service}</span>
+                          <span>{row.measuredM.toFixed(2)}m</span>
+                          <span>{row.stockQuantity} x {servicesMarkup.settings.pipeStockLengthM}m</span>
+                        </div>
+                      ))}
+                      {servicesMarkupSummary.symbolRows.map((row) => (
+                        <div className="table-row" key={row.id}>
+                          <span>{row.label}</span>
+                          <span>{row.category}</span>
+                          <span>{row.count}</span>
+                          <span>{row.count} each</span>
+                        </div>
+                      ))}
+                      {!servicesMarkupSummary.pipeRows.length && !servicesMarkupSummary.symbolRows.length ? (
+                        <div className="services-markup-empty-row">Start drawing routes or placing equipment to build the schedule.</div>
                       ) : null}
                     </div>
                   </article>
