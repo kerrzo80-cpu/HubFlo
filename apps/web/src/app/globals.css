@@ -21628,6 +21628,95 @@ body {
   gap: 14px;
 }
 
+.takeoff-drawing-mode .takeoff-header,
+.takeoff-drawing-mode .takeoff-sidebar,
+.takeoff-drawing-mode .takeoff-project-hero,
+.takeoff-drawing-mode .estimate-flow-strip,
+.takeoff-drawing-mode .takeoff-ai-handoff,
+.takeoff-drawing-mode .takeoff-metrics,
+.takeoff-drawing-mode .takeoff-tabs {
+  display: none;
+}
+
+.takeoff-drawing-mode .takeoff-shell {
+  display: block;
+  padding: 0;
+}
+
+.takeoff-drawing-mode .takeoff-main {
+  gap: 0;
+  height: 100vh;
+  overflow: hidden;
+  padding: 0;
+}
+
+.takeoff-drawing-mode .takeoff-error,
+.takeoff-drawing-mode .takeoff-notice {
+  border-radius: 0;
+  margin: 0;
+}
+
+.takeoff-drawing-mode .services-markup-workspace {
+  background: #eef6f9;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  height: 100vh;
+  overflow: hidden;
+  padding: 10px;
+}
+
+.takeoff-drawing-workspace-header {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(32, 38, 43, 0.04);
+  display: flex;
+  gap: 14px;
+  grid-column: 1 / -1;
+  justify-content: space-between;
+  min-height: 62px;
+  padding: 10px 12px;
+}
+
+.takeoff-drawing-workspace-header > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.takeoff-drawing-workspace-header span {
+  color: var(--blue-deep);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.takeoff-drawing-workspace-header strong {
+  color: var(--ink);
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.takeoff-drawing-workspace-header small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.takeoff-drawing-workspace-header nav {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .services-markup-workspace.expanded {
   background: #eef8fc;
   border: 1px solid #b9ddea;
@@ -21643,6 +21732,15 @@ body {
 .services-markup-toolbar {
   display: grid;
   gap: 13px;
+}
+
+.takeoff-drawing-mode .services-markup-toolbar {
+  align-self: stretch;
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
 }
 
 .services-markup-setup {
@@ -21713,7 +21811,7 @@ body {
 .services-markup-palette {
   display: grid;
   gap: 12px;
-  grid-template-columns: 1.1fr 1.1fr minmax(170px, 0.9fr) minmax(190px, 1.1fr);
+  grid-template-columns: minmax(190px, 0.9fr) 1.1fr 1.1fr minmax(170px, 0.9fr) minmax(190px, 1.1fr);
 }
 
 .services-markup-palette section {
@@ -21729,6 +21827,53 @@ body {
 .services-markup-palette strong {
   color: var(--ink);
   font-size: 12px;
+}
+
+.services-markup-search-panel input {
+  min-height: 36px;
+}
+
+.services-markup-category-tabs {
+  display: grid;
+  gap: 6px;
+}
+
+.services-markup-category-tabs button {
+  background: #fff;
+  border: 1px solid #d8e4ea;
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+  min-height: 32px;
+  padding: 0 9px;
+  text-align: left;
+}
+
+.services-markup-category-tabs button.active {
+  background: var(--blue-dark);
+  border-color: var(--blue-dark);
+  color: #fff;
+}
+
+.services-markup-no-tools {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  padding: 8px 2px;
+}
+
+.takeoff-drawing-mode .services-markup-setup {
+  grid-template-columns: 1fr 1fr;
+}
+
+.takeoff-drawing-mode .services-markup-palette {
+  grid-template-columns: 1fr;
+}
+
+.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-drawing-mode .services-markup-tool-grid.plant {
+  max-height: none;
 }
 
 .services-markup-tool-grid,
@@ -21779,6 +21924,10 @@ body {
   grid-template-columns: minmax(0, 1fr) minmax(290px, 0.34fr);
 }
 
+.takeoff-drawing-mode .services-markup-layout {
+  display: contents;
+}
+
 .services-markup-workspace.expanded .services-markup-layout {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.25fr);
 }
@@ -21786,6 +21935,13 @@ body {
 .services-markup-canvas-card {
   display: grid;
   gap: 12px;
+}
+
+.takeoff-drawing-mode .services-markup-canvas-card {
+  grid-column: 1;
+  grid-row: 2 / 5;
+  min-height: 0;
+  padding: 12px;
 }
 
 .services-markup-canvas-header {
@@ -21826,6 +21982,11 @@ body {
   overflow: hidden;
   position: relative;
   width: 100%;
+}
+
+.takeoff-drawing-mode .services-markup-plan-stage {
+  height: 100%;
+  min-height: 0;
 }
 
 .services-markup-canvas {
@@ -22007,6 +22168,16 @@ img.markup-document-preview {
   align-self: start;
 }
 
+.takeoff-drawing-mode .services-markup-properties {
+  align-self: stretch;
+  grid-column: 2;
+  grid-row: 3;
+  max-height: 265px;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
 .services-markup-empty {
   align-items: center;
   background: #f8fbfc;
@@ -22041,6 +22212,81 @@ img.markup-document-preview {
 .services-markup-summary {
   display: grid;
   gap: 12px;
+}
+
+.takeoff-drawing-mode .services-markup-summary {
+  align-self: end;
+  grid-column: 2;
+  grid-row: 4;
+  max-height: 260px;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.takeoff-drawing-mode .services-markup-summary-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.takeoff-drawing-mode .services-markup-summary-grid div {
+  padding: 8px;
+}
+
+.takeoff-drawing-mode .services-markup-summary-grid strong {
+  font-size: 18px;
+}
+
+.takeoff-drawing-mode .services-markup-table .table-head,
+.takeoff-drawing-mode .services-markup-table .table-row {
+  grid-template-columns: minmax(0, 1.25fr) 0.8fr 0.65fr 0.8fr;
+  padding: 8px;
+}
+
+@media (max-width: 980px) {
+  .takeoff-drawing-mode .services-markup-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(430px, 58vh) auto auto;
+    height: 100vh;
+    overflow: auto;
+  }
+
+  .takeoff-drawing-workspace-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .takeoff-drawing-workspace-header nav {
+    justify-content: flex-start;
+  }
+
+  .takeoff-drawing-mode .services-markup-toolbar,
+  .takeoff-drawing-mode .services-markup-canvas-card,
+  .takeoff-drawing-mode .services-markup-properties,
+  .takeoff-drawing-mode .services-markup-summary {
+    grid-column: 1;
+    max-height: none;
+  }
+
+  .takeoff-drawing-mode .services-markup-toolbar {
+    grid-row: 2;
+  }
+
+  .takeoff-drawing-mode .services-markup-canvas-card {
+    grid-row: 3;
+  }
+
+  .takeoff-drawing-mode .services-markup-properties {
+    grid-row: 4;
+  }
+
+  .takeoff-drawing-mode .services-markup-summary {
+    grid-row: 5;
+  }
+
+  .takeoff-drawing-mode .services-markup-setup,
+  .takeoff-drawing-mode .services-markup-summary-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .services-markup-summary-grid {

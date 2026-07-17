@@ -272,7 +272,15 @@ export type TakeoffMarkupSymbolKind =
   | "Gas meter"
   | "Water main"
   | "Soil stack"
-  | "Tundish";
+  | "Tundish"
+  | "Radiator"
+  | "Towel radiator"
+  | "WC"
+  | "Basin"
+  | "Bath"
+  | "Shower tray"
+  | "Shower valve"
+  | "Kitchen sink";
 
 export type TakeoffMarkupSymbol = {
   id: string;

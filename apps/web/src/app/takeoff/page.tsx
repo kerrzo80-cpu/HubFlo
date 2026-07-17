@@ -54,6 +54,7 @@ import type {
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate";
 type MarkupCanvasPoint = { x: number; y: number };
+type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "plant";
 
 type NewProjectDraft = {
   name: string;
@@ -237,6 +238,14 @@ const markupPlantTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeoff
   { kind: "Combi boiler", category: "Plant" },
   { kind: "System boiler", category: "Plant" },
   { kind: "Cylinder", category: "Plant" },
+  { kind: "Radiator", category: "Plant" },
+  { kind: "Towel radiator", category: "Plant" },
+  { kind: "WC", category: "Plant" },
+  { kind: "Basin", category: "Plant" },
+  { kind: "Bath", category: "Plant" },
+  { kind: "Shower tray", category: "Plant" },
+  { kind: "Shower valve", category: "Plant" },
+  { kind: "Kitchen sink", category: "Plant" },
   { kind: "ASHP", category: "Plant" },
   { kind: "UFH manifold", category: "Plant" },
   { kind: "Pump", category: "Plant" },
@@ -770,7 +779,7 @@ export default function TakeoffPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [activeTab, setActiveTab] = useState<TakeoffTab>("intake");
+  const [activeTab, setActiveTab] = useState<TakeoffTab>("markup");
   const [newProject, setNewProject] = useState<NewProjectDraft>(blankNewProject);
   const [quoteSearch, setQuoteSearch] = useState("");
   const [isQuoteSearchOpen, setIsQuoteSearchOpen] = useState(false);
@@ -789,9 +798,11 @@ export default function TakeoffPage() {
   const [isSavingAiKey, setIsSavingAiKey] = useState(false);
   const [heatCalc, setHeatCalc] = useState<HeatCalcDraft>(blankHeatCalc);
   const [markupToolMode, setMarkupToolMode] = useState<MarkupToolMode>("pipe");
+  const [markupItemSearch, setMarkupItemSearch] = useState("");
+  const [markupToolCategory, setMarkupToolCategory] = useState<MarkupToolCategory>("favourites");
   const [activeMarkupService, setActiveMarkupService] = useState<TakeoffMarkupService>("Heating flow");
   const [activeMarkupPipeToolId, setActiveMarkupPipeToolId] = useState("cu-22");
-  const [activeMarkupSymbolKind, setActiveMarkupSymbolKind] = useState<TakeoffMarkupSymbolKind>("Combi boiler");
+  const [activeMarkupSymbolKind, setActiveMarkupSymbolKind] = useState<TakeoffMarkupSymbolKind>("Radiator");
   const [activeMarkupSymbolCategory, setActiveMarkupSymbolCategory] = useState<TakeoffMarkupSymbolCategory>("Plant");
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
@@ -860,6 +871,42 @@ export default function TakeoffPage() {
     () => markupPipeTools.find((tool) => tool.id === activeMarkupPipeToolId) ?? markupPipeTools[0]!,
     [activeMarkupPipeToolId],
   );
+
+  const filteredMarkupPipeTools = useMemo(() => {
+    const query = markupItemSearch.trim().toLowerCase();
+    return markupPipeTools.filter((tool) => {
+      const favourite = ["cu-15", "cu-22", "waste-40"].includes(tool.id);
+      const categoryMatch = markupToolCategory === "all"
+        || markupToolCategory === "pipe"
+        || (markupToolCategory === "favourites" && favourite);
+      const searchMatch = !query || `${tool.label} ${tool.material} ${tool.diameter}`.toLowerCase().includes(query);
+      return categoryMatch && searchMatch;
+    });
+  }, [markupItemSearch, markupToolCategory]);
+
+  const filteredMarkupFittingTools = useMemo(() => {
+    const query = markupItemSearch.trim().toLowerCase();
+    return markupFittingTools.filter((tool) => {
+      const favourite = ["90 elbow", "Tee", "Isolation valve", "TRV"].includes(tool.kind);
+      const categoryMatch = markupToolCategory === "all"
+        || markupToolCategory === "fittings"
+        || (markupToolCategory === "favourites" && favourite);
+      const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
+      return categoryMatch && searchMatch;
+    });
+  }, [markupItemSearch, markupToolCategory]);
+
+  const filteredMarkupPlantTools = useMemo(() => {
+    const query = markupItemSearch.trim().toLowerCase();
+    return markupPlantTools.filter((tool) => {
+      const favourite = ["Radiator", "Combi boiler", "Cylinder", "WC", "Basin", "Shower tray"].includes(tool.kind);
+      const categoryMatch = markupToolCategory === "all"
+        || markupToolCategory === "plant"
+        || (markupToolCategory === "favourites" && favourite);
+      const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
+      return categoryMatch && searchMatch;
+    });
+  }, [markupItemSearch, markupToolCategory]);
 
   const selectedMarkupPipe = useMemo(
     () => servicesMarkup.pipes.find((pipe) => pipe.id === selectedMarkupElementId) ?? null,
@@ -2173,7 +2220,7 @@ export default function TakeoffPage() {
   }
 
   return (
-    <main className="takeoff-app">
+    <main className={activeTab === "markup" && selectedProject ? "takeoff-app takeoff-drawing-mode" : "takeoff-app"}>
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
@@ -2579,6 +2626,30 @@ export default function TakeoffPage() {
 
               {activeTab === "markup" ? (
                 <section className={isMarkupExpanded ? "services-markup-workspace expanded" : "services-markup-workspace"}>
+                  <header className="takeoff-drawing-workspace-header">
+                    <div>
+                      <span>{selectedProject.reference}</span>
+                      <strong>Drawing takeoff workspace</strong>
+                      <small>{selectedProject.name} · {selectedProject.customer || "Customer to confirm"}</small>
+                    </div>
+                    <nav>
+                      <a className="takeoff-secondary-button" href="/">
+                        <ArrowLeft size={15} />
+                        Core
+                      </a>
+                      <UploadButton kind="Drawing" label={isUploadingDocs ? "Uploading" : "Upload drawing"} disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("intake")}>
+                        Project setup
+                      </button>
+                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("boq")}>
+                        Quantities / RFQ
+                      </button>
+                      <button className="takeoff-primary-button" type="button" onClick={pushMarkupToBoq}>
+                        <PackageSearch size={15} />
+                        Push to Estimator pack
+                      </button>
+                    </nav>
+                  </header>
                   <article className="takeoff-panel services-markup-toolbar">
                     <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
@@ -2733,10 +2804,36 @@ export default function TakeoffPage() {
                     </div>
 
                     <div className="services-markup-palette">
+                      <section className="services-markup-search-panel">
+                        <strong>Item search</strong>
+                        <input
+                          value={markupItemSearch}
+                          onChange={(event) => setMarkupItemSearch(event.target.value)}
+                          placeholder="Search pipe, valves, boilers, rads..."
+                        />
+                        <div className="services-markup-category-tabs">
+                          {([
+                            ["favourites", "Favourites"],
+                            ["pipe", "Pipe"],
+                            ["fittings", "Valves / fittings"],
+                            ["plant", "Plant / fixtures"],
+                            ["all", "All"],
+                          ] as Array<[MarkupToolCategory, string]>).map(([category, label]) => (
+                            <button
+                              className={markupToolCategory === category ? "active" : ""}
+                              type="button"
+                              key={category}
+                              onClick={() => setMarkupToolCategory(category)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </section>
                       <section>
                         <strong>Pipe</strong>
                         <div className="services-markup-tool-grid">
-                          {markupPipeTools.map((tool) => (
+                          {filteredMarkupPipeTools.map((tool) => (
                             <button
                               className={activeMarkupPipeToolId === tool.id ? "active" : ""}
                               type="button"
@@ -2749,6 +2846,7 @@ export default function TakeoffPage() {
                               {tool.label}
                             </button>
                           ))}
+                          {!filteredMarkupPipeTools.length ? <span className="services-markup-no-tools">No pipe items match.</span> : null}
                         </div>
                       </section>
                       <section>
@@ -2771,7 +2869,7 @@ export default function TakeoffPage() {
                       <section>
                         <strong>Fittings / valves</strong>
                         <div className="services-markup-tool-grid compact">
-                          {markupFittingTools.map((tool) => (
+                          {filteredMarkupFittingTools.map((tool) => (
                             <button
                               className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
                               type="button"
@@ -2785,12 +2883,13 @@ export default function TakeoffPage() {
                               {tool.kind}
                             </button>
                           ))}
+                          {!filteredMarkupFittingTools.length ? <span className="services-markup-no-tools">No fitting items match.</span> : null}
                         </div>
                       </section>
                       <section>
-                        <strong>Plant / equipment</strong>
+                        <strong>Plant / fixtures</strong>
                         <div className="services-markup-tool-grid compact plant">
-                          {markupPlantTools.map((tool) => (
+                          {filteredMarkupPlantTools.map((tool) => (
                             <button
                               className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
                               type="button"
@@ -2804,6 +2903,7 @@ export default function TakeoffPage() {
                               {tool.kind}
                             </button>
                           ))}
+                          {!filteredMarkupPlantTools.length ? <span className="services-markup-no-tools">No plant or fixture items match.</span> : null}
                         </div>
                       </section>
                     </div>
