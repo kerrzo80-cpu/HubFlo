@@ -18972,7 +18972,8 @@ body {
   text-transform: uppercase;
 }
 
-.reports-filter-grid select {
+.reports-filter-grid select,
+.reports-filter-grid input {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 8px;

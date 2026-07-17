@@ -547,7 +547,7 @@ type HomeView =
   | "cost-centre-record";
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
-type ReportDateRange = "Today" | "This week" | "This month" | "This year" | "All time";
+type ReportDateRange = "Today" | "This week" | "Last week" | "This month" | "Last month" | "Year to date" | "Last year" | "Custom" | "All time";
 type ReportTab = "executive" | "financial" | "jobs" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
 type ReportTone = "blue" | "green" | "amber" | "red";
 
@@ -1703,7 +1703,17 @@ const reportTabs: Array<{ key: ReportTab; label: string }> = [
   { key: "compliance", label: "Compliance" },
 ];
 
-const reportDateRanges: ReportDateRange[] = ["Today", "This week", "This month", "This year", "All time"];
+const reportDateRanges: ReportDateRange[] = [
+  "Today",
+  "This week",
+  "Last week",
+  "This month",
+  "Last month",
+  "Year to date",
+  "Last year",
+  "Custom",
+  "All time",
+];
 
 const clientTabs: Array<{ key: ClientTab; label: string }> = [
   { key: "overview", label: "Overview" },
@@ -5421,27 +5431,60 @@ function reportDateValue(value?: string) {
   return serial === null ? null : new Date(serial).toISOString().slice(0, 10);
 }
 
-function reportDateIsInRange(dateValue: string | null, range: ReportDateRange) {
+function monthBoundary(value: string, offsetMonths: number, boundary: "start" | "end") {
+  const current = plannerDateTime(value, "12:00");
+  if (!current) return value;
+  const date =
+    boundary === "start"
+      ? new Date(current.getFullYear(), current.getMonth() + offsetMonths, 1, 12)
+      : new Date(current.getFullYear(), current.getMonth() + offsetMonths + 1, 0, 12);
+  return plannerInputDate(date);
+}
+
+function yearBoundary(value: string, offsetYears: number, boundary: "start" | "end") {
+  const current = plannerDateTime(value, "12:00");
+  if (!current) return value;
+  return `${current.getFullYear() + offsetYears}-${boundary === "start" ? "01-01" : "12-31"}`;
+}
+
+function reportDateRangeBounds(range: ReportDateRange, customStartDate = "", customEndDate = "") {
+  const thisWeekStart = startOfScheduleWeek(currentOperatingDate);
+
+  if (range === "All time") return { start: "", end: "" };
+  if (range === "Today") return { start: currentOperatingDate, end: currentOperatingDate };
+  if (range === "This week") return { start: thisWeekStart, end: currentOperatingDate };
+  if (range === "Last week") {
+    const start = shiftIsoDate(thisWeekStart, -7);
+    return { start, end: shiftIsoDate(start, 6) };
+  }
+  if (range === "This month") return { start: monthBoundary(currentOperatingDate, 0, "start"), end: currentOperatingDate };
+  if (range === "Last month") return { start: monthBoundary(currentOperatingDate, -1, "start"), end: monthBoundary(currentOperatingDate, -1, "end") };
+  if (range === "Year to date") return { start: yearBoundary(currentOperatingDate, 0, "start"), end: currentOperatingDate };
+  if (range === "Last year") return { start: yearBoundary(currentOperatingDate, -1, "start"), end: yearBoundary(currentOperatingDate, -1, "end") };
+  return { start: customStartDate, end: customEndDate };
+}
+
+function reportWorkingDayCount(start: string, end: string) {
+  const startDate = plannerDateTime(start, "12:00");
+  const endDate = plannerDateTime(end, "12:00");
+  if (!startDate || !endDate || startDate > endDate) return 0;
+  let count = 0;
+  const cursor = new Date(startDate);
+  while (cursor <= endDate) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function reportDateIsInRange(dateValue: string | null, range: ReportDateRange, customStartDate = "", customEndDate = "") {
   if (range === "All time" || !dateValue) return true;
-  const date = plannerDateTime(dateValue, "12:00");
-  const current = plannerDateTime(currentOperatingDate, "12:00");
-  if (!date || !current) return true;
-
-  if (range === "Today") {
-    return dateValue === currentOperatingDate;
-  }
-
-  if (range === "This week") {
-    const start = plannerDateTime(startOfScheduleWeek(currentOperatingDate), "00:00");
-    const end = plannerDateTime(shiftIsoDate(startOfScheduleWeek(currentOperatingDate), 6), "23:59");
-    return Boolean(start && end && date >= start && date <= end);
-  }
-
-  if (range === "This month") {
-    return date.getFullYear() === current.getFullYear() && date.getMonth() === current.getMonth();
-  }
-
-  return date.getFullYear() === current.getFullYear();
+  const { start, end } = reportDateRangeBounds(range, customStartDate, customEndDate);
+  if (range === "Custom" && !start && !end) return true;
+  if (start && dateValue < start) return false;
+  if (end && dateValue > end) return false;
+  return true;
 }
 
 function reportDateForRecord(record: { createdAt?: string; issuedDate?: string; sentAt?: string; surveyDate?: string; dueDate?: string }) {
@@ -5870,6 +5913,8 @@ export default function Dashboard() {
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
+  const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
+  const [reportCustomEndDate, setReportCustomEndDate] = useState(currentOperatingDate);
   const [reportCustomerFilter, setReportCustomerFilter] = useState("All customers");
   const [reportEngineerFilter, setReportEngineerFilter] = useState("All engineers");
   const [reportStatusFilter, setReportStatusFilter] = useState("All statuses");
@@ -8998,26 +9043,41 @@ export default function Dashboard() {
     () => ["All statuses", ...Array.from(new Set([...jobs.map((job) => job.status), ...quotes.map((quote) => quote.status)])).sort()],
     [jobs, quotes],
   );
+  const activeReportDateBounds = useMemo(
+    () => reportDateRangeBounds(reportDateRange, reportCustomStartDate, reportCustomEndDate),
+    [reportCustomEndDate, reportCustomStartDate, reportDateRange],
+  );
+  const reportDateRangeLabel = useMemo(() => {
+    if (reportDateRange !== "Custom") return reportDateRange;
+    const startLabel = activeReportDateBounds.start ? formatUkDate(activeReportDateBounds.start) : "start";
+    const endLabel = activeReportDateBounds.end ? formatUkDate(activeReportDateBounds.end) : "today";
+    return `Custom · ${startLabel} to ${endLabel}`;
+  }, [activeReportDateBounds.end, activeReportDateBounds.start, reportDateRange]);
 
   const reportAssignments = useMemo(() => Object.values(jobSchedulePlans).flat(), [jobSchedulePlans]);
 
   const reportFilteredQuotes = useMemo(
     () =>
       quotes.filter((quote) => {
-        const matchesDate = reportDateIsInRange(reportDateForRecord({ sentAt: quote.sentAt, dueDate: quote.due }), reportDateRange);
+        const matchesDate = reportDateIsInRange(
+          reportDateForRecord({ sentAt: quote.sentAt, dueDate: quote.due }),
+          reportDateRange,
+          reportCustomStartDate,
+          reportCustomEndDate,
+        );
         const matchesCustomer = reportCustomerFilter === "All customers" || quote.customer === reportCustomerFilter;
         const matchesEngineer = reportEngineerFilter === "All engineers" || quote.owner === reportEngineerFilter;
         const matchesStatus = reportStatusFilter === "All statuses" || quote.status === reportStatusFilter;
         return matchesDate && matchesCustomer && matchesEngineer && matchesStatus;
       }),
-    [quotes, reportCustomerFilter, reportDateRange, reportEngineerFilter, reportStatusFilter],
+    [quotes, reportCustomerFilter, reportCustomEndDate, reportCustomStartDate, reportDateRange, reportEngineerFilter, reportStatusFilter],
   );
 
   const reportFilteredInvoices = useMemo(
     () =>
       invoices.filter((invoice) => {
         const sourceJob = invoice.sourceType === "job" ? jobs.find((job) => job.id === invoice.sourceId) : null;
-        const matchesDate = reportDateIsInRange(reportDateForRecord(invoice), reportDateRange);
+        const matchesDate = reportDateIsInRange(reportDateForRecord(invoice), reportDateRange, reportCustomStartDate, reportCustomEndDate);
         const matchesCustomer = reportCustomerFilter === "All customers" || invoice.customer === reportCustomerFilter;
         const matchesEngineer =
           reportEngineerFilter === "All engineers" ||
@@ -9026,7 +9086,7 @@ export default function Dashboard() {
         const matchesStatus = reportStatusFilter === "All statuses" || invoice.status === reportStatusFilter;
         return matchesDate && matchesCustomer && matchesEngineer && matchesStatus;
       }),
-    [invoices, jobs, reportAssignments, reportCustomerFilter, reportDateRange, reportEngineerFilter, reportStatusFilter],
+    [invoices, jobs, reportAssignments, reportCustomerFilter, reportCustomEndDate, reportCustomStartDate, reportDateRange, reportEngineerFilter, reportStatusFilter],
   );
 
   const employeeHourlyRateByName = useMemo(
@@ -9045,7 +9105,7 @@ export default function Dashboard() {
       jobs
         .filter((job) => {
           const jobDate = reportDateValue(job.scheduledDate) ?? reportDateValue(job.due);
-          const matchesDate = reportDateIsInRange(jobDate, reportDateRange);
+          const matchesDate = reportDateIsInRange(jobDate, reportDateRange, reportCustomStartDate, reportCustomEndDate);
           const matchesCustomer = reportCustomerFilter === "All customers" || job.customer === reportCustomerFilter;
           const matchesEngineer =
             reportEngineerFilter === "All engineers" ||
@@ -9125,6 +9185,8 @@ export default function Dashboard() {
       purchaseRequests,
       reportAssignments,
       reportCustomerFilter,
+      reportCustomEndDate,
+      reportCustomStartDate,
       reportDateRange,
       reportEngineerFilter,
       reportStatusFilter,
@@ -9180,7 +9242,12 @@ export default function Dashboard() {
       purchaseRequests
         .filter((request) => {
           const job = jobs.find((item) => item.id === request.jobId) ?? null;
-          const matchesDate = reportDateIsInRange(reportDateForRecord({ createdAt: request.createdAt }), reportDateRange);
+          const matchesDate = reportDateIsInRange(
+            reportDateForRecord({ createdAt: request.createdAt }),
+            reportDateRange,
+            reportCustomStartDate,
+            reportCustomEndDate,
+          );
           const matchesCustomer = reportCustomerFilter === "All customers" || job?.customer === reportCustomerFilter;
           const matchesEngineer = reportEngineerFilter === "All engineers" || request.requestedBy === reportEngineerFilter || job?.manager === reportEngineerFilter;
           const matchesStatus = reportStatusFilter === "All statuses" || request.status === reportStatusFilter;
@@ -9193,7 +9260,7 @@ export default function Dashboard() {
           pending: purchaseRequestPendingCost(request),
           receiptPercent: purchaseRequestReceiptPercent(request),
         })),
-    [jobs, purchaseRequests, reportCustomerFilter, reportDateRange, reportEngineerFilter, reportStatusFilter],
+    [jobs, purchaseRequests, reportCustomerFilter, reportCustomEndDate, reportCustomStartDate, reportDateRange, reportEngineerFilter, reportStatusFilter],
   );
 
   const reportScheduleClashes = useMemo(() => {
@@ -9208,11 +9275,11 @@ export default function Dashboard() {
   }, [reportAssignments]);
 
   const reportAvailableHours = useMemo(() => {
-    if (reportDateRange === "Today") return 8;
-    if (reportDateRange === "This week") return 40;
-    if (reportDateRange === "This year") return 1880;
-    return 160;
-  }, [reportDateRange]);
+    if (reportDateRange === "All time") return 1880;
+    const { start, end } = reportDateRangeBounds(reportDateRange, reportCustomStartDate, reportCustomEndDate);
+    const workingDays = start && end ? reportWorkingDayCount(start, end) : 20;
+    return Math.max(8, workingDays * 8);
+  }, [reportCustomEndDate, reportCustomStartDate, reportDateRange]);
 
   const engineerProductivityRows = useMemo(
     () =>
@@ -9220,10 +9287,17 @@ export default function Dashboard() {
         .filter((name) => name !== "All engineers")
         .map((name) => {
           const scheduledHours = reportAssignments
-            .filter((assignment) => assignment.employeeName === name && reportDateIsInRange(reportDateValue(assignment.startDate), reportDateRange))
+            .filter((assignment) =>
+              assignment.employeeName === name &&
+              reportDateIsInRange(reportDateValue(assignment.startDate), reportDateRange, reportCustomStartDate, reportCustomEndDate),
+            )
             .reduce((total, assignment) => total + assignment.plannedHours, 0);
           const workedHours = jobDeliveryEvents
-            .filter((event) => event.kind === "timesheet" && event.actor === name && reportDateIsInRange(reportDateForRecord(event), reportDateRange))
+            .filter((event) =>
+              event.kind === "timesheet" &&
+              event.actor === name &&
+              reportDateIsInRange(reportDateForRecord(event), reportDateRange, reportCustomStartDate, reportCustomEndDate),
+            )
             .reduce((total, event) => total + (event.hours ?? 0), 0);
           const managedJobs = reportJobRows.filter(
             (row) =>
@@ -9245,7 +9319,16 @@ export default function Dashboard() {
             profitPerHour: workedHours > 0 ? Math.round(profit / workedHours) : 0,
           };
         }),
-    [jobDeliveryEvents, reportAssignments, reportAvailableHours, reportDateRange, reportEngineerOptions, reportJobRows],
+    [
+      jobDeliveryEvents,
+      reportAssignments,
+      reportAvailableHours,
+      reportCustomEndDate,
+      reportCustomStartDate,
+      reportDateRange,
+      reportEngineerOptions,
+      reportJobRows,
+    ],
   );
 
   const customerReportRows = useMemo(() => {
@@ -9348,7 +9431,7 @@ export default function Dashboard() {
       revenueToday: revenueForRange("Today"),
       revenueWeek: revenueForRange("This week"),
       revenueMonth: revenueForRange("This month"),
-      revenueYear: revenueForRange("This year"),
+      revenueYear: revenueForRange("Year to date"),
       visibleRevenue,
       cost,
       grossProfit,
@@ -9433,7 +9516,7 @@ export default function Dashboard() {
     if (typeof window === "undefined") return;
     const rows = [
       ["Section", "Metric", "Value", "Detail"],
-      ["Executive", "Revenue", reportExecutive.visibleRevenue, reportDateRange],
+      ["Executive", "Revenue", reportExecutive.visibleRevenue, reportDateRangeLabel],
       ["Executive", "Gross profit", reportExecutive.grossProfit, `${reportExecutive.grossMargin}% margin`],
       ["Executive", "Net profit", reportExecutive.netProfit, `${reportExecutive.netMargin}% margin`],
       ["Executive", "Cash owed", reportExecutive.cashOwed, `${reportInvoiceRows.filter((row) => row.owed > 0).length} invoices`],
@@ -18809,7 +18892,7 @@ export default function Dashboard() {
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
                   : homeView === "reports"
-                    ? `${reportDateRange} · ${reportExecutive.grossMargin}% gross margin · ${currency(reportExecutive.cashOwed)} cash owed`
+                    ? `${reportDateRangeLabel} · ${reportExecutive.grossMargin}% gross margin · ${currency(reportExecutive.cashOwed)} cash owed`
                   : homeView === "invoice-create"
                     ? `${jobInvoiceDraftJob?.ref ?? "Job"} · choose deposit, valuation or invoice in full`
                   : homeView === "invoice-record"
@@ -19643,6 +19726,26 @@ export default function Dashboard() {
                       ))}
                     </select>
                   </label>
+                  {reportDateRange === "Custom" ? (
+                    <>
+                      <label>
+                        From
+                        <input
+                          type="date"
+                          value={reportCustomStartDate}
+                          onChange={(event) => setReportCustomStartDate(event.target.value)}
+                        />
+                      </label>
+                      <label>
+                        To
+                        <input
+                          type="date"
+                          value={reportCustomEndDate}
+                          onChange={(event) => setReportCustomEndDate(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  ) : null}
                   <label>
                     Customer
                     <select value={reportCustomerFilter} onChange={(event) => setReportCustomerFilter(event.target.value)}>
