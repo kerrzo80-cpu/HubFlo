@@ -22708,16 +22708,29 @@ body {
   overflow: hidden;
 }
 
-.estimate-flow-strip article {
+.estimate-flow-strip article,
+.estimate-flow-strip button {
   background: #f8fbfc;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
   display: grid;
+  font: inherit;
   gap: 4px;
   grid-template-columns: auto minmax(0, 1fr);
   padding: 13px 14px;
+  text-align: left;
 }
 
-.estimate-flow-strip article.active {
+.estimate-flow-strip article.active,
+.estimate-flow-strip button.active {
   background: var(--green-soft);
+}
+
+.estimate-flow-strip button:hover,
+.estimate-flow-strip button:focus-visible {
+  background: var(--blue-soft);
+  outline: 0;
 }
 
 .estimate-flow-strip span {

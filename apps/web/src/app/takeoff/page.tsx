@@ -2286,21 +2286,21 @@ export default function TakeoffPage() {
               ) : null}
 
               <section className="estimate-flow-strip" aria-label="Estimate workflow">
-                <article>
+                <button type="button" onClick={() => setActiveTab("surveyor")}>
                   <span>1</span>
                   <strong>Survey</strong>
                   <small>Guided survey, photos, LiDAR, heat loss</small>
-                </article>
-                <article className="active">
+                </button>
+                <button className={activeTab === "markup" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
                   <strong>Takeoff</strong>
                   <small>Drawings, specs and contractor BOQs</small>
-                </article>
-                <article>
+                </button>
+                <button type="button" onClick={() => setActiveTab("review")}>
                   <span>3</span>
                   <strong>Estimate pack</strong>
                   <small>Review cost centres before quote push</small>
-                </article>
+                </button>
               </section>
 
               <section className="takeoff-ai-handoff">
@@ -2320,6 +2320,10 @@ export default function TakeoffPage() {
                     <MessageCircle size={15} />
                     Open Guided Survey
                   </a>
+                  <button className="takeoff-primary-button" type="button" onClick={() => setActiveTab("markup")}>
+                    <Wrench size={15} />
+                    Open services markup
+                  </button>
                   <button
                     className="takeoff-secondary-button"
                     type="button"
