@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -12,7 +12,9 @@ import {
   Home,
   Link2,
   ListChecks,
+  Maximize2,
   MessageCircle,
+  Move,
   PackageSearch,
   Plus,
   RefreshCw,
@@ -23,6 +25,8 @@ import {
   Trash2,
   Upload,
   Wrench,
+  ZoomIn,
+  ZoomOut,
   type LucideIcon,
 } from "lucide-react";
 
@@ -52,7 +56,7 @@ import type {
 } from "@/lib/takeoff-data";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
-type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate";
+type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
 type MarkupCanvasPoint = { x: number; y: number };
 type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "plant";
 
@@ -807,8 +811,12 @@ export default function TakeoffPage() {
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
+  const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
   const [markupCalibrationDistance, setMarkupCalibrationDistance] = useState("1");
+  const [markupZoom, setMarkupZoom] = useState(1);
+  const [markupPan, setMarkupPan] = useState({ x: 0, y: 0 });
+  const [markupPanStart, setMarkupPanStart] = useState<{ pointerId: number; clientX: number; clientY: number; panX: number; panY: number } | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -999,6 +1007,20 @@ export default function TakeoffPage() {
       plantCount: symbolSummary.filter((row) => row.category === "Plant").reduce((sum, row) => sum + row.count, 0),
     };
   }, [servicesMarkup]);
+
+  const markupViewport = useMemo(() => {
+    const zoom = Math.min(4, Math.max(0.5, markupZoom));
+    const width = markupCanvasWidth / zoom;
+    const height = markupCanvasHeight / zoom;
+    const maxX = Math.max(0, markupCanvasWidth - width);
+    const maxY = Math.max(0, markupCanvasHeight - height);
+    const x = Math.min(Math.max(0, markupPan.x), maxX);
+    const y = Math.min(Math.max(0, markupPan.y), maxY);
+    return { x, y, width, height, zoom };
+  }, [markupPan.x, markupPan.y, markupZoom]);
+
+  const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
+  const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
 
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
@@ -1260,12 +1282,73 @@ export default function TakeoffPage() {
     }, successMessage);
   }
 
-  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement>): MarkupCanvasPoint {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  function clampMarkupPan(x: number, y: number, zoom = markupViewport.zoom) {
+    const width = markupCanvasWidth / zoom;
+    const height = markupCanvasHeight / zoom;
     return {
-      x: Math.round(((event.clientX - bounds.left) / bounds.width) * markupCanvasWidth),
-      y: Math.round(((event.clientY - bounds.top) / bounds.height) * markupCanvasHeight),
+      x: Math.min(Math.max(0, x), Math.max(0, markupCanvasWidth - width)),
+      y: Math.min(Math.max(0, y), Math.max(0, markupCanvasHeight - height)),
     };
+  }
+
+  function updateMarkupZoom(nextZoom: number) {
+    const zoom = Math.min(4, Math.max(0.5, nextZoom));
+    setMarkupZoom(zoom);
+    setMarkupPan((current) => clampMarkupPan(current.x, current.y, zoom));
+  }
+
+  function resetMarkupView() {
+    setMarkupZoom(1);
+    setMarkupPan({ x: 0, y: 0 });
+  }
+
+  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement> | ReactPointerEvent<SVGSVGElement>): MarkupCanvasPoint {
+    const svg = event.currentTarget;
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return { x: 0, y: 0 };
+    const point = svg.createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const transformed = point.matrixTransform(matrix.inverse());
+    return {
+      x: Math.round(Math.min(Math.max(0, transformed.x), markupCanvasWidth)),
+      y: Math.round(Math.min(Math.max(0, transformed.y), markupCanvasHeight)),
+    };
+  }
+
+  function handleMarkupWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    updateMarkupZoom(markupViewport.zoom + (event.deltaY > 0 ? -0.15 : 0.15));
+  }
+
+  function handleMarkupPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (markupToolMode !== "pan") return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setMarkupPanStart({
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      panX: markupViewport.x,
+      panY: markupViewport.y,
+    });
+  }
+
+  function handleMarkupPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!markupPanStart || markupPanStart.pointerId !== event.pointerId) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const scaleX = markupViewport.width / Math.max(1, bounds.width);
+    const scaleY = markupViewport.height / Math.max(1, bounds.height);
+    const deltaX = (event.clientX - markupPanStart.clientX) * scaleX;
+    const deltaY = (event.clientY - markupPanStart.clientY) * scaleY;
+    setMarkupPan(clampMarkupPan(markupPanStart.panX - deltaX, markupPanStart.panY - deltaY));
+  }
+
+  function handleMarkupPointerUp(event: ReactPointerEvent<SVGSVGElement>) {
+    if (markupPanStart?.pointerId === event.pointerId) {
+      setMarkupPanStart(null);
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }
 
   function createMarkupPipe(points: MarkupCanvasPoint[]): TakeoffMarkupPipe {
@@ -1302,6 +1385,7 @@ export default function TakeoffPage() {
   }
 
   function handleMarkupCanvasClick(event: ReactMouseEvent<SVGSVGElement>) {
+    if (markupToolMode === "pan") return;
     const point = markupCanvasPoint(event);
     if (markupToolMode === "calibrate") {
       setSelectedMarkupElementId("");
@@ -2625,7 +2709,11 @@ export default function TakeoffPage() {
               ) : null}
 
               {activeTab === "markup" ? (
-                <section className={isMarkupExpanded ? "services-markup-workspace expanded" : "services-markup-workspace"}>
+                <section className={[
+                  "services-markup-workspace",
+                  isMarkupExpanded ? "expanded" : "",
+                  isMarkupMaterialsCollapsed ? "materials-collapsed" : "",
+                ].filter(Boolean).join(" ")}>
                   <header className="takeoff-drawing-workspace-header">
                     <div>
                       <span>{selectedProject.reference}</span>
@@ -2638,6 +2726,10 @@ export default function TakeoffPage() {
                         Core
                       </a>
                       <UploadButton kind="Drawing" label={isUploadingDocs ? "Uploading" : "Upload drawing"} disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <button className="takeoff-secondary-button" type="button" onClick={() => setIsMarkupMaterialsCollapsed((current) => !current)}>
+                        <PackageSearch size={15} />
+                        {isMarkupMaterialsCollapsed ? "Open materials" : "Minimise materials"}
+                      </button>
                       <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("intake")}>
                         Project setup
                       </button>
@@ -2653,11 +2745,12 @@ export default function TakeoffPage() {
                   <article className="takeoff-panel services-markup-toolbar">
                     <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
-                        {isMarkupExpanded ? "Exit large drawing" : "Large drawing"}
+                        <Maximize2 size={14} />
+                        {isMarkupExpanded ? "Exit focus" : "Focus board"}
                       </button>
                       <button className="takeoff-small-button" type="button" onClick={pushMarkupToBoq}>
                         <PackageSearch size={14} />
-                        Send to Quantities / RFQ
+                        Send to Takeoff quantities
                       </button>
                     </PanelTitle>
 
@@ -2666,7 +2759,10 @@ export default function TakeoffPage() {
                         Locked drawing
                         <select
                           value={servicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
-                          onChange={(event) => updateServicesMarkup((current) => ({ ...current, drawingDocumentId: event.target.value || undefined }))}
+                          onChange={(event) => {
+                            updateServicesMarkup((current) => ({ ...current, drawingDocumentId: event.target.value || undefined }), "Drawing selected for markup.");
+                            resetMarkupView();
+                          }}
                         >
                           {!drawingDocuments.length ? <option value="">Upload a drawing first</option> : null}
                           {drawingDocuments.map((document) => (
@@ -2785,7 +2881,7 @@ export default function TakeoffPage() {
                     </div>
 
                     <div className="services-markup-mode-row" aria-label="Markup modes">
-                      {(["calibrate", "pipe", "symbol", "select"] as MarkupToolMode[]).map((mode) => (
+                      {(["pan", "calibrate", "pipe", "symbol", "select"] as MarkupToolMode[]).map((mode) => (
                         <button
                           className={markupToolMode === mode ? "active" : ""}
                           type="button"
@@ -2798,7 +2894,7 @@ export default function TakeoffPage() {
                             }
                           }}
                         >
-                          {mode === "calibrate" ? "Calibrate" : mode === "pipe" ? "Draw pipe" : mode === "symbol" ? "Place item" : "Select / edit"}
+                          {mode === "pan" ? "Move plan" : mode === "calibrate" ? "Calibrate" : mode === "pipe" ? "Draw pipe" : mode === "symbol" ? "Place item" : "Select / edit"}
                         </button>
                       ))}
                     </div>
@@ -2916,6 +3012,8 @@ export default function TakeoffPage() {
                           <strong>
                             {markupToolMode === "calibrate"
                               ? "Click two ends of a known dimension, then apply calibration"
+                              : markupToolMode === "pan"
+                                ? "Drag the drawing to move around the plan"
                               : markupToolMode === "pipe"
                                 ? "Tap points to draw a pipe route"
                                 : markupToolMode === "symbol"
@@ -2925,12 +3023,26 @@ export default function TakeoffPage() {
                           <small>
                             {markupToolMode === "calibrate"
                               ? `${markupCalibrationPoints.length}/2 calibration points - ${markupCalibrationPixelLength ? `${markupCalibrationPixelLength.toFixed(0)} px` : "pick a known measurement"}`
+                              : markupToolMode === "pan"
+                                ? `${markupZoomLabel} zoom - use + / - or pinch-style trackpad zoom`
                               : markupDraftPipe
                                 ? `${markupDraftPipe.points.length} point(s) in route`
                                 : `${servicesMarkup.pipes.length} routes - ${servicesMarkup.symbols.length} symbols`}
                           </small>
                         </span>
                         <div>
+                          <button className="takeoff-small-button" type="button" onClick={() => updateMarkupZoom(markupViewport.zoom + 0.2)} aria-label="Zoom in">
+                            <ZoomIn size={14} />
+                            Zoom in
+                          </button>
+                          <button className="takeoff-small-button" type="button" onClick={() => updateMarkupZoom(markupViewport.zoom - 0.2)} aria-label="Zoom out">
+                            <ZoomOut size={14} />
+                            Zoom out
+                          </button>
+                          <button className="takeoff-small-button" type="button" onClick={resetMarkupView}>
+                            <Move size={14} />
+                            Fit
+                          </button>
                           <button
                             className="takeoff-small-button"
                             type="button"
@@ -2943,6 +3055,7 @@ export default function TakeoffPage() {
                             Finish route
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={undoLastMarkupAction}>
+                            <ArrowLeft size={14} />
                             Undo last
                           </button>
                           <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe} onClick={() => setMarkupDraftPipe(null)}>
@@ -2951,45 +3064,55 @@ export default function TakeoffPage() {
                         </div>
                       </div>
 
-                      <div className="services-markup-plan-stage">
-                        {markupDrawingPreviewUrl ? (
-                          markupDrawingIsPdf ? (
-                            <iframe
-                              className="markup-document-preview"
-                              src={`${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
-                              title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
-                            />
-                          ) : markupDrawingIsImage ? (
-                            <img
-                              className="markup-document-preview"
-                              src={markupDrawingPreviewUrl}
-                              alt={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
-                            />
-                          ) : (
-                            <div className="markup-document-placeholder">
-                              <FileText size={22} />
-                              <strong>{markupSelectedDrawing?.fileName}</strong>
-                              <span>This file is uploaded, but cannot be drawn as a visual plan preview yet.</span>
-                            </div>
-                          )
-                        ) : (
+                      <div className="services-markup-plan-stage" onWheel={handleMarkupWheel}>
+                        {!markupDrawingPreviewUrl ? (
                           <div className="markup-document-placeholder">
                             <Upload size={22} />
                             <strong>No visible drawing selected</strong>
                             <span>Upload a PDF, JPG or PNG drawing, then choose it as the locked drawing.</span>
                           </div>
-                        )}
+                        ) : null}
 
                         <svg
-                          className="services-markup-canvas"
+                          className={markupToolMode === "pan" ? "services-markup-canvas panning" : "services-markup-canvas"}
                           role="img"
                           aria-label="Editable services markup drawing"
-                          viewBox={`0 0 ${markupCanvasWidth} ${markupCanvasHeight}`}
+                          viewBox={markupViewBox}
                           onClick={handleMarkupCanvasClick}
+                          onPointerDown={handleMarkupPointerDown}
+                          onPointerMove={handleMarkupPointerMove}
+                          onPointerUp={handleMarkupPointerUp}
+                          onPointerCancel={handleMarkupPointerUp}
                           onDoubleClick={() => {
                             if (markupDraftPipe?.points.length && markupDraftPipe.points.length >= 2) finishMarkupRoute();
                           }}
                         >
+                        {markupDrawingPreviewUrl ? (
+                          markupDrawingIsPdf ? (
+                            <foreignObject className="markup-document-foreign" x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight}>
+                              <iframe
+                                src={`${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+                                title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                              />
+                            </foreignObject>
+                          ) : markupDrawingIsImage ? (
+                            <image
+                              className="markup-document-svg-image"
+                              href={markupDrawingPreviewUrl}
+                              preserveAspectRatio="xMidYMid meet"
+                              width={markupCanvasWidth}
+                              height={markupCanvasHeight}
+                            />
+                          ) : (
+                            <foreignObject className="markup-document-foreign" x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight}>
+                              <div className="markup-document-placeholder in-board">
+                                <FileText size={22} />
+                                <strong>{markupSelectedDrawing?.fileName}</strong>
+                                <span>This file is uploaded, but cannot be drawn as a visual plan preview yet.</span>
+                              </div>
+                            </foreignObject>
+                          )
+                        ) : null}
                         <rect className={markupDrawingPreviewUrl ? "markup-plan-bg overlay" : "markup-plan-bg"} width={markupCanvasWidth} height={markupCanvasHeight} rx="18" />
                         {servicesMarkup.settings.showGrid ? (
                           <>
