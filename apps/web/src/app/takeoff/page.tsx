@@ -801,7 +801,7 @@ export default function TakeoffPage() {
   const [openAiKeyDraft, setOpenAiKeyDraft] = useState("");
   const [isSavingAiKey, setIsSavingAiKey] = useState(false);
   const [heatCalc, setHeatCalc] = useState<HeatCalcDraft>(blankHeatCalc);
-  const [markupToolMode, setMarkupToolMode] = useState<MarkupToolMode>("pipe");
+  const [markupToolMode, setMarkupToolMode] = useState<MarkupToolMode>("pan");
   const [markupItemSearch, setMarkupItemSearch] = useState("");
   const [markupToolCategory, setMarkupToolCategory] = useState<MarkupToolCategory>("favourites");
   const [activeMarkupService, setActiveMarkupService] = useState<TakeoffMarkupService>("Heating flow");
@@ -1022,6 +1022,15 @@ export default function TakeoffPage() {
 
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
+  const markupDocumentLayerStyle = {
+    left: `${(-markupViewport.x / markupViewport.width) * 100}%`,
+    top: `${(-markupViewport.y / markupViewport.height) * 100}%`,
+    width: `${(markupCanvasWidth / markupViewport.width) * 100}%`,
+    height: `${(markupCanvasHeight / markupViewport.height) * 100}%`,
+  } as CSSProperties;
+  const markupPdfPreviewUrl = markupDrawingPreviewUrl
+    ? `${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit&zoom=page-fit`
+    : "";
 
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
@@ -3129,11 +3138,40 @@ export default function TakeoffPage() {
                             <span>Upload a PDF, JPG or PNG drawing, then choose it as the locked drawing.</span>
                           </div>
                         ) : null}
+                        {markupDrawingPreviewUrl ? (
+                          <div
+                            className={[
+                              "markup-document-layer",
+                              markupDrawingIsPdf ? "pdf" : "",
+                              markupDrawingIsImage ? "image" : "",
+                            ].filter(Boolean).join(" ")}
+                            style={markupDocumentLayerStyle}
+                          >
+                            {markupDrawingIsPdf ? (
+                              <iframe
+                                src={markupPdfPreviewUrl}
+                                title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                              />
+                            ) : markupDrawingIsImage ? (
+                              <img
+                                src={markupDrawingPreviewUrl}
+                                alt={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                              />
+                            ) : (
+                              <div className="markup-document-placeholder in-board">
+                                <FileText size={22} />
+                                <strong>{markupSelectedDrawing?.fileName}</strong>
+                                <span>This file is uploaded, but cannot be drawn as a visual plan preview yet.</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
 
                         <svg
                           className={markupToolMode === "pan" ? "services-markup-canvas panning" : "services-markup-canvas"}
                           role="img"
                           aria-label="Editable services markup drawing"
+                          preserveAspectRatio="none"
                           viewBox={markupViewBox}
                           onClick={handleMarkupCanvasClick}
                           onPointerDown={handleMarkupPointerDown}
@@ -3148,32 +3186,6 @@ export default function TakeoffPage() {
                             if (markupDraftPipe?.points.length && markupDraftPipe.points.length >= 2) finishMarkupRoute();
                           }}
                         >
-                        {markupDrawingPreviewUrl ? (
-                          markupDrawingIsPdf ? (
-                            <foreignObject className="markup-document-foreign" x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight}>
-                              <iframe
-                                src={`${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit`}
-                                title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
-                              />
-                            </foreignObject>
-                          ) : markupDrawingIsImage ? (
-                            <image
-                              className="markup-document-svg-image"
-                              href={markupDrawingPreviewUrl}
-                              preserveAspectRatio="xMidYMid meet"
-                              width={markupCanvasWidth}
-                              height={markupCanvasHeight}
-                            />
-                          ) : (
-                            <foreignObject className="markup-document-foreign" x="0" y="0" width={markupCanvasWidth} height={markupCanvasHeight}>
-                              <div className="markup-document-placeholder in-board">
-                                <FileText size={22} />
-                                <strong>{markupSelectedDrawing?.fileName}</strong>
-                                <span>This file is uploaded, but cannot be drawn as a visual plan preview yet.</span>
-                              </div>
-                            </foreignObject>
-                          )
-                        ) : null}
                         <rect className={markupDrawingPreviewUrl ? "markup-plan-bg overlay" : "markup-plan-bg"} width={markupCanvasWidth} height={markupCanvasHeight} rx="18" />
                         {servicesMarkup.settings.showGrid ? (
                           <>

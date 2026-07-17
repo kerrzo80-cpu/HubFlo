@@ -22840,6 +22840,291 @@ img.markup-document-preview {
   }
 }
 
+/* Takeoffs drawing mode: final board reset. This deliberately wins over the
+   normal page/card layout so iPad users get a true drawing surface. */
+.takeoff-drawing-mode .services-markup-workspace {
+  background: #eef7fb;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  height: 100dvh;
+  inset: 0;
+  max-height: 100dvh;
+  overflow: hidden;
+  padding: 0;
+  position: fixed;
+  width: 100vw;
+  z-index: 1200;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(183, 211, 224, 0.78);
+  border-radius: 4px;
+  box-shadow: none;
+  display: flex;
+  gap: 6px;
+  grid-column: auto;
+  grid-row: auto;
+  left: max(6px, env(safe-area-inset-left));
+  max-width: min(420px, calc(100vw - 190px));
+  min-height: 0;
+  padding: 3px 7px;
+  position: fixed;
+  right: auto;
+  top: max(4px, env(safe-area-inset-top));
+  width: auto;
+  z-index: 35;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header > div {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header span {
+  color: var(--blue-deep);
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header strong {
+  color: var(--ink);
+  font-size: 11px;
+  line-height: 1;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header small {
+  display: none;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header nav {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  max-width: calc(100vw - 230px);
+  position: fixed;
+  right: max(8px, env(safe-area-inset-right));
+  top: max(4px, env(safe-area-inset-top));
+  z-index: 36;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-secondary-button,
+.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-primary-button,
+.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-upload-button {
+  align-items: center;
+  border-radius: 6px;
+  display: inline-flex;
+  font-size: 0;
+  height: 31px;
+  justify-content: center;
+  min-height: 31px;
+  min-width: 32px;
+  overflow: hidden;
+  padding: 0;
+  width: 32px;
+}
+
+.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-secondary-button svg,
+.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-primary-button svg,
+.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-upload-button svg {
+  flex: 0 0 auto;
+  height: 15px;
+  margin: 0;
+  width: 15px;
+}
+
+.takeoff-drawing-mode .services-markup-canvas-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  display: block;
+  grid-column: 1;
+  grid-row: 1;
+  height: 100dvh;
+  min-height: 0;
+  padding: 0;
+  position: relative;
+}
+
+.takeoff-drawing-mode .services-markup-plan-stage {
+  background: #f2f8fb;
+  border: 0;
+  border-radius: 0;
+  height: 100dvh;
+  inset: 0;
+  min-height: 0;
+  overflow: hidden;
+  position: fixed;
+  width: 100vw;
+}
+
+.takeoff-drawing-mode .services-markup-canvas {
+  border-radius: 0;
+  height: 100%;
+  touch-action: none;
+  width: 100%;
+}
+
+.takeoff-drawing-mode .services-markup-canvas-header {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(198, 221, 232, 0.88);
+  border-radius: 7px;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  box-shadow: 0 14px 36px rgba(8, 45, 65, 0.12);
+  display: flex;
+  left: max(10px, env(safe-area-inset-left));
+  max-width: calc(100vw - 90px);
+  padding: 5px;
+  position: fixed;
+  right: auto;
+  top: auto;
+  width: auto;
+  z-index: 28;
+}
+
+.takeoff-drawing-mode .services-markup-canvas-header span {
+  display: none;
+}
+
+.takeoff-drawing-mode .services-markup-canvas-header > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-start;
+}
+
+.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button {
+  border-radius: 6px;
+  font-size: 11px;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.markup-document-layer {
+  background: #fff;
+  border: 0;
+  inset: auto;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  z-index: 1;
+}
+
+.markup-document-layer iframe,
+.markup-document-layer img {
+  background: #fff;
+  border: 0;
+  display: block;
+  height: 100%;
+  pointer-events: none;
+  width: 100%;
+}
+
+.markup-document-layer img {
+  object-fit: contain;
+}
+
+.takeoff-drawing-mode .markup-plan-bg.overlay {
+  fill: rgba(251, 253, 254, 0.03);
+  stroke: rgba(120, 164, 185, 0.55);
+}
+
+.takeoff-drawing-mode .markup-plan-label,
+.takeoff-drawing-mode .markup-plan-scale {
+  font-size: 10px;
+  opacity: 0.78;
+}
+
+.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  height: 76px;
+  right: 0;
+  top: max(54px, calc(env(safe-area-inset-top) + 50px));
+  width: 54px;
+  z-index: 40;
+}
+
+.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-drawing-mode .services-markup-properties,
+.takeoff-drawing-mode .services-markup-summary {
+  right: max(8px, env(safe-area-inset-right));
+  width: min(390px, calc(100vw - 78px));
+  z-index: 38;
+}
+
+.takeoff-drawing-mode .services-markup-toolbar {
+  max-height: calc(100dvh - 196px);
+  top: max(54px, calc(env(safe-area-inset-top) + 50px));
+}
+
+.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(calc(100% + 20px));
+}
+
+@media (max-width: 1360px) {
+  .takeoff-ai-handoff {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-ai-handoff > div:first-child {
+    align-items: center;
+    min-width: 0;
+  }
+
+  .takeoff-ai-handoff small {
+    display: none;
+  }
+
+  .takeoff-ai-handoff-actions {
+    display: grid;
+    flex: 0 1 auto;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    justify-content: stretch;
+  }
+
+  .takeoff-ai-handoff-actions > * {
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .takeoff-ai-handoff-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-drawing-mode .takeoff-drawing-workspace-header {
+    max-width: calc(100vw - 88px);
+  }
+
+  .takeoff-drawing-mode .takeoff-drawing-workspace-header nav .takeoff-secondary-button:nth-of-type(n+2),
+  .takeoff-drawing-mode .takeoff-drawing-workspace-header nav .takeoff-upload-button,
+  .takeoff-drawing-mode .takeoff-drawing-workspace-header nav .takeoff-primary-button {
+    display: none;
+  }
+}
+
 .takeoff-heat-summary,
 .takeoff-survey-summary {
   display: grid;
