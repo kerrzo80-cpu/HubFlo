@@ -17,6 +17,8 @@ services:
         value: 24.14.0
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-pilot.sqlite
+      - key: NEXA_STORE_DIR
+        value: /var/data
       - key: NEXA_WORKSPACE_MODE
         value: demo
       - key: NEXA_PILOT_USER

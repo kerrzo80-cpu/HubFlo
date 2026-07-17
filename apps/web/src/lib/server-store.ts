@@ -2,9 +2,10 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 
-const STORE_DIR =
-  process.env.NEXA_STORE_DIR ?? path.join(process.cwd(), ".hubflo-runtime");
 const SQLITE_STORE_PATH = process.env.NEXA_STORE_PATH;
+const STORE_DIR =
+  process.env.NEXA_STORE_DIR
+  ?? (SQLITE_STORE_PATH ? path.dirname(SQLITE_STORE_PATH) : path.join(process.cwd(), ".hubflo-runtime"));
 const STORE_FILE_EXT = ".json";
 
 type StoreRow = {
