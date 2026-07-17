@@ -13,6 +13,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  BarChart3,
   Bell,
   Building2,
   CalendarDays,
@@ -22,7 +23,9 @@ import {
   ChevronRight,
   ClipboardCheck,
   Clock3,
+  Download,
   FileText,
+  FileSpreadsheet,
   Gauge,
   HardHat,
   Inbox,
@@ -37,10 +40,14 @@ import {
   Plus,
   PoundSterling,
   Search,
+  Send,
   Settings,
+  Share2,
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
   UserCheck,
   Users,
   Wrench,
@@ -531,6 +538,7 @@ type HomeView =
   | "job-create"
   | "purchase-orders"
   | "purchase-order-record"
+  | "reports"
   | "invoices"
   | "invoice-create"
   | "invoice-record"
@@ -539,6 +547,9 @@ type HomeView =
   | "cost-centre-record";
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
+type ReportDateRange = "Today" | "This week" | "This month" | "This year" | "All time";
+type ReportTab = "executive" | "financial" | "jobs" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
+type ReportTone = "blue" | "green" | "amber" | "red";
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
@@ -1638,6 +1649,7 @@ const modules: ModuleItem[] = [
   { label: "POs", icon: ClipboardCheck },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
+  { label: "Reports", icon: BarChart3 },
   { label: "Add-ons", icon: Sparkles },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Suppliers"] },
   { label: "Setup", icon: Settings },
@@ -1648,7 +1660,7 @@ const sideNavigation = [
   { label: "My work", icon: ListChecks, badge: 6 },
   { label: "Operations", icon: HardHat },
   { label: "Communications", icon: Inbox, badge: 3 },
-  { label: "Reports", icon: ClipboardCheck },
+  { label: "Reports", icon: BarChart3 },
 ];
 
 const permissionOptions: PermissionRow[] = [
@@ -1679,6 +1691,19 @@ const employeeTabs: Array<{ key: EmployeeTab; label: string }> = [
   { key: "permissions", label: "Access" },
   { key: "login", label: "Login" },
 ];
+
+const reportTabs: Array<{ key: ReportTab; label: string }> = [
+  { key: "executive", label: "Executive" },
+  { key: "financial", label: "Financial" },
+  { key: "jobs", label: "Jobs" },
+  { key: "engineers", label: "Engineers" },
+  { key: "pipeline", label: "Estimating" },
+  { key: "customers", label: "Customers" },
+  { key: "purchasing", label: "Materials & POs" },
+  { key: "compliance", label: "Compliance" },
+];
+
+const reportDateRanges: ReportDateRange[] = ["Today", "This week", "This month", "This year", "All time"];
 
 const clientTabs: Array<{ key: ClientTab; label: string }> = [
   { key: "overview", label: "Overview" },
@@ -5382,6 +5407,58 @@ function formatScheduleDate(value: string, options?: Intl.DateTimeFormatOptions)
     : value;
 }
 
+function percentValue(numerator: number, denominator: number) {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return Math.round((numerator / denominator) * 100);
+}
+
+function reportDateValue(value?: string) {
+  if (!value) return null;
+  if (value === "Today") return currentOperatingDate;
+  if (value === "Tomorrow") return shiftIsoDate(currentOperatingDate, 1);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const serial = dateOnlySerial(value);
+  return serial === null ? null : new Date(serial).toISOString().slice(0, 10);
+}
+
+function reportDateIsInRange(dateValue: string | null, range: ReportDateRange) {
+  if (range === "All time" || !dateValue) return true;
+  const date = plannerDateTime(dateValue, "12:00");
+  const current = plannerDateTime(currentOperatingDate, "12:00");
+  if (!date || !current) return true;
+
+  if (range === "Today") {
+    return dateValue === currentOperatingDate;
+  }
+
+  if (range === "This week") {
+    const start = plannerDateTime(startOfScheduleWeek(currentOperatingDate), "00:00");
+    const end = plannerDateTime(shiftIsoDate(startOfScheduleWeek(currentOperatingDate), 6), "23:59");
+    return Boolean(start && end && date >= start && date <= end);
+  }
+
+  if (range === "This month") {
+    return date.getFullYear() === current.getFullYear() && date.getMonth() === current.getMonth();
+  }
+
+  return date.getFullYear() === current.getFullYear();
+}
+
+function reportDateForRecord(record: { createdAt?: string; issuedDate?: string; sentAt?: string; surveyDate?: string; dueDate?: string }) {
+  return (
+    reportDateValue(record.issuedDate) ??
+    reportDateValue(record.sentAt) ??
+    reportDateValue(record.surveyDate) ??
+    reportDateValue(record.dueDate) ??
+    reportDateValue(record.createdAt)
+  );
+}
+
+function csvCell(value: string | number) {
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 function shiftIsoDate(value: string, days: number) {
   const date = plannerDateTime(value, "12:00");
   if (!date) return value;
@@ -5792,6 +5869,11 @@ export default function Dashboard() {
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
+  const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
+  const [reportCustomerFilter, setReportCustomerFilter] = useState("All customers");
+  const [reportEngineerFilter, setReportEngineerFilter] = useState("All engineers");
+  const [reportStatusFilter, setReportStatusFilter] = useState("All statuses");
+  const [activeReportTab, setActiveReportTab] = useState<ReportTab>("executive");
   const [scheduleDate, setScheduleDate] = useState(scheduleToday);
   const [scheduleView, setScheduleView] = useState<ScheduleView>("week");
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings>(defaultBusinessSettings);
@@ -8366,6 +8448,7 @@ export default function Dashboard() {
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
+      if (module.label === "Reports" && !access.showFinance) return false;
       return true;
     });
   }, [access]);
@@ -8884,6 +8967,490 @@ export default function Dashboard() {
     const last = scheduleVisibleDays.at(-1) ?? scheduleDate;
     return `${formatScheduleDate(first, { day: "numeric", month: "long", year: "numeric" })} - ${formatScheduleDate(last, { day: "numeric", month: "long", year: "numeric" })}`;
   }, [scheduleDate, scheduleView, scheduleVisibleDays]);
+
+  const reportCustomerOptions = useMemo(
+    () => [
+      "All customers",
+      ...Array.from(
+        new Set([
+          ...clients.map((client) => client.name),
+          ...jobs.map((job) => job.customer),
+          ...quotes.map((quote) => quote.customer),
+          ...invoices.map((invoice) => invoice.customer),
+          ...leads.map((lead) => lead.customerName),
+        ].filter(Boolean)),
+      ).sort((first, second) => first.localeCompare(second)),
+    ],
+    [clients, invoices, jobs, leads, quotes],
+  );
+
+  const reportEngineerOptions = useMemo(
+    () => [
+      "All engineers",
+      ...Array.from(new Set([...employees.map((employee) => employee.name), ...surveyorOptions].filter(Boolean))).sort((first, second) =>
+        first.localeCompare(second),
+      ),
+    ],
+    [employees],
+  );
+
+  const reportStatusOptions = useMemo(
+    () => ["All statuses", ...Array.from(new Set([...jobs.map((job) => job.status), ...quotes.map((quote) => quote.status)])).sort()],
+    [jobs, quotes],
+  );
+
+  const reportAssignments = useMemo(() => Object.values(jobSchedulePlans).flat(), [jobSchedulePlans]);
+
+  const reportFilteredQuotes = useMemo(
+    () =>
+      quotes.filter((quote) => {
+        const matchesDate = reportDateIsInRange(reportDateForRecord({ sentAt: quote.sentAt, dueDate: quote.due }), reportDateRange);
+        const matchesCustomer = reportCustomerFilter === "All customers" || quote.customer === reportCustomerFilter;
+        const matchesEngineer = reportEngineerFilter === "All engineers" || quote.owner === reportEngineerFilter;
+        const matchesStatus = reportStatusFilter === "All statuses" || quote.status === reportStatusFilter;
+        return matchesDate && matchesCustomer && matchesEngineer && matchesStatus;
+      }),
+    [quotes, reportCustomerFilter, reportDateRange, reportEngineerFilter, reportStatusFilter],
+  );
+
+  const reportFilteredInvoices = useMemo(
+    () =>
+      invoices.filter((invoice) => {
+        const sourceJob = invoice.sourceType === "job" ? jobs.find((job) => job.id === invoice.sourceId) : null;
+        const matchesDate = reportDateIsInRange(reportDateForRecord(invoice), reportDateRange);
+        const matchesCustomer = reportCustomerFilter === "All customers" || invoice.customer === reportCustomerFilter;
+        const matchesEngineer =
+          reportEngineerFilter === "All engineers" ||
+          sourceJob?.manager === reportEngineerFilter ||
+          reportAssignments.some((assignment) => assignment.jobId === invoice.sourceId && assignment.employeeName === reportEngineerFilter);
+        const matchesStatus = reportStatusFilter === "All statuses" || invoice.status === reportStatusFilter;
+        return matchesDate && matchesCustomer && matchesEngineer && matchesStatus;
+      }),
+    [invoices, jobs, reportAssignments, reportCustomerFilter, reportDateRange, reportEngineerFilter, reportStatusFilter],
+  );
+
+  const employeeHourlyRateByName = useMemo(
+    () =>
+      new Map(
+        employees.map((employee) => [
+          employee.name,
+          numericSetting(employee.profile?.payroll?.hourlyRate ?? fallbackLabourRateSetting.costRate, Number(fallbackLabourRateSetting.costRate)),
+        ]),
+      ),
+    [employees],
+  );
+
+  const reportJobRows = useMemo(
+    () =>
+      jobs
+        .filter((job) => {
+          const jobDate = reportDateValue(job.scheduledDate) ?? reportDateValue(job.due);
+          const matchesDate = reportDateIsInRange(jobDate, reportDateRange);
+          const matchesCustomer = reportCustomerFilter === "All customers" || job.customer === reportCustomerFilter;
+          const matchesEngineer =
+            reportEngineerFilter === "All engineers" ||
+            job.manager === reportEngineerFilter ||
+            reportAssignments.some((assignment) => assignment.jobId === job.id && assignment.employeeName === reportEngineerFilter);
+          const matchesStatus = reportStatusFilter === "All statuses" || job.status === reportStatusFilter;
+          return matchesDate && matchesCustomer && matchesEngineer && matchesStatus;
+        })
+        .map((job) => {
+          const centres = refreshedEstimateCostCentresFromRateBook(
+            jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job),
+            availableQuoteCatalogById,
+            normalizedFinanceSettings,
+          );
+          const estimateTotals = centres.reduce(
+            (total, centre) => {
+              const centreTotals = estimateCostCentreTotals(centre);
+              return {
+                materialCost: total.materialCost + centreTotals.materialCost,
+                materialSell: total.materialSell + centreTotals.materialSell,
+                labourCost: total.labourCost + centreTotals.labourCost,
+                labourSell: total.labourSell + centreTotals.labourSell,
+                totalCost: total.totalCost + centreTotals.totalCost,
+                totalSell: total.totalSell + centreTotals.totalSell,
+              };
+            },
+            { materialCost: 0, materialSell: 0, labourCost: 0, labourSell: 0, totalCost: 0, totalSell: 0 },
+          );
+          const jobPurchaseRequests = purchaseRequests.filter((request) => request.jobId === job.id && request.status !== "Rejected");
+          const pendingMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestPendingCost(request), 0);
+          const actualMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestActualCost(request), 0);
+          const jobTimesheets = jobDeliveryEvents.filter((event) => event.jobId === job.id && event.kind === "timesheet");
+          const workedHours = jobTimesheets.reduce((total, event) => total + (event.hours ?? 0), 0);
+          const actualLabourCost = jobTimesheets.reduce((total, event) => {
+            if (event.costValue !== undefined) return total + event.costValue;
+            const hourlyRate = employeeHourlyRateByName.get(event.actor) ?? Number(fallbackLabourRateSetting.costRate);
+            return total + (event.hours ?? 0) * hourlyRate;
+          }, 0);
+          const scheduledHours = reportAssignments
+            .filter((assignment) => assignment.jobId === job.id)
+            .reduce((total, assignment) => total + assignment.plannedHours, 0);
+          const quotedSell = estimateTotals.totalSell || job.value;
+          const estimatedCost = estimateTotals.totalCost || Math.round(job.value * 0.68);
+          const actualCost = actualMaterialCost + actualLabourCost;
+          const committedCost = actualCost + pendingMaterialCost;
+          const projectedCost = Math.max(estimatedCost, committedCost || estimatedCost);
+          const profit = job.value - projectedCost;
+          const variations = buildVariationsForJob(job);
+
+          return {
+            job,
+            centres,
+            estimateTotals,
+            quotedSell,
+            estimatedCost,
+            actualCost,
+            committedCost,
+            projectedCost,
+            actualMaterialCost,
+            pendingMaterialCost,
+            actualLabourCost,
+            workedHours,
+            scheduledHours,
+            profit,
+            margin: percentValue(profit, job.value),
+            variations,
+            variationOutstanding: variations.filter((variation) => variation.requiresClientApproval && variation.clientApprovalStatus !== "Approved").length,
+          };
+        }),
+    [
+      availableQuoteCatalogById,
+      employeeHourlyRateByName,
+      jobDeliveryEvents,
+      jobEstimateCostCentres,
+      jobs,
+      normalizedFinanceSettings,
+      purchaseRequests,
+      reportAssignments,
+      reportCustomerFilter,
+      reportDateRange,
+      reportEngineerFilter,
+      reportStatusFilter,
+    ],
+  );
+
+  const reportQuoteRows = useMemo(
+    () =>
+      reportFilteredQuotes.map((quote) => {
+        const centres = quoteCostCentres[quote.id] ?? [];
+        const totals = centres.reduce(
+          (total, centre) => {
+            const centreTotals = quoteCostCentreTotals(centre);
+            return {
+              cost: total.cost + centreTotals.totalCost,
+              sell: total.sell + centreTotals.totalSell,
+            };
+          },
+          { cost: 0, sell: 0 },
+        );
+        const sell = totals.sell || quote.value;
+        const cost = totals.cost || Math.round(sell * 0.68);
+        const profit = sell - cost;
+        return {
+          quote,
+          cost,
+          sell,
+          profit,
+          margin: percentValue(profit, sell),
+        };
+      }),
+    [quoteCostCentres, reportFilteredQuotes],
+  );
+
+  const reportInvoiceRows = useMemo(
+    () =>
+      reportFilteredInvoices.map((invoice) => {
+        const paidAmount = invoice.status === "Paid" ? invoice.chargeTotal : invoice.paidAmount ?? 0;
+        const owed = invoice.status === "Cancelled" ? 0 : Math.max(0, invoice.chargeTotal - paidAmount);
+        return {
+          invoice,
+          revenue: invoice.status === "Cancelled" ? 0 : invoice.chargeTotal,
+          cost: invoice.status === "Cancelled" ? 0 : invoice.costTotal,
+          profit: invoice.status === "Cancelled" ? 0 : invoice.chargeTotal - invoice.costTotal,
+          owed,
+        };
+      }),
+    [reportFilteredInvoices],
+  );
+
+  const reportPurchaseRows = useMemo(
+    () =>
+      purchaseRequests
+        .filter((request) => {
+          const job = jobs.find((item) => item.id === request.jobId) ?? null;
+          const matchesDate = reportDateIsInRange(reportDateForRecord({ createdAt: request.createdAt }), reportDateRange);
+          const matchesCustomer = reportCustomerFilter === "All customers" || job?.customer === reportCustomerFilter;
+          const matchesEngineer = reportEngineerFilter === "All engineers" || request.requestedBy === reportEngineerFilter || job?.manager === reportEngineerFilter;
+          const matchesStatus = reportStatusFilter === "All statuses" || request.status === reportStatusFilter;
+          return matchesDate && matchesCustomer && matchesEngineer && matchesStatus;
+        })
+        .map((request) => ({
+          request,
+          job: jobs.find((item) => item.id === request.jobId) ?? null,
+          actual: purchaseRequestActualCost(request),
+          pending: purchaseRequestPendingCost(request),
+          receiptPercent: purchaseRequestReceiptPercent(request),
+        })),
+    [jobs, purchaseRequests, reportCustomerFilter, reportDateRange, reportEngineerFilter, reportStatusFilter],
+  );
+
+  const reportScheduleClashes = useMemo(() => {
+    let total = 0;
+    reportAssignments.forEach((assignment, index) => {
+      reportAssignments.slice(index + 1).forEach((nextAssignment) => {
+        if (assignment.employeeId !== nextAssignment.employeeId) return;
+        if (scheduleAssignmentsOverlap(assignment, nextAssignment)) total += 1;
+      });
+    });
+    return total;
+  }, [reportAssignments]);
+
+  const reportAvailableHours = useMemo(() => {
+    if (reportDateRange === "Today") return 8;
+    if (reportDateRange === "This week") return 40;
+    if (reportDateRange === "This year") return 1880;
+    return 160;
+  }, [reportDateRange]);
+
+  const engineerProductivityRows = useMemo(
+    () =>
+      reportEngineerOptions
+        .filter((name) => name !== "All engineers")
+        .map((name) => {
+          const scheduledHours = reportAssignments
+            .filter((assignment) => assignment.employeeName === name && reportDateIsInRange(reportDateValue(assignment.startDate), reportDateRange))
+            .reduce((total, assignment) => total + assignment.plannedHours, 0);
+          const workedHours = jobDeliveryEvents
+            .filter((event) => event.kind === "timesheet" && event.actor === name && reportDateIsInRange(reportDateForRecord(event), reportDateRange))
+            .reduce((total, event) => total + (event.hours ?? 0), 0);
+          const managedJobs = reportJobRows.filter(
+            (row) =>
+              row.job.manager === name ||
+              reportAssignments.some((assignment) => assignment.jobId === row.job.id && assignment.employeeName === name),
+          );
+          const profit = managedJobs.reduce((total, row) => total + row.profit, 0);
+          const timesheetRequired = reportAssignments.filter((assignment) => assignment.employeeName === name).length;
+          const timesheetSubmitted = jobDeliveryEvents.filter((event) => event.kind === "timesheet" && event.actor === name).length;
+          return {
+            name,
+            scheduledHours,
+            workedHours,
+            travelHours: Math.max(0, Math.round((scheduledHours - workedHours) * 10) / 10),
+            overtimeHours: Math.max(0, workedHours - reportAvailableHours),
+            utilisation: percentValue(scheduledHours, reportAvailableHours),
+            compliance: percentValue(timesheetSubmitted, timesheetRequired || timesheetSubmitted || 1),
+            profit,
+            profitPerHour: workedHours > 0 ? Math.round(profit / workedHours) : 0,
+          };
+        }),
+    [jobDeliveryEvents, reportAssignments, reportAvailableHours, reportDateRange, reportEngineerOptions, reportJobRows],
+  );
+
+  const customerReportRows = useMemo(() => {
+    const customers = new Set([
+      ...reportJobRows.map((row) => row.job.customer),
+      ...reportQuoteRows.map((row) => row.quote.customer),
+      ...reportInvoiceRows.map((row) => row.invoice.customer),
+    ]);
+    return Array.from(customers)
+      .map((customer) => {
+        const customerJobs = reportJobRows.filter((row) => row.job.customer === customer);
+        const customerQuotes = reportQuoteRows.filter((row) => row.quote.customer === customer);
+        const customerInvoices = reportInvoiceRows.filter((row) => row.invoice.customer === customer);
+        const revenue = customerInvoices.reduce((total, row) => total + row.revenue, 0) || customerJobs.reduce((total, row) => total + row.job.value, 0);
+        const profit = customerJobs.reduce((total, row) => total + row.profit, 0) || customerInvoices.reduce((total, row) => total + row.profit, 0);
+        return {
+          customer,
+          revenue,
+          profit,
+          margin: percentValue(profit, revenue),
+          jobs: customerJobs.length,
+          quotes: customerQuotes.length,
+          repeat: customerJobs.length > 1 || customerInvoices.length > 1,
+        };
+      })
+      .sort((first, second) => second.revenue - first.revenue);
+  }, [reportInvoiceRows, reportJobRows, reportQuoteRows]);
+
+  const supplierReportRows = useMemo(() => {
+    const suppliers = new Set(reportPurchaseRows.map((row) => row.request.supplier));
+    return Array.from(suppliers)
+      .map((supplier) => {
+        const rows = reportPurchaseRows.filter((row) => row.request.supplier === supplier);
+        const spend = rows.reduce((total, row) => total + row.actual + row.pending, 0);
+        const outstanding = rows.reduce((total, row) => total + row.pending, 0);
+        return {
+          supplier,
+          orders: rows.length,
+          spend,
+          outstanding,
+          receivedPercent: percentValue(rows.reduce((total, row) => total + row.receiptPercent, 0), rows.length * 100),
+        };
+      })
+      .sort((first, second) => second.spend - first.spend);
+  }, [reportPurchaseRows]);
+
+  const complianceReportRows = useMemo(() => {
+    const todaySerial = dateOnlySerial(currentOperatingDate) ?? Date.now();
+    const licenceRows = employees.flatMap((employee) =>
+      (employee.profile?.licenses ?? []).map((license) => {
+        const expirySerial = dateOnlySerial(license.expiresOn);
+        const daysLeft = expirySerial === null ? null : Math.ceil((expirySerial - todaySerial) / 86_400_000);
+        const tone: ReportTone = daysLeft === null ? "amber" : daysLeft < 0 ? "red" : daysLeft <= 60 ? "amber" : "green";
+        return {
+          id: license.id,
+          area: license.type || "Training / licence",
+          owner: employee.name,
+          due: license.expiresOn || "Date TBC",
+          status: daysLeft === null ? "Needs date" : daysLeft < 0 ? "Expired" : `${daysLeft} days`,
+          tone,
+        };
+      }),
+    );
+
+    return [
+      ...licenceRows,
+      { id: "vehicle-mot", area: "Vehicle MOTs", owner: "Fleet", due: "Setup required", status: "Add vehicles in setup", tone: "amber" as ReportTone },
+      { id: "equipment-calibration", area: "Equipment calibration", owner: "Stores", due: "Setup required", status: "Add test equipment", tone: "amber" as ReportTone },
+      { id: "boiler-services", area: "Boiler services due", owner: "Service desk", due: "Rolling", status: `${jobs.filter((job) => job.description.toLowerCase().includes("boiler")).length} boiler jobs visible`, tone: "blue" as ReportTone },
+    ];
+  }, [employees, jobs]);
+
+  const reportExecutive = useMemo(() => {
+    const revenue = reportInvoiceRows.reduce((total, row) => total + row.revenue, 0);
+    const quotedRevenue = reportQuoteRows
+      .filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted")
+      .reduce((total, row) => total + row.sell, 0);
+    const fallbackRevenue = reportJobRows.reduce((total, row) => total + row.job.value, 0);
+    const visibleRevenue = revenue || quotedRevenue || fallbackRevenue;
+    const cost = reportInvoiceRows.reduce((total, row) => total + row.cost, 0) || reportJobRows.reduce((total, row) => total + row.projectedCost, 0);
+    const grossProfit = visibleRevenue - cost;
+    const overheadAllowance = Math.round(visibleRevenue * 0.12);
+    const netProfit = grossProfit - overheadAllowance;
+    const cashOwed = reportInvoiceRows.reduce((total, row) => total + row.owed, 0);
+    const revenueForRange = (range: ReportDateRange) =>
+      invoices
+        .filter((invoice) => invoice.status !== "Cancelled" && reportDateIsInRange(reportDateForRecord(invoice), range))
+        .reduce((total, invoice) => total + invoice.chargeTotal, 0);
+    const jobsCompleted = reportJobRows.filter((row) => ["Completed", "Ready to invoice", "Invoiced", "Closed"].includes(row.job.status)).length;
+    const jobsInProgress = reportJobRows.filter((row) => ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(row.job.status)).length;
+    const outstandingQuotes = reportQuoteRows.filter((row) => row.quote.status === "Sent").length;
+    const lossMakingJobs = reportJobRows.filter((row) => row.profit < 0);
+    const unallocatedJobs = reportJobRows.filter(
+      (row) =>
+        !row.job.scheduledDate &&
+        !reportAssignments.some((assignment) => assignment.jobId === row.job.id) &&
+        !["Completed", "Ready to invoice", "Invoiced", "Closed"].includes(row.job.status),
+    );
+    return {
+      revenueToday: revenueForRange("Today"),
+      revenueWeek: revenueForRange("This week"),
+      revenueMonth: revenueForRange("This month"),
+      revenueYear: revenueForRange("This year"),
+      visibleRevenue,
+      cost,
+      grossProfit,
+      grossMargin: percentValue(grossProfit, visibleRevenue),
+      netProfit,
+      netMargin: percentValue(netProfit, visibleRevenue),
+      jobsCompleted,
+      jobsInProgress,
+      outstandingQuotes,
+      cashOwed,
+      lossMakingJobs,
+      unallocatedJobs,
+    };
+  }, [invoices, reportAssignments, reportInvoiceRows, reportJobRows, reportQuoteRows]);
+
+  const reportInsights = useMemo(() => {
+    const insights: Array<{ id: string; tone: ReportTone; title: string; detail: string; action: string }> = [];
+    const lossJob = reportExecutive.lossMakingJobs[0];
+    const labourOverspend = reportJobRows.find((row) => row.actualLabourCost > row.estimateTotals.labourCost * 1.11 && row.estimateTotals.labourCost > 0);
+    const overdueInvoiceValue = reportInvoiceRows
+      .filter((row) => row.owed > 0 && row.invoice.dueDate < currentOperatingDate)
+      .reduce((total, row) => total + row.owed, 0);
+
+    if (lossJob) {
+      insights.push({
+        id: "loss-risk",
+        tone: "red",
+        title: `${lossJob.job.ref} is predicted to finish at a loss`,
+        detail: `${lossJob.job.customer} is tracking at ${currency(lossJob.profit)} projected profit with ${lossJob.margin}% margin.`,
+        action: "Review labour, POs and variation recovery.",
+      });
+    }
+    if (labourOverspend) {
+      insights.push({
+        id: "labour-overspend",
+        tone: "amber",
+        title: "Labour cost is above target",
+        detail: `${labourOverspend.job.ref} actual labour is above the estimated labour allowance.`,
+        action: "Check timesheets and remaining programme.",
+      });
+    }
+    if (overdueInvoiceValue > 0) {
+      insights.push({
+        id: "cash-owed",
+        tone: "amber",
+        title: `${currency(overdueInvoiceValue)} is overdue`,
+        detail: "Invoices past due date are showing cash collection risk.",
+        action: "Send a finance chase or call the customer.",
+      });
+    }
+    if (reportScheduleClashes > 0) {
+      insights.push({
+        id: "schedule-clash",
+        tone: "red",
+        title: `${reportScheduleClashes} schedule clash${reportScheduleClashes === 1 ? "" : "es"} detected`,
+        detail: "The scheduler has overlapping engineer allocations in this report range.",
+        action: "Open Schedules and move one booking.",
+      });
+    }
+    if (reportExecutive.unallocatedJobs.length > 0) {
+      insights.push({
+        id: "unallocated",
+        tone: "blue",
+        title: `${reportExecutive.unallocatedJobs.length} job${reportExecutive.unallocatedJobs.length === 1 ? "" : "s"} need allocation`,
+        detail: "Live work exists without a planned diary allocation.",
+        action: "Assign engineers from the Scheduler.",
+      });
+    }
+    if (insights.length === 0) {
+      insights.push({
+        id: "healthy",
+        tone: "green",
+        title: "No major report exceptions detected",
+        detail: "Margins, cash, schedule and compliance are not showing urgent risk in the current filters.",
+        action: "Keep reviewing weekly.",
+      });
+    }
+    return insights.slice(0, 6);
+  }, [reportExecutive, reportInvoiceRows, reportJobRows, reportScheduleClashes]);
+
+  function downloadReportsCsv() {
+    if (typeof window === "undefined") return;
+    const rows = [
+      ["Section", "Metric", "Value", "Detail"],
+      ["Executive", "Revenue", reportExecutive.visibleRevenue, reportDateRange],
+      ["Executive", "Gross profit", reportExecutive.grossProfit, `${reportExecutive.grossMargin}% margin`],
+      ["Executive", "Net profit", reportExecutive.netProfit, `${reportExecutive.netMargin}% margin`],
+      ["Executive", "Cash owed", reportExecutive.cashOwed, `${reportInvoiceRows.filter((row) => row.owed > 0).length} invoices`],
+      ...reportJobRows.map((row) => ["Jobs", row.job.ref, row.profit, `${row.job.customer} · ${row.margin}% margin`]),
+      ...engineerProductivityRows.map((row) => ["Engineers", row.name, row.workedHours, `${row.utilisation}% utilisation · ${currency(row.profit)} profit`]),
+      ...supplierReportRows.map((row) => ["Purchasing", row.supplier, row.spend, `${row.orders} orders · ${currency(row.outstanding)} outstanding`]),
+    ];
+    const csv = rows.map((row) => row.map(csvCell).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `nexa-reports-${currentOperatingDate}.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+    showNotice("Reports CSV downloaded.");
+  }
 
   function moveSchedulePeriod(direction: -1 | 1) {
     if (scheduleView === "day") {
@@ -10874,11 +11441,9 @@ export default function Dashboard() {
       return;
     }
     if (label === "Reports") {
-      setHomeView("settings");
-      setActiveSetupCategory("finance");
-      setActiveSetupSubItem(null);
+      setHomeView("reports");
+      setActiveReportTab("executive");
       scrollWorkspaceToTop();
-      showNotice("Finance and reporting setup opens from the live workflow data.");
     }
   }
 
@@ -17869,6 +18434,7 @@ export default function Dashboard() {
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
+            (module.label === "Reports" && homeView === "reports") ||
             (module.label === "Add-ons" && homeView === "addons") ||
             (module.label === "People" && ["employees", "employee-card", "clients", "client-record"].includes(homeView));
 
@@ -17936,6 +18502,9 @@ export default function Dashboard() {
                   setActiveSetupSubItem(null);
                 } else if (module.label === "Invoices") {
                   setHomeView("invoices");
+                } else if (module.label === "Reports") {
+                  setHomeView("reports");
+                  setActiveReportTab("executive");
                 } else if (module.label === "Add-ons") {
                   setHomeView("addons");
                 } else {
@@ -17995,6 +18564,8 @@ export default function Dashboard() {
                   ? "Purchase orders"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
+                : homeView === "reports"
+                  ? "Reports"
                 : homeView === "leads"
                   ? "Leads"
                 : homeView === "lead-record"
@@ -18126,6 +18697,8 @@ export default function Dashboard() {
                       ? selectedPurchaseOrder?.poNumber || "Purchase order"
                     : homeView === "invoices"
                       ? "Invoices"
+                    : homeView === "reports"
+                      ? "Reports"
                     : homeView === "invoice-create"
                       ? "Job billing"
                     : homeView === "invoice-record"
@@ -18180,6 +18753,8 @@ export default function Dashboard() {
                     ? selectedPurchaseOrder?.poNumber || "Purchase order"
                   : homeView === "invoices"
                     ? "Invoices"
+                  : homeView === "reports"
+                    ? "Reports & insights"
                   : homeView === "invoice-create"
                     ? "Create claim"
                   : homeView === "invoice-record"
@@ -18233,6 +18808,8 @@ export default function Dashboard() {
                     ? `${selectedPurchaseOrder?.supplier ?? "Supplier TBC"} · ${selectedPurchaseOrder?.jobRef ?? "No job linked"}`
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
+                  : homeView === "reports"
+                    ? `${reportDateRange} · ${reportExecutive.grossMargin}% gross margin · ${currency(reportExecutive.cashOwed)} cash owed`
                   : homeView === "invoice-create"
                     ? `${jobInvoiceDraftJob?.ref ?? "Job"} · choose deposit, valuation or invoice in full`
                   : homeView === "invoice-record"
@@ -18358,6 +18935,20 @@ export default function Dashboard() {
                       New invoice from source
                     </button>
                   ) : null}
+                </>
+              ) : homeView === "reports" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button className="secondary-button" onClick={downloadReportsCsv}>
+                    <Download size={16} />
+                    Export CSV
+                  </button>
+                  <button className="primary-button" onClick={() => showNotice("Scheduled report emails will use the report filters once the mail connector is switched on.")}>
+                    <Send size={16} />
+                    Schedule email
+                  </button>
                 </>
               ) : homeView === "invoice-create" ? (
                 <>
@@ -19034,6 +19625,368 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+            </section>
+          ) : homeView === "reports" ? (
+            <section className="reports-shell">
+              <div className="reports-toolbar">
+                <div>
+                  <span className="permission-heading">Business intelligence</span>
+                  <h2>Real-time performance control</h2>
+                  <p>Revenue, margin, delivery, engineer productivity, purchasing, compliance and risks from live NeXa records.</p>
+                </div>
+                <div className="reports-filter-grid">
+                  <label>
+                    Date range
+                    <select value={reportDateRange} onChange={(event) => setReportDateRange(event.target.value as ReportDateRange)}>
+                      {reportDateRanges.map((range) => (
+                        <option key={range}>{range}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Customer
+                    <select value={reportCustomerFilter} onChange={(event) => setReportCustomerFilter(event.target.value)}>
+                      {reportCustomerOptions.map((customer) => (
+                        <option key={customer}>{customer}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Engineer
+                    <select value={reportEngineerFilter} onChange={(event) => setReportEngineerFilter(event.target.value)}>
+                      {reportEngineerOptions.map((engineer) => (
+                        <option key={engineer}>{engineer}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Status
+                    <select value={reportStatusFilter} onChange={(event) => setReportStatusFilter(event.target.value)}>
+                      {reportStatusOptions.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <div className="reports-tabs" role="tablist" aria-label="Report sections">
+                {reportTabs.map((tab) => (
+                  <button
+                    className={activeReportTab === tab.key ? "active" : ""}
+                    key={tab.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeReportTab === tab.key}
+                    onClick={() => setActiveReportTab(tab.key)}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="reports-metric-grid">
+                {[
+                  { label: "Revenue today", value: currency(reportExecutive.revenueToday), detail: `Week ${currency(reportExecutive.revenueWeek)}`, tone: "blue" as ReportTone },
+                  { label: "Revenue month", value: currency(reportExecutive.revenueMonth), detail: `Year ${currency(reportExecutive.revenueYear)}`, tone: "green" as ReportTone },
+                  { label: "Gross profit", value: currency(reportExecutive.grossProfit), detail: `${reportExecutive.grossMargin}% gross margin`, tone: reportExecutive.grossProfit < 0 ? "red" as ReportTone : "green" as ReportTone },
+                  { label: "Net profit", value: currency(reportExecutive.netProfit), detail: `${reportExecutive.netMargin}% net margin after overhead`, tone: reportExecutive.netProfit < 0 ? "red" as ReportTone : "blue" as ReportTone },
+                  { label: "Jobs live", value: String(reportExecutive.jobsInProgress), detail: `${reportExecutive.jobsCompleted} completed`, tone: "blue" as ReportTone },
+                  { label: "Outstanding quotes", value: String(reportExecutive.outstandingQuotes), detail: `${reportQuoteRows.length} quotes in filters`, tone: "amber" as ReportTone },
+                  { label: "Cash owed", value: currency(reportExecutive.cashOwed), detail: `${reportInvoiceRows.filter((row) => row.owed > 0).length} invoices unpaid`, tone: reportExecutive.cashOwed > 0 ? "amber" as ReportTone : "green" as ReportTone },
+                  { label: "Key alerts", value: String(reportInsights.filter((insight) => insight.tone !== "green").length), detail: `${reportScheduleClashes} scheduling clashes`, tone: reportInsights.some((insight) => insight.tone === "red") ? "red" as ReportTone : "blue" as ReportTone },
+                ].map((metric) => (
+                  <article className={`report-metric-card ${metric.tone}`} key={metric.label}>
+                    <span>{metric.label}</span>
+                    <strong>{metric.value}</strong>
+                    <small>{metric.detail}</small>
+                  </article>
+                ))}
+              </div>
+
+              <section className="report-insight-panel">
+                <header>
+                  <div>
+                    <span className="permission-heading">AI insights</span>
+                    <h3>Plain-English nudges</h3>
+                  </div>
+                  <button className="secondary-button" type="button" onClick={() => showNotice("Predictive alerts will learn from completed jobs, timesheets, PO variance and quote history as the pilot data grows.")}>
+                    <Sparkles size={15} />
+                    Prediction roadmap
+                  </button>
+                </header>
+                <div className="report-insight-grid">
+                  {reportInsights.map((insight) => (
+                    <article className={`report-insight ${insight.tone}`} key={insight.id}>
+                      {insight.tone === "green" ? <TrendingUp size={17} /> : insight.tone === "red" ? <TrendingDown size={17} /> : <AlertTriangle size={17} />}
+                      <div>
+                        <strong>{insight.title}</strong>
+                        <span>{insight.detail}</span>
+                        <small>{insight.action}</small>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </section>
+
+              <div className="reports-export-bar">
+                <button className="secondary-button" type="button" onClick={() => showNotice("PDF export will render the selected report tab as a branded board pack.")}>
+                  <FileText size={15} />
+                  PDF
+                </button>
+                <button className="secondary-button" type="button" onClick={() => showNotice("Excel export will include each report tab as a worksheet.")}>
+                  <FileSpreadsheet size={15} />
+                  Excel
+                </button>
+                <button className="secondary-button" type="button" onClick={downloadReportsCsv}>
+                  <Download size={15} />
+                  CSV
+                </button>
+                <button className="secondary-button" type="button" onClick={() => showNotice("Shareable dashboards will use secure, role-based links when live sharing is enabled.")}>
+                  <Share2 size={15} />
+                  Share dashboard
+                </button>
+              </div>
+
+              {activeReportTab === "executive" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Executive dashboard</span>
+                        <h3>Daily business position</h3>
+                      </div>
+                    </header>
+                    <div className="report-kpi-list">
+                      <article><span>Revenue in filter</span><strong>{currency(reportExecutive.visibleRevenue)}</strong><small>Invoices first, then secured jobs/quotes if invoices are not present.</small></article>
+                      <article><span>Gross margin</span><strong>{reportExecutive.grossMargin}%</strong><small>{currency(reportExecutive.cost)} estimated, committed and actual cost tracked.</small></article>
+                      <article><span>Net margin</span><strong>{reportExecutive.netMargin}%</strong><small>Uses a 12% overhead allowance until full overhead setup is added.</small></article>
+                      <article><span>Forecast secured</span><strong>{currency(reportQuoteRows.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").reduce((total, row) => total + row.sell, 0))}</strong><small>Accepted and converted quotes.</small></article>
+                    </div>
+                  </section>
+                  <section className="report-card">
+                    <header><h3>Live queues</h3></header>
+                    <div className="report-queue-list">
+                      <button type="button" onClick={() => setHomeView("quotes")}><span>Outstanding quotes</span><strong>{reportExecutive.outstandingQuotes}</strong></button>
+                      <button type="button" onClick={() => setHomeView("jobs")}><span>Jobs in progress</span><strong>{reportExecutive.jobsInProgress}</strong></button>
+                      <button type="button" onClick={() => setHomeView("invoices")}><span>Cash owed</span><strong>{currency(reportExecutive.cashOwed)}</strong></button>
+                      <button type="button" onClick={() => setHomeView("purchase-orders")}><span>Outstanding POs</span><strong>{reportPurchaseRows.filter((row) => row.pending > 0).length}</strong></button>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {activeReportTab === "financial" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Financial reports</span>
+                        <h3>P&amp;L, margin and forecast</h3>
+                      </div>
+                    </header>
+                    <div className="report-table financial">
+                      <div className="report-table-head">
+                        <span>Area</span><span>Revenue</span><span>Cost</span><span>Profit</span><span>Margin</span>
+                      </div>
+                      {[
+                        { area: "Invoices / billed", revenue: reportInvoiceRows.reduce((total, row) => total + row.revenue, 0), cost: reportInvoiceRows.reduce((total, row) => total + row.cost, 0) },
+                        { area: "Jobs / WIP forecast", revenue: reportJobRows.reduce((total, row) => total + row.job.value, 0), cost: reportJobRows.reduce((total, row) => total + row.projectedCost, 0) },
+                        { area: "Quotes secured", revenue: reportQuoteRows.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").reduce((total, row) => total + row.sell, 0), cost: reportQuoteRows.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").reduce((total, row) => total + row.cost, 0) },
+                      ].map((row) => {
+                        const profit = row.revenue - row.cost;
+                        return (
+                          <div className="report-table-row" key={row.area}>
+                            <strong>{row.area}</strong>
+                            <span>{currency(row.revenue)}</span>
+                            <span>{currency(row.cost)}</span>
+                            <span>{currency(profit)}</span>
+                            <span>{percentValue(profit, row.revenue)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                  <section className="report-card">
+                    <header><h3>Budget versus actual</h3></header>
+                    <div className="report-mini-stack">
+                      <article><span>Material spend</span><strong>{currency(reportJobRows.reduce((total, row) => total + row.actualMaterialCost + row.pendingMaterialCost, 0))}</strong><small>PO actual and pending</small></article>
+                      <article><span>Labour spend</span><strong>{currency(reportJobRows.reduce((total, row) => total + row.actualLabourCost, 0))}</strong><small>{reportJobRows.reduce((total, row) => total + row.workedHours, 0).toFixed(1)} worked hours</small></article>
+                      <article><span>Forecast revenue</span><strong>{currency(reportQuoteRows.filter((row) => row.quote.status === "Sent" || row.quote.status === "Accepted").reduce((total, row) => total + row.sell, 0))}</strong><small>Sent and accepted quote pipeline</small></article>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {activeReportTab === "jobs" ? (
+                <section className="report-card wide">
+                  <header>
+                    <div>
+                      <span className="permission-heading">Job reports</span>
+                      <h3>Estimated versus actual by job</h3>
+                    </div>
+                  </header>
+                  <div className="report-table jobs">
+                    <div className="report-table-head">
+                      <span>Job</span><span>Estimated cost</span><span>Actual / committed</span><span>Profit</span><span>Margin</span><span>Variations</span>
+                    </div>
+                    {reportJobRows.map((row) => (
+                      <button className="report-table-row clickable" key={row.job.id} type="button" onClick={() => openJobDrawer(row.job.id)}>
+                        <strong>{row.job.ref} · {row.job.customer}<small>{row.job.description}</small></strong>
+                        <span>{currency(row.estimatedCost)}</span>
+                        <span>{currency(row.committedCost || row.actualCost)}</span>
+                        <span className={row.profit < 0 ? "report-negative" : ""}>{currency(row.profit)}</span>
+                        <span>{row.margin}%</span>
+                        <span>{row.variationOutstanding} outstanding</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeReportTab === "engineers" ? (
+                <section className="report-card wide">
+                  <header>
+                    <div>
+                      <span className="permission-heading">Engineer productivity</span>
+                      <h3>Scheduled versus worked</h3>
+                    </div>
+                  </header>
+                  <div className="report-table engineers">
+                    <div className="report-table-head">
+                      <span>Engineer</span><span>Scheduled</span><span>Worked</span><span>Travel / gap</span><span>Utilisation</span><span>Timesheets</span><span>Profit / hr</span>
+                    </div>
+                    {engineerProductivityRows.map((row) => (
+                      <div className="report-table-row" key={row.name}>
+                        <strong>{row.name}</strong>
+                        <span>{row.scheduledHours.toFixed(1)}h</span>
+                        <span>{row.workedHours.toFixed(1)}h</span>
+                        <span>{row.travelHours.toFixed(1)}h</span>
+                        <span>{row.utilisation}%</span>
+                        <span>{row.compliance}%</span>
+                        <span>{currency(row.profitPerHour)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeReportTab === "pipeline" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Estimating</span>
+                        <h3>Quotes created, won and lost</h3>
+                      </div>
+                    </header>
+                    <div className="report-kpi-list">
+                      <article><span>Quotes created</span><strong>{reportQuoteRows.length}</strong><small>Within current filters</small></article>
+                      <article><span>Won / converted</span><strong>{reportQuoteRows.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").length}</strong><small>{percentValue(reportQuoteRows.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").length, reportQuoteRows.length)}% conversion</small></article>
+                      <article><span>Lost / declined</span><strong>{reportQuoteRows.filter((row) => row.quote.status === "Declined" || row.quote.status === "Lost").length}</strong><small>{currency(reportQuoteRows.filter((row) => row.quote.status === "Declined" || row.quote.status === "Lost").reduce((total, row) => total + row.sell, 0))} revenue lost</small></article>
+                      <article><span>Average margin</span><strong>{percentValue(reportQuoteRows.reduce((total, row) => total + row.profit, 0), reportQuoteRows.reduce((total, row) => total + row.sell, 0))}%</strong><small>Based on quote cost builds</small></article>
+                    </div>
+                  </section>
+                  <section className="report-card">
+                    <header><h3>Estimator performance</h3></header>
+                    <div className="report-mini-stack">
+                      {reportEngineerOptions.filter((name) => name !== "All engineers").slice(0, 5).map((name) => {
+                        const ownedQuotes = reportQuoteRows.filter((row) => row.quote.owner === name);
+                        const won = ownedQuotes.filter((row) => row.quote.status === "Accepted" || row.quote.status === "Converted").length;
+                        return (
+                          <article key={name}><span>{name}</span><strong>{ownedQuotes.length} quotes</strong><small>{won} won · {percentValue(won, ownedQuotes.length)}% conversion</small></article>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {activeReportTab === "customers" ? (
+                <section className="report-card wide">
+                  <header>
+                    <div>
+                      <span className="permission-heading">Customers</span>
+                      <h3>Revenue, repeat work and lifetime value</h3>
+                    </div>
+                  </header>
+                  <div className="report-table customers">
+                    <div className="report-table-head">
+                      <span>Customer</span><span>Revenue</span><span>Profit</span><span>Margin</span><span>Jobs</span><span>Quotes</span><span>Repeat</span>
+                    </div>
+                    {customerReportRows.map((row) => (
+                      <div className="report-table-row" key={row.customer}>
+                        <strong>{row.customer}</strong>
+                        <span>{currency(row.revenue)}</span>
+                        <span>{currency(row.profit)}</span>
+                        <span>{row.margin}%</span>
+                        <span>{row.jobs}</span>
+                        <span>{row.quotes}</span>
+                        <span>{row.repeat ? "Yes" : "No"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeReportTab === "purchasing" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Materials and purchasing</span>
+                        <h3>Supplier spend and outstanding orders</h3>
+                      </div>
+                    </header>
+                    <div className="report-table purchasing">
+                      <div className="report-table-head">
+                        <span>Supplier</span><span>Orders</span><span>Spend / committed</span><span>Outstanding</span><span>Received</span>
+                      </div>
+                      {supplierReportRows.map((row) => (
+                        <button className="report-table-row clickable" key={row.supplier} type="button" onClick={() => setHomeView("purchase-orders")}>
+                          <strong>{row.supplier}</strong>
+                          <span>{row.orders}</span>
+                          <span>{currency(row.spend)}</span>
+                          <span>{currency(row.outstanding)}</span>
+                          <span>{row.receivedPercent}%</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                  <section className="report-card">
+                    <header><h3>Price tracking</h3></header>
+                    <div className="report-mini-stack">
+                      <article><span>Supplier RFQs</span><strong>{reportPurchaseRows.filter((row) => row.request.status === "Requested").length}</strong><small>Waiting office or supplier action</small></article>
+                      <article><span>Stock usage</span><strong>Setup</strong><small>Will use stock movements once stock is enabled.</small></article>
+                      <article><span>Price increases</span><strong>Tracking</strong><small>Compares supplier quote PDFs against catalogue history.</small></article>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
+              {activeReportTab === "compliance" ? (
+                <section className="report-card wide">
+                  <header>
+                    <div>
+                      <span className="permission-heading">Compliance</span>
+                      <h3>Gas, training, vehicles and equipment</h3>
+                    </div>
+                  </header>
+                  <div className="report-table compliance">
+                    <div className="report-table-head">
+                      <span>Area</span><span>Owner</span><span>Due</span><span>Status</span>
+                    </div>
+                    {complianceReportRows.map((row) => (
+                      <div className="report-table-row" key={row.id}>
+                        <strong>{row.area}</strong>
+                        <span>{row.owner}</span>
+                        <span>{row.due}</span>
+                        <span className={`status-pill ${row.tone}`}>{row.status}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </section>
           ) : homeView === "purchase-orders" ? (
             <section className="quote-panel record-directory workflow-directory purchase-order-directory">
