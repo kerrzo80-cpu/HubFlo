@@ -752,7 +752,7 @@ const defaultTakeoffStore: TakeoffStore = {
   projects: useDemoSeedData() ? [seedProject] : [],
 };
 
-const takeoffStore = loadServerStore("takeoff-store", defaultTakeoffStore);
+let takeoffStore = loadServerStore("takeoff-store", defaultTakeoffStore);
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -760,6 +760,11 @@ function clone<T>(value: T): T {
 
 function persistTakeoffStore() {
   writeServerStore("takeoff-store", takeoffStore);
+}
+
+function refreshTakeoffStore() {
+  takeoffStore = loadServerStore("takeoff-store", defaultTakeoffStore);
+  return takeoffStore;
 }
 
 function nowIso() {
@@ -1307,6 +1312,7 @@ export function attachSurveyEvidenceToQuote(
   quoteId: string,
   actor = "NeXa Field",
 ) {
+  refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   const quote = getQuotes().find((item) => item.id === quoteId);
   if (!project || !quote) return null;
@@ -1898,6 +1904,7 @@ export function runSurveyChatEstimatePackDraft(
   projectId: string,
   actor = "NeXa Survey",
 ): TakeoffExtractionResult | null {
+  refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
@@ -1914,16 +1921,19 @@ export function runSurveyChatEstimatePackDraft(
 }
 
 export function getTakeoffProjects(): TakeoffProject[] {
+  refreshTakeoffStore();
   return clone(takeoffStore.projects);
 }
 
 export function getTakeoffProject(id: string): TakeoffProject | undefined {
+  refreshTakeoffStore();
   const index = findTakeoffProjectIndexByLookup(id);
   const project = index >= 0 ? takeoffStore.projects[index] : undefined;
   return project ? clone(project) : undefined;
 }
 
 export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffProject {
+  refreshTakeoffStore();
   const linkedQuote = findLinkedQuote(payload.linkedQuoteId);
   const createdAt = nowIso();
   const project: TakeoffProject = {
@@ -1971,6 +1981,7 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
 }
 
 export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>): TakeoffProject | null {
+  refreshTakeoffStore();
   const index = findTakeoffProjectIndexByLookup(id);
   if (index < 0) return null;
   const current = takeoffStore.projects[index];
@@ -2019,6 +2030,7 @@ export function updateTakeoffProject(id: string, patch: Partial<TakeoffProject>)
 }
 
 export function deleteTakeoffProject(id: string): TakeoffProject | null {
+  refreshTakeoffStore();
   const index = findTakeoffProjectIndexByLookup(id);
   const existing = index >= 0 ? takeoffStore.projects[index] : undefined;
   if (!existing) return null;
@@ -2092,6 +2104,7 @@ export function applyTakeoffExtractionDraft(
   draft: TakeoffExtractionDraft,
   options: TakeoffExtractionApplyOptions = {},
 ): TakeoffExtractionResult | null {
+  refreshTakeoffStore();
   const storedProject = takeoffStore.projects.find((item) => item.id === projectId);
   if (!storedProject) return null;
   const project = removeGeneratedTakeoffLines(storedProject, options.replaceIdPrefixes ?? []);
@@ -2163,6 +2176,7 @@ export function runTakeoffDraftExtraction(
   projectId: string,
   actor = "NeXa Takeoff",
 ): TakeoffExtractionResult | null {
+  refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
@@ -2179,6 +2193,7 @@ export function pushTakeoffProjectToQuote(
   quoteId: string,
   actor = "NeXa Takeoff",
 ): TakeoffPushResult | null {
+  refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
@@ -2222,6 +2237,7 @@ export function pushSurveyProjectToQuote(
   quoteId: string,
   actor = "NeXa Survey",
 ): TakeoffPushResult | null {
+  refreshTakeoffStore();
   const project = takeoffStore.projects.find((item) => item.id === projectId);
   if (!project) return null;
 
