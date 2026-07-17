@@ -21518,6 +21518,18 @@ body {
   gap: 14px;
 }
 
+.services-markup-workspace.expanded {
+  background: #eef8fc;
+  border: 1px solid #b9ddea;
+  border-radius: 14px;
+  box-shadow: 0 24px 70px rgba(8, 45, 65, 0.28);
+  inset: 14px;
+  overflow: auto;
+  padding: 14px;
+  position: fixed;
+  z-index: 1000;
+}
+
 .services-markup-toolbar {
   display: grid;
   gap: 13px;
@@ -21526,7 +21538,7 @@ body {
 .services-markup-setup {
   display: grid;
   gap: 10px;
-  grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(110px, 0.7fr));
+  grid-template-columns: minmax(220px, 1.5fr) repeat(4, minmax(105px, 0.7fr));
 }
 
 .services-markup-setup label {
@@ -21581,7 +21593,8 @@ body {
 
 .services-markup-mode-row button.active,
 .services-markup-tool-grid button.active,
-.services-markup-service-grid button.active {
+.services-markup-service-grid button.active,
+.takeoff-small-button.active {
   background: var(--blue-dark);
   border-color: var(--blue-dark);
   color: #fff;
@@ -21656,6 +21669,10 @@ body {
   grid-template-columns: minmax(0, 1fr) minmax(290px, 0.34fr);
 }
 
+.services-markup-workspace.expanded .services-markup-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.25fr);
+}
+
 .services-markup-canvas-card {
   display: grid;
   gap: 12px;
@@ -21702,6 +21719,11 @@ body {
   width: 100%;
 }
 
+.services-markup-workspace.expanded .services-markup-canvas {
+  height: calc(100vh - 350px);
+  min-height: 680px;
+}
+
 .markup-plan-bg {
   fill: #fbfdfe;
   stroke: #d4e4ec;
@@ -21724,6 +21746,33 @@ body {
 .markup-plan-scale {
   fill: #7890a1;
   font-size: 13px;
+}
+
+.markup-calibration {
+  pointer-events: none;
+}
+
+.markup-calibration line {
+  stroke: var(--nexa-brass);
+  stroke-dasharray: 12 8;
+  stroke-linecap: round;
+  stroke-width: 5;
+}
+
+.markup-calibration circle {
+  fill: var(--nexa-brass);
+  stroke: #fff;
+  stroke-width: 3;
+}
+
+.markup-calibration text {
+  fill: var(--ink);
+  font-size: 14px;
+  font-weight: 950;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 4;
+  text-anchor: middle;
 }
 
 .markup-pipe {
@@ -21913,7 +21962,8 @@ body {
 @media (max-width: 1180px) {
   .services-markup-setup,
   .services-markup-palette,
-  .services-markup-layout {
+  .services-markup-layout,
+  .services-markup-workspace.expanded .services-markup-layout {
     grid-template-columns: 1fr;
   }
 
@@ -21929,6 +21979,11 @@ body {
 }
 
 @media (max-width: 720px) {
+  .services-markup-workspace.expanded {
+    border-radius: 0;
+    inset: 0;
+  }
+
   .services-markup-canvas-header {
     align-items: stretch;
     flex-direction: column;

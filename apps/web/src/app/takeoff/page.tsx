@@ -52,7 +52,8 @@ import type {
 } from "@/lib/takeoff-data";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
-type MarkupToolMode = "pipe" | "symbol" | "select";
+type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate";
+type MarkupCanvasPoint = { x: number; y: number };
 
 type NewProjectDraft = {
   name: string;
@@ -794,6 +795,9 @@ export default function TakeoffPage() {
   const [activeMarkupSymbolCategory, setActiveMarkupSymbolCategory] = useState<TakeoffMarkupSymbolCategory>("Plant");
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
+  const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
+  const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
+  const [markupCalibrationDistance, setMarkupCalibrationDistance] = useState("1");
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -871,6 +875,13 @@ export default function TakeoffPage() {
     () => drawingDocuments.find((document) => document.id === servicesMarkup.drawingDocumentId) ?? drawingDocuments[0] ?? null,
     [drawingDocuments, servicesMarkup.drawingDocumentId],
   );
+
+  const markupCalibrationPixelLength = useMemo(() => {
+    if (markupCalibrationPoints.length < 2) return 0;
+    const first = markupCalibrationPoints[0];
+    const second = markupCalibrationPoints[1];
+    return first && second ? markupPointDistance(first, second) : 0;
+  }, [markupCalibrationPoints]);
 
   const servicesMarkupSummary = useMemo(() => {
     const pipeRows = new Map<string, {
@@ -1192,7 +1203,7 @@ export default function TakeoffPage() {
     }, successMessage);
   }
 
-  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement>) {
+  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement>): MarkupCanvasPoint {
     const bounds = event.currentTarget.getBoundingClientRect();
     return {
       x: Math.round(((event.clientX - bounds.left) / bounds.width) * markupCanvasWidth),
@@ -1200,7 +1211,7 @@ export default function TakeoffPage() {
     };
   }
 
-  function createMarkupPipe(points: Array<{ x: number; y: number }>): TakeoffMarkupPipe {
+  function createMarkupPipe(points: MarkupCanvasPoint[]): TakeoffMarkupPipe {
     return {
       id: makeId("markup-pipe"),
       type: "pipe",
@@ -1216,7 +1227,7 @@ export default function TakeoffPage() {
     };
   }
 
-  function createMarkupSymbol(point: { x: number; y: number }): TakeoffMarkupSymbol {
+  function createMarkupSymbol(point: MarkupCanvasPoint): TakeoffMarkupSymbol {
     return {
       id: makeId("markup-symbol"),
       type: "symbol",
@@ -1235,6 +1246,13 @@ export default function TakeoffPage() {
 
   function handleMarkupCanvasClick(event: ReactMouseEvent<SVGSVGElement>) {
     const point = markupCanvasPoint(event);
+    if (markupToolMode === "calibrate") {
+      setSelectedMarkupElementId("");
+      setMarkupDraftPipe(null);
+      setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
+      return;
+    }
+
     if (markupToolMode === "select") {
       setSelectedMarkupElementId("");
       return;
@@ -1261,6 +1279,39 @@ export default function TakeoffPage() {
         points: [...current.points, point],
       };
     });
+  }
+
+  function startMarkupCalibration() {
+    setMarkupDraftPipe(null);
+    setSelectedMarkupElementId("");
+    setMarkupToolMode("calibrate");
+    setMarkupCalibrationPoints([]);
+    setMarkupCalibrationDistance(String(servicesMarkup.calibration.realLengthM || 1));
+  }
+
+  function applyMarkupCalibration() {
+    const realLengthM = Number(markupCalibrationDistance);
+    if (markupCalibrationPoints.length < 2 || markupCalibrationPixelLength <= 0) {
+      setError("Click two points on a known dimension before applying calibration.");
+      return;
+    }
+    if (!Number.isFinite(realLengthM) || realLengthM <= 0) {
+      setError("Enter the real distance in metres before applying calibration.");
+      return;
+    }
+
+    const pixelsPerMetre = markupCalibrationPixelLength / realLengthM;
+    updateServicesMarkup((current) => ({
+      ...current,
+      calibration: {
+        ...current.calibration,
+        status: "Calibrated",
+        pixelsPerMetre,
+        realLengthM,
+        scaleLabel: `${realLengthM}m picked`,
+      },
+    }), `Drawing calibrated from ${realLengthM}m reference.`);
+    setMarkupToolMode("pipe");
   }
 
   function finishMarkupRoute() {
@@ -2510,9 +2561,12 @@ export default function TakeoffPage() {
               ) : null}
 
               {activeTab === "markup" ? (
-                <section className="services-markup-workspace">
+                <section className={isMarkupExpanded ? "services-markup-workspace expanded" : "services-markup-workspace"}>
                   <article className="takeoff-panel services-markup-toolbar">
                     <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
+                      <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
+                        {isMarkupExpanded ? "Exit large drawing" : "Large drawing"}
+                      </button>
                       <button className="takeoff-small-button" type="button" onClick={pushMarkupToBoq}>
                         <PackageSearch size={14} />
                         Send to Quantities / RFQ
@@ -2533,7 +2587,7 @@ export default function TakeoffPage() {
                         </select>
                       </label>
                       <label>
-                        Pixels per metre
+                        Manual px / m
                         <input
                           min="1"
                           type="number"
@@ -2547,6 +2601,16 @@ export default function TakeoffPage() {
                               scaleLabel: "Manual",
                             },
                           }))}
+                        />
+                      </label>
+                      <label>
+                        Known distance m
+                        <input
+                          min="0.01"
+                          step="0.01"
+                          type="number"
+                          value={markupCalibrationDistance}
+                          onChange={(event) => setMarkupCalibrationDistance(event.target.value)}
                         />
                       </label>
                       <label>
@@ -2597,6 +2661,21 @@ export default function TakeoffPage() {
                       >
                         1:100
                       </button>
+                      <button
+                        className={markupToolMode === "calibrate" ? "takeoff-small-button active" : "takeoff-small-button"}
+                        type="button"
+                        onClick={startMarkupCalibration}
+                      >
+                        Calibrate from drawing
+                      </button>
+                      <button
+                        className="takeoff-small-button"
+                        disabled={markupCalibrationPoints.length < 2}
+                        type="button"
+                        onClick={applyMarkupCalibration}
+                      >
+                        Apply calibration
+                      </button>
                       <label className="services-markup-check">
                         <input
                           type="checkbox"
@@ -2609,21 +2688,29 @@ export default function TakeoffPage() {
                         Show grid
                       </label>
                       <span>
-                        {markupSelectedDrawing
-                          ? `${markupSelectedDrawing.fileName} is the locked background. NeXa markup remains editable.`
-                          : "Upload a drawing to use as the locked background."}
+                        {markupToolMode === "calibrate"
+                          ? `Click two ends of a known dimension on the plan. ${markupCalibrationPoints.length}/2 points selected.`
+                          : markupSelectedDrawing
+                            ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
+                            : "Upload a drawing to use as the locked background."}
                       </span>
                     </div>
 
                     <div className="services-markup-mode-row" aria-label="Markup modes">
-                      {(["pipe", "symbol", "select"] as MarkupToolMode[]).map((mode) => (
+                      {(["calibrate", "pipe", "symbol", "select"] as MarkupToolMode[]).map((mode) => (
                         <button
                           className={markupToolMode === mode ? "active" : ""}
                           type="button"
                           key={mode}
-                          onClick={() => setMarkupToolMode(mode)}
+                          onClick={() => {
+                            if (mode === "calibrate") {
+                              startMarkupCalibration();
+                            } else {
+                              setMarkupToolMode(mode);
+                            }
+                          }}
                         >
-                          {mode === "pipe" ? "Draw pipe" : mode === "symbol" ? "Place item" : "Select / edit"}
+                          {mode === "calibrate" ? "Calibrate" : mode === "pipe" ? "Draw pipe" : mode === "symbol" ? "Place item" : "Select / edit"}
                         </button>
                       ))}
                     </div>
@@ -2709,10 +2796,32 @@ export default function TakeoffPage() {
                     <article className="takeoff-panel services-markup-canvas-card">
                       <div className="services-markup-canvas-header">
                         <span>
-                          <strong>{markupToolMode === "pipe" ? "Tap points to draw a pipe route" : markupToolMode === "symbol" ? `Tap to place ${activeMarkupSymbolKind}` : "Select an item to edit it"}</strong>
-                          <small>{markupDraftPipe ? `${markupDraftPipe.points.length} point(s) in route` : `${servicesMarkup.pipes.length} routes - ${servicesMarkup.symbols.length} symbols`}</small>
+                          <strong>
+                            {markupToolMode === "calibrate"
+                              ? "Click two ends of a known dimension, then apply calibration"
+                              : markupToolMode === "pipe"
+                                ? "Tap points to draw a pipe route"
+                                : markupToolMode === "symbol"
+                                  ? `Tap to place ${activeMarkupSymbolKind}`
+                                  : "Select an item to edit it"}
+                          </strong>
+                          <small>
+                            {markupToolMode === "calibrate"
+                              ? `${markupCalibrationPoints.length}/2 calibration points - ${markupCalibrationPixelLength ? `${markupCalibrationPixelLength.toFixed(0)} px` : "pick a known measurement"}`
+                              : markupDraftPipe
+                                ? `${markupDraftPipe.points.length} point(s) in route`
+                                : `${servicesMarkup.pipes.length} routes - ${servicesMarkup.symbols.length} symbols`}
+                          </small>
                         </span>
                         <div>
+                          <button
+                            className="takeoff-small-button"
+                            type="button"
+                            disabled={markupToolMode !== "calibrate" || markupCalibrationPoints.length < 2}
+                            onClick={applyMarkupCalibration}
+                          >
+                            Apply calibration
+                          </button>
                           <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe || markupDraftPipe.points.length < 2} onClick={finishMarkupRoute}>
                             Finish route
                           </button>
@@ -2755,6 +2864,33 @@ export default function TakeoffPage() {
                         <text className="markup-plan-scale" x="32" y="68">
                           {servicesMarkup.calibration.status} {servicesMarkup.calibration.scaleLabel ? `- ${servicesMarkup.calibration.scaleLabel}` : ""}
                         </text>
+
+                        {markupCalibrationPoints.length ? (
+                          <g className="markup-calibration">
+                            {markupCalibrationPoints.length === 2 && markupCalibrationPoints[0] && markupCalibrationPoints[1] ? (
+                              <>
+                                <line
+                                  x1={markupCalibrationPoints[0].x}
+                                  y1={markupCalibrationPoints[0].y}
+                                  x2={markupCalibrationPoints[1].x}
+                                  y2={markupCalibrationPoints[1].y}
+                                />
+                                <text
+                                  x={(markupCalibrationPoints[0].x + markupCalibrationPoints[1].x) / 2}
+                                  y={(markupCalibrationPoints[0].y + markupCalibrationPoints[1].y) / 2 - 12}
+                                >
+                                  {markupCalibrationDistance || "?"}m reference
+                                </text>
+                              </>
+                            ) : null}
+                            {markupCalibrationPoints.map((point, index) => (
+                              <g transform={`translate(${point.x} ${point.y})`} key={`calibration-${index}`}>
+                                <circle r="12" />
+                                <text y="5">{index + 1}</text>
+                              </g>
+                            ))}
+                          </g>
+                        ) : null}
 
                         {servicesMarkup.pipes.map((pipe) => (
                           <g key={pipe.id}>
