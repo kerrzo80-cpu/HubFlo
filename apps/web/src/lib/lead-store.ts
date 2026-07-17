@@ -7,6 +7,8 @@ import {
   type ClientRecord,
   type ClientSite,
 } from "@/lib/people-data";
+import { getHubDetailState } from "@/lib/hub-detail-store";
+import { numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -175,8 +177,7 @@ function makeClientReference(existingClients: ClientRecord[]) {
 }
 
 function determineNextLeadRef(leads: LeadRecord[]) {
-  const refs = leads.map((lead) => Number(lead.ref.replace(/\D/g, ""))).filter(Number.isFinite);
-  return `L-${Math.max(1000, ...refs) + 1}`;
+  return numberedReference("lead", getHubDetailState().financeSettings, leads.map((lead) => lead.ref));
 }
 
 function makeLeadSiteId() {

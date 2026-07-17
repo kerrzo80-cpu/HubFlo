@@ -5,6 +5,8 @@ import {
   type AuditEvent,
 } from "@/lib/people-data";
 import { checkQuoteConversion } from "@hubflo/domain";
+import { getHubDetailState } from "@/lib/hub-detail-store";
+import { numberedReference } from "@/lib/numbering";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -303,19 +305,11 @@ function deriveJobHealth(status: string): JobHealth {
 }
 
 function determineNextJobRef(jobs: Job[]): string {
-  const maxRef = Math.max(
-    1000,
-    ...jobs.map((job) => Number(job.ref.replace(/\D/g, "")) || 0),
-  );
-  return `J-${maxRef + 1}`;
+  return numberedReference("job", getHubDetailState().financeSettings, jobs.map((job) => job.ref));
 }
 
 function determineNextQuoteRef(quotes: Quote[]): string {
-  const maxRef = Math.max(
-    2000,
-    ...quotes.map((quote) => Number(quote.ref.replace(/\D/g, "")) || 0),
-  );
-  return `Q-${maxRef + 1}`;
+  return numberedReference("quote", getHubDetailState().financeSettings, quotes.map((quote) => quote.ref));
 }
 
 function findClient(clientId?: string, customer?: string) {
@@ -348,11 +342,7 @@ function findSite(siteId?: string, clientId?: string, siteName?: string) {
 }
 
 function nextPoNumber(existing: PurchaseRequest[]): string {
-  const existingNumbers = existing
-    .map((request) => Number(request.poNumber.replace(/[^0-9]/g, "")))
-    .filter((value) => Number.isFinite(value));
-  const next = Math.max(1000, ...existingNumbers) + 1;
-  return `PO-${next}`;
+  return numberedReference("purchaseOrder", getHubDetailState().financeSettings, existing.map((request) => request.poNumber));
 }
 
 function workflowStoreTimestamp() {
@@ -368,7 +358,7 @@ function workflowStoreTimestamp() {
 }
 
 function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
-  return ["Approved", "Issued", "Pending cost", "Part received", "Received"].includes(status);
+  return ["Draft", "Approved", "Issued", "Pending cost", "Part received", "Received"].includes(status);
 }
 
 export function getJobs(): Job[] {
@@ -456,7 +446,7 @@ export function getQuotes(): Quote[] {
   return clone(getStore().quotes);
 }
 
-export function createQuote(payload: Omit<Quote, "id"> & { id?: string }): Quote {
+export function createQuote(payload: Omit<Quote, "id" | "ref"> & { id?: string; ref?: string }): Quote {
   const store = getStore();
   const client = findClient(payload.clientId, payload.customer);
   const site = findSite(payload.siteId, client?.id ?? payload.clientId);

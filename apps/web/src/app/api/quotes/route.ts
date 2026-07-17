@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!payload.ref || !payload.customer || !payload.description || !payload.status) {
+  if (!payload.customer || !payload.description || !payload.status) {
     return NextResponse.json(
       { error: "Missing required fields" },
       { status: 400 },
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const created = createQuote(payload as Omit<Quote, "id">);
+  const created = createQuote(payload as Omit<Quote, "id" | "ref"> & { ref?: string });
   appendAuditEvent({
     actor: created.owner || "HubFlo user",
     action: "created",

@@ -82,6 +82,7 @@ import {
   type Weekday,
   weekDays,
 } from "@/lib/access";
+import { numberedReference } from "@/lib/numbering";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -848,13 +849,12 @@ function invoiceTotalFromLines(lines: InvoiceLine[]) {
   );
 }
 
-function buildApplicationRef(existing: Invoice[], prefix = "APP") {
-  const refNumbers = existing
-    .flatMap((invoice) => [invoice.ref, invoice.applicationRef ?? ""])
-    .map((value) => Number(value.replace(/\D/g, "")))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  const normalizedPrefix = prefix.trim().replace(/[^a-z0-9]/gi, "").toUpperCase() || "APP";
-  return `${normalizedPrefix}-${Math.max(1000, ...refNumbers) + 1}`;
+function buildApplicationRef(existing: Invoice[], settings: FinanceSettings) {
+  return numberedReference(
+    "application",
+    settings,
+    existing.flatMap((invoice) => [invoice.ref, invoice.applicationRef ?? ""]),
+  );
 }
 
 function valuationLineTotals(lines: ValuationLine[], retentionPercent: number) {
@@ -884,13 +884,8 @@ function valuationNetAmount(value: number, retentionPercent: number) {
   return Math.max(0, value) * (1 - Math.max(0, retentionPercent) / 100);
 }
 
-function buildInvoiceRef(prefix: "invoice", existing: string[]) {
-  const refNumbers = existing
-    .map((value) => Number(value.replace(/\D/g, "")))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  const next = Math.max(3000, ...refNumbers) + 1;
-  if (prefix === "invoice") return `INV-${next}`;
-  return `${next}`;
+function buildInvoiceRef(settings: FinanceSettings, existing: string[]) {
+  return numberedReference("invoice", settings, existing);
 }
 
 function makeInvoiceFromQuote(
@@ -898,6 +893,7 @@ function makeInvoiceFromQuote(
   client: ClientRecord | null,
   sourceCentres: QuoteCostCentre[],
   existingRef: Invoice[],
+  settings: FinanceSettings,
 ): Invoice {
   const createdOn = new Date().toISOString().slice(0, 10);
   const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
@@ -936,7 +932,7 @@ function makeInvoiceFromQuote(
 
   return {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
-    ref: buildInvoiceRef("invoice", existingRef.map((item) => item.ref)),
+    ref: buildInvoiceRef(settings, existingRef.map((item) => item.ref)),
     status: "Draft",
     sourceType: "quote",
     sourceId: quote.id,
@@ -990,6 +986,7 @@ function makeInvoiceFromJobTotals(
   totalsBySource: { cost: number; charge: number; lineItems: InvoiceLine[] },
   existingRef: Invoice[],
   variations: JobVariation[],
+  settings: FinanceSettings,
 ): Invoice {
   const createdOn = new Date().toISOString().slice(0, 10);
   const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
@@ -1018,7 +1015,7 @@ function makeInvoiceFromJobTotals(
 
   return {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
-    ref: buildInvoiceRef("invoice", existingRef.map((item) => item.ref)),
+    ref: buildInvoiceRef(settings, existingRef.map((item) => item.ref)),
     status: "Draft",
     sourceType: "job",
     sourceId: job.id,
@@ -1294,8 +1291,18 @@ type WorkflowRulesSettings = {
 type FinanceSettings = {
   vatRate: string;
   paymentTermsDays: string;
+  leadPrefix: string;
+  leadNextNumber: string;
+  quotePrefix: string;
+  quoteNextNumber: string;
+  jobPrefix: string;
+  jobNextNumber: string;
   invoicePrefix: string;
+  invoiceNextNumber: string;
   applicationPrefix: string;
+  applicationNextNumber: string;
+  purchaseOrderPrefix: string;
+  purchaseOrderNextNumber: string;
   bankName: string;
   accountName: string;
   sortCode: string;
@@ -3240,8 +3247,18 @@ const fallbackLabourRateSetting: LabourRateSetting = {
 const defaultFinanceSettings: FinanceSettings = {
   vatRate: "20",
   paymentTermsDays: "14",
+  leadPrefix: "L",
+  leadNextNumber: "1001",
+  quotePrefix: "Q",
+  quoteNextNumber: "2001",
+  jobPrefix: "J",
+  jobNextNumber: "1001",
   invoicePrefix: "INV",
+  invoiceNextNumber: "3001",
   applicationPrefix: "AFP",
+  applicationNextNumber: "1001",
+  purchaseOrderPrefix: "PO",
+  purchaseOrderNextNumber: "1001",
   bankName: "Business Bank",
   accountName: "Errol Watson Group Ltd",
   sortCode: "00-00-00",
@@ -5878,6 +5895,51 @@ export default function Dashboard() {
   );
 
   const normalizedFinanceSettings = useMemo(() => normalizeFinanceSettings(financeSettings), [financeSettings]);
+  const numberingSetupRows = useMemo(
+    () => [
+      {
+        label: "Leads",
+        prefixField: "leadPrefix" as const,
+        nextField: "leadNextNumber" as const,
+        preview: numberedReference("lead", normalizedFinanceSettings, leads.map((lead) => lead.ref)),
+      },
+      {
+        label: "Quotes",
+        prefixField: "quotePrefix" as const,
+        nextField: "quoteNextNumber" as const,
+        preview: numberedReference("quote", normalizedFinanceSettings, quotes.map((quote) => quote.ref)),
+      },
+      {
+        label: "Jobs",
+        prefixField: "jobPrefix" as const,
+        nextField: "jobNextNumber" as const,
+        preview: numberedReference("job", normalizedFinanceSettings, jobs.map((job) => job.ref)),
+      },
+      {
+        label: "Invoices",
+        prefixField: "invoicePrefix" as const,
+        nextField: "invoiceNextNumber" as const,
+        preview: numberedReference("invoice", normalizedFinanceSettings, invoices.map((invoice) => invoice.ref)),
+      },
+      {
+        label: "Applications",
+        prefixField: "applicationPrefix" as const,
+        nextField: "applicationNextNumber" as const,
+        preview: numberedReference(
+          "application",
+          normalizedFinanceSettings,
+          invoices.flatMap((invoice) => [invoice.ref, invoice.applicationRef ?? ""]),
+        ),
+      },
+      {
+        label: "Purchase orders",
+        prefixField: "purchaseOrderPrefix" as const,
+        nextField: "purchaseOrderNextNumber" as const,
+        preview: numberedReference("purchaseOrder", normalizedFinanceSettings, purchaseRequests.map((request) => request.poNumber)),
+      },
+    ],
+    [invoices, jobs, leads, normalizedFinanceSettings, purchaseRequests, quotes],
+  );
   const defaultMaterialMarkupPercent = defaultMarkupForCatalogType("Material", normalizedFinanceSettings);
   const defaultLabourMarkupPercent = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
 
@@ -10573,7 +10635,7 @@ export default function Dashboard() {
       showNotice(`Quote ${quote.ref} does not yet have cost centres; invoice created from current values.`);
     }
 
-    const created = makeInvoiceFromQuote(quote, client, sourceCentres, invoices);
+    const created = makeInvoiceFromQuote(quote, client, sourceCentres, invoices, normalizedFinanceSettings);
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -10609,7 +10671,7 @@ export default function Dashboard() {
       { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
     );
 
-    const created = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job));
+    const created = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
 
     if (!sourceLineTotals.length) {
       showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
@@ -10727,7 +10789,7 @@ export default function Dashboard() {
       }),
       { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
     );
-    const base = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job));
+    const base = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
     const contractTotal = jobInvoiceDraft.valuationLines.reduce((sum, line) => sum + line.contractValue, 0) || job.value;
     const depositPercent = Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent));
     const retentionPercent = jobInvoiceDraft.mode === "valuation" ? Math.max(0, jobInvoiceDraft.retentionPercent) : 0;
@@ -10774,7 +10836,7 @@ export default function Dashboard() {
         note: jobInvoiceDraft.mode === "valuation" ? `Application for ${jobInvoiceDraft.valuationPeriod}` : `${depositPercent}% ${jobInvoiceDraft.mode} claim`,
       }));
     const isValuation = jobInvoiceDraft.mode === "valuation";
-    const reference = isValuation ? buildApplicationRef(invoices, normalizedFinanceSettings.applicationPrefix) : base.ref;
+    const reference = isValuation ? buildApplicationRef(invoices, normalizedFinanceSettings) : base.ref;
     const title = jobInvoiceDraft.mode === "deposit"
       ? `${depositPercent}% deposit for ${job.ref}`
       : isValuation
@@ -10841,7 +10903,7 @@ export default function Dashboard() {
       showNotice("Enter the contractor-agreed values before creating the progress claim.");
       return;
     }
-    const nextRef = buildInvoiceRef("invoice", invoices.map((item) => item.ref));
+    const nextRef = buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref));
     const contractTotal = selectedInvoice.valuationLines.reduce((sum, line) => sum + line.contractValue, 0);
     const nextLines: InvoiceLine[] = selectedInvoice.valuationLines
       .filter((line) => line.agreedThisPeriod > 0)
@@ -15257,13 +15319,11 @@ export default function Dashboard() {
   }
 
   function createRef() {
-    const refs = quotes.map((item) => Number(item.ref.replace(/\D/g, "")));
-    return `Q-${Math.max(2000, ...refs) + 1}`;
+    return numberedReference("quote", normalizedFinanceSettings, quotes.map((item) => item.ref));
   }
 
   function createLeadRef() {
-    const refs = leads.map((item) => Number(item.ref.replace(/\D/g, "")));
-    return `L-${Math.max(1000, ...refs) + 1}`;
+    return numberedReference("lead", normalizedFinanceSettings, leads.map((item) => item.ref));
   }
 
   function postcodeFromAddress(address: string) {
@@ -15539,6 +15599,7 @@ export default function Dashboard() {
     setLeadFormError("");
 
     const payload = {
+      ref: createLeadRef(),
       source: newLead.source,
       clientId: newLead.clientId || undefined,
       siteId: newLead.siteId || undefined,
@@ -16145,6 +16206,7 @@ export default function Dashboard() {
     }
 
     const payload = {
+      ref: numberedReference("job", normalizedFinanceSettings, jobs.map((item) => item.ref)),
       clientId: client.id,
       siteId: site?.id,
       customer: client.name,
@@ -16328,6 +16390,9 @@ export default function Dashboard() {
         actualCost: purchaseDraft.actualCost ? Number(purchaseDraft.actualCost) || 0 : lineActualCost > 0 ? lineActualCost : undefined,
         reason: purchaseDraft.reason.trim() || "Raised by office from cost centre",
         invoiceFileName: purchaseDraft.invoiceFileName.trim(),
+        poNumber: editingPurchaseRequestId
+          ? undefined
+          : numberedReference("purchaseOrder", normalizedFinanceSettings, purchaseRequests.map((request) => request.poNumber)),
       };
       const response = await fetch(editingPurchaseRequestId ? `/api/purchase-requests/${editingPurchaseRequestId}` : "/api/purchase-requests", {
         method: editingPurchaseRequestId ? "PATCH" : "POST",
@@ -26345,14 +26410,6 @@ export default function Dashboard() {
                           <input value={financeSettings.paymentTermsDays} onChange={(event) => updateFinanceSettings({ paymentTermsDays: event.target.value })} />
                         </label>
                         <label>
-                          Invoice prefix
-                          <input value={financeSettings.invoicePrefix} onChange={(event) => updateFinanceSettings({ invoicePrefix: event.target.value })} />
-                        </label>
-                        <label>
-                          Application prefix
-                          <input value={financeSettings.applicationPrefix} onChange={(event) => updateFinanceSettings({ applicationPrefix: event.target.value })} />
-                        </label>
-                        <label>
                           Bank name
                           <input value={financeSettings.bankName} onChange={(event) => updateFinanceSettings({ bankName: event.target.value })} />
                         </label>
@@ -26368,6 +26425,35 @@ export default function Dashboard() {
                           Account number
                           <input value={financeSettings.accountNumber} onChange={(event) => updateFinanceSettings({ accountNumber: event.target.value })} />
                         </label>
+                      </div>
+                      <div className="setup-rate-table setup-numbering-table">
+                        <div className="setup-rate-row table-head">
+                          <span>Record</span>
+                          <span>Prefix</span>
+                          <span>Next number to use</span>
+                          <span>Next available ref</span>
+                        </div>
+                        {numberingSetupRows.map((row) => (
+                          <div className="setup-rate-row" key={row.label}>
+                            <strong>{row.label}</strong>
+                            <input
+                              aria-label={`${row.label} prefix`}
+                              value={String(financeSettings[row.prefixField] ?? "")}
+                              onChange={(event) =>
+                                updateFinanceSettings({ [row.prefixField]: event.target.value } as Partial<FinanceSettings>)
+                              }
+                            />
+                            <input
+                              aria-label={`${row.label} next number`}
+                              inputMode="numeric"
+                              value={String(financeSettings[row.nextField] ?? "")}
+                              onChange={(event) =>
+                                updateFinanceSettings({ [row.nextField]: event.target.value.replace(/[^\d]/g, "") } as Partial<FinanceSettings>)
+                              }
+                            />
+                            <span className="setup-status-label">{row.preview}</span>
+                          </div>
+                        ))}
                       </div>
                       <div className="setup-readiness-grid">
                         <article>

@@ -23205,6 +23205,10 @@ body {
   grid-template-columns: minmax(220px, 1fr) minmax(160px, 0.8fr) 110px 100px 100px;
 }
 
+.setup-numbering-table .setup-rate-row {
+  grid-template-columns: minmax(150px, 1fr) minmax(90px, 0.55fr) minmax(140px, 0.75fr) minmax(150px, 0.8fr);
+}
+
 @media (max-width: 920px) {
   .lead-create-workspace-shell {
     padding: 112px 12px 20px;
