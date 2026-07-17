@@ -2381,6 +2381,13 @@ export default function TakeoffPage() {
                     <MessageCircle size={15} />
                     Open Guided Survey
                   </a>
+                  <UploadButton
+                    kind="LiDAR scan"
+                    label={isUploadingDocs ? "Importing LiDAR" : "Import LiDAR scan"}
+                    accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply,application/json,model/*"
+                    disabled={isUploadingDocs}
+                    onUpload={addLidarDocuments}
+                  />
                   <button className="takeoff-primary-button" type="button" onClick={() => setActiveTab("markup")}>
                     <Wrench size={15} />
                     Open services markup

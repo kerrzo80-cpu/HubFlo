@@ -11,7 +11,7 @@ import { getSurvey, upsertSurveyItem } from "@/lib/survey-estimator-store";
 
 export const runtime = "nodejs";
 
-const maxPhotoBytes = 25 * 1024 * 1024;
+const maxEvidenceBytes = 100 * 1024 * 1024;
 const photoCategories: SurveyPhotoCategory[] = [
   "Room overview",
   "Existing condition",
@@ -46,12 +46,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   try {
     formData = await request.formData();
   } catch {
-    return NextResponse.json({ error: "The photo upload could not be read." }, { status: 400 });
+    return NextResponse.json({ error: "The survey evidence upload could not be read." }, { status: 400 });
   }
   const files = filesFrom(formData.getAll("files"));
-  if (!files.length) return NextResponse.json({ error: "Choose at least one photograph." }, { status: 400 });
-  const oversized = files.find((file) => file.size > maxPhotoBytes);
-  if (oversized) return NextResponse.json({ error: `${oversized.name} is larger than 25MB.` }, { status: 413 });
+  if (!files.length) return NextResponse.json({ error: "Choose at least one survey evidence file." }, { status: 400 });
+  const oversized = files.find((file) => file.size > maxEvidenceBytes);
+  if (oversized) return NextResponse.json({ error: `${oversized.name} is larger than 100MB.` }, { status: 413 });
 
   const requestedCategory = String(formData.get("category") || "Other") as SurveyPhotoCategory;
   const category = photoCategories.includes(requestedCategory) ? requestedCategory : "Other";

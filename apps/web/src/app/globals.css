@@ -519,6 +519,30 @@
   padding: 0 14px;
 }
 
+.guided-secondary-action {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--guided-line);
+  border-radius: 6px;
+  color: var(--guided-blue-dark);
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 7px;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  text-decoration: none;
+}
+
+.guided-secondary-action:hover,
+.guided-secondary-action:focus-visible {
+  background: var(--guided-blue-soft);
+  border-color: var(--guided-blue);
+  outline: 0;
+}
+
 .guided-directory-heading button:disabled,
 .guided-primary-action:disabled {
   cursor: not-allowed;
@@ -1131,6 +1155,82 @@
   padding: 14px;
 }
 
+.guided-lidar-section {
+  border-left: 4px solid var(--nexa-brass);
+}
+
+.guided-lidar-layout {
+  align-items: stretch;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(0, 1fr);
+}
+
+.guided-lidar-summary {
+  background: linear-gradient(135deg, #eef9fd, #fffaf0);
+  border: 1px solid #cfe6ee;
+  border-radius: 7px;
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+}
+
+.guided-lidar-summary strong {
+  color: var(--guided-ink);
+  font-size: 26px;
+  line-height: 1;
+}
+
+.guided-lidar-summary span {
+  color: var(--guided-blue-dark);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.guided-lidar-summary small {
+  color: var(--guided-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.guided-lidar-actions {
+  align-items: end;
+  background: #f7fafb;
+  border: 1px solid var(--guided-line);
+  border-radius: 7px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  padding: 14px;
+}
+
+.guided-lidar-actions label.wide {
+  color: var(--guided-muted);
+  display: grid;
+  font-size: 10px;
+  font-weight: 900;
+  gap: 6px;
+  text-transform: uppercase;
+}
+
+.guided-lidar-actions input {
+  background: #fff;
+  border: 1px solid #bdcfd7;
+  border-radius: 5px;
+  color: var(--guided-ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  min-height: 42px;
+  padding: 9px 10px;
+  text-transform: none;
+  width: 100%;
+}
+
+.guided-lidar-list {
+  margin-top: 12px;
+}
+
 .guided-camera-button {
   align-items: center !important;
   background: var(--guided-blue) !important;
@@ -1571,6 +1671,16 @@
   .guided-survey-table-head,
   .guided-survey-row {
     min-width: 900px;
+  }
+
+  .guided-lidar-layout,
+  .guided-lidar-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .guided-lidar-actions .guided-camera-button,
+  .guided-lidar-actions .guided-secondary-action {
+    width: 100%;
   }
 }
 

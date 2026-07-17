@@ -22,8 +22,10 @@ import {
   Plus,
   Ruler,
   Save,
+  ScanLine,
   Send,
   Trash2,
+  Upload,
   Wrench,
 } from "lucide-react";
 import {
@@ -34,6 +36,7 @@ import {
   type SurveyCompletionReview,
   type SurveyEquipmentItem,
   type SurveyJobLink,
+  type SurveyPhoto,
   type SurveyPhotoCategory,
   type SurveyPipeRun,
   type SurveyRecord,
@@ -46,6 +49,8 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
   "x-hubflo-employee-id": "Brian Kerr",
 };
+
+const publicPilotBaseUrl = "https://nexa-pilot.onrender.com";
 
 const steps = [
   { key: "details", label: "Details", icon: Building2 },
@@ -140,6 +145,28 @@ function numberOrUndefined(value: string) {
   return Number.isFinite(number) ? number : undefined;
 }
 
+function isLidarEvidence(photo: SurveyPhoto) {
+  const haystack = `${photo.fileName} ${photo.mimeType} ${photo.caption} ${photo.surveySection}`.toLowerCase();
+  return photo.category === "Measurement evidence"
+    && /lidar|roomplan|room scan|\.json|\.usd|\.usdz|\.obj|\.glb|\.gltf|\.ply|model\//.test(haystack);
+}
+
+function surveyRoomScanDeepLink(survey: SurveyRecord) {
+  if (!survey.legacyTakeoffProjectId) return "";
+  const baseUrl = typeof window !== "undefined"
+    && !["127.0.0.1", "localhost"].includes(window.location.hostname)
+    ? window.location.origin
+    : publicPilotBaseUrl;
+  const params = new URLSearchParams({
+    baseUrl,
+    projectId: survey.legacyTakeoffProjectId,
+    reference: survey.reference,
+    projectName: survey.customerRequirements || survey.reference,
+    returnUrl: `${baseUrl}/survey/guided/${survey.id}`,
+  });
+  return `nexa-field://room-scan?${params.toString()}`;
+}
+
 export default function GuidedSurveyPage() {
   const params = useParams<{ id: string }>();
   const surveyId = params.id;
@@ -156,6 +183,7 @@ export default function GuidedSurveyPage() {
   const [equipmentDraft, setEquipmentDraft] = useState(blankEquipment);
   const [photoCategory, setPhotoCategory] = useState<SurveyPhotoCategory>("Existing condition");
   const [photoCaption, setPhotoCaption] = useState("");
+  const [lidarCaption, setLidarCaption] = useState("");
   const [uploading, setUploading] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [assistantDraft, setAssistantDraft] = useState("");
@@ -166,6 +194,7 @@ export default function GuidedSurveyPage() {
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savingPromiseRef = useRef<Promise<SurveyRecord | null> | null>(null);
+  const lidarEvidence = useMemo(() => survey?.photos.filter(isLidarEvidence) ?? [], [survey]);
 
   useEffect(() => {
     async function load() {
@@ -391,6 +420,34 @@ export default function GuidedSurveyPage() {
     }
   }
 
+  async function uploadLidarEvidence(event: ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    const current = await flushAutosave();
+    if (!current || !files.length) return;
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+    formData.append("category", "Measurement evidence");
+    formData.append("caption", lidarCaption.trim() || "LiDAR / RoomPlan scan evidence");
+    formData.append("surveySection", "LiDAR / room scan");
+    formData.append("expectedVersion", String(current.version));
+    setUploading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/photos`, { method: "POST", headers: requestHeaders, body: formData });
+      const body = await response.json() as { survey?: SurveyRecord; error?: string };
+      if (!response.ok || !body.survey) throw new Error(body.error || "Unable to upload LiDAR evidence.");
+      setSurvey(body.survey);
+      surveyRef.current = body.survey;
+      setLidarCaption("");
+      setNotice(`${files.length} LiDAR / RoomPlan export${files.length === 1 ? "" : "s"} saved as measurement evidence.`);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : "Unable to upload LiDAR evidence.");
+    } finally {
+      setUploading(false);
+      event.target.value = "";
+    }
+  }
+
   async function askNexa(event?: FormEvent<HTMLFormElement>, promptOverride?: string) {
     event?.preventDefault();
     const message = (promptOverride || assistantDraft).trim();
@@ -595,6 +652,42 @@ export default function GuidedSurveyPage() {
 
           {activeStep === "measurements" ? (
             <section className="guided-measurement-sections">
+              <section className="guided-form-section guided-lidar-section">
+                <div className="guided-section-title"><ScanLine size={18} /><span><h2>LiDAR / room scans</h2><p>Use this as dimensional evidence, then confirm the rooms and pipe runs below.</p></span></div>
+                <div className="guided-lidar-layout">
+                  <div className="guided-lidar-summary">
+                    <strong>{lidarEvidence.length}</strong>
+                    <span>scan export{lidarEvidence.length === 1 ? "" : "s"} saved</span>
+                    <small>RoomPlan files are kept with the survey evidence. Takeoffs can also import the same scan to build rooms and measurements.</small>
+                  </div>
+                  <div className="guided-lidar-actions">
+                    <label className="wide">Scan note<input value={lidarCaption} onChange={(event) => setLidarCaption(event.target.value)} placeholder="Bathroom RoomPlan scan, hallway dimensions, existing cupboard..." /></label>
+                    {surveyRoomScanDeepLink(survey) ? (
+                      <a className="guided-secondary-action" href={surveyRoomScanDeepLink(survey)}><ScanLine size={16} /> Open room scanner</a>
+                    ) : null}
+                    <label className="guided-camera-button">
+                      {uploading ? <Loader2 className="spin" size={18} /> : <Upload size={18} />}
+                      Import LiDAR export
+                      <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply,application/json,model/*" multiple onChange={(event) => void uploadLidarEvidence(event)} />
+                    </label>
+                    <a className="guided-secondary-action" href="/takeoff?tab=rooms"><Ruler size={16} /> Open Takeoffs rooms</a>
+                  </div>
+                </div>
+                {lidarEvidence.length ? (
+                  <div className="guided-record-list guided-lidar-list">
+                    {lidarEvidence.map((photo) => (
+                      <article key={photo.id}>
+                        <span>
+                          <strong>{photo.fileName}</strong>
+                          <small>{photo.caption || "LiDAR / RoomPlan scan evidence"} · {new Date(photo.capturedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}</small>
+                        </span>
+                        <b>{Math.max(1, Math.round(photo.size / 1024))} KB</b>
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+              </section>
+
               <section className="guided-form-section">
                 <div className="guided-section-title"><Building2 size={18} /><span><h2>Rooms and areas</h2><p>Dimensions remain survey evidence, not priced quantities.</p></span></div>
                 <div className="guided-record-list">{survey.rooms.map((room) => <article key={room.id}><span><strong>{room.name}</strong><small>{[room.lengthM, room.widthM, room.heightM].filter(Boolean).join("m × ")}{room.heightM ? "m" : ""}</small></span><button title="Remove room" type="button" onClick={() => queuePatch({ rooms: survey.rooms.filter((row) => row.id !== room.id) })}><Trash2 size={15} /></button></article>)}</div>
