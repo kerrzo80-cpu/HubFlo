@@ -655,6 +655,16 @@ type ScheduleIntelligenceIssue = {
   impact: string;
 };
 
+type ScheduleResolutionSuggestion = {
+  id: string;
+  tone: "green" | "amber" | "blue";
+  title: string;
+  detail: string;
+  impact: string;
+  actionLabel: string;
+  assignments: JobScheduleAssignment[];
+};
+
 type SchedulerDragDraft = {
   employeeId: string;
   employeeName: string;
@@ -5488,6 +5498,37 @@ function shiftScheduleAssignment(assignment: JobScheduleAssignment, days: number
   };
 }
 
+function rescheduleAssignmentFromStart(
+  assignment: JobScheduleAssignment,
+  startDate: string,
+  startTime: string,
+): JobScheduleAssignment {
+  const finish = finishFromPlannedHours(startDate, startTime, assignment.plannedHours || 1);
+  return {
+    ...assignment,
+    startDate,
+    startTime,
+    endDate: finish?.endDate ?? assignment.endDate,
+    endTime: finish?.endTime ?? assignment.endTime,
+  };
+}
+
+function scheduleAssignmentsAreSame(first: JobScheduleAssignment[], second: JobScheduleAssignment[]) {
+  if (first.length !== second.length) return false;
+  return first.every((assignment, index) => {
+    const next = second[index];
+    if (!next) return false;
+    return (
+      assignment.id === next.id &&
+      assignment.employeeId === next.employeeId &&
+      assignment.startDate === next.startDate &&
+      assignment.startTime === next.startTime &&
+      assignment.endDate === next.endDate &&
+      assignment.endTime === next.endTime
+    );
+  });
+}
+
 function escapeSvgText(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -6706,6 +6747,169 @@ export default function Dashboard() {
     selectedJob,
     selectedJobEstimateCostCentres,
     selectedJobPlannerAssignments,
+  ]);
+
+  const selectedJobScheduleSuggestions = useMemo<ScheduleResolutionSuggestion[]>(() => {
+    if (!selectedJob || selectedJobPlannerAssignments.length === 0 || selectedJobScheduleIntelligence.length === 0) return [];
+    const suggestions: ScheduleResolutionSuggestion[] = [];
+    const suggestionKeys = new Set<string>();
+    const selectedCostCentreOrder = new Map(
+      selectedJobEstimateCostCentres.map((centre, index) => [centre.id, index]),
+    );
+    const allOtherAssignments = Object.values(jobSchedulePlans)
+      .flat()
+      .filter((assignment) => assignment.jobId !== selectedJob.id);
+
+    const addSuggestion = (suggestion: ScheduleResolutionSuggestion) => {
+      if (suggestionKeys.has(suggestion.id)) return;
+      if (scheduleAssignmentsAreSame(selectedJobPlannerAssignments, suggestion.assignments)) return;
+      suggestionKeys.add(suggestion.id);
+      suggestions.push(suggestion);
+    };
+
+    const assignmentHasProblem = (assignment: JobScheduleAssignment, plan: JobScheduleAssignment[]) => {
+      const internalClash = plan.some(
+        (otherAssignment) =>
+          otherAssignment.id !== assignment.id &&
+          otherAssignment.employeeId === assignment.employeeId &&
+          scheduleAssignmentsOverlap(assignment, otherAssignment),
+      );
+      if (internalClash) return true;
+
+      const externalClash = allOtherAssignments.some(
+        (otherAssignment) =>
+          otherAssignment.employeeId === assignment.employeeId &&
+          scheduleAssignmentsOverlap(assignment, otherAssignment),
+      );
+      if (externalClash) return true;
+
+      const leadClash = leads.some((lead) => {
+        if (lead.status === "Lost" || !lead.surveyDate || !lead.surveyTime) return false;
+        if (lead.surveyor !== assignment.employeeName || !assignmentCoversDate(assignment, lead.surveyDate)) return false;
+        const assignmentRange = assignmentTimeRangeOnDate(assignment, lead.surveyDate);
+        if (!assignmentRange) return false;
+        return timeToMinutes(assignmentRange.start) < timeToMinutes(lead.surveyTime) + surveyDurationMinutes &&
+          timeToMinutes(assignmentRange.end) > timeToMinutes(lead.surveyTime);
+      });
+      if (leadClash) return true;
+
+      const startAvailability = availabilityForDate(assignment.employeeName, assignment.startDate);
+      const endAvailability = availabilityForDate(assignment.employeeName, assignment.endDate);
+      if (!startAvailability.active || !endAvailability.active) return true;
+      if (assignment.startDate !== assignment.endDate) return false;
+      return timeToMinutes(assignment.startTime) < timeToMinutes(startAvailability.from) ||
+        timeToMinutes(assignment.endTime) > timeToMinutes(startAvailability.to);
+    };
+
+    const clashingAssignment = selectedJobPlannerAssignments.find((assignment) =>
+      assignmentHasProblem(assignment, selectedJobPlannerAssignments),
+    );
+    if (clashingAssignment) {
+      const replacementEmployee = employees.find((employee) => {
+        if (employee.id === clashingAssignment.employeeId || employee.name === clashingAssignment.employeeName) return false;
+        const replacement: JobScheduleAssignment = {
+          ...clashingAssignment,
+          employeeId: employee.id,
+          employeeName: employee.name,
+        };
+        const proposedPlan = selectedJobPlannerAssignments.map((assignment) =>
+          assignment.id === clashingAssignment.id ? replacement : assignment,
+        );
+        return !assignmentHasProblem(replacement, proposedPlan);
+      });
+
+      if (replacementEmployee) {
+        const replacement: JobScheduleAssignment = {
+          ...clashingAssignment,
+          employeeId: replacementEmployee.id,
+          employeeName: replacementEmployee.name,
+        };
+        const proposedAssignments = selectedJobPlannerAssignments.map((assignment) =>
+          assignment.id === clashingAssignment.id ? replacement : assignment,
+        );
+        addSuggestion({
+          id: `reassign-${clashingAssignment.id}-${replacementEmployee.id}`,
+          tone: "blue",
+          title: `Reassign ${clashingAssignment.costCentreName}`,
+          detail: `Move this package from ${clashingAssignment.employeeName} to ${replacementEmployee.name}.`,
+          impact: `${replacementEmployee.name} appears free for ${formatUkDate(clashingAssignment.startDate)} ${clashingAssignment.startTime}-${clashingAssignment.endTime}.`,
+          actionLabel: "Preview reassign",
+          assignments: proposedAssignments,
+        });
+      }
+    }
+
+    if (selectedJobScheduleIntelligence.some((issue) => issue.kind === "dependency" || issue.id.startsWith("internal-clash"))) {
+      const sortedByCostCentre = [...selectedJobPlannerAssignments].sort((first, second) => {
+        const firstOrder = selectedCostCentreOrder.get(first.costCentreId) ?? 999;
+        const secondOrder = selectedCostCentreOrder.get(second.costCentreId) ?? 999;
+        if (firstOrder !== secondOrder) return firstOrder - secondOrder;
+        return `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`);
+      });
+      let cursorDate = sortedByCostCentre[0]?.startDate ?? currentOperatingDate;
+      let cursorTime = sortedByCostCentre[0]?.startTime ?? "08:00";
+      const proposedAssignments = sortedByCostCentre.map((assignment) => {
+        const rescheduled = rescheduleAssignmentFromStart(assignment, cursorDate, cursorTime);
+        cursorDate = rescheduled.endDate;
+        cursorTime = rescheduled.endTime;
+        return rescheduled;
+      });
+      const finalAssignment = proposedAssignments
+        .map((assignment) => ({ assignment, end: scheduleAssignmentEnd(assignment) ?? 0 }))
+        .sort((first, second) => second.end - first.end)[0]?.assignment;
+      addSuggestion({
+        id: "resequence-cost-centres",
+        tone: "amber",
+        title: "Resequence by cost-centre order",
+        detail: "Run the packages in the same order as the cost-centre list.",
+        impact: finalAssignment
+          ? `Programme would finish ${formatUkDate(finalAssignment.endDate)} at ${finalAssignment.endTime}.`
+          : "Programme order would be rebuilt from the first booked slot.",
+        actionLabel: "Preview sequence",
+        assignments: proposedAssignments,
+      });
+    }
+
+    const shiftedAssignments = selectedJobPlannerAssignments.map((assignment) => shiftScheduleAssignment(assignment, 1));
+    const shiftedLastAssignment = shiftedAssignments
+      .map((assignment) => ({ assignment, end: scheduleAssignmentEnd(assignment) ?? 0 }))
+      .sort((first, second) => second.end - first.end)[0]?.assignment;
+    addSuggestion({
+      id: "shift-programme-one-day",
+      tone: selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "amber" : "blue",
+      title: "Move the programme forward one day",
+      detail: "Keep the same engineers and durations, but shift every package by one day.",
+      impact: shiftedLastAssignment
+        ? `Completion moves to ${formatUkDate(shiftedLastAssignment.endDate)} at ${shiftedLastAssignment.endTime}.`
+        : "Completion date moves forward with the same programme shape.",
+      actionLabel: "Preview +1 day",
+      assignments: shiftedAssignments,
+    });
+
+    const extendedAssignments = selectedJobPlannerAssignments.map((assignment) =>
+      rescheduleAssignmentFromStart(assignment, assignment.startDate, assignment.startTime),
+    );
+    if (selectedJobScheduleIntelligence.some((issue) => issue.id.startsWith("capacity-hours"))) {
+      addSuggestion({
+        id: "extend-planned-hours",
+        tone: "blue",
+        title: "Extend finishes to match planned hours",
+        detail: "Keep the same start times but stretch each package to cover the planned labour hours.",
+        impact: "Useful where the visible slot is shorter than the labour allowed in the estimate.",
+        actionLabel: "Preview hours fix",
+        assignments: extendedAssignments,
+      });
+    }
+
+    return suggestions.slice(0, 3);
+  }, [
+    employees,
+    jobSchedulePlans,
+    leads,
+    selectedJob,
+    selectedJobEstimateCostCentres,
+    selectedJobPlannerAssignments,
+    selectedJobScheduleIntelligence,
   ]);
 
   const selectedJobSurveyPack = useMemo(
@@ -11878,6 +12082,20 @@ export default function Dashboard() {
       endDate: shiftIsoDate(selectedJobScheduleDraft.endDate, days),
     });
     showNotice(`Draft work package shifted ${days > 0 ? "forward" : "back"} by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}.`);
+  }
+
+  function previewSelectedJobScheduleSuggestion(suggestion: ScheduleResolutionSuggestion) {
+    if (!selectedJob) return;
+    const sortedAssignments = [...suggestion.assignments].sort((first, second) =>
+      `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`),
+    );
+    setJobScheduleWhatIfPlans((current) => ({
+      ...current,
+      [selectedJob.id]: sortedAssignments,
+    }));
+    setJobPlannerWhatIfMode(true);
+    setEditingJobScheduleAssignmentId(null);
+    showNotice(`${suggestion.title} loaded as a what-if programme. Review the Gantt before applying.`);
   }
 
   async function applySelectedJobWhatIfSchedule() {
@@ -22423,6 +22641,27 @@ export default function Dashboard() {
                           <span>No clashes found against the current scheduler and survey diary.</span>
                         </div>
                       )}
+                      {selectedJobScheduleSuggestions.length ? (
+                        <div className="planner-suggestion-grid">
+                          {selectedJobScheduleSuggestions.map((suggestion) => (
+                            <article className={`planner-suggestion-card ${suggestion.tone}`} key={suggestion.id}>
+                              <div>
+                                <span>Suggested option</span>
+                                <strong>{suggestion.title}</strong>
+                                <p>{suggestion.detail}</p>
+                                <small>{suggestion.impact}</small>
+                              </div>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => previewSelectedJobScheduleSuggestion(suggestion)}
+                              >
+                                {suggestion.actionLabel}
+                              </button>
+                            </article>
+                          ))}
+                        </div>
+                      ) : null}
                     </section>
 
                     <section className="job-scheduling-panel">

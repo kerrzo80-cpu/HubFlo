@@ -4232,6 +4232,84 @@ h1 {
   padding: 11px 12px;
 }
 
+.planner-suggestion-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.planner-suggestion-card {
+  align-items: stretch;
+  background: #fbfdfe;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 12px;
+}
+
+.planner-suggestion-card span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planner-suggestion-card strong {
+  color: var(--ink);
+  display: block;
+  font-size: 13px;
+  line-height: 1.25;
+  margin-top: 4px;
+}
+
+.planner-suggestion-card p,
+.planner-suggestion-card small {
+  color: var(--muted);
+  display: block;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 6px 0 0;
+}
+
+.planner-suggestion-card small {
+  color: #3f5663;
+  font-weight: 800;
+}
+
+.planner-suggestion-card.blue {
+  border-color: #b9dce9;
+}
+
+.planner-suggestion-card.blue span {
+  color: #2377a4;
+}
+
+.planner-suggestion-card.amber {
+  border-color: #efd7a4;
+}
+
+.planner-suggestion-card.amber span {
+  color: #9b6f22;
+}
+
+.planner-suggestion-card.green {
+  border-color: #bfe0d1;
+}
+
+.planner-suggestion-card.green span {
+  color: #2c8f7b;
+}
+
+.planner-suggestion-card .secondary-button {
+  justify-content: center;
+  width: 100%;
+}
+
 .job-scheduling-panel {
   background: #fff;
   border: 1px solid var(--line);
@@ -23410,6 +23488,10 @@ body {
   }
 
   .planner-issue-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .planner-suggestion-grid {
     grid-template-columns: 1fr;
   }
 
