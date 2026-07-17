@@ -646,6 +646,15 @@ type JobScheduleDraft = {
   notes: string;
 };
 
+type ScheduleIntelligenceIssue = {
+  id: string;
+  kind: "clash" | "dependency" | "capacity" | "overrun" | "improvement";
+  tone: "green" | "amber" | "red" | "blue";
+  title: string;
+  detail: string;
+  impact: string;
+};
+
 type SchedulerDragDraft = {
   employeeId: string;
   employeeName: string;
@@ -5431,6 +5440,54 @@ function schedulerBookingSlotRange(
   };
 }
 
+function scheduleAssignmentStart(assignment: Pick<JobScheduleAssignment, "startDate" | "startTime">) {
+  return plannerDateTime(assignment.startDate, assignment.startTime)?.getTime() ?? null;
+}
+
+function scheduleAssignmentEnd(assignment: Pick<JobScheduleAssignment, "endDate" | "endTime">) {
+  return plannerDateTime(assignment.endDate, assignment.endTime)?.getTime() ?? null;
+}
+
+function scheduleAssignmentsOverlap(first: JobScheduleAssignment, second: JobScheduleAssignment) {
+  const firstStart = scheduleAssignmentStart(first);
+  const firstEnd = scheduleAssignmentEnd(first);
+  const secondStart = scheduleAssignmentStart(second);
+  const secondEnd = scheduleAssignmentEnd(second);
+  if (firstStart === null || firstEnd === null || secondStart === null || secondEnd === null) return false;
+  return firstStart < secondEnd && firstEnd > secondStart;
+}
+
+function assignmentCoversDate(assignment: JobScheduleAssignment, date: string) {
+  return date >= assignment.startDate && date <= assignment.endDate;
+}
+
+function assignmentTimeRangeOnDate(assignment: JobScheduleAssignment, date: string) {
+  if (!assignmentCoversDate(assignment, date)) return null;
+  return {
+    start: assignment.startDate < date ? "08:00" : assignment.startTime,
+    end: assignment.endDate > date ? "18:00" : assignment.endTime,
+  };
+}
+
+function parseJobDueDate(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "today") return currentOperatingDate;
+  if (normalized === "tomorrow") return shiftIsoDate(currentOperatingDate, 1);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const serial = dateOnlySerial(value);
+  if (serial === null) return null;
+  return new Date(serial).toISOString().slice(0, 10);
+}
+
+function shiftScheduleAssignment(assignment: JobScheduleAssignment, days: number): JobScheduleAssignment {
+  return {
+    ...assignment,
+    startDate: shiftIsoDate(assignment.startDate, days),
+    endDate: shiftIsoDate(assignment.endDate, days),
+  };
+}
+
 function escapeSvgText(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -5819,6 +5876,8 @@ export default function Dashboard() {
   const [jobVariationCostCentreTemplateDraft, setJobVariationCostCentreTemplateDraft] = useState(costCentreTemplates[0] ?? "General plumbing");
   const [linkedQuoteSectionDrafts, setLinkedQuoteSectionDrafts] = useState<Record<string, string>>({});
   const [jobSchedulePlans, setJobSchedulePlans] = useState<Record<string, JobScheduleAssignment[]>>({});
+  const [jobPlannerWhatIfMode, setJobPlannerWhatIfMode] = useState(false);
+  const [jobScheduleWhatIfPlans, setJobScheduleWhatIfPlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [editingJobScheduleAssignmentId, setEditingJobScheduleAssignmentId] = useState<string | null>(null);
   const [schedulerJobSearch, setSchedulerJobSearch] = useState("");
@@ -6285,9 +6344,22 @@ export default function Dashboard() {
     [jobSchedulePlans, selectedJob],
   );
 
+  const selectedJobPlannerAssignments = useMemo(
+    () => {
+      if (!selectedJob) return [];
+      const source = jobPlannerWhatIfMode
+        ? jobScheduleWhatIfPlans[selectedJob.id] ?? selectedJobScheduleAssignments
+        : selectedJobScheduleAssignments;
+      return [...source].sort((first, second) =>
+        `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`),
+      );
+    },
+    [jobPlannerWhatIfMode, jobScheduleWhatIfPlans, selectedJob, selectedJobScheduleAssignments],
+  );
+
   const selectedJobGanttDays = useMemo(() => {
-    if (selectedJobScheduleAssignments.length === 0) return [];
-    const serials = selectedJobScheduleAssignments.flatMap((assignment) => [
+    if (selectedJobPlannerAssignments.length === 0) return [];
+    const serials = selectedJobPlannerAssignments.flatMap((assignment) => [
       dateOnlySerial(assignment.startDate),
       dateOnlySerial(assignment.endDate),
     ]).filter((value): value is number => value !== null);
@@ -6300,7 +6372,7 @@ export default function Dashboard() {
       const value = new Date(firstDay + index * 86_400_000);
       return value.toISOString().slice(0, 10);
     });
-  }, [selectedJobScheduleAssignments]);
+  }, [selectedJobPlannerAssignments]);
 
   const selectedJobScheduleDraft = useMemo(
     () => {
@@ -6478,6 +6550,163 @@ export default function Dashboard() {
         : [],
     [availableQuoteCatalogById, jobEstimateCostCentres, normalizedFinanceSettings, selectedJob],
   );
+
+  const selectedJobScheduleIntelligence = useMemo<ScheduleIntelligenceIssue[]>(() => {
+    if (!selectedJob || selectedJobPlannerAssignments.length === 0) return [];
+    const issues: ScheduleIntelligenceIssue[] = [];
+    const issueKeys = new Set<string>();
+    const addIssue = (issue: ScheduleIntelligenceIssue) => {
+      if (issueKeys.has(issue.id)) return;
+      issueKeys.add(issue.id);
+      issues.push(issue);
+    };
+    const allOtherAssignments = Object.values(jobSchedulePlans)
+      .flat()
+      .filter((assignment) => assignment.jobId !== selectedJob.id);
+    const selectedCostCentreOrder = new Map(
+      selectedJobEstimateCostCentres.map((centre, index) => [centre.id, index]),
+    );
+
+    selectedJobPlannerAssignments.forEach((assignment, index) => {
+      selectedJobPlannerAssignments.slice(index + 1).forEach((nextAssignment) => {
+        if (assignment.employeeId !== nextAssignment.employeeId) return;
+        if (!scheduleAssignmentsOverlap(assignment, nextAssignment)) return;
+        addIssue({
+          id: `internal-clash-${assignment.id}-${nextAssignment.id}`,
+          kind: "clash",
+          tone: "red",
+          title: `${assignment.employeeName} is double-booked on this job`,
+          detail: `${assignment.costCentreName} overlaps ${nextAssignment.costCentreName}.`,
+          impact: "One engineer cannot deliver both packages at the same time.",
+        });
+      });
+
+      const externalClash = allOtherAssignments.find(
+        (otherAssignment) =>
+          otherAssignment.employeeId === assignment.employeeId &&
+          scheduleAssignmentsOverlap(assignment, otherAssignment),
+      );
+      if (externalClash) {
+        const clashJob = jobs.find((job) => job.id === externalClash.jobId);
+        addIssue({
+          id: `external-clash-${assignment.id}-${externalClash.id}`,
+          kind: "clash",
+          tone: "red",
+          title: `${assignment.employeeName} clashes with ${clashJob?.ref ?? "another job"}`,
+          detail: `${assignment.costCentreName} overlaps ${externalClash.costCentreName}.`,
+          impact: `Moving this package may affect ${clashJob?.description ?? "another live job"}.`,
+        });
+      }
+
+      const leadClash = leads.find((lead) => {
+        if (lead.status === "Lost" || !lead.surveyDate || !lead.surveyTime) return false;
+        if (lead.surveyor !== assignment.employeeName || !assignmentCoversDate(assignment, lead.surveyDate)) return false;
+        const assignmentRange = assignmentTimeRangeOnDate(assignment, lead.surveyDate);
+        if (!assignmentRange) return false;
+        return timeToMinutes(assignmentRange.start) < timeToMinutes(lead.surveyTime) + surveyDurationMinutes &&
+          timeToMinutes(assignmentRange.end) > timeToMinutes(lead.surveyTime);
+      });
+      if (leadClash?.surveyDate && leadClash.surveyTime) {
+        addIssue({
+          id: `lead-clash-${assignment.id}-${leadClash.id}`,
+          kind: "clash",
+          tone: "red",
+          title: `${assignment.employeeName} clashes with survey ${leadClash.ref}`,
+          detail: `${leadClash.customerName} is booked at ${leadClash.surveyTime} on ${formatUkDate(leadClash.surveyDate)}.`,
+          impact: "The survey diary and job programme need one shared decision.",
+        });
+      }
+
+      const startAvailability = availabilityForDate(assignment.employeeName, assignment.startDate);
+      const endAvailability = availabilityForDate(assignment.employeeName, assignment.endDate);
+      if (!startAvailability.active || !endAvailability.active) {
+        addIssue({
+          id: `availability-${assignment.id}`,
+          kind: "capacity",
+          tone: "amber",
+          title: `${assignment.employeeName} is unavailable for part of this package`,
+          detail: `${assignment.costCentreName} starts ${formatUkDate(assignment.startDate)} and finishes ${formatUkDate(assignment.endDate)}.`,
+          impact: "Capacity needs checking before the schedule is issued to the engineer.",
+        });
+      } else if (
+        assignment.startDate === assignment.endDate &&
+        (timeToMinutes(assignment.startTime) < timeToMinutes(startAvailability.from) ||
+          timeToMinutes(assignment.endTime) > timeToMinutes(startAvailability.to))
+      ) {
+        addIssue({
+          id: `working-window-${assignment.id}`,
+          kind: "capacity",
+          tone: "amber",
+          title: `${assignment.employeeName} is booked outside normal hours`,
+          detail: `${assignment.startTime}-${assignment.endTime} sits outside ${startAvailability.from}-${startAvailability.to}.`,
+          impact: "This may need approval, overtime, or another engineer.",
+        });
+      }
+
+      const workingSpanHours = Math.max(
+        0,
+        ((scheduleAssignmentEnd(assignment) ?? 0) - (scheduleAssignmentStart(assignment) ?? 0)) / 3_600_000,
+      );
+      if (assignment.plannedHours > 0 && workingSpanHours > 0 && assignment.plannedHours > workingSpanHours + 0.25) {
+        addIssue({
+          id: `capacity-hours-${assignment.id}`,
+          kind: "capacity",
+          tone: "amber",
+          title: `${assignment.costCentreName} has more hours than calendar space`,
+          detail: `${assignment.plannedHours}h planned inside a ${workingSpanHours.toFixed(1)}h window.`,
+          impact: "Extend the finish time/date or split the package across days.",
+        });
+      }
+    });
+
+    selectedJobPlannerAssignments.forEach((assignment) => {
+      const currentOrder = selectedCostCentreOrder.get(assignment.costCentreId);
+      if (currentOrder === undefined || currentOrder <= 0) return;
+      const previousAssigned = selectedJobPlannerAssignments
+        .filter((candidate) => {
+          const candidateOrder = selectedCostCentreOrder.get(candidate.costCentreId);
+          return candidateOrder !== undefined && candidateOrder < currentOrder;
+        })
+        .sort((first, second) => (scheduleAssignmentEnd(second) ?? 0) - (scheduleAssignmentEnd(first) ?? 0))[0];
+      if (!previousAssigned) return;
+      const assignmentStart = scheduleAssignmentStart(assignment);
+      const previousEnd = scheduleAssignmentEnd(previousAssigned);
+      if (assignmentStart === null || previousEnd === null || assignmentStart >= previousEnd) return;
+      addIssue({
+        id: `dependency-${assignment.id}-${previousAssigned.id}`,
+        kind: "dependency",
+        tone: "amber",
+        title: `${assignment.costCentreName} starts before ${previousAssigned.costCentreName} finishes`,
+        detail: `${assignment.costCentreName} starts ${formatUkDate(assignment.startDate)} ${assignment.startTime}.`,
+        impact: "Dependencies may be broken unless these packages can genuinely run in parallel.",
+      });
+    });
+
+    const lastAssignment = selectedJobPlannerAssignments
+      .map((assignment) => ({ assignment, end: scheduleAssignmentEnd(assignment) ?? 0 }))
+      .sort((first, second) => second.end - first.end)[0];
+    const dueDate = parseJobDueDate(selectedJob.due);
+    const dueEnd = dueDate ? plannerDateTime(dueDate, "23:59")?.getTime() ?? null : null;
+    if (lastAssignment && dueEnd !== null && lastAssignment.end > dueEnd) {
+      addIssue({
+        id: `overrun-${selectedJob.id}`,
+        kind: "overrun",
+        tone: "red",
+        title: `${selectedJob.ref} runs past its due date`,
+        detail: `Programme finishes ${formatUkDate(lastAssignment.assignment.endDate)}; job due is ${formatUkDate(dueDate ?? selectedJob.due)}.`,
+        impact: "Client completion date and downstream invoices may move.",
+      });
+    }
+
+    return issues;
+  }, [
+    jobs,
+    jobSchedulePlans,
+    leads,
+    selectedJob,
+    selectedJobEstimateCostCentres,
+    selectedJobPlannerAssignments,
+  ]);
 
   const selectedJobSurveyPack = useMemo(
     () => surveyPackSummary(selectedJobEstimateCostCentres),
@@ -11618,6 +11847,75 @@ export default function Dashboard() {
     });
   }
 
+  function toggleSelectedJobWhatIfMode() {
+    if (!selectedJob) return;
+    if (!jobPlannerWhatIfMode) {
+      setJobScheduleWhatIfPlans((current) => ({
+        ...current,
+        [selectedJob.id]: selectedJobScheduleAssignments,
+      }));
+      setJobPlannerWhatIfMode(true);
+      showNotice("What-if planning is on. Changes stay private until you apply them.");
+      return;
+    }
+    setJobPlannerWhatIfMode(false);
+    showNotice("What-if planning closed. Live schedule is unchanged.");
+  }
+
+  function shiftSelectedJobPlannerSuggestion(days: number) {
+    if (!selectedJob || !selectedJobScheduleDraft) return;
+    if (jobPlannerWhatIfMode && selectedJobPlannerAssignments.length > 0) {
+      setJobScheduleWhatIfPlans((current) => ({
+        ...current,
+        [selectedJob.id]: selectedJobPlannerAssignments.map((assignment) => shiftScheduleAssignment(assignment, days)),
+      }));
+      showNotice(`What-if programme shifted ${days > 0 ? "forward" : "back"} by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}.`);
+      return;
+    }
+
+    updateSelectedJobScheduleDraft({
+      startDate: shiftIsoDate(selectedJobScheduleDraft.startDate, days),
+      endDate: shiftIsoDate(selectedJobScheduleDraft.endDate, days),
+    });
+    showNotice(`Draft work package shifted ${days > 0 ? "forward" : "back"} by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}.`);
+  }
+
+  async function applySelectedJobWhatIfSchedule() {
+    if (!selectedJob || !jobPlannerWhatIfMode || selectedJobPlannerAssignments.length === 0) return;
+    const firstAssignment = selectedJobPlannerAssignments[0];
+    if (!firstAssignment) return;
+    const updated = await patchSelectedJob(
+      {
+        manager: firstAssignment.employeeName,
+        scheduledDate: firstAssignment.startDate,
+        scheduledTime: firstAssignment.startTime,
+        scheduledDurationHours: firstAssignment.plannedHours,
+        status: "In progress",
+        health: selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "amber" : "blue",
+        next: selectedJobScheduleIntelligence.length
+          ? `${selectedJobScheduleIntelligence.length} planner warning${selectedJobScheduleIntelligence.length === 1 ? "" : "s"} to review.`
+          : `${selectedJobPlannerAssignments.length} planned work package${selectedJobPlannerAssignments.length === 1 ? "" : "s"}. Track delivery, POs and variations.`,
+      },
+      "What-if programme applied to the live job schedule.",
+    );
+    if (!updated) return;
+    markCostCentreEdited();
+    setJobSchedulePlans((current) => ({
+      ...current,
+      [selectedJob.id]: selectedJobPlannerAssignments,
+    }));
+    setJobPlannerWhatIfMode(false);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "what-if schedule applied",
+      recordType: "job",
+      recordId: selectedJob.id,
+      summary: `${selectedJob.ref} what-if programme applied with ${selectedJobPlannerAssignments.length} work package(s).`,
+      source: "intelligent planner",
+      importance: selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "high" : "normal",
+    });
+  }
+
   function updateSelectedJobDeliveryDraft(patch: Partial<JobDeliveryDraft>) {
     if (!selectedJob) return;
     setJobDeliveryDrafts((current) => ({
@@ -12080,7 +12378,13 @@ export default function Dashboard() {
       return;
     }
 
-    const clash = Object.values(jobSchedulePlans)
+    const scheduleSourceForClashes = jobPlannerWhatIfMode
+      ? {
+          ...jobSchedulePlans,
+          [selectedJob.id]: selectedJobPlannerAssignments,
+        }
+      : jobSchedulePlans;
+    const clash = Object.values(scheduleSourceForClashes)
       .flat()
       .find((assignment) => {
         if (assignment.id === editingJobScheduleAssignmentId || assignment.employeeId !== employee.id) return false;
@@ -12088,10 +12392,14 @@ export default function Dashboard() {
         const assignmentEnd = new Date(`${assignment.endDate}T${assignment.endTime}:00`).getTime();
         return startAt < assignmentEnd && endAt > assignmentStart;
       });
-    if (clash) {
+    if (clash && !jobPlannerWhatIfMode) {
       const clashJob = jobs.find((job) => job.id === clash.jobId);
       showNotice(`${employee.name} already has ${clashJob?.ref ?? "another job"} during that time.`);
       return;
+    }
+    if (clash && jobPlannerWhatIfMode) {
+      const clashJob = jobs.find((job) => job.id === clash.jobId);
+      showNotice(`What-if clash added against ${clashJob?.ref ?? "another job"} so you can review the impact.`);
     }
 
     const assignment: JobScheduleAssignment = {
@@ -12109,10 +12417,33 @@ export default function Dashboard() {
       notes: selectedJobScheduleDraft.notes.trim(),
     };
     const nextAssignments = [
-      ...selectedJobScheduleAssignments.filter((item) => item.id !== assignment.id),
+      ...selectedJobPlannerAssignments.filter((item) => item.id !== assignment.id),
       assignment,
     ].sort((first, second) => `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`));
     const firstAssignment = nextAssignments[0] ?? assignment;
+
+    if (jobPlannerWhatIfMode) {
+      setJobScheduleWhatIfPlans((current) => ({
+        ...current,
+        [selectedJob.id]: nextAssignments,
+      }));
+      setEditingJobScheduleAssignmentId(null);
+      setJobScheduleDrafts((current) => ({
+        ...current,
+        [selectedJob.id]: {
+          costCentreId: costCentre.id,
+          employeeId: employee.id,
+          startDate: "",
+          startTime: "08:00",
+          endDate: "",
+          endTime: "12:00",
+          plannedHours: "4",
+          notes: "",
+        },
+      }));
+      showNotice("What-if work package added. Apply it when you are happy with the impact.");
+      return;
+    }
 
     try {
       const updated = await patchSelectedJob(
@@ -12191,10 +12522,16 @@ export default function Dashboard() {
 
   async function removeJobScheduleAssignment(assignmentId: string) {
     if (!selectedJob) return;
-    const assignment = selectedJobScheduleAssignments.find((item) => item.id === assignmentId);
+    const assignment = selectedJobPlannerAssignments.find((item) => item.id === assignmentId);
     if (!window.confirm(`Remove ${assignment?.costCentreName ?? "this work package"} from the job planner?`)) return;
-    const nextAssignments = selectedJobScheduleAssignments.filter((assignment) => assignment.id !== assignmentId);
+    const nextAssignments = selectedJobPlannerAssignments.filter((assignment) => assignment.id !== assignmentId);
     const firstAssignment = nextAssignments[0];
+    if (jobPlannerWhatIfMode) {
+      setJobScheduleWhatIfPlans((current) => ({ ...current, [selectedJob.id]: nextAssignments }));
+      if (editingJobScheduleAssignmentId === assignmentId) cancelJobScheduleEdit();
+      showNotice("Removed from the what-if programme. Live schedule is unchanged.");
+      return;
+    }
     try {
       const updated = await patchSelectedJob(
         firstAssignment
@@ -12236,7 +12573,7 @@ export default function Dashboard() {
   }
 
   function downloadSelectedJobGantt() {
-    if (!selectedJob || selectedJobScheduleAssignments.length === 0 || selectedJobGanttDays.length === 0) {
+    if (!selectedJob || selectedJobPlannerAssignments.length === 0 || selectedJobGanttDays.length === 0) {
       showNotice("Add at least one work package before downloading the Gantt chart.");
       return;
     }
@@ -12249,7 +12586,7 @@ export default function Dashboard() {
     const titleHeight = 72;
     const dayHeaderHeight = 42;
     const rowHeight = 48;
-    const height = titleHeight + dayHeaderHeight + selectedJobScheduleAssignments.length * rowHeight + 34;
+    const height = titleHeight + dayHeaderHeight + selectedJobPlannerAssignments.length * rowHeight + 34;
     const totalSlots = selectedJobGanttDays.length * JOB_GANTT_SLOTS_PER_DAY;
     const dayWidth = timelineWidth / selectedJobGanttDays.length;
     const colours = ["#2f9fc4", "#2377a4", "#2c8f7b", "#9b7b32"];
@@ -12263,7 +12600,7 @@ export default function Dashboard() {
       ].join("");
     }).join("");
 
-    const rows = selectedJobScheduleAssignments.map((assignment, index) => {
+    const rows = selectedJobPlannerAssignments.map((assignment, index) => {
       const y = titleHeight + dayHeaderHeight + index * rowHeight;
       const startDayIndex = selectedJobGanttDays.indexOf(assignment.startDate);
       const endDayIndex = selectedJobGanttDays.indexOf(assignment.endDate);
@@ -22036,6 +22373,58 @@ export default function Dashboard() {
                       </span>
                     </div>
 
+                    <section className={`planner-intelligence-panel ${selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "has-risk" : selectedJobScheduleIntelligence.length ? "has-warning" : "is-clear"}`}>
+                      <div className="planner-intelligence-head">
+                        <div>
+                          <span className="permission-heading">Intelligent schedule check</span>
+                          <h3>
+                            {selectedJobScheduleIntelligence.length
+                              ? `${selectedJobScheduleIntelligence.length} issue${selectedJobScheduleIntelligence.length === 1 ? "" : "s"} to review`
+                              : "Programme looks clear"}
+                          </h3>
+                          <p>
+                            {jobPlannerWhatIfMode
+                              ? "What-if mode is on. You can test changes without touching the live job diary."
+                              : "NeXa checks clashes, dependencies, staff capacity and completion impact before you commit the programme."}
+                          </p>
+                        </div>
+                        <div className="planner-intelligence-actions">
+                          <button
+                            className={jobPlannerWhatIfMode ? "primary-button" : "secondary-button"}
+                            type="button"
+                            onClick={toggleSelectedJobWhatIfMode}
+                          >
+                            {jobPlannerWhatIfMode ? "Close what-if" : "What-if mode"}
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => shiftSelectedJobPlannerSuggestion(1)}>
+                            Try +1 day
+                          </button>
+                          {jobPlannerWhatIfMode && selectedJobPlannerAssignments.length ? (
+                            <button className="primary-button" type="button" onClick={() => void applySelectedJobWhatIfSchedule()}>
+                              Apply what-if
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                      {selectedJobScheduleIntelligence.length ? (
+                        <div className="planner-issue-grid">
+                          {selectedJobScheduleIntelligence.slice(0, 4).map((issue) => (
+                            <article className={`planner-issue-card ${issue.tone}`} key={issue.id}>
+                              <span>{issue.kind}</span>
+                              <strong>{issue.title}</strong>
+                              <p>{issue.detail}</p>
+                              <small>{issue.impact}</small>
+                            </article>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="planner-clear-card">
+                          <Check size={16} />
+                          <span>No clashes found against the current scheduler and survey diary.</span>
+                        </div>
+                      )}
+                    </section>
+
                     <section className="job-scheduling-panel">
                       {selectedJobScheduleDraft ? (
                         <div className="job-plan-form-grid">
@@ -22129,7 +22518,7 @@ export default function Dashboard() {
                           type="button"
                           onClick={() => {
                             setHomeView("schedule");
-                            setScheduleDate(selectedJobScheduleAssignments[0]?.startDate || selectedJob.scheduledDate || scheduleDate);
+                            setScheduleDate(selectedJobPlannerAssignments[0]?.startDate || selectedJob.scheduledDate || scheduleDate);
                             scrollWorkspaceToTop();
                           }}
                         >
@@ -22138,7 +22527,7 @@ export default function Dashboard() {
                       </div>
                     </section>
 
-                    {selectedJobScheduleAssignments.length > 0 ? (
+                    {selectedJobPlannerAssignments.length > 0 ? (
                       <div className="job-plan-results">
                         <section className="job-gantt-board" aria-label="Job programme Gantt chart">
                           <div className="job-gantt-title">
@@ -22167,7 +22556,7 @@ export default function Dashboard() {
                               </div>
                               <span>Hours</span>
                             </div>
-                            {selectedJobScheduleAssignments.map((assignment, assignmentIndex) => {
+                            {selectedJobPlannerAssignments.map((assignment, assignmentIndex) => {
                               const startIndex = selectedJobGanttDays.indexOf(assignment.startDate);
                               const endIndex = selectedJobGanttDays.indexOf(assignment.endDate);
                               const startSlot = startIndex * JOB_GANTT_SLOTS_PER_DAY + jobGanttSlotForTime(assignment.startTime);
@@ -22211,7 +22600,7 @@ export default function Dashboard() {
                             <span>Hours</span>
                             <span>Actions</span>
                           </div>
-                          {selectedJobScheduleAssignments.map((assignment) => (
+                          {selectedJobPlannerAssignments.map((assignment) => (
                             <article className="job-plan-programme-row" key={assignment.id}>
                               <div>
                                 <strong>{assignment.costCentreName}</strong>

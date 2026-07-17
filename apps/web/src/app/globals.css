@@ -4084,6 +4084,154 @@ h1 {
   gap: 14px;
 }
 
+.planner-intelligence-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-left: 4px solid #2f9fc4;
+  border-radius: 8px;
+  box-shadow: 0 14px 32px rgba(23, 54, 74, 0.05);
+  display: grid;
+  gap: 14px;
+  padding: 15px;
+}
+
+.planner-intelligence-panel.has-risk {
+  border-left-color: #c84c4c;
+}
+
+.planner-intelligence-panel.has-warning {
+  border-left-color: #d29a31;
+}
+
+.planner-intelligence-panel.is-clear {
+  border-left-color: #2c8f7b;
+}
+
+.planner-intelligence-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.planner-intelligence-head h3 {
+  color: var(--ink);
+  font-size: 18px;
+  line-height: 1.2;
+  margin: 4px 0;
+}
+
+.planner-intelligence-head p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 620px;
+}
+
+.planner-intelligence-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.planner-issue-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.planner-issue-card {
+  background: #f8fbfc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.planner-issue-card span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.planner-issue-card strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.planner-issue-card p,
+.planner-issue-card small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.planner-issue-card small {
+  color: #3f5663;
+  font-weight: 800;
+}
+
+.planner-issue-card.red {
+  background: #fff7f7;
+  border-color: #f0c8c8;
+}
+
+.planner-issue-card.red span,
+.planner-issue-card.red small {
+  color: #a83b3b;
+}
+
+.planner-issue-card.amber {
+  background: #fffaf0;
+  border-color: #efd7a4;
+}
+
+.planner-issue-card.amber span,
+.planner-issue-card.amber small {
+  color: #9b6f22;
+}
+
+.planner-issue-card.blue {
+  background: #f2f9fc;
+  border-color: #b9dce9;
+}
+
+.planner-issue-card.blue span,
+.planner-issue-card.blue small {
+  color: #2377a4;
+}
+
+.planner-issue-card.green {
+  background: #f4fbf8;
+  border-color: #bfe0d1;
+}
+
+.planner-issue-card.green span,
+.planner-issue-card.green small {
+  color: #2c8f7b;
+}
+
+.planner-clear-card {
+  align-items: center;
+  background: #f4fbf8;
+  border: 1px solid #bfe0d1;
+  border-radius: 8px;
+  color: #2c8f7b;
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 850;
+  padding: 11px 12px;
+}
+
 .job-scheduling-panel {
   background: #fff;
   border: 1px solid var(--line);
@@ -23250,6 +23398,19 @@ body {
 
   .quote-gantt-track {
     grid-template-columns: repeat(7, minmax(34px, 1fr));
+  }
+
+  .planner-intelligence-head {
+    flex-direction: column;
+  }
+
+  .planner-intelligence-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .planner-issue-grid {
+    grid-template-columns: 1fr;
   }
 
   .job-plan-form-grid {
