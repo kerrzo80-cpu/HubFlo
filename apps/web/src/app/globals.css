@@ -23,6 +23,64 @@
   --shadow: 0 8px 28px rgba(27, 38, 45, 0.07);
 }
 
+/* Takeoffs plan renderer and route key. */
+.markup-pdf-preview {
+  align-items: center;
+  background: #fff;
+  display: flex;
+  height: 100%;
+  inset: 0;
+  justify-content: center;
+  overflow: hidden;
+  position: absolute;
+  width: 100%;
+}
+
+.markup-pdf-preview canvas {
+  background: #fff;
+  display: block;
+  height: 100%;
+  width: 100%;
+}
+
+.markup-pdf-preview > span {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #c9dde7;
+  border-radius: 6px;
+  color: #25465a;
+  font-size: 12px;
+  font-weight: 800;
+  left: 50%;
+  padding: 8px 12px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.markup-route-label {
+  fill: #fff;
+  font-size: 12px;
+  font-weight: 950;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke-linejoin: round;
+  stroke-width: 7px;
+}
+
+.services-markup-tool-grid button {
+  align-items: center;
+}
+
+.pipe-tool-swatch {
+  background: var(--pipe-colour);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--pipe-colour) 70%, #263746);
+  flex: 0 0 11px;
+  height: 11px;
+  width: 11px;
+}
+
 /* NeXa Estimator */
 .estimator-app {
   --est-blue: #58acd5;

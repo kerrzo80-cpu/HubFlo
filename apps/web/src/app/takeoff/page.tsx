@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -211,18 +211,19 @@ const markupServices: Array<{ id: TakeoffMarkupService; label: string; colour: s
 ];
 
 const markupPipeTools = [
-  { id: "cu-15", label: "15mm copper", material: "Copper", diameter: "15mm" },
-  { id: "cu-22", label: "22mm copper", material: "Copper", diameter: "22mm" },
-  { id: "cu-28", label: "28mm copper", material: "Copper", diameter: "28mm" },
-  { id: "cu-35", label: "35mm copper", material: "Copper", diameter: "35mm" },
-  { id: "hep-15", label: "15mm Hep2O", material: "Hep2O", diameter: "15mm" },
-  { id: "hep-22", label: "22mm Hep2O", material: "Hep2O", diameter: "22mm" },
-  { id: "ufh-16", label: "16mm UFH", material: "UFH pipe", diameter: "16mm" },
-  { id: "waste-32", label: "32mm waste", material: "Waste pipe", diameter: "32mm" },
-  { id: "waste-40", label: "40mm waste", material: "Waste pipe", diameter: "40mm" },
-  { id: "waste-50", label: "50mm waste", material: "Waste pipe", diameter: "50mm" },
-  { id: "soil-110", label: "110mm soil", material: "Soil pipe", diameter: "110mm" },
-  { id: "gas", label: "Gas pipework", material: "Gas pipework", diameter: "TBC" },
+  { id: "cu-15", label: "15mm copper", material: "Copper", diameter: "15mm", colour: "#e05a1f" },
+  { id: "cu-22", label: "22mm copper", material: "Copper", diameter: "22mm", colour: "#c0392b" },
+  { id: "cu-28", label: "28mm copper", material: "Copper", diameter: "28mm", colour: "#8e44ad" },
+  { id: "cu-35", label: "35mm copper", material: "Copper", diameter: "35mm", colour: "#6f4e37" },
+  { id: "hep-15", label: "15mm Hep2O", material: "Hep2O", diameter: "15mm", colour: "#1677d2" },
+  { id: "hep-22", label: "22mm Hep2O", material: "Hep2O", diameter: "22mm", colour: "#007f8f" },
+  { id: "hep-28", label: "28mm Hep2O", material: "Hep2O", diameter: "28mm", colour: "#18845c" },
+  { id: "ufh-16", label: "16mm UFH", material: "UFH pipe", diameter: "16mm", colour: "#35a853" },
+  { id: "waste-32", label: "32mm waste", material: "Waste pipe", diameter: "32mm", colour: "#8a5a32" },
+  { id: "waste-40", label: "40mm waste", material: "Waste pipe", diameter: "40mm", colour: "#6f472b" },
+  { id: "waste-50", label: "50mm waste", material: "Waste pipe", diameter: "50mm", colour: "#523522" },
+  { id: "soil-110", label: "110mm soil", material: "Soil pipe", diameter: "110mm", colour: "#3f4852" },
+  { id: "gas", label: "Gas pipework", material: "Gas pipework", diameter: "TBC", colour: "#d2a400" },
 ];
 
 const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: TakeoffMarkupSymbolCategory }> = [
@@ -325,7 +326,10 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
       ...fallback.settings,
       ...(markup?.settings ?? {}),
     },
-    pipes: markup?.pipes ?? fallback.pipes,
+    pipes: (markup?.pipes ?? fallback.pipes).map((pipe) => ({
+      ...pipe,
+      colour: markupPipeColour(pipe.material, pipe.diameter, pipe.service),
+    })),
     symbols: markup?.symbols ?? fallback.symbols,
     assumptions: markup?.assumptions ?? fallback.assumptions,
   };
@@ -333,6 +337,21 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
 
 function markupServiceColour(service: TakeoffMarkupService) {
   return markupServices.find((item) => item.id === service)?.colour ?? "#607084";
+}
+
+function markupPipeColour(material: string, diameter: string, service: TakeoffMarkupService) {
+  return markupPipeTools.find((tool) => (
+    tool.material.toLowerCase() === material.trim().toLowerCase()
+    && tool.diameter.toLowerCase() === diameter.trim().toLowerCase()
+  ))?.colour ?? markupServiceColour(service);
+}
+
+function markupRouteLabel(pipe: Pick<TakeoffMarkupPipe, "diameter" | "material">) {
+  return `${pipe.diameter} ${pipe.material}`.trim();
+}
+
+function markupRouteLabelPoint(pipe: TakeoffMarkupPipe) {
+  return pipe.points[Math.max(0, Math.floor((pipe.points.length - 1) / 2))] ?? { x: 0, y: 0 };
 }
 
 function markupPointDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
@@ -349,6 +368,219 @@ function markupPipeLengthM(pipe: TakeoffMarkupPipe, calibration: TakeoffServices
     if (previous && current) flatPixels += markupPointDistance(previous, current);
   }
   return flatPixels / pixelsPerMetre + Math.max(0, pipe.riseDropM || 0);
+}
+
+type ServicesMarkupSummary = {
+  pipeRows: Array<{
+    id: string;
+    label: string;
+    service: TakeoffMarkupService;
+    material: string;
+    diameter: string;
+    measuredM: number;
+    orderM: number;
+    stockQuantity: number;
+    colour: string;
+  }>;
+  symbolRows: Array<{
+    id: string;
+    label: string;
+    category: TakeoffMarkupSymbolCategory;
+    count: number;
+  }>;
+  pipeTotalM: number;
+  fittingCount: number;
+  plantCount: number;
+};
+
+function summariseServicesMarkup(markup: TakeoffServicesMarkup): ServicesMarkupSummary {
+  const pipeRows = new Map<string, ServicesMarkupSummary["pipeRows"][number]>();
+  markup.pipes.filter((pipe) => pipe.included).forEach((pipe) => {
+    const length = markupPipeLengthM(pipe, markup.calibration);
+    const key = `${pipe.service}-${pipe.material}-${pipe.diameter}`;
+    const existing = pipeRows.get(key);
+    const measuredM = (existing?.measuredM ?? 0) + length;
+    const pipeStockLengthM = Math.max(1, markup.settings.pipeStockLengthM || 3);
+    const orderM = measuredM * (1 + Math.max(0, markup.settings.wastagePercent || 0) / 100);
+    pipeRows.set(key, {
+      id: key,
+      label: markupRouteLabel(pipe),
+      service: pipe.service,
+      material: pipe.material,
+      diameter: pipe.diameter,
+      measuredM,
+      orderM,
+      stockQuantity: Math.max(1, Math.ceil(orderM / pipeStockLengthM)),
+      colour: markupPipeColour(pipe.material, pipe.diameter, pipe.service),
+    });
+  });
+
+  const symbolRows = new Map<string, ServicesMarkupSummary["symbolRows"][number]>();
+  markup.symbols.filter((symbol) => symbol.included).forEach((symbol) => {
+    const key = `${symbol.category}-${symbol.kind}`;
+    const existing = symbolRows.get(key);
+    symbolRows.set(key, {
+      id: key,
+      label: symbol.kind,
+      category: symbol.category,
+      count: (existing?.count ?? 0) + 1,
+    });
+  });
+
+  const pipeSummary = Array.from(pipeRows.values());
+  const symbolSummary = Array.from(symbolRows.values());
+  return {
+    pipeRows: pipeSummary,
+    symbolRows: symbolSummary,
+    pipeTotalM: pipeSummary.reduce((sum, row) => sum + row.measuredM, 0),
+    fittingCount: symbolSummary.filter((row) => row.category !== "Plant").reduce((sum, row) => sum + row.count, 0),
+    plantCount: symbolSummary.filter((row) => row.category === "Plant").reduce((sum, row) => sum + row.count, 0),
+  };
+}
+
+function markupLineId(prefix: string, value: string) {
+  return `${prefix}-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
+}
+
+function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: TakeoffProject) {
+  const summary = summariseServicesMarkup(markup);
+  const stockLength = Math.max(1, markup.settings.pipeStockLengthM || 3);
+  const existingMarkupMaterials = project.materialAllowances.filter((line) => (
+    line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+  ));
+
+  const pipeMaterials: TakeoffMaterialAllowance[] = summary.pipeRows.map((row) => {
+    const id = markupLineId("markup-material", row.id);
+    const existing = existingMarkupMaterials.find((line) => line.id === id)
+      ?? existingMarkupMaterials.find((line) => line.section === "Services markup" && line.description.includes(`${row.service} - ${row.label}`));
+    return {
+      id,
+      section: "Services markup",
+      description: `${row.service} - ${row.label} (${row.measuredM.toFixed(1)}m measured, ${row.stockQuantity} x ${stockLength}m lengths)`,
+      quantity: Number(row.orderM.toFixed(2)),
+      unit: "m",
+      unitCost: existing?.unitCost ?? 0,
+      markupPercent: existing?.markupPercent ?? 30,
+      supplierRequired: existing?.supplierRequired ?? true,
+      preferredSupplier: existing?.preferredSupplier ?? "",
+    };
+  });
+
+  const symbolMaterials: TakeoffMaterialAllowance[] = summary.symbolRows.map((row) => {
+    const id = markupLineId("markup-symbol-material", row.id);
+    const section = row.category === "Plant" ? "Plant / equipment" : "Services fittings";
+    const existing = existingMarkupMaterials.find((line) => line.id === id)
+      ?? existingMarkupMaterials.find((line) => line.section === section && line.description === row.label);
+    return {
+      id,
+      section,
+      description: row.label,
+      quantity: row.count,
+      unit: "each",
+      unitCost: existing?.unitCost ?? 0,
+      markupPercent: existing?.markupPercent ?? 30,
+      supplierRequired: existing?.supplierRequired ?? true,
+      preferredSupplier: existing?.preferredSupplier ?? "",
+    };
+  });
+
+  const markupMaterials = [...pipeMaterials, ...symbolMaterials];
+  const existingMarkupRequests = project.supplierRequests.filter((line) => line.notes === "From Services Markup");
+  const supplierRows: TakeoffSupplierRequestItem[] = markupMaterials.map((line) => {
+    const id = markupLineId("markup-rfq", line.id);
+    const existing = existingMarkupRequests.find((item) => item.id === id || item.linkedMaterialId === line.id)
+      ?? existingMarkupRequests.find((item) => item.description === line.description);
+    return {
+      id,
+      supplier: existing?.supplier ?? line.preferredSupplier ?? "",
+      description: line.description,
+      quantity: line.quantity,
+      unit: line.unit,
+      linkedMaterialId: line.id,
+      notes: "From Services Markup",
+    };
+  });
+
+  return {
+    summary,
+    materialAllowances: [
+      ...project.materialAllowances.filter((line) => !line.id.startsWith("markup-material") && !line.id.startsWith("markup-symbol-material")),
+      ...markupMaterials,
+    ],
+    supplierRequests: [
+      ...project.supplierRequests.filter((line) => line.notes !== "From Services Markup"),
+      ...supplierRows,
+    ],
+  };
+}
+
+function PdfPlanPreview({ src, label }: { src: string; label: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    let loadingTask: { destroy: () => Promise<void> } | null = null;
+    let renderTask: { cancel: () => void; promise: Promise<void> } | null = null;
+
+    async function renderPdf() {
+      setStatus("loading");
+      try {
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
+        const response = await fetch(src, { credentials: "same-origin" });
+        if (!response.ok) throw new Error("Unable to load PDF drawing");
+        const data = new Uint8Array(await response.arrayBuffer());
+        const task = pdfjs.getDocument({ data, isOffscreenCanvasSupported: false });
+        loadingTask = task;
+        const pdf = await task.promise;
+        const page = await pdf.getPage(1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        const targetWidth = 2000;
+        const targetHeight = 1240;
+        const qualityScale = Math.min(targetWidth / baseViewport.width, targetHeight / baseViewport.height);
+        const viewport = page.getViewport({ scale: qualityScale });
+        const canvas = canvasRef.current;
+        if (!canvas || cancelled) return;
+        const pageCanvas = document.createElement("canvas");
+        pageCanvas.width = Math.ceil(viewport.width);
+        pageCanvas.height = Math.ceil(viewport.height);
+        const taskRender = page.render({ canvas: pageCanvas, viewport, background: "#ffffff" });
+        renderTask = taskRender;
+        await taskRender.promise;
+        if (cancelled) return;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Unable to prepare PDF drawing canvas");
+        context.fillStyle = "#ffffff";
+        context.fillRect(0, 0, targetWidth, targetHeight);
+        context.drawImage(
+          pageCanvas,
+          Math.round((targetWidth - pageCanvas.width) / 2),
+          Math.round((targetHeight - pageCanvas.height) / 2),
+        );
+        if (!cancelled) setStatus("ready");
+      } catch {
+        if (!cancelled) setStatus("error");
+      }
+    }
+
+    renderPdf().catch(() => setStatus("error"));
+    return () => {
+      cancelled = true;
+      renderTask?.cancel();
+      loadingTask?.destroy().catch(() => {});
+    };
+  }, [src]);
+
+  return (
+    <div className={`markup-pdf-preview ${status}`} aria-label={`${label} first page preview`}>
+      <canvas ref={canvasRef} />
+      {status === "loading" ? <span>Fitting complete drawing...</span> : null}
+      {status === "error" ? <span>PDF preview could not be rendered. Re-upload this drawing as PDF, JPG or PNG.</span> : null}
+    </div>
+  );
 }
 
 function markupSymbolLabel(kind: TakeoffMarkupSymbolKind) {
@@ -949,65 +1181,7 @@ export default function TakeoffPage() {
     return first && second ? markupPointDistance(first, second) : 0;
   }, [markupCalibrationPoints]);
 
-  const servicesMarkupSummary = useMemo(() => {
-    const pipeRows = new Map<string, {
-      id: string;
-      label: string;
-      service: TakeoffMarkupService;
-      material: string;
-      diameter: string;
-      measuredM: number;
-      orderM: number;
-      stockQuantity: number;
-      colour: string;
-    }>();
-    servicesMarkup.pipes.filter((pipe) => pipe.included).forEach((pipe) => {
-      const length = markupPipeLengthM(pipe, servicesMarkup.calibration);
-      const key = `${pipe.service}-${pipe.material}-${pipe.diameter}`;
-      const existing = pipeRows.get(key);
-      const measuredM = (existing?.measuredM ?? 0) + length;
-      const pipeStockLengthM = Math.max(1, servicesMarkup.settings.pipeStockLengthM || 3);
-      const orderM = measuredM * (1 + Math.max(0, servicesMarkup.settings.wastagePercent || 0) / 100);
-      pipeRows.set(key, {
-        id: key,
-        label: `${pipe.diameter} ${pipe.material}`,
-        service: pipe.service,
-        material: pipe.material,
-        diameter: pipe.diameter,
-        measuredM,
-        orderM,
-        stockQuantity: Math.max(1, Math.ceil(orderM / pipeStockLengthM)),
-        colour: pipe.colour,
-      });
-    });
-
-    const symbolRows = new Map<string, {
-      id: string;
-      label: string;
-      category: TakeoffMarkupSymbolCategory;
-      count: number;
-    }>();
-    servicesMarkup.symbols.filter((symbol) => symbol.included).forEach((symbol) => {
-      const key = `${symbol.category}-${symbol.kind}`;
-      const existing = symbolRows.get(key);
-      symbolRows.set(key, {
-        id: key,
-        label: symbol.kind,
-        category: symbol.category,
-        count: (existing?.count ?? 0) + 1,
-      });
-    });
-
-    const pipeSummary = Array.from(pipeRows.values());
-    const symbolSummary = Array.from(symbolRows.values());
-    return {
-      pipeRows: pipeSummary,
-      symbolRows: symbolSummary,
-      pipeTotalM: pipeSummary.reduce((sum, row) => sum + row.measuredM, 0),
-      fittingCount: symbolSummary.filter((row) => row.category !== "Plant").reduce((sum, row) => sum + row.count, 0),
-      plantCount: symbolSummary.filter((row) => row.category === "Plant").reduce((sum, row) => sum + row.count, 0),
-    };
-  }, [servicesMarkup]);
+  const servicesMarkupSummary = useMemo(() => summariseServicesMarkup(servicesMarkup), [servicesMarkup]);
 
   const markupViewport = useMemo(() => {
     const zoom = Math.min(4, Math.max(0.5, markupZoom));
@@ -1028,10 +1202,6 @@ export default function TakeoffPage() {
     width: `${(markupCanvasWidth / markupViewport.width) * 100}%`,
     height: `${(markupCanvasHeight / markupViewport.height) * 100}%`,
   } as CSSProperties;
-  const markupPdfPreviewUrl = markupDrawingPreviewUrl
-    ? `${markupDrawingPreviewUrl}#toolbar=0&navpanes=0&scrollbar=0&view=Fit&zoom=page-fit`
-    : "";
-
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
     [selectedProject],
@@ -1229,6 +1399,24 @@ export default function TakeoffPage() {
     setQuoteSearch(selectedQuote ? quoteSearchLabel(selectedQuote, clientSites) : "");
   }, [clientSites, selectedQuote]);
 
+  useEffect(() => {
+    if (!selectedProject || (!servicesMarkup.pipes.length && !servicesMarkup.symbols.length)) return;
+    const quantityPatch = buildMarkupQuantityPatch(servicesMarkup, selectedProject);
+    const currentMaterials = selectedProject.materialAllowances.filter((line) => (
+      line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+    ));
+    const nextMaterials = quantityPatch.materialAllowances.filter((line) => (
+      line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+    ));
+    const currentRequests = selectedProject.supplierRequests.filter((line) => line.notes === "From Services Markup");
+    const nextRequests = quantityPatch.supplierRequests.filter((line) => line.notes === "From Services Markup");
+    if (JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials) && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)) return;
+    patchProject(selectedProject.id, {
+      materialAllowances: quantityPatch.materialAllowances,
+      supplierRequests: quantityPatch.supplierRequests,
+    }).catch(() => {});
+  }, [selectedProject?.id, selectedProject?.servicesMarkup?.updatedAt]);
+
   function replaceProject(project: TakeoffProject) {
     setProjects((current) => current.map((item) => (item.id === project.id ? project : item)));
   }
@@ -1283,12 +1471,15 @@ export default function TakeoffPage() {
 
   function updateServicesMarkup(updater: (current: TakeoffServicesMarkup) => TakeoffServicesMarkup, successMessage?: string) {
     if (!selectedProject) return;
-    const nextMarkup = updater(normaliseServicesMarkup(selectedProject.servicesMarkup));
+    const nextMarkup = normaliseServicesMarkup(updater(normaliseServicesMarkup(selectedProject.servicesMarkup)));
+    const quantityPatch = buildMarkupQuantityPatch(nextMarkup, selectedProject);
     updateProject({
       servicesMarkup: {
         ...nextMarkup,
         updatedAt: new Date().toISOString(),
       },
+      materialAllowances: quantityPatch.materialAllowances,
+      supplierRequests: quantityPatch.supplierRequests,
     }, successMessage);
   }
 
@@ -1415,7 +1606,7 @@ export default function TakeoffPage() {
       service: activeMarkupService,
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
-      colour: markupServiceColour(activeMarkupService),
+      colour: activeMarkupPipeTool.colour,
       points,
       floor: "Ground floor",
       riseDropM: 0,
@@ -1473,7 +1664,7 @@ export default function TakeoffPage() {
         service: activeMarkupService,
         material: activeMarkupPipeTool.material,
         diameter: activeMarkupPipeTool.diameter,
-        colour: markupServiceColour(activeMarkupService),
+        colour: activeMarkupPipeTool.colour,
         points: [...current.points, point],
       };
     });
@@ -1523,7 +1714,7 @@ export default function TakeoffPage() {
       service: activeMarkupService,
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
-      colour: markupServiceColour(activeMarkupService),
+      colour: activeMarkupPipeTool.colour,
     };
     updateServicesMarkup((current) => ({
       ...current,
@@ -1537,11 +1728,14 @@ export default function TakeoffPage() {
     if (!selectedMarkupPipe) return;
     updateServicesMarkup((current) => ({
       ...current,
-      pipes: current.pipes.map((pipe) => pipe.id === selectedMarkupPipe.id ? {
-        ...pipe,
-        ...patch,
-        colour: patch.service && !patch.colour ? markupServiceColour(patch.service) : patch.colour ?? pipe.colour,
-      } : pipe),
+      pipes: current.pipes.map((pipe) => {
+        if (pipe.id !== selectedMarkupPipe.id) return pipe;
+        const updatedPipe = { ...pipe, ...patch };
+        return {
+          ...updatedPipe,
+          colour: markupPipeColour(updatedPipe.material, updatedPipe.diameter, updatedPipe.service),
+        };
+      }),
     }));
   }
 
@@ -1606,6 +1800,11 @@ export default function TakeoffPage() {
       return;
     }
 
+    if (selectedMarkupElementId) {
+      deleteSelectedMarkupElement();
+      return;
+    }
+
     updateServicesMarkup((current) => {
       if (current.symbols.length > 0) {
         return { ...current, symbols: current.symbols.slice(0, -1) };
@@ -1617,50 +1816,11 @@ export default function TakeoffPage() {
 
   function pushMarkupToBoq() {
     if (!selectedProject) return;
-    const stockLength = Math.max(1, servicesMarkup.settings.pipeStockLengthM || 3);
-    const materialRows: TakeoffMaterialAllowance[] = servicesMarkupSummary.pipeRows.map((row) => ({
-      id: makeId("markup-material"),
-      section: "Services markup",
-      description: `${row.service} - ${row.label} (${row.measuredM.toFixed(1)}m measured, ${row.stockQuantity} x ${stockLength}m lengths)`,
-      quantity: Number(row.orderM.toFixed(2)),
-      unit: "m",
-      unitCost: 0,
-      markupPercent: 30,
-      supplierRequired: true,
-      preferredSupplier: "",
-    }));
-    const symbolRows: TakeoffMaterialAllowance[] = servicesMarkupSummary.symbolRows.map((row) => ({
-      id: makeId("markup-symbol-material"),
-      section: row.category === "Plant" ? "Plant / equipment" : "Services fittings",
-      description: row.label,
-      quantity: row.count,
-      unit: "each",
-      unitCost: 0,
-      markupPercent: 30,
-      supplierRequired: true,
-      preferredSupplier: "",
-    }));
-    const supplierRows: TakeoffSupplierRequestItem[] = [...materialRows, ...symbolRows].map((row) => ({
-      id: makeId("markup-rfq"),
-      supplier: "",
-      description: row.description,
-      quantity: row.quantity,
-      unit: row.unit,
-      linkedMaterialId: row.id,
-      notes: "From Services Markup",
-    }));
-
+    const quantityPatch = buildMarkupQuantityPatch(servicesMarkup, selectedProject);
     updateProject({
-      materialAllowances: [
-        ...selectedProject.materialAllowances.filter((line) => !line.id.startsWith("markup-material") && !line.id.startsWith("markup-symbol-material")),
-        ...materialRows,
-        ...symbolRows,
-      ],
-      supplierRequests: [
-        ...selectedProject.supplierRequests.filter((line) => line.notes !== "From Services Markup"),
-        ...supplierRows,
-      ],
-    }, "Services markup sent to Quantities / RFQ.");
+      materialAllowances: quantityPatch.materialAllowances,
+      supplierRequests: quantityPatch.supplierRequests,
+    }, "Takeoff quantities are up to date.");
     setActiveTab("boq");
   }
 
@@ -2795,7 +2955,7 @@ export default function TakeoffPage() {
                       </button>
                       <button className="takeoff-primary-button" type="button" onClick={pushMarkupToBoq}>
                         <PackageSearch size={15} />
-                        Push to Estimator pack
+                        Quantities ({servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length})
                       </button>
                     </nav>
                   </header>
@@ -2806,7 +2966,7 @@ export default function TakeoffPage() {
                     aria-label={isMarkupMaterialsCollapsed ? "Open materials and tools" : "Hide materials and tools"}
                   >
                     <PackageSearch size={17} />
-                    <span>{isMarkupMaterialsCollapsed ? "Tools" : "Hide"}</span>
+                    <span>{isMarkupMaterialsCollapsed ? `Tools · ${servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length}` : "Hide"}</span>
                   </button>
                   <article className="takeoff-panel services-markup-toolbar">
                     <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
@@ -2998,6 +3158,7 @@ export default function TakeoffPage() {
                           {filteredMarkupPipeTools.map((tool) => (
                             <button
                               className={activeMarkupPipeToolId === tool.id ? "active" : ""}
+                              style={{ "--pipe-colour": tool.colour } as CSSProperties}
                               type="button"
                               key={tool.id}
                               onClick={() => {
@@ -3005,6 +3166,7 @@ export default function TakeoffPage() {
                                 setActiveMarkupPipeToolId(tool.id);
                               }}
                             >
+                              <i className="pipe-tool-swatch" />
                               {tool.label}
                             </button>
                           ))}
@@ -3012,7 +3174,7 @@ export default function TakeoffPage() {
                         </div>
                       </section>
                       <section>
-                        <strong>Service colour</strong>
+                        <strong>Service</strong>
                         <div className="services-markup-service-grid">
                           {markupServices.map((service) => (
                             <button
@@ -3148,9 +3310,9 @@ export default function TakeoffPage() {
                             style={markupDocumentLayerStyle}
                           >
                             {markupDrawingIsPdf ? (
-                              <iframe
-                                src={markupPdfPreviewUrl}
-                                title={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                              <PdfPlanPreview
+                                src={markupDrawingPreviewUrl}
+                                label={markupSelectedDrawing?.fileName ?? "Drawing"}
                               />
                             ) : markupDrawingIsImage ? (
                               <img
@@ -3231,7 +3393,10 @@ export default function TakeoffPage() {
                           </g>
                         ) : null}
 
-                        {servicesMarkup.pipes.map((pipe) => (
+                        {servicesMarkup.pipes.map((pipe) => {
+                          const routeColour = markupPipeColour(pipe.material, pipe.diameter, pipe.service);
+                          const labelPoint = markupRouteLabelPoint(pipe);
+                          return (
                           <g key={pipe.id}>
                             <polyline
                               className="markup-pipe-hit"
@@ -3245,7 +3410,7 @@ export default function TakeoffPage() {
                             <polyline
                               className={selectedMarkupElementId === pipe.id ? "markup-pipe selected" : "markup-pipe"}
                               points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
-                              stroke={pipe.colour}
+                              stroke={routeColour}
                             />
                             {pipe.points.map((point, index) => (
                               <circle
@@ -3253,12 +3418,21 @@ export default function TakeoffPage() {
                                 cx={point.x}
                                 cy={point.y}
                                 r="5"
-                                fill={pipe.colour}
+                                fill={routeColour}
                                 key={`${pipe.id}-${index}`}
                               />
                             ))}
+                            <text
+                              className="markup-route-label"
+                              x={labelPoint.x + 9}
+                              y={labelPoint.y - 9}
+                              stroke={routeColour}
+                            >
+                              {markupRouteLabel(pipe)}
+                            </text>
                           </g>
-                        ))}
+                          );
+                        })}
 
                         {markupDraftPipe ? (
                           <g>
