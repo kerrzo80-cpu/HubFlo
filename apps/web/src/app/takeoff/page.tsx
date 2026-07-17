@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -811,12 +811,13 @@ export default function TakeoffPage() {
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
-  const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
+  const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(true);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
   const [markupCalibrationDistance, setMarkupCalibrationDistance] = useState("1");
   const [markupZoom, setMarkupZoom] = useState(1);
   const [markupPan, setMarkupPan] = useState({ x: 0, y: 0 });
   const [markupPanStart, setMarkupPanStart] = useState<{ pointerId: number; clientX: number; clientY: number; panX: number; panY: number } | null>(null);
+  const [markupTouchGesture, setMarkupTouchGesture] = useState<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -1349,6 +1350,53 @@ export default function TakeoffPage() {
       setMarkupPanStart(null);
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+  }
+
+  function touchMetrics(touches: ReactTouchEvent<SVGSVGElement>["touches"]) {
+    const first = touches.item(0);
+    const second = touches.item(1);
+    if (!first || !second) return null;
+    const deltaX = second.clientX - first.clientX;
+    const deltaY = second.clientY - first.clientY;
+    return {
+      distance: Math.hypot(deltaX, deltaY),
+      centerX: (first.clientX + second.clientX) / 2,
+      centerY: (first.clientY + second.clientY) / 2,
+    };
+  }
+
+  function handleMarkupTouchStart(event: ReactTouchEvent<SVGSVGElement>) {
+    const metrics = touchMetrics(event.touches);
+    if (!metrics) return;
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setMarkupTouchGesture({
+      distance: metrics.distance,
+      zoom: markupViewport.zoom,
+      worldX: markupViewport.x + ((metrics.centerX - bounds.left) * (markupViewport.width / Math.max(1, bounds.width))),
+      worldY: markupViewport.y + ((metrics.centerY - bounds.top) * (markupViewport.height / Math.max(1, bounds.height))),
+    });
+  }
+
+  function handleMarkupTouchMove(event: ReactTouchEvent<SVGSVGElement>) {
+    if (!markupTouchGesture) return;
+    const metrics = touchMetrics(event.touches);
+    if (!metrics || markupTouchGesture.distance <= 0) return;
+    event.preventDefault();
+    const nextZoom = Math.min(5, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const width = markupCanvasWidth / nextZoom;
+    const height = markupCanvasHeight / nextZoom;
+    setMarkupZoom(nextZoom);
+    setMarkupPan(clampMarkupPan(
+      markupTouchGesture.worldX - ((metrics.centerX - bounds.left) * (width / Math.max(1, bounds.width))),
+      markupTouchGesture.worldY - ((metrics.centerY - bounds.top) * (height / Math.max(1, bounds.height))),
+      nextZoom,
+    ));
+  }
+
+  function handleMarkupTouchEnd(event: ReactTouchEvent<SVGSVGElement>) {
+    if (event.touches.length < 2) setMarkupTouchGesture(null);
   }
 
   function createMarkupPipe(points: MarkupCanvasPoint[]): TakeoffMarkupPipe {
@@ -2742,6 +2790,15 @@ export default function TakeoffPage() {
                       </button>
                     </nav>
                   </header>
+                  <button
+                    className={isMarkupMaterialsCollapsed ? "takeoff-materials-drawer-tab" : "takeoff-materials-drawer-tab open"}
+                    type="button"
+                    onClick={() => setIsMarkupMaterialsCollapsed((current) => !current)}
+                    aria-label={isMarkupMaterialsCollapsed ? "Open materials and tools" : "Hide materials and tools"}
+                  >
+                    <PackageSearch size={17} />
+                    <span>{isMarkupMaterialsCollapsed ? "Tools" : "Hide"}</span>
+                  </button>
                   <article className="takeoff-panel services-markup-toolbar">
                     <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
@@ -3083,6 +3140,10 @@ export default function TakeoffPage() {
                           onPointerMove={handleMarkupPointerMove}
                           onPointerUp={handleMarkupPointerUp}
                           onPointerCancel={handleMarkupPointerUp}
+                          onTouchStart={handleMarkupTouchStart}
+                          onTouchMove={handleMarkupTouchMove}
+                          onTouchEnd={handleMarkupTouchEnd}
+                          onTouchCancel={handleMarkupTouchEnd}
                           onDoubleClick={() => {
                             if (markupDraftPipe?.points.length && markupDraftPipe.points.length >= 2) finishMarkupRoute();
                           }}
