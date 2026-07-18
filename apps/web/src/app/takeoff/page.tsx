@@ -1806,7 +1806,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   )), [servicesMarkup.symbols, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
 
   const snappedMarkupDraftPoints = useMemo(
-    () => markupDraftPipe ? snapMarkupPipePoints(markupDraftPipe.points) : [],
+    () => markupDraftPipe ? dedupeMarkupPoints(markupDraftPipe.points) : [],
     [markupDraftPipe],
   );
 
@@ -1832,20 +1832,13 @@ const filteredMarkupPlantTools = useMemo(() => {
     setMarkupDrawingLoadErrorId("");
   }, [activeMarkupDrawingId]);
 
-  const markupCalibrationPixelLength = useMemo(() => {
-    if (markupCalibrationPoints.length < 2) return 0;
-    const first = markupCalibrationPoints[0];
-    const second = markupCalibrationPoints[1];
-    return first && second ? markupPointDistance(first, second) : 0;
-  }, [markupCalibrationPoints]);
-
   const servicesMarkupSummary = useMemo(
     () => summariseServicesMarkup(servicesMarkup, drawingDocuments, { showDrawing: servicesMarkupShowDrawingInSections }),
     [servicesMarkup, drawingDocuments, servicesMarkupShowDrawingInSections],
   );
 
   const markupViewport = useMemo(() => {
-    const zoom = Math.min(4, Math.max(0.5, markupZoom));
+    const zoom = Math.min(6, Math.max(0.5, markupZoom));
     const width = markupCanvasWidth / zoom;
     const height = markupCanvasHeight / zoom;
     const maxX = Math.max(0, markupCanvasWidth - width);
@@ -1857,7 +1850,16 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
-  const activeMarkupCalibrationPoint = markupCalibrationPoints[activeMarkupCalibrationPointIndex];
+  const markupCalibrationPointOne = markupCalibrationPoints[0] ?? null;
+  const markupCalibrationPointTwo = markupCalibrationPoints[1] ?? null;
+  const markupCalibrationPixelLength = useMemo(() => {
+    return markupCalibrationPointOne && markupCalibrationPointTwo
+      ? markupPointDistance(markupCalibrationPointOne, markupCalibrationPointTwo)
+      : 0;
+  }, [markupCalibrationPointOne, markupCalibrationPointTwo]);
+  const markupCalibrationPickedCount = (markupCalibrationPointOne ? 1 : 0) + (markupCalibrationPointTwo ? 1 : 0);
+  const hasCompleteMarkupCalibration = Boolean(markupCalibrationPointOne && markupCalibrationPointTwo);
+  const activeMarkupCalibrationPoint = activeMarkupCalibrationPointIndex === 0 ? markupCalibrationPointOne : markupCalibrationPointTwo;
   const calibrationMarkerScale = 1 / Math.max(0.75, markupViewport.zoom);
   const markupDocumentTransformStyle = useMemo<CSSProperties>(() => ({
     "--markup-document-height": `${markupViewport.zoom * 100}%`,
@@ -2162,7 +2164,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   }
 
   function updateMarkupZoom(nextZoom: number) {
-    const zoom = Math.min(4, Math.max(0.5, nextZoom));
+    const zoom = Math.min(6, Math.max(0.5, nextZoom));
     setMarkupZoom(zoom);
     setMarkupPan((current) => clampMarkupPan(current.x, current.y, zoom));
   }
@@ -2242,19 +2244,17 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setSelectedMarkupElementId("");
     setMarkupDraftPipeState(null);
     setMarkupCalibrationPoints((current) => {
-      if (current.length >= 2) {
-        setActiveMarkupCalibrationPointIndex(0);
-        return [point];
-      }
-
-      setActiveMarkupCalibrationPointIndex(current.length);
-      return [...current, point];
+      const targetIndex = activeMarkupCalibrationPointIndex === 1 ? 1 : 0;
+      const next = current.slice(0, 2);
+      next[targetIndex] = point;
+      setActiveMarkupCalibrationPointIndex(targetIndex === 0 ? 1 : 1);
+      return next;
     });
   }
 
   function nudgeMarkupCalibrationPoint(dx: number, dy: number) {
     setMarkupCalibrationPoints((current) => current.map((point, index) => (
-      index === activeMarkupCalibrationPointIndex
+      point && index === activeMarkupCalibrationPointIndex
         ? {
           x: Math.round(Math.min(Math.max(0, point.x + dx), markupCanvasWidth)),
           y: Math.round(Math.min(Math.max(0, point.y + dy), markupCanvasHeight)),
@@ -2263,9 +2263,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     )));
   }
 
-  function zoomToMarkupPoint(point?: MarkupCanvasPoint) {
+  function zoomToMarkupPoint(point?: MarkupCanvasPoint | null) {
     if (!point) return;
-    const zoom = 4;
+    const zoom = 6;
     setMarkupZoom(zoom);
     setMarkupPan(clampMarkupPan(point.x - (markupCanvasWidth / zoom / 2), point.y - (markupCanvasHeight / zoom / 2), zoom));
   }
@@ -2465,7 +2465,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const metrics = touchMetrics(event.touches);
       if (!metrics || markupTouchGesture.distance <= 0) return;
       event.preventDefault();
-      const nextZoom = Math.min(5, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
+      const nextZoom = Math.min(6, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
       const bounds = event.currentTarget.getBoundingClientRect();
       const width = markupCanvasWidth / nextZoom;
       const height = markupCanvasHeight / nextZoom;
@@ -2497,7 +2497,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         const metrics = touchMetrics(event.touches);
         if (!metrics || markupTouchGesture.distance <= 0) return;
         const bounds = event.currentTarget.getBoundingClientRect();
-        const nextZoom = Math.min(5, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
+        const nextZoom = Math.min(6, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
         const width = markupCanvasWidth / nextZoom;
         const height = markupCanvasHeight / nextZoom;
         setMarkupZoom(nextZoom);
@@ -2519,7 +2519,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const metrics = touchMetrics(event.touches);
     if (!metrics || markupTouchGesture.distance <= 0) return;
     event.preventDefault();
-    const nextZoom = Math.min(5, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
+    const nextZoom = Math.min(6, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
     const bounds = event.currentTarget.getBoundingClientRect();
     const width = markupCanvasWidth / nextZoom;
     const height = markupCanvasHeight / nextZoom;
@@ -2641,8 +2641,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function applyMarkupCalibration() {
     const realLengthM = Number(markupCalibrationDistance);
-    if (markupCalibrationPoints.length < 2 || markupCalibrationPixelLength <= 0) {
-      setError("Click two points on a known dimension before applying calibration.");
+    if (!hasCompleteMarkupCalibration || markupCalibrationPixelLength <= 0) {
+      setError("Set point 1 and point 2 on a known dimension before applying calibration.");
       return;
     }
     if (!Number.isFinite(realLengthM) || realLengthM <= 0) {
@@ -2667,8 +2667,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function finishMarkupRoute(pipe = markupDraftPipeRef.current ?? markupDraftPipe) {
-    const snappedPoints = pipe ? snapMarkupPipePoints(pipe.points) : [];
-    if (!pipe || snappedPoints.length < 2) {
+    const routePoints = pipe ? dedupeMarkupPoints(pipe.points) : [];
+    if (!pipe || routePoints.length < 2) {
       setError("Tap at least two points before finishing the pipe route.");
       return;
     }
@@ -2679,7 +2679,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
       colour: activeMarkupPipeTool.colour,
-      points: snappedPoints,
+      points: routePoints,
       floor: normaliseMarkupFloorValue(pipe.floor),
       flat: normaliseMarkupFlatValue(pipe.flat) || undefined,
     };
@@ -4148,7 +4148,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </button>
                       <button
                         className="takeoff-small-button"
-                        disabled={markupCalibrationPoints.length < 2}
+                        disabled={!hasCompleteMarkupCalibration}
                         type="button"
                         onClick={applyMarkupCalibration}
                       >
@@ -4167,7 +4167,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </label>
                       <span>
                         {markupToolMode === "calibrate"
-                          ? `Click two ends of a known dimension on the plan. ${markupCalibrationPoints.length}/2 points selected.`
+                          ? `Set point 1 and point 2 on a known dimension. ${markupCalibrationPickedCount}/2 points selected.`
                           : markupSelectedDrawing
                             ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
                             : "Upload a drawing to use as the locked background."}
@@ -4358,7 +4358,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </strong>
                           <small>
                             {markupToolMode === "calibrate"
-                              ? `${markupCalibrationPoints.length}/2 calibration points - ${markupCalibrationPixelLength ? `${markupCalibrationPixelLength.toFixed(0)} px` : "pick a known measurement"}`
+                              ? `${markupCalibrationPickedCount}/2 calibration points - ${markupCalibrationPixelLength ? `${markupCalibrationPixelLength.toFixed(0)} px` : "pick a known measurement"}`
                               : markupToolMode === "pan"
                                 ? `${markupZoomLabel} zoom - use + / - or pinch-style trackpad zoom`
                               : markupDraftPipe
@@ -4390,7 +4390,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <button
                             className="takeoff-small-button"
                             type="button"
-                            disabled={markupToolMode !== "calibrate" || markupCalibrationPoints.length < 2}
+                            disabled={markupToolMode !== "calibrate" || !hasCompleteMarkupCalibration}
                             onClick={applyMarkupCalibration}
                           >
                             Apply calibration
@@ -4416,7 +4416,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             onTouchStart={(event) => event.stopPropagation()}
                           >
                             <strong>Calibrate drawing</strong>
-                            <span>Enter the known length, then tap each end of that measurement on the plan.</span>
+                            <span>Tap Set point 1, tap the drawing, then tap Set point 2 and tap the drawing.</span>
                             <label>
                               Known length
                               <div>
@@ -4439,19 +4439,18 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               ))}
                             </div>
                             <div className="takeoff-calibration-status">
-                              <span>{markupCalibrationPoints.length}/2 points picked</span>
+                              <span>{markupCalibrationPickedCount}/2 points picked</span>
                               {markupCalibrationPixelLength ? <span>{markupCalibrationPixelLength.toFixed(0)} px</span> : null}
                             </div>
                             <div className="takeoff-calibration-point-picker" aria-label="Calibration point selector">
                               {[0, 1].map((pointIndex) => (
                                 <button
                                   className={activeMarkupCalibrationPointIndex === pointIndex ? "active" : ""}
-                                  disabled={!markupCalibrationPoints[pointIndex]}
                                   type="button"
                                   key={pointIndex}
                                   onClick={() => setActiveMarkupCalibrationPointIndex(pointIndex)}
                                 >
-                                  Point {pointIndex + 1}
+                                  Set point {pointIndex + 1}
                                 </button>
                               ))}
                               <button
@@ -4485,7 +4484,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               </button>
                               <button
                                 className="primary"
-                                disabled={markupCalibrationPoints.length < 2}
+                                disabled={!hasCompleteMarkupCalibration}
                                 type="button"
                                 onClick={applyMarkupCalibration}
                               >
@@ -4572,32 +4571,34 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {servicesMarkup.calibration.status} {servicesMarkup.calibration.scaleLabel ? `- ${servicesMarkup.calibration.scaleLabel}` : ""}
                         </text>
 
-                        {markupCalibrationPoints.length ? (
+                        {markupCalibrationPickedCount ? (
                           <g className="markup-calibration">
-                            {markupCalibrationPoints.length === 2 && markupCalibrationPoints[0] && markupCalibrationPoints[1] ? (
+                            {markupCalibrationPointOne && markupCalibrationPointTwo ? (
                               <>
                                 <line
-                                  x1={markupCalibrationPoints[0].x}
-                                  y1={markupCalibrationPoints[0].y}
-                                  x2={markupCalibrationPoints[1].x}
-                                  y2={markupCalibrationPoints[1].y}
+                                  x1={markupCalibrationPointOne.x}
+                                  y1={markupCalibrationPointOne.y}
+                                  x2={markupCalibrationPointTwo.x}
+                                  y2={markupCalibrationPointTwo.y}
                                   vectorEffect="non-scaling-stroke"
                                 />
                                 <text
-                                  x={(markupCalibrationPoints[0].x + markupCalibrationPoints[1].x) / 2}
-                                  y={(markupCalibrationPoints[0].y + markupCalibrationPoints[1].y) / 2 - 12}
+                                  x={(markupCalibrationPointOne.x + markupCalibrationPointTwo.x) / 2}
+                                  y={(markupCalibrationPointOne.y + markupCalibrationPointTwo.y) / 2 - 12}
                                 >
                                   {markupCalibrationDistance || "?"}m reference
                                 </text>
                               </>
                             ) : null}
-                            {markupCalibrationPoints.map((point, index) => (
-                              <g transform={`translate(${point.x} ${point.y})`} key={`calibration-${index}`}>
-                                <g transform={`scale(${calibrationMarkerScale})`}>
-                                  <circle className={activeMarkupCalibrationPointIndex === index ? "active" : ""} r="8" />
-                                  <text y="4">{index + 1}</text>
+                            {[markupCalibrationPointOne, markupCalibrationPointTwo].map((point, index) => (
+                              point ? (
+                                <g transform={`translate(${point.x} ${point.y})`} key={`calibration-${index}`}>
+                                  <g transform={`scale(${calibrationMarkerScale})`}>
+                                    <circle className={activeMarkupCalibrationPointIndex === index ? "active" : ""} r="8" />
+                                    <text y="4">{index + 1}</text>
+                                  </g>
                                 </g>
-                              </g>
+                              ) : null
                             ))}
                           </g>
                         ) : null}
