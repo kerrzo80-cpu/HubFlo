@@ -1855,6 +1855,12 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
+  const markupDocumentTransformStyle = useMemo<CSSProperties>(() => ({
+    height: `${markupViewport.zoom * 100}%`,
+    transform: `translate(${-(markupViewport.x / markupCanvasWidth) * 100}%, ${-(markupViewport.y / markupCanvasHeight) * 100}%)`,
+    transformOrigin: "top left",
+    width: `${markupViewport.zoom * 100}%`,
+  }), [markupViewport.x, markupViewport.y, markupViewport.zoom]);
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
     [selectedProject],
@@ -2220,6 +2226,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleMarkupPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType === "touch") return;
     if (markupToolMode === "pan") {
       event.preventDefault();
       captureMarkupPointer(event.currentTarget, event.pointerId);
@@ -2263,6 +2270,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleMarkupPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType === "touch") return;
     if (markupToolMode === "pipe" && markupPointerDrawRef.current?.pointerId === event.pointerId) {
       event.preventDefault();
       const point = markupCanvasPoint(event);
@@ -2284,6 +2292,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleMarkupPointerUp(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.pointerType === "touch") return;
     if (markupPointerDrawRef.current?.pointerId === event.pointerId) {
       markupPointerDrawRef.current = null;
       suppressMarkupCanvasClickRef.current = true;
@@ -2319,13 +2328,29 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleMarkupTouchStart(event: ReactTouchEvent<SVGSVGElement>) {
-    if (markupPointerDrawRef.current || markupPanStart) return;
     const first = event.touches.item(0);
     if (!first) return;
 
     const bounds = event.currentTarget.getBoundingClientRect();
     const second = event.touches.item(1);
     const metrics = touchMetrics(event.touches);
+
+    if (second && metrics) {
+      event.preventDefault();
+      markupTouchDrawRef.current = null;
+      markupPointerDrawRef.current = null;
+      setMarkupDraftPipeState(null);
+      setMarkupTouchPanStart(null);
+      setMarkupTouchGesture({
+        distance: metrics.distance,
+        zoom: markupViewport.zoom,
+        worldX: markupViewport.x + ((metrics.centerX - bounds.left) * (markupViewport.width / Math.max(1, bounds.width))),
+        worldY: markupViewport.y + ((metrics.centerY - bounds.top) * (markupViewport.height / Math.max(1, bounds.height))),
+      });
+      return;
+    }
+
+    if (markupPointerDrawRef.current || markupPanStart) return;
 
     if (!second || !metrics) {
       setMarkupTouchGesture(null);
@@ -2390,6 +2415,23 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupTouchMove(event: ReactTouchEvent<SVGSVGElement>) {
     if (markupPointerDrawRef.current || markupPanStart) return;
+    if (markupTouchGesture && event.touches.length >= 2) {
+      const metrics = touchMetrics(event.touches);
+      if (!metrics || markupTouchGesture.distance <= 0) return;
+      event.preventDefault();
+      const nextZoom = Math.min(5, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
+      const bounds = event.currentTarget.getBoundingClientRect();
+      const width = markupCanvasWidth / nextZoom;
+      const height = markupCanvasHeight / nextZoom;
+      setMarkupZoom(nextZoom);
+      setMarkupPan(clampMarkupPan(
+        markupTouchGesture.worldX - ((metrics.centerX - bounds.left) * (width / Math.max(1, bounds.width))),
+        markupTouchGesture.worldY - ((metrics.centerY - bounds.top) * (height / Math.max(1, bounds.height))),
+        nextZoom,
+      ));
+      return;
+    }
+
     if (markupTouchDrawRef.current) {
       event.preventDefault();
       const activeTouch = event.touches.item(0);
@@ -4294,6 +4336,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             Fit
                           </button>
                           <button
+                            className={markupToolMode === "calibrate" ? "takeoff-small-button active" : "takeoff-small-button"}
+                            type="button"
+                            onClick={startMarkupCalibration}
+                          >
+                            <Ruler size={14} />
+                            Calibrate
+                          </button>
+                          <button
                             className="takeoff-small-button"
                             type="button"
                             disabled={markupToolMode !== "calibrate" || markupCalibrationPoints.length < 2}
@@ -4329,6 +4379,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               markupDrawingIsPdf ? "pdf" : "",
                               markupDrawingIsImage ? "image" : "",
                             ].filter(Boolean).join(" ")}
+                            style={markupDocumentTransformStyle}
                           >
                             {markupDrawingIsPdf ? (
                               <PdfPlanPreview

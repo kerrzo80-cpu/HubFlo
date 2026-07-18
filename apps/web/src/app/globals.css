@@ -30399,3 +30399,67 @@ body {
     margin: 0 !important;
   }
 }
+
+/* iPad takeoff canvas final interaction pass.
+   Keep the uploaded plan and SVG markup in the same visual zoom state,
+   then keep the working controls off the drawing surface. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer {
+  left: 0 !important;
+  margin: 0 !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  top: 0 !important;
+  will-change: transform, width, height !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer img,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer iframe,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pdf-preview,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pdf-preview canvas {
+  height: 100% !important;
+  object-fit: fill !important;
+  width: 100% !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header {
+  bottom: auto !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  max-width: min(640px, calc(100vw - 92px)) !important;
+  padding: 4px !important;
+  position: fixed !important;
+  right: auto !important;
+  top: calc(100dvh - max(52px, calc(env(safe-area-inset-bottom) + 48px))) !important;
+  transform: none !important;
+  z-index: 1800 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header > div {
+  max-width: min(628px, calc(100vw - 104px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button {
+  border-radius: 7px !important;
+  min-height: 28px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe {
+  filter: drop-shadow(0 1px 2px rgba(9, 45, 66, 0.28)) !important;
+  stroke-width: 8 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe-hit {
+  stroke-width: 30 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.draft {
+  opacity: 0.95 !important;
+  stroke-width: 7 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-route-label {
+  paint-order: stroke !important;
+  stroke: rgba(255, 255, 255, 0.95) !important;
+  stroke-width: 4 !important;
+}
