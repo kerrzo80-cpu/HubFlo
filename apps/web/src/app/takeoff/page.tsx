@@ -243,7 +243,7 @@ const markupToolGroups: Array<{
     serviceIds: ["Heating flow", "Heating return", "UFH"],
     pipeToolIds: ["cu-15", "cu-22", "cu-28", "cu-35", "hep-15", "hep-22", "hep-28", "hep-35", "ufh-16"],
     symbolKeywords: ["elbow", "bend", "tee", "coupling", "reducer", "union", "air vent", "trv", "lockshield", "radiator", "zone", "motorised", "pump", "bypass", "balancing", "relief", "expansion", "drain cock"],
-    plantKeywords: ["boiler", "radiator", "cylinder", "ufh", "manifold", "pump", "vessel", "thermostat", "sensor", "heat", "flue"],
+    plantKeywords: ["boiler", "radiator", "cylinder", "ufh", "manifold", "pump", "vessel", "thermostat", "sensor", "heat", "flue", "tank", "valve", "separator", "isolator", "controller"],
   },
   {
     id: "hot-cold",
@@ -1648,6 +1648,8 @@ export default function TakeoffPage() {
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
   const markupCalibrationPointerRef = useRef<{ pointerId: number; start: MarkupCanvasPoint } | null>(null);
   const markupCalibrationTouchRef = useRef<{ touchId: number; start: MarkupCanvasPoint } | null>(null);
+  const markupViewFrameRef = useRef<number | null>(null);
+  const pendingMarkupViewRef = useRef<{ zoom?: number; pan?: { x: number; y: number } } | null>(null);
   const suppressMarkupCanvasClickRef = useRef(false);
   const lastMarkupCanvasInputAtRef = useRef(0);
 
@@ -1660,6 +1662,12 @@ export default function TakeoffPage() {
     if (activeTab !== "markup") return;
     setIsMarkupMaterialsCollapsed(false);
   }, [activeTab, selectedProject?.id]);
+
+  useEffect(() => () => {
+    if (markupViewFrameRef.current !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(markupViewFrameRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     markupDraftPipeRef.current = markupDraftPipe;
@@ -2234,15 +2242,6 @@ const filteredMarkupPlantTools = useMemo(() => {
   }, [selectedProject?.id, selectedProject?.servicesMarkup?.updatedAt]);
 
   useEffect(() => {
-    if (!optimisticMarkupPipes.length) return;
-    const savedPipeIds = new Set(servicesMarkup.pipes.map((pipe) => pipe.id));
-    setOptimisticMarkupPipes((current) => {
-      const next = current.filter((pipe) => !savedPipeIds.has(pipe.id));
-      return next.length === current.length ? current : next;
-    });
-  }, [optimisticMarkupPipes.length, servicesMarkup.pipes]);
-
-  useEffect(() => {
     if (!selectedProject || (!servicesMarkup.pipes.length && !servicesMarkup.symbols.length)) return;
     const quantityPatch = buildMarkupQuantityPatch(servicesMarkup, selectedProject);
     const currentMaterials = selectedProject.materialAllowances.filter((line) => (
@@ -2379,6 +2378,32 @@ const filteredMarkupPlantTools = useMemo(() => {
   function resetMarkupView() {
     setMarkupZoom(1);
     setMarkupPan({ x: 0, y: 0 });
+  }
+
+  function scheduleMarkupViewUpdate(nextView: { zoom?: number; pan?: { x: number; y: number } }) {
+    pendingMarkupViewRef.current = {
+      ...(pendingMarkupViewRef.current ?? {}),
+      ...nextView,
+    };
+
+    if (markupViewFrameRef.current !== null) return;
+
+    if (typeof window === "undefined") {
+      const pending = pendingMarkupViewRef.current;
+      pendingMarkupViewRef.current = null;
+      if (pending?.zoom !== undefined) setMarkupZoom(pending.zoom);
+      if (pending?.pan) setMarkupPan(pending.pan);
+      return;
+    }
+
+    markupViewFrameRef.current = window.requestAnimationFrame(() => {
+      const pending = pendingMarkupViewRef.current;
+      pendingMarkupViewRef.current = null;
+      markupViewFrameRef.current = null;
+      if (!pending) return;
+      if (pending.zoom !== undefined) setMarkupZoom(pending.zoom);
+      if (pending.pan) setMarkupPan(pending.pan);
+    });
   }
 
   function resolveMarkupCanvas(currentTarget?: SVGSVGElement | null) {
@@ -2555,7 +2580,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const scaleY = markupViewport.height / Math.max(1, bounds.height);
     const deltaX = (event.clientX - markupPanStart.clientX) * scaleX;
     const deltaY = (event.clientY - markupPanStart.clientY) * scaleY;
-    setMarkupPan(clampMarkupPan(markupPanStart.panX - deltaX, markupPanStart.panY - deltaY));
+    scheduleMarkupViewUpdate({ pan: clampMarkupPan(markupPanStart.panX - deltaX, markupPanStart.panY - deltaY) });
   }
 
   function handleMarkupPointerUp(event: ReactPointerEvent<SVGSVGElement>) {
@@ -2711,12 +2736,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const bounds = event.currentTarget.getBoundingClientRect();
       const width = markupCanvasWidth / nextZoom;
       const height = markupCanvasHeight / nextZoom;
-      setMarkupZoom(nextZoom);
-      setMarkupPan(clampMarkupPan(
+      scheduleMarkupViewUpdate({
+        zoom: nextZoom,
+        pan: clampMarkupPan(
         markupTouchGesture.worldX - ((metrics.centerX - bounds.left) * (width / Math.max(1, bounds.width))),
         markupTouchGesture.worldY - ((metrics.centerY - bounds.top) * (height / Math.max(1, bounds.height))),
         nextZoom,
-      ));
+        ),
+      });
       return;
     }
 
@@ -2742,18 +2769,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         const nextZoom = Math.min(6, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
         const width = markupCanvasWidth / nextZoom;
         const height = markupCanvasHeight / nextZoom;
-        setMarkupZoom(nextZoom);
-        setMarkupPan(clampMarkupPan(
+        scheduleMarkupViewUpdate({
+          zoom: nextZoom,
+          pan: clampMarkupPan(
           markupTouchGesture.worldX - ((metrics.centerX - bounds.left) * (width / Math.max(1, bounds.width))),
           markupTouchGesture.worldY - ((metrics.centerY - bounds.top) * (height / Math.max(1, bounds.height))),
           nextZoom,
-        ));
+          ),
+        });
         return;
       }
 
       const deltaX = (touch.clientX - markupTouchPanStart.clientX) * (markupViewport.width / Math.max(1, event.currentTarget.getBoundingClientRect().width));
       const deltaY = (touch.clientY - markupTouchPanStart.clientY) * (markupViewport.height / Math.max(1, event.currentTarget.getBoundingClientRect().height));
-      setMarkupPan(clampMarkupPan(markupTouchPanStart.panX - deltaX, markupTouchPanStart.panY - deltaY));
+      scheduleMarkupViewUpdate({ pan: clampMarkupPan(markupTouchPanStart.panX - deltaX, markupTouchPanStart.panY - deltaY) });
       return;
     }
 
@@ -2765,12 +2794,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const bounds = event.currentTarget.getBoundingClientRect();
     const width = markupCanvasWidth / nextZoom;
     const height = markupCanvasHeight / nextZoom;
-    setMarkupZoom(nextZoom);
-    setMarkupPan(clampMarkupPan(
+    scheduleMarkupViewUpdate({
+      zoom: nextZoom,
+      pan: clampMarkupPan(
       markupTouchGesture.worldX - ((metrics.centerX - bounds.left) * (width / Math.max(1, bounds.width))),
       markupTouchGesture.worldY - ((metrics.centerY - bounds.top) * (height / Math.max(1, bounds.height))),
       nextZoom,
-    ));
+      ),
+    });
   }
 
   function handleMarkupTouchEnd(event: ReactTouchEvent<SVGSVGElement>) {
@@ -2919,7 +2950,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function finishMarkupRoute(pipe = markupDraftPipeRef.current ?? markupDraftPipe) {
-    const routePoints = pipe ? dedupeMarkupPoints(pipe.points) : [];
+    const routePoints = pipe ? snapMarkupPipePoints(pipe.points) : [];
     if (!pipe || routePoints.length < 2) {
       setError("Tap at least two points before finishing the pipe route.");
       return;
@@ -2934,6 +2965,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       points: routePoints,
       floor: normaliseMarkupFloorValue(pipe.floor),
       flat: normaliseMarkupFlatValue(pipe.flat) || undefined,
+      drawingDocumentId: pipe.drawingDocumentId ?? activeMarkupDrawingId,
     };
     setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== completedPipe.id), completedPipe]);
     updateServicesMarkup((current) => ({
@@ -4276,6 +4308,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </button>
                       <button type="button" onClick={() => setActiveTab("boq")}>
                         Quantities
+                      </button>
+                      <button type="button" onClick={saveMarkedDrawingForEngineers}>
+                        <FileText size={13} />
+                        Save drawing
                       </button>
                     </nav>
                     <nav className="takeoff-markup-actions">
