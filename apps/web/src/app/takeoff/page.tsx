@@ -35,6 +35,7 @@ import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
 import type {
   TakeoffDocumentKind,
+  TakeoffDocument,
   TakeoffLabourAllowance,
   TakeoffMarkupPipe,
   TakeoffMarkupService,
@@ -58,7 +59,7 @@ import type {
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
 type MarkupCanvasPoint = { x: number; y: number };
-type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "plant";
+type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "valves" | "plant";
 
 type NewProjectDraft = {
   name: string;
@@ -218,6 +219,7 @@ const markupPipeTools = [
   { id: "hep-15", label: "15mm Hep2O", material: "Hep2O", diameter: "15mm", colour: "#1677d2" },
   { id: "hep-22", label: "22mm Hep2O", material: "Hep2O", diameter: "22mm", colour: "#007f8f" },
   { id: "hep-28", label: "28mm Hep2O", material: "Hep2O", diameter: "28mm", colour: "#18845c" },
+  { id: "hep-35", label: "35mm Hep2O", material: "Hep2O", diameter: "35mm", colour: "#0d5b56" },
   { id: "ufh-16", label: "16mm UFH", material: "UFH pipe", diameter: "16mm", colour: "#35a853" },
   { id: "waste-32", label: "32mm waste", material: "Waste pipe", diameter: "32mm", colour: "#8a5a32" },
   { id: "waste-40", label: "40mm waste", material: "Waste pipe", diameter: "40mm", colour: "#6f472b" },
@@ -226,39 +228,225 @@ const markupPipeTools = [
   { id: "gas", label: "Gas pipework", material: "Gas pipework", diameter: "TBC", colour: "#d2a400" },
 ];
 
+const markupSymbolPaletteColours: Record<TakeoffMarkupSymbolCategory, string> = {
+  Fitting: "#1f6bba",
+  Valve: "#bf4f14",
+  Plant: "#228c63",
+};
+
+const markupSymbolKindColour = (kind: TakeoffMarkupSymbolKind, category: TakeoffMarkupSymbolCategory) => {
+  const normalised = kind.toLowerCase();
+  if (category === "Plant") return markupSymbolPaletteColours.Plant;
+  if (category === "Valve") return markupSymbolPaletteColours.Valve;
+
+  if (normalised.includes("elbow") || normalised.includes("wye") || normalised.includes("tee") || normalised.includes("union")) {
+    return "#0c6ca8";
+  }
+  if (normalised.includes("trap") || normalised.includes("bend") || normalised.includes("flange")) {
+    return "#4a3fb0";
+  }
+  return markupSymbolPaletteColours.Fitting;
+};
+
 const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: TakeoffMarkupSymbolCategory }> = [
+  { kind: "22.5 degree elbow", category: "Fitting" },
+  { kind: "30 degree elbow", category: "Fitting" },
+  { kind: "45 degree elbow", category: "Fitting" },
   { kind: "45 elbow", category: "Fitting" },
+  { kind: "45 degree compression bend", category: "Fitting" },
+  { kind: "45 degree street elbow", category: "Fitting" },
   { kind: "90 elbow", category: "Fitting" },
-  { kind: "Tee", category: "Fitting" },
+  { kind: "90 degree elbow", category: "Fitting" },
+  { kind: "90 degree street elbow", category: "Fitting" },
+  { kind: "Elbow adapter", category: "Fitting" },
+  { kind: "Elbow connector", category: "Fitting" },
+  { kind: "Wye", category: "Fitting" },
+  { kind: "Y-branch", category: "Fitting" },
+  { kind: "Reducer bush", category: "Fitting" },
+  { kind: "Reducer coupling", category: "Fitting" },
+  { kind: "Push-fit elbow", category: "Fitting" },
+  { kind: "Long sweep bend", category: "Fitting" },
+  { kind: "Bend", category: "Fitting" },
+  { kind: "P-trap", category: "Fitting" },
+  { kind: "S-trap", category: "Fitting" },
+  { kind: "Flange", category: "Fitting" },
+  { kind: "Flange coupling", category: "Fitting" },
   { kind: "Reducer", category: "Fitting" },
-  { kind: "Stop valve", category: "Valve" },
-  { kind: "Isolation valve", category: "Valve" },
-  { kind: "TRV", category: "Valve" },
-  { kind: "Lockshield", category: "Valve" },
+  { kind: "T-piece", category: "Fitting" },
+  { kind: "Tee", category: "Fitting" },
+  { kind: "Branch tee", category: "Fitting" },
+  { kind: "Reducing tee", category: "Fitting" },
+  { kind: "Double Tee", category: "Fitting" },
+  { kind: "Tee reducer", category: "Fitting" },
+  { kind: "Cross", category: "Fitting" },
+  { kind: "Cap / blind end", category: "Fitting" },
+  { kind: "End cap", category: "Fitting" },
+  { kind: "Sweating cap", category: "Fitting" },
+  { kind: "Soldered coupling", category: "Fitting" },
+  { kind: "Compression coupling", category: "Fitting" },
+  { kind: "Compression sleeve", category: "Fitting" },
+  { kind: "Push-fit coupling", category: "Fitting" },
+  { kind: "Straight coupling", category: "Fitting" },
+  { kind: "Flexible coupling", category: "Fitting" },
+  { kind: "Union coupling", category: "Fitting" },
+  { kind: "Union", category: "Fitting" },
+  { kind: "Coupling", category: "Fitting" },
+  { kind: "Female coupling", category: "Fitting" },
+  { kind: "Male coupling", category: "Fitting" },
+  { kind: "Air vent", category: "Fitting" },
+  { kind: "Air vent valve", category: "Valve" },
+  { kind: "Anti-scald valve", category: "Valve" },
+  { kind: "Automatic pressure reducing valve", category: "Valve" },
+  { kind: "Angle stop", category: "Valve" },
+  { kind: "Angle stop valve", category: "Valve" },
+  { kind: "Angle valve", category: "Valve" },
+  { kind: "Automatic shut-off valve", category: "Valve" },
+  { kind: "Automatic vacuum valve", category: "Valve" },
+  { kind: "Balancing valve", category: "Valve" },
+  { kind: "Basin valve", category: "Valve" },
+  { kind: "Backflow preventer", category: "Valve" },
+  { kind: "Backflow preventer valve", category: "Valve" },
+  { kind: "Balance valve", category: "Valve" },
+  { kind: "Bypass valve", category: "Valve" },
+  { kind: "Ball valve", category: "Valve" },
+  { kind: "Boiler stop valve", category: "Valve" },
+  { kind: "Cartridge stopcock", category: "Valve" },
+  { kind: "Check / non-return valve", category: "Valve" },
+  { kind: "Concealed stopcock", category: "Valve" },
+  { kind: "Check valve", category: "Valve" },
+  { kind: "Double-seat valve", category: "Valve" },
+  { kind: "Diverter valve", category: "Valve" },
   { kind: "Drain cock", category: "Valve" },
+  { kind: "Flue gas valve", category: "Valve" },
+  { kind: "Fitted stopcock", category: "Valve" },
+  { kind: "Fill and expansion valve", category: "Valve" },
+  { kind: "Fill valve", category: "Valve" },
+  { kind: "Float switch valve", category: "Valve" },
+  { kind: "Float valve", category: "Valve" },
+  { kind: "Full bore valve", category: "Valve" },
+  { kind: "Globe valve", category: "Valve" },
+  { kind: "Gate cock", category: "Valve" },
+  { kind: "Gate valve", category: "Valve" },
+  { kind: "General isolation valve", category: "Valve" },
+  { kind: "Gravity valve", category: "Valve" },
+  { kind: "Heat exchanger bypass valve", category: "Valve" },
+  { kind: "Hearth safety valve", category: "Valve" },
+  { kind: "Isolation valve", category: "Valve" },
+  { kind: "Lever ball valve", category: "Valve" },
+  { kind: "Lockshield", category: "Valve" },
+  { kind: "Lockshield radiator valve", category: "Valve" },
+  { kind: "Mechanical pressure reducing valve", category: "Valve" },
+  { kind: "Main isolation valve", category: "Valve" },
+  { kind: "Manual override valve", category: "Valve" },
+  { kind: "Mixing valve", category: "Valve" },
+  { kind: "Motorised 2-port valve", category: "Valve" },
+  { kind: "Motorised 3-port valve", category: "Valve" },
+  { kind: "Pump valve", category: "Valve" },
+  { kind: "Pressure reducing valve", category: "Valve" },
+  { kind: "Pressure relief valve", category: "Valve" },
+  { kind: "Radiator valve pair", category: "Valve" },
+  { kind: "Relief valve", category: "Valve" },
+  { kind: "Safety valve", category: "Valve" },
+  { kind: "Service valve", category: "Valve" },
+  { kind: "Sector gate valve", category: "Valve" },
+  { kind: "Shunt valve", category: "Valve" },
+  { kind: "Shut-off valve", category: "Valve" },
+  { kind: "Shutoff valve", category: "Valve" },
+  { kind: "Shut off and drain cock", category: "Valve" },
+  { kind: "Solenoid isolation valve", category: "Valve" },
+  { kind: "Sluice valve", category: "Valve" },
+  { kind: "Solenoid shut-off valve", category: "Valve" },
+  { kind: "Solenoid valve", category: "Valve" },
+  { kind: "Stop valve", category: "Valve" },
+  { kind: "Stopcock", category: "Valve" },
+  { kind: "Stopcock ball valve", category: "Valve" },
+  { kind: "Temperature and pressure relief valve", category: "Valve" },
+  { kind: "Thermostatic zone valve", category: "Valve" },
+  { kind: "Thermostatic mixing valve", category: "Valve" },
+  { kind: "Thermostatic expansion valve", category: "Valve" },
+  { kind: "TRV", category: "Valve" },
+  { kind: "Zone bypass valve", category: "Valve" },
+  { kind: "Zone pump valve", category: "Valve" },
+  { kind: "Thermostatic radiator valve", category: "Valve" },
+  { kind: "Zone control valve", category: "Valve" },
+  { kind: "Zone valve", category: "Valve" },
+  { kind: "Air admittance valve", category: "Valve" },
+  { kind: "Automatic refill valve", category: "Valve" },
+  { kind: "Non-return valve", category: "Valve" },
+  { kind: "Vacuum breaker", category: "Valve" },
+  { kind: "Vacuum pressure reducing valve", category: "Valve" },
+  { kind: "Zone balancing valve", category: "Valve" },
+  { kind: "Double check valve", category: "Valve" },
+  { kind: "Pressure test valve", category: "Valve" },
+  { kind: "Discharge valve", category: "Valve" },
+  { kind: "Spillover valve", category: "Valve" },
 ];
 
 const markupPlantTools: Array<{ kind: TakeoffMarkupSymbolKind; category: TakeoffMarkupSymbolCategory }> = [
   { kind: "Gas boiler", category: "Plant" },
   { kind: "Combi boiler", category: "Plant" },
   { kind: "System boiler", category: "Plant" },
+  { kind: "Storage cylinder", category: "Plant" },
   { kind: "Cylinder", category: "Plant" },
   { kind: "Radiator", category: "Plant" },
   { kind: "Towel radiator", category: "Plant" },
+  { kind: "Convector heater", category: "Plant" },
+  { kind: "Hydraulic separator", category: "Plant" },
   { kind: "WC", category: "Plant" },
   { kind: "Basin", category: "Plant" },
   { kind: "Bath", category: "Plant" },
   { kind: "Shower tray", category: "Plant" },
+  { kind: "Shower mixer", category: "Plant" },
   { kind: "Shower valve", category: "Plant" },
+  { kind: "Shower pump", category: "Plant" },
+  { kind: "Tap", category: "Plant" },
+  { kind: "Mixer tap", category: "Plant" },
   { kind: "Kitchen sink", category: "Plant" },
+  { kind: "Wash basin tap", category: "Plant" },
   { kind: "ASHP", category: "Plant" },
   { kind: "UFH manifold", category: "Plant" },
   { kind: "Pump", category: "Plant" },
   { kind: "Expansion vessel", category: "Plant" },
+  { kind: "Pressure vessel", category: "Plant" },
   { kind: "Gas meter", category: "Plant" },
   { kind: "Water main", category: "Plant" },
   { kind: "Soil stack", category: "Plant" },
   { kind: "Tundish", category: "Plant" },
+  { kind: "Expansion tank", category: "Plant" },
+  { kind: "Manifold", category: "Plant" },
+  { kind: "Radiator panel", category: "Plant" },
+  { kind: "Cylinder thermostat", category: "Plant" },
+  { kind: "Pipe diverter", category: "Plant" },
+  { kind: "Boiler flue", category: "Plant" },
+  { kind: "Flow temperature sensor", category: "Plant" },
+  { kind: "Return temperature sensor", category: "Plant" },
+  { kind: "Floor sensor", category: "Plant" },
+  { kind: "Outdoor sensor", category: "Plant" },
+  { kind: "Room thermostat", category: "Plant" },
+  { kind: "Weather sensor", category: "Plant" },
+  { kind: "Flow switch", category: "Plant" },
+  { kind: "Pump controller", category: "Plant" },
+  { kind: "Pressure switch", category: "Plant" },
+  { kind: "Electrical isolator", category: "Plant" },
+  { kind: "Toilet", category: "Plant" },
+  { kind: "Toilet cistern", category: "Plant" },
+  { kind: "Bidet", category: "Plant" },
+  { kind: "Shower head", category: "Plant" },
+  { kind: "Shower panel", category: "Plant" },
+  { kind: "Bath mixer", category: "Plant" },
+  { kind: "Waste trap", category: "Plant" },
+  { kind: "Waste receptor", category: "Plant" },
+  { kind: "Drain valve", category: "Plant" },
+  { kind: "Fume extractor", category: "Plant" },
+  { kind: "Power flush pump", category: "Plant" },
+  { kind: "Rainwater tank", category: "Plant" },
+  { kind: "Water tank", category: "Plant" },
+  { kind: "Boiler pump", category: "Plant" },
+  { kind: "Heating valve", category: "Plant" },
+  { kind: "Pipe lagging", category: "Plant" },
+  { kind: "Pipe insulation", category: "Plant" },
+  { kind: "Hot water cylinder", category: "Plant" },
+  { kind: "Indirect cylinder", category: "Plant" },
 ];
 
 const gbp = new Intl.NumberFormat("en-GB", {
@@ -295,9 +483,9 @@ function createDefaultServicesMarkup(): TakeoffServicesMarkup {
   return {
     calibration: {
       status: "Uncalibrated",
-      pixelsPerMetre: 70,
-      realLengthM: 5,
-      scaleLabel: "Manual",
+      pixelsPerMetre: undefined,
+      realLengthM: undefined,
+      scaleLabel: "Not calibrated",
     },
     settings: {
       wastagePercent: 10,
@@ -311,6 +499,46 @@ function createDefaultServicesMarkup(): TakeoffServicesMarkup {
       "Fittings are counted as placed items; corners are not automatically converted into fittings until approved.",
     ],
   };
+}
+
+function normaliseMarkupText(value?: string) {
+  return (value ?? "").trim().replace(/\s+/g, " ");
+}
+
+function normaliseMarkupFlatValue(value?: string) {
+  const cleaned = normaliseMarkupText(value);
+  return cleaned ? cleaned : "";
+}
+
+function normaliseMarkupFloorValue(value?: string, { defaultGround = true } = {}) {
+  const cleaned = normaliseMarkupText(value).toLowerCase();
+  if (!cleaned) return defaultGround ? "Ground floor" : "";
+
+  const floorValue = cleaned
+    .replace(/(st|nd|rd|th)\s*floor$/i, "")
+    .replace(/^\s*(floor|fl)\s*/i, "")
+    .replace(/\s*fl\s*$/i, "")
+    .replace(/\s+floor$/i, "")
+    .trim();
+
+  if (["ground", "ground floor", "gr", "g", "gnd", "level 0", "0"].includes(floorValue)) {
+    return "Ground floor";
+  }
+  if (["first", "first floor", "1st", "level 1", "1"].includes(floorValue)) {
+    return "First floor";
+  }
+  if (["second", "second floor", "2nd", "level 2", "2"].includes(floorValue)) {
+    return "Second floor";
+  }
+  if (["third", "third floor", "3rd", "level 3", "3"].includes(floorValue)) {
+    return "Third floor";
+  }
+
+  return floorValue
+    .split(" ")
+    .filter(Boolean)
+    .map((item) => item[0]?.toUpperCase() ? `${item[0].toUpperCase()}${item.slice(1)}` : item)
+    .join(" ");
 }
 
 function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffServicesMarkup {
@@ -328,9 +556,17 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
     },
     pipes: (markup?.pipes ?? fallback.pipes).map((pipe) => ({
       ...pipe,
+      floor: normaliseMarkupFloorValue(pipe.floor),
+      flat: normaliseMarkupFlatValue(pipe.flat),
+      drawingDocumentId: pipe.drawingDocumentId ?? markup?.drawingDocumentId,
       colour: markupPipeColour(pipe.material, pipe.diameter, pipe.service),
     })),
-    symbols: markup?.symbols ?? fallback.symbols,
+    symbols: (markup?.symbols ?? fallback.symbols).map((symbol) => ({
+      ...symbol,
+      floor: normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }),
+      flat: normaliseMarkupFlatValue(symbol.flat),
+      drawingDocumentId: symbol.drawingDocumentId ?? markup?.drawingDocumentId,
+    })),
     assumptions: markup?.assumptions ?? fallback.assumptions,
   };
 }
@@ -346,6 +582,132 @@ function markupPipeColour(material: string, diameter: string, service: TakeoffMa
   ))?.colour ?? markupServiceColour(service);
 }
 
+function markupContextLabel(
+  markup: { drawingDocumentId?: string; floor?: string; flat?: string },
+  documents: TakeoffDocument[],
+  options: { showDrawing: boolean } = { showDrawing: false },
+) {
+  const drawingName = markup.drawingDocumentId
+    ? documents.find((document) => document.id === markup.drawingDocumentId)?.fileName
+    : undefined;
+  const normalizedFloor = normaliseMarkupFloorValue(markup.floor, { defaultGround: false });
+  const normalizedFlat = normaliseMarkupFlatValue(markup.flat);
+  const parts = [normalizedFloor, normalizedFlat].filter(Boolean);
+
+  if (options.showDrawing && drawingName) {
+    const compactDrawingName = drawingName.replace(/\.[^/.]+$/, "");
+    if (parts.length) return `${compactDrawingName}: ${parts.join(" / ")}`;
+    return compactDrawingName;
+  }
+
+  return parts.length ? parts.join(" / ") : "Unassigned";
+}
+
+function markupSectionLocationLabel(
+  markup: { drawingDocumentId?: string; floor?: string; flat?: string },
+  documents: TakeoffDocument[],
+  options: { showDrawing: boolean } = { showDrawing: false },
+) {
+  const normalizedFloor = normaliseMarkupFloorValue(markup.floor, { defaultGround: false });
+  const normalizedFlat = normaliseMarkupFlatValue(markup.flat);
+  const drawingName = markup.drawingDocumentId
+    ? documents.find((document) => document.id === markup.drawingDocumentId)?.fileName
+    : undefined;
+
+  const labelParts = [normalizedFloor, normalizedFlat].filter(Boolean);
+  if (options.showDrawing && drawingName) {
+    const compactDrawingName = drawingName.replace(/\.[^/.]+$/, "");
+    if (labelParts.length) return `${compactDrawingName}: ${labelParts.join(" / ")}`;
+    return compactDrawingName;
+  }
+
+  const floor = normalizedFloor;
+  const flat = normalizedFlat;
+  if (floor && flat) return `${floor} / ${flat}`;
+  if (floor) return floor;
+  if (flat) return flat;
+  return "Unassigned";
+}
+
+function normaliseMarkupScope(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+floor$/i, "")
+    .replace(/\s+fl$/i, "")
+    .replace(/\s*[/_-]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function markupContextId(markup: { drawingDocumentId?: string; floor?: string; flat?: string }) {
+  const floor = normaliseMarkupFloorValue(markup.floor, { defaultGround: false }).toLowerCase();
+  const flat = normaliseMarkupFlatValue(markup.flat).toLowerCase();
+  return `${markup.drawingDocumentId || "unlinked"}|${floor}|${flat}`;
+}
+
+function markupContextScopeLabel(markup: { drawingDocumentId?: string; floor?: string; flat?: string }, documents: TakeoffDocument[]) {
+  const drawingName = markup.drawingDocumentId ? documents.find((document) => document.id === markup.drawingDocumentId)?.fileName : undefined;
+  const floor = normaliseMarkupFloorValue(markup.floor, { defaultGround: false });
+  const flat = normaliseMarkupFlatValue(markup.flat);
+  if (drawingName && floor && flat) return `${drawingName} / ${floor} / ${flat}`;
+  if (drawingName && floor) return `${drawingName} / ${floor}`;
+  if (drawingName && flat) return `${drawingName} / ${flat}`;
+  if (drawingName) return drawingName;
+  if (floor && flat) return `${floor} / ${flat}`;
+  if (floor) return floor;
+  if (flat) return flat;
+  return "Unassigned";
+}
+
+function normaliseMarkupServiceCentre(service: TakeoffMarkupService) {
+  if (service === "Heating flow" || service === "Heating return") return "Heating / boiler & radiators";
+  if (service === "Hot water" || service === "Cold water") return "Hot / cold supply";
+  if (service === "Gas") return "Gas";
+  if (service === "Waste" || service === "Soil" || service === "Condensate") return "Sanitary & drainage";
+  if (service === "UFH") return "Underfloor heating";
+  return "Other services";
+}
+
+function normaliseMarkupSymbolCostCentre(symbol: Pick<TakeoffMarkupSymbol, "category" | "kind" | "service">) {
+  const kind = symbol.kind.toLowerCase();
+  if (["radiator panel", "towel radiator", "convector heater", "radiator"].some((value) => kind.includes(value))) {
+    return "Heating / boiler & radiators";
+  }
+  if (["gas boiler", "combi boiler", "system boiler", "boiler flue", "pump", "expansion vessel"].some((value) => kind.includes(value))) {
+    return "Heating / boiler & radiators";
+  }
+  if (["wc", "basin", "bath", "shower tray", "shower valve", "kitchen sink"].some((value) => kind.includes(value))) {
+    return "Sanitary ware";
+  }
+  if (["soil stack", "tundish", "sluice valve", "water main", "backflow preventer"].some((value) => kind.includes(value))) {
+    return "Sanitary & drainage";
+  }
+  if (symbol.service === "Hot water" || symbol.service === "Cold water") return "Hot / cold supply";
+  if (symbol.service === "Heating flow" || symbol.service === "Heating return") return "Heating / boiler & radiators";
+  if (symbol.service === "Gas") return "Gas";
+  if (symbol.service === "Waste" || symbol.service === "Soil" || symbol.service === "Condensate") return "Sanitary & drainage";
+  if (symbol.service === "UFH") return "Underfloor heating";
+  if (symbol.category === "Plant") return "Plant / equipment";
+  return "Services fittings";
+}
+
+function markupCostCentreSection(
+  kind: "pipe" | "symbol",
+  details: { service: string; category?: TakeoffMarkupSymbolCategory; kind?: string; floor?: string; flat?: string; drawingDocumentId?: string },
+  documents: TakeoffDocument[] = [],
+  options?: { showDrawing?: boolean },
+) {
+  const locationLabel = markupSectionLocationLabel(
+    { drawingDocumentId: details.drawingDocumentId, floor: details.floor, flat: details.flat },
+    documents,
+    { showDrawing: options?.showDrawing ?? false },
+  );
+  const section = kind === "pipe" ? normaliseMarkupServiceCentre(details.service as TakeoffMarkupService)
+    : normaliseMarkupSymbolCostCentre(details as Pick<TakeoffMarkupSymbol, "category" | "kind" | "service">);
+  return `${locationLabel} / ${section}`;
+}
+
 function markupRouteLabel(pipe: Pick<TakeoffMarkupPipe, "diameter" | "material">) {
   return `${pipe.diameter} ${pipe.material}`.trim();
 }
@@ -358,9 +720,27 @@ function markupPointDistance(a: { x: number; y: number }, b: { x: number; y: num
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+function markupCanvasPointFromClient(
+  canvas: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+): MarkupCanvasPoint {
+  const matrix = canvas.getScreenCTM();
+  if (!matrix) return { x: 0, y: 0 };
+  const point = canvas.createSVGPoint();
+  point.x = clientX;
+  point.y = clientY;
+  const transformed = point.matrixTransform(matrix.inverse());
+  return {
+    x: Math.round(Math.min(Math.max(0, transformed.x), markupCanvasWidth)),
+    y: Math.round(Math.min(Math.max(0, transformed.y), markupCanvasHeight)),
+  };
+}
+
 function markupPipeLengthM(pipe: TakeoffMarkupPipe, calibration: TakeoffServicesMarkup["calibration"]) {
   if (pipe.points.length < 2) return Math.max(0, pipe.riseDropM || 0);
-  const pixelsPerMetre = calibration.status === "Calibrated" && calibration.pixelsPerMetre ? calibration.pixelsPerMetre : 70;
+  if (calibration.status !== "Calibrated" || !calibration.pixelsPerMetre || !Number.isFinite(calibration.pixelsPerMetre)) return 0;
+  const pixelsPerMetre = calibration.pixelsPerMetre;
   let flatPixels = 0;
   for (let index = 1; index < pipe.points.length; index += 1) {
     const previous = pipe.points[index - 1];
@@ -370,36 +750,70 @@ function markupPipeLengthM(pipe: TakeoffMarkupPipe, calibration: TakeoffServices
   return flatPixels / pixelsPerMetre + Math.max(0, pipe.riseDropM || 0);
 }
 
+function markupCalibrated(calibration: TakeoffServicesMarkup["calibration"]) {
+  return (
+    calibration.status === "Calibrated"
+    && Number.isFinite(calibration.pixelsPerMetre ?? 0)
+    && (calibration.pixelsPerMetre ?? 0) > 0
+  );
+}
+
 type ServicesMarkupSummary = {
   pipeRows: Array<{
     id: string;
     label: string;
     service: TakeoffMarkupService;
     material: string;
+    costCentreSection: string;
     diameter: string;
     measuredM: number;
     orderM: number;
     stockQuantity: number;
     colour: string;
+    calibrated: boolean;
+    locationKey: string;
+    locationLabel: string;
   }>;
   symbolRows: Array<{
     id: string;
     label: string;
     category: TakeoffMarkupSymbolCategory;
+    costCentreSection: string;
     count: number;
+    locationKey: string;
+    locationLabel: string;
   }>;
   pipeTotalM: number;
   fittingCount: number;
   plantCount: number;
 };
 
-function summariseServicesMarkup(markup: TakeoffServicesMarkup): ServicesMarkupSummary {
+function summariseServicesMarkup(
+  markup: TakeoffServicesMarkup,
+  documents: TakeoffDocument[] = [],
+  options: { showDrawing?: boolean } = {},
+): ServicesMarkupSummary {
   const pipeRows = new Map<string, ServicesMarkupSummary["pipeRows"][number]>();
+  const isCalibrated = markupCalibrated(markup.calibration);
+  const showDrawing = Boolean(options.showDrawing);
   markup.pipes.filter((pipe) => pipe.included).forEach((pipe) => {
-    const length = markupPipeLengthM(pipe, markup.calibration);
-    const key = `${pipe.service}-${pipe.material}-${pipe.diameter}`;
+    const length = isCalibrated ? markupPipeLengthM(pipe, markup.calibration) : 0;
+    const locationKey = markupContextId(pipe);
+    const locationLabel = markupContextLabel(pipe, documents, { showDrawing });
+    const key = `${locationKey}|${pipe.floor}-${pipe.service}-${pipe.material}-${pipe.diameter}`;
     const existing = pipeRows.get(key);
     const measuredM = (existing?.measuredM ?? 0) + length;
+    const costCentreSection = markupCostCentreSection(
+      "pipe",
+      {
+        service: pipe.service,
+        floor: pipe.floor,
+        flat: pipe.flat,
+        drawingDocumentId: pipe.drawingDocumentId,
+      },
+      documents,
+      options,
+    );
     const pipeStockLengthM = Math.max(1, markup.settings.pipeStockLengthM || 3);
     const orderM = measuredM * (1 + Math.max(0, markup.settings.wastagePercent || 0) / 100);
     pipeRows.set(key, {
@@ -407,23 +821,45 @@ function summariseServicesMarkup(markup: TakeoffServicesMarkup): ServicesMarkupS
       label: markupRouteLabel(pipe),
       service: pipe.service,
       material: pipe.material,
+      costCentreSection,
       diameter: pipe.diameter,
       measuredM,
       orderM,
       stockQuantity: Math.max(1, Math.ceil(orderM / pipeStockLengthM)),
       colour: markupPipeColour(pipe.material, pipe.diameter, pipe.service),
+      calibrated: isCalibrated,
+      locationKey,
+      locationLabel,
     });
   });
 
   const symbolRows = new Map<string, ServicesMarkupSummary["symbolRows"][number]>();
   markup.symbols.filter((symbol) => symbol.included).forEach((symbol) => {
-    const key = `${symbol.category}-${symbol.kind}`;
+    const locationKey = markupContextId(symbol);
+    const locationLabel = markupContextLabel(symbol, documents, { showDrawing });
+    const key = `${locationKey}|${symbol.category}-${symbol.kind}`;
     const existing = symbolRows.get(key);
+    const costCentreSection = markupCostCentreSection(
+      "symbol",
+      {
+        service: symbol.service ?? "Other",
+        category: symbol.category,
+        kind: symbol.kind,
+        floor: symbol.floor,
+        flat: symbol.flat,
+        drawingDocumentId: symbol.drawingDocumentId,
+      },
+      documents,
+      options,
+    );
     symbolRows.set(key, {
       id: key,
       label: symbol.kind,
       category: symbol.category,
+      costCentreSection,
       count: (existing?.count ?? 0) + 1,
+      locationKey,
+      locationLabel,
     });
   });
 
@@ -443,7 +879,10 @@ function markupLineId(prefix: string, value: string) {
 }
 
 function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: TakeoffProject) {
-  const summary = summariseServicesMarkup(markup);
+  const drawingDocuments = project.documents.filter((document) => document.kind === "Drawing");
+  const summary = summariseServicesMarkup(markup, drawingDocuments, {
+    showDrawing: drawingDocuments.length > 1,
+  });
   const stockLength = Math.max(1, markup.settings.pipeStockLengthM || 3);
   const existingMarkupMaterials = project.materialAllowances.filter((line) => (
     line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
@@ -452,11 +891,11 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   const pipeMaterials: TakeoffMaterialAllowance[] = summary.pipeRows.map((row) => {
     const id = markupLineId("markup-material", row.id);
     const existing = existingMarkupMaterials.find((line) => line.id === id)
-      ?? existingMarkupMaterials.find((line) => line.section === "Services markup" && line.description.includes(`${row.service} - ${row.label}`));
+      ?? existingMarkupMaterials.find((line) => line.section === "Services markup" && line.description.startsWith(`${row.service} - ${row.label}`));
     return {
       id,
-      section: "Services markup",
-      description: `${row.service} - ${row.label} (${row.measuredM.toFixed(1)}m measured, ${row.stockQuantity} x ${stockLength}m lengths)`,
+      section: row.costCentreSection ?? "Services markup",
+      description: `${row.locationLabel ? `${row.locationLabel} • ` : ""}${row.service} - ${row.label} (${row.measuredM.toFixed(1)}m measured, ${row.stockQuantity} x ${stockLength}m lengths)`,
       quantity: Number(row.orderM.toFixed(2)),
       unit: "m",
       unitCost: existing?.unitCost ?? 0,
@@ -468,13 +907,13 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
 
   const symbolMaterials: TakeoffMaterialAllowance[] = summary.symbolRows.map((row) => {
     const id = markupLineId("markup-symbol-material", row.id);
-    const section = row.category === "Plant" ? "Plant / equipment" : "Services fittings";
+    const section = row.costCentreSection ?? (row.category === "Plant" ? "Plant / equipment" : "Services fittings");
     const existing = existingMarkupMaterials.find((line) => line.id === id)
-      ?? existingMarkupMaterials.find((line) => line.section === section && line.description === row.label);
+      ?? existingMarkupMaterials.find((line) => line.section === section && line.description.startsWith(row.label));
     return {
       id,
       section,
-      description: row.label,
+      description: `${row.locationLabel ? `${row.locationLabel} • ` : ""}${row.label}`,
       quantity: row.count,
       unit: "each",
       unitCost: existing?.unitCost ?? 0,
@@ -517,6 +956,7 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
 function PdfPlanPreview({ src, label }: { src: string; label: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState("Preparing PDF preview...");
 
   useEffect(() => {
     let cancelled = false;
@@ -525,15 +965,19 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
 
     async function renderPdf() {
       setStatus("loading");
+      setErrorMessage("Preparing PDF preview...");
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
         const response = await fetch(src, { credentials: "same-origin" });
-        if (!response.ok) throw new Error("Unable to load PDF drawing");
+        if (!response.ok) throw new Error(`Unable to load PDF drawing (${response.status})`);
         const data = new Uint8Array(await response.arrayBuffer());
         const task = pdfjs.getDocument({ data, isOffscreenCanvasSupported: false });
         loadingTask = task;
         const pdf = await task.promise;
+        if (pdf.numPages < 1) {
+          throw new Error("PDF contains no pages.");
+        }
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
         const targetWidth = 2000;
@@ -561,8 +1005,11 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
           Math.round((targetHeight - pageCanvas.height) / 2),
         );
         if (!cancelled) setStatus("ready");
-      } catch {
-        if (!cancelled) setStatus("error");
+      } catch (error) {
+        if (!cancelled) {
+          setStatus("error");
+          setErrorMessage(error instanceof Error ? error.message : "Unable to render PDF preview.");
+        }
       }
     }
 
@@ -576,9 +1023,20 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
 
   return (
     <div className={`markup-pdf-preview ${status}`} aria-label={`${label} first page preview`}>
-      <canvas ref={canvasRef} />
+      <canvas
+        ref={canvasRef}
+        style={{ opacity: status === "ready" ? 1 : 0 }}
+      />
       {status === "loading" ? <span>Fitting complete drawing...</span> : null}
-      {status === "error" ? <span>PDF preview could not be rendered. Re-upload this drawing as PDF, JPG or PNG.</span> : null}
+      {status === "error" ? (
+        <div className="markup-pdf-fallback">
+          <span>{`PDF preview could not be rendered: ${errorMessage}`}</span>
+          <a href={src} target="_blank" rel="noreferrer">Open PDF in a new tab</a>
+          <object data={src} type="application/pdf" aria-label={`${label} PDF preview`}>
+            PDF viewer could not render this embedded file.
+          </object>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1035,26 +1493,39 @@ export default function TakeoffPage() {
   const [heatCalc, setHeatCalc] = useState<HeatCalcDraft>(blankHeatCalc);
   const [markupToolMode, setMarkupToolMode] = useState<MarkupToolMode>("pan");
   const [markupItemSearch, setMarkupItemSearch] = useState("");
-  const [markupToolCategory, setMarkupToolCategory] = useState<MarkupToolCategory>("favourites");
+  const [markupToolCategory, setMarkupToolCategory] = useState<MarkupToolCategory>("all");
   const [activeMarkupService, setActiveMarkupService] = useState<TakeoffMarkupService>("Heating flow");
   const [activeMarkupPipeToolId, setActiveMarkupPipeToolId] = useState("cu-22");
   const [activeMarkupSymbolKind, setActiveMarkupSymbolKind] = useState<TakeoffMarkupSymbolKind>("Radiator");
   const [activeMarkupSymbolCategory, setActiveMarkupSymbolCategory] = useState<TakeoffMarkupSymbolCategory>("Plant");
+  const [activeMarkupFloor, setActiveMarkupFloor] = useState("Ground floor");
+  const [activeMarkupFlat, setActiveMarkupFlat] = useState("");
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
-  const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(true);
+  const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
   const [markupCalibrationDistance, setMarkupCalibrationDistance] = useState("1");
   const [markupZoom, setMarkupZoom] = useState(1);
   const [markupPan, setMarkupPan] = useState({ x: 0, y: 0 });
   const [markupPanStart, setMarkupPanStart] = useState<{ pointerId: number; clientX: number; clientY: number; panX: number; panY: number } | null>(null);
+  const [markupTouchPanStart, setMarkupTouchPanStart] = useState<{ touchId: number; clientX: number; clientY: number; panX: number; panY: number } | null>(null);
   const [markupTouchGesture, setMarkupTouchGesture] = useState<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
+  const [markupDrawingLoadErrorId, setMarkupDrawingLoadErrorId] = useState("");
+  const markupCanvasRef = useRef<SVGSVGElement | null>(null);
+  const markupPointerDrawRef = useRef<{ pointerId: number } | null>(null);
+  const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
+  const suppressMarkupCanvasClickRef = useRef(false);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
     [projects, selectedProjectId],
   );
+
+  useEffect(() => {
+    if (activeTab !== "markup") return;
+    setIsMarkupMaterialsCollapsed(false);
+  }, [activeTab, selectedProject?.id]);
 
   const selectedQuote = useMemo(
     () => quotes.find((quote) => quote.id === selectedProject?.linkedQuoteId) ?? null,
@@ -1113,9 +1584,9 @@ export default function TakeoffPage() {
     [activeMarkupPipeToolId],
   );
 
-  const filteredMarkupPipeTools = useMemo(() => {
-    const query = markupItemSearch.trim().toLowerCase();
-    return markupPipeTools.filter((tool) => {
+const filteredMarkupPipeTools = useMemo(() => {
+  const query = markupItemSearch.trim().toLowerCase();
+  return markupPipeTools.filter((tool) => {
       const favourite = ["cu-15", "cu-22", "waste-40"].includes(tool.id);
       const categoryMatch = markupToolCategory === "all"
         || markupToolCategory === "pipe"
@@ -1125,19 +1596,22 @@ export default function TakeoffPage() {
     });
   }, [markupItemSearch, markupToolCategory]);
 
-  const filteredMarkupFittingTools = useMemo(() => {
+const filteredMarkupFittingTools = useMemo(() => {
     const query = markupItemSearch.trim().toLowerCase();
     return markupFittingTools.filter((tool) => {
-      const favourite = ["90 elbow", "Tee", "Isolation valve", "TRV"].includes(tool.kind);
+      const favourite = ["90 elbow", "tee", "isolation valve", "trv"].includes(tool.kind.toLowerCase());
+      const isFitting = tool.category === "Fitting";
+      const isValve = tool.category === "Valve";
       const categoryMatch = markupToolCategory === "all"
-        || markupToolCategory === "fittings"
+        || (markupToolCategory === "fittings" && isFitting)
+        || (markupToolCategory === "valves" && isValve)
         || (markupToolCategory === "favourites" && favourite);
       const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
       return categoryMatch && searchMatch;
     });
   }, [markupItemSearch, markupToolCategory]);
 
-  const filteredMarkupPlantTools = useMemo(() => {
+const filteredMarkupPlantTools = useMemo(() => {
     const query = markupItemSearch.trim().toLowerCase();
     return markupPlantTools.filter((tool) => {
       const favourite = ["Radiator", "Combi boiler", "Cylinder", "WC", "Basin", "Shower tray"].includes(tool.kind);
@@ -1146,6 +1620,36 @@ export default function TakeoffPage() {
         || (markupToolCategory === "favourites" && favourite);
       const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
       return categoryMatch && searchMatch;
+    });
+  }, [markupItemSearch, markupToolCategory]);
+
+  const matchingPipeTools = useMemo(() => {
+    const query = markupItemSearch.trim().toLowerCase();
+    return markupPipeTools.filter((tool) => {
+      const searchMatch = !query || `${tool.label} ${tool.material} ${tool.diameter}`.toLowerCase().includes(query);
+      const includeFavouritesOnly = markupToolCategory === "favourites";
+      const isFavourite = ["cu-15", "cu-22", "waste-40"].includes(tool.id);
+      return searchMatch && (!includeFavouritesOnly || isFavourite);
+    });
+  }, [markupItemSearch, markupToolCategory]);
+
+  const matchingFittingTools = useMemo(() => {
+    const query = markupItemSearch.trim().toLowerCase();
+    return markupFittingTools.filter((tool) => {
+      const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
+      const includeFavouritesOnly = markupToolCategory === "favourites";
+      const isFavourite = ["90 elbow", "tee", "isolation valve", "trv"].includes(tool.kind.toLowerCase());
+      return searchMatch && (!includeFavouritesOnly || isFavourite);
+    });
+  }, [markupItemSearch, markupToolCategory]);
+
+  const matchingPlantTools = useMemo(() => {
+    const query = markupItemSearch.trim().toLowerCase();
+    return markupPlantTools.filter((tool) => {
+      const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
+      const includeFavouritesOnly = markupToolCategory === "favourites";
+      const isFavourite = ["Radiator", "Combi boiler", "Cylinder", "WC", "Basin", "Shower tray"].includes(tool.kind);
+      return searchMatch && (!includeFavouritesOnly || isFavourite);
     });
   }, [markupItemSearch, markupToolCategory]);
 
@@ -1164,6 +1668,68 @@ export default function TakeoffPage() {
     [drawingDocuments, servicesMarkup.drawingDocumentId],
   );
 
+  const activeMarkupDrawingId = markupSelectedDrawing?.id ?? servicesMarkup.drawingDocumentId;
+
+  const markupScopeFloorOptions = useMemo(() => {
+    const values = new Set(["", "Ground floor", "First floor", "Second floor"]);
+    const selectedByRoom = (selectedProject?.rooms ?? []).map((room) => room.level).filter(Boolean) as Array<string>;
+    selectedByRoom.forEach((level) => {
+      const normalised = normaliseMarkupScope(level);
+      const normalisedFloor = normaliseMarkupFloorValue(level, { defaultGround: false });
+      if (normalisedFloor) values.add(normalisedFloor);
+      if (normalised === "ground") values.add("Ground floor");
+      if (normalised === "first" || normalised === "1st") values.add("First floor");
+      if (normalised === "second" || normalised === "2nd") values.add("Second floor");
+    });
+    servicesMarkup.pipes.forEach((pipe) => {
+      if (pipe.floor?.trim()) values.add(pipe.floor);
+    });
+    servicesMarkup.symbols.forEach((symbol) => {
+      if (symbol.floor?.trim()) values.add(symbol.floor);
+    });
+    if (markupSelectedDrawing?.fileName) {
+      const fileName = markupSelectedDrawing.fileName.toLowerCase();
+      const matches = fileName.match(/(ground|first|second|third|fourth|1st|2nd|3rd|4th)\s*(?:floor|fl)/i);
+      if (matches?.[0]) {
+        values.add(matches[0].replace(/\bfl\b/i, "floor").replace(/\s+/g, " ").trim());
+      }
+    }
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [markupSelectedDrawing?.fileName, selectedProject?.rooms, servicesMarkup.pipes, servicesMarkup.symbols]);
+
+  const markupScopeFlatOptions = useMemo(() => {
+    const values = new Set<string>();
+    selectedProject?.rooms
+      ?.filter((room) => !activeMarkupFloor || !room.level || normaliseMarkupFloorValue(room.level, { defaultGround: false }) === activeMarkupFloor)
+      .forEach((room) => {
+        const roomName = room.name?.trim();
+        if (!roomName) return;
+        values.add(roomName);
+      });
+    servicesMarkup.pipes.forEach((pipe) => {
+      if (pipe.flat?.trim()) values.add(pipe.flat.trim());
+    });
+    servicesMarkup.symbols.forEach((symbol) => {
+      if (symbol.flat?.trim()) values.add(symbol.flat.trim());
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [activeMarkupFloor, selectedProject?.rooms, servicesMarkup.pipes, servicesMarkup.symbols]);
+
+  const servicesMarkupShowDrawingInSections = drawingDocuments.length > 1;
+
+  const activeMarkupHasContext = Boolean(activeMarkupDrawingId);
+  const activeMarkupPipes = useMemo(() => servicesMarkup.pipes.filter((pipe) => (
+    (!activeMarkupHasContext || !pipe.drawingDocumentId || pipe.drawingDocumentId === activeMarkupDrawingId)
+    && (!activeMarkupFloor || normaliseMarkupFloorValue(pipe.floor, { defaultGround: false }) === activeMarkupFloor)
+    && (!activeMarkupFlat || normaliseMarkupFlatValue(pipe.flat) === activeMarkupFlat)
+  )), [servicesMarkup.pipes, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
+
+  const activeMarkupSymbols = useMemo(() => servicesMarkup.symbols.filter((symbol) => (
+    (!activeMarkupHasContext || !symbol.drawingDocumentId || symbol.drawingDocumentId === activeMarkupDrawingId)
+    && (!activeMarkupFloor || normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }) === activeMarkupFloor)
+    && (!activeMarkupFlat || normaliseMarkupFlatValue(symbol.flat) === activeMarkupFlat)
+  )), [servicesMarkup.symbols, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
+
   const markupDrawingFileUrl = useMemo(() => (
     selectedProject && markupSelectedDrawing?.storageKey
       ? `/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/documents/${encodeURIComponent(markupSelectedDrawing.id)}/file`
@@ -1173,6 +1739,18 @@ export default function TakeoffPage() {
   const markupDrawingPreviewUrl = markupSelectedDrawing?.previewImageDataUrl || markupDrawingFileUrl;
   const markupDrawingIsPdf = Boolean(markupSelectedDrawing?.mimeType?.toLowerCase().includes("pdf") || markupSelectedDrawing?.fileName.toLowerCase().endsWith(".pdf"));
   const markupDrawingIsImage = Boolean(markupSelectedDrawing?.previewImageDataUrl || markupSelectedDrawing?.mimeType?.toLowerCase().startsWith("image/"));
+  const markupDrawingFileName = markupSelectedDrawing?.fileName?.toLowerCase() ?? "";
+  const markupDrawingLoadError = markupDrawingLoadErrorId === activeMarkupDrawingId;
+  const markupDrawingSupportsImagePreview = Boolean(
+    markupDrawingIsImage
+    && !markupDrawingFileName.endsWith(".heic")
+    && !markupDrawingFileName.endsWith(".heif")
+    && !markupDrawingLoadError,
+  );
+
+  useEffect(() => {
+    setMarkupDrawingLoadErrorId("");
+  }, [activeMarkupDrawingId]);
 
   const markupCalibrationPixelLength = useMemo(() => {
     if (markupCalibrationPoints.length < 2) return 0;
@@ -1181,7 +1759,10 @@ export default function TakeoffPage() {
     return first && second ? markupPointDistance(first, second) : 0;
   }, [markupCalibrationPoints]);
 
-  const servicesMarkupSummary = useMemo(() => summariseServicesMarkup(servicesMarkup), [servicesMarkup]);
+  const servicesMarkupSummary = useMemo(
+    () => summariseServicesMarkup(servicesMarkup, drawingDocuments, { showDrawing: servicesMarkupShowDrawingInSections }),
+    [servicesMarkup, drawingDocuments, servicesMarkupShowDrawingInSections],
+  );
 
   const markupViewport = useMemo(() => {
     const zoom = Math.min(4, Math.max(0.5, markupZoom));
@@ -1196,12 +1777,6 @@ export default function TakeoffPage() {
 
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
-  const markupDocumentLayerStyle = {
-    left: `${(-markupViewport.x / markupViewport.width) * 100}%`,
-    top: `${(-markupViewport.y / markupViewport.height) * 100}%`,
-    width: `${(markupCanvasWidth / markupViewport.width) * 100}%`,
-    height: `${(markupCanvasHeight / markupViewport.height) * 100}%`,
-  } as CSSProperties;
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
     [selectedProject],
@@ -1400,6 +1975,12 @@ export default function TakeoffPage() {
   }, [clientSites, selectedQuote]);
 
   useEffect(() => {
+    if (!selectedProject) return;
+    setActiveMarkupFloor("Ground floor");
+    setActiveMarkupFlat("");
+  }, [selectedProject?.id]);
+
+  useEffect(() => {
     if (!selectedProject || (!servicesMarkup.pipes.length && !servicesMarkup.symbols.length)) return;
     const quantityPatch = buildMarkupQuantityPatch(servicesMarkup, selectedProject);
     const currentMaterials = selectedProject.materialAllowances.filter((line) => (
@@ -1503,13 +2084,22 @@ export default function TakeoffPage() {
     setMarkupPan({ x: 0, y: 0 });
   }
 
-  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement> | ReactPointerEvent<SVGSVGElement>): MarkupCanvasPoint {
-    const svg = event.currentTarget;
-    const matrix = svg.getScreenCTM();
+  function resolveMarkupCanvas(currentTarget?: SVGSVGElement | null) {
+    return markupCanvasRef.current ?? currentTarget ?? null;
+  }
+
+  function markupCanvasPointFromClient(
+    clientX: number,
+    clientY: number,
+    currentTarget?: SVGSVGElement | null,
+  ): MarkupCanvasPoint {
+    const canvas = resolveMarkupCanvas(currentTarget);
+    if (!canvas) return { x: 0, y: 0 };
+    const matrix = canvas.getScreenCTM();
     if (!matrix) return { x: 0, y: 0 };
-    const point = svg.createSVGPoint();
-    point.x = event.clientX;
-    point.y = event.clientY;
+    const point = canvas.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
     const transformed = point.matrixTransform(matrix.inverse());
     return {
       x: Math.round(Math.min(Math.max(0, transformed.x), markupCanvasWidth)),
@@ -1517,25 +2107,99 @@ export default function TakeoffPage() {
     };
   }
 
+  function markupCanvasPoint(event: ReactMouseEvent<SVGSVGElement> | ReactPointerEvent<SVGSVGElement>): MarkupCanvasPoint {
+    return markupCanvasPointFromClient(event.clientX, event.clientY, event.currentTarget);
+  }
+
+type MarkupTouchPointSource = {
+  clientX: number;
+  clientY: number;
+};
+
+function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGElement): MarkupCanvasPoint {
+  return markupCanvasPointFromClient(point.clientX, point.clientY, currentTarget);
+}
+
   function handleMarkupWheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
     updateMarkupZoom(markupViewport.zoom + (event.deltaY > 0 ? -0.15 : 0.15));
   }
 
   function handleMarkupPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
-    if (markupToolMode !== "pan") return;
+    if (markupToolMode === "pan") {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      setMarkupPanStart({
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        panX: markupViewport.x,
+        panY: markupViewport.y,
+      });
+      return;
+    }
+
+    if (markupToolMode !== "pipe" && markupToolMode !== "symbol" && markupToolMode !== "calibrate") return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setMarkupPanStart({
-      pointerId: event.pointerId,
-      clientX: event.clientX,
-      clientY: event.clientY,
-      panX: markupViewport.x,
-      panY: markupViewport.y,
+    markupPointerDrawRef.current = { pointerId: event.pointerId };
+    suppressMarkupCanvasClickRef.current = true;
+    const point = markupCanvasPoint(event);
+
+    if (markupToolMode === "calibrate") {
+      setSelectedMarkupElementId("");
+      setMarkupDraftPipe(null);
+      setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
+      return;
+    }
+
+    if (markupToolMode === "symbol") {
+      const nextSymbol = createMarkupSymbol(point);
+      updateServicesMarkup((current) => ({
+        ...current,
+        symbols: [...current.symbols, nextSymbol],
+      }));
+      setSelectedMarkupElementId(nextSymbol.id);
+      return;
+    }
+
+    setSelectedMarkupElementId("");
+    setMarkupCalibrationPoints([]);
+    setMarkupDraftPipe((current) => {
+      if (!current) {
+        return createMarkupPipe([point]);
+      }
+      const existingLast = current.points[current.points.length - 1];
+      if (!existingLast || markupPointDistance(existingLast, point) <= 2) {
+        return current;
+      }
+      return {
+        ...current,
+        service: activeMarkupService,
+        material: activeMarkupPipeTool.material,
+        diameter: activeMarkupPipeTool.diameter,
+        colour: activeMarkupPipeTool.colour,
+        points: [...current.points, point],
+      };
     });
   }
 
   function handleMarkupPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
+    if (markupToolMode === "pipe" && markupPointerDrawRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      const point = markupCanvasPoint(event);
+      setMarkupDraftPipe((current) => {
+        if (!current) return createMarkupPipe([point]);
+        const existingLast = current.points[current.points.length - 1];
+        if (!existingLast || markupPointDistance(existingLast, point) <= 2) return current;
+        return {
+          ...current,
+          points: [...current.points, point],
+        };
+      });
+      return;
+    }
+
     if (!markupPanStart || markupPanStart.pointerId !== event.pointerId) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const scaleX = markupViewport.width / Math.max(1, bounds.width);
@@ -1546,6 +2210,15 @@ export default function TakeoffPage() {
   }
 
   function handleMarkupPointerUp(event: ReactPointerEvent<SVGSVGElement>) {
+    if (markupPointerDrawRef.current?.pointerId === event.pointerId) {
+      markupPointerDrawRef.current = null;
+      suppressMarkupCanvasClickRef.current = true;
+      setTimeout(() => {
+        suppressMarkupCanvasClickRef.current = false;
+      }, 0);
+      event.currentTarget.releasePointerCapture(event.pointerId);
+      return;
+    }
     if (markupPanStart?.pointerId === event.pointerId) {
       setMarkupPanStart(null);
       event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1566,10 +2239,83 @@ export default function TakeoffPage() {
   }
 
   function handleMarkupTouchStart(event: ReactTouchEvent<SVGSVGElement>) {
-    const metrics = touchMetrics(event.touches);
-    if (!metrics) return;
-    event.preventDefault();
+    if (markupPointerDrawRef.current || markupPanStart) return;
+    const first = event.touches.item(0);
+    if (!first) return;
+
     const bounds = event.currentTarget.getBoundingClientRect();
+    const second = event.touches.item(1);
+    const metrics = touchMetrics(event.touches);
+
+    if (!second || !metrics) {
+      setMarkupTouchGesture(null);
+      setMarkupTouchPanStart({
+        touchId: first.identifier,
+        clientX: first.clientX,
+        clientY: first.clientY,
+        panX: markupViewport.x,
+        panY: markupViewport.y,
+      });
+
+      if (markupToolMode === "pan") {
+        event.preventDefault();
+        return;
+      }
+
+      if (markupToolMode === "calibrate") {
+        event.preventDefault();
+        suppressMarkupCanvasClickRef.current = true;
+        const point = markupTouchPoint(first, event.currentTarget);
+        setSelectedMarkupElementId("");
+        setMarkupDraftPipe(null);
+        setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
+        return;
+      }
+
+      if (markupToolMode === "symbol") {
+        event.preventDefault();
+        suppressMarkupCanvasClickRef.current = true;
+        const point = markupTouchPoint(first, event.currentTarget);
+        const nextSymbol = createMarkupSymbol(point);
+        updateServicesMarkup((current) => ({
+          ...current,
+          symbols: [...current.symbols, nextSymbol],
+        }));
+        setSelectedMarkupElementId(nextSymbol.id);
+        return;
+      }
+
+      if (markupToolMode === "pipe") {
+        event.preventDefault();
+        markupTouchDrawRef.current = { touchId: first.identifier };
+        suppressMarkupCanvasClickRef.current = true;
+        const point = markupTouchPoint(first, event.currentTarget);
+        setSelectedMarkupElementId("");
+        setMarkupCalibrationPoints([]);
+        setMarkupDraftPipe((current) => {
+          if (!current) {
+            return createMarkupPipe([point]);
+          }
+          const existingLast = current.points[current.points.length - 1];
+          if (!existingLast || markupPointDistance(existingLast, point) <= 2) {
+            return current;
+          }
+          return {
+            ...current,
+            service: activeMarkupService,
+            material: activeMarkupPipeTool.material,
+            diameter: activeMarkupPipeTool.diameter,
+            colour: activeMarkupPipeTool.colour,
+            points: [...current.points, point],
+          };
+        });
+      }
+
+      return;
+    }
+
+    event.preventDefault();
+    setMarkupTouchPanStart(null);
     setMarkupTouchGesture({
       distance: metrics.distance,
       zoom: markupViewport.zoom,
@@ -1579,6 +2325,49 @@ export default function TakeoffPage() {
   }
 
   function handleMarkupTouchMove(event: ReactTouchEvent<SVGSVGElement>) {
+    if (markupPointerDrawRef.current || markupPanStart) return;
+    if (markupTouchDrawRef.current) {
+      const activeTouch = event.touches.item(0);
+      if (!activeTouch || activeTouch.identifier !== markupTouchDrawRef.current.touchId) return;
+      const point = markupTouchPoint(activeTouch, event.currentTarget);
+      const previous = markupDraftPipe?.points?.[markupDraftPipe.points.length - 1];
+      if (!previous || markupPointDistance(previous, point) > 2) {
+        setMarkupDraftPipe((current) => {
+          if (!current) return createMarkupPipe([point]);
+          return {
+            ...current,
+            points: [...current.points, point],
+          };
+        });
+      }
+      return;
+    }
+
+    if (markupTouchPanStart) {
+      const touch = event.touches.item(0);
+      if (!touch || touch.identifier !== markupTouchPanStart.touchId) return;
+      if (markupTouchGesture) {
+        const metrics = touchMetrics(event.touches);
+        if (!metrics || markupTouchGesture.distance <= 0) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const nextZoom = Math.min(5, Math.max(0.45, markupTouchGesture.zoom * (metrics.distance / markupTouchGesture.distance)));
+        const width = markupCanvasWidth / nextZoom;
+        const height = markupCanvasHeight / nextZoom;
+        setMarkupZoom(nextZoom);
+        setMarkupPan(clampMarkupPan(
+          markupTouchGesture.worldX - ((metrics.centerX - bounds.left) * (width / Math.max(1, bounds.width))),
+          markupTouchGesture.worldY - ((metrics.centerY - bounds.top) * (height / Math.max(1, bounds.height))),
+          nextZoom,
+        ));
+        return;
+      }
+
+      const deltaX = (touch.clientX - markupTouchPanStart.clientX) * (markupViewport.width / Math.max(1, event.currentTarget.getBoundingClientRect().width));
+      const deltaY = (touch.clientY - markupTouchPanStart.clientY) * (markupViewport.height / Math.max(1, event.currentTarget.getBoundingClientRect().height));
+      setMarkupPan(clampMarkupPan(markupTouchPanStart.panX - deltaX, markupTouchPanStart.panY - deltaY));
+      return;
+    }
+
     if (!markupTouchGesture) return;
     const metrics = touchMetrics(event.touches);
     if (!metrics || markupTouchGesture.distance <= 0) return;
@@ -1596,7 +2385,22 @@ export default function TakeoffPage() {
   }
 
   function handleMarkupTouchEnd(event: ReactTouchEvent<SVGSVGElement>) {
-    if (event.touches.length < 2) setMarkupTouchGesture(null);
+    if (markupPointerDrawRef.current) return;
+    const activeTouch = event.changedTouches.item(0);
+    if (markupTouchDrawRef.current && activeTouch?.identifier === markupTouchDrawRef.current.touchId) {
+      markupTouchDrawRef.current = null;
+      setTimeout(() => {
+        suppressMarkupCanvasClickRef.current = false;
+      }, 0);
+    }
+
+    if (markupTouchPanStart && activeTouch?.identifier === markupTouchPanStart.touchId) {
+      setMarkupTouchPanStart(null);
+    }
+
+    if (event.touches.length < 2) {
+      setMarkupTouchGesture(null);
+    }
   }
 
   function createMarkupPipe(points: MarkupCanvasPoint[]): TakeoffMarkupPipe {
@@ -1608,7 +2412,9 @@ export default function TakeoffPage() {
       diameter: activeMarkupPipeTool.diameter,
       colour: activeMarkupPipeTool.colour,
       points,
-      floor: "Ground floor",
+      floor: normaliseMarkupFloorValue(activeMarkupFloor),
+      flat: normaliseMarkupFlatValue(activeMarkupFlat),
+      drawingDocumentId: activeMarkupDrawingId,
       riseDropM: 0,
       notes: "",
       included: true,
@@ -1616,6 +2422,7 @@ export default function TakeoffPage() {
   }
 
   function createMarkupSymbol(point: MarkupCanvasPoint): TakeoffMarkupSymbol {
+    const isPlant = activeMarkupSymbolCategory === "Plant";
     return {
       id: makeId("markup-symbol"),
       type: "symbol",
@@ -1624,15 +2431,22 @@ export default function TakeoffPage() {
       x: point.x,
       y: point.y,
       rotation: 0,
+      floor: normaliseMarkupFloorValue(activeMarkupFloor, { defaultGround: false }) || undefined,
+      flat: normaliseMarkupFlatValue(activeMarkupFlat) || undefined,
+      drawingDocumentId: activeMarkupDrawingId,
       service: activeMarkupService,
-      material: activeMarkupPipeTool.material,
-      diameter: activeMarkupPipeTool.diameter,
+      material: isPlant ? undefined : activeMarkupPipeTool.material,
+      diameter: isPlant ? undefined : activeMarkupPipeTool.diameter,
       notes: "",
       included: true,
     };
   }
 
   function handleMarkupCanvasClick(event: ReactMouseEvent<SVGSVGElement>) {
+    if (suppressMarkupCanvasClickRef.current) {
+      suppressMarkupCanvasClickRef.current = false;
+      return;
+    }
     if (markupToolMode === "pan") return;
     const point = markupCanvasPoint(event);
     if (markupToolMode === "calibrate") {
@@ -1708,13 +2522,15 @@ export default function TakeoffPage() {
       setError("Tap at least two points before finishing the pipe route.");
       return;
     }
-    const completedPipe = {
+    const completedPipe: TakeoffMarkupPipe = {
       ...markupDraftPipe,
       id: makeId("markup-pipe"),
       service: activeMarkupService,
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
       colour: activeMarkupPipeTool.colour,
+      floor: normaliseMarkupFloorValue(markupDraftPipe.floor),
+      flat: normaliseMarkupFlatValue(markupDraftPipe.flat) || undefined,
     };
     updateServicesMarkup((current) => ({
       ...current,
@@ -1726,11 +2542,16 @@ export default function TakeoffPage() {
 
   function updateSelectedMarkupPipe(patch: Partial<TakeoffMarkupPipe>) {
     if (!selectedMarkupPipe) return;
+    const nextPatch: Partial<TakeoffMarkupPipe> = {
+      ...patch,
+    };
+    if (patch.floor !== undefined) nextPatch.floor = normaliseMarkupFloorValue(patch.floor);
+    if (patch.flat !== undefined) nextPatch.flat = normaliseMarkupFlatValue(patch.flat) || undefined;
     updateServicesMarkup((current) => ({
       ...current,
       pipes: current.pipes.map((pipe) => {
         if (pipe.id !== selectedMarkupPipe.id) return pipe;
-        const updatedPipe = { ...pipe, ...patch };
+        const updatedPipe = { ...pipe, ...nextPatch };
         return {
           ...updatedPipe,
           colour: markupPipeColour(updatedPipe.material, updatedPipe.diameter, updatedPipe.service),
@@ -1741,11 +2562,16 @@ export default function TakeoffPage() {
 
   function updateSelectedMarkupSymbol(patch: Partial<TakeoffMarkupSymbol>) {
     if (!selectedMarkupSymbol) return;
+    const nextPatch = {
+      ...patch,
+      floor: patch.floor !== undefined ? normaliseMarkupFloorValue(patch.floor, { defaultGround: false }) : patch.floor,
+      flat: patch.flat !== undefined ? normaliseMarkupFlatValue(patch.flat) : patch.flat,
+    };
     updateServicesMarkup((current) => ({
       ...current,
       symbols: current.symbols.map((symbol) => symbol.id === selectedMarkupSymbol.id ? {
         ...symbol,
-        ...patch,
+        ...nextPatch,
       } : symbol),
     }));
   }
@@ -1923,8 +2749,52 @@ export default function TakeoffPage() {
     }
   }
 
+  async function ensureProjectForUpload() {
+    if (selectedProject) {
+      return selectedProject;
+    }
+
+    if (projects[0]) {
+      setSelectedProjectId(projects[0].id);
+      return projects[0];
+    }
+
+    setError("");
+    const fallbackName = `Takeoff draft ${new Date().toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    })}`;
+    try {
+      const response = await fetch("/api/takeoff-projects", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ name: fallbackName }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to create a Takeoff project for upload");
+      }
+
+      const created = (await response.json()) as TakeoffProject;
+      setProjects((current) => [created, ...current]);
+      setSelectedProjectId(created.id);
+      setActiveTab("markup");
+      setNotice(`${created.reference} created for upload.`);
+      return created;
+    } catch (uploadProjectError) {
+      setError(uploadProjectError instanceof Error ? uploadProjectError.message : "Unable to create a Takeoff project for upload");
+      return null;
+    }
+  }
+
   async function addDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
-    if (!selectedProject) return null;
+    const projectForUpload = await ensureProjectForUpload();
+    if (!projectForUpload) {
+      setError("Create or select a Takeoff project before uploading files.");
+      return null;
+    }
+
     const input = event.currentTarget;
     const files = Array.from(input.files ?? []);
     if (!files.length) return null;
@@ -1936,7 +2806,7 @@ export default function TakeoffPage() {
     setIsUploadingDocs(true);
     setError("");
     try {
-      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
+      const response = await fetch(`/api/takeoff-projects/${projectForUpload.id}/documents`, {
         method: "POST",
         headers: requestHeaders,
         body: formData,
@@ -1953,12 +2823,16 @@ export default function TakeoffPage() {
         }
         throw new Error(body.error ?? (text || `Unable to upload Takeoff documents (${response.status})`));
       }
-      const result = (await response.json()) as { project: TakeoffProject };
+      const result = (await response.json()) as { project?: TakeoffProject };
+      if (!result?.project) {
+        throw new Error("Upload did not return an updated project.");
+      }
       replaceProject(result.project);
       setNotice(`${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
       return result.project;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload Takeoff documents");
+      await loadData().catch(() => {});
       return null;
     } finally {
       setIsUploadingDocs(false);
@@ -1967,7 +2841,6 @@ export default function TakeoffPage() {
   }
 
   async function addLidarDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
-    if (!selectedProject) return;
     const files = Array.from(event.currentTarget.files ?? []);
     if (!files.length) return;
     const { importedRooms, parsedFiles } = await roomsFromLidarFiles(files);
@@ -1975,17 +2848,15 @@ export default function TakeoffPage() {
     if (!uploadedProject || importedRooms.length === 0) return;
 
     const mergedRooms = mergeImportedRooms(uploadedProject.rooms, importedRooms);
-    updateProject(
-      {
-        rooms: mergedRooms,
-        surveyWorkflow: {
-          ...surveyWorkflow,
-          plannedRoomCount: Math.max(surveyWorkflow.plannedRoomCount, mergedRooms.length),
-          step: "rooms",
-        },
+    const uploadedSurveyWorkflow = createDefaultSurveyWorkflow(uploadedProject.surveyWorkflow);
+    await patchProject(uploadedProject.id, {
+      rooms: mergedRooms,
+      surveyWorkflow: {
+        ...uploadedSurveyWorkflow,
+        plannedRoomCount: Math.max(uploadedSurveyWorkflow.plannedRoomCount, mergedRooms.length),
+        step: "rooms",
       },
-      `${importedRooms.length} room${importedRooms.length === 1 ? "" : "s"} imported from ${parsedFiles.join(", ")}. Confirm dimensions before quote issue.`,
-    );
+    }, `${importedRooms.length} room${importedRooms.length === 1 ? "" : "s"} imported from ${parsedFiles.join(", ")}. Confirm dimensions before quote issue.`);
   }
 
   async function runAiExtraction() {
@@ -2521,7 +3392,7 @@ export default function TakeoffPage() {
   }
 
   return (
-    <main className={activeTab === "markup" && selectedProject ? "takeoff-app takeoff-drawing-mode" : "takeoff-app"}>
+    <main className={activeTab === "markup" ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen" : "takeoff-app"}>
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
@@ -2845,7 +3716,7 @@ export default function TakeoffPage() {
                       </button>
                     </PanelTitle>
                     <div className="takeoff-upload-strip">
-                      <UploadButton kind="Drawing" label="Drawings" disabled={isUploadingDocs} onUpload={addDocuments} />
+                    <UploadButton kind="Drawing" label="Drawings" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={isUploadingDocs} onUpload={addDocuments} />
                       <UploadButton kind="Specification" label="Specs" disabled={isUploadingDocs} onUpload={addDocuments} />
                       <UploadButton kind="Contractor BOQ" label="BOQs" disabled={isUploadingDocs} onUpload={addDocuments} />
                     </div>
@@ -2933,16 +3804,22 @@ export default function TakeoffPage() {
                 ].filter(Boolean).join(" ")}>
                   <header className="takeoff-drawing-workspace-header">
                     <div>
-                      <span>{selectedProject.reference}</span>
+                      <span>{selectedProject?.reference ?? "Takeoff draft"}</span>
                       <strong>Drawing takeoff workspace</strong>
-                      <small>{selectedProject.name} · {selectedProject.customer || "Customer to confirm"}</small>
+                      <small>{selectedProject ? `${selectedProject.name} · ${selectedProject.customer || "Customer to confirm"}` : "Select or create a project to begin markup."}</small>
                     </div>
-                    <nav>
+                    <nav className="takeoff-markup-actions">
                       <a className="takeoff-secondary-button" href="/">
                         <ArrowLeft size={15} />
                         Core
                       </a>
-                      <UploadButton kind="Drawing" label={isUploadingDocs ? "Uploading" : "Upload drawing"} disabled={isUploadingDocs} onUpload={addDocuments} />
+                    <UploadButton
+                      kind="Drawing"
+                      label={isUploadingDocs ? "Uploading" : "Upload drawing"}
+                      accept=".pdf,.jpg,.jpeg,.png,.webp"
+                      disabled={isUploadingDocs}
+                      onUpload={addDocuments}
+                    />
                       <button className="takeoff-secondary-button" type="button" onClick={() => setIsMarkupMaterialsCollapsed((current) => !current)}>
                         <PackageSearch size={15} />
                         {isMarkupMaterialsCollapsed ? "Open materials" : "Minimise materials"}
@@ -2981,20 +3858,48 @@ export default function TakeoffPage() {
                     </PanelTitle>
 
                     <div className="services-markup-setup">
-                      <label>
-                        Locked drawing
-                        <select
-                          value={servicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
-                          onChange={(event) => {
-                            updateServicesMarkup((current) => ({ ...current, drawingDocumentId: event.target.value || undefined }), "Drawing selected for markup.");
-                            resetMarkupView();
-                          }}
-                        >
+                        <label>
+                          Locked drawing
+                          <select
+                            value={servicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
+                            onChange={(event) => {
+                              updateServicesMarkup((current) => ({ ...current, drawingDocumentId: event.target.value || undefined }), "Drawing selected for markup.");
+                              resetMarkupView();
+                            }}
+                          >
                           {!drawingDocuments.length ? <option value="">Upload a drawing first</option> : null}
                           {drawingDocuments.map((document) => (
                             <option value={document.id} key={document.id}>{document.fileName}</option>
                           ))}
                         </select>
+                      </label>
+                        <label>
+                          Active floor
+                          <input
+                            list="markup-floor-options"
+                            value={activeMarkupFloor}
+                            onChange={(event) => setActiveMarkupFloor(normaliseMarkupFloorValue(event.target.value))}
+                            placeholder="Ground floor, First floor..."
+                          />
+                        <datalist id="markup-floor-options">
+                          {markupScopeFloorOptions.map((floor) => (
+                            <option key={`floor-${floor}`} value={floor} />
+                          ))}
+                        </datalist>
+                      </label>
+                        <label>
+                          Active flat / room
+                          <input
+                            list="markup-flat-options"
+                            value={activeMarkupFlat}
+                            onChange={(event) => setActiveMarkupFlat(normaliseMarkupFlatValue(event.target.value))}
+                            placeholder="Flat 1, Suite B..."
+                          />
+                        <datalist id="markup-flat-options">
+                          {markupScopeFlatOptions.map((flat) => (
+                            <option key={`flat-${flat}`} value={flat} />
+                          ))}
+                        </datalist>
                       </label>
                       <label>
                         Manual px / m
@@ -3126,55 +4031,8 @@ export default function TakeoffPage() {
                     </div>
 
                     <div className="services-markup-palette">
-                      <section className="services-markup-search-panel">
-                        <strong>Item search</strong>
-                        <input
-                          value={markupItemSearch}
-                          onChange={(event) => setMarkupItemSearch(event.target.value)}
-                          placeholder="Search pipe, valves, boilers, rads..."
-                        />
-                        <div className="services-markup-category-tabs">
-                          {([
-                            ["favourites", "Favourites"],
-                            ["pipe", "Pipe"],
-                            ["fittings", "Valves / fittings"],
-                            ["plant", "Plant / fixtures"],
-                            ["all", "All"],
-                          ] as Array<[MarkupToolCategory, string]>).map(([category, label]) => (
-                            <button
-                              className={markupToolCategory === category ? "active" : ""}
-                              type="button"
-                              key={category}
-                              onClick={() => setMarkupToolCategory(category)}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </section>
-                      <section>
-                        <strong>Pipe</strong>
-                        <div className="services-markup-tool-grid">
-                          {filteredMarkupPipeTools.map((tool) => (
-                            <button
-                              className={activeMarkupPipeToolId === tool.id ? "active" : ""}
-                              style={{ "--pipe-colour": tool.colour } as CSSProperties}
-                              type="button"
-                              key={tool.id}
-                              onClick={() => {
-                                setMarkupToolMode("pipe");
-                                setActiveMarkupPipeToolId(tool.id);
-                              }}
-                            >
-                              <i className="pipe-tool-swatch" />
-                              {tool.label}
-                            </button>
-                          ))}
-                          {!filteredMarkupPipeTools.length ? <span className="services-markup-no-tools">No pipe items match.</span> : null}
-                        </div>
-                      </section>
-                      <section>
-                        <strong>Service</strong>
+                    <section className="services-markup-service-selector" style={{ order: 0 }}>
+                        <strong>Service box</strong>
                         <div className="services-markup-service-grid">
                           {markupServices.map((service) => (
                             <button
@@ -3189,33 +4047,78 @@ export default function TakeoffPage() {
                             </button>
                           ))}
                         </div>
+                        <label className="services-markup-select-field">
+                          <span>Select size / material</span>
+                          <select
+                            value={activeMarkupPipeToolId}
+                            onChange={(event) => {
+                              setMarkupToolMode("pipe");
+                              setActiveMarkupPipeToolId(event.target.value);
+                            }}
+                          >
+                            {markupPipeTools.map((tool) => (
+                              <option value={tool.id} key={tool.id}>
+                                {tool.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </section>
-                      <section>
-                        <strong>Fittings / valves</strong>
-                        <div className="services-markup-tool-grid compact">
-                          {filteredMarkupFittingTools.map((tool) => (
+                    <section className="services-markup-search-panel" style={{ order: 1 }}>
+                        <strong>Symbol search</strong>
+                        <input
+                          value={markupItemSearch}
+                          onChange={(event) => setMarkupItemSearch(event.target.value)}
+                          placeholder="Search elbows, valves, fittings, plant..."
+                        />
+                        <div className="services-markup-category-tabs">
+                          {([
+                            ["favourites", "Favourites"],
+                            ["pipe", "Pipe"],
+                            ["fittings", "Fittings"],
+                            ["valves", "Valves"],
+                            ["plant", "Plant / fixtures"],
+                            ["all", "All symbols"],
+                          ] as Array<[MarkupToolCategory, string]>).map(([category, label]) => (
                             <button
-                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              className={markupToolCategory === category ? "active" : ""}
                               type="button"
-                              key={tool.kind}
-                              onClick={() => {
-                                setMarkupToolMode("symbol");
-                                setActiveMarkupSymbolKind(tool.kind);
-                                setActiveMarkupSymbolCategory(tool.category);
-                              }}
+                              key={category}
+                              onClick={() => setMarkupToolCategory(category)}
                             >
-                              {tool.kind}
+                              {label}
                             </button>
                           ))}
-                          {!filteredMarkupFittingTools.length ? <span className="services-markup-no-tools">No fitting items match.</span> : null}
                         </div>
                       </section>
-                      <section>
-                        <strong>Plant / fixtures</strong>
-                        <div className="services-markup-tool-grid compact plant">
-                          {filteredMarkupPlantTools.map((tool) => (
+                      <section className="services-markup-tool-section services-markup-pipe-section" style={{ order: 2 }}>
+                        <strong>Pipe</strong>
+                        <div className="services-markup-tool-grid">
+                          {matchingPipeTools.map((tool) => (
+                            <button
+                              className={activeMarkupPipeToolId === tool.id ? "active" : ""}
+                              style={{ "--pipe-colour": tool.colour } as CSSProperties}
+                              type="button"
+                              key={tool.id}
+                              onClick={() => {
+                                setMarkupToolMode("pipe");
+                                setActiveMarkupPipeToolId(tool.id);
+                              }}
+                            >
+                              <i className="pipe-tool-swatch" />
+                              {tool.label}
+                            </button>
+                          ))}
+                          {!matchingPipeTools.length ? <span className="services-markup-no-tools">No pipe items match.</span> : null}
+                        </div>
+                      </section>
+                      <section className="services-markup-tool-section services-markup-fittings-section" style={{ order: 3 }}>
+                        <strong>Fittings</strong>
+                        <div className="services-markup-tool-grid compact">
+                          {matchingFittingTools.filter((tool) => tool.category === "Fitting").map((tool) => (
                             <button
                               className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              style={{ "--symbol-colour": markupSymbolKindColour(tool.kind, tool.category) } as CSSProperties}
                               type="button"
                               key={tool.kind}
                               onClick={() => {
@@ -3227,7 +4130,49 @@ export default function TakeoffPage() {
                               {tool.kind}
                             </button>
                           ))}
-                          {!filteredMarkupPlantTools.length ? <span className="services-markup-no-tools">No plant or fixture items match.</span> : null}
+                          {!matchingFittingTools.some((tool) => tool.category === "Fitting") ? <span className="services-markup-no-tools">No fitting items match.</span> : null}
+                        </div>
+                      </section>
+                      <section className="services-markup-tool-section services-markup-valves-section" style={{ order: 4 }}>
+                        <strong>Valves</strong>
+                        <div className="services-markup-tool-grid compact">
+                          {matchingFittingTools.filter((tool) => tool.category === "Valve").map((tool) => (
+                            <button
+                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              style={{ "--symbol-colour": markupSymbolKindColour(tool.kind, tool.category) } as CSSProperties}
+                              type="button"
+                              key={tool.kind}
+                              onClick={() => {
+                                setMarkupToolMode("symbol");
+                                setActiveMarkupSymbolKind(tool.kind);
+                                setActiveMarkupSymbolCategory(tool.category);
+                              }}
+                            >
+                              {tool.kind}
+                            </button>
+                          ))}
+                          {!matchingFittingTools.some((tool) => tool.category === "Valve") ? <span className="services-markup-no-tools">No valve items match.</span> : null}
+                        </div>
+                      </section>
+                      <section className="services-markup-tool-section services-markup-plant-section" style={{ order: 5 }}>
+                        <strong>Plant / fixtures</strong>
+                        <div className="services-markup-tool-grid compact plant">
+                          {matchingPlantTools.map((tool) => (
+                            <button
+                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              style={{ "--symbol-colour": markupSymbolKindColour(tool.kind, tool.category) } as CSSProperties}
+                              type="button"
+                              key={tool.kind}
+                              onClick={() => {
+                                setMarkupToolMode("symbol");
+                                setActiveMarkupSymbolKind(tool.kind);
+                                setActiveMarkupSymbolCategory(tool.category);
+                              }}
+                            >
+                              {tool.kind}
+                            </button>
+                          ))}
+                          {!matchingPlantTools.length ? <span className="services-markup-no-tools">No plant or fixture items match.</span> : null}
                         </div>
                       </section>
                     </div>
@@ -3307,39 +4252,43 @@ export default function TakeoffPage() {
                               markupDrawingIsPdf ? "pdf" : "",
                               markupDrawingIsImage ? "image" : "",
                             ].filter(Boolean).join(" ")}
-                            style={markupDocumentLayerStyle}
                           >
                             {markupDrawingIsPdf ? (
                               <PdfPlanPreview
                                 src={markupDrawingPreviewUrl}
                                 label={markupSelectedDrawing?.fileName ?? "Drawing"}
                               />
-                            ) : markupDrawingIsImage ? (
+                            ) : markupDrawingSupportsImagePreview && !markupDrawingLoadError ? (
                               <img
                                 src={markupDrawingPreviewUrl}
                                 alt={`${markupSelectedDrawing?.fileName ?? "Drawing"} preview`}
+                                onError={() => setMarkupDrawingLoadErrorId(activeMarkupDrawingId ?? "")}
                               />
                             ) : (
                               <div className="markup-document-placeholder in-board">
                                 <FileText size={22} />
                                 <strong>{markupSelectedDrawing?.fileName}</strong>
-                                <span>This file is uploaded, but cannot be drawn as a visual plan preview yet.</span>
+                                <span>
+                                  {markupDrawingLoadError ? "This plan could not be loaded as an image. " : "This file is uploaded, "}
+                                  Upload again as PDF, JPG or PNG for drawing preview and markups.
+                                </span>
                               </div>
                             )}
                           </div>
                         ) : null}
 
                         <svg
+                          ref={markupCanvasRef}
                           className={markupToolMode === "pan" ? "services-markup-canvas panning" : "services-markup-canvas"}
                           role="img"
                           aria-label="Editable services markup drawing"
                           preserveAspectRatio="none"
                           viewBox={markupViewBox}
                           onClick={handleMarkupCanvasClick}
-                          onPointerDown={handleMarkupPointerDown}
-                          onPointerMove={handleMarkupPointerMove}
-                          onPointerUp={handleMarkupPointerUp}
-                          onPointerCancel={handleMarkupPointerUp}
+                      onPointerDown={handleMarkupPointerDown}
+                        onPointerMove={handleMarkupPointerMove}
+                        onPointerUp={handleMarkupPointerUp}
+                        onPointerCancel={handleMarkupPointerUp}
                           onTouchStart={handleMarkupTouchStart}
                           onTouchMove={handleMarkupTouchMove}
                           onTouchEnd={handleMarkupTouchEnd}
@@ -3393,7 +4342,7 @@ export default function TakeoffPage() {
                           </g>
                         ) : null}
 
-                        {servicesMarkup.pipes.map((pipe) => {
+                        {activeMarkupPipes.map((pipe) => {
                           const routeColour = markupPipeColour(pipe.material, pipe.diameter, pipe.service);
                           const labelPoint = markupRouteLabelPoint(pipe);
                           return (
@@ -3447,7 +4396,7 @@ export default function TakeoffPage() {
                           </g>
                         ) : null}
 
-                        {servicesMarkup.symbols.map((symbol) => (
+                        {activeMarkupSymbols.map((symbol) => (
                           <g
                             className={selectedMarkupElementId === symbol.id ? "markup-symbol selected" : "markup-symbol"}
                             transform={`translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})`}
@@ -3459,11 +4408,11 @@ export default function TakeoffPage() {
                             }}
                           >
                             {symbol.category === "Plant" ? (
-                              <rect x="-39" y="-24" width="78" height="48" rx="12" />
+                              <rect x="-13" y="-9" width="26" height="18" rx="4" />
                             ) : symbol.category === "Valve" ? (
-                              <path d="M-28 0 L0 -22 L28 0 L0 22 Z" />
+                              <path d="M-9 0 L0 -9 L9 0 L0 9 Z" />
                             ) : (
-                              <circle cx="0" cy="0" r="27" />
+                              <circle cx="0" cy="0" r="9" />
                             )}
                             <text y="5">{markupSymbolLabel(symbol.kind)}</text>
                           </g>
@@ -3493,6 +4442,10 @@ export default function TakeoffPage() {
                           <label>
                             Floor
                             <input value={selectedMarkupPipe.floor} onChange={(event) => updateSelectedMarkupPipe({ floor: event.target.value })} />
+                          </label>
+                          <label>
+                            Flat
+                            <input value={selectedMarkupPipe.flat ?? ""} onChange={(event) => updateSelectedMarkupPipe({ flat: event.target.value })} />
                           </label>
                           <label>
                             Rise / drop m
@@ -3533,6 +4486,14 @@ export default function TakeoffPage() {
                               <option>Valve</option>
                               <option>Plant</option>
                             </select>
+                          </label>
+                          <label>
+                            Floor
+                            <input value={selectedMarkupSymbol.floor ?? ""} onChange={(event) => updateSelectedMarkupSymbol({ floor: event.target.value })} />
+                          </label>
+                          <label>
+                            Flat
+                            <input value={selectedMarkupSymbol.flat ?? ""} onChange={(event) => updateSelectedMarkupSymbol({ flat: event.target.value })} />
                           </label>
                           <label>
                             Material
@@ -3598,28 +4559,31 @@ export default function TakeoffPage() {
                         <strong>{servicesMarkupSummary.plantCount}</strong>
                       </div>
                     </div>
-                    <div className="services-markup-table">
-                      <div className="table-head">
-                        <span>Item</span>
-                        <span>Service / type</span>
-                        <span>Measured</span>
-                        <span>Order qty</span>
-                      </div>
-                      {servicesMarkupSummary.pipeRows.map((row) => (
-                        <div className="table-row" key={row.id}>
-                          <span><i style={{ backgroundColor: row.colour }} />{row.label}</span>
-                          <span>{row.service}</span>
-                          <span>{row.measuredM.toFixed(2)}m</span>
-                          <span>{row.stockQuantity} x {servicesMarkup.settings.pipeStockLengthM}m</span>
+                      <div className="services-markup-table">
+                        <div className="table-head">
+                          <span>Item</span>
+                          <span>Context</span>
+                          <span>Service / type</span>
+                          <span>Measured</span>
+                          <span>Order qty</span>
                         </div>
-                      ))}
-                      {servicesMarkupSummary.symbolRows.map((row) => (
-                        <div className="table-row" key={row.id}>
-                          <span>{row.label}</span>
-                          <span>{row.category}</span>
-                          <span>{row.count}</span>
-                          <span>{row.count} each</span>
-                        </div>
+                        {servicesMarkupSummary.pipeRows.map((row) => (
+                          <div className="table-row" key={row.id}>
+                            <span><i style={{ backgroundColor: row.colour }} />{row.label}</span>
+                            <span>{row.locationLabel}</span>
+                            <span>{row.service}</span>
+                            <span>{row.calibrated ? `${row.measuredM.toFixed(2)}m` : "Uncalibrated route"}</span>
+                            <span>{row.calibrated ? `${row.stockQuantity} x ${servicesMarkup.settings.pipeStockLengthM}m` : "Calibrate drawing"}</span>
+                          </div>
+                        ))}
+                        {servicesMarkupSummary.symbolRows.map((row) => (
+                          <div className="table-row" key={row.id}>
+                            <span>{row.label}</span>
+                            <span>{row.locationLabel}</span>
+                            <span>{row.category}</span>
+                            <span>{row.count}</span>
+                            <span>{row.count} each</span>
+                          </div>
                       ))}
                       {!servicesMarkupSummary.pipeRows.length && !servicesMarkupSummary.symbolRows.length ? (
                         <div className="services-markup-empty-row">Start drawing routes or placing equipment to build the schedule.</div>
@@ -4659,18 +5623,32 @@ function UploadButton({
   disabled?: boolean;
   onUpload: (kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) => void | Promise<unknown>;
 }) {
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+
+  function triggerUploadPicker() {
+    if (disabled) return;
+    uploadInputRef.current?.click();
+  }
+
   return (
-    <label className={`takeoff-upload-button${disabled ? " disabled" : ""}`}>
+    <button
+      type="button"
+      className={`takeoff-upload-button${disabled ? " disabled" : ""}`}
+      onClick={triggerUploadPicker}
+      aria-disabled={disabled}
+    >
       <Upload size={15} />
       {label}
       <input
+        ref={uploadInputRef}
         type="file"
         multiple
         accept={accept}
         disabled={disabled}
+        className="takeoff-upload-input"
         onChange={(event) => onUpload(kind, event)}
       />
-    </label>
+    </button>
   );
 }
 

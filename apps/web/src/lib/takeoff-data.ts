@@ -244,6 +244,8 @@ export type TakeoffMarkupPipe = {
   colour: string;
   points: TakeoffMarkupPoint[];
   floor: string;
+  flat?: string;
+  drawingDocumentId?: string;
   riseDropM: number;
   notes: string;
   included: boolean;
@@ -254,10 +256,46 @@ export type TakeoffMarkupSymbolCategory = "Fitting" | "Valve" | "Plant";
 export type TakeoffMarkupSymbolKind =
   | "45 elbow"
   | "90 elbow"
+  | "45 degree elbow"
+  | "22.5 degree elbow"
+  | "60 degree elbow"
+  | "Reducing tee"
+  | "Branch tee"
+  | "Cross"
+  | "Union coupling"
+  | "Compression coupling"
+  | "Soldered coupling"
+  | "Push-fit coupling"
+  | "Cap / blind end"
   | "Tee"
+  | "Coupling"
+  | "Union"
+  | "Bend"
+  | "Tee reducer"
   | "Reducer"
+  | "End cap"
+  | "Sweating cap"
+  | "Ball valve"
+  | "Gate valve"
+  | "Globe valve"
+  | "Check valve"
+  | "Full bore valve"
+  | "Pressure reducing valve"
+  | "Temperature and pressure relief valve"
+  | "Air vent"
+  | "Angle stop"
+  | "Stopcock"
+  | "Gate cock"
   | "Stop valve"
+  | "Concealed stopcock"
   | "Isolation valve"
+  | "Shut-off valve"
+  | "Zone valve"
+  | "Thermostatic mixing valve"
+  | "Air vent valve"
+  | "Backflow preventer"
+  | "Angle stop valve"
+  | "Solenoid valve"
   | "TRV"
   | "Lockshield"
   | "Drain cock"
@@ -268,9 +306,18 @@ export type TakeoffMarkupSymbolKind =
   | "ASHP"
   | "UFH manifold"
   | "Pump"
+  | "Boiler flue"
   | "Expansion vessel"
   | "Gas meter"
   | "Water main"
+  | "Radiator panel"
+  | "Convector heater"
+  | "Manifold"
+  | "Sluice valve"
+  | "Flow temperature sensor"
+  | "Return temperature sensor"
+  | "Electrical isolator"
+  | "Expansion tank"
   | "Soil stack"
   | "Tundish"
   | "Radiator"
@@ -280,7 +327,8 @@ export type TakeoffMarkupSymbolKind =
   | "Bath"
   | "Shower tray"
   | "Shower valve"
-  | "Kitchen sink";
+  | "Kitchen sink"
+  | (string & {});
 
 export type TakeoffMarkupSymbol = {
   id: string;
@@ -290,6 +338,9 @@ export type TakeoffMarkupSymbol = {
   x: number;
   y: number;
   rotation: number;
+  floor?: string;
+  flat?: string;
+  drawingDocumentId?: string;
   service?: TakeoffMarkupService;
   material?: string;
   diameter?: string;
@@ -408,6 +459,8 @@ type QuoteHeatLossRoom = {
 type QuoteCostCentre = {
   id: string;
   name: string;
+  sectionId?: string;
+  sectionName?: string;
   templateName?: string;
   clientDescription?: string;
   engineerDescription?: string;
@@ -415,6 +468,22 @@ type QuoteCostCentre = {
   takeoffRows?: QuoteTakeoffRow[];
   takeoffDocuments?: QuoteTakeoffDocument[];
   heatLossRooms?: QuoteHeatLossRoom[];
+};
+
+type QuoteSection = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+type TakeoffCostCentreGroup = {
+  location: string;
+  service: string;
+  materialLines: TakeoffMaterialAllowance[];
+  labourLines: TakeoffLabourAllowance[];
+  pipeLines: TakeoffPipeRun[];
+  radiatorLines: TakeoffRadiator[];
+  supplierLines: TakeoffSupplierRequestItem[];
 };
 
 export type TakeoffPushResult = {
@@ -948,6 +1017,124 @@ function buildSupplierTakeoffRows(project: TakeoffProject): QuoteTakeoffRow[] {
   }));
 }
 
+function roomToLocation(project: TakeoffProject, roomId?: string, roomName?: string): string {
+  const room = roomId
+    ? project.rooms.find((item) => item.id === roomId)
+    : project.rooms.find((item) => item.name.toLowerCase() === (roomName ?? "").toLowerCase());
+  if (!room) return roomName?.trim() || "General";
+
+  const cleanedName = room.name.trim();
+  const level = room.level?.trim();
+  const hasFlatHint = /\bflat\b/i.test(cleanedName);
+  const hasLevelHint = level ? /\b(floor|level)\b/i.test(level) : false;
+
+  if (hasFlatHint) return cleanedName;
+  if (hasLevelHint && level) return `${level} - ${cleanedName}`;
+  if (level) return `${level}: ${cleanedName}`;
+  return cleanedName;
+}
+
+function locateLocationInSection(section: string, rooms: TakeoffRoom[]) {
+  const cleaned = section.trim().toLowerCase();
+  if (!cleaned) return undefined;
+
+  const roomByName = rooms
+    .map((room) => ({ room, key: room.name.trim().toLowerCase() }))
+    .sort((left, right) => right.key.length - left.key.length);
+
+  return roomByName.find(({ key }) => key && (cleaned === key || cleaned.includes(key) || new RegExp(`\\b${escapeRegExp(key)}\\b`, "i").test(cleaned)))?.room.name;
+}
+
+function stripLocationFromSection(section: string, location: string) {
+  const trimmed = section.trim();
+  const normalisedLocation = location.trim();
+  if (!trimmed || !normalisedLocation) return trimmed || "General";
+  if (trimmed.toLowerCase() === normalisedLocation.toLowerCase()) return "General";
+
+  const locationLower = normalisedLocation.toLowerCase();
+  const parts = trimmed
+    .split(/\s*(?:\/|\||·|—|-)\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const filtered = parts.filter((part) => part.toLowerCase() !== locationLower);
+  if (parts.some((part) => part.toLowerCase() === locationLower)) {
+    const joined = filtered.join(" / ");
+    if (joined) return joined;
+    return "General";
+  }
+
+  const startsWithLocation = new RegExp(`^\\s*${escapeRegExp(normalisedLocation)}\\s*[\\/\\|·—-]\\s*(.*)$`, "i");
+  const endsWithLocation = new RegExp(`^(.*?)\\s*[\\/\\|·—-]\\s*${escapeRegExp(normalisedLocation)}\\s*$`, "i");
+
+  const startMatch = startsWithLocation.exec(trimmed);
+  if (startMatch?.[1]) return startMatch[1].trim() || "General";
+
+  const endMatch = endsWithLocation.exec(trimmed);
+  if (endMatch?.[1]) return endMatch[1].trim() || "General";
+
+  return "General";
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function inferMaterialLabourLocationAndService(section: string, roomHint?: string, rooms: TakeoffRoom[] = []) {
+  if (roomHint && roomHint !== "General") {
+    return { location: roomHint, service: section || "General" };
+  }
+
+  const trimmed = (section ?? "").trim();
+  if (!trimmed) return { location: "General", service: "General" };
+
+  const roomFromSection = locateLocationInSection(trimmed, rooms);
+  if (roomFromSection) {
+    const service = stripLocationFromSection(trimmed, roomFromSection);
+    return { location: roomFromSection, service };
+  }
+
+  const separators = [" / ", " | ", " - ", " · "];
+  for (const separator of separators) {
+    const index = trimmed.indexOf(separator);
+    if (index <= 0 || index >= trimmed.length - separator.length) continue;
+    const left = trimmed.slice(0, index).trim();
+    const right = trimmed.slice(index + separator.length).trim();
+
+    const leftLooksLikeLocation = /\b(floor|flat|level|ground|first|second|third|basement|terrace|unit|apartment|suite)\b/i.test(left);
+    const rightLooksLikeLocation = /\b(floor|flat|level|ground|first|second|third|basement|terrace|unit|apartment|suite)\b/i.test(right);
+
+    if (leftLooksLikeLocation && !rightLooksLikeLocation) return { location: left, service: right };
+    if (rightLooksLikeLocation && !leftLooksLikeLocation) return { location: right, service: left };
+    return { location: left, service: right };
+  }
+
+  return { location: "General", service: trimmed };
+}
+
+function mapSupplierRequestToGroup(supplier: TakeoffSupplierRequestItem, project: TakeoffProject) {
+  if (!supplier.linkedMaterialId) {
+    return {
+      location: "General",
+      service: supplier.supplier || "Supplier requests",
+    };
+  }
+
+  const linkedMaterial = project.materialAllowances.find((material) => material.id === supplier.linkedMaterialId);
+  if (!linkedMaterial) {
+    return {
+      location: "General",
+      service: supplier.supplier || "Supplier requests",
+    };
+  }
+
+  const parsed = inferMaterialLabourLocationAndService(linkedMaterial.section, undefined, project.rooms);
+  return {
+    location: parsed.location,
+    service: parsed.service,
+  };
+}
+
 function buildQuoteMaterialLines(project: TakeoffProject): QuoteCostLine[] {
   return project.materialAllowances.map((line) => ({
     id: `takeoff-material-line-${line.id}`,
@@ -1106,70 +1293,182 @@ function supplierTakeoffRow(line: TakeoffSupplierRequestItem, section: string): 
 }
 
 function buildSectionQuoteCostCentres(project: TakeoffProject, quoteId: string): QuoteCostCentre[] {
-  const sections = Array.from(new Set([
-    ...project.materialAllowances.map((line) => line.section),
-    ...project.labourAllowances.map((line) => line.section),
-  ].filter(Boolean)));
+  const groups = new Map<string, TakeoffCostCentreGroup>();
+  const locate = (location: string, service: string) => `${location.toLowerCase()}||${costCentreKey(service)}`;
 
-  return sections.map((section) => {
-    const materialLines = project.materialAllowances.filter((line) => line.section === section);
-    const labourLines = project.labourAllowances.filter((line) => line.section === section);
-    const supplierRows = project.supplierRequests
-      .filter((line) => supplierRequestSection(project, line) === section)
-      .map((line) => supplierTakeoffRow(line, section));
+  const ensureGroup = (location: string, service: string) => {
+    const key = locate(location, service);
+    if (!groups.has(key)) {
+      groups.set(key, {
+        location,
+        service,
+        materialLines: [],
+        labourLines: [],
+        pipeLines: [],
+        radiatorLines: [],
+        supplierLines: [],
+      });
+    }
+
+    return groups.get(key)!;
+  };
+
+  const normalizedSectionRows = project.materialAllowances.map((line) => {
+    const parsed = inferMaterialLabourLocationAndService(line.section, undefined, project.rooms);
+    const location = roomToLocation(project, undefined, parsed.location !== "General" ? parsed.location : undefined);
+    return { line, location: location, service: parsed.service };
+  });
+
+  normalizedSectionRows.forEach(({ line, location, service }) => {
+    const group = ensureGroup(location, service);
+    group.materialLines.push(line);
+  });
+
+  const normalisedLabour = project.labourAllowances.map((line) => {
+    const parsed = inferMaterialLabourLocationAndService(line.section, undefined, project.rooms);
+    const location = roomToLocation(project, undefined, parsed.location !== "General" ? parsed.location : undefined);
+    return { line, location, service: parsed.service };
+  });
+
+  normalisedLabour.forEach(({ line, location, service }) => {
+    const group = ensureGroup(location, service);
+    group.labourLines.push(line);
+  });
+
+  project.pipeRuns.forEach((run) => {
+    const location = roomToLocation(project, run.roomId);
+    const service = `Pipework - ${run.service}`;
+    const group = ensureGroup(location, service);
+    group.pipeLines.push(run);
+  });
+
+  project.radiators.forEach((radiator) => {
+    const location = roomToLocation(project, undefined, radiator.roomName);
+    const service = "Radiators / Heat emitters";
+    const group = ensureGroup(location, service);
+    group.radiatorLines.push(radiator);
+  });
+
+  project.supplierRequests.forEach((line) => {
+    const mapped = mapSupplierRequestToGroup(line, project);
+    const service = mapped.service || "Supplier requests";
+    const group = ensureGroup(mapped.location, service);
+    group.supplierLines.push(line);
+  });
+
+  const quoteHeatLoss = buildQuoteHeatLossRooms(project);
+  const locationOrder = Array.from(new Set(
+    Array.from(groups.keys()).map((key) => {
+      const [location] = key.split("||", 2);
+      return location?.trim();
+    }),
+  )).filter((location): location is string => Boolean(location));
+
+  const quoteSections = locationOrder.map((location) => ({
+    id: `takeoff-location-${quoteId}-${costCentreKey(location)}`,
+    name: location,
+    description: "",
+  }));
+
+  const sectionIdByLocation = new Map<string, string>(
+    quoteSections.map((section) => [section.name.toLowerCase(), section.id]),
+  );
+
+  const costCentres = Array.from(groups.entries()).map(([key, group]) => {
+    const [rawLocation] = key.split("||", 2);
+    const sectionName = rawLocation || "General";
+
+    const groupHeatLossRooms = quoteHeatLoss.filter((room) => {
+      const roomName = room.name.toLowerCase();
+      const hasRadiator = group.radiatorLines.some((radiator) => radiator.roomName.toLowerCase() === roomName);
+      return hasRadiator || group.location.toLowerCase() === roomName;
+    });
 
     return buildSplitQuoteCostCentre(
       quoteId,
       project,
-      `section-${costCentreKey(section)}`,
-      `${section} - ${project.name}`,
+      `location-${costCentreKey(sectionName)}-${costCentreKey(group.service)}`,
+      group.service,
       [
-        ...materialLines.map(materialLineToQuoteLine),
-        ...labourLines.map(labourLineToQuoteLine),
+        ...group.materialLines.map(materialLineToQuoteLine),
+        ...group.labourLines.map(labourLineToQuoteLine),
       ],
       [
-        ...materialLines.map(materialTakeoffRow),
-        ...supplierRows,
+        ...group.materialLines.map(materialTakeoffRow),
+        ...group.pipeLines.map((run) => ({
+          id: `takeoff-row-${run.id}`,
+          source: "Takeoff" as const,
+          section: group.service,
+          description: `${run.service} - ${run.route}`,
+          quantity: run.lengthM,
+          unit: "m",
+          supplierRequired: true,
+          unitCost: 0,
+          markupPercent: 30,
+        })),
+        ...group.radiatorLines.map((radiator) => ({
+          id: `takeoff-row-${radiator.id}`,
+          source: "Takeoff" as const,
+          section: group.service,
+          description: radiator.model,
+          quantity: radiator.quantity,
+          unit: "each",
+          supplierRequired: radiator.supplierRequired,
+          unitCost: 0,
+          markupPercent: 30,
+        })),
+        ...group.supplierLines.map((supplierLine) => supplierTakeoffRow(supplierLine, group.service)),
       ],
+      groupHeatLossRooms,
     );
   }).filter((centre): centre is QuoteCostCentre => Boolean(centre));
+
+  return costCentres.map((centre, index) => {
+    const groupEntry = Array.from(groups.values())[index];
+    if (!groupEntry) {
+      return {
+        ...centre,
+        sectionName: "General",
+        sectionId: `takeoff-location-${quoteId}-general`,
+      };
+    }
+
+    const sectionId = sectionIdByLocation.get(groupEntry.location.toLowerCase())
+      ?? `takeoff-location-${quoteId}-${costCentreKey(groupEntry.location)}`;
+
+    return {
+      ...centre,
+      sectionName: groupEntry.location,
+      sectionId,
+    };
+  });
+}
+
+function buildQuoteSectionsFromCostCentres(quoteId: string, costCentres: QuoteCostCentre[]) {
+  const knownSections = new Map<string, QuoteSection>();
+
+  costCentres.forEach((centre) => {
+    if (!centre.sectionId) return;
+    if (knownSections.has(centre.sectionId)) return;
+    knownSections.set(centre.sectionId, {
+      id: centre.sectionId,
+      name: centre.sectionName || (centre.sectionId === `takeoff-location-${quoteId}-general` ? "General" : centre.sectionId.replace(`takeoff-location-${quoteId}-`, "")),
+      description: "",
+    });
+  });
+
+  if (!knownSections.size && costCentres.length) {
+    const fallback = `takeoff-location-${quoteId}-general`;
+    knownSections.set(fallback, { id: fallback, name: "General", description: "" });
+  }
+
+  return Array.from(knownSections.values());
 }
 
 function buildQuoteCostCentres(project: TakeoffProject, quoteId: string): QuoteCostCentre[] {
   const sectionCentres = buildSectionQuoteCostCentres(project, quoteId);
   if (sectionCentres.length) {
-    const unmatchedSupplierRows = project.supplierRequests
-      .filter((line) => !supplierRequestSection(project, line))
-      .map((line) => supplierTakeoffRow(line, line.supplier || "Supplier request"));
-    const supportingCentres = [
-      buildSplitQuoteCostCentre(
-        quoteId,
-        project,
-        "pipework",
-        `Pipework - ${project.name}`,
-        [],
-        buildPipeTakeoffRows(project),
-      ),
-      buildSplitQuoteCostCentre(
-        quoteId,
-        project,
-        "radiators",
-        `Radiators / Heat emitters - ${project.name}`,
-        buildQuoteRadiatorLines(project),
-        buildRadiatorTakeoffRows(project),
-        buildQuoteHeatLossRooms(project),
-      ),
-      buildSplitQuoteCostCentre(
-        quoteId,
-        project,
-        "supplier-requests",
-        `Supplier requests - ${project.name}`,
-        [],
-        unmatchedSupplierRows,
-      ),
-    ].filter((centre): centre is QuoteCostCentre => Boolean(centre));
-
-    return [...sectionCentres, ...supportingCentres];
+    return sectionCentres;
   }
 
   const centres = [
@@ -1267,6 +1566,10 @@ function applyProjectCostCentresToQuote(
     ...existingCentres.filter((centre) => !splitCentreIds.has(centre.id) && centre.id !== legacyCentreId && !centre.id.startsWith(projectCentrePrefix)),
     ...costCentres,
   ];
+  const nextQuoteSections = {
+    ...(hubState.quoteSections || {}),
+    [quote.id]: buildQuoteSectionsFromCostCentres(quote.id, costCentres),
+  };
   const nextQuoteCostCentres = {
     ...currentQuoteCostCentres,
     [quote.id]: nextQuoteCentres,
@@ -1274,6 +1577,7 @@ function applyProjectCostCentresToQuote(
 
   saveHubDetailState({
     ...hubState,
+    quoteSections: nextQuoteSections,
     quoteCostCentres: nextQuoteCostCentres,
   });
 

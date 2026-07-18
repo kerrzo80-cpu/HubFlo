@@ -1435,6 +1435,7 @@ type QuoteCostCentre = {
   id: string;
   name: string;
   sectionId?: string;
+  sectionName?: string;
   templateName?: string;
   isOption?: boolean;
   optionSourceCentreId?: string;
@@ -6654,13 +6655,31 @@ export default function Dashboard() {
 
   const selectedQuoteSections = useMemo(() => {
     if (!selectedQuote) return [];
-    const baseSection = baseQuoteSection(selectedQuote.id);
     const storedSections = quoteSections[selectedQuote.id] ?? [];
-    const merged = storedSections.some((section) => section.id === baseSection.id)
-      ? storedSections
-      : [baseSection, ...storedSections];
-    return merged;
-  }, [quoteSections, selectedQuote]);
+    const hasStoredNonBaseSections = storedSections.some((section) => section.id !== baseQuoteSection(selectedQuote.id).id);
+    if (storedSections.length > 0 && hasStoredNonBaseSections) {
+      return storedSections;
+    }
+
+    const derivedSections = selectedQuoteCostCentres
+      .filter((centre) => centre.sectionId)
+      .reduce((acc, centre) => {
+        const sectionId = centre.sectionId!;
+        if (acc.some((item) => item.id === sectionId)) return acc;
+        acc.push({
+          id: sectionId,
+          name: centre.sectionName?.trim() || "General",
+          description: "",
+        });
+        return acc;
+      }, [] as QuoteSection[]);
+
+    if (derivedSections.length > 0) return derivedSections;
+
+    if (storedSections.length > 0) return storedSections;
+
+    return [baseQuoteSection(selectedQuote.id)];
+  }, [quoteSections, selectedQuote, selectedQuoteCostCentres]);
 
   const selectedQuoteSectionsWithCentres = useMemo(
     () =>

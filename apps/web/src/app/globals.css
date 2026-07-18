@@ -22004,6 +22004,17 @@ body {
   text-align: left;
 }
 
+.services-markup-tool-grid button::before {
+  background: var(--symbol-colour, var(--blue-dark));
+  border: 1px solid color-mix(in srgb, var(--symbol-colour, var(--blue-dark)) 78%, #06253a 22%);
+  border-radius: 999px;
+  content: "";
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 10px;
+  width: 10px;
+}
+
 .services-markup-service-grid button {
   gap: 7px;
 }
@@ -23815,6 +23826,150 @@ img.markup-document-preview {
 
   .takeoff-app.takeoff-markup-fullscreen .services-markup-toolbar {
     max-height: calc(100dvh - 200px) !important;
+  }
+}
+
+/* Final lock-down override for fullscreen markup mode:
+   keep tools docked at the same horizontal position and allow only vertical movement.
+   The tool panes can still scroll inside, but they no longer drift left/right. */
+.takeoff-app.takeoff-markup-fullscreen {
+  --nexa-markup-dock-top: max(4px, env(safe-area-inset-top)) !important;
+  --nexa-markup-dock-offset: calc(var(--nexa-markup-dock-top) + 4px) !important;
+  --nexa-markup-dock-width: min(410px, calc(100vw - 20px)) !important;
+  --nexa-markup-handle-size: 56px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .takeoff-drawing-workspace-header {
+  top: var(--nexa-markup-dock-top) !important;
+  left: max(4px, env(safe-area-inset-left)) !important;
+  right: var(--nexa-markup-handle-size) !important;
+  z-index: 1700 !important;
+  min-height: 34px !important;
+  pointer-events: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .takeoff-materials-drawer-tab {
+  top: calc(var(--nexa-markup-dock-offset) + 2px) !important;
+  right: 0 !important;
+  z-index: 1705 !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-summary {
+  position: fixed !important;
+  top: var(--nexa-markup-dock-offset) !important;
+  right: max(6px, calc(env(safe-area-inset-right) + 4px)) !important;
+  left: auto !important;
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  transform: none !important;
+  transition: none !important;
+  z-index: 1620 !important;
+  touch-action: pan-y !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-toolbar {
+  max-height: calc(100dvh - 230px) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-properties {
+  top: calc(var(--nexa-markup-dock-offset) + 230px) !important;
+  max-height: 200px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-summary {
+  top: calc(var(--nexa-markup-dock-offset) + 440px) !important;
+  max-height: calc(100dvh - (var(--nexa-markup-dock-offset) + 452px)) !important;
+  min-height: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-summary {
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  overflow: hidden !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-summary:focus-within {
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: 0 !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-service-grid {
+  max-height: none !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+}
+
+@media (max-width: 1180px) {
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-toolbar,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-properties,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-summary {
+    width: calc(100vw - 18px) !important;
+    right: 6px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-properties {
+    top: calc(var(--nexa-markup-dock-offset) + 220px) !important;
+    max-height: 190px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-summary {
+    top: calc(var(--nexa-markup-dock-offset) + 420px) !important;
+    max-height: calc(100dvh - (var(--nexa-markup-dock-offset) + 438px)) !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-properties,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-workspace.materials-collapsed .services-markup-summary {
+    width: var(--nexa-markup-handle-size) !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .takeoff-app.takeoff-markup-fullscreen .takeoff-drawing-workspace-header {
+    top: max(2px, env(safe-area-inset-top)) !important;
+    right: var(--nexa-markup-handle-size) !important;
+    left: 4px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .takeoff-materials-drawer-tab,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-toolbar,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-properties,
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-summary {
+    right: 2px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-toolbar {
+    max-height: calc(100dvh - 206px) !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-properties {
+    top: calc(var(--nexa-markup-dock-offset) + 206px) !important;
+    max-height: 170px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen .services-markup-summary {
+    top: calc(var(--nexa-markup-dock-offset) + 386px) !important;
+    max-height: calc(100dvh - (var(--nexa-markup-dock-offset) + 404px)) !important;
   }
 }
 
@@ -28623,33 +28778,39 @@ body {
 }
 
 
-/* Final stable lock for fullscreen markup workspace (canonical).
-   Prevents horizontal drift, keeps drawer order stable, and keeps vertical-only panel interaction. */
+/* Final stable lock for fullscreen markup workspace (single source of truth). */
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
-  --nexa-markup-handle-size: 54px !important;
+  --nexa-markup-handle-size: 58px !important;
   --nexa-markup-dock-offset: max(52px, calc(env(safe-area-inset-top) + 46px)) !important;
-  --nexa-markup-dock-width: min(390px, calc(100vw - 84px)) !important;
+  --nexa-markup-dock-right: max(10px, env(safe-area-inset-right)) !important;
+  --nexa-markup-dock-width: clamp(320px, min(390px, calc(100vw - 84px)), calc(100vw - 84px)) !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-shell,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-main,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace > section,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-card,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer {
+  overflow-x: clip !important;
+  overflow-y: clip !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout {
   position: fixed !important;
   inset: 0 !important;
+  margin: 0 !important;
   width: 100vw !important;
   min-width: 100vw !important;
   max-width: 100vw !important;
   height: 100dvh !important;
   min-height: 100dvh !important;
   max-height: 100dvh !important;
-  margin: 0 !important;
-  overflow: hidden !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-shell,
@@ -28657,40 +28818,36 @@ body {
   padding: 0 !important;
 }
 
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-card,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout {
-  overflow: hidden !important;
-}
-
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout {
   margin-top: var(--nexa-markup-dock-offset) !important;
-  width: calc(100vw - 0px) !important;
   height: calc(100dvh - var(--nexa-markup-dock-offset)) !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-card,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer {
   width: 100% !important;
   height: 100% !important;
+  overflow: hidden !important;
 }
 
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-actions,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
   position: fixed !important;
-  right: 0 !important;
+  right: var(--nexa-markup-dock-right) !important;
   left: auto !important;
   transform: none !important;
   transition: none !important;
   touch-action: pan-y !important;
   overscroll-behavior-x: none !important;
   overscroll-behavior-y: contain !important;
+  pointer-events: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  scrollbar-gutter: stable both-edges !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
@@ -28703,69 +28860,84 @@ body {
   z-index: 1700 !important;
 }
 
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
-  width: var(--nexa-markup-dock-width) !important;
-  min-width: var(--nexa-markup-dock-width) !important;
-  max-width: var(--nexa-markup-dock-width) !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
-  overscroll-behavior-x: none !important;
-  overscroll-behavior-y: contain !important;
-  touch-action: pan-y !important;
-  scrollbar-gutter: stable both-edges !important;
-}
-
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
   top: var(--nexa-markup-dock-offset) !important;
-  max-height: min(232px, calc(100dvh - 192px)) !important;
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  max-height: min(236px, calc(100dvh - (var(--nexa-markup-dock-offset) + 240px)) ) !important;
   z-index: 1690 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties {
-  top: calc(var(--nexa-markup-dock-offset) + 238px) !important;
-  max-height: 172px !important;
+  top: calc(var(--nexa-markup-dock-offset) + 236px) !important;
+  max-height: calc(100dvh - (var(--nexa-markup-dock-offset) + 422px)) !important;
   z-index: 1689 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
   top: calc(var(--nexa-markup-dock-offset) + 420px) !important;
-  max-height: calc(100dvh - (var(--nexa-markup-dock-offset) + 430px)) !important;
+  max-height: calc(100dvh - (var(--nexa-markup-dock-offset) + 420px)) !important;
   z-index: 1688 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary {
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
   width: var(--nexa-markup-handle-size) !important;
   min-width: var(--nexa-markup-handle-size) !important;
   max-width: var(--nexa-markup-handle-size) !important;
-  right: 0 !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
-  overflow: hidden !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
 }
 
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary:focus-within {
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab.open,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab.open,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar:hover,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties:hover,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:hover,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar:focus-within,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties:focus-within,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:focus-within,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab.open {
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:focus-within {
   width: var(--nexa-markup-dock-width) !important;
-  min-width: min(390px, calc(100vw - 84px)) !important;
-  max-width: min(390px, calc(100vw - 84px)) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
+  border-radius: 12px 0 0 12px !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette {
   display: flex !important;
   flex-direction: column !important;
-  gap: 10px !important;
   width: 100% !important;
   max-width: 100% !important;
+  min-width: 0 !important;
+  gap: 10px !important;
   overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  touch-action: pan-y !important;
+  pointer-events: auto !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector,
@@ -28777,8 +28949,11 @@ body {
   width: 100% !important;
   min-width: 0 !important;
   max-width: 100% !important;
+  margin: 0 !important;
+  padding: 10px !important;
+  box-sizing: border-box !important;
   order: 99 !important;
-  touch-action: pan-y !important;
+  flex: 0 0 auto !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector { order: 0 !important; }
@@ -28788,23 +28963,295 @@ body {
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section { order: 4 !important; }
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section { order: 5 !important; }
 
+/* Final stable takeoff markup panel layout:
+   lock the tools panel to right-side fixed position,
+   remove sideways drift, keep only vertical scrolling.
+   Services tab is forced to stay at the top of the stack. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-shell,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-main,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-layout,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-canvas-card,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-plan-stage {
+  inset: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  min-width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  min-height: 100dvh !important;
+  overflow: hidden !important;
+  position: fixed !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+  --nexa-markup-handle-size: 56px !important;
+  --nexa-markup-dock-top: max(8px, env(safe-area-inset-top)) !important;
+  --nexa-markup-dock-right: max(10px, env(safe-area-inset-right)) !important;
+  --nexa-markup-dock-width: min(390px, calc(100vw - (var(--nexa-markup-handle-size) + 18px))) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header {
+  top: var(--nexa-markup-dock-top) !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  right: calc(var(--nexa-markup-handle-size) + 4px) !important;
+  width: auto !important;
+  position: fixed !important;
+  z-index: 1700 !important;
+  pointer-events: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  top: var(--nexa-markup-dock-top) !important;
+  right: 0 !important;
+  left: auto !important;
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  position: fixed !important;
+  transform: none !important;
+  transition: none !important;
+  z-index: 1710 !important;
+  touch-action: pan-y !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  position: fixed !important;
+  right: var(--nexa-markup-dock-right) !important;
+  left: auto !important;
+  transform: none !important;
+  transition: none !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  pointer-events: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+  box-sizing: border-box !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
+  top: calc(var(--nexa-markup-dock-top)) !important;
+  max-height: calc(100dvh - 24px - var(--nexa-markup-dock-top)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties {
+  top: calc(var(--nexa-markup-dock-top) + 236px) !important;
+  max-height: calc(100dvh - 24px - (var(--nexa-markup-dock-top) + 236px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+  top: calc(var(--nexa-markup-dock-top) + 430px) !important;
+  bottom: 8px !important;
+  max-height: calc(100dvh - (var(--nexa-markup-dock-top) + 438px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab {
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  right: var(--nexa-markup-dock-right) !important;
+  left: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab:focus-visible {
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  transform: none !important;
+  right: var(--nexa-markup-dock-right) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary {
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+  transform: none !important;
+  right: var(--nexa-markup-dock-right) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-palette {
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  gap: 10px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: contain !important;
+  overscroll-behavior-x: none !important;
+  touch-action: pan-y !important;
+  pointer-events: auto !important;
+  padding-right: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-service-grid {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-service-grid {
+  grid-template-columns: 1fr !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section {
+  order: 999 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector { order: 0 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-search-panel { order: 1 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section { order: 2 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-fittings-section { order: 3 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section { order: 4 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section { order: 5 !important; }
+
+@media (max-width: 840px) {
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+    --nexa-markup-dock-width: calc(100vw - 74px) !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab,
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+    right: 6px !important;
+  }
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant {
   width: 100% !important;
   max-width: 100% !important;
-  grid-template-columns: 1fr !important;
-  max-height: none !important;
-  overflow-y: auto !important;
+  min-width: 0 !important;
   overflow-x: hidden !important;
+  overflow-y: auto !important;
+  touch-action: pan-y !important;
   overscroll-behavior-x: none !important;
   overscroll-behavior-y: contain !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant {
+  grid-template-columns: 1fr !important;
+  max-height: min(300px, calc(100dvh - 250px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-service-grid button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section .services-markup-tool-grid button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section .services-markup-tool-grid.compact button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section .services-markup-tool-grid.plant button {
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  text-overflow: clip !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plant-section {
   touch-action: pan-y !important;
 }
 
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section,
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > section {
-  min-width: 0 !important;
+/* Hard stop for sideways movement in drawing workspace.
+   These selectors intentionally sit last to cancel older translate-left/right rules. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace * {
+  left: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  position: fixed !important;
+  right: var(--nexa-markup-dock-right, max(10px, env(safe-area-inset-right))) !important;
+  left: auto !important;
+  transform: none !important;
+  transition: none !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .takeoff-materials-drawer-tab,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-summary:focus-within {
+  transform: none !important;
+  left: auto !important;
+  right: var(--nexa-markup-dock-right, max(10px, env(safe-area-inset-right))) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab:hover {
+  width: var(--nexa-markup-handle-size, 58px) !important;
+  min-width: var(--nexa-markup-handle-size, 58px) !important;
+  max-width: var(--nexa-markup-handle-size, 58px) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  right: var(--nexa-markup-dock-right, max(10px, env(safe-area-inset-right))) !important;
+  transform: none !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
@@ -28819,4 +29266,788 @@ body {
   width: var(--nexa-markup-dock-width) !important;
   min-width: var(--nexa-markup-dock-width) !important;
   max-width: var(--nexa-markup-dock-width) !important;
+  right: var(--nexa-markup-dock-right, max(10px, env(safe-area-inset-right))) !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-palette,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.plant {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  touch-action: pan-y !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.plant {
+  max-height: min(380px, calc(100dvh - 260px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-plant-section {
+  order: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-service-selector { order: 0 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-search-panel { order: 1 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-pipe-section { order: 2 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-fittings-section { order: 3 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-valves-section { order: 4 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-plant-section { order: 5 !important; }
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-section:before,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid:before,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.compact:before,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.plant:before {
+  display: none !important;
+}
+
+/* Final lock-down override: keep takeoff markup side panels fixed, top aligned, and non-draggable.
+   Movement should stay as vertical scroll only inside each panel. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+  --nexa-markup-handle-size: 58px !important;
+  --nexa-markup-dock-top: max(8px, env(safe-area-inset-top)) !important;
+  --nexa-markup-dock-offset: max(8px, env(safe-area-inset-top)) !important;
+  --nexa-markup-dock-right: max(8px, env(safe-area-inset-right)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace * {
+  left: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-card {
+  touch-action: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header {
+  top: var(--nexa-markup-dock-top) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  position: fixed !important;
+  right: var(--nexa-markup-dock-right) !important;
+  left: auto !important;
+  transform: none !important;
+  transition: none !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  pointer-events: auto !important;
+  box-sizing: border-box !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary:focus-within {
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab {
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  right: var(--nexa-markup-dock-right) !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar > *,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties > *,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary > * {
+  min-width: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary {
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
+  max-height: calc(100dvh - 120px) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+  max-height: calc(100dvh - 120px) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plant-section {
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-y: contain !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant {
+  max-height: none !important;
+}
+
+/* Absolute lock-down for markup workspace panels.
+   Keep side columns anchored; block horizontal drift; keep vertical scroll only. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+  --nexa-markup-handle-size: var(--nexa-markup-handle-size, 58px) !important;
+  --nexa-markup-dock-right: max(10px, env(safe-area-inset-right)) !important;
+  --nexa-markup-dock-top: max(8px, env(safe-area-inset-top)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  position: fixed !important;
+  inset-inline-start: auto !important;
+  inset-inline-end: var(--nexa-markup-dock-right) !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  transform: none !important;
+  left: auto !important;
+  right: var(--nexa-markup-dock-right) !important;
+  transition: none !important;
+  user-select: auto !important;
+  box-sizing: border-box !important;
+  max-width: min(410px, calc(100vw - 20px - var(--nexa-markup-dock-right))) !important;
+  width: var(--nexa-markup-dock-width, min(380px, calc(100vw - 30px))) !important;
+  min-width: var(--nexa-markup-dock-width, min(380px, calc(100vw - 30px))) !important;
+  max-width: var(--nexa-markup-dock-width, min(380px, calc(100vw - 30px))) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:focus-within {
+  top: var(--nexa-markup-dock-top) !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties:focus-within {
+  top: calc(var(--nexa-markup-dock-top) + 228px) !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary:focus-within {
+  top: calc(var(--nexa-markup-dock-top) + 436px) !important;
+  bottom: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab:focus-visible {
+  top: var(--nexa-markup-dock-top) !important;
+  bottom: auto !important;
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary {
+  width: var(--nexa-markup-dock-width, min(380px, calc(100vw - 30px))) !important;
+  min-width: var(--nexa-markup-dock-width, min(380px, calc(100vw - 30px))) !important;
+  max-width: var(--nexa-markup-dock-width, min(380px, calc(100vw - 30px))) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab {
+  width: var(--nexa-markup-handle-size, 58px) !important;
+  min-width: var(--nexa-markup-handle-size, 58px) !important;
+  max-width: var(--nexa-markup-handle-size, 58px) !important;
+  left: auto !important;
+  right: var(--nexa-markup-dock-right) !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace * {
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior-y: contain !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  order: 99 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector { order: 0 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-search-panel { order: 1 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section { order: 2 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-fittings-section { order: 3 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section { order: 4 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section { order: 5 !important; }
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-grid {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant {
+  max-height: none !important;
+  grid-template-columns: 1fr !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid .services-markup-no-tools,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-grid button {
+  touch-action: pan-y !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace {
+  --nexa-markup-handle-size: 56px !important;
+  --nexa-markup-dock-width: min(390px, calc(100vw - 84px)) !important;
+  --nexa-markup-dock-top: max(8px, env(safe-area-inset-top)) !important;
+  --nexa-markup-dock-right: max(10px, env(safe-area-inset-right)) !important;
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  grid-template-rows: auto minmax(0, 1fr) !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  min-height: 100dvh !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace > .takeoff-drawing-workspace-header {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout {
+  display: block !important;
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  width: 100vw !important;
+  min-width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100% !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-card {
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  max-height: calc(100dvh - var(--nexa-markup-dock-top) - 8px) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage {
+  min-height: 0 !important;
+  height: 100% !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+  position: fixed !important;
+  right: var(--nexa-markup-dock-right) !important;
+  left: auto !important;
+  transform: none !important;
+  transition: none !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+  z-index: 1394 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
+  top: var(--nexa-markup-dock-top) !important;
+  max-height: min(228px, calc(100dvh - 24px - var(--nexa-markup-dock-top))) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties {
+  top: calc(var(--nexa-markup-dock-top) + 236px) !important;
+  max-height: min(186px, calc(100dvh - 24px - (var(--nexa-markup-dock-top) + 236px))) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+  top: calc(var(--nexa-markup-dock-top) + 430px) !important;
+  bottom: 8px !important;
+  max-height: calc(100dvh - (var(--nexa-markup-dock-top) + 438px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  position: fixed !important;
+  top: var(--nexa-markup-dock-top) !important;
+  left: auto !important;
+  right: var(--nexa-markup-dock-right) !important;
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  transform: none !important;
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  z-index: 1396 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab {
+  transform: none !important;
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  right: var(--nexa-markup-dock-right) !important;
+  left: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary {
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  pointer-events: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-palette,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-service-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-plant-section {
+  touch-action: pan-y !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  overflow-x: hidden !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-service-selector { order: 0 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-search-panel { order: 1 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section { order: 2 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-fittings-section { order: 3 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section { order: 4 !important; }
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section { order: 5 !important; }
+
+/* Final stability lock for markup tools panel while drawing.
+   Keeps palette and side cards fixed on the right, allows only vertical scroll,
+   and prevents any horizontal drift/re-positioning. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+  --nexa-markup-handle-size: 56px !important;
+  --nexa-markup-dock-right: max(10px, env(safe-area-inset-right)) !important;
+  --nexa-markup-dock-top: max(10px, env(safe-area-inset-top)) !important;
+  --nexa-markup-dock-width: min(390px, calc(100vw - 84px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-main,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-shell,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-content,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-dash,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace {
+  overflow: hidden !important;
+  overscroll-behavior-x: none !important;
+  touch-action: pan-y !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace {
+  grid-template-columns: 1fr !important;
+  grid-template-rows: auto 1fr !important;
+  gap: 0 !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  min-height: 100dvh !important;
+  inset: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace > .takeoff-drawing-workspace-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 16 !important;
+  grid-column: 1 !important;
+  grid-row: 1 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-layout {
+  display: block !important;
+  grid-column: 1 !important;
+  grid-row: 2 !important;
+  position: relative !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-card {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage {
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  position: fixed !important;
+  top: var(--nexa-markup-dock-top) !important;
+  right: var(--nexa-markup-dock-right) !important;
+  left: auto !important;
+  bottom: auto !important;
+  inset-inline-start: auto !important;
+  inset-inline-end: var(--nexa-markup-dock-right) !important;
+  transform: none !important;
+  transition: none !important;
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  touch-action: pan-y !important;
+  box-sizing: border-box !important;
+  z-index: 1390 !important;
+  pointer-events: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:hover {
+  height: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties:hover {
+  top: calc(var(--nexa-markup-dock-top) + 236px) !important;
+  height: min(186px, calc(100dvh - 24px - (var(--nexa-markup-dock-top) + 236px))) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary:hover {
+  top: calc(var(--nexa-markup-dock-top) + 430px) !important;
+  bottom: 8px !important;
+  height: calc(100dvh - (var(--nexa-markup-dock-top) + 438px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab:focus-visible {
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+  height: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab {
+  width: var(--nexa-markup-handle-size) !important;
+  min-width: var(--nexa-markup-handle-size) !important;
+  max-width: var(--nexa-markup-handle-size) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar > *,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties > *,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary > * {
+  min-width: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-summary {
+  width: var(--nexa-markup-dock-width) !important;
+  min-width: var(--nexa-markup-dock-width) !important;
+  max-width: var(--nexa-markup-dock-width) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 9px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-selector,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-search-panel,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plant-section {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  touch-action: pan-y !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-tool-grid.plant,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-service-grid {
+  grid-template-columns: 1fr !important;
+}
+
+/* Takeoff drawer hard reset.
+   The drawing canvas can pan/zoom, but the right-hand tool drawer must behave
+   like one fixed vertical list on iPad: no sideways drag, no hidden columns. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+  --nexa-markup-drawer-width: min(380px, calc(100vw - 76px));
+  --nexa-markup-drawer-right: max(8px, env(safe-area-inset-right));
+  --nexa-markup-drawer-top: max(8px, env(safe-area-inset-top));
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage {
+  touch-action: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  position: fixed !important;
+  top: var(--nexa-markup-drawer-top) !important;
+  right: var(--nexa-markup-drawer-right) !important;
+  bottom: 8px !important;
+  left: auto !important;
+  width: var(--nexa-markup-drawer-width) !important;
+  min-width: var(--nexa-markup-drawer-width) !important;
+  max-width: var(--nexa-markup-drawer-width) !important;
+  height: auto !important;
+  max-height: calc(100dvh - var(--nexa-markup-drawer-top) - 8px) !important;
+  margin: 0 !important;
+  transform: none !important;
+  transition: none !important;
+  overflow-x: clip !important;
+  overflow-y: auto !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  touch-action: pan-y !important;
+  contain: inline-size layout style !important;
+  -webkit-overflow-scrolling: touch;
+  z-index: 1500 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:focus,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:focus-within,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar:active {
+  right: var(--nexa-markup-drawer-right) !important;
+  left: auto !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .takeoff-panel-title {
+  order: 0 !important;
+  flex: 0 0 auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette {
+  order: 1 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup {
+  order: 2 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions {
+  order: 3 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-mode-row {
+  order: 4 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-mode-row,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-service-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar label,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar input,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar select {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  overflow-x: clip !important;
+  transform: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette {
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: visible !important;
+  touch-action: pan-y !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-service-selector {
+  order: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-search-panel {
+  order: 1 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-pipe-section {
+  order: 2 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-fittings-section {
+  order: 3 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-valves-section {
+  order: 4 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-plant-section {
+  order: 5 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-service-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-tool-grid,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-tool-grid.compact,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-tool-grid.plant {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 6px !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-service-selector {
+  background: #ffffff !important;
+  border: 1px solid rgba(16, 42, 67, 0.12) !important;
+  border-radius: 8px !important;
+  padding: 10px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar {
+  width: var(--nexa-markup-handle-size, 56px) !important;
+  min-width: var(--nexa-markup-handle-size, 56px) !important;
+  max-width: var(--nexa-markup-handle-size, 56px) !important;
+  overflow: hidden !important;
+}
+
+@media (max-width: 760px) {
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+    --nexa-markup-drawer-width: min(330px, calc(100vw - 62px));
+  }
 }
