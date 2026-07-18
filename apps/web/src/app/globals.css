@@ -22318,7 +22318,7 @@ img.markup-document-preview {
 .markup-symbol circle,
 .markup-symbol path {
   fill: #fff;
-  stroke: #0f5f80;
+  stroke: var(--symbol-colour, #0f5f80);
   stroke-width: 2;
 }
 
@@ -22336,6 +22336,12 @@ img.markup-document-preview {
   fill: #e5f7ff;
   stroke: var(--nexa-brass);
   stroke-width: 3;
+}
+
+.markup-symbol.recent rect,
+.markup-symbol.recent circle,
+.markup-symbol.recent path {
+  stroke: var(--symbol-colour, #0f5f80);
 }
 
 .services-markup-properties {
@@ -22368,6 +22374,44 @@ img.markup-document-preview {
 
 .services-markup-empty strong {
   color: var(--ink);
+}
+
+.services-markup-nudge {
+  background: #f8fbfc;
+  border: 1px solid #d7e7ee;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 10px;
+}
+
+.services-markup-nudge strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.services-markup-nudge > div {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.services-markup-nudge button {
+  background: #fff;
+  border: 1px solid #cfe2ec;
+  border-radius: 7px;
+  color: var(--blue-deep);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 850;
+  min-height: 30px;
+}
+
+.services-markup-nudge button:hover,
+.services-markup-nudge button:focus-visible {
+  background: #eef8fc;
+  border-color: var(--blue);
 }
 
 .services-markup-property-actions {

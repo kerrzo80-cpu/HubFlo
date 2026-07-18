@@ -658,6 +658,8 @@ function markupServiceColour(service: TakeoffMarkupService) {
 }
 
 function markupPipeColour(material: string, diameter: string, service: TakeoffMarkupService) {
+  const serviceColour = markupServiceColour(service);
+  if (serviceColour) return serviceColour;
   return markupPipeTools.find((tool) => (
     tool.material.toLowerCase() === material.trim().toLowerCase()
     && tool.diameter.toLowerCase() === diameter.trim().toLowerCase()
@@ -1632,6 +1634,8 @@ export default function TakeoffPage() {
   const [localServicesMarkup, setLocalServicesMarkup] = useState<TakeoffServicesMarkup | null>(null);
   const [optimisticMarkupPipes, setOptimisticMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
   const [recentMarkupPipes, setRecentMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
+  const [optimisticMarkupSymbols, setOptimisticMarkupSymbols] = useState<TakeoffMarkupSymbol[]>([]);
+  const [recentMarkupSymbols, setRecentMarkupSymbols] = useState<TakeoffMarkupSymbol[]>([]);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
@@ -1708,7 +1712,7 @@ export default function TakeoffPage() {
         service: activeMarkupService,
         material: activeMarkupPipeTool.material,
         diameter: activeMarkupPipeTool.diameter,
-        colour: activeMarkupPipeTool.colour,
+        colour: markupPipeColour(activeMarkupPipeTool.material, activeMarkupPipeTool.diameter, activeMarkupService),
         points: [...current.points, point],
       };
     })();
@@ -1786,16 +1790,20 @@ export default function TakeoffPage() {
   );
 
   const displayedServicesMarkup = useMemo(() => {
-    if (!optimisticMarkupPipes.length) return workingServicesMarkup;
     const pipeMap = new Map(workingServicesMarkup.pipes.map((pipe) => [pipe.id, pipe]));
     optimisticMarkupPipes.forEach((pipe) => {
       if (!pipeMap.has(pipe.id)) pipeMap.set(pipe.id, pipe);
     });
+    const symbolMap = new Map(workingServicesMarkup.symbols.map((symbol) => [symbol.id, symbol]));
+    optimisticMarkupSymbols.forEach((symbol) => {
+      if (!symbolMap.has(symbol.id)) symbolMap.set(symbol.id, symbol);
+    });
     return {
       ...workingServicesMarkup,
       pipes: Array.from(pipeMap.values()),
+      symbols: Array.from(symbolMap.values()),
     };
-  }, [optimisticMarkupPipes, workingServicesMarkup]);
+  }, [optimisticMarkupPipes, optimisticMarkupSymbols, workingServicesMarkup]);
 
   const activeMarkupPipeTool = useMemo(
     () => markupPipeTools.find((tool) => tool.id === activeMarkupPipeToolId) ?? markupPipeTools[0]!,
@@ -1964,6 +1972,11 @@ const filteredMarkupPlantTools = useMemo(() => {
     && (!activeMarkupFloor || normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }) === activeMarkupFloor)
     && (!activeMarkupFlat || normaliseMarkupFlatValue(symbol.flat) === activeMarkupFlat)
   )), [displayedServicesMarkup.symbols, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
+
+  const recentVisibleMarkupSymbols = useMemo(() => {
+    const activeSymbolIds = new Set(activeMarkupSymbols.map((symbol) => symbol.id));
+    return recentMarkupSymbols.filter((symbol) => !activeSymbolIds.has(symbol.id));
+  }, [activeMarkupSymbols, recentMarkupSymbols]);
 
   const snappedMarkupDraftPoints = useMemo(
     () => markupDraftPipe ? dedupeMarkupPoints(markupDraftPipe.points) : [],
@@ -2232,6 +2245,8 @@ const filteredMarkupPlantTools = useMemo(() => {
     setLocalServicesMarkup(normaliseServicesMarkup(selectedProject.servicesMarkup));
     setOptimisticMarkupPipes([]);
     setRecentMarkupPipes([]);
+    setOptimisticMarkupSymbols([]);
+    setRecentMarkupSymbols([]);
   }, [selectedProject?.id]);
 
   useEffect(() => {
@@ -2545,12 +2560,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
 
     if (markupToolMode === "symbol") {
-      const nextSymbol = createMarkupSymbol(point);
-      updateServicesMarkup((current) => ({
-        ...current,
-        symbols: [...current.symbols, nextSymbol],
-      }));
-      setSelectedMarkupElementId(nextSymbol.id);
+      placeMarkupSymbol(point);
       return;
     }
 
@@ -2693,12 +2703,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         event.preventDefault();
         markMarkupCanvasInput();
         const point = markupTouchPoint(first, event.currentTarget);
-        const nextSymbol = createMarkupSymbol(point);
-        updateServicesMarkup((current) => ({
-          ...current,
-          symbols: [...current.symbols, nextSymbol],
-        }));
-        setSelectedMarkupElementId(nextSymbol.id);
+        placeMarkupSymbol(point);
         return;
       }
 
@@ -2851,7 +2856,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       service: activeMarkupService,
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
-      colour: activeMarkupPipeTool.colour,
+      colour: markupPipeColour(activeMarkupPipeTool.material, activeMarkupPipeTool.diameter, activeMarkupService),
       points,
       floor: normaliseMarkupFloorValue(activeMarkupFloor),
       flat: normaliseMarkupFlatValue(activeMarkupFlat),
@@ -2883,6 +2888,21 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     };
   }
 
+  function placeMarkupSymbol(point: MarkupCanvasPoint) {
+    const nextSymbol = createMarkupSymbol(point);
+    setOptimisticMarkupSymbols((current) => [...current.filter((item) => item.id !== nextSymbol.id), nextSymbol]);
+    setRecentMarkupSymbols((current) => [
+      nextSymbol,
+      ...current.filter((item) => item.id !== nextSymbol.id),
+    ].slice(0, 50));
+    updateServicesMarkup((current) => ({
+      ...current,
+      symbols: [...current.symbols, nextSymbol],
+    }), `${nextSymbol.kind} placed on the drawing.`);
+    setSelectedMarkupElementId(nextSymbol.id);
+    return nextSymbol;
+  }
+
   function handleMarkupCanvasClick(event: ReactMouseEvent<SVGSVGElement>) {
     if (shouldIgnoreMarkupCanvasClick()) return;
     if (markupToolMode === "pan") return;
@@ -2898,12 +2918,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
 
     if (markupToolMode === "symbol") {
-      const nextSymbol = createMarkupSymbol(point);
-      updateServicesMarkup((current) => ({
-        ...current,
-        symbols: [...current.symbols, nextSymbol],
-      }));
-      setSelectedMarkupElementId(nextSymbol.id);
+      placeMarkupSymbol(point);
       return;
     }
 
@@ -2914,7 +2929,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         service: activeMarkupService,
         material: activeMarkupPipeTool.material,
         diameter: activeMarkupPipeTool.diameter,
-        colour: activeMarkupPipeTool.colour,
+        colour: markupPipeColour(activeMarkupPipeTool.material, activeMarkupPipeTool.diameter, activeMarkupService),
         points: [...current.points, point],
       };
     });
@@ -2968,7 +2983,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       service: activeMarkupService,
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
-      colour: activeMarkupPipeTool.colour,
+      colour: markupPipeColour(activeMarkupPipeTool.material, activeMarkupPipeTool.diameter, activeMarkupService),
       points: routePoints,
       floor: normaliseMarkupFloorValue(pipe.floor),
       flat: normaliseMarkupFlatValue(pipe.flat) || undefined,
@@ -2994,6 +3009,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     };
     if (patch.floor !== undefined) nextPatch.floor = normaliseMarkupFloorValue(patch.floor);
     if (patch.flat !== undefined) nextPatch.flat = normaliseMarkupFlatValue(patch.flat) || undefined;
+    setOptimisticMarkupPipes((current) => current.map((pipe) => (
+      pipe.id === selectedMarkupPipe.id
+        ? { ...pipe, ...nextPatch, colour: markupPipeColour(nextPatch.material ?? pipe.material, nextPatch.diameter ?? pipe.diameter, nextPatch.service ?? pipe.service) }
+        : pipe
+    )));
+    setRecentMarkupPipes((current) => current.map((pipe) => (
+      pipe.id === selectedMarkupPipe.id
+        ? { ...pipe, ...nextPatch, colour: markupPipeColour(nextPatch.material ?? pipe.material, nextPatch.diameter ?? pipe.diameter, nextPatch.service ?? pipe.service) }
+        : pipe
+    )));
     updateServicesMarkup((current) => ({
       ...current,
       pipes: current.pipes.map((pipe) => {
@@ -3014,6 +3039,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       floor: patch.floor !== undefined ? normaliseMarkupFloorValue(patch.floor, { defaultGround: false }) : patch.floor,
       flat: patch.flat !== undefined ? normaliseMarkupFlatValue(patch.flat) : patch.flat,
     };
+    setOptimisticMarkupSymbols((current) => current.map((symbol) => (
+      symbol.id === selectedMarkupSymbol.id ? { ...symbol, ...nextPatch } : symbol
+    )));
+    setRecentMarkupSymbols((current) => current.map((symbol) => (
+      symbol.id === selectedMarkupSymbol.id ? { ...symbol, ...nextPatch } : symbol
+    )));
     updateServicesMarkup((current) => ({
       ...current,
       symbols: current.symbols.map((symbol) => symbol.id === selectedMarkupSymbol.id ? {
@@ -3023,10 +3054,31 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }));
   }
 
+  function moveSelectedMarkupElement(dx: number, dy: number) {
+    if (selectedMarkupPipe) {
+      updateSelectedMarkupPipe({
+        points: selectedMarkupPipe.points.map((point) => ({
+          x: Math.round(Math.min(Math.max(0, point.x + dx), markupCanvasWidth)),
+          y: Math.round(Math.min(Math.max(0, point.y + dy), markupCanvasHeight)),
+        })),
+      });
+      return;
+    }
+
+    if (selectedMarkupSymbol) {
+      updateSelectedMarkupSymbol({
+        x: Math.round(Math.min(Math.max(0, selectedMarkupSymbol.x + dx), markupCanvasWidth)),
+        y: Math.round(Math.min(Math.max(0, selectedMarkupSymbol.y + dy), markupCanvasHeight)),
+      });
+    }
+  }
+
   function deleteSelectedMarkupElement() {
     if (!selectedMarkupElementId) return;
     setOptimisticMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
     setRecentMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
+    setOptimisticMarkupSymbols((current) => current.filter((symbol) => symbol.id !== selectedMarkupElementId));
+    setRecentMarkupSymbols((current) => current.filter((symbol) => symbol.id !== selectedMarkupElementId));
     updateServicesMarkup((current) => ({
       ...current,
       pipes: current.pipes.filter((pipe) => pipe.id !== selectedMarkupElementId),
@@ -3042,6 +3094,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         id: makeId("markup-pipe"),
         points: selectedMarkupPipe.points.map((point) => ({ x: point.x + 22, y: point.y + 22 })),
       };
+      setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== duplicate.id), duplicate]);
+      setRecentMarkupPipes((current) => [duplicate, ...current.filter((item) => item.id !== duplicate.id)].slice(0, 25));
       updateServicesMarkup((current) => ({
         ...current,
         pipes: [...current.pipes, duplicate],
@@ -3057,6 +3111,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         x: selectedMarkupSymbol.x + 22,
         y: selectedMarkupSymbol.y + 22,
       };
+      setOptimisticMarkupSymbols((current) => [...current.filter((item) => item.id !== duplicate.id), duplicate]);
+      setRecentMarkupSymbols((current) => [duplicate, ...current.filter((item) => item.id !== duplicate.id)].slice(0, 50));
       updateServicesMarkup((current) => ({
         ...current,
         symbols: [...current.symbols, duplicate],
@@ -4914,9 +4970,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         ) : null}
 
                         <div className="takeoff-markup-route-chip" aria-live="polite">
-                          <strong>{activeMarkupPipes.length + recentVisibleMarkupPipes.length}</strong>
+                          <strong>{activeMarkupPipes.length + recentVisibleMarkupPipes.length + activeMarkupSymbols.length + recentVisibleMarkupSymbols.length}</strong>
                           <span>
-                            on canvas / {displayedServicesMarkup.pipes.length} saved / {recentMarkupPipes.length} recent
+                            on canvas / {displayedServicesMarkup.pipes.length + displayedServicesMarkup.symbols.length} saved / {recentMarkupPipes.length + recentMarkupSymbols.length} recent
                           </span>
                         </div>
 
@@ -5040,6 +5096,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           return (
                             <g key={`recent-${pipe.id}`}>
                               <polyline
+                                className="markup-pipe-hit"
+                                points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setSelectedMarkupElementId(pipe.id);
+                                  setMarkupToolMode("select");
+                                }}
+                              />
+                              <polyline
                                 className="markup-pipe recent"
                                 points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
                                 stroke={routeColour}
@@ -5071,8 +5136,33 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         {activeMarkupSymbols.map((symbol) => (
                           <g
                             className={selectedMarkupElementId === symbol.id ? "markup-symbol selected" : "markup-symbol"}
+                            style={{ "--symbol-colour": markupSymbolKindColour(symbol.kind, symbol.category) } as CSSProperties}
                             transform={`translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})`}
                             key={symbol.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedMarkupElementId(symbol.id);
+                              setMarkupToolMode("select");
+                            }}
+                          >
+                            <g transform={`scale(${markupSymbolScale})`}>
+                              {symbol.category === "Plant" ? (
+                                <rect x="-7" y="-5" width="14" height="10" rx="2" vectorEffect="non-scaling-stroke" />
+                              ) : symbol.category === "Valve" ? (
+                                <path d="M-6 0 L0 -6 L6 0 L0 6 Z" vectorEffect="non-scaling-stroke" />
+                              ) : (
+                                <circle cx="0" cy="0" r="5" vectorEffect="non-scaling-stroke" />
+                              )}
+                              {selectedMarkupElementId === symbol.id ? <text y="18">{markupSymbolLabel(symbol.kind)}</text> : null}
+                            </g>
+                          </g>
+                        ))}
+                        {recentVisibleMarkupSymbols.map((symbol) => (
+                          <g
+                            className={selectedMarkupElementId === symbol.id ? "markup-symbol recent selected" : "markup-symbol recent"}
+                            style={{ "--symbol-colour": markupSymbolKindColour(symbol.kind, symbol.category) } as CSSProperties}
+                            transform={`translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})`}
+                            key={`recent-${symbol.id}`}
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedMarkupElementId(symbol.id);
@@ -5205,6 +5295,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <span>Draw a pipe route or place a boiler, cylinder, valve or fitting, then click it here to edit.</span>
                         </div>
                       )}
+
+                      {selectedMarkupElementId ? (
+                        <div className="services-markup-nudge">
+                          <strong>Move selected</strong>
+                          <div>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(0, -5)}>Up</button>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(-5, 0)}>Left</button>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(5, 0)}>Right</button>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(0, 5)}>Down</button>
+                          </div>
+                          <div>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(0, -25)}>Up 25</button>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(-25, 0)}>Left 25</button>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(25, 0)}>Right 25</button>
+                            <button type="button" onClick={() => moveSelectedMarkupElement(0, 25)}>Down 25</button>
+                          </div>
+                        </div>
+                      ) : null}
 
                       <div className="services-markup-property-actions">
                         <button className="takeoff-secondary-button" type="button" disabled={!selectedMarkupElementId} onClick={duplicateSelectedMarkupElement}>
