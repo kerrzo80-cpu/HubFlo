@@ -30404,14 +30404,20 @@ body {
    Keep the uploaded plan and SVG markup in the same visual zoom state,
    then keep the working controls off the drawing surface. */
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer {
+  height: var(--markup-document-height, 100%) !important;
   left: 0 !important;
   margin: 0 !important;
+  max-height: none !important;
+  max-width: none !important;
   min-height: 0 !important;
   min-width: 0 !important;
   overflow: hidden !important;
   position: absolute !important;
   top: 0 !important;
+  transform: translate(var(--markup-document-x, 0%), var(--markup-document-y, 0%)) !important;
+  transform-origin: top left !important;
   will-change: transform, width, height !important;
+  width: var(--markup-document-width, 100%) !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer img,
@@ -30462,4 +30468,99 @@ body {
   paint-order: stroke !important;
   stroke: rgba(255, 255, 255, 0.95) !important;
   stroke-width: 4 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud {
+  background: rgba(255, 255, 255, 0.96) !important;
+  border: 1px solid rgba(16, 42, 67, 0.15) !important;
+  border-radius: 9px !important;
+  box-shadow: 0 16px 34px rgba(9, 45, 66, 0.15) !important;
+  color: var(--ink) !important;
+  display: grid !important;
+  gap: 8px !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  max-width: min(330px, calc(100vw - 86px)) !important;
+  padding: 10px !important;
+  pointer-events: auto !important;
+  position: fixed !important;
+  top: max(94px, calc(env(safe-area-inset-top) + 70px)) !important;
+  width: min(330px, calc(100vw - 86px)) !important;
+  z-index: 1820 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud strong {
+  color: var(--blue-deep) !important;
+  font-size: 13px !important;
+  font-weight: 950 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud > span,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-status span {
+  color: var(--muted) !important;
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  line-height: 1.25 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud label {
+  color: var(--muted) !important;
+  display: grid !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  gap: 4px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud label > div {
+  align-items: center !important;
+  border: 1px solid rgba(16, 42, 67, 0.14) !important;
+  border-radius: 7px !important;
+  display: grid !important;
+  grid-template-columns: 1fr auto !important;
+  overflow: hidden !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud input {
+  border: 0 !important;
+  font-size: 16px !important;
+  font-weight: 900 !important;
+  min-height: 34px !important;
+  padding: 0 9px !important;
+  width: 100% !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud b {
+  color: var(--muted) !important;
+  font-size: 12px !important;
+  padding-right: 9px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-presets,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-status {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-presets button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button {
+  background: #ffffff !important;
+  border: 1px solid rgba(16, 42, 67, 0.16) !important;
+  border-radius: 7px !important;
+  color: var(--blue-deep) !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  min-height: 30px !important;
+  padding: 0 9px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button.primary {
+  background: var(--blue) !important;
+  border-color: var(--blue) !important;
+  color: #ffffff !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button:disabled {
+  cursor: not-allowed !important;
+  opacity: 0.48 !important;
 }

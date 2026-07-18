@@ -1856,11 +1856,11 @@ const filteredMarkupPlantTools = useMemo(() => {
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
   const markupDocumentTransformStyle = useMemo<CSSProperties>(() => ({
-    height: `${markupViewport.zoom * 100}%`,
-    transform: `translate(${-(markupViewport.x / markupCanvasWidth) * 100}%, ${-(markupViewport.y / markupCanvasHeight) * 100}%)`,
-    transformOrigin: "top left",
-    width: `${markupViewport.zoom * 100}%`,
-  }), [markupViewport.x, markupViewport.y, markupViewport.zoom]);
+    "--markup-document-height": `${markupViewport.zoom * 100}%`,
+    "--markup-document-width": `${markupViewport.zoom * 100}%`,
+    "--markup-document-x": `${-(markupViewport.x / markupCanvasWidth) * 100}%`,
+    "--markup-document-y": `${-(markupViewport.y / markupCanvasHeight) * 100}%`,
+  } as CSSProperties), [markupViewport.x, markupViewport.y, markupViewport.zoom]);
   const surveyWorkflow = useMemo(
     () => createDefaultSurveyWorkflow(selectedProject?.surveyWorkflow),
     [selectedProject],
@@ -4365,6 +4365,54 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </div>
 
                       <div className="services-markup-plan-stage" onWheel={handleMarkupWheel}>
+                        {markupToolMode === "calibrate" ? (
+                          <div
+                            className="takeoff-calibration-hud"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onTouchStart={(event) => event.stopPropagation()}
+                          >
+                            <strong>Calibrate drawing</strong>
+                            <span>Enter the known length, then tap each end of that measurement on the plan.</span>
+                            <label>
+                              Known length
+                              <div>
+                                <input
+                                  inputMode="decimal"
+                                  min="0.01"
+                                  step="0.01"
+                                  type="number"
+                                  value={markupCalibrationDistance}
+                                  onChange={(event) => setMarkupCalibrationDistance(event.target.value)}
+                                />
+                                <b>m</b>
+                              </div>
+                            </label>
+                            <div className="takeoff-calibration-presets" aria-label="Known length presets">
+                              {["1", "2", "5", "10"].map((distance) => (
+                                <button type="button" key={distance} onClick={() => setMarkupCalibrationDistance(distance)}>
+                                  {distance}m
+                                </button>
+                              ))}
+                            </div>
+                            <div className="takeoff-calibration-status">
+                              <span>{markupCalibrationPoints.length}/2 points picked</span>
+                              {markupCalibrationPixelLength ? <span>{markupCalibrationPixelLength.toFixed(0)} px</span> : null}
+                            </div>
+                            <div className="takeoff-calibration-actions">
+                              <button type="button" onClick={() => setMarkupCalibrationPoints([])}>
+                                Reset points
+                              </button>
+                              <button
+                                className="primary"
+                                disabled={markupCalibrationPoints.length < 2}
+                                type="button"
+                                onClick={applyMarkupCalibration}
+                              >
+                                Apply scale
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         {!markupDrawingPreviewUrl ? (
                           <div className="markup-document-placeholder">
                             <Upload size={22} />
