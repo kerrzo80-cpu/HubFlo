@@ -30117,3 +30117,199 @@ body {
   overscroll-behavior-x: none !important;
   transform: none !important;
 }
+
+/* Final iPad drawing workspace lock.
+   Keep the plan as the interaction surface, make the tools drawer one fixed
+   vertical panel, and remove the drawer completely when it is collapsed. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+  --nexa-markup-drawer-width: min(370px, calc(100vw - 76px)) !important;
+  --nexa-markup-drawer-right: max(10px, env(safe-area-inset-right)) !important;
+  --nexa-markup-drawer-top: max(42px, calc(env(safe-area-inset-top) + 12px)) !important;
+  --nexa-markup-drawer-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  overflow: hidden !important;
+  overscroll-behavior: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+  max-width: 100vw !important;
+  max-height: 100dvh !important;
+  overflow: hidden !important;
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas {
+  cursor: crosshair !important;
+  pointer-events: auto !important;
+  z-index: 10 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-document-layer *,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pdf-preview,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pdf-preview * {
+  pointer-events: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header {
+  left: max(8px, env(safe-area-inset-left)) !important;
+  top: var(--nexa-markup-drawer-top) !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: auto !important;
+  max-width: min(330px, calc(100vw - 92px)) !important;
+  min-height: 0 !important;
+  padding: 4px 7px !important;
+  border-radius: 7px !important;
+  gap: 6px !important;
+  z-index: 1200 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header strong {
+  font-size: 12px !important;
+  line-height: 1.15 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header small,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header nav {
+  display: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
+  align-items: center !important;
+  background: var(--blue) !important;
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  border-radius: 8px 0 0 8px !important;
+  box-shadow: 0 14px 30px rgba(8, 49, 71, 0.18) !important;
+  color: #ffffff !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+  height: 74px !important;
+  justify-content: center !important;
+  min-height: 74px !important;
+  min-width: 58px !important;
+  padding: 8px 7px !important;
+  position: fixed !important;
+  right: var(--nexa-markup-drawer-right) !important;
+  top: var(--nexa-markup-drawer-top) !important;
+  transform: none !important;
+  width: 58px !important;
+  z-index: 1700 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab.open {
+  background: var(--nexa-brass) !important;
+  border-radius: 8px 8px 0 0 !important;
+  color: var(--ink) !important;
+  flex-direction: row !important;
+  height: 46px !important;
+  min-height: 46px !important;
+  min-width: var(--nexa-markup-drawer-width) !important;
+  width: var(--nexa-markup-drawer-width) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab span {
+  color: inherit !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  line-height: 1.1 !important;
+  white-space: normal !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar {
+  background: #ffffff !important;
+  border: 1px solid rgba(16, 42, 67, 0.12) !important;
+  border-radius: 0 0 8px 8px !important;
+  bottom: var(--nexa-markup-drawer-bottom) !important;
+  box-shadow: 0 20px 42px rgba(8, 49, 71, 0.2) !important;
+  contain: inline-size layout style !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  height: auto !important;
+  left: auto !important;
+  margin: 0 !important;
+  max-height: calc(100dvh - var(--nexa-markup-drawer-top) - 56px - var(--nexa-markup-drawer-bottom)) !important;
+  max-width: var(--nexa-markup-drawer-width) !important;
+  min-width: var(--nexa-markup-drawer-width) !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-x: none !important;
+  overscroll-behavior-y: contain !important;
+  padding: 10px !important;
+  pointer-events: auto !important;
+  position: fixed !important;
+  right: var(--nexa-markup-drawer-right) !important;
+  top: calc(var(--nexa-markup-drawer-top) + 46px) !important;
+  touch-action: pan-y !important;
+  transform: none !important;
+  visibility: visible !important;
+  width: var(--nexa-markup-drawer-width) !important;
+  z-index: 1650 !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-summary {
+  display: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-properties,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-summary {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateX(calc(100% + 32px)) !important;
+  visibility: hidden !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .takeoff-materials-drawer-tab {
+  display: flex !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .takeoff-materials-drawer-tab.open + .services-markup-toolbar,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace:not(.materials-collapsed) .services-markup-toolbar {
+  display: flex !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .takeoff-panel-title,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-mode-row {
+  flex: 0 0 auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette {
+  display: flex !important;
+  flex: 0 0 auto !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  overflow: visible !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-service-selector {
+  order: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-search-panel {
+  order: 1 !important;
+}
+
+@media (max-width: 760px) {
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
+    --nexa-markup-drawer-width: min(330px, calc(100vw - 70px)) !important;
+    --nexa-markup-drawer-top: max(38px, calc(env(safe-area-inset-top) + 10px)) !important;
+  }
+}
