@@ -1655,6 +1655,15 @@ export default function TakeoffPage() {
   const markupCalibrationTouchRef = useRef<{ touchId: number; start: MarkupCanvasPoint } | null>(null);
   const markupViewFrameRef = useRef<number | null>(null);
   const pendingMarkupViewRef = useRef<{ zoom?: number; pan?: { x: number; y: number } } | null>(null);
+  const lastPlacedMarkupSymbolRef = useRef<{
+    id: string;
+    kind: TakeoffMarkupSymbolKind;
+    category: TakeoffMarkupSymbolCategory;
+    service?: TakeoffMarkupService;
+    x: number;
+    y: number;
+    at: number;
+  } | null>(null);
   const suppressMarkupCanvasClickRef = useRef(false);
   const lastMarkupCanvasInputAtRef = useRef(0);
 
@@ -2890,6 +2899,32 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function placeMarkupSymbol(point: MarkupCanvasPoint) {
     const nextSymbol = createMarkupSymbol(point);
+    const now = Date.now();
+    const lastPlaced = lastPlacedMarkupSymbolRef.current;
+    if (
+      lastPlaced
+      && now - lastPlaced.at < 900
+      && lastPlaced.kind === nextSymbol.kind
+      && lastPlaced.category === nextSymbol.category
+      && lastPlaced.service === nextSymbol.service
+      && markupPointDistance(lastPlaced, nextSymbol) < 10
+    ) {
+      setSelectedMarkupElementId(lastPlaced.id);
+      suppressMarkupCanvasClickRef.current = true;
+      lastMarkupCanvasInputAtRef.current = now;
+      return null;
+    }
+    lastPlacedMarkupSymbolRef.current = {
+      id: nextSymbol.id,
+      kind: nextSymbol.kind,
+      category: nextSymbol.category,
+      service: nextSymbol.service,
+      x: nextSymbol.x,
+      y: nextSymbol.y,
+      at: now,
+    };
+    suppressMarkupCanvasClickRef.current = true;
+    lastMarkupCanvasInputAtRef.current = now;
     setOptimisticMarkupSymbols((current) => [...current.filter((item) => item.id !== nextSymbol.id), nextSymbol]);
     setRecentMarkupSymbols((current) => [
       nextSymbol,
