@@ -30469,6 +30469,14 @@ body {
   stroke-width: 2.5 !important;
 }
 
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.recent {
+  opacity: 0.98 !important;
+  stroke-dasharray: none !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  stroke-width: 2.5 !important;
+}
+
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.selected {
   filter: drop-shadow(0 0 4px rgba(21, 145, 196, 0.45)) !important;
   stroke-width: 3.5 !important;
@@ -30484,6 +30492,10 @@ body {
   stroke-width: 4 !important;
 }
 
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-route-label.recent {
+  font-size: 10px !important;
+}
+
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol rect,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol circle,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol path {
@@ -30495,6 +30507,29 @@ body {
   paint-order: stroke !important;
   stroke: rgba(255, 255, 255, 0.95) !important;
   stroke-width: 3px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-route-chip {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid rgba(16, 42, 67, 0.15) !important;
+  border-radius: 8px !important;
+  bottom: max(58px, calc(env(safe-area-inset-bottom) + 54px)) !important;
+  box-shadow: 0 10px 24px rgba(8, 49, 71, 0.12) !important;
+  color: var(--blue-deep) !important;
+  display: inline-flex !important;
+  font-size: 11px !important;
+  font-weight: 850 !important;
+  gap: 8px !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  padding: 6px 8px !important;
+  pointer-events: none !important;
+  position: fixed !important;
+  z-index: 1850 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-route-chip span {
+  color: var(--muted) !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud {

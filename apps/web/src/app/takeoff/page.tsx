@@ -1631,6 +1631,7 @@ export default function TakeoffPage() {
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
   const [localServicesMarkup, setLocalServicesMarkup] = useState<TakeoffServicesMarkup | null>(null);
   const [optimisticMarkupPipes, setOptimisticMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
+  const [recentMarkupPipes, setRecentMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
@@ -1953,6 +1954,11 @@ const filteredMarkupPlantTools = useMemo(() => {
     && (!activeMarkupFlat || normaliseMarkupFlatValue(pipe.flat) === activeMarkupFlat)
   )), [displayedServicesMarkup.pipes, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
 
+  const recentVisibleMarkupPipes = useMemo(() => {
+    const activePipeIds = new Set(activeMarkupPipes.map((pipe) => pipe.id));
+    return recentMarkupPipes.filter((pipe) => !activePipeIds.has(pipe.id));
+  }, [activeMarkupPipes, recentMarkupPipes]);
+
   const activeMarkupSymbols = useMemo(() => displayedServicesMarkup.symbols.filter((symbol) => (
     (!activeMarkupHasContext || !symbol.drawingDocumentId || symbol.drawingDocumentId === activeMarkupDrawingId)
     && (!activeMarkupFloor || normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }) === activeMarkupFloor)
@@ -2225,6 +2231,7 @@ const filteredMarkupPlantTools = useMemo(() => {
     setActiveMarkupFlat("");
     setLocalServicesMarkup(normaliseServicesMarkup(selectedProject.servicesMarkup));
     setOptimisticMarkupPipes([]);
+    setRecentMarkupPipes([]);
   }, [selectedProject?.id]);
 
   useEffect(() => {
@@ -2968,6 +2975,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       drawingDocumentId: pipe.drawingDocumentId ?? activeMarkupDrawingId,
     };
     setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== completedPipe.id), completedPipe]);
+    setRecentMarkupPipes((current) => [
+      completedPipe,
+      ...current.filter((item) => item.id !== completedPipe.id),
+    ].slice(0, 25));
     updateServicesMarkup((current) => ({
       ...current,
       pipes: [...current.pipes, completedPipe],
@@ -3015,6 +3026,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   function deleteSelectedMarkupElement() {
     if (!selectedMarkupElementId) return;
     setOptimisticMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
+    setRecentMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
     updateServicesMarkup((current) => ({
       ...current,
       pipes: current.pipes.filter((pipe) => pipe.id !== selectedMarkupElementId),
@@ -4901,6 +4913,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </div>
                         ) : null}
 
+                        <div className="takeoff-markup-route-chip" aria-live="polite">
+                          <strong>{activeMarkupPipes.length + recentVisibleMarkupPipes.length}</strong>
+                          <span>
+                            on canvas / {displayedServicesMarkup.pipes.length} saved / {recentMarkupPipes.length} recent
+                          </span>
+                        </div>
+
                         <svg
                           ref={markupCanvasRef}
                           className={markupToolMode === "pan" ? "services-markup-canvas panning" : "services-markup-canvas"}
@@ -5012,6 +5031,29 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               </text>
                             ) : null}
                           </g>
+                          );
+                        })}
+
+                        {recentVisibleMarkupPipes.map((pipe) => {
+                          const routeColour = markupPipeColour(pipe.material, pipe.diameter, pipe.service);
+                          const labelPoint = markupRouteLabelPoint(pipe);
+                          return (
+                            <g key={`recent-${pipe.id}`}>
+                              <polyline
+                                className="markup-pipe recent"
+                                points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                                stroke={routeColour}
+                                vectorEffect="non-scaling-stroke"
+                              />
+                              <text
+                                className="markup-route-label recent"
+                                x={labelPoint.x + 9}
+                                y={labelPoint.y - 9}
+                                stroke={routeColour}
+                              >
+                                {markupRouteLabel(pipe)}
+                              </text>
+                            </g>
                           );
                         })}
 
