@@ -30643,3 +30643,27 @@ body {
   border-color: var(--blue) !important;
   color: #ffffff !important;
 }
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-pipe-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-pipe-section {
+  order: 2 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-plant-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-plant-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-plant-section {
+  order: 3 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-fittings-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-fittings-section {
+  order: 4 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-valves-section,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-valves-section {
+  order: 5 !important;
+}

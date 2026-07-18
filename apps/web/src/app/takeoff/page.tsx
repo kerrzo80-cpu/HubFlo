@@ -522,9 +522,11 @@ function markupSymbolToolMatchesGroup(
   const haystack = `${tool.kind} ${tool.category}`;
 
   if (tool.category === "Plant") {
+    if (group.id === "plant-fixtures") return true;
     return markupToolTextIncludes(haystack, group.plantKeywords);
   }
 
+  if (group.id === "heating" || group.id === "hot-cold") return true;
   if (group.id === "plant-fixtures") return false;
   return markupToolTextIncludes(haystack, group.symbolKeywords);
 }
@@ -1627,6 +1629,7 @@ export default function TakeoffPage() {
   const [activeMarkupFlat, setActiveMarkupFlat] = useState("");
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
+  const [localServicesMarkup, setLocalServicesMarkup] = useState<TakeoffServicesMarkup | null>(null);
   const [optimisticMarkupPipes, setOptimisticMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
@@ -1756,6 +1759,8 @@ export default function TakeoffPage() {
     [selectedProject?.servicesMarkup],
   );
 
+  const workingServicesMarkup = localServicesMarkup ?? servicesMarkup;
+
   const activeMarkupToolGroup = useMemo(
     () => markupToolGroupById(activeMarkupToolGroupId),
     [activeMarkupToolGroupId],
@@ -1772,16 +1777,16 @@ export default function TakeoffPage() {
   );
 
   const displayedServicesMarkup = useMemo(() => {
-    if (!optimisticMarkupPipes.length) return servicesMarkup;
-    const pipeMap = new Map(servicesMarkup.pipes.map((pipe) => [pipe.id, pipe]));
+    if (!optimisticMarkupPipes.length) return workingServicesMarkup;
+    const pipeMap = new Map(workingServicesMarkup.pipes.map((pipe) => [pipe.id, pipe]));
     optimisticMarkupPipes.forEach((pipe) => {
       if (!pipeMap.has(pipe.id)) pipeMap.set(pipe.id, pipe);
     });
     return {
-      ...servicesMarkup,
+      ...workingServicesMarkup,
       pipes: Array.from(pipeMap.values()),
     };
-  }, [optimisticMarkupPipes, servicesMarkup]);
+  }, [optimisticMarkupPipes, workingServicesMarkup]);
 
   const activeMarkupPipeTool = useMemo(
     () => markupPipeTools.find((tool) => tool.id === activeMarkupPipeToolId) ?? markupPipeTools[0]!,
@@ -1833,7 +1838,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       const searchMatch = !query || `${tool.label} ${tool.material} ${tool.diameter}`.toLowerCase().includes(query);
       const includeFavouritesOnly = markupToolCategory === "favourites";
       const isFavourite = ["cu-15", "cu-22", "waste-40"].includes(tool.id);
-      const categoryMatch = markupToolCategory === "all" || markupToolCategory === "pipe" || includeFavouritesOnly;
+      const categoryMatch = !includeFavouritesOnly || isFavourite;
       return markupPipeToolMatchesGroup(tool, activeMarkupToolGroup.id)
         && categoryMatch
         && searchMatch
@@ -1847,10 +1852,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
       const includeFavouritesOnly = markupToolCategory === "favourites";
       const isFavourite = ["90 elbow", "tee", "isolation valve", "trv"].includes(tool.kind.toLowerCase());
-      const categoryMatch = markupToolCategory === "all"
-        || (markupToolCategory === "fittings" && tool.category === "Fitting")
-        || (markupToolCategory === "valves" && tool.category === "Valve")
-        || includeFavouritesOnly;
+      const categoryMatch = !includeFavouritesOnly || isFavourite;
       return markupSymbolToolMatchesGroup(tool, activeMarkupToolGroup.id)
         && categoryMatch
         && searchMatch
@@ -1864,7 +1866,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       const searchMatch = !query || `${tool.kind} ${tool.category}`.toLowerCase().includes(query);
       const includeFavouritesOnly = markupToolCategory === "favourites";
       const isFavourite = ["Radiator", "Combi boiler", "Cylinder", "WC", "Basin", "Shower tray"].includes(tool.kind);
-      const categoryMatch = markupToolCategory === "all" || markupToolCategory === "plant" || includeFavouritesOnly;
+      const categoryMatch = !includeFavouritesOnly || isFavourite;
       return markupSymbolToolMatchesGroup(tool, activeMarkupToolGroup.id)
         && categoryMatch
         && searchMatch
@@ -2213,8 +2215,23 @@ const filteredMarkupPlantTools = useMemo(() => {
     if (!selectedProject) return;
     setActiveMarkupFloor("Ground floor");
     setActiveMarkupFlat("");
+    setLocalServicesMarkup(normaliseServicesMarkup(selectedProject.servicesMarkup));
     setOptimisticMarkupPipes([]);
   }, [selectedProject?.id]);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      setLocalServicesMarkup(null);
+      return;
+    }
+    const nextMarkup = normaliseServicesMarkup(selectedProject.servicesMarkup);
+    setLocalServicesMarkup((current) => {
+      if (!current) return nextMarkup;
+      const currentUpdatedAt = current.updatedAt ?? "";
+      const nextUpdatedAt = nextMarkup.updatedAt ?? "";
+      return nextUpdatedAt && nextUpdatedAt > currentUpdatedAt ? nextMarkup : current;
+    });
+  }, [selectedProject?.id, selectedProject?.servicesMarkup?.updatedAt]);
 
   useEffect(() => {
     if (!optimisticMarkupPipes.length) return;
@@ -2314,11 +2331,12 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   function updateServicesMarkup(updater: (current: TakeoffServicesMarkup) => TakeoffServicesMarkup, successMessage?: string) {
     if (!selectedProject) return;
-    const nextMarkup = normaliseServicesMarkup(updater(normaliseServicesMarkup(selectedProject.servicesMarkup)));
+    const nextMarkup = normaliseServicesMarkup(updater(normaliseServicesMarkup(localServicesMarkup ?? selectedProject.servicesMarkup)));
     const updatedServicesMarkup = {
       ...nextMarkup,
       updatedAt: new Date().toISOString(),
     };
+    setLocalServicesMarkup(updatedServicesMarkup);
     const quantityPatch = buildMarkupQuantityPatch(updatedServicesMarkup, {
       ...selectedProject,
       servicesMarkup: updatedServicesMarkup,
@@ -4585,7 +4603,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {!matchingPipeTools.length ? <span className="services-markup-no-tools">No pipe items match.</span> : null}
                         </div>
                       </section>
-                      <section className="services-markup-tool-section services-markup-fittings-section" style={{ order: 3 }}>
+                      <section className="services-markup-tool-section services-markup-fittings-section" style={{ order: 4 }}>
                         <strong>Fittings</strong>
                         <div className="services-markup-tool-grid compact">
                           {matchingFittingTools.filter((tool) => tool.category === "Fitting").map((tool) => (
@@ -4606,7 +4624,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {!matchingFittingTools.some((tool) => tool.category === "Fitting") ? <span className="services-markup-no-tools">No fitting items match.</span> : null}
                         </div>
                       </section>
-                      <section className="services-markup-tool-section services-markup-valves-section" style={{ order: 4 }}>
+                      <section className="services-markup-tool-section services-markup-valves-section" style={{ order: 5 }}>
                         <strong>Valves</strong>
                         <div className="services-markup-tool-grid compact">
                           {matchingFittingTools.filter((tool) => tool.category === "Valve").map((tool) => (
@@ -4627,8 +4645,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {!matchingFittingTools.some((tool) => tool.category === "Valve") ? <span className="services-markup-no-tools">No valve items match.</span> : null}
                         </div>
                       </section>
-                      <section className="services-markup-tool-section services-markup-plant-section" style={{ order: 5 }}>
-                        <strong>Plant / fixtures</strong>
+                      <section className="services-markup-tool-section services-markup-plant-section" style={{ order: 3 }}>
+                        <strong>{activeMarkupToolGroup.id === "heating" ? "Heating plant / radiators" : "Plant / fixtures"}</strong>
                         <div className="services-markup-tool-grid compact plant">
                           {matchingPlantTools.map((tool) => (
                             <button
