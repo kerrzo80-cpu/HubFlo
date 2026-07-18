@@ -56,6 +56,49 @@
   transform: translate(-50%, -50%);
 }
 
+.markup-pdf-preview.error .markup-pdf-fallback {
+  background: #ffffff;
+  border: 0;
+  border-radius: 0;
+  inset: 0;
+  left: 0;
+  max-width: none;
+  padding: 0;
+  top: 0;
+  transform: none;
+  width: 100%;
+}
+
+.markup-pdf-preview.error .markup-pdf-fallback > object {
+  border: 0;
+  border-radius: 0;
+  height: 100%;
+  max-height: none;
+  max-width: none;
+  width: 100%;
+}
+
+.markup-pdf-preview.error .markup-pdf-fallback > span,
+.markup-pdf-preview.error .markup-pdf-fallback > a {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(30, 64, 86, 0.16);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px rgba(27, 38, 45, 0.08);
+  left: 50%;
+  padding: 7px 10px;
+  position: absolute;
+  transform: translateX(-50%);
+  z-index: 2;
+}
+
+.markup-pdf-preview.error .markup-pdf-fallback > span {
+  top: 14px;
+}
+
+.markup-pdf-preview.error .markup-pdf-fallback > a {
+  bottom: 14px;
+}
+
 .markup-pdf-fallback > span {
   font-size: 12px;
   font-weight: 700;
@@ -29951,24 +29994,24 @@ body {
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .takeoff-panel-title {
-  order: 0 !important;
+  order: 4 !important;
   flex: 0 0 auto !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette {
-  order: 1 !important;
+  order: 0 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup {
-  order: 2 !important;
+  order: 1 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions {
-  order: 3 !important;
+  order: 2 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-mode-row {
-  order: 4 !important;
+  order: 3 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette,
@@ -30050,4 +30093,27 @@ body {
   .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
     --nexa-markup-drawer-width: min(330px, calc(100vw - 62px));
   }
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab.open,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab:hover,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab:focus-visible {
+  position: fixed !important;
+  top: var(--nexa-markup-drawer-top) !important;
+  right: var(--nexa-markup-drawer-right) !important;
+  bottom: auto !important;
+  left: auto !important;
+  transform: none !important;
+  touch-action: manipulation !important;
+  overscroll-behavior: none !important;
+  z-index: 1600 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar *,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab * {
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overscroll-behavior-x: none !important;
+  transform: none !important;
 }

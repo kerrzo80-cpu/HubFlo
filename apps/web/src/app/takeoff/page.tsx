@@ -720,6 +720,42 @@ function markupPointDistance(a: { x: number; y: number }, b: { x: number; y: num
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+function dedupeMarkupPoints(points: MarkupCanvasPoint[]) {
+  return points.reduce<MarkupCanvasPoint[]>((acc, point) => {
+    const previous = acc[acc.length - 1];
+    if (!previous || markupPointDistance(previous, point) > 1) {
+      acc.push(point);
+    }
+    return acc;
+  }, []);
+}
+
+function snapMarkupPipePoints(points: MarkupCanvasPoint[]) {
+  const cleaned = dedupeMarkupPoints(points);
+  if (cleaned.length <= 2) return cleaned;
+
+  const start = cleaned[0]!;
+  const end = cleaned[cleaned.length - 1]!;
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+  const straightTolerance = 12;
+  const bendTolerance = 14;
+
+  if (absX <= straightTolerance && absY <= straightTolerance) return [start, end];
+  if (absY <= straightTolerance) return dedupeMarkupPoints([start, { x: end.x, y: start.y }]);
+  if (absX <= straightTolerance) return dedupeMarkupPoints([start, { x: start.x, y: end.y }]);
+
+  const firstMove = cleaned.find((point) => markupPointDistance(start, point) >= bendTolerance) ?? end;
+  const horizontalFirst = Math.abs(firstMove.x - start.x) >= Math.abs(firstMove.y - start.y);
+  const bend = horizontalFirst
+    ? { x: end.x, y: start.y }
+    : { x: start.x, y: end.y };
+
+  return dedupeMarkupPoints([start, bend, end]);
+}
+
 function markupCanvasPointFromClient(
   canvas: SVGSVGElement,
   clientX: number,
@@ -1513,6 +1549,7 @@ export default function TakeoffPage() {
   const [markupTouchGesture, setMarkupTouchGesture] = useState<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const [markupDrawingLoadErrorId, setMarkupDrawingLoadErrorId] = useState("");
   const markupCanvasRef = useRef<SVGSVGElement | null>(null);
+  const markupDraftPipeRef = useRef<TakeoffMarkupPipe | null>(null);
   const markupPointerDrawRef = useRef<{ pointerId: number } | null>(null);
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
   const suppressMarkupCanvasClickRef = useRef(false);
@@ -1526,6 +1563,23 @@ export default function TakeoffPage() {
     if (activeTab !== "markup") return;
     setIsMarkupMaterialsCollapsed(false);
   }, [activeTab, selectedProject?.id]);
+
+  useEffect(() => {
+    markupDraftPipeRef.current = markupDraftPipe;
+  }, [markupDraftPipe]);
+
+  function setMarkupDraftPipeState(next: TakeoffMarkupPipe | null) {
+    markupDraftPipeRef.current = next;
+    setMarkupDraftPipe(next);
+  }
+
+  function updateMarkupDraftPipeState(updater: (current: TakeoffMarkupPipe | null) => TakeoffMarkupPipe | null) {
+    setMarkupDraftPipe((current) => {
+      const next = updater(current);
+      markupDraftPipeRef.current = next;
+      return next;
+    });
+  }
 
   const selectedQuote = useMemo(
     () => quotes.find((quote) => quote.id === selectedProject?.linkedQuoteId) ?? null,
@@ -1729,6 +1783,11 @@ const filteredMarkupPlantTools = useMemo(() => {
     && (!activeMarkupFloor || normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }) === activeMarkupFloor)
     && (!activeMarkupFlat || normaliseMarkupFlatValue(symbol.flat) === activeMarkupFlat)
   )), [servicesMarkup.symbols, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
+
+  const snappedMarkupDraftPoints = useMemo(
+    () => markupDraftPipe ? snapMarkupPipePoints(markupDraftPipe.points) : [],
+    [markupDraftPipe],
+  );
 
   const markupDrawingFileUrl = useMemo(() => (
     selectedProject && markupSelectedDrawing?.storageKey
@@ -2148,7 +2207,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
 
     if (markupToolMode === "calibrate") {
       setSelectedMarkupElementId("");
-      setMarkupDraftPipe(null);
+      setMarkupDraftPipeState(null);
       setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
       return;
     }
@@ -2165,12 +2224,12 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
 
     setSelectedMarkupElementId("");
     setMarkupCalibrationPoints([]);
-    setMarkupDraftPipe((current) => {
+    updateMarkupDraftPipeState((current) => {
       if (!current) {
         return createMarkupPipe([point]);
       }
       const existingLast = current.points[current.points.length - 1];
-      if (!existingLast || markupPointDistance(existingLast, point) <= 2) {
+      if (!existingLast || markupPointDistance(existingLast, point) <= 10) {
         return current;
       }
       return {
@@ -2188,10 +2247,10 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
     if (markupToolMode === "pipe" && markupPointerDrawRef.current?.pointerId === event.pointerId) {
       event.preventDefault();
       const point = markupCanvasPoint(event);
-      setMarkupDraftPipe((current) => {
+      updateMarkupDraftPipeState((current) => {
         if (!current) return createMarkupPipe([point]);
         const existingLast = current.points[current.points.length - 1];
-        if (!existingLast || markupPointDistance(existingLast, point) <= 2) return current;
+        if (!existingLast || markupPointDistance(existingLast, point) <= 10) return current;
         return {
           ...current,
           points: [...current.points, point],
@@ -2217,6 +2276,10 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
         suppressMarkupCanvasClickRef.current = false;
       }, 0);
       event.currentTarget.releasePointerCapture(event.pointerId);
+      const activeDraft = markupDraftPipeRef.current;
+      if (activeDraft && activeDraft.points.length > 2) {
+        finishMarkupRoute(activeDraft);
+      }
       return;
     }
     if (markupPanStart?.pointerId === event.pointerId) {
@@ -2267,7 +2330,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
         suppressMarkupCanvasClickRef.current = true;
         const point = markupTouchPoint(first, event.currentTarget);
         setSelectedMarkupElementId("");
-        setMarkupDraftPipe(null);
+        setMarkupDraftPipeState(null);
         setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
         return;
       }
@@ -2292,12 +2355,12 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
         const point = markupTouchPoint(first, event.currentTarget);
         setSelectedMarkupElementId("");
         setMarkupCalibrationPoints([]);
-        setMarkupDraftPipe((current) => {
+        updateMarkupDraftPipeState((current) => {
           if (!current) {
             return createMarkupPipe([point]);
           }
           const existingLast = current.points[current.points.length - 1];
-          if (!existingLast || markupPointDistance(existingLast, point) <= 2) {
+          if (!existingLast || markupPointDistance(existingLast, point) <= 10) {
             return current;
           }
           return {
@@ -2331,8 +2394,8 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
       if (!activeTouch || activeTouch.identifier !== markupTouchDrawRef.current.touchId) return;
       const point = markupTouchPoint(activeTouch, event.currentTarget);
       const previous = markupDraftPipe?.points?.[markupDraftPipe.points.length - 1];
-      if (!previous || markupPointDistance(previous, point) > 2) {
-        setMarkupDraftPipe((current) => {
+      if (!previous || markupPointDistance(previous, point) > 10) {
+        updateMarkupDraftPipeState((current) => {
           if (!current) return createMarkupPipe([point]);
           return {
             ...current,
@@ -2389,6 +2452,10 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
     const activeTouch = event.changedTouches.item(0);
     if (markupTouchDrawRef.current && activeTouch?.identifier === markupTouchDrawRef.current.touchId) {
       markupTouchDrawRef.current = null;
+      const activeDraft = markupDraftPipeRef.current;
+      if (activeDraft && activeDraft.points.length > 2) {
+        finishMarkupRoute(activeDraft);
+      }
       setTimeout(() => {
         suppressMarkupCanvasClickRef.current = false;
       }, 0);
@@ -2451,7 +2518,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
     const point = markupCanvasPoint(event);
     if (markupToolMode === "calibrate") {
       setSelectedMarkupElementId("");
-      setMarkupDraftPipe(null);
+      setMarkupDraftPipeState(null);
       setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
       return;
     }
@@ -2471,7 +2538,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
       return;
     }
 
-    setMarkupDraftPipe((current) => {
+    updateMarkupDraftPipeState((current) => {
       if (!current) return createMarkupPipe([point]);
       return {
         ...current,
@@ -2485,7 +2552,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
   }
 
   function startMarkupCalibration() {
-    setMarkupDraftPipe(null);
+    setMarkupDraftPipeState(null);
     setSelectedMarkupElementId("");
     setMarkupToolMode("calibrate");
     setMarkupCalibrationPoints([]);
@@ -2517,26 +2584,28 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
     setMarkupToolMode("pipe");
   }
 
-  function finishMarkupRoute() {
-    if (!markupDraftPipe || markupDraftPipe.points.length < 2) {
+  function finishMarkupRoute(pipe = markupDraftPipeRef.current ?? markupDraftPipe) {
+    const snappedPoints = pipe ? snapMarkupPipePoints(pipe.points) : [];
+    if (!pipe || snappedPoints.length < 2) {
       setError("Tap at least two points before finishing the pipe route.");
       return;
     }
     const completedPipe: TakeoffMarkupPipe = {
-      ...markupDraftPipe,
+      ...pipe,
       id: makeId("markup-pipe"),
       service: activeMarkupService,
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
       colour: activeMarkupPipeTool.colour,
-      floor: normaliseMarkupFloorValue(markupDraftPipe.floor),
-      flat: normaliseMarkupFlatValue(markupDraftPipe.flat) || undefined,
+      points: snappedPoints,
+      floor: normaliseMarkupFloorValue(pipe.floor),
+      flat: normaliseMarkupFlatValue(pipe.flat) || undefined,
     };
     updateServicesMarkup((current) => ({
       ...current,
       pipes: [...current.pipes, completedPipe],
     }), "Pipe route added to the services markup.");
-    setMarkupDraftPipe(null);
+    setMarkupDraftPipeState(null);
     setSelectedMarkupElementId(completedPipe.id);
   }
 
@@ -2619,9 +2688,9 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
   function undoLastMarkupAction() {
     if (markupDraftPipe) {
       if (markupDraftPipe.points.length > 1) {
-        setMarkupDraftPipe({ ...markupDraftPipe, points: markupDraftPipe.points.slice(0, -1) });
+        setMarkupDraftPipeState({ ...markupDraftPipe, points: markupDraftPipe.points.slice(0, -1) });
       } else {
-        setMarkupDraftPipe(null);
+        setMarkupDraftPipeState(null);
       }
       return;
     }
@@ -4224,14 +4293,14 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
                           >
                             Apply calibration
                           </button>
-                          <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe || markupDraftPipe.points.length < 2} onClick={finishMarkupRoute}>
+                          <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe || markupDraftPipe.points.length < 2} onClick={() => finishMarkupRoute()}>
                             Finish route
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={undoLastMarkupAction}>
                             <ArrowLeft size={14} />
                             Undo last
                           </button>
-                          <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe} onClick={() => setMarkupDraftPipe(null)}>
+                          <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe} onClick={() => setMarkupDraftPipeState(null)}>
                             Cancel route
                           </button>
                         </div>
@@ -4387,10 +4456,10 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
                           <g>
                             <polyline
                               className="markup-pipe draft"
-                              points={markupDraftPipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                              points={snappedMarkupDraftPoints.map((point) => `${point.x},${point.y}`).join(" ")}
                               stroke={markupDraftPipe.colour}
                             />
-                            {markupDraftPipe.points.map((point, index) => (
+                            {snappedMarkupDraftPoints.map((point, index) => (
                               <circle className="markup-route-point draft" cx={point.x} cy={point.y} r="6" fill={markupDraftPipe.colour} key={`draft-${index}`} />
                             ))}
                           </g>
