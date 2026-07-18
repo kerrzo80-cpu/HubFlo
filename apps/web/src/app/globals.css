@@ -22258,6 +22258,10 @@ img.markup-document-preview {
   stroke-width: 3;
 }
 
+.markup-calibration circle.active {
+  fill: var(--blue);
+}
+
 .markup-calibration text {
   fill: var(--ink);
   font-size: 14px;
@@ -30536,6 +30540,8 @@ body {
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-presets,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-point-picker,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-nudge,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-status {
   display: flex !important;
   flex-wrap: wrap !important;
@@ -30543,6 +30549,8 @@ body {
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-presets button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-point-picker button,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-nudge button,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button {
   background: #ffffff !important;
   border: 1px solid rgba(16, 42, 67, 0.16) !important;
@@ -30554,13 +30562,20 @@ body {
   padding: 0 9px !important;
 }
 
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-point-picker button.active {
+  background: var(--blue-soft) !important;
+  border-color: var(--blue) !important;
+}
+
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button.primary {
   background: var(--blue) !important;
   border-color: var(--blue) !important;
   color: #ffffff !important;
 }
 
-.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button:disabled {
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-actions button:disabled,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-point-picker button:disabled,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-nudge button:disabled {
   cursor: not-allowed !important;
   opacity: 0.48 !important;
 }

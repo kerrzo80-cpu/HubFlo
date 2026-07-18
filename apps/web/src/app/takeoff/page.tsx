@@ -1542,6 +1542,7 @@ export default function TakeoffPage() {
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
   const [markupCalibrationDistance, setMarkupCalibrationDistance] = useState("1");
+  const [activeMarkupCalibrationPointIndex, setActiveMarkupCalibrationPointIndex] = useState(0);
   const [markupZoom, setMarkupZoom] = useState(1);
   const [markupPan, setMarkupPan] = useState({ x: 0, y: 0 });
   const [markupPanStart, setMarkupPanStart] = useState<{ pointerId: number; clientX: number; clientY: number; panX: number; panY: number } | null>(null);
@@ -1553,6 +1554,7 @@ export default function TakeoffPage() {
   const markupPointerDrawRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
   const suppressMarkupCanvasClickRef = useRef(false);
+  const lastMarkupCanvasInputAtRef = useRef(0);
 
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? projects[0] ?? null,
@@ -1855,6 +1857,8 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
+  const activeMarkupCalibrationPoint = markupCalibrationPoints[activeMarkupCalibrationPointIndex];
+  const calibrationMarkerScale = 1 / Math.max(0.75, markupViewport.zoom);
   const markupDocumentTransformStyle = useMemo<CSSProperties>(() => ({
     "--markup-document-height": `${markupViewport.zoom * 100}%`,
     "--markup-document-width": `${markupViewport.zoom * 100}%`,
@@ -2220,6 +2224,52 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 }
 
+  function markMarkupCanvasInput() {
+    lastMarkupCanvasInputAtRef.current = Date.now();
+    suppressMarkupCanvasClickRef.current = true;
+  }
+
+  function shouldIgnoreMarkupCanvasClick() {
+    if (suppressMarkupCanvasClickRef.current) {
+      suppressMarkupCanvasClickRef.current = false;
+      return true;
+    }
+
+    return Date.now() - lastMarkupCanvasInputAtRef.current < 550;
+  }
+
+  function addMarkupCalibrationPoint(point: MarkupCanvasPoint) {
+    setSelectedMarkupElementId("");
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints((current) => {
+      if (current.length >= 2) {
+        setActiveMarkupCalibrationPointIndex(0);
+        return [point];
+      }
+
+      setActiveMarkupCalibrationPointIndex(current.length);
+      return [...current, point];
+    });
+  }
+
+  function nudgeMarkupCalibrationPoint(dx: number, dy: number) {
+    setMarkupCalibrationPoints((current) => current.map((point, index) => (
+      index === activeMarkupCalibrationPointIndex
+        ? {
+          x: Math.round(Math.min(Math.max(0, point.x + dx), markupCanvasWidth)),
+          y: Math.round(Math.min(Math.max(0, point.y + dy), markupCanvasHeight)),
+        }
+        : point
+    )));
+  }
+
+  function zoomToMarkupPoint(point?: MarkupCanvasPoint) {
+    if (!point) return;
+    const zoom = 4;
+    setMarkupZoom(zoom);
+    setMarkupPan(clampMarkupPan(point.x - (markupCanvasWidth / zoom / 2), point.y - (markupCanvasHeight / zoom / 2), zoom));
+  }
+
   function handleMarkupWheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
     updateMarkupZoom(markupViewport.zoom + (event.deltaY > 0 ? -0.15 : 0.15));
@@ -2242,15 +2292,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     if (markupToolMode !== "pipe" && markupToolMode !== "symbol" && markupToolMode !== "calibrate") return;
     event.preventDefault();
-    captureMarkupPointer(event.currentTarget, event.pointerId);
-    markupPointerDrawRef.current = { pointerId: event.pointerId, moved: false };
-    suppressMarkupCanvasClickRef.current = true;
+    markMarkupCanvasInput();
     const point = markupCanvasPoint(event);
 
     if (markupToolMode === "calibrate") {
-      setSelectedMarkupElementId("");
-      setMarkupDraftPipeState(null);
-      setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
+      addMarkupCalibrationPoint(point);
       return;
     }
 
@@ -2264,6 +2310,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       return;
     }
 
+    captureMarkupPointer(event.currentTarget, event.pointerId);
+    markupPointerDrawRef.current = { pointerId: event.pointerId, moved: false };
     setSelectedMarkupElementId("");
     setMarkupCalibrationPoints([]);
     addMarkupDraftPoint(point, 3);
@@ -2369,17 +2417,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
       if (markupToolMode === "calibrate") {
         event.preventDefault();
-        suppressMarkupCanvasClickRef.current = true;
+        markMarkupCanvasInput();
         const point = markupTouchPoint(first, event.currentTarget);
-        setSelectedMarkupElementId("");
-        setMarkupDraftPipeState(null);
-        setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
+        addMarkupCalibrationPoint(point);
         return;
       }
 
       if (markupToolMode === "symbol") {
         event.preventDefault();
-        suppressMarkupCanvasClickRef.current = true;
+        markMarkupCanvasInput();
         const point = markupTouchPoint(first, event.currentTarget);
         const nextSymbol = createMarkupSymbol(point);
         updateServicesMarkup((current) => ({
@@ -2392,8 +2438,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
       if (markupToolMode === "pipe") {
         event.preventDefault();
+        markMarkupCanvasInput();
         markupTouchDrawRef.current = { touchId: first.identifier };
-        suppressMarkupCanvasClickRef.current = true;
         const point = markupTouchPoint(first, event.currentTarget);
         setSelectedMarkupElementId("");
         setMarkupCalibrationPoints([]);
@@ -2548,16 +2594,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleMarkupCanvasClick(event: ReactMouseEvent<SVGSVGElement>) {
-    if (suppressMarkupCanvasClickRef.current) {
-      suppressMarkupCanvasClickRef.current = false;
-      return;
-    }
+    if (shouldIgnoreMarkupCanvasClick()) return;
     if (markupToolMode === "pan") return;
     const point = markupCanvasPoint(event);
     if (markupToolMode === "calibrate") {
-      setSelectedMarkupElementId("");
-      setMarkupDraftPipeState(null);
-      setMarkupCalibrationPoints((current) => current.length >= 2 ? [point] : [...current, point]);
+      addMarkupCalibrationPoint(point);
       return;
     }
 
@@ -2594,6 +2635,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setSelectedMarkupElementId("");
     setMarkupToolMode("calibrate");
     setMarkupCalibrationPoints([]);
+    setActiveMarkupCalibrationPointIndex(0);
     setMarkupCalibrationDistance(String(servicesMarkup.calibration.realLengthM || 1));
   }
 
@@ -2619,6 +2661,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         scaleLabel: `${realLengthM}m picked`,
       },
     }), `Drawing calibrated from ${realLengthM}m reference.`);
+    setMarkupCalibrationPoints([]);
+    setActiveMarkupCalibrationPointIndex(0);
     setMarkupToolMode("pipe");
   }
 
@@ -4398,9 +4442,46 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               <span>{markupCalibrationPoints.length}/2 points picked</span>
                               {markupCalibrationPixelLength ? <span>{markupCalibrationPixelLength.toFixed(0)} px</span> : null}
                             </div>
+                            <div className="takeoff-calibration-point-picker" aria-label="Calibration point selector">
+                              {[0, 1].map((pointIndex) => (
+                                <button
+                                  className={activeMarkupCalibrationPointIndex === pointIndex ? "active" : ""}
+                                  disabled={!markupCalibrationPoints[pointIndex]}
+                                  type="button"
+                                  key={pointIndex}
+                                  onClick={() => setActiveMarkupCalibrationPointIndex(pointIndex)}
+                                >
+                                  Point {pointIndex + 1}
+                                </button>
+                              ))}
+                              <button
+                                type="button"
+                                disabled={!activeMarkupCalibrationPoint}
+                                onClick={() => zoomToMarkupPoint(activeMarkupCalibrationPoint)}
+                              >
+                                Magnify
+                              </button>
+                            </div>
+                            <div className="takeoff-calibration-nudge" aria-label="Nudge selected calibration point">
+                              <button type="button" disabled={!activeMarkupCalibrationPoint} onClick={() => nudgeMarkupCalibrationPoint(0, -5)}>Up 5</button>
+                              <button type="button" disabled={!activeMarkupCalibrationPoint} onClick={() => nudgeMarkupCalibrationPoint(0, -1)}>Up 1</button>
+                              <button type="button" disabled={!activeMarkupCalibrationPoint} onClick={() => nudgeMarkupCalibrationPoint(-1, 0)}>Left 1</button>
+                              <button type="button" disabled={!activeMarkupCalibrationPoint} onClick={() => nudgeMarkupCalibrationPoint(1, 0)}>Right 1</button>
+                              <button type="button" disabled={!activeMarkupCalibrationPoint} onClick={() => nudgeMarkupCalibrationPoint(0, 1)}>Down 1</button>
+                              <button type="button" disabled={!activeMarkupCalibrationPoint} onClick={() => nudgeMarkupCalibrationPoint(0, 5)}>Down 5</button>
+                            </div>
                             <div className="takeoff-calibration-actions">
                               <button type="button" onClick={() => setMarkupCalibrationPoints([])}>
                                 Reset points
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMarkupCalibrationPoints([]);
+                                  setMarkupToolMode("pipe");
+                                }}
+                              >
+                                Exit calibrate
                               </button>
                               <button
                                 className="primary"
@@ -4500,6 +4581,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                                   y1={markupCalibrationPoints[0].y}
                                   x2={markupCalibrationPoints[1].x}
                                   y2={markupCalibrationPoints[1].y}
+                                  vectorEffect="non-scaling-stroke"
                                 />
                                 <text
                                   x={(markupCalibrationPoints[0].x + markupCalibrationPoints[1].x) / 2}
@@ -4511,8 +4593,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             ) : null}
                             {markupCalibrationPoints.map((point, index) => (
                               <g transform={`translate(${point.x} ${point.y})`} key={`calibration-${index}`}>
-                                <circle r="12" />
-                                <text y="5">{index + 1}</text>
+                                <g transform={`scale(${calibrationMarkerScale})`}>
+                                  <circle className={activeMarkupCalibrationPointIndex === index ? "active" : ""} r="8" />
+                                  <text y="4">{index + 1}</text>
+                                </g>
                               </g>
                             ))}
                           </g>
