@@ -30455,23 +30455,46 @@ body {
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe {
-  filter: drop-shadow(0 1px 2px rgba(9, 45, 66, 0.28)) !important;
-  stroke-width: 8 !important;
+  filter: none !important;
+  stroke-width: 2.5 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe-hit {
-  stroke-width: 30 !important;
+  stroke-width: 22 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.draft {
   opacity: 0.95 !important;
-  stroke-width: 7 !important;
+  stroke-dasharray: none !important;
+  stroke-width: 2.5 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.selected {
+  filter: drop-shadow(0 0 4px rgba(21, 145, 196, 0.45)) !important;
+  stroke-width: 3.5 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-route-point {
+  stroke-width: 1.5 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-route-label {
   paint-order: stroke !important;
   stroke: rgba(255, 255, 255, 0.95) !important;
   stroke-width: 4 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol rect,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol circle,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol path {
+  stroke-width: 1.5 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-symbol text {
+  font-size: 9px !important;
+  paint-order: stroke !important;
+  stroke: rgba(255, 255, 255, 0.95) !important;
+  stroke-width: 3px !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-calibration-hud {

@@ -1553,6 +1553,8 @@ export default function TakeoffPage() {
   const markupDraftPipeRef = useRef<TakeoffMarkupPipe | null>(null);
   const markupPointerDrawRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
+  const markupCalibrationPointerRef = useRef<{ pointerId: number; start: MarkupCanvasPoint } | null>(null);
+  const markupCalibrationTouchRef = useRef<{ touchId: number; start: MarkupCanvasPoint } | null>(null);
   const suppressMarkupCanvasClickRef = useRef(false);
   const lastMarkupCanvasInputAtRef = useRef(0);
 
@@ -1861,6 +1863,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   const hasCompleteMarkupCalibration = Boolean(markupCalibrationPointOne && markupCalibrationPointTwo);
   const activeMarkupCalibrationPoint = activeMarkupCalibrationPointIndex === 0 ? markupCalibrationPointOne : markupCalibrationPointTwo;
   const calibrationMarkerScale = 1 / Math.max(0.75, markupViewport.zoom);
+  const markupSymbolScale = 1 / Math.max(0.75, markupViewport.zoom);
   const markupDocumentTransformStyle = useMemo<CSSProperties>(() => ({
     "--markup-document-height": `${markupViewport.zoom * 100}%`,
     "--markup-document-width": `${markupViewport.zoom * 100}%`,
@@ -2143,15 +2146,32 @@ const filteredMarkupPlantTools = useMemo(() => {
   function updateServicesMarkup(updater: (current: TakeoffServicesMarkup) => TakeoffServicesMarkup, successMessage?: string) {
     if (!selectedProject) return;
     const nextMarkup = normaliseServicesMarkup(updater(normaliseServicesMarkup(selectedProject.servicesMarkup)));
-    const quantityPatch = buildMarkupQuantityPatch(nextMarkup, selectedProject);
-    updateProject({
+    const updatedServicesMarkup = {
+      ...nextMarkup,
+      updatedAt: new Date().toISOString(),
+    };
+    const quantityPatch = buildMarkupQuantityPatch(updatedServicesMarkup, {
+      ...selectedProject,
+      servicesMarkup: updatedServicesMarkup,
+    });
+    const patch: Partial<TakeoffProject> = {
       servicesMarkup: {
-        ...nextMarkup,
-        updatedAt: new Date().toISOString(),
+        ...updatedServicesMarkup,
       },
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
-    }, successMessage);
+    };
+
+    setProjects((current) => current.map((project) => (
+      project.id === selectedProject.id
+        ? {
+          ...project,
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        }
+        : project
+    )));
+    patchProject(selectedProject.id, patch, successMessage).catch(() => {});
   }
 
   function clampMarkupPan(x: number, y: number, zoom = markupViewport.zoom) {
@@ -2296,7 +2316,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const point = markupCanvasPoint(event);
 
     if (markupToolMode === "calibrate") {
-      addMarkupCalibrationPoint(point);
+      captureMarkupPointer(event.currentTarget, event.pointerId);
+      markupCalibrationPointerRef.current = { pointerId: event.pointerId, start: point };
+      setSelectedMarkupElementId("");
+      setMarkupDraftPipeState(null);
+      setActiveMarkupCalibrationPointIndex(1);
+      setMarkupCalibrationPoints([point, point]);
       return;
     }
 
@@ -2319,6 +2344,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.pointerType === "touch") return;
+    if (markupToolMode === "calibrate" && markupCalibrationPointerRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      const currentPoint = markupCanvasPoint(event);
+      setMarkupCalibrationPoints([markupCalibrationPointerRef.current.start, currentPoint]);
+      return;
+    }
+
     if (markupToolMode === "pipe" && markupPointerDrawRef.current?.pointerId === event.pointerId) {
       event.preventDefault();
       const point = markupCanvasPoint(event);
@@ -2341,9 +2373,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupPointerUp(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.pointerType === "touch") return;
+    if (markupCalibrationPointerRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      markMarkupCanvasInput();
+      const currentPoint = markupCanvasPoint(event);
+      setMarkupCalibrationPoints([markupCalibrationPointerRef.current.start, currentPoint]);
+      setActiveMarkupCalibrationPointIndex(1);
+      markupCalibrationPointerRef.current = null;
+      releaseMarkupPointer(event.currentTarget, event.pointerId);
+      return;
+    }
+
     if (markupPointerDrawRef.current?.pointerId === event.pointerId) {
       markupPointerDrawRef.current = null;
-      suppressMarkupCanvasClickRef.current = true;
+      markMarkupCanvasInput();
       setTimeout(() => {
         suppressMarkupCanvasClickRef.current = false;
       }, 0);
@@ -2419,7 +2462,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         event.preventDefault();
         markMarkupCanvasInput();
         const point = markupTouchPoint(first, event.currentTarget);
-        addMarkupCalibrationPoint(point);
+        markupCalibrationTouchRef.current = { touchId: first.identifier, start: point };
+        setSelectedMarkupElementId("");
+        setMarkupDraftPipeState(null);
+        setActiveMarkupCalibrationPointIndex(1);
+        setMarkupCalibrationPoints([point, point]);
         return;
       }
 
@@ -2461,6 +2508,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupTouchMove(event: ReactTouchEvent<SVGSVGElement>) {
     if (markupPointerDrawRef.current || markupPanStart) return;
+    if (markupToolMode === "calibrate" && markupCalibrationTouchRef.current) {
+      const activeTouch = event.touches.item(0);
+      if (!activeTouch || activeTouch.identifier !== markupCalibrationTouchRef.current.touchId) return;
+      event.preventDefault();
+      setMarkupCalibrationPoints([markupCalibrationTouchRef.current.start, markupTouchPoint(activeTouch, event.currentTarget)]);
+      return;
+    }
+
     if (markupTouchGesture && event.touches.length >= 2) {
       const metrics = touchMetrics(event.touches);
       if (!metrics || markupTouchGesture.distance <= 0) return;
@@ -2534,8 +2589,18 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   function handleMarkupTouchEnd(event: ReactTouchEvent<SVGSVGElement>) {
     if (markupPointerDrawRef.current) return;
     const activeTouch = event.changedTouches.item(0);
+    if (markupCalibrationTouchRef.current && activeTouch?.identifier === markupCalibrationTouchRef.current.touchId) {
+      event.preventDefault();
+      markMarkupCanvasInput();
+      setMarkupCalibrationPoints([markupCalibrationTouchRef.current.start, markupTouchPoint(activeTouch, event.currentTarget)]);
+      setActiveMarkupCalibrationPointIndex(1);
+      markupCalibrationTouchRef.current = null;
+      return;
+    }
+
     if (markupTouchDrawRef.current && activeTouch?.identifier === markupTouchDrawRef.current.touchId) {
       markupTouchDrawRef.current = null;
+      markMarkupCanvasInput();
       const activeDraft = addMarkupDraftPoint(markupTouchPoint(activeTouch, event.currentTarget), 2);
       if (activeDraft && activeDraft.points.length >= 2) {
         finishMarkupRoute(activeDraft);
@@ -4167,7 +4232,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </label>
                       <span>
                         {markupToolMode === "calibrate"
-                          ? `Set point 1 and point 2 on a known dimension. ${markupCalibrationPickedCount}/2 points selected.`
+                          ? `Draw a reference line over a known dimension. ${markupCalibrationPickedCount}/2 endpoints selected.`
                           : markupSelectedDrawing
                             ? `${markupSelectedDrawing.fileName} is locked behind the editable NeXa markup.`
                             : "Upload a drawing to use as the locked background."}
@@ -4358,7 +4423,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </strong>
                           <small>
                             {markupToolMode === "calibrate"
-                              ? `${markupCalibrationPickedCount}/2 calibration points - ${markupCalibrationPixelLength ? `${markupCalibrationPixelLength.toFixed(0)} px` : "pick a known measurement"}`
+                              ? `${markupCalibrationPickedCount}/2 calibration endpoints - ${markupCalibrationPixelLength ? `${markupCalibrationPixelLength.toFixed(0)} px` : "draw a known measurement"}`
                               : markupToolMode === "pan"
                                 ? `${markupZoomLabel} zoom - use + / - or pinch-style trackpad zoom`
                               : markupDraftPipe
@@ -4416,7 +4481,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             onTouchStart={(event) => event.stopPropagation()}
                           >
                             <strong>Calibrate drawing</strong>
-                            <span>Tap Set point 1, tap the drawing, then tap Set point 2 and tap the drawing.</span>
+                            <span>Draw over a known dimension, enter its real length, then apply the scale.</span>
                             <label>
                               Known length
                               <div>
@@ -4621,25 +4686,28 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               className={selectedMarkupElementId === pipe.id ? "markup-pipe selected" : "markup-pipe"}
                               points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
                               stroke={routeColour}
+                              vectorEffect="non-scaling-stroke"
                             />
-                            {pipe.points.map((point, index) => (
+                            {selectedMarkupElementId === pipe.id ? pipe.points.map((point, index) => (
                               <circle
                                 className={selectedMarkupElementId === pipe.id ? "markup-route-point selected" : "markup-route-point"}
                                 cx={point.x}
                                 cy={point.y}
-                                r="5"
+                                r="3"
                                 fill={routeColour}
                                 key={`${pipe.id}-${index}`}
                               />
-                            ))}
-                            <text
-                              className="markup-route-label"
-                              x={labelPoint.x + 9}
-                              y={labelPoint.y - 9}
-                              stroke={routeColour}
-                            >
-                              {markupRouteLabel(pipe)}
-                            </text>
+                            )) : null}
+                            {selectedMarkupElementId === pipe.id ? (
+                              <text
+                                className="markup-route-label"
+                                x={labelPoint.x + 9}
+                                y={labelPoint.y - 9}
+                                stroke={routeColour}
+                              >
+                                {markupRouteLabel(pipe)}
+                              </text>
+                            ) : null}
                           </g>
                           );
                         })}
@@ -4650,10 +4718,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               className="markup-pipe draft"
                               points={snappedMarkupDraftPoints.map((point) => `${point.x},${point.y}`).join(" ")}
                               stroke={markupDraftPipe.colour}
+                              vectorEffect="non-scaling-stroke"
                             />
-                            {snappedMarkupDraftPoints.map((point, index) => (
-                              <circle className="markup-route-point draft" cx={point.x} cy={point.y} r="6" fill={markupDraftPipe.colour} key={`draft-${index}`} />
-                            ))}
                           </g>
                         ) : null}
 
@@ -4668,14 +4734,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               setMarkupToolMode("select");
                             }}
                           >
-                            {symbol.category === "Plant" ? (
-                              <rect x="-13" y="-9" width="26" height="18" rx="4" />
-                            ) : symbol.category === "Valve" ? (
-                              <path d="M-9 0 L0 -9 L9 0 L0 9 Z" />
-                            ) : (
-                              <circle cx="0" cy="0" r="9" />
-                            )}
-                            <text y="5">{markupSymbolLabel(symbol.kind)}</text>
+                            <g transform={`scale(${markupSymbolScale})`}>
+                              {symbol.category === "Plant" ? (
+                                <rect x="-7" y="-5" width="14" height="10" rx="2" vectorEffect="non-scaling-stroke" />
+                              ) : symbol.category === "Valve" ? (
+                                <path d="M-6 0 L0 -6 L6 0 L0 6 Z" vectorEffect="non-scaling-stroke" />
+                              ) : (
+                                <circle cx="0" cy="0" r="5" vectorEffect="non-scaling-stroke" />
+                              )}
+                              {selectedMarkupElementId === symbol.id ? <text y="18">{markupSymbolLabel(symbol.kind)}</text> : null}
+                            </g>
                           </g>
                         ))}
                         </svg>
