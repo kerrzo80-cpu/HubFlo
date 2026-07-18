@@ -1856,7 +1856,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       const includeFavouritesOnly = markupToolCategory === "favourites";
       const isFavourite = ["cu-15", "cu-22", "waste-40"].includes(tool.id);
       const categoryMatch = !includeFavouritesOnly || isFavourite;
-      return markupPipeToolMatchesGroup(tool, activeMarkupToolGroup.id)
+      return (query || markupPipeToolMatchesGroup(tool, activeMarkupToolGroup.id))
         && categoryMatch
         && searchMatch
         && (!includeFavouritesOnly || isFavourite);
@@ -1870,7 +1870,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       const includeFavouritesOnly = markupToolCategory === "favourites";
       const isFavourite = ["90 elbow", "tee", "isolation valve", "trv"].includes(tool.kind.toLowerCase());
       const categoryMatch = !includeFavouritesOnly || isFavourite;
-      return markupSymbolToolMatchesGroup(tool, activeMarkupToolGroup.id)
+      return (query || markupSymbolToolMatchesGroup(tool, activeMarkupToolGroup.id))
         && categoryMatch
         && searchMatch
         && (!includeFavouritesOnly || isFavourite);
@@ -1884,7 +1884,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       const includeFavouritesOnly = markupToolCategory === "favourites";
       const isFavourite = ["Radiator", "Combi boiler", "Cylinder", "WC", "Basin", "Shower tray"].includes(tool.kind);
       const categoryMatch = !includeFavouritesOnly || isFavourite;
-      return markupSymbolToolMatchesGroup(tool, activeMarkupToolGroup.id)
+      return (query || markupSymbolToolMatchesGroup(tool, activeMarkupToolGroup.id))
         && categoryMatch
         && searchMatch
         && (!includeFavouritesOnly || isFavourite);
@@ -4663,27 +4663,25 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <strong>Symbol search</strong>
                         <input
                           value={markupItemSearch}
-                          onChange={(event) => setMarkupItemSearch(event.target.value)}
-                          placeholder="Search elbows, valves, fittings, plant..."
+                          onChange={(event) => {
+                            setMarkupItemSearch(event.target.value);
+                            setMarkupToolCategory("all");
+                          }}
+                          placeholder="Search boiler, radiator, elbow, valve..."
                         />
-                        <div className="services-markup-category-tabs">
-                          {([
-                            ["favourites", "Favourites"],
-                            ["pipe", "Pipe"],
-                            ["fittings", "Fittings"],
-                            ["valves", "Valves"],
-                            ["plant", "Plant / fixtures"],
-                            ["all", "All symbols"],
-                          ] as Array<[MarkupToolCategory, string]>).map(([category, label]) => (
-                            <button
-                              className={markupToolCategory === category ? "active" : ""}
-                              type="button"
-                              key={category}
-                              onClick={() => setMarkupToolCategory(category)}
-                            >
-                              {label}
-                            </button>
-                          ))}
+                        <div className="services-markup-quick-searches">
+                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("heating"); setMarkupItemSearch("boiler"); setMarkupToolCategory("all"); }}>
+                            Boilers
+                          </button>
+                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("heating"); setMarkupItemSearch("radiator"); setMarkupToolCategory("all"); }}>
+                            Radiators
+                          </button>
+                          <button type="button" onClick={() => { setMarkupItemSearch("valve"); setMarkupToolCategory("all"); }}>
+                            Valves
+                          </button>
+                          <button type="button" onClick={() => { setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
+                            Clear
+                          </button>
                         </div>
                       </section>
                       <section className="services-markup-tool-section services-markup-pipe-section" style={{ order: 2 }}>

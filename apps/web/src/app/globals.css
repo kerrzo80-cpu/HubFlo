@@ -21974,12 +21974,14 @@ body {
   min-height: 36px;
 }
 
-.services-markup-category-tabs {
+.services-markup-category-tabs,
+.services-markup-quick-searches {
   display: grid;
   gap: 6px;
 }
 
-.services-markup-category-tabs button {
+.services-markup-category-tabs button,
+.services-markup-quick-searches button {
   background: #fff;
   border: 1px solid #d8e4ea;
   border-radius: 6px;
@@ -21991,7 +21993,9 @@ body {
   text-align: left;
 }
 
-.services-markup-category-tabs button.active {
+.services-markup-category-tabs button.active,
+.services-markup-quick-searches button:hover,
+.services-markup-quick-searches button:focus-visible {
   background: var(--blue-dark);
   border-color: var(--blue-dark);
   color: #fff;
