@@ -30182,6 +30182,36 @@ body {
   display: none !important;
 }
 
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-markup-breadcrumbs {
+  align-items: center !important;
+  display: flex !important;
+  gap: 4px !important;
+  grid-column: 1 / -1 !important;
+  pointer-events: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs a,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs button {
+  align-items: center !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(16, 42, 67, 0.16) !important;
+  border-radius: 6px !important;
+  color: var(--blue-deep) !important;
+  display: inline-flex !important;
+  font: inherit !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  gap: 4px !important;
+  min-height: 26px !important;
+  padding: 0 7px !important;
+  text-decoration: none !important;
+  width: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs button {
+  cursor: pointer !important;
+}
+
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-materials-drawer-tab {
   align-items: center !important;
   background: var(--blue) !important;
@@ -30284,6 +30314,52 @@ body {
   display: flex !important;
 }
 
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  border: 1px solid rgba(198, 221, 232, 0.86) !important;
+  border-radius: 8px !important;
+  bottom: max(10px, calc(env(safe-area-inset-bottom) + 8px)) !important;
+  box-shadow: 0 10px 28px rgba(9, 45, 66, 0.12) !important;
+  display: flex !important;
+  gap: 6px !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  max-width: calc(100vw - 92px) !important;
+  min-height: 0 !important;
+  padding: 5px !important;
+  pointer-events: none !important;
+  position: fixed !important;
+  right: auto !important;
+  top: auto !important;
+  transform: none !important;
+  width: auto !important;
+  z-index: 1250 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header > span {
+  display: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header > div {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  gap: 5px !important;
+  justify-content: flex-start !important;
+  max-width: calc(100vw - 104px) !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  pointer-events: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button {
+  flex: 0 0 auto !important;
+  font-size: 11px !important;
+  min-height: 30px !important;
+  padding: 0 8px !important;
+  width: auto !important;
+}
+
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .takeoff-panel-title,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions,
@@ -30311,5 +30387,15 @@ body {
   .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode {
     --nexa-markup-drawer-width: min(330px, calc(100vw - 70px)) !important;
     --nexa-markup-drawer-top: max(38px, calc(env(safe-area-inset-top) + 10px)) !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button {
+    font-size: 0 !important;
+    min-width: 34px !important;
+    padding: 0 8px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button svg {
+    margin: 0 !important;
   }
 }

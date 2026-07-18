@@ -2198,6 +2198,22 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
   return markupCanvasPointFromClient(point.clientX, point.clientY, currentTarget);
 }
 
+function captureMarkupPointer(target: SVGSVGElement, pointerId: number) {
+  try {
+    target.setPointerCapture(pointerId);
+  } catch {
+    // iPad Safari can reject pointer capture on SVG nodes; drawing still works without it.
+  }
+}
+
+function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
+  try {
+    target.releasePointerCapture(pointerId);
+  } catch {
+    // The pointer may already be released or may never have been captured.
+  }
+}
+
   function handleMarkupWheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
     updateMarkupZoom(markupViewport.zoom + (event.deltaY > 0 ? -0.15 : 0.15));
@@ -2206,7 +2222,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
   function handleMarkupPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
     if (markupToolMode === "pan") {
       event.preventDefault();
-      event.currentTarget.setPointerCapture(event.pointerId);
+      captureMarkupPointer(event.currentTarget, event.pointerId);
       setMarkupPanStart({
         pointerId: event.pointerId,
         clientX: event.clientX,
@@ -2219,7 +2235,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
 
     if (markupToolMode !== "pipe" && markupToolMode !== "symbol" && markupToolMode !== "calibrate") return;
     event.preventDefault();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    captureMarkupPointer(event.currentTarget, event.pointerId);
     markupPointerDrawRef.current = { pointerId: event.pointerId, moved: false };
     suppressMarkupCanvasClickRef.current = true;
     const point = markupCanvasPoint(event);
@@ -2274,7 +2290,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
       setTimeout(() => {
         suppressMarkupCanvasClickRef.current = false;
       }, 0);
-      event.currentTarget.releasePointerCapture(event.pointerId);
+      releaseMarkupPointer(event.currentTarget, event.pointerId);
       if (markupToolMode === "pipe") {
         const activeDraft = addMarkupDraftPoint(markupCanvasPoint(event), 2);
         if (activeDraft && activeDraft.points.length >= 2) {
@@ -2285,7 +2301,7 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
     }
     if (markupPanStart?.pointerId === event.pointerId) {
       setMarkupPanStart(null);
-      event.currentTarget.releasePointerCapture(event.pointerId);
+      releaseMarkupPointer(event.currentTarget, event.pointerId);
     }
   }
 
@@ -3857,6 +3873,18 @@ function markupTouchPoint(point: MarkupTouchPointSource, currentTarget: SVGSVGEl
                       <strong>Drawing takeoff workspace</strong>
                       <small>{selectedProject ? `${selectedProject.name} · ${selectedProject.customer || "Customer to confirm"}` : "Select or create a project to begin markup."}</small>
                     </div>
+                    <nav className="takeoff-markup-breadcrumbs" aria-label="Takeoff breadcrumbs">
+                      <a href="/">
+                        <ArrowLeft size={13} />
+                        Core
+                      </a>
+                      <button type="button" onClick={() => setActiveTab("intake")}>
+                        Project
+                      </button>
+                      <button type="button" onClick={() => setActiveTab("boq")}>
+                        Quantities
+                      </button>
+                    </nav>
                     <nav className="takeoff-markup-actions">
                       <a className="takeoff-secondary-button" href="/">
                         <ArrowLeft size={15} />
