@@ -364,6 +364,9 @@ const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeo
   { kind: "Reducing tee", category: "Fitting" },
   { kind: "Double Tee", category: "Fitting" },
   { kind: "Tee reducer", category: "Fitting" },
+  { kind: "Stack boss connection", category: "Fitting" },
+  { kind: "Strap boss", category: "Fitting" },
+  { kind: "Waste stack connector", category: "Fitting" },
   { kind: "Cross", category: "Fitting" },
   { kind: "Cap / blind end", category: "Fitting" },
   { kind: "End cap", category: "Fitting" },
@@ -914,6 +917,38 @@ function markupPipeLengthM(pipe: TakeoffMarkupPipe, calibration: TakeoffServices
     if (previous && current) flatPixels += markupPointDistance(previous, current);
   }
   return flatPixels / pixelsPerMetre + Math.max(0, pipe.riseDropM || 0);
+}
+
+function markupPipeFlatPixelLength(pipe: Pick<TakeoffMarkupPipe, "points">) {
+  if (pipe.points.length < 2) return 0;
+  let flatPixels = 0;
+  for (let index = 1; index < pipe.points.length; index += 1) {
+    const previous = pipe.points[index - 1];
+    const current = pipe.points[index];
+    if (previous && current) flatPixels += markupPointDistance(previous, current);
+  }
+  return flatPixels;
+}
+
+function markupPointAtDistanceOnPipe(pipe: Pick<TakeoffMarkupPipe, "points">, targetPixels: number) {
+  if (pipe.points.length < 2 || targetPixels <= 0) return null;
+  let travelled = 0;
+  for (let index = 1; index < pipe.points.length; index += 1) {
+    const previous = pipe.points[index - 1];
+    const current = pipe.points[index];
+    if (!previous || !current) continue;
+    const segmentLength = markupPointDistance(previous, current);
+    if (segmentLength <= 0) continue;
+    if (travelled + segmentLength >= targetPixels) {
+      const ratio = Math.max(0, Math.min(1, (targetPixels - travelled) / segmentLength));
+      return {
+        x: Math.round(previous.x + (current.x - previous.x) * ratio),
+        y: Math.round(previous.y + (current.y - previous.y) * ratio),
+      };
+    }
+    travelled += segmentLength;
+  }
+  return pipe.points[pipe.points.length - 1] ?? null;
 }
 
 function markupCalibrated(calibration: TakeoffServicesMarkup["calibration"]) {
@@ -3329,21 +3364,31 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       && normaliseMarkupText(symbol.diameter).toLowerCase() === normaliseMarkupText(pipe.diameter).toLowerCase();
   }
 
-  function hasMatchingAutoElbowAt(point: MarkupCanvasPoint, pipe: TakeoffMarkupPipe, pendingElbows: TakeoffMarkupSymbol[] = []) {
-    return [...displayedServicesMarkup.symbols, ...pendingElbows].some((symbol) => (
-      symbol.kind === "90 elbow"
+  function hasMatchingAutoFittingAt(
+    point: MarkupCanvasPoint,
+    pipe: TakeoffMarkupPipe,
+    kind: TakeoffMarkupSymbolKind,
+    pendingSymbols: TakeoffMarkupSymbol[] = [],
+  ) {
+    return [...displayedServicesMarkup.symbols, ...pendingSymbols].some((symbol) => (
+      symbol.kind === kind
       && symbol.category === "Fitting"
       && markupSymbolMatchesPipe(symbol, pipe)
       && markupPointDistance(symbol, point) <= 7
     ));
   }
 
-  function createAutoElbowForPipe(pipe: TakeoffMarkupPipe, point: MarkupCanvasPoint, note = "Auto-added at bend") {
+  function createAutoFittingForPipe(
+    pipe: TakeoffMarkupPipe,
+    point: MarkupCanvasPoint,
+    kind: TakeoffMarkupSymbolKind,
+    note: string,
+  ) {
     return {
       id: makeId("markup-symbol"),
       type: "symbol" as const,
       category: "Fitting" as const,
-      kind: "90 elbow" as const,
+      kind,
       x: point.x,
       y: point.y,
       rotation: 0,
@@ -3360,6 +3405,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     } satisfies TakeoffMarkupSymbol;
   }
 
+  function createAutoElbowForPipe(pipe: TakeoffMarkupPipe, point: MarkupCanvasPoint, note = "Auto-added at bend") {
+    return createAutoFittingForPipe(pipe, point, "90 elbow", note);
+  }
+
+  function autoFittingNoteForPipe(symbol: TakeoffMarkupSymbol, pipe: TakeoffMarkupPipe) {
+    if (normaliseMarkupText(symbol.kind).toLowerCase().includes("coupling")) {
+      return `Auto-added every ${Math.max(1, displayedServicesMarkup.settings.pipeStockLengthM || 3)}m pipe length for ${markupRouteDetailLabel(pipe)}`;
+    }
+    if (normaliseMarkupText(symbol.kind).toLowerCase().includes("stack")) {
+      return `Auto-added where ${markupRouteDetailLabel(pipe)} connects to stack`;
+    }
+    return `Auto-added at bend for ${markupRouteDetailLabel(pipe)}`;
+  }
+
   function buildAutoElbowsForPipe(pipe: TakeoffMarkupPipe): TakeoffMarkupSymbol[] {
     if (pipe.points.length < 3) return [];
     const elbows: TakeoffMarkupSymbol[] = [];
@@ -3368,7 +3427,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const bend = pipe.points[index];
       const next = pipe.points[index + 1];
       if (!previous || !bend || !next || !isMarkupRightAngle(previous, bend, next)) continue;
-      if (!hasMatchingAutoElbowAt(bend, pipe, elbows)) {
+      if (!hasMatchingAutoFittingAt(bend, pipe, "90 elbow", elbows)) {
         elbows.push(createAutoElbowForPipe(pipe, bend));
       }
     }
@@ -3404,12 +3463,107 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         return false;
       });
 
-      if (matchesRightAngle && !hasMatchingAutoElbowAt(junction, pipe, [...pendingElbows, ...elbows])) {
+      if (matchesRightAngle && !hasMatchingAutoFittingAt(junction, pipe, "90 elbow", [...pendingElbows, ...elbows])) {
         elbows.push(createAutoElbowForPipe(pipe, junction, "Auto-added at snapped junction"));
       }
     });
 
     return elbows;
+  }
+
+  function shouldAutoCouplePipe(pipe: TakeoffMarkupPipe) {
+    const material = normaliseMarkupText(pipe.material).toLowerCase();
+    const diameter = normaliseMarkupText(pipe.diameter).toLowerCase();
+    if (!markupCalibrated(displayedServicesMarkup.calibration)) return false;
+    if (!Number.isFinite(displayedServicesMarkup.settings.pipeStockLengthM || 0)) return false;
+    if (material.includes("ufh") || diameter === "tbc") return false;
+    return pipe.points.length >= 2;
+  }
+
+  function buildAutoCouplingsForPipe(pipe: TakeoffMarkupPipe, pendingSymbols: TakeoffMarkupSymbol[] = []) {
+    if (!shouldAutoCouplePipe(pipe)) return [];
+    const pixelsPerMetre = displayedServicesMarkup.calibration.pixelsPerMetre;
+    if (!pixelsPerMetre || pixelsPerMetre <= 0) return [];
+    const stockLengthM = Math.max(1, displayedServicesMarkup.settings.pipeStockLengthM || 3);
+    const measuredM = markupPipeFlatPixelLength(pipe) / pixelsPerMetre;
+    const couplingCount = Math.max(0, Math.ceil(Math.max(0, measuredM - 0.001) / stockLengthM) - 1);
+    if (!couplingCount) return [];
+
+    const couplings: TakeoffMarkupSymbol[] = [];
+    for (let index = 1; index <= couplingCount; index += 1) {
+      const targetPixels = index * stockLengthM * pixelsPerMetre;
+      const point = markupPointAtDistanceOnPipe(pipe, targetPixels);
+      if (!point) continue;
+      if (!hasMatchingAutoFittingAt(point, pipe, "Coupling", [...pendingSymbols, ...couplings])) {
+        couplings.push(createAutoFittingForPipe(pipe, point, "Coupling", `Auto-added every ${stockLengthM}m pipe length`));
+      }
+    }
+    return couplings;
+  }
+
+  function markupSymbolIsStack(symbol: TakeoffMarkupSymbol) {
+    return symbol.category === "Plant" && normaliseMarkupText(symbol.kind).toLowerCase().includes("stack");
+  }
+
+  function pipeCanConnectToStack(pipe: TakeoffMarkupPipe) {
+    return ["Waste", "Soil", "Condensate"].includes(pipe.service);
+  }
+
+  function symbolSharesMarkupContext(symbol: TakeoffMarkupSymbol, pipe: TakeoffMarkupPipe) {
+    const symbolFloor = normaliseMarkupFloorValue(symbol.floor, { defaultGround: false });
+    const pipeFloor = normaliseMarkupFloorValue(pipe.floor, { defaultGround: false });
+    return (
+      (!symbol.drawingDocumentId || !pipe.drawingDocumentId || symbol.drawingDocumentId === pipe.drawingDocumentId)
+      && (!symbolFloor || !pipeFloor || symbolFloor === pipeFloor)
+      && (!normaliseMarkupFlatValue(symbol.flat) || !normaliseMarkupFlatValue(pipe.flat) || normaliseMarkupFlatValue(symbol.flat) === normaliseMarkupFlatValue(pipe.flat))
+    );
+  }
+
+  function nearestStackPoint(point: MarkupCanvasPoint, pipe: TakeoffMarkupPipe) {
+    if (!pipeCanConnectToStack(pipe)) return null;
+    const tolerance = Math.max(10, 22 / Math.max(1, markupViewport.zoom));
+    let best: { point: MarkupCanvasPoint; distance: number } | null = null;
+    for (const symbol of displayedServicesMarkup.symbols) {
+      if (!markupSymbolIsStack(symbol) || !symbolSharesMarkupContext(symbol, pipe)) continue;
+      const candidate = { x: symbol.x, y: symbol.y };
+      const distance = markupPointDistance(point, candidate);
+      if (distance <= tolerance && (!best || distance < best.distance)) {
+        best = { point: candidate, distance };
+      }
+    }
+    return best ? best.point : null;
+  }
+
+  function snapMarkupRouteEndsToStack(pipe: TakeoffMarkupPipe) {
+    if (pipe.points.length < 2 || !pipeCanConnectToStack(pipe)) return pipe.points;
+    const next = pipe.points.map((point) => ({ ...point }));
+    const firstStack = nearestStackPoint(next[0]!, pipe);
+    const lastStack = nearestStackPoint(next[next.length - 1]!, pipe);
+    if (firstStack) next[0] = firstStack;
+    if (lastStack) next[next.length - 1] = lastStack;
+    return dedupeMarkupPoints(next);
+  }
+
+  function buildAutoStackConnectionsForPipe(pipe: TakeoffMarkupPipe, pendingSymbols: TakeoffMarkupSymbol[] = []) {
+    if (pipe.points.length < 2 || !pipeCanConnectToStack(pipe)) return [];
+    const endpoints = [pipe.points[0]!, pipe.points[pipe.points.length - 1]!].filter(Boolean);
+    const connections: TakeoffMarkupSymbol[] = [];
+    endpoints.forEach((endpoint) => {
+      const stackPoint = nearestStackPoint(endpoint, pipe);
+      if (!stackPoint) return;
+      if (!hasMatchingAutoFittingAt(stackPoint, pipe, "Stack boss connection", [...pendingSymbols, ...connections])) {
+        connections.push(createAutoFittingForPipe(pipe, stackPoint, "Stack boss connection", "Auto-added where waste connects to stack"));
+      }
+    });
+    return connections;
+  }
+
+  function buildAutoSymbolsForPipe(pipe: TakeoffMarkupPipe) {
+    const bendElbows = buildAutoElbowsForPipe(pipe);
+    const junctionElbows = buildAutoElbowsForPipeJunctions(pipe, bendElbows);
+    const couplings = buildAutoCouplingsForPipe(pipe, [...bendElbows, ...junctionElbows]);
+    const stackConnections = buildAutoStackConnectionsForPipe(pipe, [...bendElbows, ...junctionElbows, ...couplings]);
+    return [...bendElbows, ...junctionElbows, ...couplings, ...stackConnections];
   }
 
   function placeMarkupSymbol(point: MarkupCanvasPoint) {
@@ -3531,7 +3685,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       setError("Tap at least two points before finishing the pipe route.");
       return;
     }
-    const completedPipe: TakeoffMarkupPipe = {
+    const completedPipeDraft: TakeoffMarkupPipe = {
       ...pipe,
       id: makeId("markup-pipe"),
       service: activeMarkupService,
@@ -3543,30 +3697,37 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       flat: normaliseMarkupFlatValue(pipe.flat) || undefined,
       drawingDocumentId: pipe.drawingDocumentId ?? activeMarkupDrawingId,
     };
-    const bendElbows = buildAutoElbowsForPipe(completedPipe);
-    const junctionElbows = buildAutoElbowsForPipeJunctions(completedPipe, bendElbows);
-    const autoElbows = [...bendElbows, ...junctionElbows];
+    const stackSnappedPoints = snapMarkupRouteEndsToStack(completedPipeDraft);
+    if (stackSnappedPoints.length < 2) {
+      setError("Tap at least two points before finishing the pipe route.");
+      return;
+    }
+    const completedPipe: TakeoffMarkupPipe = {
+      ...completedPipeDraft,
+      points: stackSnappedPoints,
+    };
+    const autoSymbols = buildAutoSymbolsForPipe(completedPipe);
     setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== completedPipe.id), completedPipe]);
     setRecentMarkupPipes((current) => [
       completedPipe,
       ...current.filter((item) => item.id !== completedPipe.id),
     ].slice(0, 25));
-    if (autoElbows.length) {
+    if (autoSymbols.length) {
       setOptimisticMarkupSymbols((current) => [
-        ...current.filter((item) => !autoElbows.some((elbow) => elbow.id === item.id)),
-        ...autoElbows,
+        ...current.filter((item) => !autoSymbols.some((symbol) => symbol.id === item.id)),
+        ...autoSymbols,
       ]);
       setRecentMarkupSymbols((current) => [
-        ...autoElbows,
-        ...current.filter((item) => !autoElbows.some((elbow) => elbow.id === item.id)),
+        ...autoSymbols,
+        ...current.filter((item) => !autoSymbols.some((symbol) => symbol.id === item.id)),
       ].slice(0, 50));
     }
     updateServicesMarkup((current) => ({
       ...current,
       pipes: [...current.pipes, completedPipe],
-      symbols: autoElbows.length ? [...current.symbols, ...autoElbows] : current.symbols,
-    }), autoElbows.length
-      ? `Pipe route added with ${autoElbows.length} auto elbow${autoElbows.length === 1 ? "" : "s"}.`
+      symbols: autoSymbols.length ? [...current.symbols, ...autoSymbols] : current.symbols,
+    }), autoSymbols.length
+      ? `Pipe route added with ${autoSymbols.length} auto fitting${autoSymbols.length === 1 ? "" : "s"}.`
       : "Pipe route added to the services markup.");
     setMarkupDraftPipeState(null);
     setSelectedMarkupElementId(completedPipe.id);
@@ -3597,7 +3758,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
           floor: linkedSymbolPatch.floor,
           flat: linkedSymbolPatch.flat,
           drawingDocumentId: linkedSymbolPatch.drawingDocumentId,
-          notes: `Auto-added at bend for ${markupRouteDetailLabel(linkedSymbolPatch)}`,
+          notes: autoFittingNoteForPipe(symbol, linkedSymbolPatch),
         }
         : symbol
     );
@@ -3690,17 +3851,17 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         id: makeId("markup-pipe"),
         points: selectedMarkupPipe.points.map((point) => ({ x: point.x + 22, y: point.y + 22 })),
       };
-      const autoElbows = buildAutoElbowsForPipe(duplicate);
+      const autoSymbols = buildAutoSymbolsForPipe(duplicate);
       setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== duplicate.id), duplicate]);
       setRecentMarkupPipes((current) => [duplicate, ...current.filter((item) => item.id !== duplicate.id)].slice(0, 25));
-      if (autoElbows.length) {
-        setOptimisticMarkupSymbols((current) => [...current, ...autoElbows]);
-        setRecentMarkupSymbols((current) => [...autoElbows, ...current].slice(0, 50));
+      if (autoSymbols.length) {
+        setOptimisticMarkupSymbols((current) => [...current, ...autoSymbols]);
+        setRecentMarkupSymbols((current) => [...autoSymbols, ...current].slice(0, 50));
       }
       updateServicesMarkup((current) => ({
         ...current,
         pipes: [...current.pipes, duplicate],
-        symbols: autoElbows.length ? [...current.symbols, ...autoElbows] : current.symbols,
+        symbols: autoSymbols.length ? [...current.symbols, ...autoSymbols] : current.symbols,
       }), "Pipe route duplicated.");
       setSelectedMarkupElementId(duplicate.id);
       return;
