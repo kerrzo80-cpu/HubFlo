@@ -2422,7 +2422,11 @@ const filteredMarkupPlantTools = useMemo(() => {
   }, [selectedProject?.id, selectedProject?.servicesMarkup?.updatedAt]);
 
   function replaceProject(project: TakeoffProject) {
-    setProjects((current) => current.map((item) => (item.id === project.id ? project : item)));
+    setProjects((current) => (
+      current.some((item) => item.id === project.id)
+        ? current.map((item) => (item.id === project.id ? project : item))
+        : [project, ...current]
+    ));
   }
 
   async function patchProject(projectId: string, patch: Partial<TakeoffProject>, successMessage?: string) {
@@ -4523,13 +4527,46 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         }
         throw new Error(body.error ?? (text || `Unable to upload Takeoff documents (${response.status})`));
       }
-      const result = (await response.json()) as { project?: TakeoffProject };
+      const result = (await response.json()) as { project?: TakeoffProject; documents?: TakeoffDocument[] };
       if (!result?.project) {
         throw new Error("Upload did not return an updated project.");
       }
-      replaceProject(result.project);
-      setNotice(`${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
-      return result.project;
+      let updatedProject = result.project;
+      if (kind === "Drawing") {
+        const uploadedDrawing = result.documents?.find((document) => document.kind === "Drawing")
+          ?? updatedProject.documents.find((document) => document.kind === "Drawing");
+        if (uploadedDrawing) {
+          const nextMarkup = {
+            ...normaliseServicesMarkup(updatedProject.servicesMarkup),
+            drawingDocumentId: uploadedDrawing.id,
+            updatedAt: new Date().toISOString(),
+          };
+          const patchResponse = await fetch(`/api/takeoff-projects/${updatedProject.id}`, {
+            method: "PATCH",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ servicesMarkup: nextMarkup }),
+          });
+          if (patchResponse.ok) {
+            updatedProject = await patchResponse.json() as TakeoffProject;
+          } else {
+            updatedProject = {
+              ...updatedProject,
+              servicesMarkup: nextMarkup,
+              updatedAt: nextMarkup.updatedAt,
+            };
+          }
+          setLocalServicesMarkup(nextMarkup);
+          setMarkupDrawingLoadErrorId("");
+          resetMarkupView();
+          setActiveTab("markup");
+        }
+      }
+      replaceProject(updatedProject);
+      setSelectedProjectId(updatedProject.id);
+      setNotice(kind === "Drawing"
+        ? `${files.length} drawing file${files.length === 1 ? "" : "s"} uploaded and locked into the markup workspace.`
+        : `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
+      return updatedProject;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload Takeoff documents");
       await loadData().catch(() => {});
@@ -7583,24 +7620,16 @@ function UploadButton({
   disabled?: boolean;
   onUpload: (kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) => void | Promise<unknown>;
 }) {
-  const uploadInputRef = useRef<HTMLInputElement>(null);
-
-  function triggerUploadPicker() {
-    if (disabled) return;
-    uploadInputRef.current?.click();
-  }
-
   return (
-    <button
-      type="button"
+    <label
       className={`takeoff-upload-button${disabled ? " disabled" : ""}`}
-      onClick={triggerUploadPicker}
       aria-disabled={disabled}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
     >
       <Upload size={15} />
       {label}
       <input
-        ref={uploadInputRef}
         type="file"
         multiple
         accept={accept}
@@ -7608,7 +7637,7 @@ function UploadButton({
         className="takeoff-upload-input"
         onChange={(event) => onUpload(kind, event)}
       />
-    </button>
+    </label>
   );
 }
 
