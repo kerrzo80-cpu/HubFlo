@@ -2645,6 +2645,7 @@ const filteredMarkupPlantTools = useMemo(() => {
     const nextRequests = quantityPatch.supplierRequests.filter((line) => line.notes === "From Services Markup");
     if (JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials) && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)) return;
     patchProject(selectedProject.id, {
+      servicesMarkup: workingServicesMarkup,
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
     }).catch(() => {});
@@ -2812,7 +2813,6 @@ const filteredMarkupPlantTools = useMemo(() => {
     };
     localServicesMarkupRef.current = updatedServicesMarkup;
     setLocalServicesMarkup(updatedServicesMarkup);
-    clearMarkupRecentPreview();
     const quantityPatch = buildMarkupQuantityPatch(updatedServicesMarkup, {
       ...selectedProject,
       servicesMarkup: updatedServicesMarkup,
@@ -4160,6 +4160,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     });
   }
 
+  function markupAutoFittingId(pipe: TakeoffMarkupPipe, point: MarkupCanvasPoint, kind: TakeoffMarkupSymbolKind) {
+    const kindId = normaliseMarkupText(kind).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    return `auto-${pipe.id}-${kindId}-${Math.round(point.x)}-${Math.round(point.y)}`;
+  }
+
   function createAutoFittingForPipe(
     pipe: TakeoffMarkupPipe,
     point: MarkupCanvasPoint,
@@ -4167,7 +4172,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     note: string,
   ) {
     return {
-      id: makeId("markup-symbol"),
+      id: markupAutoFittingId(pipe, point, kind),
       type: "symbol" as const,
       category: "Fitting" as const,
       kind,
