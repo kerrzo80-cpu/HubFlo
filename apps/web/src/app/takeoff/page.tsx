@@ -355,6 +355,13 @@ const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeo
   { kind: "Bend", category: "Fitting" },
   { kind: "P-trap", category: "Fitting" },
   { kind: "S-trap", category: "Fitting" },
+  { kind: "Basin trap", category: "Fitting" },
+  { kind: "Bath trap", category: "Fitting" },
+  { kind: "Shower trap", category: "Fitting" },
+  { kind: "Sink trap", category: "Fitting" },
+  { kind: "WC pan connector", category: "Fitting" },
+  { kind: "Flexible tap connector", category: "Fitting" },
+  { kind: "Radiator tail", category: "Fitting" },
   { kind: "Flange", category: "Fitting" },
   { kind: "Flange coupling", category: "Fitting" },
   { kind: "Reducer", category: "Fitting" },
@@ -417,6 +424,8 @@ const markupFittingTools: Array<{ kind: TakeoffMarkupSymbolKind; category: Takeo
   { kind: "Gate cock", category: "Valve" },
   { kind: "Gate valve", category: "Valve" },
   { kind: "General isolation valve", category: "Valve" },
+  { kind: "Hot isolation valve", category: "Valve" },
+  { kind: "Cold isolation valve", category: "Valve" },
   { kind: "Gravity valve", category: "Valve" },
   { kind: "Heat exchanger bypass valve", category: "Valve" },
   { kind: "Hearth safety valve", category: "Valve" },
@@ -2688,12 +2697,27 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       .map((symbol) => moveMarkupSymbol(symbol, dx, dy));
   }
 
+  function linkedMarkupSymbolsForMovedSymbol(symbolId: string, dx: number, dy: number) {
+    return displayedServicesMarkup.symbols
+      .filter((symbol) => symbol.linkedSymbolId === symbolId)
+      .map((symbol) => moveMarkupSymbol(symbol, dx, dy));
+  }
+
   function movedMarkupPipeFromDrag(drag: Extract<MarkupElementDrag, { kind: "pipe" }>, point: MarkupCanvasPoint) {
     const dx = Math.round(point.x - drag.start.x);
     const dy = Math.round(point.y - drag.start.y);
     return {
       pipe: moveMarkupPipe(drag.originalPipe, dx, dy),
       linkedSymbols: linkedMarkupSymbolsForMovedPipe(drag.originalPipe.id, dx, dy),
+    };
+  }
+
+  function movedMarkupSymbolFromDrag(drag: Extract<MarkupElementDrag, { kind: "symbol" }>, point: MarkupCanvasPoint) {
+    const dx = Math.round(point.x - drag.start.x);
+    const dy = Math.round(point.y - drag.start.y);
+    return {
+      symbol: moveMarkupSymbol(drag.originalSymbol, dx, dy),
+      linkedSymbols: linkedMarkupSymbolsForMovedSymbol(drag.originalSymbol.id, dx, dy),
     };
   }
 
@@ -2714,13 +2738,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
   }
 
-  function previewMovedMarkupSymbol(symbol: TakeoffMarkupSymbol) {
+  function previewMovedMarkupSymbol(symbol: TakeoffMarkupSymbol, linkedSymbols: TakeoffMarkupSymbol[] = []) {
+    const linkedSymbolMap = new Map(linkedSymbols.map((item) => [item.id, item]));
     setLocalServicesMarkup((current) => current ? {
       ...current,
-      symbols: current.symbols.map((item) => (item.id === symbol.id ? symbol : item)),
+      symbols: current.symbols.map((item) => linkedSymbolMap.get(item.id) ?? (item.id === symbol.id ? symbol : item)),
     } : current);
-    setOptimisticMarkupSymbols((current) => current.map((item) => (item.id === symbol.id ? symbol : item)));
-    setRecentMarkupSymbols((current) => current.map((item) => (item.id === symbol.id ? symbol : item)));
+    setOptimisticMarkupSymbols((current) => current.map((item) => linkedSymbolMap.get(item.id) ?? (item.id === symbol.id ? symbol : item)));
+    setRecentMarkupSymbols((current) => current.map((item) => linkedSymbolMap.get(item.id) ?? (item.id === symbol.id ? symbol : item)));
   }
 
   function movedMarkupElementFromDrag(drag: MarkupElementDrag, point: MarkupCanvasPoint) {
@@ -2737,8 +2762,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const moved = movedMarkupPipeFromDrag(drag, point);
       previewMovedMarkupPipe(moved.pipe, moved.linkedSymbols);
     } else {
-      const moved = movedMarkupElementFromDrag(drag, point);
-      previewMovedMarkupSymbol(moved as TakeoffMarkupSymbol);
+      const moved = movedMarkupSymbolFromDrag(drag, point);
+      previewMovedMarkupSymbol(moved.symbol, moved.linkedSymbols);
     }
     markupElementDragRef.current = { ...drag, changed: true } as MarkupElementDrag;
   }
@@ -2770,12 +2795,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       return;
     }
 
-    const finalSymbol = finalElement as TakeoffMarkupSymbol;
-    previewMovedMarkupSymbol(finalSymbol);
+    const finalMove = point ? movedMarkupSymbolFromDrag(drag, point) : { symbol: finalElement as TakeoffMarkupSymbol, linkedSymbols: [] };
+    const finalSymbol = finalMove.symbol;
+    const linkedSymbolMap = new Map(finalMove.linkedSymbols.map((symbol) => [symbol.id, symbol]));
+    previewMovedMarkupSymbol(finalSymbol, finalMove.linkedSymbols);
     updateServicesMarkup((current) => ({
       ...current,
       symbols: current.symbols.some((symbol) => symbol.id === finalSymbol.id)
-        ? current.symbols.map((symbol) => (symbol.id === finalSymbol.id ? finalSymbol : symbol))
+        ? current.symbols.map((symbol) => linkedSymbolMap.get(symbol.id) ?? (symbol.id === finalSymbol.id ? finalSymbol : symbol))
         : [...current.symbols, finalSymbol],
     }), "Markup item moved.");
   }
@@ -3346,6 +3373,213 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     };
   }
 
+  function createLinkedAutoSymbolForPlant(
+    plant: TakeoffMarkupSymbol,
+    details: {
+      kind: TakeoffMarkupSymbolKind;
+      category: TakeoffMarkupSymbolCategory;
+      service: TakeoffMarkupService;
+      material?: string;
+      diameter?: string;
+      offset: MarkupCanvasPoint;
+      note: string;
+    },
+  ): TakeoffMarkupSymbol {
+    const point = clampMarkupCanvasPoint({
+      x: plant.x + details.offset.x,
+      y: plant.y + details.offset.y,
+    });
+    return {
+      id: makeId("markup-symbol"),
+      type: "symbol",
+      category: details.category,
+      kind: details.kind,
+      x: point.x,
+      y: point.y,
+      rotation: plant.rotation,
+      floor: normaliseMarkupFloorValue(plant.floor, { defaultGround: false }) || undefined,
+      flat: normaliseMarkupFlatValue(plant.flat) || undefined,
+      drawingDocumentId: plant.drawingDocumentId,
+      service: details.service,
+      material: details.material,
+      diameter: details.diameter,
+      linkedSymbolId: plant.id,
+      autoGenerated: true,
+      notes: `${details.note} for ${markupSymbolLabel(plant.kind)}`,
+      included: true,
+    };
+  }
+
+  function buildAutoSymbolsForPlant(plant: TakeoffMarkupSymbol) {
+    if (plant.category !== "Plant") return [];
+    const kind = normaliseMarkupText(plant.kind).toLowerCase();
+    const linkedSymbols: TakeoffMarkupSymbol[] = [];
+    const add = (details: Parameters<typeof createLinkedAutoSymbolForPlant>[1]) => {
+      const duplicate = linkedSymbols.some((symbol) => (
+        symbol.kind === details.kind
+        && symbol.category === details.category
+        && symbol.service === details.service
+        && normaliseMarkupText(symbol.material).toLowerCase() === normaliseMarkupText(details.material).toLowerCase()
+        && normaliseMarkupText(symbol.diameter).toLowerCase() === normaliseMarkupText(details.diameter).toLowerCase()
+      ));
+      if (!duplicate) linkedSymbols.push(createLinkedAutoSymbolForPlant(plant, details));
+    };
+    const addHotColdIsolation = (baseY = -12) => {
+      add({
+        kind: "Hot isolation valve",
+        category: "Valve",
+        service: "Hot water",
+        material: "Copper",
+        diameter: "15mm",
+        offset: { x: -13, y: baseY },
+        note: "Auto-added hot feed isolation",
+      });
+      add({
+        kind: "Cold isolation valve",
+        category: "Valve",
+        service: "Cold water",
+        material: "Copper",
+        diameter: "15mm",
+        offset: { x: 13, y: baseY },
+        note: "Auto-added cold feed isolation",
+      });
+    };
+    const addTapConnectors = (baseY = 14) => {
+      add({
+        kind: "Flexible tap connector",
+        category: "Fitting",
+        service: "Hot water",
+        material: "Tap connector",
+        diameter: "15mm",
+        offset: { x: -13, y: baseY },
+        note: "Auto-added hot tap connection",
+      });
+      add({
+        kind: "Flexible tap connector",
+        category: "Fitting",
+        service: "Cold water",
+        material: "Tap connector",
+        diameter: "15mm",
+        offset: { x: 13, y: baseY },
+        note: "Auto-added cold tap connection",
+      });
+    };
+
+    if (kind.includes("radiator") || kind.includes("convector")) {
+      add({
+        kind: "TRV",
+        category: "Valve",
+        service: "Heating flow",
+        material: "Radiator valve",
+        diameter: "15mm",
+        offset: { x: -13, y: 11 },
+        note: "Auto-added radiator TRV",
+      });
+      add({
+        kind: "Lockshield",
+        category: "Valve",
+        service: "Heating return",
+        material: "Radiator valve",
+        diameter: "15mm",
+        offset: { x: 13, y: 11 },
+        note: "Auto-added radiator lockshield",
+      });
+      return linkedSymbols;
+    }
+
+    if (kind.includes("wc") || kind.includes("toilet")) {
+      add({
+        kind: "WC pan connector",
+        category: "Fitting",
+        service: "Soil",
+        material: "Soil fitting",
+        diameter: "110mm",
+        offset: { x: 0, y: 13 },
+        note: "Auto-added pan connector",
+      });
+      add({
+        kind: "Cold isolation valve",
+        category: "Valve",
+        service: "Cold water",
+        material: "Copper",
+        diameter: "15mm",
+        offset: { x: 13, y: -11 },
+        note: "Auto-added cistern isolation",
+      });
+      return linkedSymbols;
+    }
+
+    if ((kind === "basin" || kind.includes("wash basin")) && !kind.includes("tap")) {
+      addHotColdIsolation();
+      addTapConnectors(10);
+      add({
+        kind: "Basin trap",
+        category: "Fitting",
+        service: "Waste",
+        material: "Waste fitting",
+        diameter: "32mm",
+        offset: { x: 0, y: 16 },
+        note: "Auto-added basin waste connection",
+      });
+      return linkedSymbols;
+    }
+
+    if (kind.includes("sink")) {
+      addHotColdIsolation();
+      addTapConnectors(10);
+      add({
+        kind: "Sink trap",
+        category: "Fitting",
+        service: "Waste",
+        material: "Waste fitting",
+        diameter: "40mm",
+        offset: { x: 0, y: 16 },
+        note: "Auto-added sink waste connection",
+      });
+      return linkedSymbols;
+    }
+
+    if (kind.includes("bath")) {
+      addHotColdIsolation();
+      addTapConnectors(10);
+      add({
+        kind: "Bath trap",
+        category: "Fitting",
+        service: "Waste",
+        material: "Waste fitting",
+        diameter: "40mm",
+        offset: { x: 0, y: 16 },
+        note: "Auto-added bath waste connection",
+      });
+      return linkedSymbols;
+    }
+
+    if (kind.includes("shower tray")) {
+      add({
+        kind: "Shower trap",
+        category: "Fitting",
+        service: "Waste",
+        material: "Waste fitting",
+        diameter: "40mm",
+        offset: { x: 0, y: 14 },
+        note: "Auto-added shower tray waste connection",
+      });
+      return linkedSymbols;
+    }
+
+    if (kind.includes("shower mixer") || kind.includes("shower valve")) {
+      addHotColdIsolation(0);
+      return linkedSymbols;
+    }
+
+    if (kind.includes("tap") || kind.includes("mixer")) {
+      addHotColdIsolation();
+      addTapConnectors(10);
+    }
+
+    return linkedSymbols;
+  }
+
   function isMarkupRightAngle(previous: MarkupCanvasPoint, bend: MarkupCanvasPoint, next: MarkupCanvasPoint) {
     const firstX = previous.x - bend.x;
     const firstY = previous.y - bend.y;
@@ -3594,15 +3828,22 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     };
     suppressMarkupCanvasClickRef.current = true;
     lastMarkupCanvasInputAtRef.current = now;
-    setOptimisticMarkupSymbols((current) => [...current.filter((item) => item.id !== nextSymbol.id), nextSymbol]);
+    const linkedSymbols = buildAutoSymbolsForPlant(nextSymbol);
+    const symbolsToAdd = [nextSymbol, ...linkedSymbols];
+    setOptimisticMarkupSymbols((current) => [
+      ...current.filter((item) => !symbolsToAdd.some((symbol) => symbol.id === item.id)),
+      ...symbolsToAdd,
+    ]);
     setRecentMarkupSymbols((current) => [
-      nextSymbol,
-      ...current.filter((item) => item.id !== nextSymbol.id),
+      ...symbolsToAdd,
+      ...current.filter((item) => !symbolsToAdd.some((symbol) => symbol.id === item.id)),
     ].slice(0, 50));
     updateServicesMarkup((current) => ({
       ...current,
-      symbols: [...current.symbols, nextSymbol],
-    }), `${nextSymbol.kind} placed on the drawing.`);
+      symbols: [...current.symbols, ...symbolsToAdd],
+    }), linkedSymbols.length
+      ? `${nextSymbol.kind} placed with ${linkedSymbols.length} associated item${linkedSymbols.length === 1 ? "" : "s"}.`
+      : `${nextSymbol.kind} placed on the drawing.`);
     setSelectedMarkupElementId(nextSymbol.id);
     return nextSymbol;
   }
@@ -3788,18 +4029,27 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       floor: patch.floor !== undefined ? normaliseMarkupFloorValue(patch.floor, { defaultGround: false }) : patch.floor,
       flat: patch.flat !== undefined ? normaliseMarkupFlatValue(patch.flat) : patch.flat,
     };
+    const linkedContextPatch: Partial<TakeoffMarkupSymbol> = {};
+    if (nextPatch.floor !== undefined) linkedContextPatch.floor = nextPatch.floor;
+    if (nextPatch.flat !== undefined) linkedContextPatch.flat = nextPatch.flat;
+    if (nextPatch.drawingDocumentId !== undefined) linkedContextPatch.drawingDocumentId = nextPatch.drawingDocumentId;
+    const updateLinkedChildSymbol = (symbol: TakeoffMarkupSymbol) => (
+      symbol.linkedSymbolId === selectedMarkupSymbol.id && Object.keys(linkedContextPatch).length
+        ? { ...symbol, ...linkedContextPatch }
+        : symbol
+    );
     setOptimisticMarkupSymbols((current) => current.map((symbol) => (
-      symbol.id === selectedMarkupSymbol.id ? { ...symbol, ...nextPatch } : symbol
+      updateLinkedChildSymbol(symbol.id === selectedMarkupSymbol.id ? { ...symbol, ...nextPatch } : symbol)
     )));
     setRecentMarkupSymbols((current) => current.map((symbol) => (
-      symbol.id === selectedMarkupSymbol.id ? { ...symbol, ...nextPatch } : symbol
+      updateLinkedChildSymbol(symbol.id === selectedMarkupSymbol.id ? { ...symbol, ...nextPatch } : symbol)
     )));
     updateServicesMarkup((current) => ({
       ...current,
-      symbols: current.symbols.map((symbol) => symbol.id === selectedMarkupSymbol.id ? {
+      symbols: current.symbols.map((symbol) => updateLinkedChildSymbol(symbol.id === selectedMarkupSymbol.id ? {
         ...symbol,
         ...nextPatch,
-      } : symbol),
+      } : symbol)),
     }));
   }
 
@@ -3820,17 +4070,21 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
 
     if (selectedMarkupSymbol) {
-      updateSelectedMarkupSymbol({
-        x: Math.round(Math.min(Math.max(0, selectedMarkupSymbol.x + dx), markupCanvasWidth)),
-        y: Math.round(Math.min(Math.max(0, selectedMarkupSymbol.y + dy), markupCanvasHeight)),
-      });
+      const movedSymbol = moveMarkupSymbol(selectedMarkupSymbol, dx, dy);
+      const linkedSymbols = linkedMarkupSymbolsForMovedSymbol(selectedMarkupSymbol.id, dx, dy);
+      const linkedSymbolMap = new Map(linkedSymbols.map((symbol) => [symbol.id, symbol]));
+      previewMovedMarkupSymbol(movedSymbol, linkedSymbols);
+      updateServicesMarkup((current) => ({
+        ...current,
+        symbols: current.symbols.map((symbol) => linkedSymbolMap.get(symbol.id) ?? (symbol.id === movedSymbol.id ? movedSymbol : symbol)),
+      }));
     }
   }
 
   function deleteSelectedMarkupElement() {
     if (!selectedMarkupElementId) return;
     const linkedSymbolIds = new Set(displayedServicesMarkup.symbols
-      .filter((symbol) => symbol.linkedPipeId === selectedMarkupElementId)
+      .filter((symbol) => symbol.linkedPipeId === selectedMarkupElementId || symbol.linkedSymbolId === selectedMarkupElementId)
       .map((symbol) => symbol.id));
     setOptimisticMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
     setRecentMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
@@ -3873,12 +4127,23 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         id: makeId("markup-symbol"),
         x: selectedMarkupSymbol.x + 22,
         y: selectedMarkupSymbol.y + 22,
+        linkedPipeId: undefined,
+        linkedSymbolId: undefined,
+        autoGenerated: false,
       };
-      setOptimisticMarkupSymbols((current) => [...current.filter((item) => item.id !== duplicate.id), duplicate]);
-      setRecentMarkupSymbols((current) => [duplicate, ...current.filter((item) => item.id !== duplicate.id)].slice(0, 50));
+      const linkedSymbols = duplicate.category === "Plant" ? buildAutoSymbolsForPlant(duplicate) : [];
+      const symbolsToAdd = [duplicate, ...linkedSymbols];
+      setOptimisticMarkupSymbols((current) => [
+        ...current.filter((item) => !symbolsToAdd.some((symbol) => symbol.id === item.id)),
+        ...symbolsToAdd,
+      ]);
+      setRecentMarkupSymbols((current) => [
+        ...symbolsToAdd,
+        ...current.filter((item) => !symbolsToAdd.some((symbol) => symbol.id === item.id)),
+      ].slice(0, 50));
       updateServicesMarkup((current) => ({
         ...current,
-        symbols: [...current.symbols, duplicate],
+        symbols: [...current.symbols, ...symbolsToAdd],
       }), "Symbol duplicated.");
       setSelectedMarkupElementId(duplicate.id);
     }
