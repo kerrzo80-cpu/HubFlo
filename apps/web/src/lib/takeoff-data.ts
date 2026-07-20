@@ -246,6 +246,7 @@ export type TakeoffMarkupPipe = {
   floor: string;
   flat?: string;
   drawingDocumentId?: string;
+  layerId?: string;
   riseDropM: number;
   notes: string;
   included: boolean;
@@ -341,6 +342,7 @@ export type TakeoffMarkupSymbol = {
   floor?: string;
   flat?: string;
   drawingDocumentId?: string;
+  layerId?: string;
   service?: TakeoffMarkupService;
   material?: string;
   diameter?: string;

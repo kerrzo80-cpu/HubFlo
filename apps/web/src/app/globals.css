@@ -30684,9 +30684,35 @@ body {
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .takeoff-panel-title,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-layer-strip,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-mode-row {
   flex: 0 0 auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette {
+  order: 0 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-setup {
+  order: 1 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-layer-strip {
+  order: 2 !important;
+  width: 100% !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-scale-actions {
+  order: 3 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-mode-row {
+  order: 4 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .takeoff-panel-title {
+  order: 5 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette {
@@ -31003,6 +31029,46 @@ body {
   color: #ffffff !important;
 }
 
+.services-markup-layer-strip {
+  background: #ffffff;
+  border: 1px solid rgba(16, 42, 67, 0.12);
+  border-radius: 8px;
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+}
+
+.services-markup-layer-strip span,
+.services-markup-layer-strip small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.services-markup-layer-strip > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.services-markup-layer-strip button {
+  background: #ffffff;
+  border: 1px solid rgba(16, 42, 67, 0.14);
+  border-radius: 999px;
+  color: var(--blue-deep);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.services-markup-layer-strip button.active {
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #ffffff;
+}
+
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-palette > .services-markup-pipe-section,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-pipe-section,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-pipe-section {
@@ -31033,6 +31099,7 @@ body {
 .takeoff-app .services-markup-category-tabs button:hover:not(.active),
 .takeoff-app .services-markup-quick-searches button:hover:not(.active),
 .takeoff-app .services-markup-group-grid button:hover:not(.active),
+.takeoff-app .services-markup-layer-strip button:hover:not(.active),
 .takeoff-app .services-markup-service-grid button:hover:not(.active),
 .takeoff-app .services-markup-tool-grid button:hover:not(.active),
 .takeoff-app .services-markup-mode-row button:hover:not(.active),
@@ -31048,6 +31115,7 @@ body {
 .takeoff-app .services-markup-category-tabs button:hover:not(.active) *,
 .takeoff-app .services-markup-quick-searches button:hover:not(.active) *,
 .takeoff-app .services-markup-group-grid button:hover:not(.active) *,
+.takeoff-app .services-markup-layer-strip button:hover:not(.active) *,
 .takeoff-app .services-markup-service-grid button:hover:not(.active) *,
 .takeoff-app .services-markup-tool-grid button:hover:not(.active) *,
 .takeoff-app .services-markup-mode-row button:hover:not(.active) *,
@@ -31062,6 +31130,8 @@ body {
 .takeoff-app .services-markup-category-tabs button.active:hover,
 .takeoff-app .services-markup-group-grid button.active,
 .takeoff-app .services-markup-group-grid button.active:hover,
+.takeoff-app .services-markup-layer-strip button.active,
+.takeoff-app .services-markup-layer-strip button.active:hover,
 .takeoff-app .services-markup-service-grid button.active,
 .takeoff-app .services-markup-service-grid button.active:hover,
 .takeoff-app .services-markup-tool-grid button.active,
