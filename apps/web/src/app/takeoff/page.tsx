@@ -1182,11 +1182,6 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
     let loadingTask: { destroy: () => Promise<void> } | null = null;
     let renderTask: { cancel: () => void; promise: Promise<void> } | null = null;
 
-    const retryUrl = (attempt: number) => {
-      const separator = src.includes("?") ? "&" : "?";
-      return `${src}${separator}nexaPdfPreview=${retryToken}-${attempt}`;
-    };
-
     const waitForRetry = (attempt: number) => new Promise((resolve) => {
       window.setTimeout(resolve, attempt * 900);
     });
@@ -1201,7 +1196,7 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
         let lastStatus = 0;
         for (let attempt = 1; attempt <= 3; attempt += 1) {
           try {
-            response = await fetch(retryUrl(attempt), { credentials: "same-origin", cache: "no-store" });
+            response = await fetch(src, { credentials: "same-origin", cache: "no-store" });
             lastStatus = response.status;
             if (response.ok || response.status < 500 || cancelled) break;
           } catch (fetchError) {
