@@ -944,30 +944,96 @@ function dedupeMarkupPoints(points: MarkupCanvasPoint[]) {
   }, []);
 }
 
+function distanceFromMarkupPointToLine(point: MarkupCanvasPoint, start: MarkupCanvasPoint, end: MarkupCanvasPoint) {
+  const deltaX = end.x - start.x;
+  const deltaY = end.y - start.y;
+  const length = Math.hypot(deltaX, deltaY);
+  if (!length) return markupPointDistance(point, start);
+  return Math.abs(deltaY * point.x - deltaX * point.y + end.x * start.y - end.y * start.x) / length;
+}
+
+function simplifyMarkupTrace(points: MarkupCanvasPoint[], tolerance = 10): MarkupCanvasPoint[] {
+  if (points.length <= 2) return points;
+  const start = points[0]!;
+  const end = points[points.length - 1]!;
+  let furthestIndex = 0;
+  let furthestDistance = 0;
+
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const point = points[index]!;
+    const distance = distanceFromMarkupPointToLine(point, start, end);
+    if (distance > furthestDistance) {
+      furthestDistance = distance;
+      furthestIndex = index;
+    }
+  }
+
+  if (furthestDistance <= tolerance) return [start, end];
+
+  const before = simplifyMarkupTrace(points.slice(0, furthestIndex + 1), tolerance);
+  const after = simplifyMarkupTrace(points.slice(furthestIndex), tolerance);
+  return [...before.slice(0, -1), ...after];
+}
+
+function appendMarkupRoutePoint(points: MarkupCanvasPoint[], point: MarkupCanvasPoint, minDistance = 6) {
+  const previous = points[points.length - 1];
+  if (!previous || markupPointDistance(previous, point) >= minDistance) {
+    points.push(point);
+  }
+}
+
+function removeCollinearMarkupPoints(points: MarkupCanvasPoint[]) {
+  const cleaned = dedupeMarkupPoints(points);
+  if (cleaned.length <= 2) return cleaned;
+  const result: MarkupCanvasPoint[] = [cleaned[0]!];
+  const tolerance = 3;
+
+  for (let index = 1; index < cleaned.length - 1; index += 1) {
+    const previous = result[result.length - 1]!;
+    const current = cleaned[index]!;
+    const next = cleaned[index + 1]!;
+    const sameVertical = Math.abs(previous.x - current.x) <= tolerance && Math.abs(current.x - next.x) <= tolerance;
+    const sameHorizontal = Math.abs(previous.y - current.y) <= tolerance && Math.abs(current.y - next.y) <= tolerance;
+    if (!sameVertical && !sameHorizontal) result.push(current);
+  }
+
+  result.push(cleaned[cleaned.length - 1]!);
+  return dedupeMarkupPoints(result);
+}
+
 function snapMarkupPipePoints(points: MarkupCanvasPoint[]) {
   const cleaned = dedupeMarkupPoints(points);
   if (cleaned.length <= 2) return cleaned;
+  const simplified = simplifyMarkupTrace(cleaned, 10);
+  const route: MarkupCanvasPoint[] = [simplified[0]!];
+  const straightTolerance = 10;
 
-  const start = cleaned[0]!;
-  const end = cleaned[cleaned.length - 1]!;
-  const deltaX = end.x - start.x;
-  const deltaY = end.y - start.y;
-  const absX = Math.abs(deltaX);
-  const absY = Math.abs(deltaY);
-  const straightTolerance = 12;
-  const bendTolerance = 14;
+  simplified.slice(1).forEach((target) => {
+    const start = route[route.length - 1]!;
+    const deltaX = target.x - start.x;
+    const deltaY = target.y - start.y;
+    const absX = Math.abs(deltaX);
+    const absY = Math.abs(deltaY);
+    if (markupPointDistance(start, target) < 8) return;
 
-  if (absX <= straightTolerance && absY <= straightTolerance) return [start, end];
-  if (absY <= straightTolerance) return dedupeMarkupPoints([start, { x: end.x, y: start.y }]);
-  if (absX <= straightTolerance) return dedupeMarkupPoints([start, { x: start.x, y: end.y }]);
+    if (absY <= straightTolerance) {
+      appendMarkupRoutePoint(route, { x: target.x, y: start.y });
+      return;
+    }
 
-  const firstMove = cleaned.find((point) => markupPointDistance(start, point) >= bendTolerance) ?? end;
-  const horizontalFirst = Math.abs(firstMove.x - start.x) >= Math.abs(firstMove.y - start.y);
-  const bend = horizontalFirst
-    ? { x: end.x, y: start.y }
-    : { x: start.x, y: end.y };
+    if (absX <= straightTolerance) {
+      appendMarkupRoutePoint(route, { x: start.x, y: target.y });
+      return;
+    }
 
-  return dedupeMarkupPoints([start, bend, end]);
+    const bend = absX >= absY
+      ? { x: target.x, y: start.y }
+      : { x: start.x, y: target.y };
+    appendMarkupRoutePoint(route, bend);
+    appendMarkupRoutePoint(route, target);
+  });
+
+  return removeCollinearMarkupPoints(route);
 }
 
 function markupCanvasPointFromClient(
@@ -1445,6 +1511,14 @@ function markupSymbolLabel(kind: TakeoffMarkupSymbolKind) {
   if (kind === "UFH manifold") return "UFH";
   if (words.length === 1) return (words[0] ?? kind).slice(0, 3).toUpperCase();
   return words.map((word) => word[0]).join("").slice(0, 3).toUpperCase();
+}
+
+function markupSymbolKeyLabel(kind: TakeoffMarkupSymbolKind) {
+  if (kind === "ASHP") return "Air source heat pump";
+  if (kind === "UFH manifold") return "Underfloor heating manifold";
+  if (kind === "WC") return "WC";
+  if (kind === "TRV") return "Thermostatic radiator valve";
+  return kind;
 }
 
 function inferHeatRoomType(name: string): HeatCalcDraft["roomType"] {
@@ -2363,7 +2437,7 @@ const filteredMarkupPlantTools = useMemo(() => {
   }, [activeMarkupSymbols, recentVisibleMarkupSymbols]);
 
   const snappedMarkupDraftPoints = useMemo(
-    () => markupDraftPipe ? dedupeMarkupPoints(markupDraftPipe.points) : [],
+    () => markupDraftPipe ? snapMarkupPipePoints(markupDraftPipe.points) : [],
     [markupDraftPipe],
   );
 
@@ -4949,8 +5023,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     snapshotSymbols.forEach((symbol) => {
       const pipeDetails = [symbol.diameter, symbol.material].filter(Boolean).join(" ");
       const label = symbol.autoGenerated && pipeDetails
-        ? `${pipeDetails} ${markupSymbolLabel(symbol.kind)}`
-        : markupSymbolLabel(symbol.kind);
+        ? `${pipeDetails} ${markupSymbolKeyLabel(symbol.kind)}`
+        : markupSymbolKeyLabel(symbol.kind);
       const key = `symbol-${label}`;
       const current = legendEntries.get(key);
       legendEntries.set(key, {
@@ -4964,19 +5038,19 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const entries = Array.from(legendEntries.values()).sort((a, b) => a.label.localeCompare(b.label));
     if (!entries.length) return "";
 
-    const maxRowsPerColumn = 12;
+    const maxRowsPerColumn = 10;
     const columns = Math.min(3, Math.max(1, Math.ceil(entries.length / maxRowsPerColumn)));
     const rowsPerColumn = Math.ceil(entries.length / columns);
-    const columnWidth = 240;
+    const columnWidth = 285;
     const legendWidth = columns * columnWidth + 18;
-    const legendHeight = rowsPerColumn * 15 + 32;
+    const legendHeight = rowsPerColumn * 16 + 32;
     const legendX = Math.max(24, markupCanvasWidth - legendWidth - 24);
     const legendY = Math.max(24, markupCanvasHeight - legendHeight - 24);
     const rowSvg = entries.map((entry, index) => {
       const column = Math.floor(index / rowsPerColumn);
       const row = index % rowsPerColumn;
       const x = legendX + 12 + column * columnWidth;
-      const y = legendY + 28 + row * 15;
+      const y = legendY + 28 + row * 16;
       const marker = entry.type === "line"
         ? `<line x1="${x}" x2="${x + 18}" y1="${y - 4}" y2="${y - 4}" stroke="${escapeSvgText(entry.colour)}" stroke-width="2" stroke-linecap="round" />`
         : `<circle cx="${x + 9}" cy="${y - 4}" r="3.2" fill="#fff" stroke="${escapeSvgText(entry.colour)}" stroke-width="1.5" />`;
