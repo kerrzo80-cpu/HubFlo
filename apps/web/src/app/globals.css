@@ -31075,7 +31075,7 @@ body {
 
 /* Quote/job documents: show an explicit open action without crushing the row. */
 .document-file-row {
-  grid-template-columns: minmax(220px, 1.35fr) minmax(150px, 0.8fr) 130px 120px minmax(110px, 0.7fr) 92px;
+  grid-template-columns: minmax(220px, 1.35fr) minmax(150px, 0.8fr) 130px 120px minmax(110px, 0.7fr) minmax(158px, auto);
 }
 
 .document-file-row .simpro-options-button {
@@ -31085,8 +31085,14 @@ body {
   white-space: nowrap;
 }
 
+.document-row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .takeoff-document-list article {
-  grid-template-columns: 24px minmax(0, 1fr) 32px 32px;
+  grid-template-columns: 24px minmax(0, 1fr) 32px 32px 32px;
 }
 
 /* Full-screen takeoff drawing switcher. Kept compact, but visible above the plan. */
@@ -31164,6 +31170,16 @@ body {
 @media (max-width: 760px) {
   .document-file-row {
     grid-template-columns: minmax(0, 1fr) 82px;
+  }
+
+  .document-row-actions {
+    flex-direction: column;
+    grid-column: 2;
+  }
+
+  .document-row-actions .simpro-options-button {
+    justify-content: center;
+    width: 82px;
   }
 
   .document-file-row.table-head span:nth-child(n + 2),

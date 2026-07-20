@@ -18427,6 +18427,26 @@ export default function Dashboard() {
     window.open(href, "_blank", "noopener,noreferrer");
   }
 
+  function recordDocumentDownloadUrl(file: RecordDocumentFile) {
+    if (file.fileUrl) return file.fileUrl.includes("?") ? `${file.fileUrl}&download=1` : `${file.fileUrl}?download=1`;
+    return file.previewImageDataUrl ?? "";
+  }
+
+  function downloadRecordDocumentFile(file: RecordDocumentFile) {
+    const href = recordDocumentDownloadUrl(file);
+    if (!href) {
+      showNotice(`${file.name} is listed, but no downloadable file is attached yet.`);
+      return;
+    }
+    const link = window.document.createElement("a");
+    link.href = href;
+    link.download = file.name || "nexa-document";
+    link.rel = "noopener noreferrer";
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
   function renderDocumentWorkspace(recordType: RecordDocumentScope, recordRef: string) {
     const folders = recordDocumentFolders(recordType);
     const exampleFiles = documentFilesForRecord(recordType, recordRef)
@@ -18492,9 +18512,17 @@ export default function Dashboard() {
                 <span>{file.type}</span>
                 <span className={`document-visibility ${file.visibility.toLowerCase()}`}>{file.visibility}</span>
                 <span>{file.linkedTo}</span>
-                <button className="simpro-options-button" type="button" onClick={() => openRecordDocumentFile(file)}>
-                  {canOpen ? "Open" : "Not stored"}
-                </button>
+                <div className="document-row-actions">
+                  <button className="simpro-options-button" type="button" onClick={() => openRecordDocumentFile(file)}>
+                    {canOpen ? "Open" : "Not stored"}
+                  </button>
+                  {canOpen ? (
+                    <button className="simpro-options-button" type="button" onClick={() => downloadRecordDocumentFile(file)}>
+                      <Download size={13} />
+                      Download
+                    </button>
+                  ) : null}
+                </div>
               </div>
             );
           })}

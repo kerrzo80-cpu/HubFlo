@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   Building2,
   CheckCircle2,
   ClipboardList,
+  Download,
   FileSpreadsheet,
   FileText,
   Home,
@@ -1154,6 +1155,25 @@ function escapeSvgText(value: string) {
     .replace(/"/g, "&quot;");
 }
 
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Unable to read drawing preview"));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Unable to read drawing preview"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function resourceToDataUrl(src: string) {
+  if (!src || src.startsWith("data:")) return src;
+  const response = await fetch(src, { credentials: "same-origin", cache: "no-store" });
+  if (!response.ok) throw new Error("Unable to load drawing background for export");
+  return blobToDataUrl(await response.blob());
+}
+
 function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: TakeoffProject) {
   const drawingDocuments = project.documents.filter((document) => document.kind === "Drawing");
   const summary = summariseServicesMarkup(markup, drawingDocuments, {
@@ -1241,7 +1261,7 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   };
 }
 
-function PdfPlanPreview({ src, label }: { src: string; label: string }) {
+function PdfPlanPreview({ src, label, onRendered }: { src: string; label: string; onRendered?: (dataUrl: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("Preparing PDF preview...");
@@ -1309,7 +1329,10 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
           Math.round((targetWidth - pageCanvas.width) / 2),
           Math.round((targetHeight - pageCanvas.height) / 2),
         );
-        if (!cancelled) setStatus("ready");
+        if (!cancelled) {
+          onRendered?.(canvas.toDataURL("image/jpeg", 0.86));
+          setStatus("ready");
+        }
       } catch (error) {
         if (!cancelled) {
           setStatus("error");
@@ -1324,7 +1347,7 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
       renderTask?.cancel();
       loadingTask?.destroy().catch(() => {});
     };
-  }, [retryToken, src]);
+  }, [onRendered, retryToken, src]);
 
   return (
     <div className={`markup-pdf-preview ${status}`} aria-label={`${label} first page preview`}>
@@ -1829,6 +1852,7 @@ export default function TakeoffPage() {
   const [markupTouchPanStart, setMarkupTouchPanStart] = useState<{ touchId: number; clientX: number; clientY: number; panX: number; panY: number } | null>(null);
   const [markupTouchGesture, setMarkupTouchGesture] = useState<{ distance: number; zoom: number; worldX: number; worldY: number } | null>(null);
   const [markupDrawingLoadErrorId, setMarkupDrawingLoadErrorId] = useState("");
+  const [markupRenderedDrawingDataUrl, setMarkupRenderedDrawingDataUrl] = useState("");
   const markupCanvasRef = useRef<SVGSVGElement | null>(null);
   const markupDraftPipeRef = useRef<TakeoffMarkupPipe | null>(null);
   const localServicesMarkupRef = useRef<TakeoffServicesMarkup | null>(null);
@@ -2211,7 +2235,12 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     setMarkupDrawingLoadErrorId("");
+    setMarkupRenderedDrawingDataUrl("");
   }, [activeMarkupDrawingId]);
+
+  const handleMarkupDrawingRendered = useCallback((dataUrl: string) => {
+    setMarkupRenderedDrawingDataUrl(dataUrl);
+  }, []);
 
   const servicesMarkupSummary = useMemo(
     () => summariseServicesMarkup(displayedServicesMarkup, drawingDocuments, { showDrawing: servicesMarkupShowDrawingInSections }),
@@ -2697,6 +2726,13 @@ const filteredMarkupPlantTools = useMemo(() => {
     return "";
   }
 
+  function takeoffDocumentDownloadUrl(document: TakeoffDocument) {
+    if (selectedProject && document.storageKey) {
+      return `/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/documents/${encodeURIComponent(document.id)}/file?download=1`;
+    }
+    return document.previewImageDataUrl ?? "";
+  }
+
   function openTakeoffDocument(document: TakeoffDocument) {
     const href = takeoffDocumentOpenUrl(document);
     if (!href) {
@@ -2723,6 +2759,21 @@ const filteredMarkupPlantTools = useMemo(() => {
       }
     }
     window.open(href, "_blank", "noopener,noreferrer");
+  }
+
+  function downloadTakeoffDocument(document: TakeoffDocument) {
+    const href = takeoffDocumentDownloadUrl(document);
+    if (!href) {
+      setNotice(`${document.fileName} is listed, but no downloadable file is attached yet.`);
+      return;
+    }
+    const link = window.document.createElement("a");
+    link.href = href;
+    link.download = document.fileName || "nexa-takeoff-document";
+    link.rel = "noopener noreferrer";
+    window.document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   function clampMarkupPan(x: number, y: number, zoom = markupViewport.zoom) {
@@ -4534,11 +4585,18 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       return;
     }
 
-    const now = new Date().toISOString();
     const baseDrawingName = (markupSelectedDrawing?.fileName ?? "takeoff-drawing").replace(/\.[^/.]+$/, "");
     const contextLabel = [activeMarkupFloor, activeMarkupFlat].filter(Boolean).join(" - ") || "Marked services";
-    const backgroundSvg = markupDrawingSupportsImagePreview && markupDrawingPreviewUrl && !markupDrawingIsPdf
-      ? `<image href="${escapeSvgText(markupDrawingPreviewUrl)}" x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" preserveAspectRatio="none" opacity="0.72" />`
+    let exportBackgroundDataUrl = markupDrawingIsPdf ? markupRenderedDrawingDataUrl : "";
+    if (!exportBackgroundDataUrl && markupDrawingSupportsImagePreview && markupDrawingPreviewUrl) {
+      try {
+        exportBackgroundDataUrl = await resourceToDataUrl(markupDrawingPreviewUrl);
+      } catch {
+        exportBackgroundDataUrl = "";
+      }
+    }
+    const backgroundSvg = exportBackgroundDataUrl
+      ? `<image href="${escapeSvgText(exportBackgroundDataUrl)}" x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" preserveAspectRatio="none" opacity="0.84" />`
       : `<rect x="0" y="0" width="${markupCanvasWidth}" height="${markupCanvasHeight}" fill="#ffffff" /><text x="28" y="42" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#607084">${escapeSvgText(markupSelectedDrawing?.fileName ?? "Drawing source saved in NeXa")}</text>`;
     const pipeSvg = snapshotPipes.map((pipe) => {
       const points = pipe.points.map((point) => `${point.x},${point.y}`).join(" ");
@@ -4559,26 +4617,32 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       return `<g transform="translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})"><circle cx="0" cy="0" r="6" fill="#fff" stroke="${colour}" stroke-width="2" /><text x="10" y="4" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="${colour}" paint-order="stroke" stroke="#fff" stroke-width="3">${label}</text></g>`;
     }).join("");
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${markupCanvasWidth}" height="${markupCanvasHeight}" viewBox="0 0 ${markupCanvasWidth} ${markupCanvasHeight}">${backgroundSvg}<g opacity="0.16">${Array.from({ length: 20 }).map((_, index) => `<line x1="${index * 52}" x2="${index * 52}" y1="0" y2="${markupCanvasHeight}" stroke="#86a6b8" />`).join("")}${Array.from({ length: 13 }).map((_, index) => `<line x1="0" x2="${markupCanvasWidth}" y1="${index * 52}" y2="${index * 52}" stroke="#86a6b8" />`).join("")}</g>${pipeSvg}${symbolSvg}<text x="28" y="${markupCanvasHeight - 28}" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#102a43">${escapeSvgText(`${selectedProject.reference} - ${contextLabel}`)}</text></svg>`;
-    const snapshotDocument: TakeoffDocument = {
-      id: makeId("marked-drawing"),
-      kind: "Marked-up drawing",
-      fileName: `${selectedProject.reference}-${baseDrawingName}-${contextLabel}`.replace(/[^a-z0-9-]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase() + ".svg",
-      mimeType: "image/svg+xml",
-      size: svg.length,
-      previewImageDataUrl: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
-      uploadedAt: now,
-      status: "Parsed",
-      notes: [
-        `Marked drawing snapshot for ${contextLabel}.`,
-        `${snapshotPipes.length} pipe route(s) and ${snapshotSymbols.length} placed item(s).`,
-        markupSelectedDrawing ? `Source drawing: ${markupSelectedDrawing.fileName}.` : "No source drawing selected.",
-      ],
-    };
+    const markedDrawingFileName = `${selectedProject.reference}-${baseDrawingName}-${contextLabel}`.replace(/[^a-z0-9-]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase() + ".svg";
+    const formData = new FormData();
+    formData.append("kind", "Marked-up drawing");
+    formData.append("files", new Blob([svg], { type: "image/svg+xml" }), markedDrawingFileName);
 
-    const saved = await patchProject(selectedProject.id, {
-      documents: [snapshotDocument, ...selectedProject.documents],
-    });
-    if (!saved) return;
+    let saved: TakeoffProject | null = null;
+    let snapshotDocument: TakeoffDocument | null = null;
+    try {
+      const uploadResponse = await fetch(`/api/takeoff-projects/${selectedProject.id}/documents`, {
+        method: "POST",
+        headers: requestHeaders,
+        body: formData,
+      });
+      if (!uploadResponse.ok) {
+        const payload = await uploadResponse.json().catch(() => null) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Marked drawing could not be stored.");
+      }
+      const payload = await uploadResponse.json() as { project?: TakeoffProject; documents?: TakeoffDocument[] };
+      saved = payload.project ?? null;
+      snapshotDocument = payload.documents?.[0] ?? null;
+      if (!saved || !snapshotDocument) throw new Error("Marked drawing did not return a stored document.");
+      replaceProject(saved);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Marked drawing could not be stored.");
+      return;
+    }
 
     if (!saved.linkedQuoteId && !saved.linkedQuoteRef && !saved.linkedJobId && !saved.linkedJobRef) {
       setError("");
@@ -5788,6 +5852,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </button>
                           <button
                             type="button"
+                            aria-label={`Download ${document.fileName}`}
+                            onClick={() => downloadTakeoffDocument(document)}
+                          >
+                            <Download size={15} />
+                          </button>
+                          <button
+                            type="button"
                             aria-label={`Remove ${document.fileName}`}
                             onClick={() => updateProject({ documents: removeById(selectedProject.documents, document.id) })}
                           >
@@ -6384,6 +6455,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               <PdfPlanPreview
                                 src={markupDrawingPreviewUrl}
                                 label={markupSelectedDrawing?.fileName ?? "Drawing"}
+                                onRendered={handleMarkupDrawingRendered}
                               />
                             ) : markupDrawingSupportsImagePreview && !markupDrawingLoadError ? (
                               <img
@@ -7238,6 +7310,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             onClick={() => openTakeoffDocument(document)}
                           >
                             <FileText size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Download ${document.fileName}`}
+                            onClick={() => downloadTakeoffDocument(document)}
+                          >
+                            <Download size={15} />
                           </button>
                           <button
                             type="button"

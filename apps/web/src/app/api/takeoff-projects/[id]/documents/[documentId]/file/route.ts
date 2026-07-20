@@ -38,10 +38,11 @@ export async function GET(
 
   try {
     const file = await readFile(filePath);
+    const disposition = request.nextUrl.searchParams.get("download") === "1" ? "attachment" : "inline";
     return new NextResponse(new Uint8Array(file), {
       headers: {
         "Cache-Control": "private, max-age=60",
-        "Content-Disposition": `inline; filename="${safeDownloadName(document.fileName)}"`,
+        "Content-Disposition": `${disposition}; filename="${safeDownloadName(document.fileName)}"`,
         "Content-Length": String(file.byteLength),
         "Content-Type": document.mimeType ?? "application/octet-stream",
       },
