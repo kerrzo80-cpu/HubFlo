@@ -5,7 +5,7 @@ import { useDemoSeedData } from "@/lib/workspace-mode";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
-export type TakeoffDocumentKind = "Drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
+export type TakeoffDocumentKind = "Drawing" | "Marked-up drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
 export type TakeoffDocumentStatus = "Uploaded" | "Parsed" | "Needs review";
 export type TakeoffSurveyAnswer = "Yes" | "No" | "Unknown" | "N/A";
 export type TakeoffSurveyStep = "scope" | "stop-go" | "rooms" | "handoff";
@@ -899,7 +899,7 @@ function inferTemplateName(project: TakeoffProject) {
 
 function quoteDocumentKind(kind: TakeoffDocumentKind): QuoteTakeoffDocument["kind"] {
   if (kind === "Survey note" || kind === "Survey photo" || kind === "LiDAR scan") return "Survey evidence";
-  return kind === "Drawing" ? "Drawings" : kind;
+  return kind === "Drawing" || kind === "Marked-up drawing" ? "Drawings" : kind;
 }
 
 function documentNeedsOfficeReview(kind: TakeoffDocumentKind) {
@@ -1681,6 +1681,92 @@ export function attachSurveyEvidenceToQuote(
     project: clone(project),
     quote: updatedQuote,
     costCentre: evidenceCentre,
+    auditEvent,
+  };
+}
+
+export function attachMarkedTakeoffDrawingToQuote(
+  projectId: string,
+  documentId: string,
+  actor = "NeXa Takeoff",
+) {
+  refreshTakeoffStore();
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!project) return null;
+
+  const document = project.documents.find((item) => item.id === documentId);
+  if (!document) return null;
+
+  const quote = findLinkedQuote(project.linkedQuoteId ?? project.linkedQuoteRef)
+    ?? getQuotes().find((item) => Boolean(project.linkedJobRef && item.convertedJobRef === project.linkedJobRef))
+    ?? getQuotes().find((item) => Boolean(project.linkedJobId && item.convertedJobId === project.linkedJobId));
+  if (!quote) return null;
+
+  const [takeoffDocument] = buildQuoteTakeoffDocuments({ ...project, documents: [document] });
+  if (!takeoffDocument) return null;
+
+  const hubState = getHubDetailState();
+  const currentQuoteCostCentres = (hubState.quoteCostCentres ?? {}) as Record<string, unknown>;
+  const existingCentres = Array.isArray(currentQuoteCostCentres[quote.id])
+    ? (currentQuoteCostCentres[quote.id] as QuoteCostCentre[])
+    : [];
+  const projectCentrePrefix = `${quote.id}-takeoff-${project.id}`;
+  const existingProjectCentre = existingCentres.find((centre) => centre.id.startsWith(projectCentrePrefix));
+  const targetCentre = existingProjectCentre ?? existingCentres[0];
+  const fallbackCentre: QuoteCostCentre = {
+    id: `${quote.id}-takeoff-${project.id}-drawings`,
+    name: `Marked drawings - ${project.name}`,
+    templateName: inferTemplateName(project),
+    clientDescription: buildClientDescription(project),
+    engineerDescription: buildEngineerDescription(project),
+    lines: [],
+    takeoffRows: [],
+    takeoffDocuments: [],
+    heatLossRooms: buildQuoteHeatLossRooms(project),
+  };
+  const centreToUpdate = targetCentre ?? fallbackCentre;
+  const nextDocuments = [
+    takeoffDocument,
+    ...(centreToUpdate.takeoffDocuments ?? []).filter((item) => item.id !== takeoffDocument.id),
+  ];
+  const updatedCentre: QuoteCostCentre = {
+    ...centreToUpdate,
+    takeoffDocuments: nextDocuments,
+  };
+  const nextQuoteCentres = targetCentre
+    ? existingCentres.map((centre) => (centre.id === targetCentre.id ? updatedCentre : centre))
+    : [...existingCentres, updatedCentre];
+
+  saveHubDetailState({
+    ...hubState,
+    quoteCostCentres: {
+      ...currentQuoteCostCentres,
+      [quote.id]: nextQuoteCentres,
+    },
+    quoteSections: {
+      ...(hubState.quoteSections || {}),
+      [quote.id]: buildQuoteSectionsFromCostCentres(quote.id, nextQuoteCentres),
+    },
+  });
+
+  const updatedQuote = updateQuote(quote.id, {
+    next: `Marked drawing saved from ${project.reference}`,
+  }) ?? quote;
+
+  const auditEvent = appendAuditEvent({
+    actor,
+    action: "attached",
+    recordType: "quote",
+    recordId: quote.id,
+    summary: `${document.fileName} saved from ${project.reference} into ${quote.ref} documents.`,
+    source: "takeoff drawing workspace",
+    importance: "normal",
+  });
+
+  return {
+    project: clone(project),
+    quote: updatedQuote,
+    document: takeoffDocument,
     auditEvent,
   };
 }

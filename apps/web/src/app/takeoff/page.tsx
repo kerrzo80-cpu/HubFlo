@@ -4435,7 +4435,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${markupCanvasWidth}" height="${markupCanvasHeight}" viewBox="0 0 ${markupCanvasWidth} ${markupCanvasHeight}">${backgroundSvg}<g opacity="0.16">${Array.from({ length: 20 }).map((_, index) => `<line x1="${index * 52}" x2="${index * 52}" y1="0" y2="${markupCanvasHeight}" stroke="#86a6b8" />`).join("")}${Array.from({ length: 13 }).map((_, index) => `<line x1="0" x2="${markupCanvasWidth}" y1="${index * 52}" y2="${index * 52}" stroke="#86a6b8" />`).join("")}</g>${pipeSvg}${symbolSvg}<text x="28" y="${markupCanvasHeight - 28}" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#102a43">${escapeSvgText(`${selectedProject.reference} - ${contextLabel}`)}</text></svg>`;
     const snapshotDocument: TakeoffDocument = {
       id: makeId("marked-drawing"),
-      kind: "Survey note",
+      kind: "Marked-up drawing",
       fileName: `${selectedProject.reference}-${baseDrawingName}-${contextLabel}`.replace(/[^a-z0-9-]+/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase() + ".svg",
       mimeType: "image/svg+xml",
       size: svg.length,
@@ -4451,10 +4451,35 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     const saved = await patchProject(selectedProject.id, {
       documents: [snapshotDocument, ...selectedProject.documents],
-    }, selectedProject.linkedQuoteId
-      ? "Marked drawing saved in Takeoff documents. Push to Core quote to refresh the quote Documents tab."
-      : "Marked drawing saved in Takeoff documents. Link a quote, then push to Core when ready.");
-    if (saved) setError("");
+    });
+    if (!saved) return;
+
+    if (!saved.linkedQuoteId && !saved.linkedQuoteRef && !saved.linkedJobId && !saved.linkedJobRef) {
+      setError("");
+      setNotice("Marked drawing saved in Takeoffs. Link this project to a Core quote/job to show it in Core Documents.");
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/marked-drawing`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documentId: snapshotDocument.id,
+          actor: "NeXa Takeoff",
+        }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null) as { error?: string } | null;
+        setNotice(payload?.error ?? "Marked drawing saved in Takeoffs. Core document sync needs a linked quote/job.");
+      } else {
+        setNotice("Marked drawing saved and attached to the linked Core documents.");
+      }
+      setError("");
+    } catch {
+      setError("");
+      setNotice("Marked drawing saved in Takeoffs. Core document sync could not be confirmed.");
+    }
   }
 
   async function linkQuoteToProject(quote: Quote) {
@@ -5674,61 +5699,6 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <button type="button" onClick={() => setActiveTab("boq")}>
                         Quantities
                       </button>
-                      <button type="button" onClick={saveMarkedDrawingForEngineers}>
-                        <FileText size={13} />
-                        Save drawing
-                      </button>
-                    </nav>
-                    <div className="takeoff-drawing-switcher" aria-label="Drawing switcher">
-                      <span>Drawing</span>
-                      <div>
-                        {drawingDocuments.length ? drawingDocuments.map((document, index) => (
-                          <button
-                            className={document.id === activeMarkupDrawingId ? "active" : ""}
-                            type="button"
-                            key={document.id}
-                            onClick={() => selectMarkupDrawing(document.id)}
-                          >
-                            <b>{index + 1}</b>
-                            <small>{document.fileName}</small>
-                          </button>
-                        )) : (
-                          <button type="button" onClick={() => setActiveTab("intake")}>
-                            Upload drawings
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <nav className="takeoff-markup-actions">
-                      <a className="takeoff-secondary-button" href="/">
-                        <ArrowLeft size={15} />
-                        Core
-                      </a>
-                    <UploadButton
-                      kind="Drawing"
-                      label={isUploadingDocs ? "Uploading" : "Upload drawing"}
-                      accept=".pdf,.jpg,.jpeg,.png,.webp"
-                      disabled={isUploadingDocs}
-                      onUpload={addDocuments}
-                    />
-                      <button className="takeoff-secondary-button" type="button" onClick={saveMarkedDrawingForEngineers}>
-                        <FileText size={15} />
-                        Save marked drawing
-                      </button>
-                      <button className="takeoff-secondary-button" type="button" onClick={() => setIsMarkupMaterialsCollapsed((current) => !current)}>
-                        <PackageSearch size={15} />
-                        {isMarkupMaterialsCollapsed ? "Open materials" : "Minimise materials"}
-                      </button>
-                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("intake")}>
-                        Project setup
-                      </button>
-                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("boq")}>
-                        Quantities / RFQ
-                      </button>
-                      <button className="takeoff-primary-button" type="button" onClick={pushMarkupToBoq}>
-                        <PackageSearch size={15} />
-                        Quantities ({servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length})
-                      </button>
                     </nav>
                   </header>
                   <button
@@ -6110,6 +6080,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </small>
                         </span>
                         <div>
+                          <label className="takeoff-toolbar-select">
+                            <span>Plan</span>
+                            <select
+                              value={workingServicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
+                              onChange={(event) => selectMarkupDrawing(event.target.value)}
+                            >
+                              {!drawingDocuments.length ? <option value="">Upload a drawing</option> : null}
+                              {drawingDocuments.map((document, index) => (
+                                <option value={document.id} key={document.id}>
+                                  {index + 1}. {document.fileName}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
                           <button
                             className={markupToolMode === "pan" ? "takeoff-small-button active" : "takeoff-small-button"}
                             type="button"
@@ -6160,7 +6144,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={saveMarkedDrawingForEngineers}>
                             <FileText size={14} />
-                            Save
+                            Save drawing
                           </button>
                           <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe} onClick={() => setMarkupDraftPipeState(null)}>
                             Cancel route

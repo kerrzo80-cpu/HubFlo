@@ -31311,3 +31311,195 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Takeoff drawing workspace: final control layout for iPad/desktop. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header {
+  align-items: flex-start !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  display: block !important;
+  height: auto !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  max-width: calc(100vw - 104px) !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  pointer-events: none !important;
+  position: fixed !important;
+  right: auto !important;
+  top: max(8px, env(safe-area-inset-top)) !important;
+  width: auto !important;
+  z-index: 2400 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header > div:first-child,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-actions {
+  display: none !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-workspace-header .takeoff-markup-breadcrumbs {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid rgba(20, 78, 110, 0.18) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 8px 20px rgba(8, 49, 71, 0.1) !important;
+  display: inline-flex !important;
+  gap: 4px !important;
+  max-width: min(360px, calc(100vw - 104px)) !important;
+  padding: 3px !important;
+  pointer-events: auto !important;
+  width: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs a,
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs button {
+  align-items: center !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(20, 78, 110, 0.12) !important;
+  border-radius: 6px !important;
+  color: var(--blue-deep) !important;
+  display: inline-flex !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  gap: 4px !important;
+  height: 28px !important;
+  line-height: 1 !important;
+  padding: 0 9px !important;
+  text-decoration: none !important;
+  white-space: nowrap !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-plan-stage {
+  padding-bottom: 74px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header {
+  align-items: center !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  border: 1px solid rgba(20, 78, 110, 0.16) !important;
+  border-radius: 9px !important;
+  bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  box-shadow: 0 10px 26px rgba(8, 49, 71, 0.12) !important;
+  display: flex !important;
+  gap: 8px !important;
+  left: max(8px, env(safe-area-inset-left)) !important;
+  max-width: none !important;
+  min-height: 44px !important;
+  overflow: visible !important;
+  padding: 6px !important;
+  pointer-events: auto !important;
+  position: fixed !important;
+  right: calc(var(--nexa-markup-drawer-width, 340px) + 18px) !important;
+  top: auto !important;
+  transform: none !important;
+  width: auto !important;
+  z-index: 2350 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace.materials-collapsed .services-markup-canvas-header {
+  right: max(70px, calc(env(safe-area-inset-right) + 64px)) !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header > span {
+  display: grid !important;
+  flex: 0 1 230px !important;
+  gap: 1px !important;
+  min-width: 180px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header > div {
+  align-items: center !important;
+  display: flex !important;
+  flex: 1 1 auto !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  justify-content: flex-start !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  overflow: visible !important;
+  width: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button {
+  align-items: center !important;
+  border-radius: 7px !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  gap: 4px !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 8px !important;
+  white-space: nowrap !important;
+  width: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-toolbar-select {
+  align-items: center !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(20, 78, 110, 0.14) !important;
+  border-radius: 7px !important;
+  color: var(--blue-deep) !important;
+  display: inline-flex !important;
+  flex: 1 1 230px !important;
+  gap: 6px !important;
+  height: 32px !important;
+  max-width: 360px !important;
+  min-width: 190px !important;
+  padding: 0 7px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-toolbar-select span {
+  color: var(--muted) !important;
+  font-size: 10px !important;
+  font-weight: 950 !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+  white-space: nowrap !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-toolbar-select select {
+  appearance: none !important;
+  background: transparent !important;
+  border: 0 !important;
+  color: var(--blue-deep) !important;
+  flex: 1 1 auto !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  min-width: 0 !important;
+  outline: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 1020px) {
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header {
+    right: max(58px, calc(env(safe-area-inset-right) + 54px)) !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header > span {
+    display: none !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-toolbar-select {
+    flex-basis: 210px !important;
+    max-width: 280px !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs a,
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-markup-breadcrumbs button,
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-canvas-header .takeoff-small-button {
+    font-size: 10px !important;
+    padding-inline: 6px !important;
+  }
+
+  .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-toolbar-select {
+    flex: 1 1 100% !important;
+    max-width: none !important;
+  }
+}

@@ -17,7 +17,7 @@ export const runtime = "nodejs";
 
 const MAX_TAKEOFF_UPLOAD_BYTES = 250 * 1024 * 1024;
 const MAX_TAKEOFF_REQUEST_BYTES = 300 * 1024 * 1024;
-const documentKinds: TakeoffDocumentKind[] = ["Drawing", "Specification", "Contractor BOQ", "Survey note", "Survey photo", "LiDAR scan"];
+const documentKinds: TakeoffDocumentKind[] = ["Drawing", "Marked-up drawing", "Specification", "Contractor BOQ", "Survey note", "Survey photo", "LiDAR scan"];
 
 function isDocumentKind(value: FormDataEntryValue | null): value is TakeoffDocumentKind {
   return typeof value === "string" && documentKinds.includes(value as TakeoffDocumentKind);
@@ -63,6 +63,7 @@ function fileEntries(entries: FormDataEntryValue[]): File[] {
 
 function uploadNotes(kind: TakeoffDocumentKind) {
   if (kind === "Drawing") return ["Uploaded for OpenAI/takeoff scan; confirm scale and revision."];
+  if (kind === "Marked-up drawing") return ["Saved from NeXa Takeoffs with engineer-visible pipe routes and symbols."];
   if (kind === "Specification") return ["Uploaded for OpenAI/specification scan; confirm named manufacturer requirements."];
   if (kind === "Survey note") return ["Uploaded for OpenAI survey quote draft; confirm handwriting, scope and exclusions."];
   if (kind === "Survey photo") return ["Uploaded for OpenAI survey quote draft; confirm room condition and visible measurements."];
@@ -98,7 +99,7 @@ export async function POST(
   }
   const kind = formData.get("kind");
   if (!isDocumentKind(kind)) {
-    return NextResponse.json({ error: "Choose Drawing, Specification, Contractor BOQ, Survey note, Survey photo or LiDAR scan." }, { status: 400 });
+    return NextResponse.json({ error: "Choose Drawing, Marked-up drawing, Specification, Contractor BOQ, Survey note, Survey photo or LiDAR scan." }, { status: 400 });
   }
 
   const files = fileEntries(formData.getAll("files"));
