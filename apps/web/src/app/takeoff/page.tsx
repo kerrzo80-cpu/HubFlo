@@ -1201,20 +1201,32 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
 
   const markupMaterials = [...pipeMaterials, ...symbolMaterials];
   const existingMarkupRequests = project.supplierRequests.filter((line) => line.notes === "From Services Markup");
-  const supplierRows: TakeoffSupplierRequestItem[] = markupMaterials.map((line) => {
+  const supplierRowsByKey = new Map<string, TakeoffSupplierRequestItem>();
+  markupMaterials.forEach((line) => {
+    const key = `${line.description.trim().toLowerCase()}::${line.unit.trim().toLowerCase()}`;
+    const existingGroup = supplierRowsByKey.get(key);
+    if (existingGroup) {
+      existingGroup.quantity += line.quantity;
+      return;
+    }
+
     const id = markupLineId("markup-rfq", line.id);
     const existing = existingMarkupRequests.find((item) => item.id === id || item.linkedMaterialId === line.id)
-      ?? existingMarkupRequests.find((item) => item.description === line.description);
-    return {
-      id,
+      ?? existingMarkupRequests.find((item) => (
+        item.description.trim().toLowerCase() === line.description.trim().toLowerCase()
+        && item.unit.trim().toLowerCase() === line.unit.trim().toLowerCase()
+      ));
+    supplierRowsByKey.set(key, {
+      id: existing?.id ?? id,
       supplier: existing?.supplier ?? line.preferredSupplier ?? "",
       description: line.description,
       quantity: line.quantity,
       unit: line.unit,
-      linkedMaterialId: line.id,
+      linkedMaterialId: existing?.linkedMaterialId ?? line.id,
       notes: "From Services Markup",
-    };
+    });
   });
+  const supplierRows = Array.from(supplierRowsByKey.values());
 
   return {
     summary,
@@ -2083,11 +2095,11 @@ const filteredMarkupPlantTools = useMemo(() => {
   );
 
   const markupSelectedDrawing = useMemo(
-    () => drawingDocuments.find((document) => document.id === servicesMarkup.drawingDocumentId) ?? drawingDocuments[0] ?? null,
-    [drawingDocuments, servicesMarkup.drawingDocumentId],
+    () => drawingDocuments.find((document) => document.id === workingServicesMarkup.drawingDocumentId) ?? drawingDocuments[0] ?? null,
+    [drawingDocuments, workingServicesMarkup.drawingDocumentId],
   );
 
-  const activeMarkupDrawingId = markupSelectedDrawing?.id ?? servicesMarkup.drawingDocumentId;
+  const activeMarkupDrawingId = markupSelectedDrawing?.id ?? workingServicesMarkup.drawingDocumentId;
 
   const markupScopeFloorOptions = useMemo(() => {
     const values = new Set(["", "Ground floor", "First floor", "Second floor"]);
@@ -2635,6 +2647,40 @@ const filteredMarkupPlantTools = useMemo(() => {
         : project
     )));
     patchProject(selectedProject.id, patch, successMessage).catch(() => {});
+  }
+
+  function selectMarkupDrawing(drawingId: string) {
+    if (!drawingId) return;
+    updateServicesMarkup(
+      (current) => ({
+        ...current,
+        drawingDocumentId: drawingId,
+      }),
+      "Drawing selected for markup.",
+      { recordUndo: false },
+    );
+    clearMarkupRecentPreview();
+    setMarkupDraftPipeState(null);
+    setSelectedMarkupElementId("");
+    setMarkupDrawingLoadErrorId("");
+    resetMarkupView();
+  }
+
+  function takeoffDocumentOpenUrl(document: TakeoffDocument) {
+    if (document.previewImageDataUrl) return document.previewImageDataUrl;
+    if (selectedProject && document.storageKey) {
+      return `/api/takeoff-projects/${encodeURIComponent(selectedProject.id)}/documents/${encodeURIComponent(document.id)}/file`;
+    }
+    return "";
+  }
+
+  function openTakeoffDocument(document: TakeoffDocument) {
+    const href = takeoffDocumentOpenUrl(document);
+    if (!href) {
+      setNotice(`${document.fileName} is registered but has no preview file stored yet.`);
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
   }
 
   function clampMarkupPan(x: number, y: number, zoom = markupViewport.zoom) {
@@ -4355,7 +4401,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setActiveTab("boq");
   }
 
-  function saveMarkedDrawingForEngineers() {
+  async function saveMarkedDrawingForEngineers() {
     if (!selectedProject) return;
     if (!activeMarkupPipes.length && !activeMarkupSymbols.length) {
       setError("Draw a route or place an item before saving the marked drawing.");
@@ -4403,9 +4449,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       ],
     };
 
-    updateProject({
+    const saved = await patchProject(selectedProject.id, {
       documents: [snapshotDocument, ...selectedProject.documents],
-    }, "Marked drawing saved for engineer handoff.");
+    }, selectedProject.linkedQuoteId
+      ? "Marked drawing saved in Takeoff documents. Push to Core quote to refresh the quote Documents tab."
+      : "Marked drawing saved in Takeoff documents. Link a quote, then push to Core when ready.");
+    if (saved) setError("");
   }
 
   async function linkQuoteToProject(quote: Quote) {
@@ -5580,6 +5629,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </span>
                           <button
                             type="button"
+                            aria-label={`Open ${document.fileName}`}
+                            onClick={() => openTakeoffDocument(document)}
+                          >
+                            <FileText size={15} />
+                          </button>
+                          <button
+                            type="button"
                             aria-label={`Remove ${document.fileName}`}
                             onClick={() => updateProject({ documents: removeById(selectedProject.documents, document.id) })}
                           >
@@ -5623,6 +5679,26 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         Save drawing
                       </button>
                     </nav>
+                    <div className="takeoff-drawing-switcher" aria-label="Drawing switcher">
+                      <span>Drawing</span>
+                      <div>
+                        {drawingDocuments.length ? drawingDocuments.map((document, index) => (
+                          <button
+                            className={document.id === activeMarkupDrawingId ? "active" : ""}
+                            type="button"
+                            key={document.id}
+                            onClick={() => selectMarkupDrawing(document.id)}
+                          >
+                            <b>{index + 1}</b>
+                            <small>{document.fileName}</small>
+                          </button>
+                        )) : (
+                          <button type="button" onClick={() => setActiveTab("intake")}>
+                            Upload drawings
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <nav className="takeoff-markup-actions">
                       <a className="takeoff-secondary-button" href="/">
                         <ArrowLeft size={15} />
@@ -5680,10 +5756,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <label>
                           Locked drawing
                           <select
-                            value={servicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
+                            value={workingServicesMarkup.drawingDocumentId ?? markupSelectedDrawing?.id ?? ""}
                             onChange={(event) => {
-                              updateServicesMarkup((current) => ({ ...current, drawingDocumentId: event.target.value || undefined }), "Drawing selected for markup.");
-                              resetMarkupView();
+                              selectMarkupDrawing(event.target.value);
                             }}
                           >
                           {!drawingDocuments.length ? <option value="">Upload a drawing first</option> : null}
@@ -7046,6 +7121,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               {aiStatus?.connected ? ` - ${document.storageKey ? "AI-ready" : "Re-upload for OpenAI"}` : ""}
                             </small>
                           </span>
+                          <button
+                            type="button"
+                            aria-label={`Open ${document.fileName}`}
+                            onClick={() => openTakeoffDocument(document)}
+                          >
+                            <FileText size={15} />
+                          </button>
                           <button
                             type="button"
                             aria-label={`Remove ${document.fileName}`}

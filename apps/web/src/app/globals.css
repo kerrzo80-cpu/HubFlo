@@ -30991,3 +30991,102 @@ body {
 .takeoff-app .takeoff-small-button.active:hover {
   color: #ffffff !important;
 }
+
+/* Quote/job documents: show an explicit open action without crushing the row. */
+.document-file-row {
+  grid-template-columns: minmax(220px, 1.35fr) minmax(150px, 0.8fr) 130px 120px minmax(110px, 0.7fr) 92px;
+}
+
+.document-file-row .simpro-options-button {
+  justify-self: end;
+  min-height: 30px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+
+.takeoff-document-list article {
+  grid-template-columns: 24px minmax(0, 1fr) 32px 32px;
+}
+
+/* Full-screen takeoff drawing switcher. Kept compact, but visible above the plan. */
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher {
+  background: rgba(255, 255, 255, 0.94) !important;
+  border: 1px solid rgba(88, 172, 213, 0.18) !important;
+  border-radius: 7px !important;
+  box-shadow: 0 10px 24px rgba(8, 49, 71, 0.08) !important;
+  display: grid !important;
+  gap: 4px !important;
+  grid-column: 1 / -1 !important;
+  max-width: min(620px, calc(100vw - 112px)) !important;
+  padding: 5px !important;
+  pointer-events: auto !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher > span {
+  color: var(--muted) !important;
+  display: block !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher > div {
+  display: flex !important;
+  gap: 5px !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  padding-bottom: 1px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher button {
+  align-items: center !important;
+  background: #ffffff !important;
+  border: 1px solid rgba(16, 42, 67, 0.14) !important;
+  border-radius: 6px !important;
+  color: var(--blue-deep) !important;
+  cursor: pointer !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  gap: 5px !important;
+  height: 28px !important;
+  max-width: 180px !important;
+  padding: 0 7px !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher button.active {
+  background: var(--blue) !important;
+  border-color: var(--blue) !important;
+  color: #ffffff !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher b {
+  display: block !important;
+  font-size: 11px !important;
+  font-weight: 900 !important;
+  line-height: 1 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .takeoff-drawing-switcher small {
+  color: inherit !important;
+  display: block !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  max-width: 130px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 760px) {
+  .document-file-row {
+    grid-template-columns: minmax(0, 1fr) 82px;
+  }
+
+  .document-file-row.table-head span:nth-child(n + 2),
+  .document-file-row:not(.table-head) span:nth-child(n + 2) {
+    display: none;
+  }
+}

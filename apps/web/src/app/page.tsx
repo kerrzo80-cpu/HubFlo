@@ -1092,6 +1092,8 @@ type RecordDocumentFile = {
   type: string;
   visibility: DocumentVisibility;
   linkedTo: string;
+  fileUrl?: string;
+  previewImageDataUrl?: string;
 };
 
 type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
@@ -1224,6 +1226,7 @@ type QuoteSupplierLineWithCentre = {
   centreId: string;
   centreName: string;
   line: QuoteCostLine;
+  sourceEntries?: QuoteSupplierLineWithCentre[];
 };
 
 type JobSupplierLineScopeRef = {
@@ -1235,6 +1238,7 @@ type JobSupplierLineWithCentre = {
   centreId: string;
   centreName: string;
   line: EstimateMaterialLine;
+  sourceEntries?: JobSupplierLineWithCentre[];
 };
 
 type SupplierQuoteDraft = {
@@ -1412,6 +1416,7 @@ type TakeoffSourceDocument = {
   id: string;
   kind: TakeoffDocumentKind;
   fileName: string;
+  fileUrl?: string;
   previewImageDataUrl?: string;
   status: "Uploaded" | "Draft extracted" | "Needs review";
   confidence: "High" | "Medium" | "Low";
@@ -4269,6 +4274,7 @@ function supplierSizedItemDescription(rawValue: string, stockLength?: number) {
 function supplierFacingMaterialValues(description: string, quantity: number) {
   const cleanDescription = description.replace(/\s+/g, " ").replace(/\s*•\s*/g, " - ").trim();
   const lengthMatch = cleanDescription.match(/\(([0-9.]+)m measured,\s*([0-9]+)\s*x\s*([0-9.]+)m lengths\)/i);
+  const supplierLengthMatch = cleanDescription.match(/^(.+?)\s*-\s*([0-9]+)\s*x\s*([0-9.]+)m lengths$/i);
   const sizeIndex = cleanDescription.search(/\b[0-9.]+\s*mm\b/i);
 
   if (lengthMatch && sizeIndex >= 0) {
@@ -4276,6 +4282,14 @@ function supplierFacingMaterialValues(description: string, quantity: number) {
     return {
       description: supplierSizedItemDescription(item, Number(lengthMatch[3])),
       quantity: Number(lengthMatch[2]),
+    };
+  }
+
+  const supplierLengthItem = supplierLengthMatch?.[1];
+  if (supplierLengthItem && supplierLengthItem.search(/\b[0-9.]+\s*mm\b/i) !== -1) {
+    return {
+      description: supplierSizedItemDescription(supplierLengthItem, Number(supplierLengthMatch[3])),
+      quantity: Number(supplierLengthMatch[2]),
     };
   }
 
@@ -4297,6 +4311,77 @@ function supplierFacingMaterialLine<T extends { description: string; quantity: n
   const supplierValues = supplierFacingMaterialValues(line.description, line.quantity);
   if (supplierValues.description === line.description && supplierValues.quantity === line.quantity) return line;
   return { ...line, ...supplierValues };
+}
+
+function supplierRequestGroupKey(line: { description: string; quantity: number }) {
+  return supplierFacingMaterialLine(line).description.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function combineCentreNames(values: string[]) {
+  const names = Array.from(new Set(values.filter(Boolean)));
+  if (names.length <= 1) return names[0] ?? "Unassigned";
+  if (names.length === 2) return names.join(" + ");
+  return `${names.length} cost centres`;
+}
+
+function consolidateQuoteSupplierEntries(entries: QuoteSupplierLineWithCentre[]): QuoteSupplierLineWithCentre[] {
+  const groups = new Map<string, QuoteSupplierLineWithCentre & { sourceEntries: QuoteSupplierLineWithCentre[] }>();
+  entries.forEach((entry) => {
+    const line = supplierFacingMaterialLine(entry.line);
+    const key = supplierRequestGroupKey(line);
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, {
+        ...entry,
+        line: { ...line },
+        sourceEntries: [entry],
+      });
+      return;
+    }
+
+    existing.sourceEntries.push(entry);
+    existing.centreName = combineCentreNames(existing.sourceEntries.map((source) => source.centreName));
+    existing.centreId = existing.sourceEntries.length > 1 ? "multiple" : existing.centreId;
+    existing.line = {
+      ...existing.line,
+      quantity: existing.line.quantity + line.quantity,
+      unitCost: existing.line.unitCost || line.unitCost,
+      unitSell: existing.line.unitSell || line.unitSell,
+      supplierRequired: existing.line.supplierRequired || line.supplierRequired,
+    };
+  });
+
+  return Array.from(groups.values());
+}
+
+function consolidateJobSupplierEntries(entries: JobSupplierLineWithCentre[]): JobSupplierLineWithCentre[] {
+  const groups = new Map<string, JobSupplierLineWithCentre & { sourceEntries: JobSupplierLineWithCentre[] }>();
+  entries.forEach((entry) => {
+    const line = supplierFacingMaterialLine(entry.line);
+    const key = supplierRequestGroupKey(line);
+    const existing = groups.get(key);
+    if (!existing) {
+      groups.set(key, {
+        ...entry,
+        line: { ...line },
+        sourceEntries: [entry],
+      });
+      return;
+    }
+
+    existing.sourceEntries.push(entry);
+    existing.centreName = combineCentreNames(existing.sourceEntries.map((source) => source.centreName));
+    existing.centreId = existing.sourceEntries.length > 1 ? "multiple" : existing.centreId;
+    existing.line = {
+      ...existing.line,
+      quantity: existing.line.quantity + line.quantity,
+      unitCost: existing.line.unitCost || line.unitCost,
+      markupPercent: existing.line.markupPercent || line.markupPercent,
+      supplierRequired: existing.line.supplierRequired || line.supplierRequired,
+    };
+  });
+
+  return Array.from(groups.values());
 }
 
 function quoteLineCatalogType(line: QuoteCostLine) {
@@ -14166,7 +14251,7 @@ export default function Dashboard() {
     updateEstimateMaterialLine(centreId, lineId, { supplierRequired: checked });
   }
 
-  function allJobMaterialLines() {
+  function allJobRawMaterialLines() {
     const lines: JobSupplierLineWithCentre[] = [];
     const seen = new Set<string>();
 
@@ -14182,6 +14267,10 @@ export default function Dashboard() {
     return lines;
   }
 
+  function allJobMaterialLines() {
+    return consolidateJobSupplierEntries(allJobRawMaterialLines());
+  }
+
   function selectedJobMaterialLineEntries() {
     const selected = new Set<string>();
     selectedJobEstimateCostCentres.forEach((centre) => {
@@ -14189,7 +14278,7 @@ export default function Dashboard() {
       ids.forEach((id) => selected.add(`${centre.id}:${id}`));
     });
 
-    return allJobMaterialLines().filter((entry) => selected.has(`${entry.centreId}:${entry.line.id}`));
+    return allJobRawMaterialLines().filter((entry) => selected.has(`${entry.centreId}:${entry.line.id}`));
   }
 
   function jobSupplierRequestDraftLinesFromRefs(lineRefs: JobSupplierLineScopeRef[]) {
@@ -14225,20 +14314,36 @@ export default function Dashboard() {
     };
   }
 
-  function jobSupplierLineMatchState(centre: EstimateCostCentre, line: EstimateMaterialLine) {
-    if (line.unitCost === 0) return "Awaiting price";
-    return centre.materials.some((existingLine) => existingLine.id === line.id) ? "Matched" : "New line";
-  }
-
   function jobSupplierRequestDraftLines() {
     const draft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
     if (!draft?.lineRefs?.length) return [];
     return jobSupplierRequestDraftLinesFromRefs(draft.lineRefs);
   }
 
+  function consolidatedJobSupplierRequestDraftLines() {
+    return consolidateJobSupplierEntries(jobSupplierRequestDraftLines());
+  }
+
   function selectedJobMaterialLinesForCentre(centre: EstimateCostCentre) {
     const selectedIds = new Set(selectedJobMaterialLineIds[centre.id] ?? []);
     return centre.materials.filter((line) => selectedIds.has(line.id)).map((line) => supplierFacingMaterialLine(line));
+  }
+
+  function jobSupplierEntrySources(entry: JobSupplierLineWithCentre) {
+    return entry.sourceEntries?.length ? entry.sourceEntries : [entry];
+  }
+
+  function isJobSupplierEntrySelected(entry: JobSupplierLineWithCentre) {
+    return jobSupplierEntrySources(entry).every((source) => {
+      const selectedIds = new Set(selectedJobMaterialLineIds[source.centreId] ?? []);
+      return selectedIds.has(source.line.id);
+    });
+  }
+
+  function toggleJobMaterialEntrySelection(entry: JobSupplierLineWithCentre, checked: boolean) {
+    jobSupplierEntrySources(entry).forEach((source) => {
+      toggleJobMaterialLineSelection(source.centreId, source.line.id, checked);
+    });
   }
 
   function toggleJobMaterialLineSelection(centreId: string, lineId: string, checked: boolean) {
@@ -14272,10 +14377,7 @@ export default function Dashboard() {
     const materialLines = allJobMaterialLines();
     if (materialLines.length === 0) return false;
 
-    return materialLines.every((entry) => {
-      const selectedIds = new Set(selectedJobMaterialLineIds[entry.centreId] ?? []);
-      return selectedIds.has(entry.line.id);
-    });
+    return materialLines.every((entry) => isJobSupplierEntrySelected(entry));
   }
 
   function toggleAllJobMaterialLineSelectionAcrossJob() {
@@ -14286,22 +14388,26 @@ export default function Dashboard() {
       const next = { ...current };
       if (allSelected) {
         materialLines.forEach((entry) => {
-          const set = new Set(next[entry.centreId] ?? []);
-          set.delete(entry.line.id);
-          if (set.size) {
-            next[entry.centreId] = Array.from(set);
-          } else {
-            delete next[entry.centreId];
-          }
+          jobSupplierEntrySources(entry).forEach((source) => {
+            const set = new Set(next[source.centreId] ?? []);
+            set.delete(source.line.id);
+            if (set.size) {
+              next[source.centreId] = Array.from(set);
+            } else {
+              delete next[source.centreId];
+            }
+          });
         });
         return next;
       }
 
       const selectedByCentre: Record<string, Set<string>> = {};
       materialLines.forEach((entry) => {
-        const set = selectedByCentre[entry.centreId] ?? new Set<string>();
-        set.add(entry.line.id);
-        selectedByCentre[entry.centreId] = set;
+        jobSupplierEntrySources(entry).forEach((source) => {
+          const set = selectedByCentre[source.centreId] ?? new Set<string>();
+          set.add(source.line.id);
+          selectedByCentre[source.centreId] = set;
+        });
       });
 
       Object.entries(selectedByCentre).forEach(([centreId, ids]) => {
@@ -14378,7 +14484,7 @@ export default function Dashboard() {
           fileName: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedJob?.ref ?? "job"}`,
           markupPercent: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
           lineRefs: mergedRefs,
-          lines: jobSupplierRequestDraftLinesFromRefs(mergedRefs).map((entry) => entry.line),
+          lines: consolidateJobSupplierEntries(jobSupplierRequestDraftLinesFromRefs(mergedRefs)).map((entry) => entry.line),
         },
       };
     });
@@ -14526,7 +14632,7 @@ export default function Dashboard() {
   }
 
   function jobSupplierRequestLinesForSummaryOrSelected() {
-    return jobSupplierRequestDraftLines().map((entry) => entry.line);
+    return consolidatedJobSupplierRequestDraftLines().map((entry) => entry.line);
   }
 
   function updateJobSupplierRequestDraft(patch: Partial<JobSupplierRequestDraft>) {
@@ -14580,17 +14686,13 @@ export default function Dashboard() {
       return;
     }
 
-    const lines = jobSupplierRequestLinesForSummaryOrSelected();
+    const requestedEntries = jobSupplierRequestDraftLines();
+    const lines = requestedEntries.length ? consolidateJobSupplierEntries(requestedEntries).map((entry) => entry.line) : [];
     if (!lines.length) {
       showNotice("Tick the materials you need prices for before sending a supplier request.");
       return;
     }
-    const centreCount = new Set(
-      lines.map(
-        (line) =>
-          selectedJobEstimateCostCentres.find((centre) => centre.materials.some((item) => item.id === line.id))?.id,
-      ),
-    ).size;
+    const centreCount = new Set(requestedEntries.map((entry) => entry.centreId)).size;
 
     setJobSupplierRequestDrafts((current) => ({
       ...current,
@@ -14604,7 +14706,7 @@ export default function Dashboard() {
         fileName: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedJob?.ref ?? "job"}`,
         markupPercent: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
         lineRefs: current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [],
-        lines: jobSupplierRequestDraftLinesFromRefs(current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? []).map((entry) => entry.line),
+        lines: consolidateJobSupplierEntries(jobSupplierRequestDraftLinesFromRefs(current[JOB_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [])).map((entry) => entry.line),
         sentAt: new Date().toISOString(),
       },
     }));
@@ -14637,7 +14739,7 @@ export default function Dashboard() {
 
     const existing = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
     const markupPercent = existing?.markupPercent ?? defaultMaterialMarkupPercent;
-    const baseLines = existing?.lines.length ? existing.lines : jobSupplierRequestLinesForSummaryOrSelected();
+    const baseLines = existing?.lines.length ? existing.lines : consolidatedJobSupplierRequestDraftLines().map((entry) => entry.line);
     const pricedLines = baseLines.map((line, index) => {
       const unitCost = line.unitCost || 75 + (index * 34);
       return {
@@ -14693,6 +14795,7 @@ export default function Dashboard() {
 
     const importedLines = draft.lines.map((line) => ({ ...line, rateSource: "manual" as const }));
     const importedById = new Map(importedLines.map((line) => [line.id, line]));
+    const importedByGroup = new Map(importedLines.map((line) => [supplierRequestGroupKey(line), line]));
     const requestedByCentre = new Map<string, Set<string>>();
     requested.forEach((entry) => {
       const ids = requestedByCentre.get(entry.centreId) ?? new Set<string>();
@@ -14708,7 +14811,7 @@ export default function Dashboard() {
           ...centre,
           materials: centre.materials.map((line) => {
             if (!requestedLineIds.has(line.id)) return line;
-            const imported = importedById.get(line.id);
+            const imported = importedById.get(line.id) ?? importedByGroup.get(supplierRequestGroupKey(line));
             return imported ? { ...line, unitCost: imported.unitCost, markupPercent: imported.markupPercent, rateSource: "manual" as const } : line;
           }),
         };
@@ -15546,7 +15649,7 @@ export default function Dashboard() {
           fileName: `Radiator request - ${centre.name}`,
           markupPercent: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
           lineRefs: mergedRefs,
-          lines: quoteSupplierRequestDraftLinesFromRefs(mergedRefs).map((entry) => entry.line),
+          lines: consolidateQuoteSupplierEntries(quoteSupplierRequestDraftLinesFromRefs(mergedRefs)).map((entry) => entry.line),
         },
       };
     });
@@ -15565,7 +15668,7 @@ export default function Dashboard() {
     return [...takeoffSupplierLines, ...flaggedSupplierLines];
   }
 
-  function allQuoteMaterialLines() {
+  function allQuoteRawMaterialLines() {
     const lines: QuoteSupplierLineWithCentre[] = [];
     const seen = new Set<string>();
 
@@ -15581,6 +15684,10 @@ export default function Dashboard() {
     return lines;
   }
 
+  function allQuoteMaterialLines() {
+    return consolidateQuoteSupplierEntries(allQuoteRawMaterialLines());
+  }
+
   function selectedQuoteMaterialLineEntries() {
     const selected = new Set<string>();
     selectedQuoteCostCentres.forEach((centre) => {
@@ -15588,7 +15695,7 @@ export default function Dashboard() {
       ids.forEach((id) => selected.add(`${centre.id}:${id}`));
     });
 
-    return allQuoteMaterialLines().filter((entry) => selected.has(`${entry.centreId}:${entry.line.id}`));
+    return allQuoteRawMaterialLines().filter((entry) => selected.has(`${entry.centreId}:${entry.line.id}`));
   }
 
   function supplierRequestLinesForCentre(centre: QuoteCostCentre) {
@@ -15627,8 +15734,8 @@ export default function Dashboard() {
     return quoteSupplierRequestDraftLinesFromRefs(draft.lineRefs);
   }
 
-  function quoteSupplierRequestLineCentre(centreId: string) {
-    return selectedQuoteCostCentres.find((centre) => centre.id === centreId) ?? null;
+  function consolidatedQuoteSupplierRequestDraftLines() {
+    return consolidateQuoteSupplierEntries(quoteSupplierRequestDraftLines());
   }
 
   function selectedQuoteMaterialLinesForCentre(centre: QuoteCostCentre) {
@@ -15636,6 +15743,47 @@ export default function Dashboard() {
     return quoteCostCentreTotals(centre).materialLines
       .filter((line) => selectedIds.has(line.id))
       .map((line) => supplierFacingMaterialLine(line));
+  }
+
+  function quoteSupplierEntrySources(entry: QuoteSupplierLineWithCentre) {
+    return entry.sourceEntries?.length ? entry.sourceEntries : [entry];
+  }
+
+  function isQuoteSupplierEntrySelected(entry: QuoteSupplierLineWithCentre) {
+    return quoteSupplierEntrySources(entry).every((source) => {
+      const selectedIds = new Set(selectedQuoteMaterialLineIds[source.centreId] ?? []);
+      return selectedIds.has(source.line.id);
+    });
+  }
+
+  function toggleQuoteMaterialEntrySelection(entry: QuoteSupplierLineWithCentre, checked: boolean) {
+    quoteSupplierEntrySources(entry).forEach((source) => {
+      toggleQuoteMaterialLineSelection(source.centreId, source.line.id, checked);
+    });
+  }
+
+  function updateQuoteSupplierEntryLine(entry: QuoteSupplierLineWithCentre, patch: Partial<QuoteCostLine>) {
+    quoteSupplierEntrySources(entry).forEach((source) => {
+      updateQuoteLine(source.centreId, source.line.id, patch);
+    });
+  }
+
+  function updateQuoteSupplierEntryCost(entry: QuoteSupplierLineWithCentre, unitCost: number) {
+    quoteSupplierEntrySources(entry).forEach((source) => {
+      const markupPercent = quoteLineMarkupPercent(source.line) || defaultMaterialMarkupPercent;
+      updateQuoteLine(source.centreId, source.line.id, {
+        unitCost,
+        unitSell: lineSellFromMarkup(unitCost, markupPercent),
+      });
+    });
+  }
+
+  function updateQuoteSupplierEntryMarkup(entry: QuoteSupplierLineWithCentre, markupPercent: number) {
+    quoteSupplierEntrySources(entry).forEach((source) => {
+      updateQuoteLine(source.centreId, source.line.id, {
+        unitSell: source.line.unitCost * (1 + markupPercent / 100),
+      });
+    });
   }
 
   function toggleQuoteMaterialLineSelection(centreId: string, lineId: string, checked: boolean) {
@@ -15669,10 +15817,7 @@ export default function Dashboard() {
     const materialLines = allQuoteMaterialLines();
     if (materialLines.length === 0) return false;
 
-    return materialLines.every((entry) => {
-      const selectedIds = new Set(selectedQuoteMaterialLineIds[entry.centreId] ?? []);
-      return selectedIds.has(entry.line.id);
-    });
+    return materialLines.every((entry) => isQuoteSupplierEntrySelected(entry));
   }
 
   function toggleAllQuoteMaterialLineSelectionAcrossQuote() {
@@ -15683,22 +15828,26 @@ export default function Dashboard() {
       const next = { ...current };
       if (allSelected) {
         materialLines.forEach((entry) => {
-          const set = new Set(next[entry.centreId] ?? []);
-          set.delete(entry.line.id);
-          if (set.size) {
-            next[entry.centreId] = Array.from(set);
-          } else {
-            delete next[entry.centreId];
-          }
+          quoteSupplierEntrySources(entry).forEach((source) => {
+            const set = new Set(next[source.centreId] ?? []);
+            set.delete(source.line.id);
+            if (set.size) {
+              next[source.centreId] = Array.from(set);
+            } else {
+              delete next[source.centreId];
+            }
+          });
         });
         return next;
       }
 
       const selectedByCentre: Record<string, Set<string>> = {};
       materialLines.forEach((entry) => {
-        const set = selectedByCentre[entry.centreId] ?? new Set<string>();
-        set.add(entry.line.id);
-        selectedByCentre[entry.centreId] = set;
+        quoteSupplierEntrySources(entry).forEach((source) => {
+          const set = selectedByCentre[source.centreId] ?? new Set<string>();
+          set.add(source.line.id);
+          selectedByCentre[source.centreId] = set;
+        });
       });
 
       Object.entries(selectedByCentre).forEach(([centreId, ids]) => {
@@ -15776,7 +15925,7 @@ export default function Dashboard() {
           fileName: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedQuote.ref}`,
           markupPercent: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
           lineRefs: mergedRefs,
-          lines: quoteSupplierRequestDraftLinesFromRefs(mergedRefs).map((entry) => entry.line),
+          lines: consolidateQuoteSupplierEntries(quoteSupplierRequestDraftLinesFromRefs(mergedRefs)).map((entry) => entry.line),
           sentAt: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.sentAt,
         },
       };
@@ -15905,11 +16054,6 @@ export default function Dashboard() {
     }
   }
 
-  function supplierLineMatchState(centre: QuoteCostCentre, line: QuoteCostLine) {
-    if (line.unitCost === 0 || line.unitSell === 0) return "Awaiting price";
-    return centre.lines.some((existingLine) => existingLine.id === line.id) ? "Matched" : "New line";
-  }
-
   function sendSupplierQuoteRequest() {
     const draft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
     const supplier = draft?.supplier?.trim();
@@ -15920,13 +16064,14 @@ export default function Dashboard() {
     }
 
     const requestedLines = quoteSupplierRequestDraftLines();
-    const lines = requestedLines.length ? requestedLines.map((entry) => entry.line) : [];
+    const supplierEntries = requestedLines.length ? consolidateQuoteSupplierEntries(requestedLines) : [];
+    const lines = supplierEntries.map((entry) => entry.line);
     if (!lines.length) {
       showNotice("Add catalogue, one-off, takeoff or radiator items before sending a supplier request.");
       return;
     }
 
-    const centreCount = new Set(lines.map((line) => selectedQuoteCostCentres.find((centre) => centre.lines.some((item) => item.id === line.id))?.id)).size;
+    const centreCount = new Set(requestedLines.map((entry) => entry.centreId)).size;
 
     setSupplierQuoteDrafts((current) => ({
       ...current,
@@ -15942,7 +16087,7 @@ export default function Dashboard() {
           current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.fileName || `Supplier request - ${selectedQuote?.ref ?? "quote"}`,
         markupPercent: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.markupPercent ?? defaultMaterialMarkupPercent,
         lineRefs: current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [],
-        lines: quoteSupplierRequestDraftLinesFromRefs(current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? []).map((entry) => entry.line),
+        lines: consolidateQuoteSupplierEntries(quoteSupplierRequestDraftLinesFromRefs(current[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY]?.lineRefs ?? [])).map((entry) => entry.line),
         sentAt: new Date().toISOString(),
       },
     }));
@@ -15976,7 +16121,7 @@ export default function Dashboard() {
 
     const existing = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
     const markupPercent = existing?.markupPercent ?? defaultMaterialMarkupPercent;
-    const requestLines = quoteSupplierRequestDraftLines();
+    const requestLines = consolidatedQuoteSupplierRequestDraftLines();
     const supplier = existing?.supplier || file.name.replace(/\.pdf$/i, "");
     if (isCsvLike) {
       const parsed = await parseSupplierQuoteRowsFromUpload(file, null, markupPercent).catch(() => ({
@@ -16089,6 +16234,7 @@ export default function Dashboard() {
       rateSource: "manual" as const,
     }));
     const importedById = new Map(importedLines.map((line) => [line.id, line]));
+    const importedByGroup = new Map(importedLines.map((line) => [supplierRequestGroupKey(line), line]));
     const requestedByCentre = new Map<string, QuoteSupplierLineWithCentre[]>();
     requested.forEach((entry) => {
       const list = requestedByCentre.get(entry.centreId) ?? [];
@@ -16109,7 +16255,7 @@ export default function Dashboard() {
         const requestedLineIdsForCentre = new Set(linesForCentre.map((entry) => entry.line.id));
         const nextLines = centre.lines.map((line) => {
           if (!requestedLineIdsForCentre.has(line.id)) return line;
-          const imported = importedById.get(line.id);
+          const imported = importedById.get(line.id) ?? importedByGroup.get(supplierRequestGroupKey(line));
           if (!imported) return line;
           return {
             ...line,
@@ -17902,6 +18048,8 @@ export default function Dashboard() {
             type: document.kind,
             visibility: document.kind === "Drawings" ? "Engineer" : "Private",
             linkedTo: centre.name,
+            fileUrl: document.fileUrl,
+            previewImageDataUrl: document.previewImageDataUrl,
           }));
 
           return [...sourceDocuments];
@@ -17934,6 +18082,15 @@ export default function Dashboard() {
         : [];
 
     return [...workflowFiles, ...supplierFiles, ...jobSupplierFiles, ...baseFiles];
+  }
+
+  function openRecordDocumentFile(file: RecordDocumentFile) {
+    const href = file.fileUrl || file.previewImageDataUrl;
+    if (!href) {
+      showNotice(`${file.name} is listed, but no stored file or preview is attached yet.`);
+      return;
+    }
+    window.open(href, "_blank", "noopener,noreferrer");
   }
 
   function renderDocumentWorkspace(recordType: RecordDocumentScope, recordRef: string) {
@@ -17989,9 +18146,11 @@ export default function Dashboard() {
             <span>Type</span>
             <span>Visibility</span>
             <span>Linked to</span>
+            <span />
           </div>
           {exampleFiles.map((file) => {
             const folder = folders.find((item) => item.id === file.folderId);
+            const canOpen = Boolean(file.fileUrl || file.previewImageDataUrl);
             return (
               <div className="document-file-row" key={`${file.folderId}-${file.name}`}>
                 <strong>{file.name}</strong>
@@ -17999,6 +18158,9 @@ export default function Dashboard() {
                 <span>{file.type}</span>
                 <span className={`document-visibility ${file.visibility.toLowerCase()}`}>{file.visibility}</span>
                 <span>{file.linkedTo}</span>
+                <button className="simpro-options-button" type="button" onClick={() => openRecordDocumentFile(file)}>
+                  {canOpen ? "Open" : "Not stored"}
+                </button>
               </div>
             );
           })}
@@ -20744,10 +20906,10 @@ export default function Dashboard() {
                     <section className="supplier-quote-import quote-summary-supplier-request">
                       {(() => {
                         const quoteMaterialEntries = allQuoteMaterialLines();
-                        const selectedQuoteLineCount = selectedQuoteMaterialLineEntries().length;
+                        const selectedQuoteLineCount = quoteMaterialEntries.filter((entry) => isQuoteSupplierEntrySelected(entry)).length;
                         const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
                         const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
-                        const supplierRequestEntries = quoteSupplierRequestDraftLines();
+                        const supplierRequestEntries = consolidatedQuoteSupplierRequestDraftLines();
                         const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
                         const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
                         const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + quoteLineSell(line), 0);
@@ -20798,20 +20960,20 @@ export default function Dashboard() {
                                 <span />
                               </div>
                               {quoteMaterialEntries.map((entry) => {
-                                const isSelected = Boolean(selectedQuoteMaterialLineIds[entry.centreId]?.includes(entry.line.id));
+                                const isSelected = isQuoteSupplierEntrySelected(entry);
                                 return (
                                   <div className="simpro-billable-row parts" key={`quote-summary:${entry.centreId}:${entry.line.id}`}>
                                     <input
                                       checked={isSelected}
                                       type="checkbox"
                                       aria-label={`Select ${entry.line.description} for supplier request`}
-                                      onChange={(event) => toggleQuoteMaterialLineSelection(entry.centreId, entry.line.id, event.target.checked)}
+                                      onChange={(event) => toggleQuoteMaterialEntrySelection(entry, event.target.checked)}
                                     />
                                     <div className="quote-line-meta-cell">
                                       <textarea
                                         className="quote-line-description"
                                         value={entry.line.description}
-                                        onChange={(event) => updateQuoteLine(entry.centreId, entry.line.id, { description: event.target.value })}
+                                        onChange={(event) => updateQuoteSupplierEntryLine(entry, { description: event.target.value })}
                                       />
                                     </div>
                                     <strong>{entry.centreName}</strong>
@@ -20821,20 +20983,12 @@ export default function Dashboard() {
                                       value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:summaryUnitCost`, entry.line.unitCost, true)}
                                       onChange={(event) => {
                                         updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryUnitCost`, event.target.value, (unitCost) => {
-                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitCost,
-                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                                          });
+                                          updateQuoteSupplierEntryCost(entry, unitCost);
                                         });
                                       }}
                                       onBlur={(event) => {
                                         commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryUnitCost`, event.currentTarget.value, (unitCost) => {
-                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitCost,
-                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                                          });
+                                          updateQuoteSupplierEntryCost(entry, unitCost);
                                         });
                                       }}
                                     />
@@ -20848,16 +21002,12 @@ export default function Dashboard() {
                                       )}
                                       onChange={(event) => {
                                         updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryMarkup`, event.target.value, (markupPercent) => {
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
-                                          });
+                                          updateQuoteSupplierEntryMarkup(entry, markupPercent);
                                         });
                                       }}
                                       onBlur={(event) => {
                                         commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:summaryMarkup`, event.currentTarget.value, (markupPercent) => {
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
-                                          });
+                                          updateQuoteSupplierEntryMarkup(entry, markupPercent);
                                         });
                                       }}
                                     />
@@ -20868,7 +21018,7 @@ export default function Dashboard() {
                                       <button
                                         className="simpro-options-button"
                                         type="button"
-                                        onClick={() => updateQuoteLine(entry.centreId, entry.line.id, { supplierRequired: !entry.line.supplierRequired })}
+                                        onClick={() => updateQuoteSupplierEntryLine(entry, { supplierRequired: !entry.line.supplierRequired })}
                                       >
                                         {entry.line.supplierRequired ? "Unmark" : "Mark"}
                                       </button>
@@ -21365,10 +21515,10 @@ export default function Dashboard() {
                     <section className="supplier-quote-import quote-main-supplier-request">
                       {(() => {
                         const quoteMaterialEntries = allQuoteMaterialLines();
-                        const selectedQuoteLineCount = selectedQuoteMaterialLineEntries().length;
+                        const selectedQuoteLineCount = quoteMaterialEntries.filter((entry) => isQuoteSupplierEntrySelected(entry)).length;
                         const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
                         const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
-                        const supplierRequestEntries = quoteSupplierRequestDraftLines();
+                        const supplierRequestEntries = consolidatedQuoteSupplierRequestDraftLines();
                         const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
                         const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
                         const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + quoteLineSell(line), 0);
@@ -21419,20 +21569,20 @@ export default function Dashboard() {
                                 <span />
                               </div>
                               {quoteMaterialEntries.map((entry) => {
-                                const isSelected = Boolean(selectedQuoteMaterialLineIds[entry.centreId]?.includes(entry.line.id));
+                                const isSelected = isQuoteSupplierEntrySelected(entry);
                                 return (
                                   <div className="simpro-billable-row parts" key={`quote-supplier:${entry.centreId}:${entry.line.id}`}>
                                     <input
                                       checked={isSelected}
                                       type="checkbox"
                                       aria-label={`Select ${entry.line.description} for supplier request`}
-                                      onChange={(event) => toggleQuoteMaterialLineSelection(entry.centreId, entry.line.id, event.target.checked)}
+                                      onChange={(event) => toggleQuoteMaterialEntrySelection(entry, event.target.checked)}
                                     />
                                     <div className="quote-line-meta-cell">
                                       <textarea
                                         className="quote-line-description"
                                         value={entry.line.description}
-                                        onChange={(event) => updateQuoteLine(entry.centreId, entry.line.id, { description: event.target.value })}
+                                        onChange={(event) => updateQuoteSupplierEntryLine(entry, { description: event.target.value })}
                                       />
                                     </div>
                                     <strong>{entry.centreName}</strong>
@@ -21442,20 +21592,12 @@ export default function Dashboard() {
                                       value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:supplierTabCost`, entry.line.unitCost, true)}
                                       onChange={(event) => {
                                         updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabCost`, event.target.value, (unitCost) => {
-                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitCost,
-                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                                          });
+                                          updateQuoteSupplierEntryCost(entry, unitCost);
                                         });
                                       }}
                                       onBlur={(event) => {
                                         commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabCost`, event.currentTarget.value, (unitCost) => {
-                                          const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitCost,
-                                            unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                                          });
+                                          updateQuoteSupplierEntryCost(entry, unitCost);
                                         });
                                       }}
                                     />
@@ -21469,16 +21611,12 @@ export default function Dashboard() {
                                       )}
                                       onChange={(event) => {
                                         updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabMarkup`, event.target.value, (markupPercent) => {
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
-                                          });
+                                          updateQuoteSupplierEntryMarkup(entry, markupPercent);
                                         });
                                       }}
                                       onBlur={(event) => {
                                         commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:supplierTabMarkup`, event.currentTarget.value, (markupPercent) => {
-                                          updateQuoteLine(entry.centreId, entry.line.id, {
-                                            unitSell: entry.line.unitCost * (1 + markupPercent / 100),
-                                          });
+                                          updateQuoteSupplierEntryMarkup(entry, markupPercent);
                                         });
                                       }}
                                     />
@@ -21489,7 +21627,7 @@ export default function Dashboard() {
                                       <button
                                         className="simpro-options-button"
                                         type="button"
-                                        onClick={() => updateQuoteLine(entry.centreId, entry.line.id, { supplierRequired: !entry.line.supplierRequired })}
+                                        onClick={() => updateQuoteSupplierEntryLine(entry, { supplierRequired: !entry.line.supplierRequired })}
                                       >
                                         {entry.line.supplierRequired ? "Unmark" : "Mark"}
                                       </button>
@@ -22062,20 +22200,15 @@ export default function Dashboard() {
                       <div className="quote-scope-summary">
                         {(() => {
                           const quoteMaterialEntries = allQuoteMaterialLines();
-                          const selectedQuoteLineEntries = selectedQuoteMaterialLineEntries();
-                          const selectedQuoteLineCount = selectedQuoteLineEntries.length;
+                          const selectedQuoteLineCount = quoteMaterialEntries.filter((entry) => isQuoteSupplierEntrySelected(entry)).length;
                           const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
                           const totals = quoteCostCentreTotals(selectedQuoteCostCentre);
                           const supplierDraft = supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY];
-                          const supplierRequestEntries = quoteSupplierRequestDraftLines();
+                          const supplierRequestEntries = consolidatedQuoteSupplierRequestDraftLines();
                           const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
                           const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + quoteLineSell(line), 0);
                           const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0 && line.unitSell > 0).length;
-                          const supplierMatchedCount = supplierRequestEntries.filter((entry) => {
-                            const centre = quoteSupplierRequestLineCentre(entry.centreId);
-                            if (!centre) return false;
-                            return supplierLineMatchState(centre, entry.line) === "Matched";
-                          }).length;
+                          const supplierMatchedCount = supplierPricedCount;
 
                           return (
                             <>
@@ -22126,20 +22259,20 @@ export default function Dashboard() {
                                   <span />
                                 </div>
                                 {quoteMaterialEntries.map((entry) => {
-                                  const isSelected = Boolean(selectedQuoteMaterialLineIds[entry.centreId]?.includes(entry.line.id));
+                                  const isSelected = isQuoteSupplierEntrySelected(entry);
                                   return (
                                     <div className="simpro-billable-row parts" key={`${entry.centreId}:${entry.line.id}`}>
                                       <input
                                         checked={isSelected}
                                         type="checkbox"
                                         aria-label={`Select ${entry.line.description} for supplier request`}
-                                        onChange={(event) => toggleQuoteMaterialLineSelection(entry.centreId, entry.line.id, event.target.checked)}
+                                        onChange={(event) => toggleQuoteMaterialEntrySelection(entry, event.target.checked)}
                                       />
                                       <div className="quote-line-meta-cell">
                                         <textarea
                                           className="quote-line-description"
                                           value={entry.line.description}
-                                          onChange={(event) => updateQuoteLine(entry.centreId, entry.line.id, { description: event.target.value })}
+                                          onChange={(event) => updateQuoteSupplierEntryLine(entry, { description: event.target.value })}
                                         />
                                       </div>
                                       <strong>{entry.centreName}</strong>
@@ -22150,20 +22283,12 @@ export default function Dashboard() {
                                         value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:unitCost`, entry.line.unitCost, true)}
                                         onChange={(event) => {
                                           updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitCost`, event.target.value, (unitCost) => {
-                                            const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
-                                            updateQuoteLine(entry.centreId, entry.line.id, {
-                                              unitCost,
-                                              unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                                            });
+                                            updateQuoteSupplierEntryCost(entry, unitCost);
                                           });
                                         }}
                                         onBlur={(event) => {
                                           commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
-                                            const markupPercent = quoteLineMarkupPercent(entry.line) || defaultMaterialMarkupPercent;
-                                            updateQuoteLine(entry.centreId, entry.line.id, {
-                                              unitCost,
-                                              unitSell: lineSellFromMarkup(unitCost, markupPercent),
-                                            });
+                                            updateQuoteSupplierEntryCost(entry, unitCost);
                                           });
                                         }}
                                       />
@@ -22180,9 +22305,7 @@ export default function Dashboard() {
                                             `quote:${entry.centreId}:${entry.line.id}:markup`,
                                             event.target.value,
                                             (markupPercent) => {
-                                              updateQuoteLine(entry.centreId, entry.line.id, {
-                                                unitSell: entry.line.unitCost * (1 + markupPercent / 100),
-                                              });
+                                              updateQuoteSupplierEntryMarkup(entry, markupPercent);
                                             },
                                           );
                                         }}
@@ -22191,9 +22314,7 @@ export default function Dashboard() {
                                             `quote:${entry.centreId}:${entry.line.id}:markup`,
                                             event.currentTarget.value,
                                             (markupPercent) => {
-                                              updateQuoteLine(entry.centreId, entry.line.id, {
-                                                unitSell: entry.line.unitCost * (1 + markupPercent / 100),
-                                              });
+                                              updateQuoteSupplierEntryMarkup(entry, markupPercent);
                                             },
                                           );
                                         }}
@@ -22204,12 +22325,12 @@ export default function Dashboard() {
                                         value={costCentreNumberInputValue(`quote:${entry.centreId}:${entry.line.id}:unitSell`, entry.line.unitSell, true)}
                                         onChange={(event) => {
                                           updateCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitSell`, event.target.value, (unitSell) => {
-                                            updateQuoteLine(entry.centreId, entry.line.id, { unitSell });
+                                            updateQuoteSupplierEntryLine(entry, { unitSell });
                                           });
                                         }}
                                         onBlur={(event) => {
                                           commitCostCentreNumberInput(`quote:${entry.centreId}:${entry.line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
-                                            updateQuoteLine(entry.centreId, entry.line.id, { unitSell });
+                                            updateQuoteSupplierEntryLine(entry, { unitSell });
                                           });
                                         }}
                                       />
@@ -22218,7 +22339,7 @@ export default function Dashboard() {
                                         <button
                                           className="simpro-options-button"
                                           type="button"
-                                          onClick={() => updateQuoteLine(entry.centreId, entry.line.id, { supplierRequired: !entry.line.supplierRequired })}
+                                          onClick={() => updateQuoteSupplierEntryLine(entry, { supplierRequired: !entry.line.supplierRequired })}
                                         >
                                           {entry.line.supplierRequired ? "Marked for supplier" : "Mark supplier"}
                                         </button>
@@ -22379,10 +22500,7 @@ export default function Dashboard() {
                                           <span>Match</span>
                                         </div>
                                         {supplierRequestEntries.map((entry) => {
-                                          const centre = quoteSupplierRequestLineCentre(entry.centreId);
-                                          const matchState = centre
-                                            ? supplierLineMatchState(centre, entry.line)
-                                            : "Awaiting price";
+                                          const matchState = entry.line.unitCost > 0 && entry.line.unitSell > 0 ? "Matched" : "Awaiting price";
 
                                           return (
                                             <div className="supplier-quote-preview-row" key={`${entry.centreId}:${entry.line.id}`}>
@@ -25033,7 +25151,7 @@ export default function Dashboard() {
                           const totals = estimateCostCentreTotals(selectedCostCentre);
                           const supplierLines = selectedCostCentre.materials.filter((line) => line.supplierRequired);
                           const supplierDraft = jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY];
-                          const supplierRequestEntries = jobSupplierRequestDraftLines();
+                          const supplierRequestEntries = consolidatedJobSupplierRequestDraftLines();
                           const supplierRequestLines = supplierRequestEntries.map((entry) => entry.line);
                           const supplierRequestTotal = supplierRequestLines.reduce((total, line) => total + estimateMaterialSell(line), 0);
                           const supplierPricedCount = supplierRequestLines.filter((line) => line.unitCost > 0).length;

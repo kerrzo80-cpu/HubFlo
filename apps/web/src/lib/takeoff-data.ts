@@ -432,6 +432,7 @@ type QuoteTakeoffDocument = {
   id: string;
   kind: "Drawings" | "Specification" | "Contractor BOQ" | "Survey evidence";
   fileName: string;
+  fileUrl?: string;
   previewImageDataUrl?: string;
   status: "Uploaded" | "Draft extracted" | "Needs review";
   confidence: "High" | "Medium" | "Low";
@@ -956,6 +957,9 @@ function buildQuoteTakeoffDocuments(project: TakeoffProject): QuoteTakeoffDocume
     id: document.id,
     kind: quoteDocumentKind(document.kind),
     fileName: document.fileName,
+    fileUrl: document.storageKey
+      ? `/api/takeoff-projects/${encodeURIComponent(project.id)}/documents/${encodeURIComponent(document.id)}/file`
+      : undefined,
     previewImageDataUrl: document.previewImageDataUrl,
     status: quoteDocumentStatus(document.status),
     confidence: document.status === "Parsed" ? "High" : document.status === "Needs review" ? "Medium" : "Low",
