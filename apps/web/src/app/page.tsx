@@ -18380,6 +18380,27 @@ export default function Dashboard() {
       showNotice(`${file.name} is listed, but no stored file or preview is attached yet.`);
       return;
     }
+
+    if (href.startsWith("data:")) {
+      try {
+        const [header = "", payload = ""] = href.split(",", 2);
+        const mimeType = header.match(/^data:([^;,]+)/)?.[1] || "application/octet-stream";
+        const binary = header.includes(";base64")
+          ? window.atob(payload)
+          : decodeURIComponent(payload);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+        window.open(url, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return;
+      } catch {
+        // Fall back to opening the original data URL if the browser cannot decode it.
+      }
+    }
+
     window.open(href, "_blank", "noopener,noreferrer");
   }
 

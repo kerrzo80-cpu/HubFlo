@@ -1831,6 +1831,7 @@ export default function TakeoffPage() {
   const [markupDrawingLoadErrorId, setMarkupDrawingLoadErrorId] = useState("");
   const markupCanvasRef = useRef<SVGSVGElement | null>(null);
   const markupDraftPipeRef = useRef<TakeoffMarkupPipe | null>(null);
+  const localServicesMarkupRef = useRef<TakeoffServicesMarkup | null>(null);
   const markupPointerDrawRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
   const markupElementDragRef = useRef<MarkupElementDrag | null>(null);
@@ -2178,6 +2179,13 @@ const filteredMarkupPlantTools = useMemo(() => {
     return recentMarkupSymbols.filter((symbol) => !activeSymbolIds.has(symbol.id));
   }, [activeMarkupSymbols, recentMarkupSymbols]);
 
+  const visibleMarkupSymbols = useMemo(() => {
+    const symbolMap = new Map<string, TakeoffMarkupSymbol>();
+    activeMarkupSymbols.forEach((symbol) => symbolMap.set(symbol.id, symbol));
+    recentVisibleMarkupSymbols.forEach((symbol) => symbolMap.set(symbol.id, symbol));
+    return Array.from(symbolMap.values());
+  }, [activeMarkupSymbols, recentVisibleMarkupSymbols]);
+
   const snappedMarkupDraftPoints = useMemo(
     () => markupDraftPipe ? dedupeMarkupPoints(markupDraftPipe.points) : [],
     [markupDraftPipe],
@@ -2444,9 +2452,11 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!selectedProject) return;
+    const nextMarkup = normaliseServicesMarkup(selectedProject.servicesMarkup);
     setActiveMarkupFloor("Ground floor");
     setActiveMarkupFlat("");
-    setLocalServicesMarkup(normaliseServicesMarkup(selectedProject.servicesMarkup));
+    localServicesMarkupRef.current = nextMarkup;
+    setLocalServicesMarkup(nextMarkup);
     setOptimisticMarkupPipes([]);
     setRecentMarkupPipes([]);
     setOptimisticMarkupSymbols([]);
@@ -2457,15 +2467,21 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!selectedProject) {
+      localServicesMarkupRef.current = null;
       setLocalServicesMarkup(null);
       return;
     }
     const nextMarkup = normaliseServicesMarkup(selectedProject.servicesMarkup);
     setLocalServicesMarkup((current) => {
-      if (!current) return nextMarkup;
+      if (!current) {
+        localServicesMarkupRef.current = nextMarkup;
+        return nextMarkup;
+      }
       const currentUpdatedAt = current.updatedAt ?? "";
       const nextUpdatedAt = nextMarkup.updatedAt ?? "";
-      return nextUpdatedAt && nextUpdatedAt > currentUpdatedAt ? nextMarkup : current;
+      const resolved = nextUpdatedAt && nextUpdatedAt > currentUpdatedAt ? nextMarkup : current;
+      localServicesMarkupRef.current = resolved;
+      return resolved;
     });
   }, [selectedProject?.id, selectedProject?.servicesMarkup?.updatedAt]);
 
@@ -2579,6 +2595,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       ...normaliseServicesMarkup(markup),
       updatedAt: new Date().toISOString(),
     };
+    localServicesMarkupRef.current = restoredMarkup;
     setLocalServicesMarkup(restoredMarkup);
     clearMarkupRecentPreview();
     setMarkupDraftPipeState(null);
@@ -2615,7 +2632,9 @@ const filteredMarkupPlantTools = useMemo(() => {
     options: { recordUndo?: boolean } = {},
   ) {
     if (!selectedProject) return;
-    const previousMarkup = normaliseServicesMarkup(localServicesMarkup ?? selectedProject.servicesMarkup);
+    const previousMarkup = normaliseServicesMarkup(
+      localServicesMarkupRef.current ?? localServicesMarkup ?? selectedProject.servicesMarkup,
+    );
     if (options.recordUndo !== false) {
       rememberMarkupUndo(previousMarkup);
     }
@@ -2624,6 +2643,7 @@ const filteredMarkupPlantTools = useMemo(() => {
       ...nextMarkup,
       updatedAt: new Date().toISOString(),
     };
+    localServicesMarkupRef.current = updatedServicesMarkup;
     setLocalServicesMarkup(updatedServicesMarkup);
     const quantityPatch = buildMarkupQuantityPatch(updatedServicesMarkup, {
       ...selectedProject,
@@ -2679,6 +2699,25 @@ const filteredMarkupPlantTools = useMemo(() => {
     if (!href) {
       setNotice(`${document.fileName} is registered but has no preview file stored yet.`);
       return;
+    }
+    if (href.startsWith("data:")) {
+      try {
+        const [header = "", payload = ""] = href.split(",", 2);
+        const mimeType = header.match(/^data:([^;,]+)/)?.[1] || "application/octet-stream";
+        const binary = header.includes(";base64")
+          ? window.atob(payload)
+          : decodeURIComponent(payload);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+        window.open(url, "_blank", "noopener,noreferrer");
+        window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+        return;
+      } catch {
+        // Fall through to the raw URL as a last resort.
+      }
     }
     window.open(href, "_blank", "noopener,noreferrer");
   }
@@ -2931,6 +2970,22 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     ];
   }
 
+  function markupWithMovedPipeAndLinkedSymbols(
+    markup: TakeoffServicesMarkup,
+    pipe: TakeoffMarkupPipe,
+    linkedSymbols: TakeoffMarkupSymbol[] = [],
+  ) {
+    const linkedSymbolMap = new Map(linkedSymbols.map((symbol) => [symbol.id, symbol]));
+    const nextSymbols = markup.symbols.map((symbol) => linkedSymbolMap.get(symbol.id) ?? symbol);
+    return withRegeneratedPipeAutoSymbols({
+      ...markup,
+      pipes: markup.pipes.some((item) => item.id === pipe.id)
+        ? markup.pipes.map((item) => (item.id === pipe.id ? pipe : item))
+        : [...markup.pipes, pipe],
+      symbols: nextSymbols,
+    });
+  }
+
   function linkedMarkupSymbolsForMovedSymbol(symbolId: string, dx: number, dy: number) {
     return displayedServicesMarkup.symbols
       .filter((symbol) => symbol.linkedSymbolId === symbolId)
@@ -2943,10 +2998,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const pipe = moveMarkupPipe(drag.originalPipe, dx, dy);
     return {
       pipe,
-      linkedSymbols: [
-        ...linkedMarkupSymbolsForMovedPipe(drag.originalPipe.id, dx, dy),
-        ...buildAutoSymbolsForPipe(pipe, { ignoreExistingLinkedPipeId: true }),
-      ],
+      linkedSymbols: linkedMarkupSymbolsForMovedPipe(drag.originalPipe.id, dx, dy),
     };
   }
 
@@ -2960,15 +3012,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function previewMovedMarkupPipe(pipe: TakeoffMarkupPipe, linkedSymbols: TakeoffMarkupSymbol[] = []) {
-    setLocalServicesMarkup((current) => current ? {
-      ...current,
-      pipes: current.pipes.map((item) => (item.id === pipe.id ? pipe : item)),
-      symbols: replaceMarkupSymbolsForPipeMove(current.symbols, pipe.id, linkedSymbols),
-    } : current);
+    setLocalServicesMarkup((current) => (
+      current ? markupWithMovedPipeAndLinkedSymbols(current, pipe, linkedSymbols) : current
+    ));
     setOptimisticMarkupPipes((current) => current.map((item) => (item.id === pipe.id ? pipe : item)));
     setRecentMarkupPipes((current) => current.map((item) => (item.id === pipe.id ? pipe : item)));
-    setOptimisticMarkupSymbols((current) => replaceMarkupSymbolsForPipeMove(current, pipe.id, linkedSymbols));
-    setRecentMarkupSymbols((current) => replaceMarkupSymbolsForPipeMove(current, pipe.id, linkedSymbols).slice(0, 50));
+    setOptimisticMarkupSymbols((current) => replaceMarkupSymbolsForPipeMove(current, pipe.id, linkedSymbols)
+      .filter((symbol) => !(symbol.linkedPipeId === pipe.id && symbol.autoGenerated)));
+    setRecentMarkupSymbols((current) => replaceMarkupSymbolsForPipeMove(current, pipe.id, linkedSymbols)
+      .filter((symbol) => !(symbol.linkedPipeId === pipe.id && symbol.autoGenerated))
+      .slice(0, 50));
   }
 
   function previewMovedMarkupSymbol(symbol: TakeoffMarkupSymbol, linkedSymbols: TakeoffMarkupSymbol[] = []) {
@@ -3014,17 +3067,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     if (drag.kind === "pipe") {
       const finalMove = point ? movedMarkupPipeFromDrag(drag, point) : { pipe: finalElement as TakeoffMarkupPipe, linkedSymbols: [] };
       const finalPipe = finalMove.pipe;
-      const linkedSymbolMap = new Map(finalMove.linkedSymbols.map((symbol) => [symbol.id, symbol]));
       previewMovedMarkupPipe(finalPipe, finalMove.linkedSymbols);
-      updateServicesMarkup((current) => ({
-        ...current,
-        pipes: current.pipes.some((pipe) => pipe.id === finalPipe.id)
-          ? current.pipes.map((pipe) => (pipe.id === finalPipe.id ? finalPipe : pipe))
-          : [...current.pipes, finalPipe],
-        symbols: linkedSymbolMap.size
-          ? current.symbols.map((symbol) => linkedSymbolMap.get(symbol.id) ?? symbol)
-          : current.symbols,
-      }), "Pipe route moved.");
+      updateServicesMarkup(
+        (current) => markupWithMovedPipeAndLinkedSymbols(current, finalPipe, finalMove.linkedSymbols),
+        "Pipe route moved.",
+      );
       return;
     }
 
@@ -3836,11 +3883,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     pipe: TakeoffMarkupPipe,
     kind: TakeoffMarkupSymbolKind,
     pendingSymbols: TakeoffMarkupSymbol[] = [],
-    options: { ignoreLinkedPipeId?: string } = {},
+    options: { ignoreLinkedPipeId?: string; markup?: TakeoffServicesMarkup } = {},
   ) {
+    const sourceSymbols = options.markup?.symbols ?? displayedServicesMarkup.symbols;
     const existingSymbols = options.ignoreLinkedPipeId
-      ? displayedServicesMarkup.symbols.filter((symbol) => symbol.linkedPipeId !== options.ignoreLinkedPipeId)
-      : displayedServicesMarkup.symbols;
+      ? sourceSymbols.filter((symbol) => symbol.linkedPipeId !== options.ignoreLinkedPipeId)
+      : sourceSymbols;
     return [...existingSymbols, ...pendingSymbols].some((symbol) => (
       symbol.kind === kind
       && symbol.category === "Fitting"
@@ -3890,7 +3938,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     return `Auto-added at bend for ${markupRouteDetailLabel(pipe)}`;
   }
 
-  type AutoSymbolBuildOptions = { ignoreExistingLinkedPipeId?: boolean };
+  type AutoSymbolBuildOptions = {
+    ignoreExistingLinkedPipeId?: boolean;
+    markup?: TakeoffServicesMarkup;
+    visiblePipes?: TakeoffMarkupPipe[];
+  };
 
   function buildAutoElbowsForPipe(pipe: TakeoffMarkupPipe, options: AutoSymbolBuildOptions = {}): TakeoffMarkupSymbol[] {
     if (pipe.points.length < 3) return [];
@@ -3901,7 +3953,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const bend = pipe.points[index];
       const next = pipe.points[index + 1];
       if (!previous || !bend || !next || !isMarkupRightAngle(previous, bend, next)) continue;
-      if (!hasMatchingAutoFittingAt(bend, pipe, "90 elbow", elbows, { ignoreLinkedPipeId })) {
+      if (!hasMatchingAutoFittingAt(bend, pipe, "90 elbow", elbows, { ignoreLinkedPipeId, markup: options.markup })) {
         elbows.push(createAutoElbowForPipe(pipe, bend));
       }
     }
@@ -3916,6 +3968,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     if (pipe.points.length < 2) return [];
     const tolerance = Math.max(6, 12 / Math.max(1, markupViewport.zoom));
     const ignoreLinkedPipeId = options.ignoreExistingLinkedPipeId ? pipe.id : undefined;
+    const contextPipes = options.visiblePipes ?? options.markup?.pipes ?? visibleMarkupPipes;
     const junctions = [
       { junction: pipe.points[0]!, adjacent: pipe.points[1]! },
       { junction: pipe.points[pipe.points.length - 1]!, adjacent: pipe.points[pipe.points.length - 2]! },
@@ -3924,7 +3977,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     junctions.forEach(({ junction, adjacent }) => {
       if (!junction || !adjacent || markupPointDistance(junction, adjacent) < 8) return;
-      const matchesRightAngle = visibleMarkupPipes.some((existingPipe) => {
+      const matchesRightAngle = contextPipes.some((existingPipe) => {
         if (existingPipe.id === pipe.id || existingPipe.points.length < 2) return false;
         if (!markupPipeMatchesSnapLine(existingPipe, pipe)) return false;
 
@@ -3942,7 +3995,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         return false;
       });
 
-      if (matchesRightAngle && !hasMatchingAutoFittingAt(junction, pipe, "90 elbow", [...pendingElbows, ...elbows], { ignoreLinkedPipeId })) {
+      if (matchesRightAngle && !hasMatchingAutoFittingAt(junction, pipe, "90 elbow", [...pendingElbows, ...elbows], { ignoreLinkedPipeId, markup: options.markup })) {
         elbows.push(createAutoElbowForPipe(pipe, junction, "Auto-added at snapped junction"));
       }
     });
@@ -3950,11 +4003,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     return elbows;
   }
 
-  function shouldAutoCouplePipe(pipe: TakeoffMarkupPipe) {
+  function shouldAutoCouplePipe(pipe: TakeoffMarkupPipe, markup: TakeoffServicesMarkup = displayedServicesMarkup) {
     const material = normaliseMarkupText(pipe.material).toLowerCase();
     const diameter = normaliseMarkupText(pipe.diameter).toLowerCase();
-    if (!markupCalibrated(displayedServicesMarkup.calibration)) return false;
-    if (!Number.isFinite(displayedServicesMarkup.settings.pipeStockLengthM || 0)) return false;
+    if (!markupCalibrated(markup.calibration)) return false;
+    if (!Number.isFinite(markup.settings.pipeStockLengthM || 0)) return false;
     if (material.includes("ufh") || diameter === "tbc") return false;
     return pipe.points.length >= 2;
   }
@@ -3964,10 +4017,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     pendingSymbols: TakeoffMarkupSymbol[] = [],
     options: AutoSymbolBuildOptions = {},
   ) {
-    if (!shouldAutoCouplePipe(pipe)) return [];
-    const pixelsPerMetre = displayedServicesMarkup.calibration.pixelsPerMetre;
+    const markup = options.markup ?? displayedServicesMarkup;
+    if (!shouldAutoCouplePipe(pipe, markup)) return [];
+    const pixelsPerMetre = markup.calibration.pixelsPerMetre;
     if (!pixelsPerMetre || pixelsPerMetre <= 0) return [];
-    const stockLengthM = Math.max(1, displayedServicesMarkup.settings.pipeStockLengthM || 3);
+    const stockLengthM = Math.max(1, markup.settings.pipeStockLengthM || 3);
     const measuredM = markupPipeFlatPixelLength(pipe) / pixelsPerMetre;
     const couplingCount = Math.max(0, Math.ceil(Math.max(0, measuredM - 0.001) / stockLengthM) - 1);
     if (!couplingCount) return [];
@@ -3978,7 +4032,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const targetPixels = index * stockLengthM * pixelsPerMetre;
       const point = markupPointAtDistanceOnPipe(pipe, targetPixels);
       if (!point) continue;
-      if (!hasMatchingAutoFittingAt(point, pipe, "Coupling", [...pendingSymbols, ...couplings], { ignoreLinkedPipeId })) {
+      if (!hasMatchingAutoFittingAt(point, pipe, "Coupling", [...pendingSymbols, ...couplings], { ignoreLinkedPipeId, markup })) {
         couplings.push(createAutoFittingForPipe(pipe, point, "Coupling", `Auto-added every ${stockLengthM}m pipe length`));
       }
     }
@@ -4003,11 +4057,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     );
   }
 
-  function nearestStackPoint(point: MarkupCanvasPoint, pipe: TakeoffMarkupPipe) {
+  function nearestStackPoint(point: MarkupCanvasPoint, pipe: TakeoffMarkupPipe, markup: TakeoffServicesMarkup = displayedServicesMarkup) {
     if (!pipeCanConnectToStack(pipe)) return null;
     const tolerance = Math.max(10, 22 / Math.max(1, markupViewport.zoom));
     let best: { point: MarkupCanvasPoint; distance: number } | null = null;
-    for (const symbol of displayedServicesMarkup.symbols) {
+    for (const symbol of markup.symbols) {
       if (!markupSymbolIsStack(symbol) || !symbolSharesMarkupContext(symbol, pipe)) continue;
       const candidate = { x: symbol.x, y: symbol.y };
       const distance = markupPointDistance(point, candidate);
@@ -4034,13 +4088,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     options: AutoSymbolBuildOptions = {},
   ) {
     if (pipe.points.length < 2 || !pipeCanConnectToStack(pipe)) return [];
+    const markup = options.markup ?? displayedServicesMarkup;
     const endpoints = [pipe.points[0]!, pipe.points[pipe.points.length - 1]!].filter(Boolean);
     const connections: TakeoffMarkupSymbol[] = [];
     const ignoreLinkedPipeId = options.ignoreExistingLinkedPipeId ? pipe.id : undefined;
     endpoints.forEach((endpoint) => {
-      const stackPoint = nearestStackPoint(endpoint, pipe);
+      const stackPoint = nearestStackPoint(endpoint, pipe, markup);
       if (!stackPoint) return;
-      if (!hasMatchingAutoFittingAt(stackPoint, pipe, "Stack boss connection", [...pendingSymbols, ...connections], { ignoreLinkedPipeId })) {
+      if (!hasMatchingAutoFittingAt(stackPoint, pipe, "Stack boss connection", [...pendingSymbols, ...connections], { ignoreLinkedPipeId, markup })) {
         connections.push(createAutoFittingForPipe(pipe, stackPoint, "Stack boss connection", "Auto-added where waste connects to stack"));
       }
     });
@@ -4053,6 +4108,28 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const couplings = buildAutoCouplingsForPipe(pipe, [...bendElbows, ...junctionElbows], options);
     const stackConnections = buildAutoStackConnectionsForPipe(pipe, [...bendElbows, ...junctionElbows, ...couplings], options);
     return [...bendElbows, ...junctionElbows, ...couplings, ...stackConnections];
+  }
+
+  function withRegeneratedPipeAutoSymbols(markup: TakeoffServicesMarkup) {
+    const normalizedMarkup = normaliseServicesMarkup(markup);
+    const manualSymbols = normalizedMarkup.symbols.filter((symbol) => !(symbol.autoGenerated && symbol.linkedPipeId));
+    const generatedSymbols: TakeoffMarkupSymbol[] = [];
+
+    normalizedMarkup.pipes.forEach((pipe) => {
+      const contextMarkup: TakeoffServicesMarkup = {
+        ...normalizedMarkup,
+        symbols: [...manualSymbols, ...generatedSymbols],
+      };
+      generatedSymbols.push(...buildAutoSymbolsForPipe(pipe, {
+        markup: contextMarkup,
+        visiblePipes: normalizedMarkup.pipes,
+      }));
+    });
+
+    return {
+      ...normalizedMarkup,
+      symbols: [...manualSymbols, ...generatedSymbols],
+    };
   }
 
   function placeMarkupSymbol(point: MarkupCanvasPoint) {
@@ -4093,7 +4170,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       ...symbolsToAdd,
       ...current.filter((item) => !symbolsToAdd.some((symbol) => symbol.id === item.id)),
     ].slice(0, 50));
-    updateServicesMarkup((current) => ({
+    updateServicesMarkup((current) => withRegeneratedPipeAutoSymbols({
       ...current,
       symbols: [...current.symbols, ...symbolsToAdd],
     }), linkedSymbols.length
@@ -4203,7 +4280,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       ...completedPipeDraft,
       points: stackSnappedPoints,
     };
-    const autoSymbols = buildAutoSymbolsForPipe(completedPipe);
+    const previewMarkupBase = normaliseServicesMarkup(localServicesMarkupRef.current ?? displayedServicesMarkup);
+    const previewMarkup = withRegeneratedPipeAutoSymbols({
+      ...previewMarkupBase,
+      pipes: [...previewMarkupBase.pipes, completedPipe],
+    });
+    const autoSymbols = previewMarkup.symbols.filter((symbol) => symbol.autoGenerated && symbol.linkedPipeId === completedPipe.id);
     setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== completedPipe.id), completedPipe]);
     setRecentMarkupPipes((current) => [
       completedPipe,
@@ -4220,9 +4302,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       ].slice(0, 50));
     }
     updateServicesMarkup((current) => ({
-      ...current,
-      pipes: [...current.pipes, completedPipe],
-      symbols: autoSymbols.length ? [...current.symbols, ...autoSymbols] : current.symbols,
+      ...withRegeneratedPipeAutoSymbols({
+        ...current,
+        pipes: [...current.pipes, completedPipe],
+      }),
     }), autoSymbols.length
       ? `Pipe route added with ${autoSymbols.length} auto fitting${autoSymbols.length === 1 ? "" : "s"}.`
       : "Pipe route added to the services markup.");
@@ -4271,7 +4354,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     )));
     setOptimisticMarkupSymbols((current) => current.map(updateLinkedSymbol));
     setRecentMarkupSymbols((current) => current.map(updateLinkedSymbol));
-    updateServicesMarkup((current) => ({
+    updateServicesMarkup((current) => withRegeneratedPipeAutoSymbols({
       ...current,
       pipes: current.pipes.map((pipe) => (pipe.id === selectedMarkupPipe.id ? applyPipePatch(pipe) : pipe)),
       symbols: current.symbols.map(updateLinkedSymbol),
@@ -4312,16 +4395,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   function moveSelectedMarkupElement(dx: number, dy: number) {
     if (selectedMarkupPipe) {
       const movedPipe = moveMarkupPipe(selectedMarkupPipe, dx, dy);
-      const linkedSymbols = [
-        ...linkedMarkupSymbolsForMovedPipe(selectedMarkupPipe.id, dx, dy),
-        ...buildAutoSymbolsForPipe(movedPipe, { ignoreExistingLinkedPipeId: true }),
-      ];
+      const linkedSymbols = linkedMarkupSymbolsForMovedPipe(selectedMarkupPipe.id, dx, dy);
       previewMovedMarkupPipe(movedPipe, linkedSymbols);
-      updateServicesMarkup((current) => ({
-        ...current,
-        pipes: current.pipes.map((pipe) => (pipe.id === movedPipe.id ? movedPipe : pipe)),
-        symbols: replaceMarkupSymbolsForPipeMove(current.symbols, movedPipe.id, linkedSymbols),
-      }));
+      updateServicesMarkup((current) => markupWithMovedPipeAndLinkedSymbols(current, movedPipe, linkedSymbols));
       return;
     }
 
@@ -4346,7 +4422,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setRecentMarkupPipes((current) => current.filter((pipe) => pipe.id !== selectedMarkupElementId));
     setOptimisticMarkupSymbols((current) => current.filter((symbol) => symbol.id !== selectedMarkupElementId && !linkedSymbolIds.has(symbol.id)));
     setRecentMarkupSymbols((current) => current.filter((symbol) => symbol.id !== selectedMarkupElementId && !linkedSymbolIds.has(symbol.id)));
-    updateServicesMarkup((current) => ({
+    updateServicesMarkup((current) => withRegeneratedPipeAutoSymbols({
       ...current,
       pipes: current.pipes.filter((pipe) => pipe.id !== selectedMarkupElementId),
       symbols: current.symbols.filter((symbol) => symbol.id !== selectedMarkupElementId && !linkedSymbolIds.has(symbol.id)),
@@ -4361,17 +4437,21 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         id: makeId("markup-pipe"),
         points: selectedMarkupPipe.points.map((point) => ({ x: point.x + 22, y: point.y + 22 })),
       };
-      const autoSymbols = buildAutoSymbolsForPipe(duplicate);
+      const previewMarkupBase = normaliseServicesMarkup(localServicesMarkupRef.current ?? displayedServicesMarkup);
+      const previewMarkup = withRegeneratedPipeAutoSymbols({
+        ...previewMarkupBase,
+        pipes: [...previewMarkupBase.pipes, duplicate],
+      });
+      const autoSymbols = previewMarkup.symbols.filter((symbol) => symbol.autoGenerated && symbol.linkedPipeId === duplicate.id);
       setOptimisticMarkupPipes((current) => [...current.filter((item) => item.id !== duplicate.id), duplicate]);
       setRecentMarkupPipes((current) => [duplicate, ...current.filter((item) => item.id !== duplicate.id)].slice(0, 25));
       if (autoSymbols.length) {
         setOptimisticMarkupSymbols((current) => [...current, ...autoSymbols]);
         setRecentMarkupSymbols((current) => [...autoSymbols, ...current].slice(0, 50));
       }
-      updateServicesMarkup((current) => ({
+      updateServicesMarkup((current) => withRegeneratedPipeAutoSymbols({
         ...current,
         pipes: [...current.pipes, duplicate],
-        symbols: autoSymbols.length ? [...current.symbols, ...autoSymbols] : current.symbols,
       }), "Pipe route duplicated.");
       setSelectedMarkupElementId(duplicate.id);
       return;
@@ -4439,8 +4519,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   async function saveMarkedDrawingForEngineers() {
     if (!selectedProject) return;
-    const snapshotPipes = [...activeMarkupPipes, ...recentVisibleMarkupPipes];
-    const snapshotSymbols = [...activeMarkupSymbols, ...recentVisibleMarkupSymbols];
+    const snapshotPipes = visibleMarkupPipes;
+    const snapshotSymbols = visibleMarkupSymbols;
     if (!snapshotPipes.length && !snapshotSymbols.length) {
       setError("Draw a route or place an item before saving the marked drawing.");
       return;
@@ -4722,6 +4802,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               updatedAt: nextMarkup.updatedAt,
             };
           }
+          localServicesMarkupRef.current = nextMarkup;
           setLocalServicesMarkup(nextMarkup);
           setMarkupDrawingLoadErrorId("");
           resetMarkupView();
