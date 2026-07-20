@@ -4492,16 +4492,17 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }
   }
 
-  async function addDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
+  async function uploadDocuments(kind: TakeoffDocumentKind, files: File[], input?: HTMLInputElement) {
+    if (!files.length) {
+      setError("No file was selected. Try choosing the file again.");
+      return null;
+    }
+
     const projectForUpload = await ensureProjectForUpload();
     if (!projectForUpload) {
       setError("Create or select a Takeoff project before uploading files.");
       return null;
     }
-
-    const input = event.currentTarget;
-    const files = Array.from(input.files ?? []);
-    if (!files.length) return null;
 
     const formData = new FormData();
     formData.append("kind", kind);
@@ -4573,15 +4574,22 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       return null;
     } finally {
       setIsUploadingDocs(false);
-      input.value = "";
+      if (input) input.value = "";
     }
   }
 
+  async function addDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    return uploadDocuments(kind, files, input);
+  }
+
   async function addLidarDocuments(kind: TakeoffDocumentKind, event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.currentTarget.files ?? []);
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
     if (!files.length) return;
     const { importedRooms, parsedFiles } = await roomsFromLidarFiles(files);
-    const uploadedProject = await addDocuments(kind, event);
+    const uploadedProject = await uploadDocuments(kind, files, input);
     if (!uploadedProject || importedRooms.length === 0) return;
 
     const mergedRooms = mergeImportedRooms(uploadedProject.rooms, importedRooms);
