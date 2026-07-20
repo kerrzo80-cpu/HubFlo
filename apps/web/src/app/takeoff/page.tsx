@@ -60,7 +60,7 @@ type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat"
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
 type MarkupCanvasPoint = { x: number; y: number };
 type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "valves" | "plant";
-type MarkupToolGroupId = "heating" | "hot-cold" | "waste-soil" | "gas" | "plant-fixtures";
+type MarkupToolGroupId = "all" | "heating" | "hot-cold" | "sanitary" | "waste-soil" | "gas" | "plant-fixtures";
 
 type NewProjectDraft = {
   name: string;
@@ -238,6 +238,14 @@ const markupToolGroups: Array<{
   plantKeywords: string[];
 }> = [
   {
+    id: "all",
+    label: "All items",
+    serviceIds: ["Heating flow", "Heating return", "Hot water", "Cold water", "Waste", "Soil", "UFH", "Gas", "Condensate", "Other"],
+    pipeToolIds: markupPipeTools.map((tool) => tool.id),
+    symbolKeywords: [],
+    plantKeywords: [],
+  },
+  {
     id: "heating",
     label: "Heating",
     serviceIds: ["Heating flow", "Heating return", "UFH"],
@@ -252,6 +260,14 @@ const markupToolGroups: Array<{
     pipeToolIds: ["cu-15", "cu-22", "cu-28", "hep-15", "hep-22", "hep-28"],
     symbolKeywords: ["elbow", "bend", "tee", "coupling", "reducer", "union", "cap", "valve", "stopcock", "isolation", "check", "non-return", "backflow", "pressure reducing", "mixing", "service valve", "tap"],
     plantKeywords: ["water main", "tap", "mixer", "basin", "bath", "shower", "sink", "cylinder", "water tank"],
+  },
+  {
+    id: "sanitary",
+    label: "Sanitary ware",
+    serviceIds: ["Hot water", "Cold water", "Waste", "Soil", "Condensate"],
+    pipeToolIds: ["cu-15", "cu-22", "hep-15", "hep-22", "waste-32", "waste-40", "waste-50", "soil-110"],
+    symbolKeywords: ["trap", "bend", "wye", "branch", "coupling", "reducer", "valve", "isolation", "check", "tap", "mixer", "waste", "soil", "drain", "tundish"],
+    plantKeywords: ["wc", "toilet", "basin", "bath", "shower", "sink", "tap", "mixer", "sanitary", "soil stack", "waste trap", "tundish", "bidet"],
   },
   {
     id: "waste-soil",
@@ -520,6 +536,8 @@ function markupSymbolToolMatchesGroup(
 ) {
   const group = markupToolGroupById(groupId);
   const haystack = `${tool.kind} ${tool.category}`;
+
+  if (group.id === "all") return true;
 
   if (tool.category === "Plant") {
     if (group.id === "plant-fixtures") return true;
@@ -1622,7 +1640,7 @@ export default function TakeoffPage() {
   const [markupToolMode, setMarkupToolMode] = useState<MarkupToolMode>("pan");
   const [markupItemSearch, setMarkupItemSearch] = useState("");
   const [markupToolCategory, setMarkupToolCategory] = useState<MarkupToolCategory>("all");
-  const [activeMarkupToolGroupId, setActiveMarkupToolGroupId] = useState<MarkupToolGroupId>("heating");
+  const [activeMarkupToolGroupId, setActiveMarkupToolGroupId] = useState<MarkupToolGroupId>("all");
   const [activeMarkupService, setActiveMarkupService] = useState<TakeoffMarkupService>("Heating flow");
   const [activeMarkupPipeToolId, setActiveMarkupPipeToolId] = useState("cu-22");
   const [activeMarkupSymbolKind, setActiveMarkupSymbolKind] = useState<TakeoffMarkupSymbolKind>("Radiator");
@@ -4645,7 +4663,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
                     <div className="services-markup-palette">
                     <section className="services-markup-service-selector" style={{ order: 0 }}>
-                        <strong>Groups</strong>
+                        <strong>Filter items</strong>
                         <div className="services-markup-group-grid">
                           {markupToolGroups.map((group) => (
                             <button
@@ -4661,7 +4679,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             </button>
                           ))}
                         </div>
-                        <strong>Subgroup / service</strong>
+                        <strong>Service / system for new items</strong>
                         <div className="services-markup-service-grid">
                           {activeMarkupGroupServices.map((service) => (
                             <button
@@ -4695,7 +4713,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         </label>
                       </section>
                     <section className="services-markup-search-panel" style={{ order: 1 }}>
-                        <strong>Symbol search</strong>
+                        <strong>Search full catalogue</strong>
                         <input
                           value={markupItemSearch}
                           onChange={(event) => {
@@ -4705,6 +4723,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           placeholder="Search boiler, radiator, elbow, valve..."
                         />
                         <div className="services-markup-quick-searches">
+                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("all"); setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
+                            All items
+                          </button>
+                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("sanitary"); setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
+                            Sanitary ware
+                          </button>
                           <button type="button" onClick={() => { setActiveMarkupToolGroupId("heating"); setMarkupItemSearch("boiler"); setMarkupToolCategory("all"); }}>
                             Boilers
                           </button>
@@ -4714,7 +4738,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <button type="button" onClick={() => { setMarkupItemSearch("valve"); setMarkupToolCategory("all"); }}>
                             Valves
                           </button>
-                          <button type="button" onClick={() => { setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
+                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("all"); setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
                             Clear
                           </button>
                         </div>
