@@ -4970,6 +4970,7 @@ h1 {
 .job-gantt-axis {
   display: grid;
   min-width: 0;
+  position: relative;
 }
 
 .job-gantt-axis > time {
@@ -5020,6 +5021,45 @@ h1 {
   grid-auto-columns: minmax(0, 1fr);
   min-width: 0;
   position: relative;
+}
+
+.job-gantt-live-marker {
+  border-left: 2px dashed #c84c4c;
+  bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: translateX(-1px);
+  z-index: 3;
+}
+
+.job-gantt-live-marker-head {
+  z-index: 5;
+}
+
+.job-gantt-live-marker-head::before {
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid #c84c4c;
+  content: "";
+  left: -7px;
+  position: absolute;
+  top: 0;
+}
+
+.job-gantt-live-marker-head b {
+  background: #fff;
+  border: 1px solid rgba(200, 76, 76, 0.22);
+  border-radius: 999px;
+  color: #7b3636;
+  font-size: 9px;
+  font-weight: 900;
+  left: 8px;
+  line-height: 1;
+  padding: 4px 6px;
+  position: absolute;
+  top: 3px;
+  white-space: nowrap;
 }
 
 .job-gantt-bar {
@@ -31411,21 +31451,126 @@ body {
 }
 
 .planner-alert-popup {
-  max-width: 650px;
+  background: #fff;
+  border: 1px solid rgba(200, 76, 76, 0.22);
+  border-left: 4px solid #c84c4c;
+  border-radius: 8px;
+  box-shadow: 0 22px 60px rgba(23, 54, 74, 0.18);
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+  padding: 14px;
+  position: fixed;
+  right: 24px;
+  top: 118px;
+  width: min(430px, calc(100vw - 40px));
+  z-index: 80;
 }
 
-.planner-alert-popup .planner-intelligence-head {
+.planner-alert-popup.has-warning {
+  border-color: rgba(210, 154, 49, 0.28);
+  border-left-color: #d29a31;
+}
+
+.planner-alert-head {
+  align-items: flex-start;
+  display: flex;
   gap: 12px;
+  justify-content: space-between;
 }
 
-.planner-alert-popup .planner-intelligence-actions {
-  flex-wrap: wrap;
+.planner-alert-head h3 {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.2;
+  margin: 3px 0 0;
+}
+
+.planner-alert-close {
+  flex: 0 0 auto;
+}
+
+.planner-alert-issue,
+.planner-alert-suggestion {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+}
+
+.planner-alert-issue {
+  background: #fff8f8;
+  border-color: rgba(200, 76, 76, 0.2);
+}
+
+.planner-alert-issue.amber {
+  background: #fffaf0;
+  border-color: rgba(210, 154, 49, 0.28);
+}
+
+.planner-alert-issue span,
+.planner-alert-suggestion span {
+  color: #9b7b32;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.planner-alert-issue strong,
+.planner-alert-suggestion strong {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.planner-alert-issue p,
+.planner-alert-suggestion p,
+.planner-alert-issue small,
+.planner-alert-more {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.planner-alert-issue small {
+  color: #7b3636;
+  font-weight: 800;
+}
+
+.planner-alert-suggestion {
+  background: #f7fbf8;
+  border-color: rgba(44, 143, 123, 0.22);
+}
+
+.planner-alert-actions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
   justify-content: flex-end;
 }
 
-.planner-alert-popup .planner-issue-grid,
-.planner-alert-popup .planner-suggestion-grid {
-  grid-template-columns: 1fr;
+.planner-whatif-strip {
+  align-items: center;
+  background: #f5fbff;
+  border: 1px solid rgba(47, 159, 196, 0.2);
+  border-radius: 8px;
+  color: var(--nexa-navy);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.planner-whatif-strip span {
+  color: var(--nexa-navy);
+  flex: 1 1 260px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .planner-alert-chip {
@@ -31548,10 +31693,15 @@ body {
   }
 
   .planner-alert-popup {
-    max-width: 100%;
+    left: 12px;
+    max-height: calc(100vh - 120px);
+    max-width: none;
+    right: 12px;
+    top: 92px;
+    width: auto;
   }
 
-  .planner-alert-popup .planner-intelligence-head,
+  .planner-alert-head,
   .setup-subsection-heading,
   .setup-integration-card > header {
     align-items: stretch;

@@ -6302,6 +6302,7 @@ export default function Dashboard() {
   const [jobSchedulePlans, setJobSchedulePlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobPlannerWhatIfMode, setJobPlannerWhatIfMode] = useState(false);
   const [dismissedPlannerAlertJobIds, setDismissedPlannerAlertJobIds] = useState<string[]>([]);
+  const [plannerNow, setPlannerNow] = useState<Date | null>(null);
   const [jobScheduleWhatIfPlans, setJobScheduleWhatIfPlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [editingJobScheduleAssignmentId, setEditingJobScheduleAssignmentId] = useState<string | null>(null);
@@ -6624,6 +6625,13 @@ export default function Dashboard() {
     showNotice("That valuation or invoice is not available in the shared workspace yet. Showing the invoice folders instead.");
   }, [hasHydratedLocalData, homeView, selectedInvoice, selectedInvoiceId]);
 
+  useEffect(() => {
+    const refreshPlannerClock = () => setPlannerNow(new Date());
+    refreshPlannerClock();
+    const timer = window.setInterval(refreshPlannerClock, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const activeRecordFingerprint = useMemo(() => {
     if (homeView === "lead-record" && selectedLead) {
       return JSON.stringify({ type: "lead", record: selectedLead });
@@ -6809,6 +6817,21 @@ export default function Dashboard() {
       return value.toISOString().slice(0, 10);
     });
   }, [selectedJobPlannerAssignments]);
+
+  const selectedJobGanttNowMarker = useMemo(() => {
+    if (!plannerNow || selectedJobGanttDays.length === 0) return null;
+    const today = plannerInputDate(plannerNow);
+    const dayIndex = selectedJobGanttDays.indexOf(today);
+    if (dayIndex < 0) return null;
+
+    const minutes = plannerNow.getHours() * 60 + plannerNow.getMinutes();
+    const dayProgress = Math.max(0, Math.min(1, minutes / 1440));
+    const left = ((dayIndex + dayProgress) / selectedJobGanttDays.length) * 100;
+    return {
+      label: `${formatScheduleDate(today, { weekday: "short", day: "numeric", month: "short" })} ${plannerInputTime(plannerNow)}`,
+      left: `${Math.max(0, Math.min(100, left))}%`,
+    };
+  }, [plannerNow, selectedJobGanttDays]);
 
   const selectedJobScheduleDraft = useMemo(
     () => {
@@ -7324,6 +7347,9 @@ export default function Dashboard() {
     selectedJobPlannerAssignments,
     selectedJobScheduleIntelligence,
   ]);
+
+  const selectedJobPlannerPrimaryIssue = selectedJobScheduleIntelligence[0] ?? null;
+  const selectedJobPlannerPrimarySuggestion = selectedJobScheduleSuggestions[0] ?? null;
 
   const selectedJobSurveyPack = useMemo(
     () => surveyPackSummary(selectedJobEstimateCostCentres),
@@ -24374,100 +24400,107 @@ export default function Dashboard() {
                       </span>
                     </div>
 
-                    {selectedJobScheduleIntelligence.length > 0 && dismissedPlannerAlertJobIds.includes(selectedJob.id) ? (
-                      <button
-                        className="planner-alert-chip"
-                        type="button"
-                        onClick={() => setDismissedPlannerAlertJobIds((current) => current.filter((id) => id !== selectedJob.id))}
-                      >
-                        <AlertTriangle size={15} />
-                        {selectedJobScheduleIntelligence.length} planner issue{selectedJobScheduleIntelligence.length === 1 ? "" : "s"} hidden - review
-                      </button>
-                    ) : (
-                      <section className={`planner-intelligence-panel planner-alert-popup ${selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "has-risk" : selectedJobScheduleIntelligence.length ? "has-warning" : "is-clear"}`}>
-                        <div className="planner-intelligence-head">
-                          <div>
-                            <span className="permission-heading">Intelligent schedule check</span>
-                            <h3>
-                              {selectedJobScheduleIntelligence.length
-                                ? `${selectedJobScheduleIntelligence.length} issue${selectedJobScheduleIntelligence.length === 1 ? "" : "s"} to review`
-                                : "Programme looks clear"}
-                            </h3>
-                            <p>
-                              {jobPlannerWhatIfMode
-                                ? "What-if mode is on. You can test changes without touching the live job diary."
-                                : "NeXa checks clashes, dependencies, staff capacity and completion impact before you commit the programme."}
-                            </p>
-                          </div>
-                          <div className="planner-intelligence-actions">
-                            {selectedJobScheduleIntelligence.length ? (
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => setDismissedPlannerAlertJobIds((current) => (
-                                  current.includes(selectedJob.id) ? current : [...current, selectedJob.id]
-                                ))}
-                              >
-                                Ignore for now
-                              </button>
-                            ) : null}
+                    {selectedJobScheduleIntelligence.length > 0 ? (
+                      dismissedPlannerAlertJobIds.includes(selectedJob.id) ? (
+                        <button
+                          className="planner-alert-chip"
+                          type="button"
+                          onClick={() => setDismissedPlannerAlertJobIds((current) => current.filter((id) => id !== selectedJob.id))}
+                        >
+                          <AlertTriangle size={15} />
+                          {selectedJobScheduleIntelligence.length} planner issue{selectedJobScheduleIntelligence.length === 1 ? "" : "s"} hidden - review
+                        </button>
+                      ) : (
+                        <aside
+                          aria-label="Planner clash alert"
+                          className={`planner-alert-popup ${selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "has-risk" : "has-warning"}`}
+                          role="alertdialog"
+                        >
+                          <header className="planner-alert-head">
+                            <div>
+                              <span className="permission-heading">Planner alert</span>
+                              <h3>{selectedJobScheduleIntelligence.length} issue{selectedJobScheduleIntelligence.length === 1 ? "" : "s"} to review</h3>
+                            </div>
                             <button
-                              className={jobPlannerWhatIfMode ? "primary-button" : "secondary-button"}
+                              aria-label="Hide planner alert"
+                              className="icon-button planner-alert-close"
                               type="button"
-                              onClick={toggleSelectedJobWhatIfMode}
+                              onClick={() => setDismissedPlannerAlertJobIds((current) => (
+                                current.includes(selectedJob.id) ? current : [...current, selectedJob.id]
+                              ))}
                             >
-                              {jobPlannerWhatIfMode ? "Close what-if" : "What-if mode"}
+                              <X size={15} />
                             </button>
-                            <button className="secondary-button" type="button" onClick={() => shiftSelectedJobPlannerSuggestion(1)}>
-                              Try +1 day
+                          </header>
+
+                          {selectedJobPlannerPrimaryIssue ? (
+                            <article className={`planner-alert-issue ${selectedJobPlannerPrimaryIssue.tone}`}>
+                              <span>{selectedJobPlannerPrimaryIssue.kind}</span>
+                              <strong>{selectedJobPlannerPrimaryIssue.title}</strong>
+                              <p>{selectedJobPlannerPrimaryIssue.detail}</p>
+                              <small>{selectedJobPlannerPrimaryIssue.impact}</small>
+                            </article>
+                          ) : null}
+
+                          {selectedJobScheduleIntelligence.length > 1 ? (
+                            <small className="planner-alert-more">
+                              +{selectedJobScheduleIntelligence.length - 1} more issue{selectedJobScheduleIntelligence.length === 2 ? "" : "s"} in this programme.
+                            </small>
+                          ) : null}
+
+                          {selectedJobPlannerPrimarySuggestion ? (
+                            <article className={`planner-alert-suggestion ${selectedJobPlannerPrimarySuggestion.tone}`}>
+                              <span>AI suggestion</span>
+                              <strong>{selectedJobPlannerPrimarySuggestion.title}</strong>
+                              <p>{selectedJobPlannerPrimarySuggestion.impact}</p>
+                            </article>
+                          ) : null}
+
+                          <div className="planner-alert-actions">
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => setDismissedPlannerAlertJobIds((current) => (
+                                current.includes(selectedJob.id) ? current : [...current, selectedJob.id]
+                              ))}
+                            >
+                              Ignore
                             </button>
-                            {jobPlannerWhatIfMode && selectedJobPlannerAssignments.length ? (
-                              <button className="primary-button" type="button" onClick={() => void applySelectedJobWhatIfSchedule()}>
-                                Apply what-if
+                            {selectedJobPlannerPrimarySuggestion ? (
+                              <button
+                                className="primary-button"
+                                type="button"
+                                onClick={() => {
+                                  previewSelectedJobScheduleSuggestion(selectedJobPlannerPrimarySuggestion);
+                                  setDismissedPlannerAlertJobIds((current) => (
+                                    current.includes(selectedJob.id) ? current : [...current, selectedJob.id]
+                                  ));
+                                }}
+                              >
+                                Preview AI fix
                               </button>
-                            ) : null}
+                            ) : (
+                              <button className="primary-button" type="button" onClick={toggleSelectedJobWhatIfMode}>
+                                Open what-if
+                              </button>
+                            )}
                           </div>
-                        </div>
-                        {selectedJobScheduleIntelligence.length ? (
-                          <div className="planner-issue-grid">
-                            {selectedJobScheduleIntelligence.slice(0, 4).map((issue) => (
-                              <article className={`planner-issue-card ${issue.tone}`} key={issue.id}>
-                                <span>{issue.kind}</span>
-                                <strong>{issue.title}</strong>
-                                <p>{issue.detail}</p>
-                                <small>{issue.impact}</small>
-                              </article>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="planner-clear-card">
-                            <Check size={16} />
-                            <span>No clashes found against the current scheduler and survey diary.</span>
-                          </div>
-                        )}
-                        {selectedJobScheduleSuggestions.length ? (
-                          <div className="planner-suggestion-grid">
-                            {selectedJobScheduleSuggestions.map((suggestion) => (
-                              <article className={`planner-suggestion-card ${suggestion.tone}`} key={suggestion.id}>
-                                <div>
-                                  <span>Suggested option</span>
-                                  <strong>{suggestion.title}</strong>
-                                  <p>{suggestion.detail}</p>
-                                  <small>{suggestion.impact}</small>
-                                </div>
-                                <button
-                                  className="secondary-button"
-                                  type="button"
-                                  onClick={() => previewSelectedJobScheduleSuggestion(suggestion)}
-                                >
-                                  {suggestion.actionLabel}
-                                </button>
-                              </article>
-                            ))}
-                          </div>
-                        ) : null}
-                      </section>
-                    )}
+                        </aside>
+                      )
+                    ) : null}
+
+                    {jobPlannerWhatIfMode && selectedJobPlannerAssignments.length ? (
+                      <div className="planner-whatif-strip" role="status">
+                        <Sparkles size={16} />
+                        <span>What-if programme is active. Review the Gantt, then apply it to the live schedule or close it.</span>
+                        <button className="secondary-button" type="button" onClick={toggleSelectedJobWhatIfMode}>
+                          Close
+                        </button>
+                        <button className="primary-button" type="button" onClick={() => void applySelectedJobWhatIfSchedule()}>
+                          Apply to schedule
+                        </button>
+                      </div>
+                    ) : null}
 
                     <section className="job-scheduling-panel">
                       {selectedJobScheduleDraft ? (
@@ -24597,6 +24630,15 @@ export default function Dashboard() {
                                 {selectedJobGanttDays.map((day) => (
                                   <time key={day}>{formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}</time>
                                 ))}
+                                {selectedJobGanttNowMarker ? (
+                                  <span
+                                    aria-label={`Current time ${selectedJobGanttNowMarker.label}`}
+                                    className="job-gantt-live-marker job-gantt-live-marker-head"
+                                    style={{ left: selectedJobGanttNowMarker.left }}
+                                  >
+                                    <b>{selectedJobGanttNowMarker.label}</b>
+                                  </span>
+                                ) : null}
                               </div>
                               <span>Hours</span>
                             </div>
@@ -24617,6 +24659,13 @@ export default function Dashboard() {
                                   </div>
                                   <div className="job-gantt-track">
                                     {selectedJobGanttDays.map((day) => <span className="job-gantt-day-cell" key={day} aria-hidden="true" />)}
+                                    {selectedJobGanttNowMarker ? (
+                                      <span
+                                        aria-hidden="true"
+                                        className="job-gantt-live-marker"
+                                        style={{ left: selectedJobGanttNowMarker.left }}
+                                      />
+                                    ) : null}
                                     {startIndex >= 0 && endIndex >= startIndex ? (
                                       <div
                                         className={`job-gantt-bar tone-${assignmentIndex % 4}`}
