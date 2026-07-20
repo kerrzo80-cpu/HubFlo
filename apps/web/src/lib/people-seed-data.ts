@@ -1,4 +1,5 @@
 export type ClientStatus = "Active" | "Prospect" | "On hold";
+export type VatTreatment = "Standard 20%" | "Zero rated" | "Domestic reverse charge" | "Custom";
 
 export type ClientSite = {
   id: string;
@@ -9,6 +10,8 @@ export type ClientSite = {
   primaryContact: string;
   serviceLine: string;
   nextVisit: string;
+  vatTreatment?: VatTreatment;
+  vatRateOverride?: string;
 };
 
 export type ClientRecord = {
@@ -22,6 +25,8 @@ export type ClientRecord = {
   billingAddress: string;
   commercialOwner: string;
   notes: string;
+  vatTreatment?: VatTreatment;
+  vatRateOverride?: string;
 };
 
 export type AuditEvent = {
@@ -52,6 +57,8 @@ export const seedClients: ClientRecord[] = [
     billingAddress: "12 Albyn Terrace, Aberdeen, AB10 1YP",
     commercialOwner: "Brian Kerr",
     notes: "Responsive landlord portfolio client with recurring boiler and maintenance work.",
+    vatTreatment: "Standard 20%",
+    vatRateOverride: "",
   },
   {
     id: "client-morrison",
@@ -64,6 +71,8 @@ export const seedClients: ClientRecord[] = [
     billingAddress: "42 Queen's Road, Aberdeen, AB15 4YE",
     commercialOwner: "Errol Watson",
     notes: "Commercial heating and office refurbishment customer with multi-site expansion plans.",
+    vatTreatment: "Domestic reverse charge",
+    vatRateOverride: "20",
   },
   {
     id: "client-aberdeen-care",
@@ -76,6 +85,8 @@ export const seedClients: ClientRecord[] = [
     billingAddress: "8 Rubislaw Den North, Aberdeen, AB15 4AL",
     commercialOwner: "Brian Kerr",
     notes: "Service-plan heavy prospect with annual compliance and reactive support demand.",
+    vatTreatment: "Standard 20%",
+    vatRateOverride: "",
   },
 ];
 
@@ -89,6 +100,8 @@ export const seedClientSites: ClientSite[] = [
     primaryContact: "Donna Fraser",
     serviceLine: "Boiler service and reactive maintenance",
     nextVisit: "24 Jun 2026",
+    vatTreatment: "Standard 20%",
+    vatRateOverride: "",
   },
   {
     id: "site-rubislaw",
@@ -99,6 +112,8 @@ export const seedClientSites: ClientSite[] = [
     primaryContact: "Leanne Bruce",
     serviceLine: "Heating fault investigation",
     nextVisit: "To be scheduled",
+    vatTreatment: "Zero rated",
+    vatRateOverride: "0",
   },
   {
     id: "site-queens-road",
@@ -109,6 +124,8 @@ export const seedClientSites: ClientSite[] = [
     primaryContact: "Craig Morrison",
     serviceLine: "Office heating upgrade",
     nextVisit: "23 Jun 2026",
+    vatTreatment: "Domestic reverse charge",
+    vatRateOverride: "20",
   },
   {
     id: "site-westhill-yard",

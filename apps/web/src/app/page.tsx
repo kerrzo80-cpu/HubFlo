@@ -71,6 +71,7 @@ import {
   type AuditEvent,
   type ClientRecord,
   type ClientSite,
+  type VatTreatment,
 } from "@/lib/people-seed-data";
 import {
   employeeHeaderName,
@@ -132,6 +133,7 @@ const STORAGE_KEYS = {
   activeFormTemplateId: "hubflo:active-form-template:v1",
   workflowRules: "hubflo:workflow-rules:v1",
   financeSettings: "hubflo:finance-settings:v1",
+  integrationSettings: "hubflo:integration-settings:v1",
   flowCompletion: "hubflo:flow-completion:v1",
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   quoteSections: "hubflo:quote-sections:v1",
@@ -584,6 +586,7 @@ type WorkflowTrackerStage = {
 };
 
 const invoiceStatuses: InvoiceStatus[] = ["Draft", "Sent", "Partially paid", "Paid", "Cancelled"];
+const vatTreatmentOptions: VatTreatment[] = ["Standard 20%", "Zero rated", "Domestic reverse charge", "Custom"];
 
 type PermissionRow = {
   key: keyof AccessProfile;
@@ -829,6 +832,8 @@ type Invoice = {
   costTotal: number;
   chargeTotal: number;
   vatRate: number;
+  vatTreatment?: VatTreatment;
+  vatNote?: string;
   notes: string;
   sentTo?: string;
   sentAt?: string;
@@ -918,9 +923,49 @@ function buildInvoiceRef(settings: FinanceSettings, existing: string[]) {
   return numberedReference("invoice", settings, existing);
 }
 
+function vatTreatmentRate(treatment: VatTreatment | undefined, override: string | undefined, fallbackRate: number) {
+  if (treatment === "Zero rated") return 0;
+  if (treatment === "Domestic reverse charge") return 0;
+  if (treatment === "Custom") return numberFromSetting(override, fallbackRate);
+  return numberFromSetting(override, fallbackRate);
+}
+
+function vatTreatmentNote(treatment: VatTreatment, rate: number) {
+  if (treatment === "Domestic reverse charge") {
+    return "Domestic reverse charge applies. Customer accounts for VAT.";
+  }
+  if (treatment === "Zero rated") return "Zero-rated VAT treatment.";
+  if (treatment === "Custom") return `Custom VAT rate ${formatLineQuantity(rate)}%.`;
+  return `Standard VAT ${formatLineQuantity(rate)}%.`;
+}
+
+function vatOverrideForTreatment(treatment: VatTreatment, currentValue: string | undefined, fallbackRate: string) {
+  if (treatment === "Zero rated") return "0";
+  if (treatment === "Domestic reverse charge") return "20";
+  if (treatment === "Custom") return currentValue ?? fallbackRate;
+  return "";
+}
+
+function resolveVatProfile(
+  settings: FinanceSettings,
+  client?: ClientRecord | null,
+  site?: ClientSite | null,
+) {
+  const defaultRate = numberFromSetting(settings.vatRate, 20);
+  const treatment = site?.vatTreatment ?? client?.vatTreatment ?? "Standard 20%";
+  const override = site?.vatRateOverride ?? client?.vatRateOverride ?? settings.vatRate;
+  const rate = vatTreatmentRate(treatment, override, defaultRate);
+  return {
+    rate,
+    treatment,
+    note: vatTreatmentNote(treatment, rate),
+  };
+}
+
 function makeInvoiceFromQuote(
   quote: Quote,
   client: ClientRecord | null,
+  site: ClientSite | null,
   sourceCentres: QuoteCostCentre[],
   existingRef: Invoice[],
   settings: FinanceSettings,
@@ -959,6 +1004,7 @@ function makeInvoiceFromQuote(
     }),
     { cost: 0, charge: 0 },
   );
+  const vatProfile = resolveVatProfile(settings, client, site);
 
   return {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -977,8 +1023,10 @@ function makeInvoiceFromQuote(
     lines,
     costTotal: aggregated.cost,
     chargeTotal: aggregated.charge,
-    vatRate: 20,
-    notes: `Created from ${quote.ref} cost centres.`,
+    vatRate: vatProfile.rate,
+    vatTreatment: vatProfile.treatment,
+    vatNote: vatProfile.note,
+    notes: `Created from ${quote.ref} cost centres. ${vatProfile.note}`,
   };
 }
 
@@ -1013,6 +1061,7 @@ function buildInvoiceLineTotalsFromEstimate(centres: EstimateCostCentre[]) {
 function makeInvoiceFromJobTotals(
   job: Job,
   client: ClientRecord | null,
+  site: ClientSite | null,
   totalsBySource: { cost: number; charge: number; lineItems: InvoiceLine[] },
   existingRef: Invoice[],
   variations: JobVariation[],
@@ -1042,6 +1091,7 @@ function makeInvoiceFromJobTotals(
   const lines = [...totalsBySource.lineItems, ...variationLines];
   const costTotal = totalsBySource.cost + variationLineTotalCost;
   const chargeTotal = totalsBySource.charge + variationLineTotalSell;
+  const vatProfile = resolveVatProfile(settings, client, site);
 
   return {
     id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -1060,18 +1110,21 @@ function makeInvoiceFromJobTotals(
     lines,
     costTotal,
     chargeTotal,
-    vatRate: 20,
-    notes: `${job.description} captured from cost centres for invoicing.`,
+    vatRate: vatProfile.rate,
+    vatTreatment: vatProfile.treatment,
+    vatNote: vatProfile.note,
+    notes: `${job.description} captured from cost centres for invoicing. ${vatProfile.note}`,
   };
 }
 
 function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
+  const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
   return {
     to: client?.email ?? "",
     cc: "",
     subject: `${invoice.ref} - ${invoice.title}`,
-    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.\n\nKind regards,\nNeXa`,
+    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.${vatNote}\n\nKind regards,\nNeXa`,
     attachPdf: true,
   };
 }
@@ -1349,6 +1402,20 @@ type FinanceSettings = {
   deletedLabourRateIds?: string[];
 };
 
+type IntegrationMode = "Not connected" | "Queued handoff" | "One-way push" | "Two-way sync";
+
+type IntegrationSettings = {
+  simproMode: IntegrationMode;
+  simproApiBaseUrl: string;
+  simproCompanyId: string;
+  simproWebhookUrl: string;
+  simproLastSync: string;
+  xeroMode: IntegrationMode;
+  xeroTenantName: string;
+  xeroClientId: string;
+  xeroLastSync: string;
+};
+
 type LabourRateSetting = {
   id: string;
   name: string;
@@ -1534,6 +1601,7 @@ type HubDetailStatePayload = {
   activeFormTemplateId?: string;
   workflowRules?: WorkflowRulesSettings;
   financeSettings?: FinanceSettings;
+  integrationSettings?: IntegrationSettings;
   documentFolderTemplates?: DocumentFolderTemplate[];
   engineerFlowTemplate?: EngineerFlowTemplate;
   engineerFlowTemplates?: EngineerFlowTemplate[];
@@ -3330,6 +3398,21 @@ const defaultFinanceSettings: FinanceSettings = {
   labourRates: defaultLabourRateSettings,
   deletedLabourRateIds: [],
 };
+
+const integrationModes: IntegrationMode[] = ["Not connected", "Queued handoff", "One-way push", "Two-way sync"];
+
+const defaultIntegrationSettings: IntegrationSettings = {
+  simproMode: "Queued handoff",
+  simproApiBaseUrl: "",
+  simproCompanyId: "",
+  simproWebhookUrl: "",
+  simproLastSync: "",
+  xeroMode: "Not connected",
+  xeroTenantName: "",
+  xeroClientId: "",
+  xeroLastSync: "",
+};
+
 const surveyorAvailability: Record<string, EmployeeAvailability> = {
   "Brian Kerr": {
     Mon: { active: true, from: "08:00", to: "17:00" },
@@ -6079,6 +6162,9 @@ export default function Dashboard() {
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
+  const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
+  const [activeJobFolderKey, setActiveJobFolderKey] = useState("pending");
+  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("valuations");
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
   const [reportCustomEndDate, setReportCustomEndDate] = useState(currentOperatingDate);
@@ -6093,6 +6179,7 @@ export default function Dashboard() {
   const [activeFormTemplateId, setActiveFormTemplateId] = useState(defaultFormTemplates[0]?.id ?? "");
   const [workflowRules, setWorkflowRules] = useState<WorkflowRulesSettings>(defaultWorkflowRules);
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() => normalizeFinanceSettings(defaultFinanceSettings));
+  const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>(defaultIntegrationSettings);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
   const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
@@ -6212,6 +6299,7 @@ export default function Dashboard() {
   const [linkedQuoteSectionDrafts, setLinkedQuoteSectionDrafts] = useState<Record<string, string>>({});
   const [jobSchedulePlans, setJobSchedulePlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobPlannerWhatIfMode, setJobPlannerWhatIfMode] = useState(false);
+  const [dismissedPlannerAlertJobIds, setDismissedPlannerAlertJobIds] = useState<string[]>([]);
   const [jobScheduleWhatIfPlans, setJobScheduleWhatIfPlans] = useState<Record<string, JobScheduleAssignment[]>>({});
   const [jobScheduleDrafts, setJobScheduleDrafts] = useState<Record<string, JobScheduleDraft>>({});
   const [editingJobScheduleAssignmentId, setEditingJobScheduleAssignmentId] = useState<string | null>(null);
@@ -7777,6 +7865,10 @@ export default function Dashboard() {
     );
     setWorkflowRules(safeLoadStoredJson(STORAGE_KEYS.workflowRules, defaultWorkflowRules));
     setFinanceSettings(normalizeFinanceSettings(safeLoadStoredJson(STORAGE_KEYS.financeSettings, defaultFinanceSettings)));
+    setIntegrationSettings({
+      ...defaultIntegrationSettings,
+      ...safeLoadStoredJson(STORAGE_KEYS.integrationSettings, defaultIntegrationSettings),
+    });
     setDocumentFolderTemplates(safeLoadStoredJson(STORAGE_KEYS.documentFolders, defaultDocumentFolderTemplates));
     const storedLegacyEngineerFlow = normalizeEngineerFlowTemplate(safeLoadStoredJson(STORAGE_KEYS.engineerFlow, defaultBoilerFlowTemplate));
     const storedEngineerFlows = normalizeEngineerFlowTemplates(
@@ -7901,6 +7993,9 @@ export default function Dashboard() {
             if (hubState.activeFormTemplateId) setActiveFormTemplateId(hubState.activeFormTemplateId);
             if (hubState.workflowRules) setWorkflowRules({ ...defaultWorkflowRules, ...hubState.workflowRules });
             if (hubState.financeSettings) setFinanceSettings(normalizeFinanceSettings(hubState.financeSettings));
+            if (hubState.integrationSettings) {
+              setIntegrationSettings({ ...defaultIntegrationSettings, ...hubState.integrationSettings });
+            }
             if (hubState.documentFolderTemplates) setDocumentFolderTemplates(hubState.documentFolderTemplates);
             const nextLegacyEngineerFlow = hubState.engineerFlowTemplate
               ? normalizeEngineerFlowTemplate(hubState.engineerFlowTemplate)
@@ -7980,6 +8075,7 @@ export default function Dashboard() {
       activeFormTemplateId,
       workflowRules,
       financeSettings,
+      integrationSettings,
       documentFolderTemplates,
       engineerFlowTemplate,
       engineerFlowTemplates,
@@ -8151,6 +8247,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.activeFormTemplateId, activeFormTemplateId);
     safeSaveStoredJson(STORAGE_KEYS.workflowRules, workflowRules);
     safeSaveStoredJson(STORAGE_KEYS.financeSettings, financeSettings);
+    safeSaveStoredJson(STORAGE_KEYS.integrationSettings, integrationSettings);
     safeSaveStoredJson(STORAGE_KEYS.documentFolders, documentFolderTemplates);
     safeSaveStoredJson(STORAGE_KEYS.engineerFlow, engineerFlowTemplate);
     safeSaveStoredJson(STORAGE_KEYS.engineerFlowTemplates, engineerFlowTemplates);
@@ -8232,6 +8329,7 @@ export default function Dashboard() {
     activeFormTemplateId,
     workflowRules,
     financeSettings,
+    integrationSettings,
     documentFolderTemplates,
     engineerFlowTemplate,
     engineerFlowTemplates,
@@ -8582,6 +8680,13 @@ export default function Dashboard() {
         tone: "blue",
         items: filteredQuotes.filter((quote) => quote.status === "Sent"),
       },
+      {
+        key: "archived",
+        label: "Archived",
+        detail: "Lost, declined or already converted",
+        tone: "green",
+        items: filteredQuotes.filter((quote) => ["Accepted", "Converted", "Declined", "Lost"].includes(quote.status)),
+      },
     ],
     [filteredQuotes],
   );
@@ -8606,13 +8711,27 @@ export default function Dashboard() {
       },
       {
         key: "review",
-        label: "Ready for review / invoice",
+        label: "Complete",
         detail: "Completed, reviewed or moved into finance",
         tone: "green",
-        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced", "Closed"].includes(job.status)),
+        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced"].includes(job.status)),
+      },
+      {
+        key: "archived",
+        label: "Archived",
+        detail: "Closed jobs kept for history",
+        tone: "green",
+        items: filteredJobs.filter((job) => job.status === "Closed"),
       },
     ],
     [filteredJobs],
+  );
+
+  const visibleJobDirectoryGroups = useMemo(
+    () => activeJobFolderKey === "all"
+      ? jobDirectoryGroups
+      : jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey),
+    [activeJobFolderKey, jobDirectoryGroups],
   );
 
   const invoiceDirectoryGroups = useMemo(() => {
@@ -8620,19 +8739,19 @@ export default function Dashboard() {
       invoice.status !== "Paid" &&
       invoice.status !== "Cancelled" &&
       /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
-      invoice.dueDate < "2026-07-01";
+      invoice.dueDate < currentOperatingDate;
 
     return [
       {
-        key: "draft",
-        label: "Drafts / valuations",
-        detail: "Deposits, applications and invoices being prepared",
+        key: "valuations",
+        label: "Valuations",
+        detail: "Applications, deposits and draft progress claims",
         tone: "amber",
-        items: filteredInvoices.filter((invoice) => invoice.status === "Draft"),
+        items: filteredInvoices.filter((invoice) => invoice.claimType === "valuation" || invoice.valuationStatus || invoice.status === "Draft"),
       },
       {
-        key: "due",
-        label: "Due invoices",
+        key: "unpaid",
+        label: "Unpaid invoices",
         detail: "Sent or part-paid invoices inside payment terms",
         tone: "blue",
         items: filteredInvoices.filter((invoice) => !isOverdue(invoice) && (invoice.status === "Sent" || invoice.status === "Partially paid")),
@@ -8651,8 +8770,22 @@ export default function Dashboard() {
         tone: "green",
         items: filteredInvoices.filter((invoice) => invoice.status === "Paid"),
       },
+      {
+        key: "archived",
+        label: "Archived",
+        detail: "Cancelled or superseded finance records",
+        tone: "green",
+        items: filteredInvoices.filter((invoice) => invoice.status === "Cancelled"),
+      },
     ];
   }, [filteredInvoices]);
+
+  const visibleInvoiceDirectoryGroups = useMemo(
+    () => activeInvoiceFolderKey === "all"
+      ? invoiceDirectoryGroups
+      : invoiceDirectoryGroups.filter((group) => group.key === activeInvoiceFolderKey),
+    [activeInvoiceFolderKey, invoiceDirectoryGroups],
+  );
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -8844,6 +8977,31 @@ export default function Dashboard() {
         .map((quote) => ({ quote, followUp: getQuoteResponseFollowUp(quote) }))
         .filter((item): item is { quote: Quote; followUp: NonNullable<ReturnType<typeof getQuoteResponseFollowUp>> } => Boolean(item.followUp)),
     [getQuoteResponseFollowUp, quotes],
+  );
+
+  const quoteFollowUpDirectoryGroup = useMemo(
+    () => ({
+      key: "followup",
+      label: "Follow-up due",
+      detail: "Sent quotes that need a call or email",
+      tone: quoteResponseFollowUps.some((item) => item.followUp.tone === "red") ? "red" : "amber",
+      items: quoteResponseFollowUps.map((item) => item.quote),
+    }),
+    [quoteResponseFollowUps],
+  );
+
+  const quoteDirectoryTabs = useMemo(
+    () => [...quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
+    [quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
+  );
+
+  const visibleQuoteDirectoryGroups = useMemo(
+    () => activeQuoteFolderKey === "all"
+      ? quoteDirectoryGroups
+      : activeQuoteFolderKey === "followup"
+        ? [quoteFollowUpDirectoryGroup]
+        : quoteDirectoryGroups.filter((group) => group.key === activeQuoteFolderKey),
+    [activeQuoteFolderKey, quoteDirectoryGroups, quoteFollowUpDirectoryGroup],
   );
 
   const approvedQuotesAwaitingScheduling = useMemo(
@@ -10139,6 +10297,21 @@ export default function Dashboard() {
   function updateFinanceSettings(patch: Partial<FinanceSettings>) {
     markSetupEdited();
     setFinanceSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function updateIntegrationSettings(patch: Partial<IntegrationSettings>) {
+    markSetupEdited();
+    setIntegrationSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function updateClientVatProfile(clientId: string, patch: Pick<Partial<ClientRecord>, "vatTreatment" | "vatRateOverride">) {
+    markSetupEdited();
+    setClients((current) => current.map((client) => (client.id === clientId ? { ...client, ...patch } : client)));
+  }
+
+  function updateSiteVatProfile(siteId: string, patch: Pick<Partial<ClientSite>, "vatTreatment" | "vatRateOverride">) {
+    markSetupEdited();
+    setClientSites((current) => current.map((site) => (site.id === siteId ? { ...site, ...patch } : site)));
   }
 
   function updateLabourRateSetting(rateId: string, patch: Partial<LabourRateSetting>) {
@@ -11895,13 +12068,14 @@ export default function Dashboard() {
     }
 
     const client = clients.find((item) => item.id === quote.clientId) ?? null;
+    const site = quote.siteId ? clientSites.find((item) => item.id === quote.siteId) ?? null : null;
     const sourceCentres = quoteCostCentres[quote.id] ?? [];
 
     if (!sourceCentres.length) {
       showNotice(`Quote ${quote.ref} does not yet have cost centres; invoice created from current values.`);
     }
 
-    const created = makeInvoiceFromQuote(quote, client, sourceCentres, invoices, normalizedFinanceSettings);
+    const created = makeInvoiceFromQuote(quote, client, site, sourceCentres, invoices, normalizedFinanceSettings);
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -11926,6 +12100,7 @@ export default function Dashboard() {
     }
 
     const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
     const sourceCentres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
     const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(sourceCentres);
     const sourceTotals = sourceLineTotals.reduce(
@@ -11937,7 +12112,7 @@ export default function Dashboard() {
       { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
     );
 
-    const created = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
+    const created = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
 
     if (!sourceLineTotals.length) {
       showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
@@ -12045,6 +12220,7 @@ export default function Dashboard() {
     }
 
     const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
     const centres = jobEstimateCostCentres[job.id] ?? makeDefaultEstimateCostCentres(job);
     const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(centres);
     const sourceTotals = sourceLineTotals.reduce(
@@ -12055,7 +12231,7 @@ export default function Dashboard() {
       }),
       { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
     );
-    const base = makeInvoiceFromJobTotals(job, client, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
+    const base = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
     const contractTotal = jobInvoiceDraft.valuationLines.reduce((sum, line) => sum + line.contractValue, 0) || job.value;
     const depositPercent = Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent));
     const retentionPercent = jobInvoiceDraft.mode === "valuation" ? Math.max(0, jobInvoiceDraft.retentionPercent) : 0;
@@ -19721,21 +19897,24 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="record-folder-grid">
-                {quoteDirectoryGroups.map((group) => (
-                  <article className={`record-folder-card ${group.tone}`} key={group.key}>
+              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Quote folders">
+                {[{ key: "all", label: "All quotes", tone: "blue", items: filteredQuotes }, ...quoteDirectoryTabs].map((group) => (
+                  <button
+                    aria-selected={activeQuoteFolderKey === group.key}
+                    className={`record-folder-card ${group.tone} ${activeQuoteFolderKey === group.key ? "active" : ""}`}
+                    key={group.key}
+                    role="tab"
+                    type="button"
+                    onClick={() => setActiveQuoteFolderKey(group.key)}
+                  >
                     <span>{group.label}</span>
                     <strong>{group.items.length}</strong>
-                  </article>
+                  </button>
                 ))}
-                <article className={`record-folder-card ${quoteResponseFollowUps.some((item) => item.followUp.tone === "red") ? "red" : "amber"}`}>
-                  <span>Follow-up due</span>
-                  <strong>{quoteResponseFollowUps.length}</strong>
-                </article>
               </div>
 
               <div className="record-folder-stack">
-                {quoteDirectoryGroups.map((group) => (
+                {visibleQuoteDirectoryGroups.map((group) => (
                   <section className="record-folder-section" key={group.key}>
                     <header>
                       <div>
@@ -19873,17 +20052,24 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="record-folder-grid">
-                {jobDirectoryGroups.map((group) => (
-                  <article className={`record-folder-card ${group.tone}`} key={group.key}>
+              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Job folders">
+                {[{ key: "all", label: "All jobs", tone: "blue", items: filteredJobs }, ...jobDirectoryGroups].map((group) => (
+                  <button
+                    aria-selected={activeJobFolderKey === group.key}
+                    className={`record-folder-card ${group.tone} ${activeJobFolderKey === group.key ? "active" : ""}`}
+                    key={group.key}
+                    role="tab"
+                    type="button"
+                    onClick={() => setActiveJobFolderKey(group.key)}
+                  >
                     <span>{group.label}</span>
                     <strong>{group.items.length}</strong>
-                  </article>
+                  </button>
                 ))}
               </div>
 
               <div className="record-folder-stack">
-                {jobDirectoryGroups.map((group) => (
+                {visibleJobDirectoryGroups.map((group) => (
                   <section className="record-folder-section" key={group.key}>
                     <header>
                       <div>
@@ -23886,78 +24072,100 @@ export default function Dashboard() {
                       </span>
                     </div>
 
-                    <section className={`planner-intelligence-panel ${selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "has-risk" : selectedJobScheduleIntelligence.length ? "has-warning" : "is-clear"}`}>
-                      <div className="planner-intelligence-head">
-                        <div>
-                          <span className="permission-heading">Intelligent schedule check</span>
-                          <h3>
-                            {selectedJobScheduleIntelligence.length
-                              ? `${selectedJobScheduleIntelligence.length} issue${selectedJobScheduleIntelligence.length === 1 ? "" : "s"} to review`
-                              : "Programme looks clear"}
-                          </h3>
-                          <p>
-                            {jobPlannerWhatIfMode
-                              ? "What-if mode is on. You can test changes without touching the live job diary."
-                              : "NeXa checks clashes, dependencies, staff capacity and completion impact before you commit the programme."}
-                          </p>
-                        </div>
-                        <div className="planner-intelligence-actions">
-                          <button
-                            className={jobPlannerWhatIfMode ? "primary-button" : "secondary-button"}
-                            type="button"
-                            onClick={toggleSelectedJobWhatIfMode}
-                          >
-                            {jobPlannerWhatIfMode ? "Close what-if" : "What-if mode"}
-                          </button>
-                          <button className="secondary-button" type="button" onClick={() => shiftSelectedJobPlannerSuggestion(1)}>
-                            Try +1 day
-                          </button>
-                          {jobPlannerWhatIfMode && selectedJobPlannerAssignments.length ? (
-                            <button className="primary-button" type="button" onClick={() => void applySelectedJobWhatIfSchedule()}>
-                              Apply what-if
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-                      {selectedJobScheduleIntelligence.length ? (
-                        <div className="planner-issue-grid">
-                          {selectedJobScheduleIntelligence.slice(0, 4).map((issue) => (
-                            <article className={`planner-issue-card ${issue.tone}`} key={issue.id}>
-                              <span>{issue.kind}</span>
-                              <strong>{issue.title}</strong>
-                              <p>{issue.detail}</p>
-                              <small>{issue.impact}</small>
-                            </article>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="planner-clear-card">
-                          <Check size={16} />
-                          <span>No clashes found against the current scheduler and survey diary.</span>
-                        </div>
-                      )}
-                      {selectedJobScheduleSuggestions.length ? (
-                        <div className="planner-suggestion-grid">
-                          {selectedJobScheduleSuggestions.map((suggestion) => (
-                            <article className={`planner-suggestion-card ${suggestion.tone}`} key={suggestion.id}>
-                              <div>
-                                <span>Suggested option</span>
-                                <strong>{suggestion.title}</strong>
-                                <p>{suggestion.detail}</p>
-                                <small>{suggestion.impact}</small>
-                              </div>
+                    {selectedJobScheduleIntelligence.length > 0 && dismissedPlannerAlertJobIds.includes(selectedJob.id) ? (
+                      <button
+                        className="planner-alert-chip"
+                        type="button"
+                        onClick={() => setDismissedPlannerAlertJobIds((current) => current.filter((id) => id !== selectedJob.id))}
+                      >
+                        <AlertTriangle size={15} />
+                        {selectedJobScheduleIntelligence.length} planner issue{selectedJobScheduleIntelligence.length === 1 ? "" : "s"} hidden - review
+                      </button>
+                    ) : (
+                      <section className={`planner-intelligence-panel planner-alert-popup ${selectedJobScheduleIntelligence.some((issue) => issue.tone === "red") ? "has-risk" : selectedJobScheduleIntelligence.length ? "has-warning" : "is-clear"}`}>
+                        <div className="planner-intelligence-head">
+                          <div>
+                            <span className="permission-heading">Intelligent schedule check</span>
+                            <h3>
+                              {selectedJobScheduleIntelligence.length
+                                ? `${selectedJobScheduleIntelligence.length} issue${selectedJobScheduleIntelligence.length === 1 ? "" : "s"} to review`
+                                : "Programme looks clear"}
+                            </h3>
+                            <p>
+                              {jobPlannerWhatIfMode
+                                ? "What-if mode is on. You can test changes without touching the live job diary."
+                                : "NeXa checks clashes, dependencies, staff capacity and completion impact before you commit the programme."}
+                            </p>
+                          </div>
+                          <div className="planner-intelligence-actions">
+                            {selectedJobScheduleIntelligence.length ? (
                               <button
                                 className="secondary-button"
                                 type="button"
-                                onClick={() => previewSelectedJobScheduleSuggestion(suggestion)}
+                                onClick={() => setDismissedPlannerAlertJobIds((current) => (
+                                  current.includes(selectedJob.id) ? current : [...current, selectedJob.id]
+                                ))}
                               >
-                                {suggestion.actionLabel}
+                                Ignore for now
                               </button>
-                            </article>
-                          ))}
+                            ) : null}
+                            <button
+                              className={jobPlannerWhatIfMode ? "primary-button" : "secondary-button"}
+                              type="button"
+                              onClick={toggleSelectedJobWhatIfMode}
+                            >
+                              {jobPlannerWhatIfMode ? "Close what-if" : "What-if mode"}
+                            </button>
+                            <button className="secondary-button" type="button" onClick={() => shiftSelectedJobPlannerSuggestion(1)}>
+                              Try +1 day
+                            </button>
+                            {jobPlannerWhatIfMode && selectedJobPlannerAssignments.length ? (
+                              <button className="primary-button" type="button" onClick={() => void applySelectedJobWhatIfSchedule()}>
+                                Apply what-if
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
-                      ) : null}
-                    </section>
+                        {selectedJobScheduleIntelligence.length ? (
+                          <div className="planner-issue-grid">
+                            {selectedJobScheduleIntelligence.slice(0, 4).map((issue) => (
+                              <article className={`planner-issue-card ${issue.tone}`} key={issue.id}>
+                                <span>{issue.kind}</span>
+                                <strong>{issue.title}</strong>
+                                <p>{issue.detail}</p>
+                                <small>{issue.impact}</small>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="planner-clear-card">
+                            <Check size={16} />
+                            <span>No clashes found against the current scheduler and survey diary.</span>
+                          </div>
+                        )}
+                        {selectedJobScheduleSuggestions.length ? (
+                          <div className="planner-suggestion-grid">
+                            {selectedJobScheduleSuggestions.map((suggestion) => (
+                              <article className={`planner-suggestion-card ${suggestion.tone}`} key={suggestion.id}>
+                                <div>
+                                  <span>Suggested option</span>
+                                  <strong>{suggestion.title}</strong>
+                                  <p>{suggestion.detail}</p>
+                                  <small>{suggestion.impact}</small>
+                                </div>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => previewSelectedJobScheduleSuggestion(suggestion)}
+                                >
+                                  {suggestion.actionLabel}
+                                </button>
+                              </article>
+                            ))}
+                          </div>
+                        ) : null}
+                      </section>
+                    )}
 
                     <section className="job-scheduling-panel">
                       {selectedJobScheduleDraft ? (
@@ -25909,17 +26117,24 @@ export default function Dashboard() {
                   </select>
                 </label>
               </div>
-              <div className="record-folder-grid">
-                {invoiceDirectoryGroups.map((group) => (
-                  <article className={`record-folder-card ${group.tone}`} key={group.key}>
+              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Invoice folders">
+                {[{ key: "all", label: "All invoices", tone: "blue", items: filteredInvoices }, ...invoiceDirectoryGroups].map((group) => (
+                  <button
+                    aria-selected={activeInvoiceFolderKey === group.key}
+                    className={`record-folder-card ${group.tone} ${activeInvoiceFolderKey === group.key ? "active" : ""}`}
+                    key={group.key}
+                    role="tab"
+                    type="button"
+                    onClick={() => setActiveInvoiceFolderKey(group.key)}
+                  >
                     <span>{group.label}</span>
                     <strong>{group.items.length}</strong>
-                  </article>
+                  </button>
                 ))}
               </div>
 
               <div className="record-folder-stack">
-                {invoiceDirectoryGroups.map((group) => (
+                {visibleInvoiceDirectoryGroups.map((group) => (
                   <section className="record-folder-section" key={group.key}>
                     <header>
                       <div>
@@ -28378,6 +28593,215 @@ export default function Dashboard() {
                           </div>
                         ))}
                       </div>
+
+                      <div className="setup-subsection-heading">
+                        <div>
+                          <span className="permission-heading">VAT treatment</span>
+                          <h3>Client and site overrides</h3>
+                        </div>
+                        <p>Use the global VAT rate as the default, then override individual clients or sites when work is zero-rated or domestic reverse charge.</p>
+                      </div>
+
+                      <div className="setup-rate-table setup-vat-table">
+                        <div className="setup-rate-row table-head">
+                          <span>Client</span>
+                          <span>VAT treatment</span>
+                          <span>Rate / reference %</span>
+                          <span>Invoice behaviour</span>
+                        </div>
+                        {clients.map((client) => {
+                          const treatment = client.vatTreatment ?? "Standard 20%";
+                          const resolved = resolveVatProfile(financeSettings, client, null);
+                          return (
+                            <div className="setup-rate-row" key={client.id}>
+                              <strong>{client.name}</strong>
+                              <select
+                                aria-label={`${client.name} VAT treatment`}
+                                value={treatment}
+                                onChange={(event) => {
+                                  const nextTreatment = event.target.value as VatTreatment;
+                                  updateClientVatProfile(client.id, {
+                                    vatTreatment: nextTreatment,
+                                    vatRateOverride: vatOverrideForTreatment(nextTreatment, client.vatRateOverride, financeSettings.vatRate),
+                                  });
+                                }}
+                              >
+                                {vatTreatmentOptions.map((option) => (
+                                  <option key={option}>{option}</option>
+                                ))}
+                              </select>
+                              <input
+                                aria-label={`${client.name} VAT rate override`}
+                                inputMode="decimal"
+                                placeholder={financeSettings.vatRate}
+                                value={client.vatRateOverride ?? ""}
+                                onChange={(event) => updateClientVatProfile(client.id, { vatRateOverride: event.target.value })}
+                              />
+                              <span className="setup-status-label">{resolved.note}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="setup-rate-table setup-vat-table setup-site-vat-table">
+                        <div className="setup-rate-row table-head">
+                          <span>Site</span>
+                          <span>VAT treatment</span>
+                          <span>Rate / reference %</span>
+                          <span>Invoice behaviour</span>
+                        </div>
+                        {clientSites.map((site) => {
+                          const client = clients.find((item) => item.id === site.clientId) ?? null;
+                          const treatment = site.vatTreatment ?? client?.vatTreatment ?? "Standard 20%";
+                          const resolved = resolveVatProfile(financeSettings, client, site);
+                          return (
+                            <div className="setup-rate-row" key={site.id}>
+                              <span>
+                                <strong>{site.name}</strong>
+                                <small>{client?.name ?? "No client"} · {site.address}</small>
+                              </span>
+                              <select
+                                aria-label={`${site.name} VAT treatment`}
+                                value={treatment}
+                                onChange={(event) => {
+                                  const nextTreatment = event.target.value as VatTreatment;
+                                  updateSiteVatProfile(site.id, {
+                                    vatTreatment: nextTreatment,
+                                    vatRateOverride: vatOverrideForTreatment(nextTreatment, site.vatRateOverride, financeSettings.vatRate),
+                                  });
+                                }}
+                              >
+                                {vatTreatmentOptions.map((option) => (
+                                  <option key={option}>{option}</option>
+                                ))}
+                              </select>
+                              <input
+                                aria-label={`${site.name} VAT rate override`}
+                                inputMode="decimal"
+                                placeholder={financeSettings.vatRate}
+                                value={site.vatRateOverride ?? ""}
+                                onChange={(event) => updateSiteVatProfile(site.id, { vatRateOverride: event.target.value })}
+                              />
+                              <span className="setup-status-label">{resolved.note}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      <div className="setup-subsection-heading">
+                        <div>
+                          <span className="permission-heading">Accounts integrations</span>
+                          <h3>Xero and simPRO two-way bridge</h3>
+                        </div>
+                        <p>These settings are saved in NeXa now. Live two-way sync still needs the API worker to use OAuth tokens, webhooks and conflict logs.</p>
+                      </div>
+
+                      <div className="setup-integration-grid">
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>simPRO</span>
+                              <strong>{integrationSettings.simproMode}</strong>
+                            </div>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => updateIntegrationSettings({ simproLastSync: new Date().toISOString() })}
+                            >
+                              Mark sync checked
+                            </button>
+                          </header>
+                          <div className="setup-form-grid">
+                            <label>
+                              Sync mode
+                              <select
+                                value={integrationSettings.simproMode}
+                                onChange={(event) => updateIntegrationSettings({ simproMode: event.target.value as IntegrationMode })}
+                              >
+                                {integrationModes.map((mode) => (
+                                  <option key={mode}>{mode}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Company ID
+                              <input
+                                value={integrationSettings.simproCompanyId}
+                                onChange={(event) => updateIntegrationSettings({ simproCompanyId: event.target.value })}
+                                placeholder="0"
+                              />
+                            </label>
+                            <label className="span-2">
+                              API base URL
+                              <input
+                                value={integrationSettings.simproApiBaseUrl}
+                                onChange={(event) => updateIntegrationSettings({ simproApiBaseUrl: event.target.value })}
+                                placeholder="https://api.simprocloud.com"
+                              />
+                            </label>
+                            <label className="span-2">
+                              Webhook / bridge URL
+                              <input
+                                value={integrationSettings.simproWebhookUrl}
+                                onChange={(event) => updateIntegrationSettings({ simproWebhookUrl: event.target.value })}
+                                placeholder="https://.../api/simpro/sync"
+                              />
+                            </label>
+                          </div>
+                          <small>
+                            Last sync check: {integrationSettings.simproLastSync ? integrationSettings.simproLastSync.slice(0, 16).replace("T", " ") : "Not checked yet"}
+                          </small>
+                        </article>
+
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>Xero</span>
+                              <strong>{integrationSettings.xeroMode}</strong>
+                            </div>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => updateIntegrationSettings({ xeroLastSync: new Date().toISOString() })}
+                            >
+                              Mark sync checked
+                            </button>
+                          </header>
+                          <div className="setup-form-grid">
+                            <label>
+                              Sync mode
+                              <select
+                                value={integrationSettings.xeroMode}
+                                onChange={(event) => updateIntegrationSettings({ xeroMode: event.target.value as IntegrationMode })}
+                              >
+                                {integrationModes.map((mode) => (
+                                  <option key={mode}>{mode}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Tenant name
+                              <input
+                                value={integrationSettings.xeroTenantName}
+                                onChange={(event) => updateIntegrationSettings({ xeroTenantName: event.target.value })}
+                                placeholder="Errol Watson Group Ltd"
+                              />
+                            </label>
+                            <label className="span-2">
+                              Xero client ID
+                              <input
+                                value={integrationSettings.xeroClientId}
+                                onChange={(event) => updateIntegrationSettings({ xeroClientId: event.target.value })}
+                                placeholder="OAuth app client ID"
+                              />
+                            </label>
+                          </div>
+                          <small>
+                            Last sync check: {integrationSettings.xeroLastSync ? integrationSettings.xeroLastSync.slice(0, 16).replace("T", " ") : "Not checked yet"}
+                          </small>
+                        </article>
+                      </div>
+
                       <div className="setup-readiness-grid">
                         <article>
                           <span>Invoices</span>
@@ -28396,8 +28820,13 @@ export default function Dashboard() {
                         </article>
                         <article>
                           <span>Accounts connector</span>
-                          <strong>Xero · Not connected</strong>
+                          <strong>Xero · {integrationSettings.xeroMode}</strong>
                           <small>Invoices and agreed progress claims can be queued now. OAuth export and payment reconciliation are the next integration step.</small>
+                        </article>
+                        <article>
+                          <span>simPRO bridge</span>
+                          <strong>simPRO · {integrationSettings.simproMode}</strong>
+                          <small>Quotes, jobs, clients and invoices can be prepared for a two-way sync worker once the live bridge credentials are wired.</small>
                         </article>
                       </div>
                     </section>
@@ -28669,6 +29098,10 @@ export default function Dashboard() {
                             <dt>Commercial owner</dt>
                             <dd>{activeClient.commercialOwner}</dd>
                           </div>
+                          <div>
+                            <dt>VAT treatment</dt>
+                            <dd>{resolveVatProfile(financeSettings, activeClient, null).note}</dd>
+                          </div>
                         </dl>
                       </article>
 
@@ -28725,6 +29158,7 @@ export default function Dashboard() {
                           </header>
                           <p>{site.address}</p>
                           <p className="client-directory-meta">Contact: {site.primaryContact}</p>
+                          <p className="client-directory-meta">VAT: {resolveVatProfile(financeSettings, activeClient, site).note}</p>
                           <p className="client-directory-meta">Next visit: {site.nextVisit}</p>
                           <p className="client-directory-meta">Access: {site.accessNotes}</p>
                         </article>

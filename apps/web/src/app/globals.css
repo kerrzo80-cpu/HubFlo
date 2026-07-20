@@ -31090,3 +31090,224 @@ body {
     display: none;
   }
 }
+
+.record-folder-tabs {
+  align-items: stretch;
+  display: flex !important;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 8px;
+}
+
+.record-folder-tabs .record-folder-card {
+  appearance: none;
+  background: #ffffff;
+  border: 1px solid rgba(20, 78, 110, 0.14);
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  flex: 1 0 160px;
+  min-height: 58px;
+  min-width: 160px;
+  padding: 12px 14px;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.record-folder-tabs .record-folder-card:hover,
+.record-folder-tabs .record-folder-card:focus-visible {
+  border-color: rgba(28, 141, 185, 0.52);
+  box-shadow: 0 10px 22px rgba(20, 78, 110, 0.1);
+  color: var(--ink);
+  outline: 0;
+  transform: translateY(-1px);
+}
+
+.record-folder-tabs .record-folder-card:hover span,
+.record-folder-tabs .record-folder-card:focus-visible span,
+.record-folder-tabs .record-folder-card:hover strong,
+.record-folder-tabs .record-folder-card:focus-visible strong {
+  color: inherit;
+}
+
+.record-folder-tabs .record-folder-card.active {
+  border-color: var(--blue);
+  box-shadow: inset 0 -3px 0 var(--blue), 0 10px 22px rgba(20, 78, 110, 0.11);
+}
+
+.record-folder-tabs .record-folder-card span {
+  color: #4d5963;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.record-folder-tabs .record-folder-card strong {
+  color: var(--ink);
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+  margin-top: 6px;
+}
+
+.planner-alert-popup {
+  max-width: 650px;
+}
+
+.planner-alert-popup .planner-intelligence-head {
+  gap: 12px;
+}
+
+.planner-alert-popup .planner-intelligence-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.planner-alert-popup .planner-issue-grid,
+.planner-alert-popup .planner-suggestion-grid {
+  grid-template-columns: 1fr;
+}
+
+.planner-alert-chip {
+  align-items: center;
+  align-self: flex-start;
+  background: #fff8ea;
+  border: 1px solid rgba(210, 154, 49, 0.32);
+  border-radius: 999px;
+  color: #6f4a11;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+}
+
+.planner-alert-chip:hover,
+.planner-alert-chip:focus-visible {
+  background: #fff1d2;
+  color: #6f4a11;
+  outline: 0;
+}
+
+.setup-subsection-heading {
+  align-items: flex-start;
+  border-top: 1px solid var(--line-soft);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 18px;
+}
+
+.setup-subsection-heading h3 {
+  color: var(--nexa-navy);
+  font-size: 17px;
+  line-height: 1.2;
+  margin: 4px 0 0;
+}
+
+.setup-subsection-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 520px;
+}
+
+.setup-vat-table .setup-rate-row {
+  grid-template-columns: minmax(180px, 1.25fr) minmax(190px, 0.9fr) minmax(120px, 0.55fr) minmax(230px, 1.2fr);
+}
+
+.setup-vat-table .setup-rate-row > span:first-child,
+.setup-vat-table .setup-rate-row > strong:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.setup-vat-table .setup-rate-row small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.setup-integration-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-integration-card {
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.setup-integration-card > header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.setup-integration-card > header span {
+  color: var(--muted);
+  display: block;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.setup-integration-card > header strong {
+  color: var(--nexa-navy);
+  display: block;
+  font-size: 17px;
+  margin-top: 3px;
+}
+
+.setup-integration-card > small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+@media (max-width: 920px) {
+  .record-folder-tabs {
+    margin-right: -2px;
+  }
+
+  .record-folder-tabs .record-folder-card {
+    flex-basis: 148px;
+    min-width: 148px;
+  }
+
+  .planner-alert-popup {
+    max-width: 100%;
+  }
+
+  .planner-alert-popup .planner-intelligence-head,
+  .setup-subsection-heading,
+  .setup-integration-card > header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .setup-vat-table {
+    overflow-x: auto;
+  }
+
+  .setup-vat-table .setup-rate-row {
+    min-width: 740px;
+  }
+
+  .setup-integration-grid {
+    grid-template-columns: 1fr;
+  }
+}

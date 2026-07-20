@@ -7,6 +7,7 @@ export type HubDetailState = {
   activeFormTemplateId?: string;
   workflowRules?: Record<string, unknown>;
   financeSettings?: Record<string, unknown>;
+  integrationSettings?: Record<string, unknown>;
   documentFolderTemplates?: unknown[];
   engineerFlowTemplate?: unknown;
   engineerFlowTemplates?: unknown[];
