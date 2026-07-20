@@ -1897,7 +1897,7 @@ export default function TakeoffPage() {
   const [activeMarkupPipeToolId, setActiveMarkupPipeToolId] = useState("cu-22");
   const [activeMarkupSymbolKind, setActiveMarkupSymbolKind] = useState<TakeoffMarkupSymbolKind>("Radiator");
   const [activeMarkupSymbolCategory, setActiveMarkupSymbolCategory] = useState<TakeoffMarkupSymbolCategory>("Plant");
-  const [activeMarkupFloor, setActiveMarkupFloor] = useState("Ground floor");
+  const [activeMarkupFloor, setActiveMarkupFloor] = useState("");
   const [activeMarkupFlat, setActiveMarkupFlat] = useState("");
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
   const [hoveredMarkupElementId, setHoveredMarkupElementId] = useState("");
@@ -1907,6 +1907,7 @@ export default function TakeoffPage() {
   const [recentMarkupPipes, setRecentMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
   const [optimisticMarkupSymbols, setOptimisticMarkupSymbols] = useState<TakeoffMarkupSymbol[]>([]);
   const [recentMarkupSymbols, setRecentMarkupSymbols] = useState<TakeoffMarkupSymbol[]>([]);
+  const [lastCommittedMarkupElementId, setLastCommittedMarkupElementId] = useState("");
   const [markupUndoDepth, setMarkupUndoDepth] = useState(0);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
@@ -2275,12 +2276,44 @@ const filteredMarkupPlantTools = useMemo(() => {
   const servicesMarkupShowDrawingInSections = drawingDocuments.length > 1;
 
   const activeMarkupHasContext = Boolean(activeMarkupDrawingId);
-  const activeMarkupPipes = useMemo(() => displayedServicesMarkup.pipes.filter((pipe) => (
-    (!activeMarkupHasContext || !pipe.drawingDocumentId || pipe.drawingDocumentId === activeMarkupDrawingId)
-    && (!activeMarkupFloor || normaliseMarkupFloorValue(pipe.floor, { defaultGround: false }) === activeMarkupFloor)
-    && (!activeMarkupFlat || normaliseMarkupFlatValue(pipe.flat) === activeMarkupFlat)
-    && (activeMarkupLayerId === "all" || markupLayerIdForPipe(pipe) === activeMarkupLayerId)
-  )), [activeMarkupLayerId, displayedServicesMarkup.pipes, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
+
+  const markupLayerCounts = useMemo(() => {
+    const counts = markupLayerOptions.reduce((acc, layer) => {
+      acc[layer.id] = 0;
+      return acc;
+    }, {} as Record<MarkupToolGroupId, number>);
+
+    const matchesCurrentScope = (item: Pick<TakeoffMarkupPipe | TakeoffMarkupSymbol, "drawingDocumentId" | "floor" | "flat">) => (
+      (!activeMarkupHasContext || !item.drawingDocumentId || item.drawingDocumentId === activeMarkupDrawingId)
+      && (!activeMarkupFloor || normaliseMarkupFloorValue(item.floor, { defaultGround: false }) === activeMarkupFloor)
+      && (!activeMarkupFlat || normaliseMarkupFlatValue(item.flat) === activeMarkupFlat)
+    );
+
+    displayedServicesMarkup.pipes.forEach((pipe) => {
+      if (!matchesCurrentScope(pipe)) return;
+      const layerId = markupLayerIdForPipe(pipe);
+      counts.all += 1;
+      counts[layerId] += 1;
+    });
+    displayedServicesMarkup.symbols.forEach((symbol) => {
+      if (!matchesCurrentScope(symbol)) return;
+      const layerId = markupLayerIdForSymbol(symbol);
+      counts.all += 1;
+      counts[layerId] += 1;
+    });
+    return counts;
+  }, [activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext, displayedServicesMarkup.pipes, displayedServicesMarkup.symbols]);
+
+  const activeMarkupPipes = useMemo(() => displayedServicesMarkup.pipes.filter((pipe) => {
+    const matchesDrawing = !activeMarkupHasContext || !pipe.drawingDocumentId || pipe.drawingDocumentId === activeMarkupDrawingId;
+    if (!matchesDrawing) return false;
+    const matchesCurrentView = (
+      (!activeMarkupFloor || normaliseMarkupFloorValue(pipe.floor, { defaultGround: false }) === activeMarkupFloor)
+      && (!activeMarkupFlat || normaliseMarkupFlatValue(pipe.flat) === activeMarkupFlat)
+      && (activeMarkupLayerId === "all" || markupLayerIdForPipe(pipe) === activeMarkupLayerId)
+    );
+    return matchesCurrentView || pipe.id === lastCommittedMarkupElementId;
+  }), [activeMarkupLayerId, displayedServicesMarkup.pipes, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext, lastCommittedMarkupElementId]);
 
   const recentVisibleMarkupPipes = useMemo(() => {
     const activePipeIds = new Set(activeMarkupPipes.map((pipe) => pipe.id));
@@ -2300,12 +2333,16 @@ const filteredMarkupPlantTools = useMemo(() => {
     return Array.from(pipeMap.values());
   }, [activeMarkupPipes, recentVisibleMarkupPipes]);
 
-  const activeMarkupSymbols = useMemo(() => displayedServicesMarkup.symbols.filter((symbol) => (
-    (!activeMarkupHasContext || !symbol.drawingDocumentId || symbol.drawingDocumentId === activeMarkupDrawingId)
-    && (!activeMarkupFloor || normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }) === activeMarkupFloor)
-    && (!activeMarkupFlat || normaliseMarkupFlatValue(symbol.flat) === activeMarkupFlat)
-    && (activeMarkupLayerId === "all" || markupLayerIdForSymbol(symbol) === activeMarkupLayerId)
-  )), [activeMarkupLayerId, displayedServicesMarkup.symbols, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext]);
+  const activeMarkupSymbols = useMemo(() => displayedServicesMarkup.symbols.filter((symbol) => {
+    const matchesDrawing = !activeMarkupHasContext || !symbol.drawingDocumentId || symbol.drawingDocumentId === activeMarkupDrawingId;
+    if (!matchesDrawing) return false;
+    const matchesCurrentView = (
+      (!activeMarkupFloor || normaliseMarkupFloorValue(symbol.floor, { defaultGround: false }) === activeMarkupFloor)
+      && (!activeMarkupFlat || normaliseMarkupFlatValue(symbol.flat) === activeMarkupFlat)
+      && (activeMarkupLayerId === "all" || markupLayerIdForSymbol(symbol) === activeMarkupLayerId)
+    );
+    return matchesCurrentView || symbol.id === lastCommittedMarkupElementId;
+  }), [activeMarkupLayerId, displayedServicesMarkup.symbols, activeMarkupDrawingId, activeMarkupFlat, activeMarkupFloor, activeMarkupHasContext, lastCommittedMarkupElementId]);
 
   const recentVisibleMarkupSymbols = useMemo(() => {
     const activeSymbolIds = new Set(activeMarkupSymbols.map((symbol) => symbol.id));
@@ -2597,8 +2634,9 @@ const filteredMarkupPlantTools = useMemo(() => {
   useEffect(() => {
     if (!selectedProject) return;
     const nextMarkup = withRegeneratedPipeAutoSymbols(normaliseServicesMarkup(selectedProject.servicesMarkup));
-    setActiveMarkupFloor("Ground floor");
+    setActiveMarkupFloor("");
     setActiveMarkupFlat("");
+    setLastCommittedMarkupElementId("");
     localServicesMarkupRef.current = nextMarkup;
     setLocalServicesMarkup(nextMarkup);
     setOptimisticMarkupPipes([]);
@@ -4495,6 +4533,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       ? `${nextSymbol.kind} placed with ${linkedSymbols.length} associated item${linkedSymbols.length === 1 ? "" : "s"}.`
       : `${nextSymbol.kind} placed on the drawing.`);
     setSelectedMarkupElementId(nextSymbol.id);
+    setLastCommittedMarkupElementId(nextSymbol.id);
     return nextSymbol;
   }
 
@@ -4631,6 +4670,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       : "Pipe route added to the services markup.");
     setMarkupDraftPipeState(null);
     setSelectedMarkupElementId(completedPipe.id);
+    setLastCommittedMarkupElementId(completedPipe.id);
   }
 
   function updateSelectedMarkupPipe(patch: Partial<TakeoffMarkupPipe>) {
@@ -6220,8 +6260,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <input
                             list="markup-floor-options"
                             value={activeMarkupFloor}
-                            onChange={(event) => setActiveMarkupFloor(normaliseMarkupFloorValue(event.target.value))}
-                            placeholder="Ground floor, First floor..."
+                            onChange={(event) => setActiveMarkupFloor(normaliseMarkupFloorValue(event.target.value, { defaultGround: false }))}
+                            placeholder="All floors, Ground floor, First floor..."
                           />
                         <datalist id="markup-floor-options">
                           {markupScopeFloorOptions.map((floor) => (
@@ -6761,8 +6801,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <div className="takeoff-markup-route-chip" aria-live="polite">
                           <strong>{activeMarkupPipes.length + recentVisibleMarkupPipes.length + activeMarkupSymbols.length + recentVisibleMarkupSymbols.length}</strong>
                           <span>
-                            on canvas / {displayedServicesMarkup.pipes.length + displayedServicesMarkup.symbols.length} saved / {recentMarkupPipes.length + recentMarkupSymbols.length} recent
+                            on canvas / {displayedServicesMarkup.pipes.length + displayedServicesMarkup.symbols.length} saved / {activeMarkupLayerLabel}
                           </span>
+                        </div>
+
+                        <div className="takeoff-markup-floating-layers" aria-label="Drawing layer selector">
+                          <span>Layer</span>
+                          {markupLayerOptions.map((layer) => (
+                            <button
+                              aria-pressed={activeMarkupLayerId === layer.id}
+                              className={activeMarkupLayerId === layer.id ? "active" : ""}
+                              type="button"
+                              key={`canvas-layer-${layer.id}`}
+                              onClick={() => selectMarkupLayer(layer.id)}
+                            >
+                              <strong>{layer.label}</strong>
+                              <b>{markupLayerCounts[layer.id] ?? 0}</b>
+                            </button>
+                          ))}
                         </div>
 
                         <svg
