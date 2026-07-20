@@ -221,9 +221,9 @@ const markupCanvasHeight = 620;
 const markupServices: Array<{ id: TakeoffMarkupService; label: string; colour: string }> = [
   { id: "Cold water", label: "Cold", colour: "#2878c8" },
   { id: "Hot water", label: "Hot", colour: "#d64545" },
-  { id: "Heating flow", label: "Heat flow", colour: "#f08a24" },
-  { id: "Heating return", label: "Heat return", colour: "#7c4dff" },
-  { id: "Gas", label: "Gas", colour: "#e6b800" },
+  { id: "Heating flow", label: "Heat flow", colour: "#f97316" },
+  { id: "Heating return", label: "Heat return", colour: "#7c3aed" },
+  { id: "Gas", label: "Gas", colour: "#f4c430" },
   { id: "Waste", label: "Waste", colour: "#8a5a32" },
   { id: "Soil", label: "Soil", colour: "#4a4f55" },
   { id: "UFH", label: "UFH", colour: "#2ea66f" },
@@ -2575,7 +2575,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     };
   }
 
-  function nearestMarkupSnapPoint(point: MarkupCanvasPoint, options: { excludePipeId?: string } = {}) {
+  function markupPipeMatchesSnapLine(
+    pipe: TakeoffMarkupPipe,
+    match?: Pick<TakeoffMarkupPipe, "service" | "material" | "diameter">,
+  ) {
+    if (!match) return true;
+    return pipe.service === match.service
+      && normaliseMarkupText(pipe.material).toLowerCase() === normaliseMarkupText(match.material).toLowerCase()
+      && normaliseMarkupText(pipe.diameter).toLowerCase() === normaliseMarkupText(match.diameter).toLowerCase();
+  }
+
+  function nearestMarkupSnapPoint(
+    point: MarkupCanvasPoint,
+    options: { excludePipeId?: string; match?: Pick<TakeoffMarkupPipe, "service" | "material" | "diameter"> } = {},
+  ) {
     const tolerance = Math.max(8, 18 / Math.max(1, markupViewport.zoom));
     let best: { point: MarkupCanvasPoint; distance: number } | null = null;
     const register = (candidate: MarkupCanvasPoint) => {
@@ -2587,6 +2600,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     visibleMarkupPipes.forEach((pipe) => {
       if (pipe.id === options.excludePipeId || pipe.points.length < 2) return;
+      if (!markupPipeMatchesSnapLine(pipe, options.match)) return;
       pipe.points.forEach(register);
       for (let index = 1; index < pipe.points.length; index += 1) {
         const previous = pipe.points[index - 1];
@@ -2599,7 +2613,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     return snapped ? snapped.point : point;
   }
 
-  function snapMarkupRouteEndpoints(points: MarkupCanvasPoint[], options: { excludePipeId?: string } = {}) {
+  function snapMarkupRouteEndpoints(
+    points: MarkupCanvasPoint[],
+    options: { excludePipeId?: string; match?: Pick<TakeoffMarkupPipe, "service" | "material" | "diameter"> } = {},
+  ) {
     if (points.length < 2) return points;
     const next = points.map((point) => ({ ...point }));
     next[0] = nearestMarkupSnapPoint(next[0]!, options);
@@ -2740,7 +2757,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       markupPointerDrawRef.current = { pointerId: event.pointerId, moved: false };
       setSelectedMarkupElementId("");
       setMarkupCalibrationPoints([]);
-      addMarkupDraftPoint(nearestMarkupSnapPoint(point), 3);
+      addMarkupDraftPoint(nearestMarkupSnapPoint(point, {
+        match: {
+          service: activeMarkupService,
+          material: activeMarkupPipeTool.material,
+          diameter: activeMarkupPipeTool.diameter,
+        },
+      }), 3);
       return;
     }
 
@@ -2801,7 +2824,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       markupTouchDrawRef.current = { touchId: touch.identifier };
       setSelectedMarkupElementId("");
       setMarkupCalibrationPoints([]);
-      addMarkupDraftPoint(nearestMarkupSnapPoint(point), 3);
+      addMarkupDraftPoint(nearestMarkupSnapPoint(point, {
+        match: {
+          service: activeMarkupService,
+          material: activeMarkupPipeTool.material,
+          diameter: activeMarkupPipeTool.diameter,
+        },
+      }), 3);
       return;
     }
 
@@ -3236,7 +3265,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function createMarkupPipe(points: MarkupCanvasPoint[]): TakeoffMarkupPipe {
     const routePoints = points.length === 1
-      ? [nearestMarkupSnapPoint(points[0]!)]
+      ? [nearestMarkupSnapPoint(points[0]!, {
+        match: {
+          service: activeMarkupService,
+          material: activeMarkupPipeTool.material,
+          diameter: activeMarkupPipeTool.diameter,
+        },
+      })]
       : points;
     return {
       id: makeId("markup-pipe"),
@@ -3429,8 +3464,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function finishMarkupRoute(pipe = markupDraftPipeRef.current ?? markupDraftPipe) {
-    const snappedEnds = pipe ? snapMarkupRouteEndpoints(pipe.points, { excludePipeId: pipe.id }) : [];
-    const routePoints = pipe ? snapMarkupRouteEndpoints(snapMarkupPipePoints(snappedEnds), { excludePipeId: pipe.id }) : [];
+    const snapMatch = pipe
+      ? { service: pipe.service, material: pipe.material, diameter: pipe.diameter }
+      : undefined;
+    const snappedEnds = pipe ? snapMarkupRouteEndpoints(pipe.points, { excludePipeId: pipe.id, match: snapMatch }) : [];
+    const routePoints = pipe ? snapMarkupRouteEndpoints(snapMarkupPipePoints(snappedEnds), { excludePipeId: pipe.id, match: snapMatch }) : [];
     if (!pipe || routePoints.length < 2) {
       setError("Tap at least two points before finishing the pipe route.");
       return;

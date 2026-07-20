@@ -141,11 +141,12 @@
 }
 
 .markup-route-label {
-  fill: #fff;
+  fill: #143044;
   font-size: 12px;
   font-weight: 950;
   paint-order: stroke;
   pointer-events: none;
+  stroke: rgba(255, 255, 255, 0.96);
   stroke-linejoin: round;
   stroke-width: 7px;
 }
@@ -30546,6 +30547,7 @@ body {
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-route-label {
+  fill: #143044 !important;
   paint-order: stroke !important;
   stroke: rgba(255, 255, 255, 0.95) !important;
   stroke-width: 4 !important;
@@ -30760,4 +30762,50 @@ body {
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-workspace .services-markup-valves-section,
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .services-markup-toolbar .services-markup-palette > .services-markup-valves-section {
   order: 5 !important;
+}
+
+/* Final takeoff readability guard: hover text should never disappear. */
+.takeoff-app .takeoff-tabs button:hover:not(.active),
+.takeoff-app .takeoff-project-button:hover:not(.active),
+.takeoff-app .services-markup-category-tabs button:hover:not(.active),
+.takeoff-app .services-markup-quick-searches button:hover:not(.active),
+.takeoff-app .services-markup-group-grid button:hover:not(.active),
+.takeoff-app .services-markup-service-grid button:hover:not(.active),
+.takeoff-app .services-markup-tool-grid button:hover:not(.active),
+.takeoff-app .services-markup-mode-row button:hover:not(.active),
+.takeoff-app .takeoff-small-button:hover:not(.active),
+.takeoff-app .takeoff-secondary-button:hover:not(.active) {
+  background: #eaf6fb !important;
+  border-color: rgba(88, 172, 213, 0.54) !important;
+  color: #18384b !important;
+}
+
+.takeoff-app .takeoff-tabs button:hover:not(.active) *,
+.takeoff-app .takeoff-project-button:hover:not(.active) *,
+.takeoff-app .services-markup-category-tabs button:hover:not(.active) *,
+.takeoff-app .services-markup-quick-searches button:hover:not(.active) *,
+.takeoff-app .services-markup-group-grid button:hover:not(.active) *,
+.takeoff-app .services-markup-service-grid button:hover:not(.active) *,
+.takeoff-app .services-markup-tool-grid button:hover:not(.active) *,
+.takeoff-app .services-markup-mode-row button:hover:not(.active) *,
+.takeoff-app .takeoff-small-button:hover:not(.active) *,
+.takeoff-app .takeoff-secondary-button:hover:not(.active) * {
+  color: #18384b !important;
+}
+
+.takeoff-app .takeoff-tabs button.active,
+.takeoff-app .takeoff-tabs button.active:hover,
+.takeoff-app .services-markup-category-tabs button.active,
+.takeoff-app .services-markup-category-tabs button.active:hover,
+.takeoff-app .services-markup-group-grid button.active,
+.takeoff-app .services-markup-group-grid button.active:hover,
+.takeoff-app .services-markup-service-grid button.active,
+.takeoff-app .services-markup-service-grid button.active:hover,
+.takeoff-app .services-markup-tool-grid button.active,
+.takeoff-app .services-markup-tool-grid button.active:hover,
+.takeoff-app .services-markup-mode-row button.active,
+.takeoff-app .services-markup-mode-row button.active:hover,
+.takeoff-app .takeoff-small-button.active,
+.takeoff-app .takeoff-small-button.active:hover {
+  color: #ffffff !important;
 }
