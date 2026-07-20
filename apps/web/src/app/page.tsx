@@ -8747,7 +8747,7 @@ export default function Dashboard() {
         label: "Valuations",
         detail: "Applications, deposits and draft progress claims",
         tone: "amber",
-        items: filteredInvoices.filter((invoice) => invoice.claimType === "valuation" || invoice.valuationStatus || invoice.status === "Draft"),
+        items: filteredInvoices.filter((invoice) => invoice.claimType === "valuation" || invoice.status === "Draft"),
       },
       {
         key: "unpaid",
@@ -10312,6 +10312,19 @@ export default function Dashboard() {
   function updateSiteVatProfile(siteId: string, patch: Pick<Partial<ClientSite>, "vatTreatment" | "vatRateOverride">) {
     markSetupEdited();
     setClientSites((current) => current.map((site) => (site.id === siteId ? { ...site, ...patch } : site)));
+  }
+
+  function clearSiteVatProfile(siteId: string) {
+    markSetupEdited();
+    setClientSites((current) =>
+      current.map((site) => {
+        if (site.id !== siteId) return site;
+        const next = { ...site };
+        delete next.vatTreatment;
+        delete next.vatRateOverride;
+        return next;
+      }),
+    );
   }
 
   function updateLabourRateSetting(rateId: string, patch: Partial<LabourRateSetting>) {
@@ -12291,8 +12304,7 @@ export default function Dashboard() {
       lines,
       costTotal: lines.reduce((sum, line) => sum + line.costToUs, 0),
       chargeTotal: netClaim,
-      vatRate: Number(normalizedFinanceSettings.vatRate) || 20,
-      notes: jobInvoiceDraft.notes || `${title} created from job cost centres.`,
+      notes: jobInvoiceDraft.notes || `${title} created from job cost centres. ${base.vatNote ?? ""}`.trim(),
       claimType: jobInvoiceDraft.mode,
       claimPercent: jobInvoiceDraft.mode === "deposit" ? depositPercent : undefined,
       valuationStatus: isValuation ? "Draft valuation" : undefined,
@@ -12315,10 +12327,11 @@ export default function Dashboard() {
       importance: "high",
     });
     setJobInvoiceDraft(null);
+    setActiveInvoiceFolderKey(isValuation ? "valuations" : "unpaid");
     openInvoiceRecord(created.id);
     showNotice(
       isValuation
-        ? `${created.ref} saved in Invoices > Drafts / valuations. Open Preview to see the application form.`
+        ? `${created.ref} saved in Invoices > Valuations. Open Preview to see the application form.`
         : `${created.ref} created from ${job.ref}.`,
     );
   }
@@ -12358,22 +12371,31 @@ export default function Dashboard() {
         note: `Agreed progress claim from ${selectedInvoice.ref}`,
       }));
     const applicationRef = selectedInvoice.applicationRef ?? selectedInvoice.ref;
+    const approvedInvoice: Invoice = {
+      ...selectedInvoice,
+      ref: nextRef,
+      applicationRef,
+      title: `Invoice for approved valuation · ${selectedInvoice.sourceRef} · ${selectedInvoice.valuationPeriod ?? "current period"}`,
+      claimType: "progress-claim",
+      valuationStatus: "Progress claim",
+      status: "Sent",
+      lines: nextLines,
+      costTotal: nextLines.reduce((sum, line) => line.costToUs + sum, 0),
+      chargeTotal: nextLines.reduce((sum, line) => line.chargeToClient + sum, 0),
+      accountsStatus: "Queued",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+    };
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
-          ...invoice,
-          ref: nextRef,
-          applicationRef,
-          title: `Progress claim for ${invoice.sourceRef} · ${invoice.valuationPeriod ?? "current period"}`,
-          claimType: "progress-claim",
-          valuationStatus: "Progress claim",
-          status: "Draft",
-          lines: nextLines,
-          costTotal: nextLines.reduce((sum, line) => sum + line.costToUs, 0),
-          chargeTotal: nextLines.reduce((sum, line) => sum + line.chargeToClient, 0),
-          accountsStatus: "Not sent",
+          ...approvedInvoice,
         }
       : invoice,
     ));
+    setInvoiceEmailDrafts((current) => ({
+      ...current,
+      [selectedInvoice.id]: makeInvoiceEmailDraft(approvedInvoice, selectedInvoiceClient),
+    }));
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "progress claim created",
@@ -12383,7 +12405,32 @@ export default function Dashboard() {
       source: "valuation agreement",
       importance: "high",
     });
-    showNotice(`${applicationRef} converted to progress claim ${nextRef}.`);
+    setActiveInvoiceFolderKey("unpaid");
+    showNotice(`${applicationRef} approved. Invoice ${nextRef} created, marked unpaid and queued for Xero.`);
+  }
+
+  function amendSelectedValuation() {
+    if (!selectedInvoice || selectedInvoice.claimType !== "valuation") return;
+    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      ? {
+          ...invoice,
+          status: "Draft",
+          valuationStatus: "Draft valuation",
+          accountsStatus: "Not sent",
+        }
+      : invoice,
+    ));
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "valuation amended",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} reopened for valuation amendments.`,
+      source: "valuation agreement",
+      importance: "normal",
+    });
+    setActiveInvoiceFolderKey("valuations");
+    showNotice(`${selectedInvoice.ref} reopened. Amend the agreed values, then resubmit or approve.`);
   }
 
   function queueSelectedInvoiceToAccounts() {
@@ -26343,23 +26390,42 @@ export default function Dashboard() {
                           </div>
                         </label>
                       </div>
-                      <div className="valuation-entry-table">
+                      <div className="valuation-entry-table valuation-claim-table">
                         <div className="valuation-entry-head">
                           <span>Cost centre / work package</span>
                           <span>Contract value</span>
                           <span>Previous</span>
-                          <span>This application</span>
+                          <span>Claim %</span>
+                          <span>Claim £</span>
                           <span>Cumulative</span>
                           <span>Complete</span>
                         </div>
                         {jobInvoiceDraft.valuationLines.map((line) => {
                           const cumulative = line.previousApplications + line.requestedThisPeriod;
                           const completion = line.contractValue > 0 ? Math.min(100, cumulative / line.contractValue * 100) : 0;
+                          const claimPercent = line.contractValue > 0
+                            ? Number(((line.requestedThisPeriod / line.contractValue) * 100).toFixed(2))
+                            : 0;
                           return (
                             <div className="valuation-entry-row" key={line.id}>
                               <strong>{line.description}</strong>
                               <span>{currency(line.contractValue)}</span>
                               <span>{currency(line.previousApplications)}</span>
+                              <label className="percent-input compact">
+                                <input
+                                  aria-label={`${line.description} percentage this application`}
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
+                                  value={line.requestedThisPeriod ? claimPercent : ""}
+                                  onChange={(event) => {
+                                    const percent = Math.max(0, Math.min(100, Number(event.target.value) || 0));
+                                    updateJobValuationLine(line.id, { requestedThisPeriod: line.contractValue * (percent / 100) });
+                                  }}
+                                />
+                                <span>%</span>
+                              </label>
                               <label className="currency-input compact">
                                 <span>£</span>
                                 <input
@@ -26601,9 +26667,13 @@ export default function Dashboard() {
                               <button className="secondary-button" type="button" onClick={submitSelectedValuation}>
                                 Submit valuation
                               </button>
-                            ) : null}
+                            ) : (
+                              <button className="secondary-button" type="button" onClick={amendSelectedValuation}>
+                                Amend valuation
+                              </button>
+                            )}
                             <button className="primary-button" type="button" onClick={convertSelectedValuationToProgressClaim}>
-                              Agree &amp; create progress claim
+                              Approve valuation &amp; create invoice
                             </button>
                           </div>
                         ) : null}
@@ -26728,7 +26798,7 @@ export default function Dashboard() {
                           {selectedInvoice.claimType === "valuation" ? (
                             <button className="primary-button" type="button" onClick={submitSelectedValuation}>
                               <FileText size={15} />
-                              Submit valuation
+                              {selectedInvoice.valuationStatus === "Submitted" ? "Resubmit valuation" : "Submit valuation"}
                             </button>
                           ) : (
                             <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
@@ -26861,7 +26931,7 @@ export default function Dashboard() {
                       <div className="record-form-preview-actions">
                         <button className="secondary-button" type="button" onClick={() => setActiveInvoiceTab("summary")}>Back to invoice</button>
                         {selectedInvoice.claimType === "valuation" ? (
-                          <button className="primary-button" type="button" onClick={submitSelectedValuation}><Mail size={15} /> Submit valuation</button>
+                          <button className="primary-button" type="button" onClick={submitSelectedValuation}><Mail size={15} /> {selectedInvoice.valuationStatus === "Submitted" ? "Resubmit valuation" : "Submit valuation"}</button>
                         ) : (
                           <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}><Mail size={15} /> Email invoice</button>
                         )}
@@ -28597,95 +28667,9 @@ export default function Dashboard() {
                       <div className="setup-subsection-heading">
                         <div>
                           <span className="permission-heading">VAT treatment</span>
-                          <h3>Client and site overrides</h3>
+                          <h3>Client and site VAT rules</h3>
                         </div>
-                        <p>Use the global VAT rate as the default, then override individual clients or sites when work is zero-rated or domestic reverse charge.</p>
-                      </div>
-
-                      <div className="setup-rate-table setup-vat-table">
-                        <div className="setup-rate-row table-head">
-                          <span>Client</span>
-                          <span>VAT treatment</span>
-                          <span>Rate / reference %</span>
-                          <span>Invoice behaviour</span>
-                        </div>
-                        {clients.map((client) => {
-                          const treatment = client.vatTreatment ?? "Standard 20%";
-                          const resolved = resolveVatProfile(financeSettings, client, null);
-                          return (
-                            <div className="setup-rate-row" key={client.id}>
-                              <strong>{client.name}</strong>
-                              <select
-                                aria-label={`${client.name} VAT treatment`}
-                                value={treatment}
-                                onChange={(event) => {
-                                  const nextTreatment = event.target.value as VatTreatment;
-                                  updateClientVatProfile(client.id, {
-                                    vatTreatment: nextTreatment,
-                                    vatRateOverride: vatOverrideForTreatment(nextTreatment, client.vatRateOverride, financeSettings.vatRate),
-                                  });
-                                }}
-                              >
-                                {vatTreatmentOptions.map((option) => (
-                                  <option key={option}>{option}</option>
-                                ))}
-                              </select>
-                              <input
-                                aria-label={`${client.name} VAT rate override`}
-                                inputMode="decimal"
-                                placeholder={financeSettings.vatRate}
-                                value={client.vatRateOverride ?? ""}
-                                onChange={(event) => updateClientVatProfile(client.id, { vatRateOverride: event.target.value })}
-                              />
-                              <span className="setup-status-label">{resolved.note}</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="setup-rate-table setup-vat-table setup-site-vat-table">
-                        <div className="setup-rate-row table-head">
-                          <span>Site</span>
-                          <span>VAT treatment</span>
-                          <span>Rate / reference %</span>
-                          <span>Invoice behaviour</span>
-                        </div>
-                        {clientSites.map((site) => {
-                          const client = clients.find((item) => item.id === site.clientId) ?? null;
-                          const treatment = site.vatTreatment ?? client?.vatTreatment ?? "Standard 20%";
-                          const resolved = resolveVatProfile(financeSettings, client, site);
-                          return (
-                            <div className="setup-rate-row" key={site.id}>
-                              <span>
-                                <strong>{site.name}</strong>
-                                <small>{client?.name ?? "No client"} · {site.address}</small>
-                              </span>
-                              <select
-                                aria-label={`${site.name} VAT treatment`}
-                                value={treatment}
-                                onChange={(event) => {
-                                  const nextTreatment = event.target.value as VatTreatment;
-                                  updateSiteVatProfile(site.id, {
-                                    vatTreatment: nextTreatment,
-                                    vatRateOverride: vatOverrideForTreatment(nextTreatment, site.vatRateOverride, financeSettings.vatRate),
-                                  });
-                                }}
-                              >
-                                {vatTreatmentOptions.map((option) => (
-                                  <option key={option}>{option}</option>
-                                ))}
-                              </select>
-                              <input
-                                aria-label={`${site.name} VAT rate override`}
-                                inputMode="decimal"
-                                placeholder={financeSettings.vatRate}
-                                value={site.vatRateOverride ?? ""}
-                                onChange={(event) => updateSiteVatProfile(site.id, { vatRateOverride: event.target.value })}
-                              />
-                              <span className="setup-status-label">{resolved.note}</span>
-                            </div>
-                          );
-                        })}
+                        <p>The global VAT rate stays here as the fallback. Client defaults and site-specific overrides are edited from People &gt; Clients so the VAT rule lives with the customer record.</p>
                       </div>
 
                       <div className="setup-subsection-heading">
@@ -29105,6 +29089,40 @@ export default function Dashboard() {
                         </dl>
                       </article>
 
+                      <article className="client-info-card client-vat-card">
+                        <span className="permission-heading">Client VAT default</span>
+                        <p>Used for every quote, job and invoice unless a site below has its own VAT rule.</p>
+                        <div className="client-vat-controls">
+                          <label>
+                            VAT treatment
+                            <select
+                              value={activeClient.vatTreatment ?? "Standard 20%"}
+                              onChange={(event) => {
+                                const nextTreatment = event.target.value as VatTreatment;
+                                updateClientVatProfile(activeClient.id, {
+                                  vatTreatment: nextTreatment,
+                                  vatRateOverride: vatOverrideForTreatment(nextTreatment, activeClient.vatRateOverride, financeSettings.vatRate),
+                                });
+                              }}
+                            >
+                              {vatTreatmentOptions.map((option) => (
+                                <option key={option}>{option}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Rate / reference %
+                            <input
+                              inputMode="decimal"
+                              placeholder={financeSettings.vatRate}
+                              value={activeClient.vatRateOverride ?? ""}
+                              onChange={(event) => updateClientVatProfile(activeClient.id, { vatRateOverride: event.target.value })}
+                            />
+                          </label>
+                        </div>
+                        <span className="setup-status-label">{resolveVatProfile(financeSettings, activeClient, null).note}</span>
+                      </article>
+
                       <article className="client-info-card">
                         <span className="permission-heading">Commercial notes</span>
                         <p>{activeClient.notes}</p>
@@ -29159,6 +29177,40 @@ export default function Dashboard() {
                           <p>{site.address}</p>
                           <p className="client-directory-meta">Contact: {site.primaryContact}</p>
                           <p className="client-directory-meta">VAT: {resolveVatProfile(financeSettings, activeClient, site).note}</p>
+                          <div className="client-vat-controls site-vat-controls">
+                            <label>
+                              Site VAT rule
+                              <select
+                                value={site.vatTreatment ?? "inherit"}
+                                onChange={(event) => {
+                                  if (event.target.value === "inherit") {
+                                    clearSiteVatProfile(site.id);
+                                    return;
+                                  }
+                                  const nextTreatment = event.target.value as VatTreatment;
+                                  updateSiteVatProfile(site.id, {
+                                    vatTreatment: nextTreatment,
+                                    vatRateOverride: vatOverrideForTreatment(nextTreatment, site.vatRateOverride, financeSettings.vatRate),
+                                  });
+                                }}
+                              >
+                                <option value="inherit">Use client default</option>
+                                {vatTreatmentOptions.map((option) => (
+                                  <option key={option}>{option}</option>
+                                ))}
+                              </select>
+                            </label>
+                            <label>
+                              Site rate / reference %
+                              <input
+                                disabled={!site.vatTreatment}
+                                inputMode="decimal"
+                                placeholder={site.vatTreatment ? financeSettings.vatRate : "Inherited"}
+                                value={site.vatRateOverride ?? ""}
+                                onChange={(event) => updateSiteVatProfile(site.id, { vatRateOverride: event.target.value })}
+                              />
+                            </label>
+                          </div>
                           <p className="client-directory-meta">Next visit: {site.nextVisit}</p>
                           <p className="client-directory-meta">Access: {site.accessNotes}</p>
                         </article>

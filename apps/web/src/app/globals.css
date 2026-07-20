@@ -3066,6 +3066,51 @@ kbd {
   margin: 0;
 }
 
+.client-vat-card {
+  align-content: start;
+  display: grid;
+  gap: 12px;
+}
+
+.client-vat-controls {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.client-vat-controls label {
+  color: #4d5963;
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  font-weight: 850;
+  gap: 7px;
+  min-width: 0;
+}
+
+.client-vat-controls input,
+.client-vat-controls select {
+  border: 1px solid #c8d2d9;
+  border-radius: 5px;
+  color: var(--ink);
+  font: inherit;
+  min-height: 38px;
+  min-width: 0;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.client-vat-controls input:disabled {
+  background: #f4f7f9;
+  color: var(--subtle);
+}
+
+.site-vat-controls {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 4px;
+  padding-top: 12px;
+}
+
 .quote-action-stack {
   align-items: flex-start;
   display: flex;
@@ -8962,6 +9007,12 @@ h1 {
   padding: 9px 11px;
 }
 
+.valuation-claim-table .valuation-entry-head,
+.valuation-claim-table .valuation-entry-row {
+  grid-template-columns: minmax(190px, 1.5fr) repeat(6, minmax(96px, 0.6fr));
+  min-width: 920px;
+}
+
 .valuation-entry-head {
   background: #edf5f8;
   color: #476171;
@@ -8984,9 +9035,11 @@ h1 {
 .currency-input.compact {
   align-items: stretch;
   border: 1px solid #cbdde7;
+  border-radius: 5px;
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
   min-width: 0;
+  overflow: hidden;
 }
 
 .currency-input.compact > span {
@@ -9004,6 +9057,34 @@ h1 {
   min-width: 0;
   padding: 8px;
   text-align: right;
+}
+
+.percent-input.compact {
+  align-items: stretch;
+  border: 1px solid #cbdde7;
+  border-radius: 5px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.percent-input.compact input {
+  border: 0;
+  color: var(--ink);
+  font: inherit;
+  min-width: 0;
+  padding: 8px;
+  text-align: right;
+}
+
+.percent-input.compact > span {
+  align-items: center;
+  background: #edf5f8;
+  color: #496474;
+  display: flex;
+  font-size: 10px;
+  justify-content: center;
 }
 
 .valuation-totals-strip,
