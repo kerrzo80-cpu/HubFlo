@@ -22285,6 +22285,7 @@ img.markup-document-preview {
 }
 
 .markup-pipe-hit {
+  cursor: pointer;
   fill: none;
   opacity: 0;
   pointer-events: stroke;
@@ -22297,6 +22298,11 @@ img.markup-document-preview {
 .markup-pipe.selected {
   filter: drop-shadow(0 0 5px rgba(21, 145, 196, 0.55));
   stroke-width: 9;
+}
+
+.markup-pipe.hovered {
+  filter: drop-shadow(0 0 4px rgba(21, 145, 196, 0.45));
+  stroke-width: 8;
 }
 
 .markup-pipe.draft {
@@ -30528,6 +30534,11 @@ body {
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.selected {
   filter: drop-shadow(0 0 4px rgba(21, 145, 196, 0.45)) !important;
   stroke-width: 3.5 !important;
+}
+
+.takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-pipe.hovered {
+  filter: drop-shadow(0 0 3px rgba(21, 145, 196, 0.38)) !important;
+  stroke-width: 3 !important;
 }
 
 .takeoff-app.takeoff-markup-fullscreen.takeoff-drawing-mode .markup-route-point {

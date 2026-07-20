@@ -61,6 +61,25 @@ type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
 type MarkupCanvasPoint = { x: number; y: number };
 type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "valves" | "plant";
 type MarkupToolGroupId = "all" | "heating" | "hot-cold" | "sanitary" | "waste-soil" | "gas" | "plant-fixtures";
+type MarkupElementDrag =
+  | {
+    kind: "pipe";
+    elementId: string;
+    pointerId?: number;
+    touchId?: number;
+    start: MarkupCanvasPoint;
+    originalPipe: TakeoffMarkupPipe;
+    changed: boolean;
+  }
+  | {
+    kind: "symbol";
+    elementId: string;
+    pointerId?: number;
+    touchId?: number;
+    start: MarkupCanvasPoint;
+    originalSymbol: TakeoffMarkupSymbol;
+    changed: boolean;
+  };
 
 type NewProjectDraft = {
   name: string;
@@ -812,6 +831,10 @@ function markupCostCentreSection(
 
 function markupRouteLabel(pipe: Pick<TakeoffMarkupPipe, "diameter" | "material">) {
   return `${pipe.diameter} ${pipe.material}`.trim();
+}
+
+function markupRouteDetailLabel(pipe: Pick<TakeoffMarkupPipe, "service" | "diameter" | "material">) {
+  return `${pipe.service} - ${markupRouteLabel(pipe)}`;
 }
 
 function markupRouteLabelPoint(pipe: TakeoffMarkupPipe) {
@@ -1648,6 +1671,7 @@ export default function TakeoffPage() {
   const [activeMarkupFloor, setActiveMarkupFloor] = useState("Ground floor");
   const [activeMarkupFlat, setActiveMarkupFlat] = useState("");
   const [selectedMarkupElementId, setSelectedMarkupElementId] = useState("");
+  const [hoveredMarkupElementId, setHoveredMarkupElementId] = useState("");
   const [markupDraftPipe, setMarkupDraftPipe] = useState<TakeoffMarkupPipe | null>(null);
   const [localServicesMarkup, setLocalServicesMarkup] = useState<TakeoffServicesMarkup | null>(null);
   const [optimisticMarkupPipes, setOptimisticMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
@@ -1669,6 +1693,7 @@ export default function TakeoffPage() {
   const markupDraftPipeRef = useRef<TakeoffMarkupPipe | null>(null);
   const markupPointerDrawRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
+  const markupElementDragRef = useRef<MarkupElementDrag | null>(null);
   const markupCalibrationPointerRef = useRef<{ pointerId: number; start: MarkupCanvasPoint } | null>(null);
   const markupCalibrationTouchRef = useRef<{ touchId: number; start: MarkupCanvasPoint } | null>(null);
   const markupViewFrameRef = useRef<number | null>(null);
@@ -1993,6 +2018,13 @@ const filteredMarkupPlantTools = useMemo(() => {
     const activePipeIds = new Set(activeMarkupPipes.map((pipe) => pipe.id));
     return recentMarkupPipes.filter((pipe) => !activePipeIds.has(pipe.id));
   }, [activeMarkupPipes, recentMarkupPipes]);
+
+  const visibleMarkupPipes = useMemo(() => {
+    const pipeMap = new Map<string, TakeoffMarkupPipe>();
+    activeMarkupPipes.forEach((pipe) => pipeMap.set(pipe.id, pipe));
+    recentVisibleMarkupPipes.forEach((pipe) => pipeMap.set(pipe.id, pipe));
+    return Array.from(pipeMap.values());
+  }, [activeMarkupPipes, recentVisibleMarkupPipes]);
 
   const activeMarkupSymbols = useMemo(() => displayedServicesMarkup.symbols.filter((symbol) => (
     (!activeMarkupHasContext || !symbol.drawingDocumentId || symbol.drawingDocumentId === activeMarkupDrawingId)
@@ -2521,6 +2553,255 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     return Date.now() - lastMarkupCanvasInputAtRef.current < 550;
   }
 
+  function closestMarkupPointOnSegment(point: MarkupCanvasPoint, start: MarkupCanvasPoint, end: MarkupCanvasPoint) {
+    const deltaX = end.x - start.x;
+    const deltaY = end.y - start.y;
+    const lengthSq = deltaX * deltaX + deltaY * deltaY;
+    if (!lengthSq) return start;
+    const projection = ((point.x - start.x) * deltaX + (point.y - start.y) * deltaY) / lengthSq;
+    const t = Math.max(0, Math.min(1, projection));
+    return {
+      x: Math.round(start.x + deltaX * t),
+      y: Math.round(start.y + deltaY * t),
+    };
+  }
+
+  function nearestMarkupSnapPoint(point: MarkupCanvasPoint, options: { excludePipeId?: string } = {}) {
+    const tolerance = Math.max(8, 18 / Math.max(1, markupViewport.zoom));
+    let best: { point: MarkupCanvasPoint; distance: number } | null = null;
+    const register = (candidate: MarkupCanvasPoint) => {
+      const distance = markupPointDistance(point, candidate);
+      if (distance <= tolerance && (!best || distance < best.distance)) {
+        best = { point: candidate, distance };
+      }
+    };
+
+    visibleMarkupPipes.forEach((pipe) => {
+      if (pipe.id === options.excludePipeId || pipe.points.length < 2) return;
+      pipe.points.forEach(register);
+      for (let index = 1; index < pipe.points.length; index += 1) {
+        const previous = pipe.points[index - 1];
+        const current = pipe.points[index];
+        if (previous && current) register(closestMarkupPointOnSegment(point, previous, current));
+      }
+    });
+
+    const snapped = best as { point: MarkupCanvasPoint; distance: number } | null;
+    return snapped ? snapped.point : point;
+  }
+
+  function snapMarkupRouteEndpoints(points: MarkupCanvasPoint[], options: { excludePipeId?: string } = {}) {
+    if (points.length < 2) return points;
+    const next = points.map((point) => ({ ...point }));
+    next[0] = nearestMarkupSnapPoint(next[0]!, options);
+    next[next.length - 1] = nearestMarkupSnapPoint(next[next.length - 1]!, options);
+    return dedupeMarkupPoints(next);
+  }
+
+  function clampMarkupCanvasPoint(point: MarkupCanvasPoint) {
+    return {
+      x: Math.round(Math.min(Math.max(0, point.x), markupCanvasWidth)),
+      y: Math.round(Math.min(Math.max(0, point.y), markupCanvasHeight)),
+    };
+  }
+
+  function moveMarkupPipe(pipe: TakeoffMarkupPipe, dx: number, dy: number): TakeoffMarkupPipe {
+    return {
+      ...pipe,
+      points: pipe.points.map((point) => clampMarkupCanvasPoint({ x: point.x + dx, y: point.y + dy })),
+    };
+  }
+
+  function moveMarkupSymbol(symbol: TakeoffMarkupSymbol, dx: number, dy: number): TakeoffMarkupSymbol {
+    const point = clampMarkupCanvasPoint({ x: symbol.x + dx, y: symbol.y + dy });
+    return {
+      ...symbol,
+      x: point.x,
+      y: point.y,
+    };
+  }
+
+  function previewMovedMarkupPipe(pipe: TakeoffMarkupPipe) {
+    setLocalServicesMarkup((current) => current ? {
+      ...current,
+      pipes: current.pipes.map((item) => (item.id === pipe.id ? pipe : item)),
+    } : current);
+    setOptimisticMarkupPipes((current) => current.map((item) => (item.id === pipe.id ? pipe : item)));
+    setRecentMarkupPipes((current) => current.map((item) => (item.id === pipe.id ? pipe : item)));
+  }
+
+  function previewMovedMarkupSymbol(symbol: TakeoffMarkupSymbol) {
+    setLocalServicesMarkup((current) => current ? {
+      ...current,
+      symbols: current.symbols.map((item) => (item.id === symbol.id ? symbol : item)),
+    } : current);
+    setOptimisticMarkupSymbols((current) => current.map((item) => (item.id === symbol.id ? symbol : item)));
+    setRecentMarkupSymbols((current) => current.map((item) => (item.id === symbol.id ? symbol : item)));
+  }
+
+  function movedMarkupElementFromDrag(drag: MarkupElementDrag, point: MarkupCanvasPoint) {
+    const dx = Math.round(point.x - drag.start.x);
+    const dy = Math.round(point.y - drag.start.y);
+    if (drag.kind === "pipe") return moveMarkupPipe(drag.originalPipe, dx, dy);
+    return moveMarkupSymbol(drag.originalSymbol, dx, dy);
+  }
+
+  function updateMarkupElementDrag(point: MarkupCanvasPoint) {
+    const drag = markupElementDragRef.current;
+    if (!drag) return;
+    const moved = movedMarkupElementFromDrag(drag, point);
+    if (drag.kind === "pipe") {
+      previewMovedMarkupPipe(moved as TakeoffMarkupPipe);
+    } else {
+      previewMovedMarkupSymbol(moved as TakeoffMarkupSymbol);
+    }
+    markupElementDragRef.current = { ...drag, changed: true } as MarkupElementDrag;
+  }
+
+  function commitMarkupElementDrag(point?: MarkupCanvasPoint) {
+    const drag = markupElementDragRef.current;
+    if (!drag) return;
+    const movedEnough = point ? markupPointDistance(drag.start, point) > 1 : false;
+    const finalElement = point ? movedMarkupElementFromDrag(drag, point) : (
+      drag.kind === "pipe" ? drag.originalPipe : drag.originalSymbol
+    );
+    markupElementDragRef.current = null;
+    if (!drag.changed && !movedEnough) return;
+
+    if (drag.kind === "pipe") {
+      const finalPipe = finalElement as TakeoffMarkupPipe;
+      previewMovedMarkupPipe(finalPipe);
+      updateServicesMarkup((current) => ({
+        ...current,
+        pipes: current.pipes.some((pipe) => pipe.id === finalPipe.id)
+          ? current.pipes.map((pipe) => (pipe.id === finalPipe.id ? finalPipe : pipe))
+          : [...current.pipes, finalPipe],
+      }), "Pipe route moved.");
+      return;
+    }
+
+    const finalSymbol = finalElement as TakeoffMarkupSymbol;
+    previewMovedMarkupSymbol(finalSymbol);
+    updateServicesMarkup((current) => ({
+      ...current,
+      symbols: current.symbols.some((symbol) => symbol.id === finalSymbol.id)
+        ? current.symbols.map((symbol) => (symbol.id === finalSymbol.id ? finalSymbol : symbol))
+        : [...current.symbols, finalSymbol],
+    }), "Markup item moved.");
+  }
+
+  function beginMarkupPipePointerDrag(event: ReactPointerEvent<SVGElement>, pipe: TakeoffMarkupPipe) {
+    if (event.pointerType === "touch") return;
+    event.preventDefault();
+    event.stopPropagation();
+    markMarkupCanvasInput();
+    const canvas = markupCanvasRef.current;
+    const point = markupCanvasPointFromClient(event.clientX, event.clientY, canvas);
+    if (markupToolMode === "pipe" && selectedMarkupElementId !== pipe.id) {
+      if (canvas) captureMarkupPointer(canvas, event.pointerId);
+      markupPointerDrawRef.current = { pointerId: event.pointerId, moved: false };
+      setSelectedMarkupElementId("");
+      setMarkupCalibrationPoints([]);
+      addMarkupDraftPoint(nearestMarkupSnapPoint(point), 3);
+      return;
+    }
+
+    setSelectedMarkupElementId(pipe.id);
+    setMarkupToolMode("select");
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints([]);
+    if (canvas) captureMarkupPointer(canvas, event.pointerId);
+    markupElementDragRef.current = {
+      kind: "pipe",
+      elementId: pipe.id,
+      pointerId: event.pointerId,
+      start: point,
+      originalPipe: pipe,
+      changed: false,
+    };
+  }
+
+  function beginMarkupSymbolPointerDrag(event: ReactPointerEvent<SVGElement>, symbol: TakeoffMarkupSymbol) {
+    if (event.pointerType === "touch") return;
+    event.preventDefault();
+    event.stopPropagation();
+    markMarkupCanvasInput();
+    setSelectedMarkupElementId(symbol.id);
+    setMarkupToolMode("select");
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints([]);
+    const canvas = markupCanvasRef.current;
+    if (canvas) captureMarkupPointer(canvas, event.pointerId);
+    markupElementDragRef.current = {
+      kind: "symbol",
+      elementId: symbol.id,
+      pointerId: event.pointerId,
+      start: markupCanvasPointFromClient(event.clientX, event.clientY, canvas),
+      originalSymbol: symbol,
+      changed: false,
+    };
+  }
+
+  function findMarkupTouchById(touches: ReactTouchEvent<SVGSVGElement>["touches"], touchId?: number) {
+    if (touchId === undefined) return null;
+    for (let index = 0; index < touches.length; index += 1) {
+      const touch = touches.item(index);
+      if (touch?.identifier === touchId) return touch;
+    }
+    return null;
+  }
+
+  function beginMarkupPipeTouchDrag(event: ReactTouchEvent<SVGElement>, pipe: TakeoffMarkupPipe) {
+    const touch = event.touches.item(0);
+    if (!touch) return;
+    event.preventDefault();
+    event.stopPropagation();
+    markMarkupCanvasInput();
+    const canvas = markupCanvasRef.current;
+    const point = markupCanvasPointFromClient(touch.clientX, touch.clientY, canvas);
+    if (markupToolMode === "pipe" && selectedMarkupElementId !== pipe.id) {
+      markupTouchDrawRef.current = { touchId: touch.identifier };
+      setSelectedMarkupElementId("");
+      setMarkupCalibrationPoints([]);
+      addMarkupDraftPoint(nearestMarkupSnapPoint(point), 3);
+      return;
+    }
+
+    setSelectedMarkupElementId(pipe.id);
+    setMarkupToolMode("select");
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints([]);
+    markupElementDragRef.current = {
+      kind: "pipe",
+      elementId: pipe.id,
+      touchId: touch.identifier,
+      start: point,
+      originalPipe: pipe,
+      changed: false,
+    };
+  }
+
+  function beginMarkupSymbolTouchDrag(event: ReactTouchEvent<SVGElement>, symbol: TakeoffMarkupSymbol) {
+    const touch = event.touches.item(0);
+    if (!touch) return;
+    event.preventDefault();
+    event.stopPropagation();
+    markMarkupCanvasInput();
+    setSelectedMarkupElementId(symbol.id);
+    setMarkupToolMode("select");
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints([]);
+    const canvas = markupCanvasRef.current;
+    markupElementDragRef.current = {
+      kind: "symbol",
+      elementId: symbol.id,
+      touchId: touch.identifier,
+      start: markupCanvasPointFromClient(touch.clientX, touch.clientY, canvas),
+      originalSymbol: symbol,
+      changed: false,
+    };
+  }
+
   function addMarkupCalibrationPoint(point: MarkupCanvasPoint) {
     setSelectedMarkupElementId("");
     setMarkupDraftPipeState(null);
@@ -2600,6 +2881,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupPointerMove(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.pointerType === "touch") return;
+    const activeDrag = markupElementDragRef.current;
+    if (activeDrag?.pointerId === event.pointerId) {
+      event.preventDefault();
+      updateMarkupElementDrag(markupCanvasPoint(event));
+      return;
+    }
+
     if (markupToolMode === "calibrate" && markupCalibrationPointerRef.current?.pointerId === event.pointerId) {
       event.preventDefault();
       const currentPoint = markupCanvasPoint(event);
@@ -2629,6 +2917,18 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupPointerUp(event: ReactPointerEvent<SVGSVGElement>) {
     if (event.pointerType === "touch") return;
+    const activeDrag = markupElementDragRef.current;
+    if (activeDrag?.pointerId === event.pointerId) {
+      event.preventDefault();
+      markMarkupCanvasInput();
+      commitMarkupElementDrag(markupCanvasPoint(event));
+      releaseMarkupPointer(event.currentTarget, event.pointerId);
+      setTimeout(() => {
+        suppressMarkupCanvasClickRef.current = false;
+      }, 0);
+      return;
+    }
+
     if (markupCalibrationPointerRef.current?.pointerId === event.pointerId) {
       event.preventDefault();
       markMarkupCanvasInput();
@@ -2759,6 +3059,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
   function handleMarkupTouchMove(event: ReactTouchEvent<SVGSVGElement>) {
     if (markupPointerDrawRef.current || markupPanStart) return;
+    const activeDrag = markupElementDragRef.current;
+    if (activeDrag?.touchId !== undefined) {
+      const activeTouch = findMarkupTouchById(event.touches, activeDrag.touchId);
+      if (!activeTouch) return;
+      event.preventDefault();
+      updateMarkupElementDrag(markupTouchPoint(activeTouch, event.currentTarget));
+      return;
+    }
+
     if (markupToolMode === "calibrate" && markupCalibrationTouchRef.current) {
       const activeTouch = event.touches.item(0);
       if (!activeTouch || activeTouch.identifier !== markupCalibrationTouchRef.current.touchId) return;
@@ -2846,6 +3155,17 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   function handleMarkupTouchEnd(event: ReactTouchEvent<SVGSVGElement>) {
     if (markupPointerDrawRef.current) return;
     const activeTouch = event.changedTouches.item(0);
+    const activeDrag = markupElementDragRef.current;
+    if (activeDrag?.touchId !== undefined && activeTouch?.identifier === activeDrag.touchId) {
+      event.preventDefault();
+      markMarkupCanvasInput();
+      commitMarkupElementDrag(markupTouchPoint(activeTouch, event.currentTarget));
+      setTimeout(() => {
+        suppressMarkupCanvasClickRef.current = false;
+      }, 0);
+      return;
+    }
+
     if (markupCalibrationTouchRef.current && activeTouch?.identifier === markupCalibrationTouchRef.current.touchId) {
       event.preventDefault();
       markMarkupCanvasInput();
@@ -2877,6 +3197,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function createMarkupPipe(points: MarkupCanvasPoint[]): TakeoffMarkupPipe {
+    const routePoints = points.length === 1
+      ? [nearestMarkupSnapPoint(points[0]!)]
+      : points;
     return {
       id: makeId("markup-pipe"),
       type: "pipe",
@@ -2884,7 +3207,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       material: activeMarkupPipeTool.material,
       diameter: activeMarkupPipeTool.diameter,
       colour: markupPipeColour(activeMarkupPipeTool.material, activeMarkupPipeTool.diameter, activeMarkupService),
-      points,
+      points: routePoints,
       floor: normaliseMarkupFloorValue(activeMarkupFloor),
       flat: normaliseMarkupFlatValue(activeMarkupFlat),
       drawingDocumentId: activeMarkupDrawingId,
@@ -3025,7 +3348,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function finishMarkupRoute(pipe = markupDraftPipeRef.current ?? markupDraftPipe) {
-    const routePoints = pipe ? snapMarkupPipePoints(pipe.points) : [];
+    const snappedEnds = pipe ? snapMarkupRouteEndpoints(pipe.points, { excludePipeId: pipe.id }) : [];
+    const routePoints = pipe ? snapMarkupRouteEndpoints(snapMarkupPipePoints(snappedEnds), { excludePipeId: pipe.id }) : [];
     if (!pipe || routePoints.length < 2) {
       setError("Tap at least two points before finishing the pipe route.");
       return;
@@ -5085,11 +5409,22 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         {activeMarkupPipes.map((pipe) => {
                           const routeColour = markupPipeColour(pipe.material, pipe.diameter, pipe.service);
                           const labelPoint = markupRouteLabelPoint(pipe);
+                          const isSelected = selectedMarkupElementId === pipe.id;
+                          const isHovered = hoveredMarkupElementId === pipe.id;
+                          const pipeClassName = [
+                            "markup-pipe",
+                            isSelected ? "selected" : "",
+                            isHovered ? "hovered" : "",
+                          ].filter(Boolean).join(" ");
                           return (
                           <g key={pipe.id}>
                             <polyline
                               className="markup-pipe-hit"
                               points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                              onPointerDown={(event) => beginMarkupPipePointerDrag(event, pipe)}
+                              onTouchStart={(event) => beginMarkupPipeTouchDrag(event, pipe)}
+                              onMouseEnter={() => setHoveredMarkupElementId(pipe.id)}
+                              onMouseLeave={() => setHoveredMarkupElementId((current) => (current === pipe.id ? "" : current))}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setSelectedMarkupElementId(pipe.id);
@@ -5097,14 +5432,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               }}
                             />
                             <polyline
-                              className={selectedMarkupElementId === pipe.id ? "markup-pipe selected" : "markup-pipe"}
+                              className={pipeClassName}
                               points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
                               stroke={routeColour}
                               vectorEffect="non-scaling-stroke"
                             />
-                            {selectedMarkupElementId === pipe.id ? pipe.points.map((point, index) => (
+                            {isSelected ? pipe.points.map((point, index) => (
                               <circle
-                                className={selectedMarkupElementId === pipe.id ? "markup-route-point selected" : "markup-route-point"}
+                                className={isSelected ? "markup-route-point selected" : "markup-route-point"}
                                 cx={point.x}
                                 cy={point.y}
                                 r="3"
@@ -5112,14 +5447,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                                 key={`${pipe.id}-${index}`}
                               />
                             )) : null}
-                            {selectedMarkupElementId === pipe.id ? (
+                            {isSelected || isHovered ? (
                               <text
                                 className="markup-route-label"
                                 x={labelPoint.x + 9}
                                 y={labelPoint.y - 9}
                                 stroke={routeColour}
                               >
-                                {markupRouteLabel(pipe)}
+                                {markupRouteDetailLabel(pipe)}
                               </text>
                             ) : null}
                           </g>
@@ -5129,11 +5464,22 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         {recentVisibleMarkupPipes.map((pipe) => {
                           const routeColour = markupPipeColour(pipe.material, pipe.diameter, pipe.service);
                           const labelPoint = markupRouteLabelPoint(pipe);
+                          const isSelected = selectedMarkupElementId === pipe.id;
+                          const isHovered = hoveredMarkupElementId === pipe.id;
+                          const pipeClassName = [
+                            "markup-pipe recent",
+                            isSelected ? "selected" : "",
+                            isHovered ? "hovered" : "",
+                          ].filter(Boolean).join(" ");
                           return (
                             <g key={`recent-${pipe.id}`}>
                               <polyline
                                 className="markup-pipe-hit"
                                 points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                                onPointerDown={(event) => beginMarkupPipePointerDrag(event, pipe)}
+                                onTouchStart={(event) => beginMarkupPipeTouchDrag(event, pipe)}
+                                onMouseEnter={() => setHoveredMarkupElementId(pipe.id)}
+                                onMouseLeave={() => setHoveredMarkupElementId((current) => (current === pipe.id ? "" : current))}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   setSelectedMarkupElementId(pipe.id);
@@ -5141,19 +5487,21 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                                 }}
                               />
                               <polyline
-                                className="markup-pipe recent"
+                                className={pipeClassName}
                                 points={pipe.points.map((point) => `${point.x},${point.y}`).join(" ")}
                                 stroke={routeColour}
                                 vectorEffect="non-scaling-stroke"
                               />
-                              <text
-                                className="markup-route-label recent"
-                                x={labelPoint.x + 9}
-                                y={labelPoint.y - 9}
-                                stroke={routeColour}
-                              >
-                                {markupRouteLabel(pipe)}
-                              </text>
+                              {isSelected || isHovered ? (
+                                <text
+                                  className="markup-route-label recent"
+                                  x={labelPoint.x + 9}
+                                  y={labelPoint.y - 9}
+                                  stroke={routeColour}
+                                >
+                                  {markupRouteDetailLabel(pipe)}
+                                </text>
+                              ) : null}
                             </g>
                           );
                         })}
@@ -5175,6 +5523,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             style={{ "--symbol-colour": markupSymbolKindColour(symbol.kind, symbol.category) } as CSSProperties}
                             transform={`translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})`}
                             key={symbol.id}
+                            onPointerDown={(event) => beginMarkupSymbolPointerDrag(event, symbol)}
+                            onTouchStart={(event) => beginMarkupSymbolTouchDrag(event, symbol)}
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedMarkupElementId(symbol.id);
@@ -5199,6 +5549,8 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             style={{ "--symbol-colour": markupSymbolKindColour(symbol.kind, symbol.category) } as CSSProperties}
                             transform={`translate(${symbol.x} ${symbol.y}) rotate(${symbol.rotation})`}
                             key={`recent-${symbol.id}`}
+                            onPointerDown={(event) => beginMarkupSymbolPointerDrag(event, symbol)}
+                            onTouchStart={(event) => beginMarkupSymbolTouchDrag(event, symbol)}
                             onClick={(event) => {
                               event.stopPropagation();
                               setSelectedMarkupElementId(symbol.id);
