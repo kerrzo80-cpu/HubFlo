@@ -1175,11 +1175,21 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState("Preparing PDF preview...");
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     let loadingTask: { destroy: () => Promise<void> } | null = null;
     let renderTask: { cancel: () => void; promise: Promise<void> } | null = null;
+
+    const retryUrl = (attempt: number) => {
+      const separator = src.includes("?") ? "&" : "?";
+      return `${src}${separator}nexaPdfPreview=${retryToken}-${attempt}`;
+    };
+
+    const waitForRetry = (attempt: number) => new Promise((resolve) => {
+      window.setTimeout(resolve, attempt * 900);
+    });
 
     async function renderPdf() {
       setStatus("loading");
@@ -1187,8 +1197,20 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).toString();
-        const response = await fetch(src, { credentials: "same-origin" });
-        if (!response.ok) throw new Error(`Unable to load PDF drawing (${response.status})`);
+        let response: Response | null = null;
+        let lastStatus = 0;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            response = await fetch(retryUrl(attempt), { credentials: "same-origin", cache: "no-store" });
+            lastStatus = response.status;
+            if (response.ok || response.status < 500 || cancelled) break;
+          } catch (fetchError) {
+            lastStatus = 0;
+            if (attempt === 3) throw fetchError;
+          }
+          await waitForRetry(attempt);
+        }
+        if (!response?.ok) throw new Error(`Unable to load PDF drawing (${lastStatus || "network error"})`);
         const data = new Uint8Array(await response.arrayBuffer());
         const task = pdfjs.getDocument({ data, isOffscreenCanvasSupported: false });
         loadingTask = task;
@@ -1237,7 +1259,7 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
       renderTask?.cancel();
       loadingTask?.destroy().catch(() => {});
     };
-  }, [src]);
+  }, [retryToken, src]);
 
   return (
     <div className={`markup-pdf-preview ${status}`} aria-label={`${label} first page preview`}>
@@ -1249,6 +1271,9 @@ function PdfPlanPreview({ src, label }: { src: string; label: string }) {
       {status === "error" ? (
         <div className="markup-pdf-fallback">
           <span>{`PDF preview could not be rendered: ${errorMessage}`}</span>
+          <button type="button" className="takeoff-small-button" onClick={() => setRetryToken((current) => current + 1)}>
+            Retry preview
+          </button>
           <a href={src} target="_blank" rel="noreferrer">Open PDF in a new tab</a>
           <object data={src} type="application/pdf" aria-label={`${label} PDF preview`}>
             PDF viewer could not render this embedded file.
