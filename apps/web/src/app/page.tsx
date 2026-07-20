@@ -556,7 +556,7 @@ type ReportTone = "blue" | "green" | "amber" | "red";
 
 type ClientTab = "overview" | "sites" | "history";
 type LeadTab = "details" | "survey" | "documents" | "logs";
-type JobDetailTab = "summary" | "planner" | "cost-centres" | "documents" | "forms" | "logs";
+type JobDetailTab = "summary" | "cost-summary" | "planner" | "cost-centres" | "documents" | "forms" | "logs";
 type QuoteDetailTab = "setup" | "planner" | "cost-build" | "supplier-request" | "documents" | "preview" | "logs";
 type InvoiceTab = "summary" | "lines" | "documents" | "preview" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "po" | "engineer-flow" | "options" | "schedule" | "assets";
@@ -1805,6 +1805,7 @@ const leadTabs: Array<{ key: LeadTab; label: string }> = [
 
 const jobDetailTabs: Array<{ key: JobDetailTab; label: string }> = [
   { key: "summary", label: "Details" },
+  { key: "cost-summary", label: "Cost Summary" },
   { key: "planner", label: "Planner" },
   { key: "cost-centres", label: "Cost Centre List" },
   { key: "documents", label: "Documents" },
@@ -20278,9 +20279,6 @@ export default function Dashboard() {
                             <span className="next-action quote-workflow-action">
                               <strong>{job.next}</strong>
                               <small>{job.scheduledDate && job.scheduledTime ? `${job.scheduledDate} at ${job.scheduledTime}` : `Due ${job.due}`}</small>
-                              <button className="secondary-button" type="button" onClick={(event) => { event.stopPropagation(); openJobDrawer(job.id); }}>
-                                Open job
-                              </button>
                             </span>
                             {renderDirectoryActionMenu("job", job.id, [
                               { label: "Open job", onClick: () => openJobDrawer(job.id) },
@@ -24212,6 +24210,125 @@ export default function Dashboard() {
                           ))
                         )}
                       </div>
+                    </section>
+                  </section>
+                ) : null}
+
+                {activeJobTab === "cost-summary" ? (
+                  <section className="quote-record-panel">
+                    <section className="simpro-summary-panel quote-combined-summary">
+                      <h2>Job cost summary</h2>
+                      {(() => {
+                        const centreBreakdown = selectedJobEstimateCostCentres.map((centre) => ({
+                          centre,
+                          totals: estimateCostCentreTotals(centre),
+                        }));
+                        const combined = centreBreakdown.reduce(
+                          (acc, item) => ({
+                            materialCost: acc.materialCost + item.totals.materialCost,
+                            materialSell: acc.materialSell + item.totals.materialSell,
+                            labourCost: acc.labourCost + item.totals.labourCost,
+                            labourSell: acc.labourSell + item.totals.labourSell,
+                          }),
+                          { materialCost: 0, materialSell: 0, labourCost: 0, labourSell: 0 },
+                        );
+                        const pendingPoCost = selectedJobPurchaseRequests.reduce(
+                          (total, request) => total + purchaseRequestPendingCost(request),
+                          0,
+                        );
+                        const actualPoCost = selectedJobPurchaseRequests.reduce(
+                          (total, request) => total + purchaseRequestActualCost(request),
+                          0,
+                        );
+                        const jobVatProfile = resolveVatProfile(normalizedFinanceSettings, selectedJobClient, selectedJobSite);
+
+                        return (
+                          <>
+                            <div className="hubflo-total-strip">
+                              <div>
+                                <span>Cost to us</span>
+                                <strong>{currency(selectedJobCostSummary.totalCost)}</strong>
+                              </div>
+                              <div>
+                                <span>Charge to client</span>
+                                <strong>{currency(selectedJobCostSummary.totalCharge)}</strong>
+                              </div>
+                              <div className={selectedJobCostSummary.projectedProfit >= 0 ? "profit-positive" : "profit-negative"}>
+                                <span>Potential profit</span>
+                                <strong>{currency(selectedJobCostSummary.projectedProfit)}</strong>
+                              </div>
+                              <div>
+                                <span>Margin</span>
+                                <strong>{selectedJobCostSummary.projectedMargin}%</strong>
+                              </div>
+                              <div>
+                                <span>Pending PO cost</span>
+                                <strong>{currency(pendingPoCost)}</strong>
+                              </div>
+                              <div>
+                                <span>Actual supplier cost</span>
+                                <strong>{currency(actualPoCost)}</strong>
+                              </div>
+                            </div>
+
+                            <h3>Cost centre breakdown</h3>
+                            <div className="simpro-summary-table quote-centre-summary-table">
+                              <div className="table-head">
+                                <span>Cost centre</span>
+                                <span>Cost</span>
+                                <span>Charge</span>
+                                <span>Profit</span>
+                              </div>
+                              {centreBreakdown.length > 0 ? (
+                                centreBreakdown.map(({ centre, totals }) => (
+                                  <button
+                                    className="table-row clickable"
+                                    key={centre.id}
+                                    type="button"
+                                    onClick={() => openCostCentreRecord(centre.id)}
+                                  >
+                                    <span>
+                                      <strong>{centre.name}</strong>
+                                      <small>
+                                        {centre.variation ? "Variation" : "Base scope"} · {centre.templateName ?? "Uncategorised"} · Materials {currency(totals.materialCost)} / Labour {currency(totals.labourCost)}
+                                      </small>
+                                    </span>
+                                    <span>{currency(totals.totalCost)}</span>
+                                    <span>{currency(totals.totalSell)}</span>
+                                    <strong className={totals.profit >= 0 ? "profit-positive" : "profit-negative"}>{currency(totals.profit)}</strong>
+                                  </button>
+                                ))
+                              ) : (
+                                <div className="table-row">
+                                  <span>No cost centres added yet.</span>
+                                  <span>{currency(0)}</span>
+                                  <span>{currency(0)}</span>
+                                  <strong>{currency(0)}</strong>
+                                </div>
+                              )}
+                            </div>
+
+                            <h3>Combined breakdown</h3>
+                            <div className="simpro-breakdown-table quote-combined-breakdown">
+                              <div><span>Materials Cost</span><strong>{currency(combined.materialCost)}</strong></div>
+                              <div><span>Resources Cost</span><strong>{currency(combined.labourCost)}</strong></div>
+                              <div className="nested"><span>Labour</span><strong>{currency(combined.labourCost)}</strong></div>
+                              <div><span>Pending Supplier POs</span><strong>{currency(pendingPoCost)}</strong></div>
+                              <div><span>Received Supplier Invoices</span><strong>{currency(actualPoCost)}</strong></div>
+                              <div><span>Billable Variations Cost</span><strong>{currency(selectedJobCostSummary.variationCost)}</strong></div>
+                              <div><span>Billable Variations Sell</span><strong>{currency(selectedJobCostSummary.variationSell)}</strong></div>
+                              <div><span>Materials Markup</span><strong>{currency(combined.materialSell - combined.materialCost)}</strong></div>
+                              <div><span>Resources Markup</span><strong>{currency(combined.labourSell - combined.labourCost)}</strong></div>
+                              <div className="total"><span>Sub Total</span><strong>{currency(selectedJobCostSummary.totalCharge)}</strong></div>
+                              <div><span>VAT ({formatLineQuantity(jobVatProfile.rate)}%)</span><strong>{currency(selectedJobCostSummary.totalCharge * (jobVatProfile.rate / 100))}</strong></div>
+                              <div className={selectedJobCostSummary.projectedProfit >= 0 ? "profit-positive total" : "profit-negative total"}>
+                                <span>Potential Profit</span>
+                                <strong>{currency(selectedJobCostSummary.projectedProfit)} · {selectedJobCostSummary.projectedMargin}%</strong>
+                              </div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </section>
                   </section>
                 ) : null}
