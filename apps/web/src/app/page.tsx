@@ -152,6 +152,7 @@ const STORAGE_KEYS = {
 
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
+const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 
 const dashboardPanelIds = [
   "schedule",
@@ -6329,10 +6330,12 @@ export default function Dashboard() {
   const lastLocalSetupEditAt = useRef(0);
   const lastLocalCostCentreEditAt = useRef(0);
   const lastLocalEmployeeEditAt = useRef(0);
+  const lastLocalInvoiceEditAt = useRef(0);
   const hasAppliedHubSetupState = useRef(false);
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
   const pendingEmployeeSaveRef = useRef(false);
+  const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
   const [costCentreInputDrafts, setCostCentreInputDrafts] = useState<Record<string, string>>({});
@@ -7967,6 +7970,7 @@ export default function Dashboard() {
           const hasRecentLocalSetupEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalCostCentreEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
           const hasRecentLocalEmployeeEdit = Date.now() - lastLocalEmployeeEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
+          const hasRecentLocalInvoiceEdit = Date.now() - lastLocalInvoiceEditAt.current < INVOICE_SERVER_SYNC_HOLD_MS;
           if (hubState.employees?.length && !hasRecentLocalEmployeeEdit && !pendingEmployeeSaveRef.current) {
             const nextEmployees = normalizeEmployeeCards(
               hubState.employees as EmployeeCard[],
@@ -8033,7 +8037,9 @@ export default function Dashboard() {
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
           if (hubState.communications) setCommunicationRecords(hubState.communications);
-          if (hubState.invoices) setInvoices(hubState.invoices);
+          if (hubState.invoices && !hasRecentLocalInvoiceEdit && !pendingInvoiceSaveRef.current) {
+            setInvoices(hubState.invoices);
+          }
           if (hubState.simproExports) setSimproExports(hubState.simproExports);
           setHasLoadedHubDetailState(true);
         } else {
@@ -8272,6 +8278,7 @@ export default function Dashboard() {
 
     const setupSaveIncludesRecentEdit = Date.now() - lastLocalSetupEditAt.current < SETUP_SERVER_SYNC_HOLD_MS;
     const costCentreSaveIncludesRecentEdit = Date.now() - lastLocalCostCentreEditAt.current < COST_CENTRE_SERVER_SYNC_HOLD_MS;
+    const invoiceSaveIncludesRecentEdit = Date.now() - lastLocalInvoiceEditAt.current < INVOICE_SERVER_SYNC_HOLD_MS;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload = buildHubDetailStatePayload();
@@ -8295,6 +8302,9 @@ export default function Dashboard() {
           if (costCentreSaveIncludesRecentEdit) {
             pendingCostCentreSaveRef.current = false;
           }
+          if (invoiceSaveIncludesRecentEdit) {
+            pendingInvoiceSaveRef.current = false;
+          }
         })
         .catch(() => {
           if (!controller.signal.aborted) {
@@ -8303,6 +8313,9 @@ export default function Dashboard() {
             }
             if (costCentreSaveIncludesRecentEdit) {
               pendingCostCentreSaveRef.current = false;
+            }
+            if (invoiceSaveIncludesRecentEdit) {
+              pendingInvoiceSaveRef.current = false;
             }
             setSectionError("Could not save shared hub detail state, so local fallback is being used.");
           }
@@ -8580,19 +8593,34 @@ export default function Dashboard() {
     });
   }, [jobs, search, statusFilter]);
 
-  const filteredInvoices = useMemo(() => {
+  const searchFilteredInvoices = useMemo(() => {
     const query = search.trim().toLowerCase();
     return invoices.filter((invoice) => {
       const matchesSearch =
         !query ||
-        [invoice.ref, invoice.sourceRef, invoice.sourceName, invoice.customer, invoice.title, invoice.status].some((value) =>
+        [
+          invoice.ref,
+          invoice.sourceRef,
+          invoice.sourceName,
+          invoice.customer,
+          invoice.title,
+          invoice.status,
+          invoice.claimType ?? "",
+          invoice.valuationStatus ?? "",
+        ].some((value) =>
           value.toLowerCase().includes(query),
         );
+      return matchesSearch;
+    });
+  }, [invoices, search]);
+
+  const filteredInvoices = useMemo(() => {
+    return searchFilteredInvoices.filter((invoice) => {
       const matchesStatus =
         invoiceStatusFilter === "All invoices" || invoice.status === invoiceStatusFilter;
-      return matchesSearch && matchesStatus;
+      return matchesStatus;
     });
-  }, [invoiceStatusFilter, invoices, search]);
+  }, [invoiceStatusFilter, searchFilteredInvoices]);
 
   const purchaseOrderRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -8745,40 +8773,44 @@ export default function Dashboard() {
       {
         key: "valuations",
         label: "Valuations",
-        detail: "Applications, deposits and draft progress claims",
+        detail: "Applications for payment waiting review, submission or approval",
         tone: "amber",
-        items: filteredInvoices.filter((invoice) => invoice.claimType === "valuation" || invoice.status === "Draft"),
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType === "valuation"),
       },
       {
         key: "unpaid",
         label: "Unpaid invoices",
         detail: "Sent or part-paid invoices inside payment terms",
         tone: "blue",
-        items: filteredInvoices.filter((invoice) => !isOverdue(invoice) && (invoice.status === "Sent" || invoice.status === "Partially paid")),
+        items: searchFilteredInvoices.filter((invoice) =>
+          invoice.claimType !== "valuation" &&
+          !isOverdue(invoice) &&
+          (invoice.status === "Sent" || invoice.status === "Partially paid"),
+        ),
       },
       {
         key: "overdue",
         label: "Overdue invoices",
         detail: "Needs chasing or finance action",
         tone: "red",
-        items: filteredInvoices.filter(isOverdue),
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && isOverdue(invoice)),
       },
       {
         key: "paid",
         label: "Paid invoices",
         detail: "Closed billing records",
         tone: "green",
-        items: filteredInvoices.filter((invoice) => invoice.status === "Paid"),
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Paid"),
       },
       {
         key: "archived",
         label: "Archived",
         detail: "Cancelled or superseded finance records",
         tone: "green",
-        items: filteredInvoices.filter((invoice) => invoice.status === "Cancelled"),
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Cancelled"),
       },
     ];
-  }, [filteredInvoices]);
+  }, [searchFilteredInvoices]);
 
   const visibleInvoiceDirectoryGroups = useMemo(
     () => activeInvoiceFolderKey === "all"
@@ -10253,6 +10285,11 @@ export default function Dashboard() {
     pendingEmployeeSaveRef.current = true;
   }
 
+  function markInvoiceEdited() {
+    lastLocalInvoiceEditAt.current = Date.now();
+    pendingInvoiceSaveRef.current = true;
+  }
+
   function costCentreNumberInputValue(key: string, value: number, blankWhenZero = false) {
     return costCentreInputDrafts[key] ?? formatEditableNumber(value, blankWhenZero);
   }
@@ -10969,6 +11006,7 @@ export default function Dashboard() {
         });
         if (created.length) {
           const nextInvoices = [...created, ...invoices];
+          markInvoiceEdited();
           const response = await fetch("/api/hub-state", {
             method: "PUT",
             headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -11159,6 +11197,7 @@ export default function Dashboard() {
   function updateInvoiceStatus(invoice: Invoice, status: InvoiceStatus) {
     closeDirectoryActionMenu();
     if (invoice.status === status) return;
+    markInvoiceEdited();
     setInvoices((current) =>
       current.map((item) => (item.id === invoice.id ? { ...item, status } : item)),
     );
@@ -11177,6 +11216,7 @@ export default function Dashboard() {
   function deleteInvoiceFromDirectory(invoice: Invoice) {
     closeDirectoryActionMenu();
     if (!confirmPilotDelete(invoice.ref)) return;
+    markInvoiceEdited();
     setInvoices((current) => current.filter((item) => item.id !== invoice.id));
     if (selectedInvoiceId === invoice.id) {
       setSelectedInvoiceId(null);
@@ -11694,6 +11734,7 @@ export default function Dashboard() {
     setQuotes([]);
     setJobs([]);
     setPurchaseRequests([]);
+    markInvoiceEdited();
     setInvoices([]);
     setAuditEvents([]);
     setQuoteCostCentres({});
@@ -12089,6 +12130,7 @@ export default function Dashboard() {
     }
 
     const created = makeInvoiceFromQuote(quote, client, site, sourceCentres, invoices, normalizedFinanceSettings);
+    markInvoiceEdited();
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -12131,6 +12173,7 @@ export default function Dashboard() {
       showNotice(`Job ${job.ref} does not yet have cost centre lines; invoice created from current values.`);
     }
 
+    markInvoiceEdited();
     setInvoices((current) => [created, ...current]);
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
@@ -12316,7 +12359,23 @@ export default function Dashboard() {
       paidAmount: 0,
     };
 
-    setInvoices((current) => [created, ...current]);
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    if (hasLoadedHubDetailState) {
+      fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("Valuation save failed");
+          pendingInvoiceSaveRef.current = false;
+        })
+        .catch(() => {
+          setSectionError("Could not save valuation to the shared workspace, so local fallback is being used.");
+        });
+    }
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: isValuation ? "valuation created" : "invoice created",
@@ -12338,6 +12397,7 @@ export default function Dashboard() {
 
   function updateSelectedValuationAgreement(lineId: string, value: number) {
     if (!selectedInvoice?.valuationLines) return;
+    markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
@@ -12386,6 +12446,7 @@ export default function Dashboard() {
       paymentStatus: "Unpaid",
       paidAmount: 0,
     };
+    markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...approvedInvoice,
@@ -12411,6 +12472,7 @@ export default function Dashboard() {
 
   function amendSelectedValuation() {
     if (!selectedInvoice || selectedInvoice.claimType !== "valuation") return;
+    markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
@@ -12435,6 +12497,7 @@ export default function Dashboard() {
 
   function queueSelectedInvoiceToAccounts() {
     if (!selectedInvoice || selectedInvoice.claimType === "valuation") return;
+    markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? { ...invoice, accountsStatus: "Queued" }
       : invoice,
@@ -12458,6 +12521,7 @@ export default function Dashboard() {
       : paymentStatus === "Part paid"
         ? (selectedInvoice.paidAmount || 0)
         : 0;
+    markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
@@ -12474,6 +12538,7 @@ export default function Dashboard() {
     if (!selectedInvoice) return;
     if (selectedInvoice.status === status) return;
 
+    markInvoiceEdited();
     setInvoices((current) =>
       current.map((invoice) =>
         invoice.id === selectedInvoice.id
@@ -12519,6 +12584,7 @@ export default function Dashboard() {
     const shouldMarkJobInvoiced = Boolean(
       sourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full"),
     );
+    markInvoiceEdited();
     setInvoices((current) =>
       current.map((invoice) =>
         invoice.id === selectedInvoice.id
@@ -12619,6 +12685,7 @@ export default function Dashboard() {
     });
 
     const sentAt = workflowTimestamp();
+    markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
