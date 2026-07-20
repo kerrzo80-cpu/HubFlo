@@ -4218,6 +4218,87 @@ function quoteLineMarkupPercent(line: QuoteCostLine) {
   return line.unitCost > 0 ? Math.round(((line.unitSell - line.unitCost) / line.unitCost) * 10000) / 100 : 0;
 }
 
+function formatLineQuantity(quantity: number) {
+  if (!Number.isFinite(quantity)) return "0";
+  return Number.isInteger(quantity) ? String(quantity) : quantity.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function supplierMaterialLabel(value: string) {
+  const lower = value.trim().toLowerCase();
+  if (lower.includes("hep")) return "Hep2O";
+  if (lower.includes("ufh")) return "UFH";
+  if (lower.includes("waste")) return "waste";
+  if (lower.includes("soil")) return "soil";
+  if (lower.includes("gas")) return "gas";
+  return lower;
+}
+
+function supplierJointStyle(material: string, description: string) {
+  const lowerMaterial = material.toLowerCase();
+  const lowerDescription = description.toLowerCase();
+  if (/press|compression|push[- ]?fit|solder|solvent|weld|brass/.test(lowerDescription)) return "";
+  if (lowerMaterial.includes("copper")) return "press";
+  if (lowerMaterial.includes("hep") || lowerMaterial.includes("push")) return "push-fit";
+  if (lowerMaterial.includes("waste") || lowerMaterial.includes("soil") || lowerDescription.includes("drainage")) return "solvent weld";
+  if (lowerMaterial.includes("gas")) return "compression";
+  return "";
+}
+
+function supplierSizedItemDescription(rawValue: string, stockLength?: number) {
+  const raw = rawValue.replace(/\s+/g, " ").trim();
+  const sizeMatch = raw.match(/^\s*([0-9.]+\s*mm)\s+/i);
+  if (!sizeMatch) return raw;
+
+  const size = sizeMatch[1]!.replace(/\s+/g, "");
+  const afterSize = raw.slice(sizeMatch[0].length).trim();
+  const materialMatch = afterSize.match(/^(copper|hep20|hep2o|waste pipe|soil pipe|ufh pipe|gas pipework|waste|soil|ufh|gas)\b/i);
+  if (!materialMatch) return raw;
+
+  const material = supplierMaterialLabel(materialMatch[0] ?? "");
+  if (stockLength) {
+    return `${size} ${material} pipe - ${formatLineQuantity(stockLength)}m lengths`;
+  }
+
+  const kind = afterSize.slice(materialMatch[0]!.length).trim().toLowerCase();
+  if (!kind) return `${size} ${material} pipe`;
+
+  const jointStyle = supplierJointStyle(materialMatch[0] ?? "", kind);
+  return [size, material, jointStyle, kind].filter(Boolean).join(" ");
+}
+
+function supplierFacingMaterialValues(description: string, quantity: number) {
+  const cleanDescription = description.replace(/\s+/g, " ").replace(/\s*•\s*/g, " - ").trim();
+  const lengthMatch = cleanDescription.match(/\(([0-9.]+)m measured,\s*([0-9]+)\s*x\s*([0-9.]+)m lengths\)/i);
+  const sizeIndex = cleanDescription.search(/\b[0-9.]+\s*mm\b/i);
+
+  if (lengthMatch && sizeIndex >= 0) {
+    const item = cleanDescription.slice(sizeIndex).replace(lengthMatch[0], "").trim();
+    return {
+      description: supplierSizedItemDescription(item, Number(lengthMatch[3])),
+      quantity: Number(lengthMatch[2]),
+    };
+  }
+
+  if (sizeIndex >= 0) {
+    const item = cleanDescription.slice(sizeIndex).trim();
+    return {
+      description: supplierSizedItemDescription(item),
+      quantity,
+    };
+  }
+
+  return {
+    description: cleanDescription.replace(/^[^:]+:\s*[^-]+-\s*/i, "").trim(),
+    quantity,
+  };
+}
+
+function supplierFacingMaterialLine<T extends { description: string; quantity: number }>(line: T): T {
+  const supplierValues = supplierFacingMaterialValues(line.description, line.quantity);
+  if (supplierValues.description === line.description && supplierValues.quantity === line.quantity) return line;
+  return { ...line, ...supplierValues };
+}
+
 function quoteLineCatalogType(line: QuoteCostLine) {
   if (line.catalogItemId.startsWith("labour-")) return "Labour";
   return quoteCatalog.find((item) => item.id === line.catalogItemId)?.type ?? "Material";
@@ -4469,7 +4550,7 @@ function makeTakeoffQuoteLine(row: TakeoffBoqRow): QuoteCostLine {
   return {
     id: `takeoff-line-${row.id}`,
     catalogItemId: "takeoff-boq",
-    description: `${row.section} - ${row.description}`,
+    description: row.description,
     quantity: row.quantity,
     unitCost: row.supplierRequired ? 0 : row.unitCost,
     unitSell: row.supplierRequired ? 0 : lineSellFromMarkup(row.unitCost, row.markupPercent),
@@ -14094,7 +14175,7 @@ export default function Dashboard() {
         const key = `${centre.id}:${line.id}`;
         if (seen.has(key)) return;
         seen.add(key);
-        lines.push({ centreId: centre.id, centreName: centre.name, line });
+        lines.push({ centreId: centre.id, centreName: centre.name, line: supplierFacingMaterialLine(line) });
       });
     });
 
@@ -14122,7 +14203,7 @@ export default function Dashboard() {
         const key = `${centre.id}:${line.id}`;
         if (seen.has(key)) return null;
         seen.add(key);
-        return { centreId: centre.id, centreName: centre.name, line };
+        return { centreId: centre.id, centreName: centre.name, line: supplierFacingMaterialLine(line) };
       })
       .filter((entry): entry is JobSupplierLineWithCentre => Boolean(entry));
 
@@ -14130,15 +14211,16 @@ export default function Dashboard() {
   }
 
   function makeEstimateMaterialLineFromSupplierQuoteLine(quoteLine: QuoteCostLine, existingLine?: EstimateMaterialLine): EstimateMaterialLine {
+    const supplierLine = supplierFacingMaterialLine(quoteLine);
     return {
       id: existingLine?.id ?? quoteLine.id,
       catalogItemId: existingLine?.catalogItemId ?? quoteLine.catalogItemId,
-      description: existingLine?.description ?? quoteLine.description,
-      quantity: existingLine?.quantity ?? quoteLine.quantity,
-      unitCost: existingLine?.unitCost ?? quoteLine.unitCost,
+      description: existingLine?.description ?? supplierLine.description,
+      quantity: existingLine?.quantity ?? supplierLine.quantity,
+      unitCost: existingLine?.unitCost ?? supplierLine.unitCost,
       markupPercent:
         existingLine?.markupPercent ??
-        (quoteLine.unitCost > 0 && quoteLine.unitSell > 0 ? quoteLineMarkupPercent(quoteLine) : defaultMaterialMarkupPercent),
+        (supplierLine.unitCost > 0 && supplierLine.unitSell > 0 ? quoteLineMarkupPercent(supplierLine) : defaultMaterialMarkupPercent),
       rateSource: "manual" as const,
     };
   }
@@ -14156,7 +14238,7 @@ export default function Dashboard() {
 
   function selectedJobMaterialLinesForCentre(centre: EstimateCostCentre) {
     const selectedIds = new Set(selectedJobMaterialLineIds[centre.id] ?? []);
-    return centre.materials.filter((line) => selectedIds.has(line.id));
+    return centre.materials.filter((line) => selectedIds.has(line.id)).map((line) => supplierFacingMaterialLine(line));
   }
 
   function toggleJobMaterialLineSelection(centreId: string, lineId: string, checked: boolean) {
@@ -14242,11 +14324,11 @@ export default function Dashboard() {
       ...entry.line,
       supplierRequired: true,
     }));
-    const selectedByCentre = new Map<string, Set<string>>();
+    const selectedByCentre = new Map<string, Map<string, EstimateMaterialLine>>();
 
     entries.forEach((entry) => {
-      const selected = selectedByCentre.get(entry.centreId) ?? new Set<string>();
-      selected.add(entry.line.id);
+      const selected = selectedByCentre.get(entry.centreId) ?? new Map<string, EstimateMaterialLine>();
+      selected.set(entry.line.id, entry.line);
       selectedByCentre.set(entry.centreId, selected);
     });
 
@@ -14258,9 +14340,17 @@ export default function Dashboard() {
 
         return {
           ...centre,
-          materials: centre.materials.map((line) =>
-            selectedIds.has(line.id) ? { ...line, supplierRequired: true } : line,
-          ),
+          materials: centre.materials.map((line) => {
+            const supplierLine = selectedIds.get(line.id);
+            return supplierLine
+              ? {
+                  ...line,
+                  description: supplierLine.description,
+                  quantity: supplierLine.quantity,
+                  supplierRequired: true,
+                }
+              : line;
+          }),
         };
       }),
     );
@@ -15469,7 +15559,9 @@ export default function Dashboard() {
       .filter((row) => row.supplierRequired)
       .map(makeTakeoffQuoteLine);
     const materialLines = quoteCostCentreTotals(centre).materialLines;
-    const flaggedSupplierLines = materialLines.filter((line) => line.supplierRequired);
+    const flaggedSupplierLines = materialLines
+      .filter((line) => line.supplierRequired)
+      .map((line) => supplierFacingMaterialLine(line));
     return [...takeoffSupplierLines, ...flaggedSupplierLines];
   }
 
@@ -15482,7 +15574,7 @@ export default function Dashboard() {
         const key = `${centre.id}:${line.id}`;
         if (seen.has(key)) return;
         seen.add(key);
-        lines.push({ centreId: centre.id, centreName: centre.name, line });
+        lines.push({ centreId: centre.id, centreName: centre.name, line: supplierFacingMaterialLine(line) });
       });
     });
 
@@ -15522,7 +15614,7 @@ export default function Dashboard() {
         const key = `${centre.id}:${line.id}`;
         if (seen.has(key)) return null;
         seen.add(key);
-        return { centreId: centre.id, centreName: centre.name, line };
+        return { centreId: centre.id, centreName: centre.name, line: supplierFacingMaterialLine(line) };
       })
       .filter((entry): entry is QuoteSupplierLineWithCentre => Boolean(entry));
 
@@ -15541,7 +15633,9 @@ export default function Dashboard() {
 
   function selectedQuoteMaterialLinesForCentre(centre: QuoteCostCentre) {
     const selectedIds = new Set(selectedQuoteMaterialLineIds[centre.id] ?? []);
-    return quoteCostCentreTotals(centre).materialLines.filter((line) => selectedIds.has(line.id));
+    return quoteCostCentreTotals(centre).materialLines
+      .filter((line) => selectedIds.has(line.id))
+      .map((line) => supplierFacingMaterialLine(line));
   }
 
   function toggleQuoteMaterialLineSelection(centreId: string, lineId: string, checked: boolean) {
@@ -15629,10 +15723,10 @@ export default function Dashboard() {
     }));
 
     markCostCentreEdited();
-    const selectedByCentre = new Map<string, Set<string>>();
+    const selectedByCentre = new Map<string, Map<string, QuoteCostLine>>();
     entries.forEach((entry) => {
-      const selected = selectedByCentre.get(entry.centreId) ?? new Set<string>();
-      selected.add(entry.line.id);
+      const selected = selectedByCentre.get(entry.centreId) ?? new Map<string, QuoteCostLine>();
+      selected.set(entry.line.id, entry.line);
       selectedByCentre.set(entry.centreId, selected);
     });
     setQuoteCostCentres((current) => ({
@@ -15643,9 +15737,17 @@ export default function Dashboard() {
 
         return {
           ...item,
-          lines: item.lines.map((line) =>
-            selectedIds.has(line.id) ? { ...line, supplierRequired: true } : line,
-          ),
+          lines: item.lines.map((line) => {
+            const supplierLine = selectedIds.get(line.id);
+            return supplierLine
+              ? {
+                  ...line,
+                  description: supplierLine.description,
+                  quantity: supplierLine.quantity,
+                  supplierRequired: true,
+                }
+              : line;
+          }),
         };
       }),
     }));
@@ -20760,7 +20862,7 @@ export default function Dashboard() {
                                       }}
                                     />
                                     <strong>{entry.line.unitSell > 0 ? currency(quoteLineSell(entry.line)) : "Awaiting price"}</strong>
-                                    <span>{entry.line.quantity.toFixed(2)}</span>
+                                    <span>{formatLineQuantity(entry.line.quantity)}</span>
                                     <span>{entry.line.supplierRequired ? "Staged" : "Not staged"}</span>
                                     <div className="quote-line-actions">
                                       <button
@@ -21381,7 +21483,7 @@ export default function Dashboard() {
                                       }}
                                     />
                                     <strong>{entry.line.unitSell > 0 ? currency(quoteLineSell(entry.line)) : "Awaiting price"}</strong>
-                                    <span>{entry.line.quantity.toFixed(2)}</span>
+                                    <span>{formatLineQuantity(entry.line.quantity)}</span>
                                     <span>{entry.line.supplierRequired ? "Staged" : "Not staged"}</span>
                                     <div className="quote-line-actions">
                                       <button
@@ -21868,7 +21970,7 @@ export default function Dashboard() {
                               {selectedQuoteCostCentre.lines.map((line) => (
                                 <div className="table-row" key={line.id}>
                                   <a>{line.description}</a>
-                                  <span>{quoteLineCatalogType(line) === "Labour" ? `${line.quantity.toFixed(2)} hrs` : line.quantity.toFixed(2)}</span>
+                                  <span>{quoteLineCatalogType(line) === "Labour" ? `${line.quantity.toFixed(2)} hrs` : formatLineQuantity(line.quantity)}</span>
                                   <span>{currency(line.unitSell)}</span>
                                   <strong>{currency(quoteLineSell(line))}</strong>
                                 </div>
@@ -22286,7 +22388,7 @@ export default function Dashboard() {
                                             <div className="supplier-quote-preview-row" key={`${entry.centreId}:${entry.line.id}`}>
                                               <span>{entry.centreName}</span>
                                               <span>{entry.line.description}</span>
-                                              <span>{entry.line.quantity.toFixed(2)}</span>
+                                              <span>{formatLineQuantity(entry.line.quantity)}</span>
                                               <span>{entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "TBC"}</span>
                                               <span>{entry.line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? defaultMaterialMarkupPercent}%` : "TBC"}</span>
                                               <strong>{entry.line.unitSell > 0 ? currency(entry.line.unitSell) : "Awaiting price"}</strong>
@@ -24826,7 +24928,7 @@ export default function Dashboard() {
                               {selectedCostCentre.materials.map((line) => (
                                 <div className="table-row" key={line.id}>
                                   <a>{line.description}</a>
-                                  <span>{line.quantity.toFixed(2)}</span>
+                                  <span>{formatLineQuantity(line.quantity)}</span>
                                   <span>{currency(lineSellFromMarkup(line.unitCost, line.markupPercent))}</span>
                                   <strong>{currency(estimateMaterialSell(line))}</strong>
                                 </div>
@@ -25085,7 +25187,7 @@ export default function Dashboard() {
                                           <div className="supplier-quote-preview-row" key={`${entry.centreId}:${entry.line.id}`}>
                                             <span>{entry.centreName}</span>
                                             <span>{entry.line.description}</span>
-                                            <span>{entry.line.quantity.toFixed(2)}</span>
+                                            <span>{formatLineQuantity(entry.line.quantity)}</span>
                                             <span>{entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "TBC"}</span>
                                             <span>{entry.line.unitCost > 0 ? `${supplierDraft?.markupPercent ?? entry.line.markupPercent}%` : "TBC"}</span>
                                             <strong>{entry.line.unitCost > 0 ? currency(estimateMaterialSell(entry.line)) : "Awaiting price"}</strong>
@@ -29278,7 +29380,7 @@ export default function Dashboard() {
                           {entry.centreName}: {entry.line.description || "Untitled item"}
                         </strong>
                         <span>
-                          {entry.line.quantity.toFixed(2)} item(s) · {entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "Cost TBC"}
+                          {formatLineQuantity(entry.line.quantity)} item(s) · {entry.line.unitCost > 0 ? currency(entry.line.unitCost) : "Cost TBC"}
                         </span>
                       </div>
                       <select

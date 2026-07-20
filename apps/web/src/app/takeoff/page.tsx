@@ -1039,7 +1039,7 @@ function summariseServicesMarkup(
       diameter: pipe.diameter,
       measuredM,
       orderM,
-      stockQuantity: Math.max(1, Math.ceil(orderM / pipeStockLengthM)),
+      stockQuantity: isCalibrated ? Math.max(1, Math.ceil(orderM / pipeStockLengthM)) : 0,
       colour: markupPipeColour(pipe.material, pipe.diameter, pipe.service),
       calibrated: isCalibrated,
       locationKey,
@@ -1092,6 +1092,60 @@ function markupLineId(prefix: string, value: string) {
   return `${prefix}-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "")}`;
 }
 
+function markupSupplierJointStyle(material: string, service?: TakeoffMarkupService) {
+  const lowerMaterial = normaliseMarkupText(material).toLowerCase();
+  if (lowerMaterial.includes("copper")) return "press";
+  if (lowerMaterial.includes("hep") || lowerMaterial.includes("push")) return "push-fit";
+  if (lowerMaterial.includes("waste") || lowerMaterial.includes("soil") || service === "Waste" || service === "Soil" || service === "Condensate") return "solvent weld";
+  if (lowerMaterial.includes("gas") || service === "Gas") return "compression";
+  return "";
+}
+
+function markupSupplierQuantity(value: number) {
+  if (!Number.isFinite(value)) return "0";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function markupSupplierMaterialLabel(value: string) {
+  const lower = normaliseMarkupText(value).toLowerCase();
+  if (lower.includes("hep")) return "Hep2O";
+  if (lower.includes("ufh")) return "UFH";
+  if (lower.includes("waste")) return "waste";
+  if (lower.includes("soil")) return "soil";
+  if (lower.includes("gas")) return "gas";
+  return lower;
+}
+
+function markupSupplierPipeDescription(row: ServicesMarkupSummary["pipeRows"][number], stockLength: number) {
+  const material = markupSupplierMaterialLabel(row.material);
+  const diameter = normaliseMarkupText(row.diameter);
+  const pipeName = material.includes("pipe")
+    ? [diameter, material].filter(Boolean).join(" ")
+    : [diameter, material, "pipe"].filter(Boolean).join(" ");
+  return `${pipeName} - ${markupSupplierQuantity(stockLength)}m lengths`;
+}
+
+function markupSupplierSymbolDescription(row: ServicesMarkupSummary["symbolRows"][number]) {
+  const label = normaliseMarkupText(row.label);
+  const lower = label.toLowerCase();
+  const alreadyHasJointStyle = /press|compression|push[- ]?fit|solder|solvent|weld|brass/.test(lower);
+  const sizeMatch = label.match(/^\s*([0-9.]+\s*mm)\s+/i);
+  const afterSize = sizeMatch ? label.slice(sizeMatch[0].length).trim() : label;
+  const materialMatch = afterSize.match(/^(copper|hep2o|waste pipe|soil pipe|ufh pipe|gas pipework|waste|soil|ufh|gas)\b/i);
+  const service = row.costCentreSection.toLowerCase().includes("gas")
+    ? "Gas"
+    : row.costCentreSection.toLowerCase().includes("drainage")
+      ? "Waste"
+      : undefined;
+  const jointStyle = alreadyHasJointStyle ? "" : markupSupplierJointStyle(materialMatch?.[0] ?? "", service as TakeoffMarkupService | undefined);
+  if (!sizeMatch || !materialMatch) return jointStyle ? `${jointStyle} ${label}`.trim() : label;
+
+  const size = sizeMatch[1]!.replace(/\s+/g, "");
+  const material = markupSupplierMaterialLabel(materialMatch[0] ?? "");
+  const kind = afterSize.slice(materialMatch[0]!.length).trim().toLowerCase();
+  return [size, material, jointStyle, kind].filter(Boolean).join(" ");
+}
+
 function escapeSvgText(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -1117,9 +1171,9 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
     return {
       id,
       section: row.costCentreSection ?? "Services markup",
-      description: `${row.locationLabel ? `${row.locationLabel} • ` : ""}${row.service} - ${row.label} (${row.measuredM.toFixed(1)}m measured, ${row.stockQuantity} x ${stockLength}m lengths)`,
-      quantity: Number(row.orderM.toFixed(2)),
-      unit: "m",
+      description: markupSupplierPipeDescription(row, stockLength),
+      quantity: row.stockQuantity,
+      unit: `${markupSupplierQuantity(stockLength)}m length`,
       unitCost: existing?.unitCost ?? 0,
       markupPercent: existing?.markupPercent ?? 30,
       supplierRequired: existing?.supplierRequired ?? true,
@@ -1135,7 +1189,7 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
     return {
       id,
       section,
-      description: `${row.locationLabel ? `${row.locationLabel} • ` : ""}${row.label}`,
+      description: markupSupplierSymbolDescription(row),
       quantity: row.count,
       unit: "each",
       unitCost: existing?.unitCost ?? 0,
