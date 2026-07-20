@@ -702,6 +702,10 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
   };
 }
 
+function cloneServicesMarkup(markup: TakeoffServicesMarkup): TakeoffServicesMarkup {
+  return JSON.parse(JSON.stringify(markup)) as TakeoffServicesMarkup;
+}
+
 function markupServiceColour(service: TakeoffMarkupService) {
   return markupServices.find((item) => item.id === service)?.colour ?? "#607084";
 }
@@ -1747,6 +1751,7 @@ export default function TakeoffPage() {
   const [recentMarkupPipes, setRecentMarkupPipes] = useState<TakeoffMarkupPipe[]>([]);
   const [optimisticMarkupSymbols, setOptimisticMarkupSymbols] = useState<TakeoffMarkupSymbol[]>([]);
   const [recentMarkupSymbols, setRecentMarkupSymbols] = useState<TakeoffMarkupSymbol[]>([]);
+  const [markupUndoDepth, setMarkupUndoDepth] = useState(0);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
@@ -1763,6 +1768,7 @@ export default function TakeoffPage() {
   const markupPointerDrawRef = useRef<{ pointerId: number; moved: boolean } | null>(null);
   const markupTouchDrawRef = useRef<{ touchId: number } | null>(null);
   const markupElementDragRef = useRef<MarkupElementDrag | null>(null);
+  const markupUndoStackRef = useRef<TakeoffServicesMarkup[]>([]);
   const markupCalibrationPointerRef = useRef<{ pointerId: number; start: MarkupCanvasPoint } | null>(null);
   const markupCalibrationTouchRef = useRef<{ touchId: number; start: MarkupCanvasPoint } | null>(null);
   const markupViewFrameRef = useRef<number | null>(null);
@@ -2379,6 +2385,8 @@ const filteredMarkupPlantTools = useMemo(() => {
     setRecentMarkupPipes([]);
     setOptimisticMarkupSymbols([]);
     setRecentMarkupSymbols([]);
+    markupUndoStackRef.current = [];
+    setMarkupUndoDepth(0);
   }, [selectedProject?.id]);
 
   useEffect(() => {
@@ -2482,9 +2490,66 @@ const filteredMarkupPlantTools = useMemo(() => {
     patchProject(selectedProject.id, patch, successMessage).catch(() => {});
   }
 
-  function updateServicesMarkup(updater: (current: TakeoffServicesMarkup) => TakeoffServicesMarkup, successMessage?: string) {
+  function rememberMarkupUndo(markup: TakeoffServicesMarkup) {
+    const previous = cloneServicesMarkup(markup);
+    markupUndoStackRef.current = [...markupUndoStackRef.current, previous].slice(-60);
+    setMarkupUndoDepth(markupUndoStackRef.current.length);
+  }
+
+  function clearMarkupRecentPreview() {
+    setOptimisticMarkupPipes([]);
+    setRecentMarkupPipes([]);
+    setOptimisticMarkupSymbols([]);
+    setRecentMarkupSymbols([]);
+  }
+
+  function restoreServicesMarkupFromUndo(markup: TakeoffServicesMarkup) {
     if (!selectedProject) return;
-    const nextMarkup = normaliseServicesMarkup(updater(normaliseServicesMarkup(localServicesMarkup ?? selectedProject.servicesMarkup)));
+    const restoredMarkup = {
+      ...normaliseServicesMarkup(markup),
+      updatedAt: new Date().toISOString(),
+    };
+    setLocalServicesMarkup(restoredMarkup);
+    clearMarkupRecentPreview();
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints([]);
+    setSelectedMarkupElementId((current) => (
+      restoredMarkup.pipes.some((pipe) => pipe.id === current) || restoredMarkup.symbols.some((symbol) => symbol.id === current)
+        ? current
+        : ""
+    ));
+    const quantityPatch = buildMarkupQuantityPatch(restoredMarkup, {
+      ...selectedProject,
+      servicesMarkup: restoredMarkup,
+    });
+    const patch: Partial<TakeoffProject> = {
+      servicesMarkup: restoredMarkup,
+      materialAllowances: quantityPatch.materialAllowances,
+      supplierRequests: quantityPatch.supplierRequests,
+    };
+    setProjects((current) => current.map((project) => (
+      project.id === selectedProject.id
+        ? {
+          ...project,
+          ...patch,
+          updatedAt: restoredMarkup.updatedAt,
+        }
+        : project
+    )));
+    patchProject(selectedProject.id, patch, "Markup change undone.").catch(() => {});
+  }
+
+  function updateServicesMarkup(
+    updater: (current: TakeoffServicesMarkup) => TakeoffServicesMarkup,
+    successMessage?: string,
+    options: { recordUndo?: boolean } = {},
+  ) {
+    if (!selectedProject) return;
+    const previousMarkup = normaliseServicesMarkup(localServicesMarkup ?? selectedProject.servicesMarkup);
+    if (options.recordUndo !== false) {
+      rememberMarkupUndo(previousMarkup);
+    }
+    const nextMarkup = normaliseServicesMarkup(updater(previousMarkup));
     const updatedServicesMarkup = {
       ...nextMarkup,
       updatedAt: new Date().toISOString(),
@@ -2532,6 +2597,36 @@ const filteredMarkupPlantTools = useMemo(() => {
   function resetMarkupView() {
     setMarkupZoom(1);
     setMarkupPan({ x: 0, y: 0 });
+  }
+
+  function activateMarkupPanMode() {
+    markupPointerDrawRef.current = null;
+    markupTouchDrawRef.current = null;
+    markupElementDragRef.current = null;
+    markupCalibrationPointerRef.current = null;
+    markupCalibrationTouchRef.current = null;
+    setMarkupToolMode("pan");
+    setMarkupDraftPipeState(null);
+    setMarkupCalibrationPoints([]);
+    setSelectedMarkupElementId("");
+    setMarkupPanStart(null);
+    setMarkupTouchPanStart(null);
+    setMarkupTouchGesture(null);
+  }
+
+  function activateMarkupPipeTool(toolId?: string) {
+    if (toolId) setActiveMarkupPipeToolId(toolId);
+    setMarkupToolMode("pipe");
+    setSelectedMarkupElementId("");
+    setMarkupCalibrationPoints([]);
+  }
+
+  function activateMarkupSymbolTool(kind: TakeoffMarkupSymbolKind, category: TakeoffMarkupSymbolCategory) {
+    setMarkupToolMode("symbol");
+    setActiveMarkupSymbolKind(kind);
+    setActiveMarkupSymbolCategory(category);
+    setSelectedMarkupElementId("");
+    setMarkupCalibrationPoints([]);
   }
 
   function scheduleMarkupViewUpdate(nextView: { zoom?: number; pan?: { x: number; y: number } }) {
@@ -3879,6 +3974,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
     if (markupToolMode === "select") {
       setSelectedMarkupElementId("");
+      setMarkupToolMode("pan");
       return;
     }
 
@@ -3933,7 +4029,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }), `Drawing calibrated from ${realLengthM}m reference.`);
     setMarkupCalibrationPoints([]);
     setActiveMarkupCalibrationPointIndex(0);
-    setMarkupToolMode("pipe");
+    activateMarkupPanMode();
   }
 
   function finishMarkupRoute(pipe = markupDraftPipeRef.current ?? markupDraftPipe) {
@@ -4175,22 +4271,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         setMarkupDraftPipeState({ ...markupDraftPipe, points: markupDraftPipe.points.slice(0, -1) });
       } else {
         setMarkupDraftPipeState(null);
+        activateMarkupPanMode();
       }
       return;
     }
 
-    if (selectedMarkupElementId) {
-      deleteSelectedMarkupElement();
+    const previousMarkup = markupUndoStackRef.current.pop();
+    markupUndoStackRef.current = markupUndoStackRef.current.slice(0, 60);
+    setMarkupUndoDepth(markupUndoStackRef.current.length);
+    if (!previousMarkup) {
+      setNotice("Nothing to undo on this drawing yet.");
       return;
     }
 
-    updateServicesMarkup((current) => {
-      if (current.symbols.length > 0) {
-        return { ...current, symbols: current.symbols.slice(0, -1) };
-      }
-      return { ...current, pipes: current.pipes.slice(0, -1) };
-    }, "Last markup item removed.");
-    setSelectedMarkupElementId("");
+    restoreServicesMarkupFromUndo(previousMarkup);
   }
 
   function pushMarkupToBoq() {
@@ -5644,10 +5738,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           type="button"
                           key={mode}
                           onClick={() => {
-                            if (mode === "calibrate") {
+                            if (mode === "pan") {
+                              activateMarkupPanMode();
+                            } else if (mode === "calibrate") {
                               startMarkupCalibration();
                             } else {
                               setMarkupToolMode(mode);
+                              setMarkupDraftPipeState(null);
+                              setMarkupCalibrationPoints([]);
                             }
                           }}
                         >
@@ -5701,8 +5799,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <select
                             value={activeMarkupPipeToolId}
                             onChange={(event) => {
-                              setMarkupToolMode("pipe");
-                              setActiveMarkupPipeToolId(event.target.value);
+                              activateMarkupPipeTool(event.target.value);
                             }}
                           >
                             {activeMarkupGroupPipeTools.length ? null : <option value={activeMarkupPipeToolId}>No pipe sizes for this filter</option>}
@@ -5716,13 +5813,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <div className="services-markup-tool-grid">
                           {matchingPipeTools.map((tool) => (
                             <button
-                              className={activeMarkupPipeToolId === tool.id ? "active" : ""}
+                              className={markupToolMode === "pipe" && activeMarkupPipeToolId === tool.id ? "active" : ""}
                               style={{ "--pipe-colour": tool.colour } as CSSProperties}
                               type="button"
                               key={tool.id}
                               onClick={() => {
-                                setMarkupToolMode("pipe");
-                                setActiveMarkupPipeToolId(tool.id);
+                                if (markupToolMode === "pipe" && activeMarkupPipeToolId === tool.id && !markupDraftPipe) {
+                                  activateMarkupPanMode();
+                                } else {
+                                  activateMarkupPipeTool(tool.id);
+                                }
                               }}
                             >
                               <i className="pipe-tool-swatch" />
@@ -5737,14 +5837,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <div className="services-markup-tool-grid compact">
                           {matchingFittingTools.filter((tool) => tool.category === "Fitting").map((tool) => (
                             <button
-                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              className={markupToolMode === "symbol" && activeMarkupSymbolKind === tool.kind ? "active" : ""}
                               style={{ "--symbol-colour": markupSymbolKindColour(tool.kind, tool.category) } as CSSProperties}
                               type="button"
                               key={tool.kind}
                               onClick={() => {
-                                setMarkupToolMode("symbol");
-                                setActiveMarkupSymbolKind(tool.kind);
-                                setActiveMarkupSymbolCategory(tool.category);
+                                if (markupToolMode === "symbol" && activeMarkupSymbolKind === tool.kind) {
+                                  activateMarkupPanMode();
+                                } else {
+                                  activateMarkupSymbolTool(tool.kind, tool.category);
+                                }
                               }}
                             >
                               {tool.kind}
@@ -5758,14 +5860,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <div className="services-markup-tool-grid compact">
                           {matchingFittingTools.filter((tool) => tool.category === "Valve").map((tool) => (
                             <button
-                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              className={markupToolMode === "symbol" && activeMarkupSymbolKind === tool.kind ? "active" : ""}
                               style={{ "--symbol-colour": markupSymbolKindColour(tool.kind, tool.category) } as CSSProperties}
                               type="button"
                               key={tool.kind}
                               onClick={() => {
-                                setMarkupToolMode("symbol");
-                                setActiveMarkupSymbolKind(tool.kind);
-                                setActiveMarkupSymbolCategory(tool.category);
+                                if (markupToolMode === "symbol" && activeMarkupSymbolKind === tool.kind) {
+                                  activateMarkupPanMode();
+                                } else {
+                                  activateMarkupSymbolTool(tool.kind, tool.category);
+                                }
                               }}
                             >
                               {tool.kind}
@@ -5785,14 +5889,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <div className="services-markup-tool-grid compact plant">
                           {matchingPlantTools.map((tool) => (
                             <button
-                              className={activeMarkupSymbolKind === tool.kind ? "active" : ""}
+                              className={markupToolMode === "symbol" && activeMarkupSymbolKind === tool.kind ? "active" : ""}
                               style={{ "--symbol-colour": markupSymbolKindColour(tool.kind, tool.category) } as CSSProperties}
                               type="button"
                               key={tool.kind}
                               onClick={() => {
-                                setMarkupToolMode("symbol");
-                                setActiveMarkupSymbolKind(tool.kind);
-                                setActiveMarkupSymbolCategory(tool.category);
+                                if (markupToolMode === "symbol" && activeMarkupSymbolKind === tool.kind) {
+                                  activateMarkupPanMode();
+                                } else {
+                                  activateMarkupSymbolTool(tool.kind, tool.category);
+                                }
                               }}
                             >
                               {tool.kind}
@@ -5830,6 +5936,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </small>
                         </span>
                         <div>
+                          <button
+                            className={markupToolMode === "pan" ? "takeoff-small-button active" : "takeoff-small-button"}
+                            type="button"
+                            onClick={activateMarkupPanMode}
+                          >
+                            <Move size={14} />
+                            Move plan
+                          </button>
                           <button className="takeoff-small-button" type="button" onClick={() => updateMarkupZoom(markupViewport.zoom + 0.2)} aria-label="Zoom in">
                             <ZoomIn size={14} />
                             Zoom in
@@ -5861,9 +5975,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe || markupDraftPipe.points.length < 2} onClick={() => finishMarkupRoute()}>
                             Finish route
                           </button>
-                          <button className="takeoff-small-button" type="button" onClick={undoLastMarkupAction}>
+                          <button
+                            className="takeoff-small-button"
+                            type="button"
+                            disabled={!markupDraftPipe && markupUndoDepth === 0}
+                            onClick={undoLastMarkupAction}
+                          >
                             <ArrowLeft size={14} />
-                            Undo last
+                            Undo
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={saveMarkedDrawingForEngineers}>
                             <FileText size={14} />
@@ -5944,7 +6063,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                                 type="button"
                                 onClick={() => {
                                   setMarkupCalibrationPoints([]);
-                                  setMarkupToolMode("pipe");
+                                  activateMarkupPanMode();
                                 }}
                               >
                                 Exit calibrate
