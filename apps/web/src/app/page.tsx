@@ -6614,6 +6614,15 @@ export default function Dashboard() {
     [invoices, selectedInvoiceId],
   );
 
+  useEffect(() => {
+    if (!hasHydratedLocalData || !selectedInvoiceId || selectedInvoice || homeView !== "invoice-record") return;
+    setSelectedInvoiceId(null);
+    setActiveInvoiceTab("summary");
+    setActiveInvoiceFolderKey("valuations");
+    setHomeView("invoices");
+    showNotice("That valuation or invoice is not available in the shared workspace yet. Showing the invoice folders instead.");
+  }, [hasHydratedLocalData, homeView, selectedInvoice, selectedInvoiceId]);
+
   const activeRecordFingerprint = useMemo(() => {
     if (homeView === "lead-record" && selectedLead) {
       return JSON.stringify({ type: "lead", record: selectedLead });
@@ -8103,6 +8112,25 @@ export default function Dashboard() {
       invoices,
       simproExports,
     };
+  }
+
+  function saveHubDetailStateWithInvoices(nextInvoices: Invoice[], failureMessage = "Could not save invoices to the shared workspace, so local fallback is being used.") {
+    if (!hasLoadedHubDetailState) return;
+    pendingInvoiceSaveRef.current = true;
+    fetch("/api/hub-state", {
+      method: "PUT",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error("Invoice save failed");
+        pendingInvoiceSaveRef.current = false;
+        setSectionError((current) => (current === failureMessage ? null : current));
+      })
+      .catch(() => {
+        pendingInvoiceSaveRef.current = false;
+        setSectionError(failureMessage);
+      });
   }
 
   useEffect(() => {
@@ -12362,20 +12390,12 @@ export default function Dashboard() {
     const nextInvoices = [created, ...invoices];
     markInvoiceEdited();
     setInvoices(nextInvoices);
-    if (hasLoadedHubDetailState) {
-      fetch("/api/hub-state", {
-        method: "PUT",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...buildHubDetailStatePayload(), invoices: nextInvoices }),
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error("Valuation save failed");
-          pendingInvoiceSaveRef.current = false;
-        })
-        .catch(() => {
-          setSectionError("Could not save valuation to the shared workspace, so local fallback is being used.");
-        });
-    }
+    saveHubDetailStateWithInvoices(
+      nextInvoices,
+      isValuation
+        ? "Could not save valuation to the shared workspace, so local fallback is being used."
+        : "Could not save invoice to the shared workspace, so local fallback is being used.",
+    );
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: isValuation ? "valuation created" : "invoice created",
@@ -12447,12 +12467,14 @@ export default function Dashboard() {
       paidAmount: 0,
     };
     markInvoiceEdited();
-    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+    const nextInvoices = invoices.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...approvedInvoice,
         }
       : invoice,
-    ));
+    );
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save approved valuation to the shared workspace, so local fallback is being used.");
     setInvoiceEmailDrafts((current) => ({
       ...current,
       [selectedInvoice.id]: makeInvoiceEmailDraft(approvedInvoice, selectedInvoiceClient),
