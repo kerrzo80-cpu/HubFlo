@@ -10,6 +10,7 @@ import {
   type SurveyRecord,
 } from "./survey-estimator";
 import { generateEstimateFromSurvey } from "./estimate-generation";
+import { buildDynamicSurveyPath, inferSurveyorIntent } from "./surveyor-brain";
 
 const now = "2026-07-16T08:00:00.000Z";
 
@@ -157,6 +158,27 @@ test("radiator surveys use focused heating questions without generic electrical 
   assert.ok(questions.some((question) => question.key === "emitter-requirements"));
   assert.ok(questions.some((question) => question.key === "radiator-pipe-routes"));
   assert.equal(questions.some((question) => question.key === "electrical-supply"), false);
+});
+
+test("dynamic surveyor brain branches radiator replacement and relocation differently", () => {
+  const likeForLike = buildDynamicSurveyPath(inferSurveyorIntent({
+    text: "Replace a radiator like for like in the lounge",
+    jobType: "Radiators or towel rails",
+  }));
+  const relocation = buildDynamicSurveyPath(inferSurveyorIntent({
+    text: "Relocate the radiator under the window and run new pipework",
+    jobType: "Radiators or towel rails",
+  }));
+
+  assert.equal(likeForLike.intent.itemGroup, "Radiator / towel rail");
+  assert.equal(likeForLike.intent.workType, "Like-for-like replacement");
+  assert.ok(likeForLike.nextQuestions.some((question) => /isolate|drain/i.test(question.question)));
+  assert.equal(likeForLike.nextQuestions.some((question) => /pipe route/i.test(question.question)), false);
+
+  assert.equal(relocation.intent.workType, "Relocation");
+  assert.ok(relocation.nextQuestions.some((question) => /pipe route/i.test(question.question)));
+  assert.ok(relocation.nextQuestions.some((question) => /heat-loss|heat loss/i.test(question.question)));
+  assert.ok(relocation.takeoffHandoff.some((item) => /Takeoffs/i.test(item)));
 });
 
 test("completion blocks an unlinked survey", () => {

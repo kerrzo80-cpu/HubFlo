@@ -20,6 +20,39 @@ export type SurveyOccupancy = "Occupied" | "Vacant" | "Unknown";
 export type SurveyValueStatus = "Confirmed" | "Assumed" | "Provisional" | "TBC" | "Not applicable";
 export type SurveyResponsibility = "EWG" | "Client" | "Main contractor" | "Other trade";
 export type SurveyLinkType = "Lead" | "Quote" | "Job";
+export const surveyorItemGroups = [
+  "Radiator / towel rail",
+  "Boiler",
+  "Cylinder / hot water",
+  "WC / toilet",
+  "Bath / shower",
+  "Basin / sink",
+  "Pipework",
+  "Underfloor heating",
+  "ASHP",
+  "Kitchen appliance",
+  "Tender / BOQ",
+  "General plumbing",
+] as const;
+export type SurveyorItemGroup = (typeof surveyorItemGroups)[number];
+export const surveyorWorkTypes = [
+  "Clarify first",
+  "Like-for-like replacement",
+  "Relocation",
+  "New installation",
+  "Service / repair",
+  "Remove / cap off",
+  "Upgrade / design",
+] as const;
+export type SurveyorWorkType = (typeof surveyorWorkTypes)[number];
+export type SurveyEvidenceConfidence = "High" | "Medium" | "Low" | "Needs more evidence";
+export type SurveyorIntent = {
+  itemGroup: SurveyorItemGroup;
+  workType: SurveyorWorkType;
+  confidence: SurveyEvidenceConfidence;
+  notes?: string;
+  updatedAt?: string;
+};
 export type SurveyPhotoCategory =
   | "Room overview"
   | "Existing condition"
@@ -193,6 +226,7 @@ export type SurveyRecord = {
   occupancy: SurveyOccupancy;
   market: SurveyMarket;
   jobType: SurveyJobType;
+  surveyIntent?: SurveyorIntent;
   answers: SurveyAnswer[];
   rooms: SurveyRoom[];
   scopeItems: SurveyScopeItem[];

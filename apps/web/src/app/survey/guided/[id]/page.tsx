@@ -29,9 +29,16 @@ import {
   Wrench,
 } from "lucide-react";
 import {
+  buildDynamicSurveyPath,
   inferSurveyJobTypeFromText,
+  inferSurveyorIntent,
   surveyQuestionSetForJobType,
   surveyJobTypes,
+  surveyorItemGroupLabels,
+  surveyorItemGroups,
+  surveyorWorkTypeLabels,
+  surveyorWorkTypes,
+  type SurveyEvidenceConfidence,
   type SurveyAnswer,
   type SurveyCompletionReview,
   type SurveyEquipmentItem,
@@ -42,6 +49,7 @@ import {
   type SurveyRecord,
   type SurveyRoom,
   type SurveyScopeItem,
+  type SurveyorIntent,
   type SurveyValueStatus,
 } from "@hubflo/domain";
 
@@ -134,6 +142,8 @@ const photoCategories: SurveyPhotoCategory[] = [
   "Room overview", "Existing condition", "Proposed position", "Pipe route", "Boiler data plate", "Gas meter",
   "Consumer unit", "Drainage", "Access issue", "Damage or making good", "Measurement evidence", "Other",
 ];
+
+const surveyEvidenceConfidenceOptions: SurveyEvidenceConfidence[] = ["High", "Medium", "Low", "Needs more evidence"];
 
 function nextId(prefix: string) {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -487,7 +497,22 @@ export default function GuidedSurveyPage() {
   const questionSet = useMemo(() => survey ? surveyQuestionSetForJobType(survey.jobType) : null, [survey]);
   const questions = questionSet?.questions ?? [];
   const suggestedJobType = useMemo(() => survey ? inferSurveyJobTypeFromText(survey.customerRequirements) : undefined, [survey?.customerRequirements]);
+  const surveyorIntent = useMemo(() => survey ? inferSurveyorIntent({
+    text: [
+      survey.customerRequirements,
+      survey.scopeItems.map((item) => `${item.taskType} ${item.notes}`).join(" "),
+      scopeDraft.taskType,
+      scopeDraft.notes,
+    ].join(" "),
+    jobType: survey.jobType,
+    currentIntent: survey.surveyIntent,
+    evidenceCount: survey.photos.length,
+  }) : null, [survey, scopeDraft.taskType, scopeDraft.notes]);
+  const surveyorPath = useMemo(() => surveyorIntent ? buildDynamicSurveyPath(surveyorIntent) : null, [surveyorIntent]);
   const currentStepIndex = steps.findIndex((step) => step.key === activeStep);
+  const takeoffRoomsHref = survey
+    ? `/takeoff?tab=rooms&survey=${encodeURIComponent(survey.id)}${survey.legacyTakeoffProjectId ? `&project=${encodeURIComponent(survey.legacyTakeoffProjectId)}` : ""}`
+    : "/takeoff?tab=rooms";
 
   function updateCustomerRequirement(value: string) {
     if (!survey) return;
@@ -496,7 +521,19 @@ export default function GuidedSurveyPage() {
       && suggestion !== survey.jobType
       && !survey.answers.length
       && (survey.jobType === "General plumbing" || survey.jobType === "Custom survey");
-    queuePatch(shouldAutoSet ? { customerRequirements: value, jobType: suggestion } : { customerRequirements: value });
+    const patch: Partial<SurveyRecord> = shouldAutoSet ? { customerRequirements: value, jobType: suggestion } : { customerRequirements: value };
+    if (!survey.surveyIntent) {
+      patch.surveyIntent = {
+        ...inferSurveyorIntent({ text: value, jobType: suggestion || survey.jobType, evidenceCount: survey.photos.length }),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    queuePatch(patch);
+  }
+
+  function updateSurveyIntent(patch: Partial<SurveyorIntent>) {
+    if (!surveyorIntent) return;
+    queuePatch({ surveyIntent: { ...surveyorIntent, ...patch, updatedAt: new Date().toISOString() } });
   }
 
   if (!survey) {
@@ -581,10 +618,36 @@ export default function GuidedSurveyPage() {
                 <label>Surveyor<input value={survey.surveyorName} onChange={(event) => queuePatch({ surveyorName: event.target.value })} /></label>
                 <label>Survey date<input type="date" value={survey.surveyDate} onChange={(event) => queuePatch({ surveyDate: event.target.value })} /></label>
                 <label>Required by<input type="date" value={survey.requiredByDate || ""} onChange={(event) => queuePatch({ requiredByDate: event.target.value })} /></label>
-                <label>Job type<select value={survey.jobType} onChange={(event) => queuePatch({ jobType: event.target.value as SurveyRecord["jobType"] })}>{surveyJobTypes.map((type) => <option key={type}>{type}</option>)}</select><small>The selected job type controls the next questions.</small></label>
+                <label>Job type<select value={survey.jobType} onChange={(event) => {
+                  const jobType = event.target.value as SurveyRecord["jobType"];
+                  queuePatch({
+                    jobType,
+                    surveyIntent: {
+                      ...inferSurveyorIntent({ text: survey.customerRequirements, jobType, evidenceCount: survey.photos.length }),
+                      updatedAt: new Date().toISOString(),
+                    },
+                  });
+                }}>{surveyJobTypes.map((type) => <option key={type}>{type}</option>)}</select><small>The selected job type controls the next questions.</small></label>
                 <label>Property<select value={survey.occupancy} onChange={(event) => queuePatch({ occupancy: event.target.value as SurveyRecord["occupancy"] })}><option>Occupied</option><option>Vacant</option><option>Unknown</option></select></label>
                 <label>Pricing market<select value={survey.market} onChange={(event) => queuePatch({ market: event.target.value as SurveyRecord["market"] })}><option>Domestic</option><option>Commercial</option></select></label>
                 <label className="wide">What are we doing? (required for pricing)<textarea value={survey.customerRequirements} onChange={(event) => updateCustomerRequirement(event.target.value)} placeholder="Example: move two existing radiators to new positions and alter the pipework..." /></label>
+                {surveyorPath ? (
+                  <div className="guided-intent-card wide">
+                    <header>
+                      <span>
+                        <strong>Dynamic survey path</strong>
+                        <small>NeXa changes the questions from the item and type of work.</small>
+                      </span>
+                      <b>{surveyorPath.intent.confidence}</b>
+                    </header>
+                    <div className="guided-intent-controls">
+                      <label>Item / asset<select value={surveyorPath.intent.itemGroup} onChange={(event) => updateSurveyIntent({ itemGroup: event.target.value as SurveyorIntent["itemGroup"] })}>{surveyorItemGroups.map((item) => <option key={item} value={item}>{surveyorItemGroupLabels[item]}</option>)}</select></label>
+                      <label>Type of work<select value={surveyorPath.intent.workType} onChange={(event) => updateSurveyIntent({ workType: event.target.value as SurveyorIntent["workType"] })}>{surveyorWorkTypes.map((item) => <option key={item} value={item}>{surveyorWorkTypeLabels[item]}</option>)}</select></label>
+                      <label>Evidence confidence<select value={surveyorPath.intent.confidence} onChange={(event) => updateSurveyIntent({ confidence: event.target.value as SurveyEvidenceConfidence })}>{surveyEvidenceConfidenceOptions.map((item) => <option key={item}>{item}</option>)}</select></label>
+                    </div>
+                    <p>{surveyorPath.summary}</p>
+                  </div>
+                ) : null}
                 {suggestedJobType && suggestedJobType !== survey.jobType ? (
                   <div className="guided-job-type-suggestion wide">
                     <span><strong>Suggested question set: {suggestedJobType}</strong><small>NeXa will ask different questions for a radiator move than a boiler change or bathroom refurb.</small></span>
@@ -628,6 +691,50 @@ export default function GuidedSurveyPage() {
           {activeStep === "scope" ? (
             <section className="guided-form-section">
               <div className="guided-section-title"><Wrench size={18} /><span><h2>Proposed scope</h2><p>Add at least one task. Estimator builds materials and labour from these items.</p></span></div>
+              {surveyorPath ? (
+                <section className="guided-dynamic-surveyor-card">
+                  <header>
+                    <span><Bot size={17} /><strong>{surveyorPath.title}</strong></span>
+                    <small>{surveyorPath.intent.itemGroup} · {surveyorPath.intent.workType}</small>
+                  </header>
+                  <p>{surveyorPath.summary}</p>
+                  <div className="guided-dynamic-grid">
+                    <article>
+                      <h3>Next questions</h3>
+                      <ol>
+                        {surveyorPath.nextQuestions.map((item) => (
+                          <li key={item.id}><strong>{item.question}</strong><span>{item.why}</span></li>
+                        ))}
+                      </ol>
+                    </article>
+                    <article>
+                      <h3>Evidence confidence</h3>
+                      <ul>{surveyorPath.evidencePrompts.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </article>
+                    <article>
+                      <h3>Materials to build</h3>
+                      <ul>{surveyorPath.materialBuild.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </article>
+                    <article>
+                      <h3>Labour and handoff</h3>
+                      <ul>{[...surveyorPath.labourBuild, ...surveyorPath.takeoffHandoff].map((item) => <li key={item}>{item}</li>)}</ul>
+                    </article>
+                  </div>
+                  {surveyorPath.estimatorWarnings.length ? <div className="guided-estimator-warnings">{surveyorPath.estimatorWarnings.map((item) => <span key={item}>{item}</span>)}</div> : null}
+                  <div className="guided-dynamic-actions">
+                    <button type="button" onClick={() => setScopeDraft({
+                      ...scopeDraft,
+                      taskType: surveyorPath.scopeDraft.taskType,
+                      trade: "Plumbing/Heating",
+                      dimensions: surveyorPath.scopeDraft.dimensions,
+                      status: surveyorPath.intent.confidence === "High" ? "Confirmed" : "Provisional",
+                      notes: surveyorPath.scopeDraft.notes,
+                    })}><Wrench size={16} /> Use this for scope draft</button>
+                    <button type="button" onClick={() => void askNexa(undefined, `Challenge this ${surveyorPath.intent.itemGroup} ${surveyorPath.intent.workType} survey path. What are the missing checks before it can become a quote?`)}><Bot size={16} /> Ask NeXa to challenge it</button>
+                    <a href={takeoffRoomsHref}><ScanLine size={16} /> LiDAR / Takeoffs handoff</a>
+                  </div>
+                </section>
+              ) : null}
               <div className="guided-record-list">{survey.scopeItems.map((item) => <article key={item.id}><span><strong>{item.taskType}</strong><small>{item.trade} · {item.roomOrArea || "Area TBC"} · Qty {item.quantity}</small></span><b>{item.status}</b><button title="Remove scope item" aria-label="Remove scope item" type="button" onClick={() => queuePatch({ scopeItems: survey.scopeItems.filter((row) => row.id !== item.id) })}><Trash2 size={15} /></button></article>)}</div>
               <div className="guided-scope-notes">
                 <label>Work by others<textarea value={survey.workByOthers.join("\n")} onChange={(event) => queuePatch({ workByOthers: event.target.value.split("\n").map((item) => item.trim()).filter(Boolean) })} placeholder="One item per line" /></label>
@@ -658,7 +765,7 @@ export default function GuidedSurveyPage() {
                   <div className="guided-lidar-summary">
                     <strong>{lidarEvidence.length}</strong>
                     <span>scan export{lidarEvidence.length === 1 ? "" : "s"} saved</span>
-                    <small>RoomPlan files are kept with the survey evidence. Takeoffs can also import the same scan to build rooms and measurements.</small>
+                    <small>RoomPlan files are kept with the survey evidence. Takeoffs uses the same scan as room context, dimensions and markup evidence.</small>
                   </div>
                   <div className="guided-lidar-actions">
                     <label className="wide">Scan note<input value={lidarCaption} onChange={(event) => setLidarCaption(event.target.value)} placeholder="Bathroom RoomPlan scan, hallway dimensions, existing cupboard..." /></label>
@@ -670,7 +777,7 @@ export default function GuidedSurveyPage() {
                       Import LiDAR export
                       <input hidden type="file" accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply,application/json,model/*" multiple onChange={(event) => void uploadLidarEvidence(event)} />
                     </label>
-                    <a className="guided-secondary-action" href="/takeoff?tab=rooms"><Ruler size={16} /> Open Takeoffs rooms</a>
+                    <a className="guided-secondary-action" href={takeoffRoomsHref}><Ruler size={16} /> Use in Takeoffs</a>
                   </div>
                 </div>
                 {lidarEvidence.length ? (

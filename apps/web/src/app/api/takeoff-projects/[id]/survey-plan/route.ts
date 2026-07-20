@@ -266,7 +266,17 @@ async function runOpenAiSurveyPlan(project: TakeoffProject, workflow: TakeoffSur
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK plumbing and heating survey manager for NeXa. Create a conversational site-survey interview for office-reviewed quotes. The questions should sound like an experienced estimator asking the engineer/client one useful follow-up at a time. Keep stop/go items as separate safety gates only; use the main questions for job-specific back-and-forth detail about scope, rooms, pipe routes, materials, exclusions and supplier pricing.",
+            text: [
+              "You are a UK plumbing and heating survey manager for NeXa.",
+              "Create a dynamic conversational site-survey interview for office-reviewed quotes, not a fixed checklist.",
+              "First identify the item/system and the work type, then ask questions that change from those facts.",
+              "Examples: radiator like-for-like asks isolation valves, drain-down, TRVs, inhibitor and system type; radiator relocation asks new location, pipe runs, floor type, route and heat loss.",
+              "Apply the same adaptive logic to boilers, toilets, baths, showers, basins, cylinders, pipework, UFH and ASHP.",
+              "Every question should help build scope, materials, labour, evidence confidence, exclusions or supplier RFQ lines.",
+              "If photo/drawing/LiDAR evidence may be unclear, include a confidence-check prompt asking for another angle or a short video instead of guessing.",
+              "Keep stop/go items as separate safety gates only; use the main questions for job-specific back-and-forth detail.",
+              "Do not create generic four-part cost centres by default. Keep simple works simple.",
+            ].join("\n"),
           }],
         },
         {

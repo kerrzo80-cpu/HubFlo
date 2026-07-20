@@ -324,6 +324,7 @@ function defaultSurvey(input: Partial<SurveyRecord>, context: MutationContext): 
     occupancy: input.occupancy || "Unknown",
     market: input.market || "Domestic",
     jobType: input.jobType || "General plumbing",
+    surveyIntent: input.surveyIntent,
     answers: input.answers || [],
     rooms: input.rooms || [],
     scopeItems: input.scopeItems || [],

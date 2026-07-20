@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import {
+  buildDynamicSurveyPath,
+  inferSurveyorIntent,
   reviewSurveyCompletion,
   surveyQuestionsForJobType,
   type SurveyAssistantMessage,
@@ -42,6 +44,12 @@ function getOutputText(response: unknown) {
 function surveyContext(survey: SurveyRecord, activeStep: string) {
   const review = reviewSurveyCompletion(survey);
   const questions = surveyQuestionsForJobType(survey.jobType);
+  const dynamicPath = buildDynamicSurveyPath(inferSurveyorIntent({
+    text: `${survey.customerRequirements} ${survey.scopeItems.map((item) => `${item.taskType} ${item.notes}`).join(" ")}`,
+    jobType: survey.jobType,
+    currentIntent: survey.surveyIntent,
+    evidenceCount: survey.photos.length,
+  }));
   const unanswered = questions.filter((question) => {
     const answer = survey.answers.find((item) => item.key === question.key);
     return question.required && (!answer || (!String(answer.value ?? "").trim() && answer.status !== "Not applicable"));
@@ -53,6 +61,11 @@ function surveyContext(survey: SurveyRecord, activeStep: string) {
     `Linked record: ${survey.jobLink ? `${survey.jobLink.type} ${survey.jobLink.reference}` : "not linked"}`,
     `Customer/site: ${survey.customerName || "TBC"} / ${survey.siteAddress || "TBC"}`,
     `Job type: ${survey.jobType}; market: ${survey.market}; occupancy: ${survey.occupancy}`,
+    `Dynamic survey intent: ${dynamicPath.intent.itemGroup}; ${dynamicPath.intent.workType}; evidence confidence ${dynamicPath.intent.confidence}`,
+    `Dynamic next questions: ${dynamicPath.nextQuestions.map((item) => item.question).join(" | ")}`,
+    `Dynamic materials: ${dynamicPath.materialBuild.join(" | ")}`,
+    `Dynamic labour: ${dynamicPath.labourBuild.join(" | ")}`,
+    `Dynamic Takeoffs handoff: ${dynamicPath.takeoffHandoff.join(" | ")}`,
     `Customer requirement: ${survey.customerRequirements || "TBC"}`,
     `Recorded condition answers: ${survey.answers.length}; required unanswered: ${unanswered.map((item) => item.question).join(" | ") || "none"}`,
     `Scope: ${survey.scopeItems.map((item) => `${item.taskType} [${item.trade}, ${item.roomOrArea || "area TBC"}, ${item.status}]`).join(" | ") || "none"}`,
@@ -77,15 +90,23 @@ function recentTranscript(messages: SurveyAssistantMessage[]) {
 
 function fallbackReply(survey: SurveyRecord, activeStep: string) {
   const review = reviewSurveyCompletion(survey);
+  const dynamicPath = buildDynamicSurveyPath(inferSurveyorIntent({
+    text: `${survey.customerRequirements} ${survey.scopeItems.map((item) => `${item.taskType} ${item.notes}`).join(" ")}`,
+    jobType: survey.jobType,
+    currentIntent: survey.surveyIntent,
+    evidenceCount: survey.photos.length,
+  }));
   const items: string[] = [];
 
   if (activeStep === "details") {
     if (!survey.jobLink) items.push("Link the correct lead, quote or job.");
     if (!survey.customerName.trim() || !survey.siteAddress.trim()) items.push("Confirm the customer and full site address.");
     if (!survey.customerRequirements.trim()) items.push("Record the outcome the customer is asking for.");
+    if (survey.customerRequirements.trim()) items.push(`Confirm the survey path is ${dynamicPath.intent.itemGroup} / ${dynamicPath.intent.workType}.`);
   } else if (activeStep === "conditions") {
-    items.push(...review.missingInformation.slice(0, 3).map((item) => item.message));
+    items.push(...dynamicPath.nextQuestions.slice(0, 3).map((item) => item.question));
   } else if (activeStep === "scope") {
+    items.push(...dynamicPath.nextQuestions.slice(0, 2).map((item) => item.question));
     if (!survey.scopeItems.length) items.push("Add each proposed task as a separate scope item with its trade and room/area.");
     if (!survey.workByOthers.length) items.push("Confirm any work by the client, main contractor or other trades.");
     if (!survey.assumptions.length) items.push("Record any assumptions that the estimator must not treat as confirmed facts.");
@@ -129,9 +150,14 @@ async function runOpenAi(
             type: "input_text",
             text: [
               "You are Ask NeXa inside a structured site-survey workflow for a UK plumbing, heating and building contractor.",
+              "Do not behave like a fixed questionnaire. First identify the item/asset and the work type, then branch your next question from that.",
+              "Examples: radiator like-for-like means ask isolation valves, drain-down, TRVs, inhibitor and system type; radiator relocation means ask new position, pipe route, floor type, route length and heat loss.",
+              "Apply the same adaptive logic to boilers, toilets, baths, showers, basins, cylinders, pipework and heating systems.",
+              "Every answer should refine the scope, likely materials, labour and quote structure. Avoid irrelevant questions.",
               "Use the recorded survey facts below. Never invent a measurement, product, condition or price.",
               "Answer the user's actual question first. Then identify only the most relevant missing evidence for the current guided stage.",
               "Ask no more than three targeted questions. Do not repeat a question already answered in the survey or transcript.",
+              "If photo evidence is unclear or confidence is low, ask for another angle or a short video instead of guessing.",
               "Do not create generic four-part cost centres. Surveyor gathers facts; Estimator later creates materials, labour and cost centres from reviewed data.",
               "If drawings, specifications or a contractor BOQ need quantity extraction, explain that they belong in NeXa Takeoffs and state exactly what should be handed over.",
               "When photographs exist, refer only to their captions/categories unless image content has been explicitly extracted.",
