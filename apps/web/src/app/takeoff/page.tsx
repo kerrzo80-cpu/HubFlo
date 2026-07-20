@@ -4662,8 +4662,17 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     </div>
 
                     <div className="services-markup-palette">
-                    <section className="services-markup-service-selector" style={{ order: 0 }}>
-                        <strong>Filter items</strong>
+                    <section className="services-markup-search-panel" style={{ order: 0 }}>
+                        <strong>Search full catalogue</strong>
+                        <input
+                          value={markupItemSearch}
+                          onChange={(event) => {
+                            setMarkupItemSearch(event.target.value);
+                            setMarkupToolCategory("all");
+                          }}
+                          placeholder="Search bath, basin, boiler, radiator, elbow, valve..."
+                        />
+                        <strong>Filter</strong>
                         <div className="services-markup-group-grid">
                           {markupToolGroups.map((group) => (
                             <button
@@ -4679,23 +4688,21 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             </button>
                           ))}
                         </div>
-                        <strong>Service / system for new items</strong>
-                        <div className="services-markup-service-grid">
-                          {activeMarkupGroupServices.map((service) => (
-                            <button
-                              className={activeMarkupService === service.id ? "active" : ""}
-                              style={{ "--service-colour": service.colour } as CSSProperties}
-                              type="button"
-                              key={service.id}
-                              onClick={() => setActiveMarkupService(service.id)}
-                            >
-                              <i />
-                              {service.label}
-                            </button>
-                          ))}
-                        </div>
+                      </section>
+                      <section className="services-markup-tool-section services-markup-pipe-section" style={{ order: 1 }}>
+                        <strong>Pipe</strong>
                         <label className="services-markup-select-field">
-                          <span>Select size / material</span>
+                          <span>Service / system</span>
+                          <select value={activeMarkupService} onChange={(event) => setActiveMarkupService(event.target.value as TakeoffMarkupService)}>
+                            {activeMarkupGroupServices.map((service) => (
+                              <option value={service.id} key={service.id}>
+                                {service.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="services-markup-select-field">
+                          <span>Size / material</span>
                           <select
                             value={activeMarkupPipeToolId}
                             onChange={(event) => {
@@ -4703,7 +4710,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                               setActiveMarkupPipeToolId(event.target.value);
                             }}
                           >
-                            {activeMarkupGroupPipeTools.length ? null : <option value={activeMarkupPipeToolId}>No pipe sizes for this group</option>}
+                            {activeMarkupGroupPipeTools.length ? null : <option value={activeMarkupPipeToolId}>No pipe sizes for this filter</option>}
                             {activeMarkupGroupPipeTools.map((tool) => (
                               <option value={tool.id} key={tool.id}>
                                 {tool.label}
@@ -4711,40 +4718,6 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             ))}
                           </select>
                         </label>
-                      </section>
-                    <section className="services-markup-search-panel" style={{ order: 1 }}>
-                        <strong>Search full catalogue</strong>
-                        <input
-                          value={markupItemSearch}
-                          onChange={(event) => {
-                            setMarkupItemSearch(event.target.value);
-                            setMarkupToolCategory("all");
-                          }}
-                          placeholder="Search boiler, radiator, elbow, valve..."
-                        />
-                        <div className="services-markup-quick-searches">
-                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("all"); setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
-                            All items
-                          </button>
-                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("sanitary"); setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
-                            Sanitary ware
-                          </button>
-                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("heating"); setMarkupItemSearch("boiler"); setMarkupToolCategory("all"); }}>
-                            Boilers
-                          </button>
-                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("heating"); setMarkupItemSearch("radiator"); setMarkupToolCategory("all"); }}>
-                            Radiators
-                          </button>
-                          <button type="button" onClick={() => { setMarkupItemSearch("valve"); setMarkupToolCategory("all"); }}>
-                            Valves
-                          </button>
-                          <button type="button" onClick={() => { setActiveMarkupToolGroupId("all"); setMarkupItemSearch(""); setMarkupToolCategory("all"); }}>
-                            Clear
-                          </button>
-                        </div>
-                      </section>
-                      <section className="services-markup-tool-section services-markup-pipe-section" style={{ order: 2 }}>
-                        <strong>Pipe</strong>
                         <div className="services-markup-tool-grid">
                           {matchingPipeTools.map((tool) => (
                             <button
@@ -4764,7 +4737,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {!matchingPipeTools.length ? <span className="services-markup-no-tools">No pipe items match.</span> : null}
                         </div>
                       </section>
-                      <section className="services-markup-tool-section services-markup-fittings-section" style={{ order: 4 }}>
+                      <section className="services-markup-tool-section services-markup-fittings-section" style={{ order: 3 }}>
                         <strong>Fittings</strong>
                         <div className="services-markup-tool-grid compact">
                           {matchingFittingTools.filter((tool) => tool.category === "Fitting").map((tool) => (
@@ -4785,7 +4758,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {!matchingFittingTools.some((tool) => tool.category === "Fitting") ? <span className="services-markup-no-tools">No fitting items match.</span> : null}
                         </div>
                       </section>
-                      <section className="services-markup-tool-section services-markup-valves-section" style={{ order: 5 }}>
+                      <section className="services-markup-tool-section services-markup-valves-section" style={{ order: 4 }}>
                         <strong>Valves</strong>
                         <div className="services-markup-tool-grid compact">
                           {matchingFittingTools.filter((tool) => tool.category === "Valve").map((tool) => (
@@ -4806,8 +4779,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           {!matchingFittingTools.some((tool) => tool.category === "Valve") ? <span className="services-markup-no-tools">No valve items match.</span> : null}
                         </div>
                       </section>
-                      <section className="services-markup-tool-section services-markup-plant-section" style={{ order: 3 }}>
-                        <strong>{activeMarkupToolGroup.id === "heating" ? "Heating plant / radiators" : "Plant / fixtures"}</strong>
+                      <section className="services-markup-tool-section services-markup-plant-section" style={{ order: 2 }}>
+                        <strong>
+                          {activeMarkupToolGroup.id === "heating"
+                            ? "Heating plant / radiators"
+                            : activeMarkupToolGroup.id === "sanitary"
+                              ? "Sanitary / fixtures"
+                              : "Plant / fixtures"}
+                        </strong>
                         <div className="services-markup-tool-grid compact plant">
                           {matchingPlantTools.map((tool) => (
                             <button
