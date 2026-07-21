@@ -8134,6 +8134,12 @@ h1 {
   text-transform: uppercase;
 }
 
+.supplier-pdf-row.empty {
+  color: var(--muted);
+  font-size: 12px;
+  min-height: 58px;
+}
+
 .supplier-pdf-row strong {
   color: #182f3c;
   font-size: 12px;

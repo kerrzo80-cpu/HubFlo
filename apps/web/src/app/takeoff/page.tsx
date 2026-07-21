@@ -1438,8 +1438,8 @@ function PdfPlanPreview({ src, label, onRendered }: { src: string; label: string
         }
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 4200;
-        const targetHeight = 2604;
+        const targetWidth = 6400;
+        const targetHeight = 3968;
         const qualityScale = Math.min(targetWidth / baseViewport.width, targetHeight / baseViewport.height);
         const viewport = page.getViewport({ scale: qualityScale });
         const canvas = canvasRef.current;
