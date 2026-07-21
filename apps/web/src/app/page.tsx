@@ -4469,6 +4469,103 @@ function consolidateJobSupplierEntries(entries: JobSupplierLineWithCentre[]): Jo
   return Array.from(groups.values());
 }
 
+type SupplierRequestPdfPreviewLine = {
+  id: string;
+  description: string;
+  quantity: number;
+};
+
+function SupplierRequestPdfPreview({
+  contactEmail,
+  customer,
+  message,
+  recordRef,
+  recordTitle,
+  siteAddress,
+  supplier,
+  title,
+  lines,
+}: {
+  contactEmail?: string;
+  customer: string;
+  message: string;
+  recordRef: string;
+  recordTitle: string;
+  siteAddress: string;
+  supplier?: string;
+  title: string;
+  lines: SupplierRequestPdfPreviewLine[];
+}) {
+  return (
+    <section className="supplier-pdf-preview-area" aria-label={`${recordRef} supplier PDF preview`}>
+      <div className="supplier-pdf-preview-toolbar">
+        <div>
+          <span>PDF preview</span>
+          <strong>{title}</strong>
+        </div>
+        <b>{lines.length} item{lines.length === 1 ? "" : "s"}</b>
+      </div>
+      <article className="supplier-pdf-sheet">
+        <header>
+          <div className="supplier-pdf-brand">
+            <span>ERROL WATSON GROUP</span>
+            <strong>Supplier Price Request</strong>
+          </div>
+          <div className="supplier-pdf-ref">
+            <span>Reference</span>
+            <strong>{recordRef}</strong>
+            <small>Ready to send</small>
+          </div>
+        </header>
+
+        <div className="supplier-pdf-details">
+          <div>
+            <span>Supplier</span>
+            <strong>{supplier || "Supplier to confirm"}</strong>
+            <small>{contactEmail || "Email to confirm"}</small>
+          </div>
+          <div>
+            <span>Project</span>
+            <strong>{recordTitle}</strong>
+            <small>{customer}</small>
+          </div>
+          <div>
+            <span>Delivery / site</span>
+            <strong>{siteAddress}</strong>
+            <small>Please price supply-only unless noted otherwise.</small>
+          </div>
+        </div>
+
+        <p className="supplier-pdf-message">{message}</p>
+
+        <div className="supplier-pdf-table">
+          <div className="supplier-pdf-row head">
+            <span>No.</span>
+            <span>Description</span>
+            <span>Qty</span>
+            <span>Unit price</span>
+            <span>Line total</span>
+          </div>
+          {lines.map((line, index) => (
+            <div className="supplier-pdf-row" key={line.id}>
+              <span>{index + 1}</span>
+              <strong>{line.description}</strong>
+              <span>{formatLineQuantity(line.quantity)}</span>
+              <span>£</span>
+              <span>£</span>
+            </div>
+          ))}
+        </div>
+
+        <footer>
+          <span>Please return your quotation by email with lead time, availability and any substitutions noted.</span>
+          <strong>{contactEmail || "quotes@errolwatsongroup.com"}</strong>
+        </footer>
+      </article>
+    </section>
+  );
+}
+
 function quoteLineCatalogType(line: QuoteCostLine) {
   if (line.catalogItemId.startsWith("labour-")) return "Labour";
   return quoteCatalog.find((item) => item.id === line.catalogItemId)?.type ?? "Material";
@@ -22865,6 +22962,25 @@ export default function Dashboard() {
                                         </div>
                                       </div>
 
+                                      <SupplierRequestPdfPreview
+                                        contactEmail={supplierDraft?.contactEmail}
+                                        customer={selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm"}
+                                        message={
+                                          supplierDraft?.message ??
+                                          `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`
+                                        }
+                                        recordRef={selectedQuote?.ref ?? "Quote"}
+                                        recordTitle={selectedQuote?.description ?? "Supplier quote request"}
+                                        siteAddress={selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}
+                                        supplier={supplierDraft?.supplier}
+                                        title="Supplier RFQ preview"
+                                        lines={supplierRequestEntries.map((entry) => ({
+                                          id: `${entry.centreId}:${entry.line.id}`,
+                                          description: entry.line.description,
+                                          quantity: entry.line.quantity,
+                                        }))}
+                                      />
+
                                       <div className="supplier-match-summary">
                                         <div>
                                           <span>Returned PDF</span>
@@ -25830,6 +25946,25 @@ export default function Dashboard() {
                                           <strong>{supplierRequestLines.length}</strong>
                                         </div>
                                       </div>
+
+                                      <SupplierRequestPdfPreview
+                                        contactEmail={supplierDraft?.contactEmail}
+                                        customer={selectedJob?.customer ?? selectedJobClient?.name ?? "Customer to confirm"}
+                                        message={
+                                          supplierDraft?.message ??
+                                          `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`
+                                        }
+                                        recordRef={selectedJob?.ref ?? "Job"}
+                                        recordTitle={selectedJob?.description ?? "Supplier quote request"}
+                                        siteAddress={selectedJobSite?.address ?? selectedJob?.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}
+                                        supplier={supplierDraft?.supplier}
+                                        title="Supplier RFQ preview"
+                                        lines={supplierRequestEntries.map((entry) => ({
+                                          id: `${entry.centreId}:${entry.line.id}`,
+                                          description: entry.line.description,
+                                          quantity: entry.line.quantity,
+                                        }))}
+                                      />
 
                                       <div className="supplier-match-summary">
                                         <div>
