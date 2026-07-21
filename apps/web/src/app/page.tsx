@@ -1632,7 +1632,7 @@ type SimproExportRecord = {
   createdAt: string;
   actor: string;
   status: "Queued" | "Sent" | "Failed";
-  mode: "manual" | "webhook" | "direct";
+  mode: "manual" | "webhook" | "scheduler" | "direct";
   simproQuoteId?: string;
   endpoint?: string;
   setupRequired?: string;
@@ -1646,6 +1646,49 @@ type SimproExportRecord = {
   };
 };
 
+type SimproSyncOperation = {
+  id: string;
+  entity: "clients" | "sites" | "quotes" | "jobs" | "invoices";
+  action: "create" | "link" | "skip" | "conflict" | "error" | "preview";
+  simproId?: string;
+  simproName?: string;
+  nexaId?: string;
+  nexaRef?: string;
+  summary: string;
+  detail?: string;
+};
+
+type SimproSyncRun = {
+  id: string;
+  mode: "preview" | "apply";
+  startedAt: string;
+  finishedAt: string;
+  actor: string;
+  entities: Array<"clients" | "sites" | "quotes" | "jobs" | "invoices">;
+  totals: {
+    fetched: number;
+    created: number;
+    linked: number;
+    skipped: number;
+    conflicts: number;
+    errors: number;
+  };
+  operations: SimproSyncOperation[];
+};
+
+type SimproSyncStatus = {
+  configured: boolean;
+  mode: "direct" | "missing";
+  missing: string[];
+  endpoint?: string;
+  detectedEnvKeys: string[];
+  checkedAt: string;
+  linkCount: number;
+  webhookInboxCount: number;
+  lastRun?: SimproSyncRun;
+  recentRuns: SimproSyncRun[];
+};
+
 type SimproBridgeStatus = {
   configured: boolean;
   mode: "webhook" | "scheduler" | "direct" | "missing" | "unknown";
@@ -1653,6 +1696,7 @@ type SimproBridgeStatus = {
   endpoint?: string;
   checkedAt?: string;
   detectedEnvKeys?: string[];
+  sync?: SimproSyncStatus;
   sourceNames?: {
     webhookUrl?: string;
     schedulerUrl?: string;
@@ -6593,6 +6637,9 @@ export default function Dashboard() {
     mode: "unknown",
     missing: [],
   });
+  const [simproSyncStatus, setSimproSyncStatus] = useState<SimproSyncStatus | null>(null);
+  const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
+  const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
@@ -8538,6 +8585,7 @@ export default function Dashboard() {
         const status = (await response.json()) as SimproBridgeStatus;
         if (!stopped) {
           setSimproBridgeStatus(status);
+          if (status.sync) setSimproSyncStatus(status.sync);
         }
       } catch {
         if (!stopped) {
@@ -8546,6 +8594,7 @@ export default function Dashboard() {
             mode: "unknown",
             missing: ["Unable to check Simpro bridge"],
           });
+          setSimproSyncStatus(null);
         }
       }
     };
@@ -10592,6 +10641,66 @@ export default function Dashboard() {
     if (noticeClearTimeout.current) clearTimeout(noticeClearTimeout.current);
     setSectionNotice(message);
     noticeClearTimeout.current = setTimeout(() => setSectionNotice(null), 4200);
+  }
+
+  async function refreshCoreWorkflowRecords() {
+    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse] = await Promise.all([
+      fetch("/api/clients", { headers: requestHeaders }),
+      fetch("/api/client-sites", { headers: requestHeaders }),
+      fetch("/api/jobs", { headers: requestHeaders }),
+      fetch("/api/quotes", { headers: requestHeaders }),
+      fetch("/api/audit", { headers: requestHeaders }),
+    ]);
+
+    if (clientsResponse.ok) setClients((await clientsResponse.json()) as ClientRecord[]);
+    if (clientSitesResponse.ok) setClientSites((await clientSitesResponse.json()) as ClientSite[]);
+    if (jobsResponse.ok) setJobs((await jobsResponse.json()) as Job[]);
+    if (quotesResponse.ok) {
+      const nextQuotes = (await quotesResponse.json()) as Quote[];
+      setQuotes(nextQuotes.map((quote) => quoteWithCostCentreValue(quote, quoteCostCentresRef.current)));
+    }
+    if (auditResponse.ok) setAuditEvents((await auditResponse.json()) as AuditEvent[]);
+  }
+
+  async function runSimproSync(mode: "preview" | "apply") {
+    if (mode === "preview") {
+      setIsRunningSimproPreview(true);
+    } else {
+      setIsApplyingSimproImport(true);
+    }
+
+    try {
+      const response = await fetch("/api/integrations/simpro/sync", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          mode,
+          entities: ["clients", "sites", "quotes", "jobs", "invoices"],
+          actor: activeEmployee?.name ?? "NeXa user",
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string } | null;
+      if (!response.ok || !result?.run) {
+        throw new Error(result?.error || `simPRO sync returned HTTP ${response.status}`);
+      }
+
+      if (result.status) setSimproSyncStatus(result.status);
+      if (mode === "apply") await refreshCoreWorkflowRecords();
+
+      showNotice(
+        mode === "preview"
+          ? `simPRO preview complete: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
+          : `simPRO safe import complete: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
+    } finally {
+      setIsRunningSimproPreview(false);
+      setIsApplyingSimproImport(false);
+    }
   }
 
   function markSetupEdited() {
@@ -29381,7 +29490,7 @@ export default function Dashboard() {
                           <span className="permission-heading">Accounts integrations</span>
                           <h3>Xero and simPRO two-way bridge</h3>
                         </div>
-                        <p>These settings are saved in NeXa now. Live two-way sync still needs the API worker to use OAuth tokens, webhooks and conflict logs.</p>
+                        <p>simPRO inbound preview, safe import and webhook capture are handled by NeXa now. Outbound writes stay controlled per record so live systems do not overwrite each other without review.</p>
                       </div>
 
                       <div className="setup-integration-grid">
@@ -29389,15 +29498,26 @@ export default function Dashboard() {
                           <header>
                             <div>
                               <span>simPRO</span>
-                              <strong>{integrationSettings.simproMode}</strong>
+                              <strong>{simproSyncStatus?.configured ? "Two-way bridge ready" : integrationSettings.simproMode}</strong>
                             </div>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={() => updateIntegrationSettings({ simproLastSync: new Date().toISOString() })}
-                            >
-                              Mark sync checked
-                            </button>
+                            <div className="setup-sync-actions">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+                                onClick={() => runSimproSync("preview")}
+                              >
+                                {isRunningSimproPreview ? "Previewing..." : "Preview import"}
+                              </button>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+                                onClick={() => runSimproSync("apply")}
+                              >
+                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
+                              </button>
+                            </div>
                           </header>
                           <div className="setup-form-grid">
                             <label>
@@ -29437,8 +29557,47 @@ export default function Dashboard() {
                             </label>
                           </div>
                           <small>
-                            Last sync check: {integrationSettings.simproLastSync ? integrationSettings.simproLastSync.slice(0, 16).replace("T", " ") : "Not checked yet"}
+                            {simproSyncStatus?.configured
+                              ? `Direct API ready at ${simproSyncStatus.endpoint}.`
+                              : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
+                          <div className="setup-readiness-grid setup-sync-grid">
+                            <article>
+                              <span>Linked records</span>
+                              <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
+                              <small>simPRO records tied to NeXa records.</small>
+                            </article>
+                            <article>
+                              <span>Webhook inbox</span>
+                              <strong>{simproSyncStatus?.webhookInboxCount ?? 0}</strong>
+                              <small>Inbound simPRO events waiting for sync processing.</small>
+                            </article>
+                            <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
+                              <span>Last run</span>
+                              <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
+                              <small>
+                                {simproSyncStatus?.lastRun
+                                  ? `${simproSyncStatus.lastRun.totals.created} create · ${simproSyncStatus.lastRun.totals.linked} link · ${simproSyncStatus.lastRun.totals.conflicts} conflict · ${simproSyncStatus.lastRun.totals.errors} error`
+                                  : "Run preview before applying anything live."}
+                              </small>
+                            </article>
+                          </div>
+                          {simproSyncStatus?.lastRun?.operations.length ? (
+                            <div className="setup-rate-table setup-sync-log">
+                              <div className="setup-rate-row table-head">
+                                <span>Action</span>
+                                <span>Record</span>
+                                <span>Result</span>
+                              </div>
+                              {simproSyncStatus.lastRun.operations.slice(0, 8).map((item) => (
+                                <div className="setup-rate-row" key={item.id}>
+                                  <strong>{item.action}</strong>
+                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
+                                  <span>{item.summary}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </article>
 
                         <article className="setup-integration-card">

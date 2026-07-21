@@ -28,6 +28,9 @@ export interface Job {
   ref: string;
   clientId?: string;
   siteId?: string;
+  simproJobId?: string;
+  simproStatus?: "Queued" | "Sent" | "Failed";
+  simproSentAt?: string;
   sourceQuoteId?: string;
   sourceQuoteRef?: string;
   customer: string;
