@@ -778,9 +778,102 @@ function markupServiceColour(service: TakeoffMarkupService) {
   return markupServices.find((item) => item.id === service)?.colour ?? "#607084";
 }
 
+const markupPipeServicePalettes: Partial<Record<TakeoffMarkupService, string[]>> = {
+  "Cold water": ["#0ea5e9", "#2563eb", "#1d4ed8", "#1e40af", "#38bdf8"],
+  "Hot water": ["#ef4444", "#dc2626", "#b91c1c", "#991b1b", "#f87171"],
+  "Heating flow": ["#f97316", "#ea580c", "#f59e0b", "#7c2d12", "#fb923c"],
+  "Heating return": ["#8b5cf6", "#7c3aed", "#6d28d9", "#5b21b6", "#a78bfa"],
+  Gas: ["#ca8a04", "#a16207", "#854d0e", "#eab308"],
+  Waste: ["#92400e", "#78350f", "#a16207", "#b45309"],
+  Soil: ["#374151", "#111827", "#4b5563", "#6b7280"],
+  UFH: ["#16a34a", "#15803d", "#22c55e", "#4ade80"],
+  Condensate: ["#14b8a6", "#0f766e", "#2dd4bf"],
+  Other: ["#64748b", "#475569", "#94a3b8"],
+};
+
+const markupPipeExactColours: Partial<Record<TakeoffMarkupService, Record<string, string>>> = {
+  "Cold water": {
+    "15mm copper": "#0ea5e9",
+    "22mm copper": "#2563eb",
+    "28mm copper": "#1d4ed8",
+    "35mm copper": "#1e40af",
+    "15mm hep2o": "#38bdf8",
+    "22mm hep2o": "#0284c7",
+    "28mm hep2o": "#0369a1",
+    "35mm hep2o": "#075985",
+  },
+  "Hot water": {
+    "15mm copper": "#ef4444",
+    "22mm copper": "#dc2626",
+    "28mm copper": "#b91c1c",
+    "35mm copper": "#991b1b",
+    "15mm hep2o": "#f87171",
+    "22mm hep2o": "#fb7185",
+    "28mm hep2o": "#e11d48",
+    "35mm hep2o": "#be123c",
+  },
+  "Heating flow": {
+    "15mm copper": "#f97316",
+    "22mm copper": "#ea580c",
+    "28mm copper": "#f59e0b",
+    "35mm copper": "#7c2d12",
+    "15mm hep2o": "#fb923c",
+    "22mm hep2o": "#f59e0b",
+    "28mm hep2o": "#d97706",
+    "35mm hep2o": "#b45309",
+  },
+  "Heating return": {
+    "15mm copper": "#8b5cf6",
+    "22mm copper": "#7c3aed",
+    "28mm copper": "#6d28d9",
+    "35mm copper": "#5b21b6",
+    "15mm hep2o": "#a78bfa",
+    "22mm hep2o": "#9333ea",
+    "28mm hep2o": "#7e22ce",
+    "35mm hep2o": "#6b21a8",
+  },
+  Gas: {
+    "tbc gas pipework": "#ca8a04",
+    "15mm copper": "#eab308",
+    "22mm copper": "#ca8a04",
+    "28mm copper": "#a16207",
+    "35mm copper": "#854d0e",
+  },
+  Waste: {
+    "32mm waste pipe": "#b45309",
+    "40mm waste pipe": "#92400e",
+    "50mm waste pipe": "#78350f",
+  },
+  Soil: {
+    "110mm soil pipe": "#374151",
+  },
+  UFH: {
+    "16mm ufh pipe": "#16a34a",
+  },
+  Condensate: {
+    "22mm condensate pipe": "#14b8a6",
+    "32mm condensate pipe": "#0f766e",
+  },
+};
+
+function markupPipeColourKey(material: string, diameter: string) {
+  return `${diameter.trim().toLowerCase()} ${material.trim().toLowerCase()}`.replace(/\s+/g, " ").trim();
+}
+
+function markupPipeColourIndex(key: string) {
+  let hash = 0;
+  for (let index = 0; index < key.length; index += 1) {
+    hash = ((hash << 5) - hash + key.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash);
+}
+
 function markupPipeColour(material: string, diameter: string, service: TakeoffMarkupService) {
-  const serviceColour = markupServiceColour(service);
-  if (serviceColour) return serviceColour;
+  const key = markupPipeColourKey(material, diameter);
+  const serviceExact = markupPipeExactColours[service]?.[key];
+  if (serviceExact) return serviceExact;
+  const palette = markupPipeServicePalettes[service] ?? [];
+  if (palette.length) return palette[markupPipeColourIndex(key) % palette.length] ?? markupServiceColour(service);
   return markupPipeTools.find((tool) => (
     tool.material.toLowerCase() === material.trim().toLowerCase()
     && tool.diameter.toLowerCase() === diameter.trim().toLowerCase()
@@ -1064,6 +1157,12 @@ function markupPipeLengthM(pipe: TakeoffMarkupPipe, calibration: TakeoffServices
     if (previous && current) flatPixels += markupPointDistance(previous, current);
   }
   return flatPixels / pixelsPerMetre + Math.max(0, pipe.riseDropM || 0);
+}
+
+function formatMetres(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  const rounded = value >= 10 ? value.toFixed(1) : value.toFixed(2);
+  return rounded.replace(/\.?0+$/, "");
 }
 
 function markupPipeFlatPixelLength(pipe: Pick<TakeoffMarkupPipe, "points">) {
@@ -5006,7 +5105,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     snapshotPipes: TakeoffMarkupPipe[],
     snapshotSymbols: TakeoffMarkupSymbol[],
   ) {
-    const legendEntries = new Map<string, { colour: string; label: string; qty: number; type: "line" | "symbol" }>();
+    const legendEntries = new Map<string, { colour: string; label: string; lengthM: number; qty: number; type: "line" | "symbol" }>();
 
     snapshotPipes.forEach((pipe) => {
       const label = `${pipe.service} - ${pipe.diameter} ${pipe.material}`;
@@ -5015,6 +5114,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       legendEntries.set(key, {
         colour: markupPipeColour(pipe.material, pipe.diameter, pipe.service),
         label,
+        lengthM: (current?.lengthM ?? 0) + markupPipeLengthM(pipe, displayedServicesMarkup.calibration),
         qty: (current?.qty ?? 0) + 1,
         type: "line",
       });
@@ -5030,6 +5130,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       legendEntries.set(key, {
         colour: markupSymbolKindColour(symbol.kind, symbol.category),
         label,
+        lengthM: 0,
         qty: (current?.qty ?? 0) + 1,
         type: "symbol",
       });
@@ -5054,7 +5155,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       const marker = entry.type === "line"
         ? `<line x1="${x}" x2="${x + 18}" y1="${y - 4}" y2="${y - 4}" stroke="${escapeSvgText(entry.colour)}" stroke-width="2" stroke-linecap="round" />`
         : `<circle cx="${x + 9}" cy="${y - 4}" r="3.2" fill="#fff" stroke="${escapeSvgText(entry.colour)}" stroke-width="1.5" />`;
-      return `<g>${marker}<text x="${x + 24}" y="${y}" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#143044">${escapeSvgText(`${entry.label} x${entry.qty}`)}</text></g>`;
+      const entryQuantity = entry.type === "line"
+        ? entry.lengthM > 0
+          ? `${formatMetres(entry.lengthM)}m`
+          : `${entry.qty} route${entry.qty === 1 ? "" : "s"}`
+        : `x${entry.qty}`;
+      return `<g>${marker}<text x="${x + 24}" y="${y}" font-family="Arial, sans-serif" font-size="9" font-weight="700" fill="#143044">${escapeSvgText(`${entry.label} ${entryQuantity}`)}</text></g>`;
     }).join("");
 
     return `<g><rect x="${legendX}" y="${legendY}" width="${legendWidth}" height="${legendHeight}" rx="8" fill="#ffffff" opacity="0.94" stroke="#c6dde8" stroke-width="1" /><text x="${legendX + 12}" y="${legendY + 17}" font-family="Arial, sans-serif" font-size="10" font-weight="800" fill="#102a43">Drawing key</text>${rowSvg}</g>`;

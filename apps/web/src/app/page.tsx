@@ -22937,32 +22937,35 @@ export default function Dashboard() {
                                   </label>
                                 </div>
 
+                                <SupplierRequestPdfPreview
+                                  contactEmail={supplierDraft?.contactEmail}
+                                  customer={selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm"}
+                                  message={
+                                    supplierDraft?.message ??
+                                    `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`
+                                  }
+                                  recordRef={selectedQuote?.ref ?? "Quote"}
+                                  recordTitle={selectedQuote?.description ?? "Supplier quote request"}
+                                  siteAddress={selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}
+                                  supplier={supplierDraft?.supplier}
+                                  title="Supplier RFQ preview"
+                                  lines={supplierRequestEntries.map((entry) => ({
+                                    id: `${entry.centreId}:${entry.line.id}`,
+                                    description: entry.line.description,
+                                    quantity: entry.line.quantity,
+                                  }))}
+                                />
+
                                 {(() => {
                                   if (!supplierRequestEntries.length) {
                                     return (
-                                      <>
-                                        <div className="supplier-request-empty">
-                                          <strong>No supplier request items selected yet.</strong>
-                                          <span>
-                                            Go to the Catalogue or One-off Materials tab for each cost centre, tick the left-hand boxes for the items you want priced, then add
-                                            them to the supplier request from this panel.
-                                          </span>
-                                        </div>
-                                        <SupplierRequestPdfPreview
-                                          contactEmail={supplierDraft?.contactEmail}
-                                          customer={selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm"}
-                                          message={
-                                            supplierDraft?.message ??
-                                            `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`
-                                          }
-                                          recordRef={selectedQuote?.ref ?? "Quote"}
-                                          recordTitle={selectedQuote?.description ?? "Supplier quote request"}
-                                          siteAddress={selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}
-                                          supplier={supplierDraft?.supplier}
-                                          title="Supplier RFQ preview"
-                                          lines={[]}
-                                        />
-                                      </>
+                                      <div className="supplier-request-empty">
+                                        <strong>No supplier request items selected yet.</strong>
+                                        <span>
+                                          Go to the Catalogue or One-off Materials tab for each cost centre, tick the left-hand boxes for the items you want priced, then add
+                                          them to the supplier request from this panel.
+                                        </span>
+                                      </div>
                                     );
                                   }
 
@@ -22986,25 +22989,6 @@ export default function Dashboard() {
                                           <strong>{supplierRequestLines.length}</strong>
                                         </div>
                                       </div>
-
-                                      <SupplierRequestPdfPreview
-                                        contactEmail={supplierDraft?.contactEmail}
-                                        customer={selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm"}
-                                        message={
-                                          supplierDraft?.message ??
-                                          `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`
-                                        }
-                                        recordRef={selectedQuote?.ref ?? "Quote"}
-                                        recordTitle={selectedQuote?.description ?? "Supplier quote request"}
-                                        siteAddress={selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}
-                                        supplier={supplierDraft?.supplier}
-                                        title="Supplier RFQ preview"
-                                        lines={supplierRequestEntries.map((entry) => ({
-                                          id: `${entry.centreId}:${entry.line.id}`,
-                                          description: entry.line.description,
-                                          quantity: entry.line.quantity,
-                                        }))}
-                                      />
 
                                       <div className="supplier-match-summary">
                                         <div>
@@ -25941,29 +25925,32 @@ export default function Dashboard() {
                                   </label>
                                 </div>
 
+                                <SupplierRequestPdfPreview
+                                  contactEmail={supplierDraft?.contactEmail}
+                                  customer={selectedJob?.customer ?? selectedJobClient?.name ?? "Customer to confirm"}
+                                  message={
+                                    supplierDraft?.message ??
+                                    `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`
+                                  }
+                                  recordRef={selectedJob?.ref ?? "Job"}
+                                  recordTitle={selectedJob?.description ?? "Supplier quote request"}
+                                  siteAddress={selectedJobSite?.address ?? selectedJob?.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}
+                                  supplier={supplierDraft?.supplier}
+                                  title="Supplier RFQ preview"
+                                  lines={supplierRequestEntries.map((entry) => ({
+                                    id: `${entry.centreId}:${entry.line.id}`,
+                                    description: entry.line.description,
+                                    quantity: entry.line.quantity,
+                                  }))}
+                                />
+
                                 {(() => {
                                   if (!supplierRequestLines.length) {
                                     return (
-                                      <>
-                                        <div className="supplier-request-empty">
-                                          <strong>No supplier request items selected yet.</strong>
-                                          <span>Go to this cost centre's parts or one-off tab, tick the supplier checkboxes for the items you need priced, then add them to the supplier request below.</span>
-                                        </div>
-                                        <SupplierRequestPdfPreview
-                                          contactEmail={supplierDraft?.contactEmail}
-                                          customer={selectedJob?.customer ?? selectedJobClient?.name ?? "Customer to confirm"}
-                                          message={
-                                            supplierDraft?.message ??
-                                            `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`
-                                          }
-                                          recordRef={selectedJob?.ref ?? "Job"}
-                                          recordTitle={selectedJob?.description ?? "Supplier quote request"}
-                                          siteAddress={selectedJobSite?.address ?? selectedJob?.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}
-                                          supplier={supplierDraft?.supplier}
-                                          title="Supplier RFQ preview"
-                                          lines={[]}
-                                        />
-                                      </>
+                                      <div className="supplier-request-empty">
+                                        <strong>No supplier request items selected yet.</strong>
+                                        <span>Go to this cost centre's parts or one-off tab, tick the supplier checkboxes for the items you need priced, then add them to the supplier request below.</span>
+                                      </div>
                                     );
                                   }
 
@@ -25987,25 +25974,6 @@ export default function Dashboard() {
                                           <strong>{supplierRequestLines.length}</strong>
                                         </div>
                                       </div>
-
-                                      <SupplierRequestPdfPreview
-                                        contactEmail={supplierDraft?.contactEmail}
-                                        customer={selectedJob?.customer ?? selectedJobClient?.name ?? "Customer to confirm"}
-                                        message={
-                                          supplierDraft?.message ??
-                                          `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`
-                                        }
-                                        recordRef={selectedJob?.ref ?? "Job"}
-                                        recordTitle={selectedJob?.description ?? "Supplier quote request"}
-                                        siteAddress={selectedJobSite?.address ?? selectedJob?.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}
-                                        supplier={supplierDraft?.supplier}
-                                        title="Supplier RFQ preview"
-                                        lines={supplierRequestEntries.map((entry) => ({
-                                          id: `${entry.centreId}:${entry.line.id}`,
-                                          description: entry.line.description,
-                                          quantity: entry.line.quantity,
-                                        }))}
-                                      />
 
                                       <div className="supplier-match-summary">
                                         <div>
