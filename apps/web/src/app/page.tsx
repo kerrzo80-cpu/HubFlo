@@ -21749,6 +21749,29 @@ export default function Dashboard() {
                               <button className="simpro-grey-button" type="button" onClick={sendSupplierQuoteRequest}>
                                 SEND REQUEST
                               </button>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                onClick={() => void downloadSupplierRequestPdf({
+                                  contactEmail: supplierDraft?.contactEmail,
+                                  customer: selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm",
+                                  lines: supplierRequestEntries.map((entry) => ({
+                                    id: `${entry.centreId}:${entry.line.id}`,
+                                    description: entry.line.description,
+                                    quantity: entry.line.quantity,
+                                  })),
+                                  message:
+                                    supplierDraft?.message ??
+                                    `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`,
+                                  recordRef: selectedQuote?.ref ?? "Quote",
+                                  recordTitle: selectedQuote?.description ?? "Supplier quote request",
+                                  siteAddress: selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm",
+                                  supplier: supplierDraft?.supplier,
+                                  title: "Supplier RFQ",
+                                })}
+                              >
+                                DOWNLOAD PDF
+                              </button>
                             </div>
 
                             <div className="supplier-return-panel">
@@ -22357,6 +22380,29 @@ export default function Dashboard() {
                               </label>
                               <button className="simpro-grey-button" type="button" onClick={sendSupplierQuoteRequest}>
                                 SEND REQUEST
+                              </button>
+                              <button
+                                className="simpro-blue-button"
+                                type="button"
+                                onClick={() => void downloadSupplierRequestPdf({
+                                  contactEmail: supplierDraft?.contactEmail,
+                                  customer: selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm",
+                                  lines: supplierRequestEntries.map((entry) => ({
+                                    id: `${entry.centreId}:${entry.line.id}`,
+                                    description: entry.line.description,
+                                    quantity: entry.line.quantity,
+                                  })),
+                                  message:
+                                    supplierDraft?.message ??
+                                    `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`,
+                                  recordRef: selectedQuote?.ref ?? "Quote",
+                                  recordTitle: selectedQuote?.description ?? "Supplier quote request",
+                                  siteAddress: selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm",
+                                  supplier: supplierDraft?.supplier,
+                                  title: "Supplier RFQ",
+                                })}
+                              >
+                                DOWNLOAD PDF
                               </button>
                             </div>
 
@@ -23079,6 +23125,29 @@ export default function Dashboard() {
                                   </label>
                                   <button className="simpro-grey-button" type="button" onClick={sendSupplierQuoteRequest}>
                                     SEND REQUEST
+                                  </button>
+                                  <button
+                                    className="simpro-blue-button"
+                                    type="button"
+                                    onClick={() => void downloadSupplierRequestPdf({
+                                      contactEmail: supplierDraft?.contactEmail,
+                                      customer: selectedQuote?.customer ?? selectedQuoteClient?.name ?? "Customer to confirm",
+                                      lines: supplierRequestEntries.map((entry) => ({
+                                        id: `${entry.centreId}:${entry.line.id}`,
+                                        description: entry.line.description,
+                                        quantity: entry.line.quantity,
+                                      })),
+                                      message:
+                                        supplierDraft?.message ??
+                                        `Please price the selected items for ${selectedQuote?.ref ?? "this quote"}. Quantities and notes are included below.`,
+                                      recordRef: selectedQuote?.ref ?? "Quote",
+                                      recordTitle: selectedQuote?.description ?? "Supplier quote request",
+                                      siteAddress: selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm",
+                                      supplier: supplierDraft?.supplier,
+                                      title: "Supplier RFQ",
+                                    })}
+                                  >
+                                    DOWNLOAD PDF
                                   </button>
                                 </div>
                                 <div className="supplier-email-panel">
@@ -26067,6 +26136,29 @@ export default function Dashboard() {
                                   </label>
                                   <button className="simpro-grey-button" type="button" onClick={sendJobSupplierRequest}>
                                     SEND REQUEST
+                                  </button>
+                                  <button
+                                    className="simpro-blue-button"
+                                    type="button"
+                                    onClick={() => void downloadSupplierRequestPdf({
+                                      contactEmail: supplierDraft?.contactEmail,
+                                      customer: selectedJob?.customer ?? selectedJobClient?.name ?? "Customer to confirm",
+                                      lines: supplierRequestEntries.map((entry) => ({
+                                        id: `${entry.centreId}:${entry.line.id}`,
+                                        description: entry.line.description,
+                                        quantity: entry.line.quantity,
+                                      })),
+                                      message:
+                                        supplierDraft?.message ??
+                                        `Please price the selected items for ${selectedJob?.ref ?? "this job"}. Quantities and notes are included below.`,
+                                      recordRef: selectedJob?.ref ?? "Job",
+                                      recordTitle: selectedJob?.description ?? "Supplier quote request",
+                                      siteAddress: selectedJobSite?.address ?? selectedJob?.site ?? selectedJobClient?.billingAddress ?? "Address to confirm",
+                                      supplier: supplierDraft?.supplier,
+                                      title: "Supplier RFQ",
+                                    })}
+                                  >
+                                    DOWNLOAD PDF
                                   </button>
                                 </div>
                                 <div className="supplier-email-panel">
