@@ -1438,8 +1438,8 @@ function PdfPlanPreview({ src, label, onRendered }: { src: string; label: string
         }
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
-        const targetWidth = 2000;
-        const targetHeight = 1240;
+        const targetWidth = 4200;
+        const targetHeight = 2604;
         const qualityScale = Math.min(targetWidth / baseViewport.width, targetHeight / baseViewport.height);
         const viewport = page.getViewport({ scale: qualityScale });
         const canvas = canvasRef.current;
@@ -1463,7 +1463,7 @@ function PdfPlanPreview({ src, label, onRendered }: { src: string; label: string
           Math.round((targetHeight - pageCanvas.height) / 2),
         );
         if (!cancelled) {
-          onRendered?.(canvas.toDataURL("image/jpeg", 0.86));
+          onRendered?.(canvas.toDataURL("image/png"));
           setStatus("ready");
         }
       } catch (error) {
