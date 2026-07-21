@@ -4475,17 +4475,7 @@ type SupplierRequestPdfPreviewLine = {
   quantity: number;
 };
 
-function SupplierRequestPdfPreview({
-  contactEmail,
-  customer,
-  message,
-  recordRef,
-  recordTitle,
-  siteAddress,
-  supplier,
-  title,
-  lines,
-}: {
+type SupplierRequestPdfPreviewProps = {
   contactEmail?: string;
   customer: string;
   message: string;
@@ -4495,7 +4485,175 @@ function SupplierRequestPdfPreview({
   supplier?: string;
   title: string;
   lines: SupplierRequestPdfPreviewLine[];
-}) {
+};
+
+function pdfSafeFilename(value: string) {
+  const cleaned = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "supplier-request";
+}
+
+function wrapPdfText(text: string, maxCharacters: number) {
+  const words = text.replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  words.forEach((word) => {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxCharacters && current) {
+      lines.push(current);
+      current = word;
+      return;
+    }
+    current = next;
+  });
+
+  if (current) lines.push(current);
+  return lines.length ? lines : [""];
+}
+
+async function downloadSupplierRequestPdf({
+  contactEmail,
+  customer,
+  lines,
+  message,
+  recordRef,
+  recordTitle,
+  siteAddress,
+  supplier,
+}: SupplierRequestPdfPreviewProps) {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+  const pdfDoc = await PDFDocument.create();
+  const regularFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const pageWidth = 595.28;
+  const pageHeight = 841.89;
+  const margin = 42;
+  const blue = rgb(0.04, 0.48, 0.67);
+  const ink = rgb(0.08, 0.18, 0.24);
+  const muted = rgb(0.35, 0.43, 0.48);
+  const lineColour = rgb(0.84, 0.89, 0.91);
+  let page = pdfDoc.addPage([pageWidth, pageHeight]);
+  let y = pageHeight - margin;
+
+  const drawText = (
+    text: string,
+    x: number,
+    drawY: number,
+    options: { colour?: ReturnType<typeof rgb>; font?: typeof regularFont; size?: number } = {},
+  ) => {
+    page.drawText(text, {
+      x,
+      y: drawY,
+      size: options.size ?? 10,
+      font: options.font ?? regularFont,
+      color: options.colour ?? ink,
+    });
+  };
+
+  const addPageIfNeeded = (neededHeight: number) => {
+    if (y - neededHeight > margin + 34) return;
+    page = pdfDoc.addPage([pageWidth, pageHeight]);
+    y = pageHeight - margin;
+    drawText("Supplier Price Request", margin, y, { colour: blue, font: boldFont, size: 14 });
+    drawText(recordRef, pageWidth - margin - 76, y, { colour: muted, font: boldFont, size: 10 });
+    y -= 26;
+  };
+
+  drawText("ERROL WATSON GROUP", margin, y, { colour: blue, font: boldFont, size: 12 });
+  drawText("Supplier Price Request", margin, y - 24, { colour: ink, font: boldFont, size: 22 });
+  drawText("Reference", pageWidth - margin - 110, y - 2, { colour: muted, font: boldFont, size: 9 });
+  drawText(recordRef, pageWidth - margin - 110, y - 18, { colour: ink, font: boldFont, size: 14 });
+  page.drawLine({ start: { x: margin, y: y - 42 }, end: { x: pageWidth - margin, y: y - 42 }, thickness: 1.6, color: blue });
+  y -= 72;
+
+  const detailColumns = [
+    { label: "Supplier", value: supplier || "Supplier to confirm", note: contactEmail || "Email to confirm" },
+    { label: "Project", value: recordTitle, note: customer },
+    { label: "Delivery / site", value: siteAddress, note: "Please price supply-only unless noted otherwise." },
+  ];
+  const columnWidth = (pageWidth - margin * 2 - 18) / 3;
+  detailColumns.forEach((column, index) => {
+    const x = margin + index * (columnWidth + 9);
+    page.drawRectangle({ x, y: y - 60, width: columnWidth, height: 60, borderColor: lineColour, borderWidth: 0.8, color: rgb(0.98, 0.99, 1) });
+    drawText(column.label.toUpperCase(), x + 8, y - 16, { colour: muted, font: boldFont, size: 7.5 });
+    wrapPdfText(column.value, 26).slice(0, 2).forEach((line, lineIndex) => {
+      drawText(line, x + 8, y - 31 - lineIndex * 11, { colour: ink, font: boldFont, size: 8.5 });
+    });
+    drawText(column.note.slice(0, 33), x + 8, y - 52, { colour: muted, size: 7.5 });
+  });
+  y -= 86;
+
+  wrapPdfText(message, 96).slice(0, 4).forEach((line) => {
+    drawText(line, margin, y, { colour: muted, size: 9 });
+    y -= 12;
+  });
+  y -= 12;
+
+  const drawTableHeader = () => {
+    page.drawRectangle({ x: margin, y: y - 22, width: pageWidth - margin * 2, height: 22, color: rgb(0.95, 0.98, 0.99), borderColor: lineColour, borderWidth: 0.8 });
+    drawText("No.", margin + 8, y - 15, { colour: muted, font: boldFont, size: 7.5 });
+    drawText("Description", margin + 42, y - 15, { colour: muted, font: boldFont, size: 7.5 });
+    drawText("Qty", pageWidth - margin - 154, y - 15, { colour: muted, font: boldFont, size: 7.5 });
+    drawText("Unit price", pageWidth - margin - 108, y - 15, { colour: muted, font: boldFont, size: 7.5 });
+    drawText("Line total", pageWidth - margin - 48, y - 15, { colour: muted, font: boldFont, size: 7.5 });
+    y -= 22;
+  };
+
+  drawTableHeader();
+  const pdfLines = lines.length ? lines : [{ id: "empty", description: "No supplier request items staged yet.", quantity: 0 }];
+  pdfLines.forEach((line, index) => {
+    const descriptionLines = wrapPdfText(line.description, 58).slice(0, 3);
+    const rowHeight = Math.max(28, 15 + descriptionLines.length * 11);
+    addPageIfNeeded(rowHeight + 24);
+    if (y > pageHeight - margin - 30) drawTableHeader();
+    page.drawRectangle({ x: margin, y: y - rowHeight, width: pageWidth - margin * 2, height: rowHeight, borderColor: lineColour, borderWidth: 0.5 });
+    drawText(String(index + 1), margin + 8, y - 17, { colour: muted, size: 8.5 });
+    descriptionLines.forEach((descriptionLine, lineIndex) => {
+      drawText(descriptionLine, margin + 42, y - 17 - lineIndex * 11, { colour: ink, font: boldFont, size: 8.5 });
+    });
+    drawText(line.quantity > 0 ? formatLineQuantity(line.quantity) : "-", pageWidth - margin - 154, y - 17, { colour: ink, font: boldFont, size: 8.5 });
+    drawText("£", pageWidth - margin - 100, y - 17, { colour: muted, size: 8.5 });
+    drawText("£", pageWidth - margin - 40, y - 17, { colour: muted, size: 8.5 });
+    y -= rowHeight;
+  });
+
+  y -= 26;
+  addPageIfNeeded(42);
+  page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 0.8, color: lineColour });
+  y -= 18;
+  drawText("Please return your quotation by email with lead time, availability and any substitutions noted.", margin, y, { colour: muted, size: 8.5 });
+  drawText(contactEmail || "quotes@errolwatsongroup.com", pageWidth - margin - 164, y, { colour: blue, font: boldFont, size: 8.5 });
+
+  const bytes = await pdfDoc.save();
+  const pdfArrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  const blob = new Blob([pdfArrayBuffer], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${pdfSafeFilename(recordRef)}-supplier-request.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function SupplierRequestPdfPreview(props: SupplierRequestPdfPreviewProps) {
+  const {
+    contactEmail,
+    customer,
+    message,
+    recordRef,
+    recordTitle,
+    siteAddress,
+    supplier,
+    title,
+    lines,
+  } = props;
+
   return (
     <section className="supplier-pdf-preview-area" aria-label={`${recordRef} supplier PDF preview`}>
       <div className="supplier-pdf-preview-toolbar">
@@ -4503,7 +4661,13 @@ function SupplierRequestPdfPreview({
           <span>PDF preview</span>
           <strong>{title}</strong>
         </div>
-        <b>{lines.length} item{lines.length === 1 ? "" : "s"}</b>
+        <div className="supplier-pdf-preview-actions">
+          <b>{lines.length} item{lines.length === 1 ? "" : "s"}</b>
+          <button type="button" onClick={() => void downloadSupplierRequestPdf(props)}>
+            <Download size={14} />
+            Download PDF
+          </button>
+        </div>
       </div>
       <article className="supplier-pdf-sheet">
         <header>

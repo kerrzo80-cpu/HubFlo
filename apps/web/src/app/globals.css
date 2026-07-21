@@ -8006,6 +8006,15 @@ h1 {
   color: var(--ink);
 }
 
+.supplier-pdf-preview-actions {
+  align-items: center;
+  display: flex;
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .supplier-pdf-preview-toolbar b {
   background: #fff;
   border: 1px solid var(--line-soft);
@@ -8013,6 +8022,27 @@ h1 {
   font-size: 12px;
   padding: 6px 10px;
   white-space: nowrap;
+}
+
+.supplier-pdf-preview-actions button {
+  align-items: center;
+  background: var(--blue);
+  border: 1px solid rgba(42, 132, 166, 0.2);
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 850;
+  gap: 6px;
+  min-height: 32px;
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+.supplier-pdf-preview-actions button:hover {
+  background: #1f7898;
+  color: #fff;
 }
 
 .supplier-pdf-sheet {
