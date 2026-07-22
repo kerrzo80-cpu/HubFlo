@@ -45,14 +45,34 @@ export async function POST(request: NextRequest) {
     ?.filter((entity): entity is SimproSyncEntity => allowedEntities.includes(entity as SimproSyncEntity));
   const mode: SimproSyncMode = body.mode ?? (body.apply ? "apply" : "preview");
   const actor = body.actor?.trim() || request.headers.get(employeeHeaderName) || "NeXa user";
-  const run = await runSimproImport({
-    mode,
-    entities,
-    actor,
-  });
 
-  return NextResponse.json({
-    run,
-    status: getSimproSyncStatus(),
-  });
+  try {
+    const run = await runSimproImport({
+      mode,
+      entities,
+      actor,
+    });
+
+    return NextResponse.json({
+      run,
+      status: getSimproSyncStatus(),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to run simPRO sync.";
+    const lower = message.toLowerCase();
+    const status =
+      lower.includes("forbidden")
+        ? 403
+        : lower.includes("unauthenticated") || lower.includes("invalid refresh token")
+          ? 400
+          : 500;
+
+    return NextResponse.json(
+      {
+        error: message,
+        status: getSimproSyncStatus(),
+      },
+      { status },
+    );
+  }
 }
