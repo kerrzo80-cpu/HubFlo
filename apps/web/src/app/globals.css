@@ -22078,6 +22078,60 @@ body {
   color: var(--green);
 }
 
+.takeoff-markup-sync-state {
+  align-items: center;
+  background: #eef8fc;
+  border: 1px solid #c9e2ed;
+  border-radius: 999px;
+  color: var(--blue-deep);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 850;
+  gap: 7px;
+  min-height: 30px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.takeoff-markup-sync-state.saving {
+  background: #fff8e7;
+  border-color: #e7cf97;
+  color: #8a5a15;
+}
+
+.takeoff-markup-sync-state.saved {
+  background: var(--green-soft);
+  border-color: #bfe3cf;
+  color: var(--green);
+}
+
+.takeoff-markup-sync-state.offline,
+.takeoff-markup-sync-state.queued {
+  background: #fff8e7;
+  border-color: #e7cf97;
+  color: #8a5a15;
+}
+
+.takeoff-markup-sync-state.error {
+  background: var(--red-soft);
+  border-color: #f0c2c2;
+  color: var(--red);
+}
+
+.takeoff-markup-sync-state button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: inherit;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 900;
+  gap: 4px;
+  min-height: 22px;
+  padding: 0 8px;
+}
+
 .takeoff-handoff-notice {
   align-items: center;
   display: flex;

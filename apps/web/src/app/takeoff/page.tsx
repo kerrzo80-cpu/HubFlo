@@ -63,6 +63,7 @@ type MarkupCanvasPoint = { x: number; y: number };
 type MarkupToolCategory = "all" | "favourites" | "pipe" | "fittings" | "valves" | "plant";
 type MarkupToolGroupId = "all" | "heating" | "hot-cold" | "sanitary" | "waste-soil" | "gas" | "plant-fixtures";
 type AssignedMarkupLayerId = Exclude<MarkupToolGroupId, "all">;
+type MarkupSyncStatus = "online" | "saving" | "saved" | "offline" | "queued" | "error";
 type MarkupElementDrag =
   | {
     kind: "pipe";
@@ -91,6 +92,14 @@ type NewProjectDraft = {
   site: string;
   description: string;
   linkedQuoteId: string;
+};
+
+type TakeoffMarkupOfflineDraft = {
+  projectId: string;
+  savedAt: string;
+  pendingSync: boolean;
+  reason?: string;
+  markup: TakeoffServicesMarkup;
 };
 
 type TakeoffAiStatus = {
@@ -772,6 +781,75 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
 
 function cloneServicesMarkup(markup: TakeoffServicesMarkup): TakeoffServicesMarkup {
   return JSON.parse(JSON.stringify(markup)) as TakeoffServicesMarkup;
+}
+
+const takeoffMarkupOfflineDraftPrefix = "nexa-takeoff-markup-draft:";
+
+function isBrowserOnline() {
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine;
+}
+
+function markupOfflineDraftKey(projectId: string) {
+  return `${takeoffMarkupOfflineDraftPrefix}${projectId}`;
+}
+
+function readMarkupOfflineDraft(projectId: string): TakeoffMarkupOfflineDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(markupOfflineDraftKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<TakeoffMarkupOfflineDraft>;
+    if (!parsed.markup || parsed.projectId !== projectId) return null;
+    return {
+      projectId,
+      savedAt: parsed.savedAt ?? new Date().toISOString(),
+      pendingSync: Boolean(parsed.pendingSync),
+      reason: parsed.reason,
+      markup: normaliseServicesMarkup(parsed.markup),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeMarkupOfflineDraft(
+  projectId: string,
+  markup: TakeoffServicesMarkup,
+  options: { pendingSync?: boolean; reason?: string } = {},
+) {
+  if (typeof window === "undefined") return "";
+  const savedAt = new Date().toISOString();
+  const previous = readMarkupOfflineDraft(projectId);
+  const draft: TakeoffMarkupOfflineDraft = {
+    projectId,
+    savedAt,
+    pendingSync: options.pendingSync ?? previous?.pendingSync ?? false,
+    reason: options.reason ?? previous?.reason,
+    markup: normaliseServicesMarkup(markup),
+  };
+  try {
+    window.localStorage.setItem(markupOfflineDraftKey(projectId), JSON.stringify(draft));
+    return savedAt;
+  } catch {
+    return "";
+  }
+}
+
+function isLikelyTransientNetworkError(error: unknown) {
+  if (!isBrowserOnline()) return true;
+  const message = error instanceof Error
+    ? `${error.name} ${error.message}`.toLowerCase()
+    : String(error).toLowerCase();
+  return [
+    "aborted",
+    "network",
+    "failed to fetch",
+    "load failed",
+    "ecconnreset",
+    "econnreset",
+    "timeout",
+  ].some((part) => message.includes(part));
 }
 
 function markupServiceColour(service: TakeoffMarkupService) {
@@ -2084,6 +2162,9 @@ export default function TakeoffPage() {
   const [markupUndoDepth, setMarkupUndoDepth] = useState(0);
   const [isMarkupExpanded, setIsMarkupExpanded] = useState(false);
   const [isMarkupMaterialsCollapsed, setIsMarkupMaterialsCollapsed] = useState(false);
+  const [markupSyncStatus, setMarkupSyncStatus] = useState<MarkupSyncStatus>("online");
+  const [markupOfflineDraftSavedAt, setMarkupOfflineDraftSavedAt] = useState("");
+  const [markupPendingSyncProjectId, setMarkupPendingSyncProjectId] = useState("");
   const [markupCalibrationPoints, setMarkupCalibrationPoints] = useState<MarkupCanvasPoint[]>([]);
   const [markupCalibrationDistance, setMarkupCalibrationDistance] = useState("1");
   const [activeMarkupCalibrationPointIndex, setActiveMarkupCalibrationPointIndex] = useState(0);
@@ -2585,6 +2666,15 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   const markupViewBox = `${markupViewport.x} ${markupViewport.y} ${markupViewport.width} ${markupViewport.height}`;
   const markupZoomLabel = `${Math.round(markupViewport.zoom * 100)}%`;
+  const markupSyncLabel = (() => {
+    if (!markupOfflineDraftSavedAt) return "";
+    if (markupSyncStatus === "saving") return "Saving markup...";
+    if (markupSyncStatus === "saved") return "Saved to NeXa";
+    if (markupSyncStatus === "offline") return "Saved offline";
+    if (markupSyncStatus === "queued") return "Offline draft waiting to sync";
+    if (markupSyncStatus === "error") return "Markup sync needs retry";
+    return "Local draft ready";
+  })();
   const markupCalibrationPointOne = markupCalibrationPoints[0] ?? null;
   const markupCalibrationPointTwo = markupCalibrationPoints[1] ?? null;
   const markupCalibrationPixelLength = useMemo(() => {
@@ -2806,12 +2896,29 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!selectedProject) return;
-    const nextMarkup = withRegeneratedPipeAutoSymbols(normaliseServicesMarkup(selectedProject.servicesMarkup));
+    const serverMarkup = withRegeneratedPipeAutoSymbols(normaliseServicesMarkup(selectedProject.servicesMarkup));
+    const offlineDraft = readMarkupOfflineDraft(selectedProject.id);
+    const draftMarkup = offlineDraft?.markup
+      ? withRegeneratedPipeAutoSymbols(normaliseServicesMarkup(offlineDraft.markup))
+      : null;
+    const serverUpdatedAt = serverMarkup.updatedAt ?? selectedProject.updatedAt ?? "";
+    const draftUpdatedAt = draftMarkup?.updatedAt ?? offlineDraft?.savedAt ?? "";
+    const nextMarkup = draftMarkup && draftUpdatedAt > serverUpdatedAt ? draftMarkup : serverMarkup;
     setActiveMarkupFloor("");
     setActiveMarkupFlat("");
     setLastCommittedMarkupElementId("");
     localServicesMarkupRef.current = nextMarkup;
     setLocalServicesMarkup(nextMarkup);
+    setMarkupOfflineDraftSavedAt(offlineDraft?.savedAt ?? "");
+    setMarkupPendingSyncProjectId(offlineDraft?.pendingSync ? selectedProject.id : "");
+    if (!isBrowserOnline()) {
+      setMarkupSyncStatus("offline");
+    } else if (offlineDraft?.pendingSync || (draftMarkup && draftUpdatedAt > serverUpdatedAt)) {
+      setMarkupSyncStatus("queued");
+      setNotice("Restored an unsynced site markup draft from this device. It will sync when the connection is steady.");
+    } else {
+      setMarkupSyncStatus("online");
+    }
     setOptimisticMarkupPipes([]);
     setRecentMarkupPipes([]);
     setOptimisticMarkupSymbols([]);
@@ -2824,6 +2931,8 @@ const filteredMarkupPlantTools = useMemo(() => {
     if (!selectedProject) {
       localServicesMarkupRef.current = null;
       setLocalServicesMarkup(null);
+      setMarkupOfflineDraftSavedAt("");
+      setMarkupPendingSyncProjectId("");
       return;
     }
     const nextMarkup = withRegeneratedPipeAutoSymbols(normaliseServicesMarkup(selectedProject.servicesMarkup));
@@ -2839,6 +2948,46 @@ const filteredMarkupPlantTools = useMemo(() => {
       return resolved;
     });
   }, [selectedProject?.id, selectedProject?.servicesMarkup?.updatedAt]);
+
+  useEffect(() => {
+    if (!selectedProject) return;
+
+    const handleOnline = () => {
+      const draft = readMarkupOfflineDraft(selectedProject.id);
+      if (draft?.pendingSync) {
+        setMarkupPendingSyncProjectId(selectedProject.id);
+        setMarkupSyncStatus("queued");
+      } else {
+        setMarkupSyncStatus((current) => (current === "offline" ? "online" : current));
+      }
+    };
+    const handleOffline = () => {
+      setMarkupSyncStatus("offline");
+      const draft = readMarkupOfflineDraft(selectedProject.id);
+      if (draft?.pendingSync) setMarkupPendingSyncProjectId(selectedProject.id);
+    };
+
+    if (isBrowserOnline()) {
+      handleOnline();
+    } else {
+      handleOffline();
+    }
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, [selectedProject?.id]);
+
+  useEffect(() => {
+    if (!selectedProject || markupPendingSyncProjectId !== selectedProject.id || !isBrowserOnline()) return;
+    const retry = window.setTimeout(() => {
+      syncOfflineMarkupDraft(selectedProject.id).catch(() => {});
+    }, 1500);
+    return () => window.clearTimeout(retry);
+  }, [markupPendingSyncProjectId, selectedProject?.id]);
 
   useEffect(() => {
     if (!selectedProject || (!workingServicesMarkup.pipes.length && !workingServicesMarkup.symbols.length)) return;
@@ -2873,6 +3022,14 @@ const filteredMarkupPlantTools = useMemo(() => {
   async function patchProject(projectId: string, patch: Partial<TakeoffProject>, successMessage?: string) {
     setError("");
     setPushedQuoteLink(null);
+    if (patch.servicesMarkup) {
+      setMarkupSyncStatus(isBrowserOnline() ? "saving" : "offline");
+      const savedAt = writeMarkupOfflineDraft(projectId, patch.servicesMarkup, {
+        pendingSync: true,
+        reason: "Markup edit waiting for server sync",
+      });
+      if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
+    }
     const currentProject = projects.find((project) => project.id === projectId);
     if (currentProject) {
       replaceProject({
@@ -2922,10 +3079,36 @@ const filteredMarkupPlantTools = useMemo(() => {
           : updated;
       }));
       if (successMessage) setNotice(successMessage);
+      if (patch.servicesMarkup) {
+        const savedAt = writeMarkupOfflineDraft(projectId, patch.servicesMarkup, {
+          pendingSync: false,
+          reason: "Markup synced to NeXa",
+        });
+        if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
+        setMarkupPendingSyncProjectId((current) => (current === projectId ? "" : current));
+        setMarkupSyncStatus("saved");
+      }
       return updated;
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Unable to save Takeoff project");
-      loadData().catch(() => {});
+      const saveMessage = saveError instanceof Error ? saveError.message : "Unable to save Takeoff project";
+      const transientNetworkError = isLikelyTransientNetworkError(saveError);
+      if (patch.servicesMarkup && transientNetworkError) {
+        const savedAt = writeMarkupOfflineDraft(projectId, patch.servicesMarkup, {
+          pendingSync: true,
+          reason: saveMessage,
+        });
+        if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
+        setMarkupPendingSyncProjectId(projectId);
+        setMarkupSyncStatus(isBrowserOnline() ? "queued" : "offline");
+        setError("");
+        setNotice("Site signal dropped while saving markup. Your drawing is saved offline on this device and will retry when the connection comes back.");
+        return null;
+      }
+      setMarkupSyncStatus((current) => (patch.servicesMarkup ? "error" : current));
+      setError(saveMessage);
+      if (!patch.servicesMarkup) {
+        loadData().catch(() => {});
+      }
       return null;
     }
   }
@@ -2933,6 +3116,31 @@ const filteredMarkupPlantTools = useMemo(() => {
   function updateProject(patch: Partial<TakeoffProject>, successMessage?: string) {
     if (!selectedProject) return;
     patchProject(selectedProject.id, patch, successMessage).catch(() => {});
+  }
+
+  async function syncOfflineMarkupDraft(projectId = selectedProject?.id) {
+    if (!projectId) return;
+    const project = projects.find((item) => item.id === projectId);
+    const draft = readMarkupOfflineDraft(projectId);
+    if (!project || !draft?.markup) return;
+    if (!isBrowserOnline()) {
+      setMarkupSyncStatus("offline");
+      setMarkupPendingSyncProjectId(projectId);
+      return;
+    }
+
+    const draftMarkup = normaliseServicesMarkup(draft.markup);
+    const quantityPatch = buildMarkupQuantityPatch(draftMarkup, {
+      ...project,
+      servicesMarkup: draftMarkup,
+    });
+
+    setMarkupSyncStatus("saving");
+    await patchProject(projectId, {
+      servicesMarkup: draftMarkup,
+      materialAllowances: quantityPatch.materialAllowances,
+      supplierRequests: quantityPatch.supplierRequests,
+    }, "Offline markup draft synced to NeXa.");
   }
 
   function currentServicesMarkupSnapshot() {
@@ -5236,8 +5444,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       if (!saved || !snapshotDocument) throw new Error("Marked drawing did not return a stored document.");
       replaceProject(saved);
     } catch (error) {
-      if (!options.quiet) setError(error instanceof Error ? error.message : "Marked drawing could not be stored.");
-      return { saved: false, empty: false, attached: false, error: error instanceof Error ? error.message : "Marked drawing could not be stored." };
+      const saveMessage = error instanceof Error ? error.message : "Marked drawing could not be stored.";
+      if (isLikelyTransientNetworkError(error)) {
+        const draftMarkup = currentServicesMarkupSnapshot();
+        const savedAt = writeMarkupOfflineDraft(selectedProject.id, draftMarkup, {
+          pendingSync: true,
+          reason: saveMessage,
+        });
+        if (savedAt) setMarkupOfflineDraftSavedAt(savedAt);
+        setMarkupPendingSyncProjectId(selectedProject.id);
+        setMarkupSyncStatus(isBrowserOnline() ? "queued" : "offline");
+        if (!options.quiet) {
+          setError("");
+          setNotice("Connection dropped while saving the engineer drawing. The markup is saved offline on this device; retry save when the signal is steadier.");
+        }
+      } else if (!options.quiet) {
+        setError(saveMessage);
+      }
+      return { saved: false, empty: false, attached: false, error: saveMessage };
     }
 
     if (!saved.linkedQuoteId && !saved.linkedQuoteRef && !saved.linkedJobId && !saved.linkedJobRef) {
@@ -6990,6 +7214,17 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                             <FileText size={14} />
                             Save all layers
                           </button>
+                          {markupSyncLabel ? (
+                            <span className={`takeoff-markup-sync-state ${markupSyncStatus}`}>
+                              {markupSyncLabel}
+                              {markupSyncStatus === "queued" || markupSyncStatus === "offline" || markupSyncStatus === "error" ? (
+                                <button type="button" onClick={() => syncOfflineMarkupDraft()}>
+                                  <RefreshCw size={12} />
+                                  Retry
+                                </button>
+                              ) : null}
+                            </span>
+                          ) : null}
                           <button className="takeoff-small-button" type="button" disabled={!markupDraftPipe} onClick={() => setMarkupDraftPipeState(null)}>
                             Cancel route
                           </button>
