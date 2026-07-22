@@ -99,12 +99,9 @@ function readRefreshTokenFile(pathValue?: string) {
 }
 
 function currentRefreshTokenSource() {
-  const inlineToken = envFirst([
-    "SIMPRO_REFRESH_TOKEN",
-    "SIMPRO_OAUTH_REFRESH_TOKEN",
-    "SIMPRO_TOKEN_REFRESH",
-  ]);
-  if (inlineToken) return inlineToken;
+  if (tokenStore.refreshToken?.trim()) {
+    return { name: "simpro-auth-store.refreshToken", value: tokenStore.refreshToken.trim() };
+  }
 
   const refreshTokenFile = envFirst(["SIMPRO_REFRESH_TOKEN_FILE"]);
   const fileToken = readRefreshTokenFile(refreshTokenFile?.value);
@@ -112,9 +109,12 @@ function currentRefreshTokenSource() {
     return { name: refreshTokenFile.name, value: fileToken };
   }
 
-  if (tokenStore.refreshToken?.trim()) {
-    return { name: "simpro-auth-store.refreshToken", value: tokenStore.refreshToken.trim() };
-  }
+  const inlineToken = envFirst([
+    "SIMPRO_REFRESH_TOKEN",
+    "SIMPRO_OAUTH_REFRESH_TOKEN",
+    "SIMPRO_TOKEN_REFRESH",
+  ]);
+  if (inlineToken) return inlineToken;
 
   return null;
 }
