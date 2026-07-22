@@ -17,6 +17,7 @@ import {
   type Quote,
   type QuoteStatus,
 } from "@/lib/workflow-data";
+import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -97,22 +98,6 @@ type SimproSyncStore = {
   webhooks: SimproWebhookEvent[];
 };
 
-type DirectConfig =
-  | {
-      configured: true;
-      missing: [];
-      baseUrl: string;
-      token: string;
-      companyId: string;
-    }
-  | {
-      configured: false;
-      missing: string[];
-      baseUrl?: string;
-      token?: string;
-      companyId?: string;
-    };
-
 const simproEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices"];
 
 const endpointByEntity: Record<SimproSyncEntity, string> = {
@@ -161,70 +146,13 @@ function asNumber(value: unknown, fallback = 0) {
   return fallback;
 }
 
-function envFirst(names: string[]) {
-  for (const name of names) {
-    const value = process.env[name]?.trim();
-    if (value) return value;
-  }
-  return undefined;
-}
-
 function detectedSimproEnvKeys() {
   return Object.keys(process.env)
     .filter((key) => key.startsWith("SIMPRO_"))
     .sort();
 }
 
-function cleanEndpoint(value?: string) {
-  return value?.trim().replace(/\/+$/, "");
-}
-
-function normaliseBaseUrl(value: string) {
-  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-  const cleaned = cleanEndpoint(withProtocol) ?? "";
-  return cleaned.endsWith("/api/v1.0") ? cleaned : `${cleaned}/api/v1.0`;
-}
-
-function getDirectConfig(): DirectConfig {
-  const base = envFirst([
-    "SIMPRO_API_BASE_URL",
-    "SIMPRO_BUILD_URL",
-    "SIMPRO_BASE_URL",
-    "SIMPRO_SITE_URL",
-    "SIMPRO_API_URL",
-    "SIMPRO_URL",
-    "SIMPRO_HOST",
-    "SIMPRO_DOMAIN",
-  ]);
-  const token = envFirst([
-    "SIMPRO_API_KEY",
-    "SIMPRO_ACCESS_TOKEN",
-    "SIMPRO_API_TOKEN",
-    "SIMPRO_TOKEN",
-    "SIMPRO_OAUTH_ACCESS_TOKEN",
-    "SIMPRO_BEARER_TOKEN",
-  ]);
-  const companyId = envFirst(["SIMPRO_COMPANY_ID", "SIMPRO_COMPANY", "SIMPRO_COMPANY_NUMBER", "SIMPRO_COMPANYID"]);
-  const missing = [
-    !base ? "SIMPRO_API_BASE_URL / SIMPRO_BUILD_URL / SIMPRO_URL" : null,
-    !token ? "SIMPRO_API_KEY / SIMPRO_ACCESS_TOKEN / SIMPRO_TOKEN" : null,
-    !companyId ? "SIMPRO_COMPANY_ID / SIMPRO_COMPANY" : null,
-  ].filter((item): item is string => Boolean(item));
-
-  if (missing.length > 0 || !base || !token || !companyId) {
-    return { configured: false, missing, baseUrl: base ? normaliseBaseUrl(base) : undefined, token, companyId };
-  }
-
-  return {
-    configured: true,
-    missing: [],
-    baseUrl: normaliseBaseUrl(base),
-    token,
-    companyId,
-  };
-}
-
-function entityEndpoint(config: DirectConfig & { configured: true }, entity: SimproSyncEntity) {
+function entityEndpoint(config: ResolvedSimproDirectConfig, entity: SimproSyncEntity) {
   return `${config.baseUrl}/companies/${config.companyId}/${endpointByEntity[entity]}/`;
 }
 
@@ -300,7 +228,7 @@ function extractRecords(body: unknown) {
   return [];
 }
 
-async function fetchSimproRecords(config: DirectConfig & { configured: true }, entity: SimproSyncEntity) {
+async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: SimproSyncEntity) {
   const url = new URL(entityEndpoint(config, entity));
   url.searchParams.set("pageSize", "50");
 
@@ -718,7 +646,7 @@ function recomputeTotals(run: SimproSyncRun) {
 }
 
 export function getSimproSyncStatus(): SimproSyncStatus {
-  const config = getDirectConfig();
+  const config = getSimproDirectConfigStatus();
   return {
     configured: config.configured,
     mode: config.configured ? "direct" : "missing",
@@ -738,7 +666,7 @@ export async function runSimproImport(options: {
   entities?: SimproSyncEntity[];
   actor?: string;
 }): Promise<SimproSyncRun> {
-  const config = getDirectConfig();
+  const configStatus = getSimproDirectConfigStatus();
   const selectedEntities = (options.entities?.length ? options.entities : simproEntities)
     .filter((entity): entity is SimproSyncEntity => simproEntities.includes(entity));
   const run: SimproSyncRun = {
@@ -759,11 +687,12 @@ export async function runSimproImport(options: {
     operations: [],
   };
 
-  if (!config.configured) {
+  if (!configStatus.configured) {
     run.operations.push(
-      operation("clients", "error", `simPRO direct API is not configured: ${config.missing.join(", ")}.`),
+      operation("clients", "error", `simPRO direct API is not configured: ${configStatus.missing.join(", ")}.`),
     );
   } else {
+    const config = await resolveSimproDirectConfig();
     for (const entity of selectedEntities) {
       try {
         const records = await fetchSimproRecords(config, entity);
@@ -781,7 +710,7 @@ export async function runSimproImport(options: {
       } catch (error) {
         run.operations.push(
           operation(entity, "error", error instanceof Error ? error.message : `Unable to fetch ${entity} from simPRO.`, {
-            detail: config.configured ? entityEndpoint(config, entity) : undefined,
+            detail: entityEndpoint(config, entity),
           }),
         );
       }

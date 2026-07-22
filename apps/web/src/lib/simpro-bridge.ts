@@ -1,5 +1,6 @@
 import { appendAuditEvent, getClientSites, getClients, type AuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
+import { getSimproDirectConfigStatus, resolveSimproDirectConfig } from "@/lib/simpro-auth";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
 
 type UnknownRecord = Record<string, unknown>;
@@ -202,67 +203,6 @@ function getSchedulerConfig() {
   };
 }
 
-function normaliseBaseUrl(value: string) {
-  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
-  const cleaned = cleanEndpoint(withProtocol) ?? "";
-  return cleaned.endsWith("/api/v1.0") ? cleaned : `${cleaned}/api/v1.0`;
-}
-
-function getDirectConfig() {
-  const base = envFirst([
-    "SIMPRO_API_BASE_URL",
-    "SIMPRO_BUILD_URL",
-    "SIMPRO_BASE_URL",
-    "SIMPRO_SITE_URL",
-    "SIMPRO_API_URL",
-    "SIMPRO_URL",
-    "SIMPRO_HOST",
-    "SIMPRO_DOMAIN",
-  ]);
-  const token = envFirst([
-    "SIMPRO_API_KEY",
-    "SIMPRO_ACCESS_TOKEN",
-    "SIMPRO_API_TOKEN",
-    "SIMPRO_TOKEN",
-    "SIMPRO_OAUTH_ACCESS_TOKEN",
-    "SIMPRO_BEARER_TOKEN",
-  ]);
-  const companyId = envFirst(["SIMPRO_COMPANY_ID", "SIMPRO_COMPANY", "SIMPRO_COMPANY_NUMBER", "SIMPRO_COMPANYID"]);
-  const missing = [
-    !base ? "SIMPRO_API_BASE_URL / SIMPRO_BUILD_URL / SIMPRO_URL" : null,
-    !token ? "SIMPRO_API_KEY / SIMPRO_ACCESS_TOKEN / SIMPRO_TOKEN" : null,
-    !companyId ? "SIMPRO_COMPANY_ID / SIMPRO_COMPANY" : null,
-  ].filter((item): item is string => Boolean(item));
-
-  if (missing.length > 0 || !base || !token || !companyId) {
-    return {
-      configured: false as const,
-      missing,
-      baseUrl: undefined,
-      token: undefined,
-      companyId: undefined,
-      sourceNames: {
-        baseUrl: base?.name,
-        token: token?.name,
-        companyId: companyId?.name,
-      },
-    };
-  }
-
-  return {
-    configured: true as const,
-    missing: [],
-    baseUrl: normaliseBaseUrl(base.value),
-    token: token.value,
-    companyId: companyId.value,
-    sourceNames: {
-      baseUrl: base.name,
-      token: token.name,
-      companyId: companyId.name,
-    },
-  };
-}
-
 export function getSimproBridgeStatus(): SimproBridgeStatus {
   const endpoint = getBridgeEndpoint();
   const detectedEnvKeys = detectedSimproEnvKeys();
@@ -295,7 +235,7 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     };
   }
 
-  const direct = getDirectConfig();
+  const direct = getSimproDirectConfigStatus();
   if (direct.configured) {
     return {
       configured: true,
@@ -581,8 +521,8 @@ function buildDirectQuoteBody(payload: SimproQuoteExportPayload) {
 }
 
 async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
-  const direct = getDirectConfig();
-  if (!direct.configured) return null;
+  const direct = await resolveSimproDirectConfig().catch(() => null);
+  if (!direct) return null;
 
   const endpoint = `${direct.baseUrl}/companies/${direct.companyId}/quotes/`;
   const response = await fetch(endpoint, {
@@ -600,7 +540,7 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
     const errors = Array.isArray(body.errors) ? body.errors.join("; ") : "";
     const returnedMessage = asString(body.error) || asString(body.message) || errors;
     const message = response.status === 401
-      ? `Simpro rejected the access token or company permission (HTTP 401). Check SIMPRO_ACCESS_TOKEN is current and authorised for company ${direct.companyId}.`
+      ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
       : returnedMessage || `Simpro returned HTTP ${response.status} from ${endpoint}`;
     throw new Error(message);
   }
