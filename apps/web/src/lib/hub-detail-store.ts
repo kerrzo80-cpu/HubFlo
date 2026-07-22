@@ -27,6 +27,7 @@ export type HubDetailState = {
   jobVariationSections?: Record<string, unknown>;
   communications?: unknown[];
   invoices?: unknown[];
+  suppliers?: unknown[];
   employees?: unknown[];
   simproExports?: unknown[];
   updatedAt?: string;

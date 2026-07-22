@@ -8,9 +8,10 @@ import {
   type ClientRecord,
   type ClientSite,
   type ClientStatus,
+  type VatTreatment,
 } from "@/lib/people-seed-data";
 
-export type { AuditEvent, AuditEventInput, ClientRecord, ClientSite, ClientStatus };
+export type { AuditEvent, AuditEventInput, ClientRecord, ClientSite, ClientStatus, VatTreatment };
 export { seedClientSites, seedClients };
 
 type PeopleStore = {

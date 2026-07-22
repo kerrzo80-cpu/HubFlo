@@ -10,6 +10,7 @@ import {
   getClients,
   type ClientRecord,
   type ClientSite,
+  type VatTreatment,
 } from "@/lib/people-data";
 
 type CreateClientPayload = {
@@ -18,6 +19,19 @@ type CreateClientPayload = {
   email?: string;
   phone?: string;
   address?: string;
+  accountReference?: string;
+  status?: ClientRecord["status"];
+  commercialOwner?: string;
+  notes?: string;
+  siteName?: string;
+  siteAddress?: string;
+  accessNotes?: string;
+  serviceLine?: string;
+  nextVisit?: string;
+  vatTreatment?: VatTreatment;
+  vatRateOverride?: string;
+  siteVatTreatment?: VatTreatment;
+  siteVatRateOverride?: string;
   source?: string;
   actor?: string;
 };
@@ -34,6 +48,16 @@ function makeClientReference(existingClients: ClientRecord[]) {
 
 function makeSiteName(address: string) {
   return (address.split(",")[0]?.trim() || "New site").slice(0, 64);
+}
+
+function cleanVatTreatment(value?: string): VatTreatment | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "zero rated" || normalized === "zero" || normalized === "0%" || normalized === "0") return "Zero rated";
+  if (normalized === "domestic reverse charge" || normalized === "reverse charge" || normalized === "drc") return "Domestic reverse charge";
+  if (normalized === "custom") return "Custom";
+  if (normalized === "standard 20%" || normalized === "standard" || normalized === "20%" || normalized === "20") return "Standard 20%";
+  return undefined;
 }
 
 export async function GET(request: Request) {
@@ -70,6 +94,7 @@ export async function POST(request: Request) {
 
   const name = payload.name?.trim() ?? "";
   const address = payload.address?.trim() ?? "";
+  const siteAddress = payload.siteAddress?.trim() || address;
   if (!name || !address) {
     return NextResponse.json({ error: "Customer name and site address are required" }, { status: 400 });
   }
@@ -79,19 +104,21 @@ export async function POST(request: Request) {
   if (existingByName) {
     const existingSites = getClientSites();
     const existingSite = existingSites.find(
-      (site) => site.clientId === existingByName.id && site.address.trim().toLowerCase() === address.toLowerCase(),
+      (site) => site.clientId === existingByName.id && site.address.trim().toLowerCase() === siteAddress.toLowerCase(),
     );
     const site =
       existingSite ??
       addClientSiteRecord({
         id: `site-${Date.now()}-${Math.round(Math.random() * 1000)}`,
         clientId: existingByName.id,
-        name: makeSiteName(address),
-        address,
-        accessNotes: "To confirm before first visit.",
+        name: payload.siteName?.trim() || makeSiteName(siteAddress),
+        address: siteAddress,
+        accessNotes: payload.accessNotes?.trim() || "To confirm before first visit.",
         primaryContact: payload.primaryContact?.trim() || name,
-        serviceLine: payload.source?.trim() || "New work",
-        nextVisit: "To be scheduled",
+        serviceLine: payload.serviceLine?.trim() || payload.source?.trim() || "New work",
+        nextVisit: payload.nextVisit?.trim() || "To be scheduled",
+        vatTreatment: cleanVatTreatment(payload.siteVatTreatment ?? payload.vatTreatment),
+        vatRateOverride: payload.siteVatRateOverride?.trim() || payload.vatRateOverride?.trim() || "",
       });
 
     return NextResponse.json(
@@ -109,25 +136,29 @@ export async function POST(request: Request) {
   const client: ClientRecord = {
     id: `client-${token}`,
     name,
-    accountReference: makeClientReference(existingClients),
-    status: "Prospect",
+    accountReference: payload.accountReference?.trim() || makeClientReference(existingClients),
+    status: payload.status && ["Active", "Prospect", "On hold"].includes(payload.status) ? payload.status : "Prospect",
     primaryContact: payload.primaryContact?.trim() || name,
     email: payload.email?.trim() || `${token}@example.com`,
     phone: payload.phone?.trim() || "Pending",
     billingAddress: address,
-    commercialOwner: "TBD",
-    notes: `Created from ${payload.source?.trim() || "HubFlo intake"}.`,
+    commercialOwner: payload.commercialOwner?.trim() || "TBD",
+    notes: payload.notes?.trim() || `Created from ${payload.source?.trim() || "HubFlo intake"}.`,
+    vatTreatment: cleanVatTreatment(payload.vatTreatment),
+    vatRateOverride: payload.vatRateOverride?.trim() || "",
   };
 
   const site: ClientSite = {
     id: `site-${token}`,
     clientId: client.id,
-    name: makeSiteName(address),
-    address,
-    accessNotes: "To confirm before first visit.",
+    name: payload.siteName?.trim() || makeSiteName(siteAddress),
+    address: siteAddress,
+    accessNotes: payload.accessNotes?.trim() || "To confirm before first visit.",
     primaryContact: payload.primaryContact?.trim() || name,
-    serviceLine: payload.source?.trim() || "New work",
-    nextVisit: "To be scheduled",
+    serviceLine: payload.serviceLine?.trim() || payload.source?.trim() || "New work",
+    nextVisit: payload.nextVisit?.trim() || "To be scheduled",
+    vatTreatment: cleanVatTreatment(payload.siteVatTreatment ?? payload.vatTreatment),
+    vatRateOverride: payload.siteVatRateOverride?.trim() || payload.vatRateOverride?.trim() || "",
   };
 
   addClientRecord(client);

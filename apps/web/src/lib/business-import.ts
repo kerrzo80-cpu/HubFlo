@@ -1,4 +1,4 @@
-export type BusinessImportType = "employees" | "leads" | "quotes" | "jobs" | "invoices";
+export type BusinessImportType = "employees" | "customers" | "suppliers" | "leads" | "quotes" | "jobs" | "invoices";
 
 export type BusinessImportRow = Record<string, string>;
 
@@ -9,6 +9,8 @@ export type ParsedBusinessImport = {
 
 export const businessImportLabels: Record<BusinessImportType, string> = {
   employees: "Employees",
+  customers: "Customers",
+  suppliers: "Suppliers",
   leads: "Leads",
   quotes: "Quotes",
   jobs: "Jobs",
@@ -17,6 +19,8 @@ export const businessImportLabels: Record<BusinessImportType, string> = {
 
 export const businessImportTemplateHeaders: Record<BusinessImportType, string[]> = {
   employees: ["name", "role", "job_title", "email", "phone", "start_date"],
+  customers: ["customer", "account_reference", "primary_contact", "email", "phone", "billing_address", "site_name", "site_address", "vat_treatment", "vat_rate", "notes"],
+  suppliers: ["supplier", "email", "phone", "account_reference", "category", "notes"],
   leads: ["reference", "customer", "phone", "email", "address", "description", "source", "status", "surveyor", "survey_date", "survey_time"],
   quotes: ["reference", "customer", "description", "owner", "status", "value", "next_action", "due"],
   jobs: ["reference", "customer", "site", "description", "manager", "status", "value", "next_action", "due", "scheduled_date", "scheduled_time"],
@@ -127,6 +131,13 @@ export function validateBusinessImportRow(type: BusinessImportType, row: Busines
   };
 
   if (type === "employees") requireValue("name", ["name", "employee", "employee_name"]);
+  if (type === "customers") {
+    requireValue("customer", ["customer", "client", "customer_name", "client_name", "name"]);
+    requireValue("billing_address", ["billing_address", "address", "site_address", "site"]);
+  }
+  if (type === "suppliers") {
+    requireValue("supplier", ["supplier", "supplier_name", "name"]);
+  }
   if (type === "leads") {
     requireValue("customer", ["customer", "client", "customer_name", "client_name", "name"]);
     requireValue("address", ["address", "site", "site_address"]);

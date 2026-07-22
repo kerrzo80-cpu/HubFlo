@@ -147,6 +147,7 @@ const STORAGE_KEYS = {
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
+  suppliers: "hubflo:suppliers:v1",
   dashboardLayouts: "hubflo:dashboard-layouts:v1",
 } as const;
 
@@ -577,6 +578,7 @@ type SetupCategory =
   | "imports"
   | "catalogue"
   | "rates"
+  | "integrations"
   | "communications"
   | "finance";
 
@@ -1417,6 +1419,16 @@ type IntegrationSettings = {
   xeroLastSync: string;
 };
 
+type SupplierDirectoryRecord = {
+  id: string;
+  name: string;
+  email: string;
+  phone?: string;
+  account: string;
+  category?: string;
+  notes?: string;
+};
+
 type LabourRateSetting = {
   id: string;
   name: string;
@@ -1622,6 +1634,7 @@ type HubDetailStatePayload = {
   jobVariationSections?: Record<string, JobVariationSection[]>;
   communications?: CommunicationRecord[];
   invoices?: Invoice[];
+  suppliers?: SupplierDirectoryRecord[];
   simproExports?: SimproExportRecord[];
 };
 
@@ -1705,6 +1718,15 @@ type SimproBridgeStatus = {
     directToken?: string;
     companyId?: string;
   };
+};
+
+type XeroConnectionStatus = {
+  configured: boolean;
+  missing: string[];
+  detectedEnvKeys: string[];
+  tenantIdPresent: boolean;
+  redirectUriPresent: boolean;
+  checkedAt: string;
 };
 
 type EmployeeLicenseDraft = EmployeeLicense & { id: string };
@@ -2444,9 +2466,10 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
-  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Leads", "Quotes", "Jobs", "Invoices"] },
+  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Suppliers", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
+  { key: "integrations", label: "Integrations", detail: "simPRO, Xero and live system sync", subItems: ["simPRO", "Xero", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
 ];
@@ -2571,6 +2594,16 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Employee name and role", "Contact and employment details", "Duplicate protection"],
       status: "Working import",
     },
+    Customers: {
+      summary: "Import customer and site records from a CSV or spreadsheet export before starting day-to-day work.",
+      focus: ["Customer account details", "Billing and site addresses", "VAT treatment defaults"],
+      status: "Working import",
+    },
+    Suppliers: {
+      summary: "Import supplier records used by purchase orders and supplier request forms.",
+      focus: ["Supplier name and email", "Trade account references", "Purchasing categories"],
+      status: "Working import",
+    },
     Leads: {
       summary: "Import open enquiries while creating reusable customer and site records from their contact and address details.",
       focus: ["Customer and site", "Lead source and status", "Survey booking details"],
@@ -2624,6 +2657,23 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       summary: "Control the markup applied when supplier quotes are uploaded and matched back to quote or job cost centres.",
       focus: ["Returned supplier PDFs", "Request line pricing", "Cost centre supplier rules"],
       status: "Editable now",
+    },
+  },
+  integrations: {
+    simPRO: {
+      summary: "Check the live simPRO connection, preview records waiting to come across and apply safe imports into NeXa.",
+      focus: ["Connection status", "Clients, sites, quotes, jobs and invoices", "Conflict-safe imports"],
+      status: "Working bridge",
+    },
+    Xero: {
+      summary: "Prepare the Xero accounts connection used for invoice export, progress claim export and payment reconciliation.",
+      focus: ["OAuth tenant", "Invoice push", "Payment status sync"],
+      status: "Setup area ready",
+    },
+    "Import from simPRO": {
+      summary: "Run a simPRO preview first, then apply imports after checking what NeXa will create or link.",
+      focus: ["Preview before import", "Safe creates and links", "Conflict review"],
+      status: "Working import",
     },
   },
   communications: {
@@ -2869,6 +2919,21 @@ function withDefaultEmployeeLogin(employee: EmployeeCard): EmployeeCard {
   };
 }
 
+function isSeedPilotEmployee(employee: EmployeeCard) {
+  return (
+    employee.id === "emp-brian" &&
+    (employee.profile?.roleLabel === "Pilot Lead" ||
+      employee.profile?.employmentCostNote?.toLowerCase().includes("pilot user"))
+  );
+}
+
+function removeRetiredPilotEmployeeWhenReplaced(records: EmployeeCard[]) {
+  const hasRealBrianCard = records.some(
+    (employee) => employee.id !== "emp-brian" && employee.name.trim().toLowerCase() === "brian kerr",
+  );
+  return hasRealBrianCard ? records.filter((employee) => !isSeedPilotEmployee(employee)) : records;
+}
+
 function normalizeEmployeeCards(records: EmployeeCard[], includeSeedEmployees = true) {
   const normalized = includeSeedEmployees
     ? records.map(withDefaultEmployeeLogin)
@@ -2878,7 +2943,7 @@ function normalizeEmployeeCards(records: EmployeeCard[], includeSeedEmployees = 
         profile: employee.profile ? { ...employee.profile } : undefined,
         login: undefined,
       }));
-  if (!includeSeedEmployees) return normalized;
+  if (!includeSeedEmployees) return removeRetiredPilotEmployeeWhenReplaced(normalized);
   const seedById = new Map(seedEmployees.map((employee) => [employee.id, employee]));
   const retiredDemoEmployeeIds = new Set(["emp-kerry", "emp-scott", "emp-jamie"]);
   const retiredDemoEmployeeNames = new Set(["Kerry Watson", "Scott Reid", "Jamie Fox", "Chris Watson"]);
@@ -4038,12 +4103,12 @@ const blankPurchaseRequest = {
   lines: [makePurchaseOrderLineDraft()],
 };
 
-const supplierDirectory = [
-  { name: "Plumbase", email: "aberdeen@plumbase.example", account: "EWG trade account" },
-  { name: "Pipe Center Aberdeen", email: "aberdeen@pipecenter.example", account: "Heating stock" },
-  { name: "Wolseley", email: "trade@wolseley.example", account: "Plumbing and heating" },
-  { name: "Aldrite Plumbing Ltd", email: "orders@aldrite.example", account: "Bathroom materials" },
-  { name: "Valve Source", email: "sales@valvesource.example", account: "Specialist valves" },
+const defaultSupplierDirectory: SupplierDirectoryRecord[] = [
+  { id: "supplier-plumbase", name: "Plumbase", email: "aberdeen@plumbase.example", account: "EWG trade account", category: "Plumbing and heating" },
+  { id: "supplier-pipe-center", name: "Pipe Center Aberdeen", email: "aberdeen@pipecenter.example", account: "Heating stock", category: "Heating stock" },
+  { id: "supplier-wolseley", name: "Wolseley", email: "trade@wolseley.example", account: "Plumbing and heating", category: "Plumbing and heating" },
+  { id: "supplier-aldrite", name: "Aldrite Plumbing Ltd", email: "orders@aldrite.example", account: "Bathroom materials", category: "Bathroom materials" },
+  { id: "supplier-valve-source", name: "Valve Source", email: "sales@valvesource.example", account: "Specialist valves", category: "Specialist valves" },
 ];
 
 const purchaseOrderStatusFilters = [
@@ -6451,6 +6516,7 @@ export default function Dashboard() {
   const [isDashboardCustomising, setIsDashboardCustomising] = useState(false);
   const [clients, setClients] = useState<ClientRecord[]>(seedClients);
   const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
+  const [suppliers, setSuppliers] = useState<SupplierDirectoryRecord[]>(defaultSupplierDirectory);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [activeEmployeeId, setActiveEmployeeId] = useState(seedEmployees[0]?.id ?? "");
   const [loggedInEmployeeId, setLoggedInEmployeeId] = useState<string | null>(null);
@@ -6638,6 +6704,7 @@ export default function Dashboard() {
     missing: [],
   });
   const [simproSyncStatus, setSimproSyncStatus] = useState<SimproSyncStatus | null>(null);
+  const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
@@ -8202,6 +8269,7 @@ export default function Dashboard() {
     }
     setClients(storedClients);
     setClientSites(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
+    setSuppliers(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.suppliers, defaultSupplierDirectory));
     setAuditEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? "");
     const storedQuoteCostCentres = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
@@ -8390,6 +8458,7 @@ export default function Dashboard() {
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
           if (hubState.communications) setCommunicationRecords(hubState.communications);
+          if (hubState.suppliers) setSuppliers(hubState.suppliers);
           if (hubState.invoices && !hasRecentLocalInvoiceEdit && !pendingInvoiceSaveRef.current) {
             setInvoices(hubState.invoices);
           }
@@ -8427,8 +8496,11 @@ export default function Dashboard() {
   }, [hasHydratedLocalData, requestHeaders, serverWorkspaceMode]);
 
   function buildHubDetailStatePayload(): HubDetailStatePayload {
+    const savedEmployees = removeRetiredPilotEmployeeWhenReplaced(
+      newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
+    );
     return {
-      employees: newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
+      employees: savedEmployees,
       businessSettings,
       formTemplates,
       activeFormTemplateId,
@@ -8454,6 +8526,7 @@ export default function Dashboard() {
       jobVariationSections,
       communications: communicationRecords,
       invoices,
+      suppliers,
       simproExports,
     };
   }
@@ -8578,14 +8651,21 @@ export default function Dashboard() {
 
     let stopped = false;
 
-    const loadSimproStatus = async () => {
+    const loadIntegrationStatuses = async () => {
       try {
-        const response = await fetch("/api/integrations/simpro/status", { headers: requestHeaders });
-        if (!response.ok) return;
-        const status = (await response.json()) as SimproBridgeStatus;
+        const [simproResponse, xeroResponse] = await Promise.all([
+          fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
+          fetch("/api/integrations/xero/status", { headers: requestHeaders }),
+        ]);
         if (!stopped) {
-          setSimproBridgeStatus(status);
-          if (status.sync) setSimproSyncStatus(status.sync);
+          if (simproResponse.ok) {
+            const status = (await simproResponse.json()) as SimproBridgeStatus;
+            setSimproBridgeStatus(status);
+            if (status.sync) setSimproSyncStatus(status.sync);
+          }
+          if (xeroResponse.ok) {
+            setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
+          }
         }
       } catch {
         if (!stopped) {
@@ -8595,11 +8675,12 @@ export default function Dashboard() {
             missing: ["Unable to check Simpro bridge"],
           });
           setSimproSyncStatus(null);
+          setXeroConnectionStatus(null);
         }
       }
     };
 
-    loadSimproStatus().catch(() => {});
+    loadIntegrationStatuses().catch(() => {});
 
     return () => {
       stopped = true;
@@ -8616,6 +8697,7 @@ export default function Dashboard() {
     );
     safeSaveStoredJson(STORAGE_KEYS.clients, clients);
     safeSaveStoredJson(STORAGE_KEYS.clientSites, clientSites);
+    safeSaveStoredJson(STORAGE_KEYS.suppliers, suppliers);
     safeSaveStoredJson(STORAGE_KEYS.leads, leads);
     safeSaveStoredJson(STORAGE_KEYS.jobs, jobs);
     safeSaveStoredJson(STORAGE_KEYS.quotes, quotes);
@@ -8705,6 +8787,7 @@ export default function Dashboard() {
     loggedInEmployeeId,
     clients,
     clientSites,
+    suppliers,
     leads,
     jobs,
     quotes,
@@ -10662,6 +10745,26 @@ export default function Dashboard() {
     if (auditResponse.ok) setAuditEvents((await auditResponse.json()) as AuditEvent[]);
   }
 
+  async function refreshIntegrationConnectionStatus() {
+    try {
+      const [simproResponse, xeroResponse] = await Promise.all([
+        fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
+        fetch("/api/integrations/xero/status", { headers: requestHeaders }),
+      ]);
+      if (simproResponse.ok) {
+        const status = (await simproResponse.json()) as SimproBridgeStatus;
+        setSimproBridgeStatus(status);
+        if (status.sync) setSimproSyncStatus(status.sync);
+      }
+      if (xeroResponse.ok) {
+        setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
+      }
+      showNotice("Integration status refreshed.");
+    } catch {
+      showNotice("Unable to refresh integration status.");
+    }
+  }
+
   async function runSimproSync(mode: "preview" | "apply") {
     if (mode === "preview") {
       setIsRunningSimproPreview(true);
@@ -11242,6 +11345,102 @@ export default function Dashboard() {
           if (!response.ok) throw new Error("Employee cards could not be saved to the shared workspace.");
           setEmployees(nextEmployees);
           pendingEmployeeSaveRef.current = false;
+        }
+      }
+
+      if (businessImportType === "customers") {
+        let nextClients = clients;
+        let nextSites = clientSites;
+        for (let index = 0; index < validRows.length; index += 1) {
+          const row = validRows[index]!;
+          const name = importValue(row, ["customer", "client", "customer_name", "client_name", "name"]);
+          const billingAddress = importValue(row, ["billing_address", "address", "customer_address"]);
+          const siteAddress = importValue(row, ["site_address", "site", "address"]) || billingAddress;
+          const response = await fetch("/api/clients", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name,
+              accountReference: importValue(row, ["account_reference", "account", "customer_ref", "client_ref"]),
+              status: importValue(row, ["status", "customer_status", "client_status"]),
+              primaryContact: importValue(row, ["primary_contact", "contact", "contact_name"]),
+              email: importValue(row, ["email", "email_address"]),
+              phone: importValue(row, ["phone", "mobile", "telephone"]),
+              address: billingAddress,
+              commercialOwner: importValue(row, ["commercial_owner", "owner", "account_manager"]),
+              notes: importValue(row, ["notes", "note"]),
+              siteName: importValue(row, ["site_name", "property_name"]),
+              siteAddress,
+              accessNotes: importValue(row, ["access_notes", "site_notes"]),
+              serviceLine: importValue(row, ["service_line", "work_type", "category"]),
+              nextVisit: importValue(row, ["next_visit", "next_service"]),
+              vatTreatment: importValue(row, ["vat_treatment", "vat_type"]),
+              vatRateOverride: importValue(row, ["vat_rate", "vat_rate_override"]),
+              siteVatTreatment: importValue(row, ["site_vat_treatment", "site_vat_type"]),
+              siteVatRateOverride: importValue(row, ["site_vat_rate", "site_vat_rate_override"]),
+              source: "customer import",
+              actor: activeEmployee?.name ?? "NeXa import",
+            }),
+          });
+          const result = await response.json().catch(() => ({})) as { error?: string; clients?: ClientRecord[]; clientSites?: ClientSite[]; client?: ClientRecord; site?: ClientSite };
+          if (!response.ok) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${result.error || "customer import failed"}.`);
+            continue;
+          }
+          if (response.status === 200) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists with that site address.`);
+            if (result.clients) nextClients = result.clients;
+            if (result.clientSites) nextSites = result.clientSites;
+            continue;
+          }
+          if (result.clients) nextClients = result.clients;
+          if (result.clientSites) nextSites = result.clientSites;
+          imported += 1;
+        }
+        setClients(nextClients);
+        setClientSites(nextSites);
+      }
+
+      if (businessImportType === "suppliers") {
+        const existingKeys = new Set(
+          suppliers.flatMap((supplier) => [supplier.name.trim().toLowerCase(), supplier.email.trim().toLowerCase()]).filter(Boolean),
+        );
+        const importedSuppliers: SupplierDirectoryRecord[] = [];
+        validRows.forEach((row, index) => {
+          const name = importValue(row, ["supplier", "supplier_name", "name"]);
+          const email = importValue(row, ["email", "email_address"]);
+          const duplicateKey = email.toLowerCase() || name.toLowerCase();
+          if (existingKeys.has(name.toLowerCase()) || existingKeys.has(duplicateKey)) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists.`);
+            return;
+          }
+          importedSuppliers.push({
+            id: `supplier-${crypto.randomUUID()}`,
+            name,
+            email,
+            phone: importValue(row, ["phone", "telephone", "mobile"]) || undefined,
+            account: importValue(row, ["account_reference", "account", "trade_account"]) || "Trade account",
+            category: importValue(row, ["category", "supplier_category", "type"]) || undefined,
+            notes: importValue(row, ["notes", "note"]) || undefined,
+          });
+          existingKeys.add(name.toLowerCase());
+          if (email) existingKeys.add(email.toLowerCase());
+          imported += 1;
+        });
+        if (importedSuppliers.length) {
+          const nextSuppliers = [...suppliers, ...importedSuppliers].sort((first, second) => first.name.localeCompare(second.name));
+          markSetupEdited();
+          const response = await fetch("/api/hub-state", {
+            method: "PUT",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ ...buildHubDetailStatePayload(), suppliers: nextSuppliers }),
+          });
+          if (!response.ok) throw new Error("Suppliers could not be saved to the shared workspace.");
+          setSuppliers(nextSuppliers);
+          pendingSetupSaveRef.current = false;
         }
       }
 
@@ -18509,7 +18708,7 @@ export default function Dashboard() {
   }
 
   function applySupplierDirectoryMatch(value: string) {
-    const supplier = supplierDirectory.find((entry) => entry.name.toLowerCase() === value.trim().toLowerCase());
+    const supplier = suppliers.find((entry) => entry.name.toLowerCase() === value.trim().toLowerCase());
     setPurchaseDraft((current) => ({
       ...current,
       supplier: value,
@@ -28894,6 +29093,8 @@ export default function Dashboard() {
                           <strong>{businessImportLabels[businessImportType]} file</strong>
                           <span>CSV or TSV with a header row. Existing references and employee identities are skipped.</span>
                           {businessImportType === "employees" ? <small>Imported employee cards have login disabled until a secure password is set in the employee card.</small> : null}
+                          {businessImportType === "customers" ? <small>Customer imports create client records and site records, including client/site VAT defaults where supplied.</small> : null}
+                          {businessImportType === "suppliers" ? <small>Supplier imports feed PO supplier lookup and quote/job supplier request forms.</small> : null}
                         </div>
                         <label className="primary-button setup-import-file-button">
                           <Plus size={15} /> Choose file
@@ -29368,6 +29569,193 @@ export default function Dashboard() {
 	                          <span>Per quote control</span>
 	                          <strong>Lines remain editable</strong>
 	                          <small>Open a cost centre and change cost, markup, sell price or hours for that job only.</small>
+	                        </article>
+	                      </div>
+	                    </section>
+	                  ) : null}
+
+	                  {activeSetupCategory === "integrations" ? (
+	                    <section className="setup-panel">
+	                      <div className="documents-toolbar">
+	                        <div>
+	                          <span className="permission-heading">Live connections</span>
+	                          <h2>simPRO and Xero</h2>
+	                          <p>Use this before day-to-day work to check connections, import existing records and prepare accounts export.</p>
+	                        </div>
+	                        <div className="setup-template-actions">
+	                          <button className="secondary-button" type="button" onClick={() => void refreshIntegrationConnectionStatus()}>
+	                            Refresh status
+	                          </button>
+	                          <span className="setup-status-label">
+	                            simPRO {simproSyncStatus?.configured ? "ready" : "needs setup"} · Xero {xeroConnectionStatus?.configured ? "ready" : "needs setup"}
+	                          </span>
+	                        </div>
+	                      </div>
+
+	                      <div className="setup-integration-grid">
+	                        <article className="setup-integration-card">
+	                          <header>
+	                            <div>
+	                              <span>simPRO</span>
+	                              <strong>{simproSyncStatus?.configured ? "Direct two-way sync ready" : "Connection not complete"}</strong>
+	                            </div>
+	                            <div className="setup-sync-actions">
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+	                                onClick={() => runSimproSync("preview")}
+	                              >
+	                                {isRunningSimproPreview ? "Previewing..." : "Preview import"}
+	                              </button>
+	                              <button
+	                                className="primary-button"
+	                                type="button"
+	                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+	                                onClick={() => runSimproSync("apply")}
+	                              >
+	                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
+	                              </button>
+	                            </div>
+	                          </header>
+	                          <div className="setup-form-grid">
+	                            <label>
+	                              Sync mode
+	                              <select
+	                                value={integrationSettings.simproMode}
+	                                onChange={(event) => updateIntegrationSettings({ simproMode: event.target.value as IntegrationMode })}
+	                              >
+	                                {integrationModes.map((mode) => (
+	                                  <option key={mode}>{mode}</option>
+	                                ))}
+	                              </select>
+	                            </label>
+	                            <label>
+	                              Company ID note
+	                              <input
+	                                value={integrationSettings.simproCompanyId}
+	                                onChange={(event) => updateIntegrationSettings({ simproCompanyId: event.target.value })}
+	                                placeholder={simproSyncStatus?.configured ? "Detected from Render" : "0"}
+	                              />
+	                            </label>
+	                            <label className="span-2">
+	                              API base URL note
+	                              <input
+	                                value={integrationSettings.simproApiBaseUrl}
+	                                onChange={(event) => updateIntegrationSettings({ simproApiBaseUrl: event.target.value })}
+	                                placeholder={simproSyncStatus?.endpoint ?? "Stored securely in Render environment variables"}
+	                              />
+	                            </label>
+	                          </div>
+	                          <small>
+	                            {simproSyncStatus?.configured
+	                              ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+	                              : `Missing ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_API_BASE_URL, SIMPRO_ACCESS_TOKEN and SIMPRO_COMPANY_ID"}.`}
+	                          </small>
+	                          <div className="setup-readiness-grid setup-sync-grid">
+	                            <article>
+	                              <span>Can import</span>
+	                              <strong>Clients, sites, quotes, jobs, invoices</strong>
+	                              <small>Preview first, then apply safe creates and links.</small>
+	                            </article>
+	                            <article>
+	                              <span>Linked records</span>
+	                              <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
+	                              <small>Existing NeXa records matched with simPRO records.</small>
+	                            </article>
+	                            <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
+	                              <span>Last sync run</span>
+	                              <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
+	                              <small>
+	                                {simproSyncStatus?.lastRun
+	                                  ? `${simproSyncStatus.lastRun.totals.created} created · ${simproSyncStatus.lastRun.totals.linked} linked · ${simproSyncStatus.lastRun.totals.conflicts} conflict`
+	                                  : "Use Preview import before any live import."}
+	                              </small>
+	                            </article>
+	                          </div>
+	                          {simproSyncStatus?.lastRun?.operations.length ? (
+	                            <div className="setup-rate-table setup-sync-log">
+	                              <div className="setup-rate-row table-head">
+	                                <span>Action</span>
+	                                <span>Record</span>
+	                                <span>Result</span>
+	                              </div>
+	                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
+	                                <div className="setup-rate-row" key={item.id}>
+	                                  <strong>{item.action}</strong>
+	                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
+	                                  <span>{item.summary}</span>
+	                                </div>
+	                              ))}
+	                            </div>
+	                          ) : null}
+	                        </article>
+
+	                        <article className="setup-integration-card">
+	                          <header>
+	                            <div>
+	                              <span>Xero</span>
+	                              <strong>{xeroConnectionStatus?.configured ? "Accounts connection ready" : "Accounts setup required"}</strong>
+	                            </div>
+	                            <button
+	                              className="secondary-button"
+	                              type="button"
+	                              onClick={() => updateIntegrationSettings({ xeroLastSync: new Date().toISOString() })}
+	                            >
+	                              Mark sync checked
+	                            </button>
+	                          </header>
+	                          <div className="setup-form-grid">
+	                            <label>
+	                              Sync mode
+	                              <select
+	                                value={integrationSettings.xeroMode}
+	                                onChange={(event) => updateIntegrationSettings({ xeroMode: event.target.value as IntegrationMode })}
+	                              >
+	                                {integrationModes.map((mode) => (
+	                                  <option key={mode}>{mode}</option>
+	                                ))}
+	                              </select>
+	                            </label>
+	                            <label>
+	                              Tenant name
+	                              <input
+	                                value={integrationSettings.xeroTenantName}
+	                                onChange={(event) => updateIntegrationSettings({ xeroTenantName: event.target.value })}
+	                                placeholder="Errol Watson Group Ltd"
+	                              />
+	                            </label>
+	                            <label className="span-2">
+	                              Xero client ID note
+	                              <input
+	                                value={integrationSettings.xeroClientId}
+	                                onChange={(event) => updateIntegrationSettings({ xeroClientId: event.target.value })}
+	                                placeholder="Stored securely in Render environment variables"
+	                              />
+	                            </label>
+	                          </div>
+	                          <small>
+	                            {xeroConnectionStatus?.configured
+	                              ? "Render can see the required Xero OAuth settings. Invoice export and payment reconciliation can be wired next."
+	                              : `Missing ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_TENANT_ID"}.`}
+	                          </small>
+	                          <div className="setup-readiness-grid setup-sync-grid">
+	                            <article>
+	                              <span>Detected env keys</span>
+	                              <strong>{xeroConnectionStatus?.detectedEnvKeys.length ?? 0}</strong>
+	                              <small>{xeroConnectionStatus?.detectedEnvKeys.join(", ") || "No XERO_ keys visible yet."}</small>
+	                            </article>
+	                            <article>
+	                              <span>Tenant</span>
+	                              <strong>{xeroConnectionStatus?.tenantIdPresent ? "Tenant ID present" : "Tenant missing"}</strong>
+	                              <small>Needed before invoices can be sent to the correct Xero organisation.</small>
+	                            </article>
+	                            <article>
+	                              <span>Next use</span>
+	                              <strong>Invoices and valuations</strong>
+	                              <small>Approved valuations generate invoices, then the Xero connector will export them.</small>
+	                            </article>
+	                          </div>
 	                        </article>
 	                      </div>
 	                    </section>
@@ -31581,7 +31969,7 @@ export default function Dashboard() {
                   onChange={(event) => applySupplierDirectoryMatch(event.target.value)}
                 />
                 <datalist id="po-supplier-directory">
-                  {supplierDirectory.map((supplier) => (
+                  {suppliers.map((supplier) => (
                     <option key={supplier.name} value={supplier.name}>{supplier.account}</option>
                   ))}
                 </datalist>
