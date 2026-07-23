@@ -111,6 +111,34 @@ function inlineRefreshTokenSource() {
   ]);
 }
 
+function refreshTokenCandidates() {
+  seedRefreshTokenFileFromEnv();
+
+  const candidates: SourceValue[] = [];
+  const seen = new Set<string>();
+  const push = (candidate?: SourceValue | null) => {
+    if (!candidate?.value?.trim()) return;
+    const value = candidate.value.trim();
+    if (seen.has(value)) return;
+    seen.add(value);
+    candidates.push({ name: candidate.name, value });
+  };
+
+  const refreshTokenFile = envFirst(["SIMPRO_REFRESH_TOKEN_FILE"]);
+  const fileToken = readRefreshTokenFile(refreshTokenFile?.value);
+  if (refreshTokenFile && fileToken) {
+    push({ name: refreshTokenFile.name, value: fileToken });
+  }
+
+  if (tokenStore.refreshToken?.trim()) {
+    push({ name: "simpro-auth-store.refreshToken", value: tokenStore.refreshToken.trim() });
+  }
+
+  push(inlineRefreshTokenSource());
+
+  return candidates;
+}
+
 function seedRefreshTokenFileFromEnv() {
   const filePath = refreshTokenFilePath();
   const inlineToken = inlineRefreshTokenSource();
@@ -144,22 +172,7 @@ function persistRefreshTokenToFile(refreshToken: string) {
 }
 
 function currentRefreshTokenSource() {
-  if (tokenStore.refreshToken?.trim()) {
-    return { name: "simpro-auth-store.refreshToken", value: tokenStore.refreshToken.trim() };
-  }
-
-  seedRefreshTokenFileFromEnv();
-
-  const refreshTokenFile = envFirst(["SIMPRO_REFRESH_TOKEN_FILE"]);
-  const fileToken = readRefreshTokenFile(refreshTokenFile?.value);
-  if (refreshTokenFile && fileToken) {
-    return { name: refreshTokenFile.name, value: fileToken };
-  }
-
-  const inlineToken = inlineRefreshTokenSource();
-  if (inlineToken) return inlineToken;
-
-  return null;
+  return refreshTokenCandidates()[0] ?? null;
 }
 
 function oauthConfig() {
@@ -257,7 +270,11 @@ export function getSimproDirectConfigStatus(): SimproDirectConfigStatus {
 
 async function refreshAccessToken(baseUrl: string) {
   const oauth = oauthConfig();
-  if (!oauth.clientId || !oauth.clientSecret || !oauth.refreshToken) {
+  if (!oauth.clientId || !oauth.clientSecret) {
+    throw new Error("simPRO OAuth refresh credentials are incomplete.");
+  }
+  const refreshCandidates = refreshTokenCandidates();
+  if (!refreshCandidates.length) {
     throw new Error("simPRO OAuth refresh credentials are incomplete.");
   }
 
@@ -266,46 +283,51 @@ async function refreshAccessToken(baseUrl: string) {
     throw new Error("simPRO OAuth token URL could not be determined.");
   }
 
-  const response = await fetch(tokenUrl, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: oauth.refreshToken.value,
-      client_id: oauth.clientId.value,
-      client_secret: oauth.clientSecret.value,
-    }).toString(),
-    cache: "no-store",
-  });
+  let lastMessage = "simPRO OAuth token request failed.";
 
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  const accessToken = typeof body.access_token === "string" ? body.access_token.trim() : "";
-  const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token.trim() : oauth.refreshToken.value;
-  const expiresIn = typeof body.expires_in === "number"
-    ? body.expires_in
-    : typeof body.expires_in === "string"
-      ? Number(body.expires_in)
-      : 3600;
+  for (const refreshCandidate of refreshCandidates) {
+    const response = await fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshCandidate.value,
+        client_id: oauth.clientId.value,
+        client_secret: oauth.clientSecret.value,
+      }).toString(),
+      cache: "no-store",
+    });
 
-  if (!response.ok || !accessToken) {
-    const message =
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const accessToken = typeof body.access_token === "string" ? body.access_token.trim() : "";
+    const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token.trim() : refreshCandidate.value;
+    const expiresIn = typeof body.expires_in === "number"
+      ? body.expires_in
+      : typeof body.expires_in === "string"
+        ? Number(body.expires_in)
+        : 3600;
+
+    if (response.ok && accessToken) {
+      tokenStore.accessToken = accessToken;
+      tokenStore.refreshToken = refreshToken;
+      tokenStore.accessTokenExpiresAt = new Date(Date.now() + Math.max(expiresIn - 60, 60) * 1000).toISOString();
+      persistTokenStore();
+      persistRefreshTokenToFile(refreshToken);
+
+      return accessToken;
+    }
+
+    lastMessage =
       (typeof body.error_description === "string" && body.error_description.trim()) ||
       (typeof body.error === "string" && body.error.trim()) ||
       (typeof body.message === "string" && body.message.trim()) ||
       `simPRO OAuth token request failed with HTTP ${response.status}.`;
-    throw new Error(message);
   }
 
-  tokenStore.accessToken = accessToken;
-  tokenStore.refreshToken = refreshToken;
-  tokenStore.accessTokenExpiresAt = new Date(Date.now() + Math.max(expiresIn - 60, 60) * 1000).toISOString();
-  persistTokenStore();
-  persistRefreshTokenToFile(refreshToken);
-
-  return accessToken;
+  throw new Error(lastMessage);
 }
 
 export async function resolveSimproDirectConfig(): Promise<ResolvedSimproDirectConfig> {
