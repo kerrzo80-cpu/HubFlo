@@ -33,6 +33,10 @@ services:
         value: https://nexa-live.onrender.com
       - key: SIMPRO_API_BASE_URL
         sync: false
+      - key: SIMPRO_REFRESH_TOKEN_FILE
+        value: /var/data/simpro_refresh_token.txt
+      - key: SIMPRO_REFRESH_TOKEN
+        sync: false
       - key: SIMPRO_ACCESS_TOKEN
         sync: false
       - key: SIMPRO_COMPANY_ID

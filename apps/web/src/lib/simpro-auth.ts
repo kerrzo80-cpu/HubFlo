@@ -1,4 +1,5 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
@@ -98,10 +99,56 @@ function readRefreshTokenFile(pathValue?: string) {
   }
 }
 
+function refreshTokenFilePath() {
+  return envFirst(["SIMPRO_REFRESH_TOKEN_FILE"])?.value?.trim() || "";
+}
+
+function inlineRefreshTokenSource() {
+  return envFirst([
+    "SIMPRO_REFRESH_TOKEN",
+    "SIMPRO_OAUTH_REFRESH_TOKEN",
+    "SIMPRO_TOKEN_REFRESH",
+  ]);
+}
+
+function seedRefreshTokenFileFromEnv() {
+  const filePath = refreshTokenFilePath();
+  const inlineToken = inlineRefreshTokenSource();
+  if (!filePath || !inlineToken?.value) return;
+
+  try {
+    const existing = readRefreshTokenFile(filePath);
+    if (existing) return;
+    mkdirSync(dirname(filePath), { recursive: true });
+  } catch {
+    return;
+  }
+
+  try {
+    writeFileSync(filePath, inlineToken.value.trim());
+  } catch {
+    // Ignore file seeding failures and fall back to other token sources.
+  }
+}
+
+function persistRefreshTokenToFile(refreshToken: string) {
+  const filePath = refreshTokenFilePath();
+  if (!filePath || !refreshToken.trim()) return;
+
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, refreshToken.trim());
+  } catch {
+    // Ignore file persistence failures and keep the token in the NeXa store.
+  }
+}
+
 function currentRefreshTokenSource() {
   if (tokenStore.refreshToken?.trim()) {
     return { name: "simpro-auth-store.refreshToken", value: tokenStore.refreshToken.trim() };
   }
+
+  seedRefreshTokenFileFromEnv();
 
   const refreshTokenFile = envFirst(["SIMPRO_REFRESH_TOKEN_FILE"]);
   const fileToken = readRefreshTokenFile(refreshTokenFile?.value);
@@ -109,11 +156,7 @@ function currentRefreshTokenSource() {
     return { name: refreshTokenFile.name, value: fileToken };
   }
 
-  const inlineToken = envFirst([
-    "SIMPRO_REFRESH_TOKEN",
-    "SIMPRO_OAUTH_REFRESH_TOKEN",
-    "SIMPRO_TOKEN_REFRESH",
-  ]);
+  const inlineToken = inlineRefreshTokenSource();
   if (inlineToken) return inlineToken;
 
   return null;
@@ -260,6 +303,7 @@ async function refreshAccessToken(baseUrl: string) {
   tokenStore.refreshToken = refreshToken;
   tokenStore.accessTokenExpiresAt = new Date(Date.now() + Math.max(expiresIn - 60, 60) * 1000).toISOString();
   persistTokenStore();
+  persistRefreshTokenToFile(refreshToken);
 
   return accessToken;
 }
