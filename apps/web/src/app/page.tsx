@@ -1640,13 +1640,19 @@ type HubDetailStatePayload = {
 
 type SimproExportRecord = {
   id: string;
+  entityType?: "quote" | "job";
+  recordId?: string;
+  recordRef?: string;
   quoteId: string;
   quoteRef: string;
+  jobId?: string;
+  jobRef?: string;
   createdAt: string;
   actor: string;
   status: "Queued" | "Sent" | "Failed";
   mode: "manual" | "webhook" | "scheduler" | "direct";
   simproQuoteId?: string;
+  simproJobId?: string;
   endpoint?: string;
   setupRequired?: string;
   error?: string;
@@ -2679,8 +2685,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   integrations: {
     simPRO: {
-      summary: "Check the live simPRO connection, preview records waiting to come across and apply safe imports into NeXa.",
-      focus: ["Connection status", "Clients, sites, quotes, jobs and invoices", "Conflict-safe imports"],
+      summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm NeXa can keep pushing records across.",
+      focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
       status: "Working bridge",
     },
     Xero: {
@@ -2689,9 +2695,9 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Setup area ready",
     },
     "Import from simPRO": {
-      summary: "Run a simPRO preview first, then apply imports after checking what NeXa will create or link.",
-      focus: ["Preview before import", "Safe creates and links", "Conflict review"],
-      status: "Working import",
+      summary: "Optional inbound tools for controlled migration only. Leave this off during normal day-to-day use while NeXa stays the front end.",
+      focus: ["Migration-only preview", "Controlled backfill", "Conflict review"],
+      status: "Use only when needed",
     },
   },
   communications: {
@@ -3531,7 +3537,7 @@ const defaultFinanceSettings: FinanceSettings = {
 const integrationModes: IntegrationMode[] = ["Not connected", "Queued handoff", "One-way push", "Two-way sync"];
 
 const defaultIntegrationSettings: IntegrationSettings = {
-  simproMode: "Queued handoff",
+  simproMode: "One-way push",
   simproApiBaseUrl: "",
   simproCompanyId: "",
   simproWebhookUrl: "",
@@ -6732,6 +6738,7 @@ export default function Dashboard() {
   const [isSubmittingSimproReconnect, setIsSubmittingSimproReconnect] = useState(false);
   const [simproReconnectDraft, setSimproReconnectDraft] = useState("");
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
+  const [isSendingJobToSimpro, setIsSendingJobToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [recordSaveStatus, setRecordSaveStatus] = useState<RecordSaveStatus>("saved");
@@ -10588,6 +10595,12 @@ export default function Dashboard() {
         source: "team scheduler",
         importance: "high",
       });
+      await pushJobToSimproRecord(updated, {
+        costCentres: schedulerSelectedJobCostCentres,
+        schedule: nextAssignments,
+        silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule this work package.";
       setSectionError(message);
@@ -10846,6 +10859,10 @@ export default function Dashboard() {
   }
 
   async function runSimproSync(mode: "preview" | "apply") {
+    if (integrationSettings.simproMode !== "Two-way sync") {
+      showNotice("simPRO imports are paused because this workspace is set to one-way push. Switch to Two-way sync only when you want to preview or apply inbound records.");
+      return;
+    }
     if (!selectedSimproImportEntities.length) {
       showNotice("Select at least one simPRO record type before running the import.");
       return;
@@ -13617,6 +13634,83 @@ export default function Dashboard() {
     }
   }
 
+  async function pushJobToSimproRecord(
+    job: Job,
+    options: {
+      schedule?: JobScheduleAssignment[];
+      costCentres?: EstimateCostCentre[];
+      silentSuccess?: boolean;
+      silentIfUnconfigured?: boolean;
+    } = {},
+  ) {
+    if (integrationSettings.simproMode === "Not connected" || integrationSettings.simproMode === "Queued handoff") {
+      if (!options.silentIfUnconfigured) {
+        showNotice("simPRO push is turned off in Setup. Switch the workspace to One-way push when you want NeXa to send jobs downstream.");
+      }
+      return null;
+    }
+
+    const response = await fetch(`/api/jobs/${job.id}/simpro-push`, {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor: activeEmployee?.name ?? "NeXa user",
+        costCentres: options.costCentres ?? (jobEstimateCostCentres[job.id] ?? []),
+        schedule: options.schedule ?? (jobSchedulePlans[job.id] ?? []),
+      }),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      job?: Job;
+      exportRecord?: SimproExportRecord;
+      auditEvent?: AuditEvent;
+      error?: string;
+    } | null;
+
+    if (!result?.job || !result.exportRecord) {
+      throw new Error(result?.error ?? "Unable to create the simPRO job handoff.");
+    }
+
+    setJobs((current) => current.map((item) => (item.id === result.job?.id ? result.job : item)));
+    setSimproExports((current) => [
+      result.exportRecord as SimproExportRecord,
+      ...current.filter((item) => item.id !== result.exportRecord?.id),
+    ]);
+    if (result.auditEvent) {
+      setAuditEvents((current) => [
+        result.auditEvent as AuditEvent,
+        ...current.filter((event) => event.id !== result.auditEvent?.id),
+      ]);
+    }
+
+    if (!options.silentSuccess) {
+      if (result.exportRecord.status === "Sent") {
+        showNotice(`${job.ref} sent to simPRO${result.exportRecord.simproJobId ? ` as ${result.exportRecord.simproJobId}` : ""}.`);
+      } else if (result.exportRecord.status === "Failed") {
+        throw new Error(result.exportRecord.error ?? "simPRO bridge failed for this job.");
+      } else {
+        showNotice(`${job.ref} is queued in NeXa only until the simPRO job bridge settings are completed.`);
+      }
+    }
+
+    return result;
+  }
+
+  async function sendSelectedJobToSimpro(overrides?: { schedule?: JobScheduleAssignment[]; costCentres?: EstimateCostCentre[]; silentSuccess?: boolean; silentIfUnconfigured?: boolean }) {
+    if (!selectedJob) return null;
+    setIsSendingJobToSimpro(true);
+    setSectionError(null);
+    try {
+      return await pushJobToSimproRecord(selectedJob, overrides);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create the simPRO job handoff.";
+      setSectionError(message);
+      showNotice(message);
+      return null;
+    } finally {
+      setIsSendingJobToSimpro(false);
+    }
+  }
+
   async function sendQuoteEmail(quote: Quote, draft: QuoteEmailDraft) {
     if (!draft.to.trim()) {
       showNotice("Add a recipient before sending the quote.");
@@ -14537,6 +14631,12 @@ export default function Dashboard() {
         source: "job planner",
         importance: "high",
       });
+      await pushJobToSimproRecord(updated, {
+        costCentres: selectedJobEstimateCostCentres,
+        schedule: nextAssignments,
+        silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule job.";
       setSectionError(message);
@@ -14617,6 +14717,12 @@ export default function Dashboard() {
         summary: `${selectedJob.ref} planner allocation removed.`,
         source: "job planner",
         importance: "normal",
+      });
+      await pushJobToSimproRecord(updated, {
+        costCentres: selectedJobEstimateCostCentres,
+        schedule: nextAssignments,
+        silentSuccess: true,
+        silentIfUnconfigured: true,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to remove the planner allocation.";
@@ -24754,6 +24860,10 @@ export default function Dashboard() {
                             <dd>{selectedJob.status}</dd>
                           </div>
                           <div>
+                            <dt>simPRO</dt>
+                            <dd>{selectedJob.simproStatus ?? "Not sent"}</dd>
+                          </div>
+                          <div>
                             <dt>Next action</dt>
                             <dd>{selectedJob.next}</dd>
                           </div>
@@ -24773,6 +24883,25 @@ export default function Dashboard() {
                         ) : (
                           <p>Manual job with no source quote.</p>
                         )}
+                        <div className="quote-action-stack">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => void sendSelectedJobToSimpro()}
+                            disabled={isSendingJobToSimpro}
+                          >
+                            {isSendingJobToSimpro ? "Sending..." : "Send job to simPRO"}
+                          </button>
+                          <small>
+                            {selectedJob.simproStatus === "Sent"
+                              ? `Last sent${selectedJob.simproJobId ? ` as ${selectedJob.simproJobId}` : ""}.`
+                              : selectedJob.simproStatus === "Queued"
+                                ? "Queued in NeXa only. It will not appear in simPRO until the live job bridge is fully configured."
+                                : simproBridgeStatus.configured
+                                  ? "Live simPRO bridge is configured. This sends the job, cost centres and current planner allocations downstream."
+                                  : `simPRO bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO job bridge settings missing."}`}
+                          </small>
+                        </div>
                       </article>
                     </div>
                     <section className="quote-survey-pack-preview job-survey-pack-preview">
@@ -29665,7 +29794,7 @@ export default function Dashboard() {
 	                        <div>
 	                          <span className="permission-heading">Live connections</span>
 	                          <h2>simPRO and Xero</h2>
-	                          <p>Use this before day-to-day work to check connections, import existing records and prepare accounts export.</p>
+	                          <p>Use this before day-to-day work to check connections, keep one-way simPRO handoffs healthy and prepare accounts export.</p>
 	                        </div>
 	                        <div className="setup-template-actions">
 	                          <button className="secondary-button" type="button" onClick={() => void refreshIntegrationConnectionStatus()}>
@@ -29682,13 +29811,13 @@ export default function Dashboard() {
 	                          <header>
 	                            <div>
 	                              <span>simPRO</span>
-	                              <strong>{simproSyncStatus?.configured ? "Direct two-way sync ready" : "Connection not complete"}</strong>
+	                              <strong>{simproSyncStatus?.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : "One-way push ready") : "Connection not complete"}</strong>
 	                            </div>
 	                            <div className="setup-sync-actions">
 	                              <button
 	                                className="secondary-button"
 	                                type="button"
-	                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+	                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
 	                                onClick={() => runSimproSync("preview")}
 	                              >
 	                                {isRunningSimproPreview ? "Previewing..." : "Preview import"}
@@ -29696,7 +29825,7 @@ export default function Dashboard() {
 	                              <button
 	                                className="primary-button"
 	                                type="button"
-	                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+	                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
 	                                onClick={() => runSimproSync("apply")}
 	                              >
 	                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
@@ -29734,9 +29863,12 @@ export default function Dashboard() {
 	                          </div>
 	                          <small>
 	                            {simproSyncStatus?.configured
-	                              ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+	                              ? integrationSettings.simproMode === "Two-way sync"
+	                                ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+	                                : `Direct API is ready at ${simproSyncStatus.endpoint}. NeXa is set to push downstream only, so inbound imports are paused.`
 	                              : `Missing ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_API_BASE_URL, SIMPRO_ACCESS_TOKEN and SIMPRO_COMPANY_ID"}.`}
 	                          </small>
+	                          {integrationSettings.simproMode === "Two-way sync" ? (
 	                          <div className="setup-sync-entity-picker">
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
@@ -29762,6 +29894,25 @@ export default function Dashboard() {
 	                              })}
 	                            </div>
 	                          </div>
+	                          ) : (
+	                            <div className="setup-readiness-grid setup-sync-grid">
+	                              <article>
+	                                <span>Operating mode</span>
+	                                <strong>NeXa is the front end</strong>
+	                                <small>Create leads, quotes, jobs and schedules here, then push them down to simPRO.</small>
+	                              </article>
+	                              <article>
+	                                <span>Inbound imports</span>
+	                                <strong>Paused</strong>
+	                                <small>Switch to Two-way sync only when you deliberately want to preview or apply inbound records.</small>
+	                              </article>
+	                              <article>
+	                                <span>Outbound bridge</span>
+	                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
+	                                <small>{simproBridgeStatus.configured ? "Quotes and jobs can be handed downstream from NeXa." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
+	                              </article>
+	                            </div>
+	                          )}
 	                          <div className="setup-integration-reconnect">
 	                            <div className="setup-integration-reconnect-copy">
 	                              <span>simPRO reconnect</span>
@@ -29797,9 +29948,9 @@ export default function Dashboard() {
 	                          </div>
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
-	                              <span>Can import</span>
-	                              <strong>Clients, sites, quotes, jobs, invoices</strong>
-	                              <small>Preview first, then apply safe creates and links.</small>
+	                              <span>{integrationSettings.simproMode === "Two-way sync" ? "Can import" : "Primary direction"}</span>
+	                              <strong>{integrationSettings.simproMode === "Two-way sync" ? "Clients, sites, quotes, jobs, invoices" : "NeXa to simPRO"}</strong>
+	                              <small>{integrationSettings.simproMode === "Two-way sync" ? "Preview first, then apply safe creates and links." : "Use NeXa day to day, with simPRO kept downstream during cutover."}</small>
 	                            </article>
 	                            <article>
 	                              <span>Linked records</span>
@@ -29812,7 +29963,7 @@ export default function Dashboard() {
 	                              <small>
 	                                {simproSyncStatus?.lastRun
 	                                  ? `${simproSyncStatus.lastRun.totals.created} created · ${simproSyncStatus.lastRun.totals.linked} linked · ${simproSyncStatus.lastRun.totals.conflicts} conflict`
-	                                  : "Use Preview import before any live import."}
+	                                  : integrationSettings.simproMode === "Two-way sync" ? "Use Preview import before any live import." : "No inbound import has been run in this workspace."}
 	                              </small>
 	                            </article>
 	                          </div>
@@ -30019,9 +30170,9 @@ export default function Dashboard() {
                       <div className="setup-subsection-heading">
                         <div>
                           <span className="permission-heading">Accounts integrations</span>
-                          <h3>Xero and simPRO two-way bridge</h3>
+                          <h3>Xero and simPRO live bridge</h3>
                         </div>
-                        <p>simPRO inbound preview, safe import and webhook capture are handled by NeXa now. Outbound writes stay controlled per record so live systems do not overwrite each other without review.</p>
+                        <p>Use this area to keep NeXa as the front end, push live records downstream to simPRO, and prepare Xero export without turning day-to-day work back into an import exercise.</p>
                       </div>
 
                       <div className="setup-integration-grid">
@@ -30029,13 +30180,13 @@ export default function Dashboard() {
                           <header>
                             <div>
                               <span>simPRO</span>
-                              <strong>{simproSyncStatus?.configured ? "Two-way bridge ready" : integrationSettings.simproMode}</strong>
+                              <strong>{simproSyncStatus?.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : "One-way push ready") : integrationSettings.simproMode}</strong>
                             </div>
                             <div className="setup-sync-actions">
                               <button
                                 className="secondary-button"
                                 type="button"
-                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
                                 onClick={() => runSimproSync("preview")}
                               >
                                 {isRunningSimproPreview ? "Previewing..." : "Preview import"}
@@ -30043,7 +30194,7 @@ export default function Dashboard() {
                               <button
                                 className="primary-button"
                                 type="button"
-                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
                                 onClick={() => runSimproSync("apply")}
                               >
                                 {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
@@ -30075,7 +30226,7 @@ export default function Dashboard() {
                               <input
                                 value={integrationSettings.simproApiBaseUrl}
                                 onChange={(event) => updateIntegrationSettings({ simproApiBaseUrl: event.target.value })}
-                                placeholder="https://api.simprocloud.com"
+                                placeholder={simproSyncStatus?.endpoint ?? "Stored securely in Render environment variables"}
                               />
                             </label>
                             <label className="span-2">
@@ -30083,36 +30234,58 @@ export default function Dashboard() {
                               <input
                                 value={integrationSettings.simproWebhookUrl}
                                 onChange={(event) => updateIntegrationSettings({ simproWebhookUrl: event.target.value })}
-                                placeholder="https://.../api/simpro/sync"
+                                placeholder={simproBridgeStatus.endpoint ?? "Stored securely in Render environment variables"}
                               />
                             </label>
                           </div>
                           <small>
                             {simproSyncStatus?.configured
-                              ? `Direct API ready at ${simproSyncStatus.endpoint}.`
+                              ? integrationSettings.simproMode === "Two-way sync"
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+                                : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
-                          <div className="setup-readiness-grid setup-sync-grid">
-                            <article>
-                              <span>Linked records</span>
-                              <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
-                              <small>simPRO records tied to NeXa records.</small>
-                            </article>
-                            <article>
-                              <span>Webhook inbox</span>
-                              <strong>{simproSyncStatus?.webhookInboxCount ?? 0}</strong>
-                              <small>Inbound simPRO events waiting for sync processing.</small>
-                            </article>
-                            <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
-                              <span>Last run</span>
-                              <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
-                              <small>
-                                {simproSyncStatus?.lastRun
-                                  ? `${simproSyncStatus.lastRun.totals.created} create · ${simproSyncStatus.lastRun.totals.linked} link · ${simproSyncStatus.lastRun.totals.conflicts} conflict · ${simproSyncStatus.lastRun.totals.errors} error`
-                                  : "Run preview before applying anything live."}
-                              </small>
-                            </article>
-                          </div>
+                          {integrationSettings.simproMode === "Two-way sync" ? (
+                            <div className="setup-readiness-grid setup-sync-grid">
+                              <article>
+                                <span>Linked records</span>
+                                <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
+                                <small>simPRO records tied to NeXa records.</small>
+                              </article>
+                              <article>
+                                <span>Webhook inbox</span>
+                                <strong>{simproSyncStatus?.webhookInboxCount ?? 0}</strong>
+                                <small>Inbound simPRO events waiting for sync processing.</small>
+                              </article>
+                              <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
+                                <span>Last run</span>
+                                <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
+                                <small>
+                                  {simproSyncStatus?.lastRun
+                                    ? `${simproSyncStatus.lastRun.totals.created} create · ${simproSyncStatus.lastRun.totals.linked} link · ${simproSyncStatus.lastRun.totals.conflicts} conflict · ${simproSyncStatus.lastRun.totals.errors} error`
+                                    : "Run preview before applying anything live."}
+                                </small>
+                              </article>
+                            </div>
+                          ) : (
+                            <div className="setup-readiness-grid setup-sync-grid">
+                              <article>
+                                <span>Primary direction</span>
+                                <strong>NeXa to simPRO</strong>
+                                <small>Quotes, jobs and planner updates are pushed downstream from NeXa.</small>
+                              </article>
+                              <article>
+                                <span>Inbound imports</span>
+                                <strong>Paused</strong>
+                                <small>Turn on Two-way sync only when you deliberately need a controlled migration or backfill.</small>
+                              </article>
+                              <article>
+                                <span>Bridge mode</span>
+                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
+                                <small>{simproBridgeStatus.configured ? "Live handoff is available from NeXa records." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
+                              </article>
+                            </div>
+                          )}
                           {simproSyncStatus?.lastRun?.operations.length ? (
                             <div className="setup-rate-table setup-sync-log">
                               <div className="setup-rate-row table-head">
@@ -30128,7 +30301,30 @@ export default function Dashboard() {
                                 </div>
                               ))}
                             </div>
-                          ) : null}
+                          ) : integrationSettings.simproMode === "Two-way sync" ? null : (
+                            <div className="setup-rate-table setup-sync-log">
+                              <div className="setup-rate-row table-head">
+                                <span>Handoff</span>
+                                <span>What NeXa sends</span>
+                                <span>When</span>
+                              </div>
+                              <div className="setup-rate-row">
+                                <strong>Quotes</strong>
+                                <span>Customer, site, cost centres, totals and scope lines</span>
+                                <span>When you send a quote to simPRO</span>
+                              </div>
+                              <div className="setup-rate-row">
+                                <strong>Jobs</strong>
+                                <span>Job details, cost centres, totals and planner allocations</span>
+                                <span>When you send a job or update the planner</span>
+                              </div>
+                              <div className="setup-rate-row">
+                                <strong>Schedules</strong>
+                                <span>Current planner allocations attached to the pushed job</span>
+                                <span>Whenever NeXa planner assignments change</span>
+                              </div>
+                            </div>
+                          )}
                         </article>
 
                         <article className="setup-integration-card">
