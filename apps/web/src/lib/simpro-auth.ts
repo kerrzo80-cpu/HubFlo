@@ -83,6 +83,13 @@ export type SimproAuthDiagnostics = {
   }>;
 };
 
+export type SimproReconnectStatus = {
+  ready: boolean;
+  missing: string[];
+  authUrl?: string;
+  checkedAt: string;
+};
+
 const tokenStore = loadServerStore<SimproAuthStore>("simpro-auth-store", {});
 
 function persistTokenStore() {
@@ -107,6 +114,10 @@ function normaliseBaseUrl(value: string) {
   const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
   const cleaned = cleanEndpoint(withProtocol) ?? "";
   return cleaned.endsWith("/api/v1.0") ? cleaned : `${cleaned}/api/v1.0`;
+}
+
+function hostBaseUrl(value: string) {
+  return normaliseBaseUrl(value).replace(/\/api\/v1\.0$/i, "");
 }
 
 function tokenUrlFromBase(baseUrl: string) {
@@ -216,6 +227,33 @@ function oauthConfig() {
     clientSecret,
     refreshToken,
     tokenUrl,
+  };
+}
+
+export function getSimproReconnectStatus(): SimproReconnectStatus {
+  const base = envFirst([
+    "SIMPRO_API_BASE_URL",
+    "SIMPRO_BUILD_URL",
+    "SIMPRO_BASE_URL",
+    "SIMPRO_SITE_URL",
+    "SIMPRO_API_URL",
+    "SIMPRO_URL",
+    "SIMPRO_HOST",
+    "SIMPRO_DOMAIN",
+  ]);
+  const clientId = envFirst(["SIMPRO_CLIENT_ID", "SIMPRO_OAUTH_CLIENT_ID"]);
+  const clientSecret = envFirst(["SIMPRO_CLIENT_SECRET", "SIMPRO_OAUTH_CLIENT_SECRET"]);
+  const missing = [
+    !base ? "SIMPRO_BASE_URL" : null,
+    !clientId ? "SIMPRO_CLIENT_ID" : null,
+    !clientSecret ? "SIMPRO_CLIENT_SECRET" : null,
+  ].filter((item): item is string => Boolean(item));
+
+  return {
+    ready: missing.length === 0,
+    missing,
+    authUrl: base && clientId ? `${hostBaseUrl(base.value)}/oauth2/login?client_id=${encodeURIComponent(clientId.value)}` : undefined,
+    checkedAt: new Date().toISOString(),
   };
 }
 
@@ -383,6 +421,98 @@ async function refreshAccessToken(baseUrl: string) {
       (typeof body.error === "string" && body.error.trim()) ||
       (typeof body.message === "string" && body.message.trim()) ||
       `simPRO OAuth token request failed with HTTP ${response.status}.`;
+  }
+
+  throw new Error(lastMessage);
+}
+
+export async function exchangeSimproAuthorizationCode(codeInput: string) {
+  const fromUrlMatch = codeInput.match(/[?&]code=([^&]+)/i);
+  const code = (fromUrlMatch ? decodeURIComponent(fromUrlMatch[1] ?? "") : codeInput).trim().replace(/^["']|["']$/g, "");
+  if (!code) {
+    throw new Error("Paste the fresh simPRO authorisation code or full redirect URL.");
+  }
+
+  const base = envFirst([
+    "SIMPRO_API_BASE_URL",
+    "SIMPRO_BUILD_URL",
+    "SIMPRO_BASE_URL",
+    "SIMPRO_SITE_URL",
+    "SIMPRO_API_URL",
+    "SIMPRO_URL",
+    "SIMPRO_HOST",
+    "SIMPRO_DOMAIN",
+  ]);
+  const oauth = oauthConfig();
+  if (!base || !oauth.clientId || !oauth.clientSecret) {
+    throw new Error("The simPRO OAuth settings are incomplete in Render.");
+  }
+
+  const browserBaseUrl = hostBaseUrl(base.value);
+  const tokenUrl = oauth.tokenUrl?.value?.trim() || tokenUrlFromBase(normaliseBaseUrl(base.value));
+  if (!tokenUrl) {
+    throw new Error("simPRO OAuth token URL could not be determined.");
+  }
+
+  const basePayload = {
+    grant_type: "authorization_code",
+    client_id: oauth.clientId.value,
+    client_secret: oauth.clientSecret.value,
+    code,
+  };
+
+  const payloads: Array<Record<string, string>> = [
+    basePayload,
+    {
+      ...basePayload,
+      redirect_uri: `${browserBaseUrl}/oauth2/accessCode`,
+    },
+    {
+      ...basePayload,
+      redirect_uri: "/oauth2/accessCode",
+    },
+  ];
+
+  let lastMessage = "simPRO rejected the authorisation code.";
+  for (const payload of payloads) {
+    const response = await fetch(tokenUrl, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams(payload).toString(),
+      cache: "no-store",
+    });
+
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const accessToken = typeof body.access_token === "string" ? body.access_token.trim() : "";
+    const refreshToken = typeof body.refresh_token === "string" ? body.refresh_token.trim() : "";
+    const expiresIn = typeof body.expires_in === "number"
+      ? body.expires_in
+      : typeof body.expires_in === "string"
+        ? Number(body.expires_in)
+        : 3600;
+
+    if (response.ok && refreshToken) {
+      tokenStore.refreshToken = refreshToken;
+      tokenStore.accessToken = accessToken || undefined;
+      tokenStore.accessTokenExpiresAt = accessToken
+        ? new Date(Date.now() + Math.max(expiresIn - 60, 60) * 1000).toISOString()
+        : undefined;
+      persistTokenStore();
+      persistRefreshTokenToFile(refreshToken);
+      return {
+        refreshTokenLength: refreshToken.length,
+        accessTokenLength: accessToken.length,
+      };
+    }
+
+    lastMessage =
+      (typeof body.error_description === "string" && body.error_description.trim()) ||
+      (typeof body.error === "string" && body.error.trim()) ||
+      (typeof body.message === "string" && body.message.trim()) ||
+      `simPRO token exchange failed with HTTP ${response.status}.`;
   }
 
   throw new Error(lastMessage);

@@ -1702,6 +1702,14 @@ type SimproSyncStatus = {
   recentRuns: SimproSyncRun[];
 };
 
+type SimproReconnectStatus = {
+  ready: boolean;
+  missing: string[];
+  authUrl?: string;
+  checkedAt: string;
+  sync?: SimproSyncStatus;
+};
+
 type SimproBridgeStatus = {
   configured: boolean;
   mode: "webhook" | "scheduler" | "direct" | "missing" | "unknown";
@@ -6704,9 +6712,12 @@ export default function Dashboard() {
     missing: [],
   });
   const [simproSyncStatus, setSimproSyncStatus] = useState<SimproSyncStatus | null>(null);
+  const [simproReconnectStatus, setSimproReconnectStatus] = useState<SimproReconnectStatus | null>(null);
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
+  const [isSubmittingSimproReconnect, setIsSubmittingSimproReconnect] = useState(false);
+  const [simproReconnectDraft, setSimproReconnectDraft] = useState("");
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
@@ -8653,8 +8664,9 @@ export default function Dashboard() {
 
     const loadIntegrationStatuses = async () => {
       try {
-        const [simproResponse, xeroResponse] = await Promise.all([
+        const [simproResponse, simproReconnectResponse, xeroResponse] = await Promise.all([
           fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
+          fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
           fetch("/api/integrations/xero/status", { headers: requestHeaders }),
         ]);
         if (!stopped) {
@@ -8662,6 +8674,9 @@ export default function Dashboard() {
             const status = (await simproResponse.json()) as SimproBridgeStatus;
             setSimproBridgeStatus(status);
             if (status.sync) setSimproSyncStatus(status.sync);
+          }
+          if (simproReconnectResponse.ok) {
+            setSimproReconnectStatus((await simproReconnectResponse.json()) as SimproReconnectStatus);
           }
           if (xeroResponse.ok) {
             setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
@@ -8674,6 +8689,7 @@ export default function Dashboard() {
             mode: "unknown",
             missing: ["Unable to check Simpro bridge"],
           });
+          setSimproReconnectStatus(null);
           setSimproSyncStatus(null);
           setXeroConnectionStatus(null);
         }
@@ -10747,8 +10763,9 @@ export default function Dashboard() {
 
   async function refreshIntegrationConnectionStatus() {
     try {
-      const [simproResponse, xeroResponse] = await Promise.all([
+      const [simproResponse, simproReconnectResponse, xeroResponse] = await Promise.all([
         fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
+        fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
         fetch("/api/integrations/xero/status", { headers: requestHeaders }),
       ]);
       if (simproResponse.ok) {
@@ -10756,12 +10773,54 @@ export default function Dashboard() {
         setSimproBridgeStatus(status);
         if (status.sync) setSimproSyncStatus(status.sync);
       }
+      if (simproReconnectResponse.ok) {
+        setSimproReconnectStatus((await simproReconnectResponse.json()) as SimproReconnectStatus);
+      }
       if (xeroResponse.ok) {
         setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
       }
       showNotice("Integration status refreshed.");
     } catch {
       showNotice("Unable to refresh integration status.");
+    }
+  }
+
+  async function submitSimproReconnect() {
+    const code = simproReconnectDraft.trim();
+    if (!code) {
+      showNotice("Paste the fresh simPRO authorisation code or full redirect URL first.");
+      return;
+    }
+
+    setIsSubmittingSimproReconnect(true);
+    try {
+      const response = await fetch("/api/integrations/simpro/reconnect", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+        reconnect?: SimproReconnectStatus;
+        sync?: SimproSyncStatus;
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(result?.error || `simPRO reconnect returned HTTP ${response.status}`);
+      }
+
+      setSimproReconnectDraft("");
+      if (result?.reconnect) setSimproReconnectStatus(result.reconnect);
+      if (result?.sync) setSimproSyncStatus(result.sync);
+      await refreshIntegrationConnectionStatus();
+      showNotice("simPRO reconnected. The live token has been refreshed in NeXa.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to reconnect simPRO.");
+    } finally {
+      setIsSubmittingSimproReconnect(false);
     }
   }
 
@@ -29652,6 +29711,39 @@ export default function Dashboard() {
 	                              ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
 	                              : `Missing ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_API_BASE_URL, SIMPRO_ACCESS_TOKEN and SIMPRO_COMPANY_ID"}.`}
 	                          </small>
+	                          <div className="setup-integration-reconnect">
+	                            <div className="setup-integration-reconnect-copy">
+	                              <span>simPRO reconnect</span>
+	                              <strong>{simproReconnectStatus?.ready ? "Exchange a fresh code inside NeXa" : "OAuth settings still need checked in Render"}</strong>
+	                              <small>
+	                                {simproReconnectStatus?.ready
+	                                  ? "Open simPRO, generate a fresh authorisation code, then paste the code or full redirect URL here."
+	                                  : `Missing ${simproReconnectStatus?.missing.join(", ") || "SIMPRO_BASE_URL, SIMPRO_CLIENT_ID and SIMPRO_CLIENT_SECRET"}.`}
+	                              </small>
+	                            </div>
+	                            <div className="setup-integration-reconnect-actions">
+	                              {simproReconnectStatus?.authUrl ? (
+	                                <a className="secondary-button" href={simproReconnectStatus.authUrl} rel="noreferrer" target="_blank">
+	                                  Open simPRO authorisation
+	                                </a>
+	                              ) : null}
+	                              <div className="setup-integration-reconnect-form">
+	                                <input
+	                                  value={simproReconnectDraft}
+	                                  onChange={(event) => setSimproReconnectDraft(event.target.value)}
+	                                  placeholder="Paste simPRO code or full redirect URL"
+	                                />
+	                                <button
+	                                  className="primary-button"
+	                                  type="button"
+	                                  disabled={!simproReconnectStatus?.ready || isSubmittingSimproReconnect}
+	                                  onClick={() => void submitSimproReconnect()}
+	                                >
+	                                  {isSubmittingSimproReconnect ? "Reconnecting..." : "Reconnect simPRO"}
+	                                </button>
+	                              </div>
+	                            </div>
+	                          </div>
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
 	                              <span>Can import</span>
