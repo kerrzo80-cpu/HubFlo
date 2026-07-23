@@ -53,6 +53,36 @@ export type ResolvedSimproDirectConfig = {
   token: string;
 };
 
+export type SimproAuthDiagnostics = {
+  baseUrl?: string;
+  companyId?: string;
+  configured: boolean;
+  missing: string[];
+  sourceNames: {
+    baseUrl?: string;
+    token?: string;
+    companyId?: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    tokenUrl?: string;
+  };
+  refreshTokenFile: {
+    path?: string;
+    exists: boolean;
+    tokenLength: number;
+  };
+  tokenStore: {
+    refreshTokenLength: number;
+    accessTokenLength: number;
+    accessTokenExpiresAt?: string;
+  };
+  refreshCandidates: Array<{
+    name: string;
+    length: number;
+  }>;
+};
+
 const tokenStore = loadServerStore<SimproAuthStore>("simpro-auth-store", {});
 
 function persistTokenStore() {
@@ -214,6 +244,34 @@ function accessTokenSource() {
   }
 
   return null;
+}
+
+export function getSimproAuthDiagnostics(): SimproAuthDiagnostics {
+  const status = getSimproDirectConfigStatus();
+  const refreshTokenFile = refreshTokenFilePath();
+  const fileToken = readRefreshTokenFile(refreshTokenFile);
+
+  return {
+    baseUrl: status.baseUrl,
+    companyId: status.companyId,
+    configured: status.configured,
+    missing: status.missing,
+    sourceNames: status.sourceNames,
+    refreshTokenFile: {
+      path: refreshTokenFile || undefined,
+      exists: Boolean(refreshTokenFile && existsSync(refreshTokenFile)),
+      tokenLength: fileToken?.length ?? 0,
+    },
+    tokenStore: {
+      refreshTokenLength: tokenStore.refreshToken?.trim().length ?? 0,
+      accessTokenLength: tokenStore.accessToken?.trim().length ?? 0,
+      accessTokenExpiresAt: tokenStore.accessTokenExpiresAt,
+    },
+    refreshCandidates: refreshTokenCandidates().map((candidate) => ({
+      name: candidate.name,
+      length: candidate.value.length,
+    })),
+  };
 }
 
 export function getSimproDirectConfigStatus(): SimproDirectConfigStatus {
