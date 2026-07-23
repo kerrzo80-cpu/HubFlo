@@ -31981,6 +31981,73 @@ body {
   padding: 0 12px;
 }
 
+.setup-sync-entity-picker {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.setup-sync-entity-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.setup-sync-entity-copy span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.setup-sync-entity-copy strong {
+  color: var(--nexa-navy);
+  font-size: 14px;
+}
+
+.setup-sync-entity-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.setup-sync-entity-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-sync-entity-option {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.setup-sync-entity-option.active {
+  background: rgba(47, 145, 196, 0.1);
+  border-color: rgba(47, 145, 196, 0.35);
+  color: var(--nexa-navy);
+}
+
+.setup-sync-entity-option input {
+  accent-color: var(--nexa-accent);
+  margin: 0;
+}
+
+.setup-sync-entity-option span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .setup-integration-reconnect {
   border: 1px solid rgba(47, 145, 196, 0.18);
   border-radius: 8px;

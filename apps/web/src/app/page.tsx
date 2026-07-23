@@ -1671,13 +1671,15 @@ type SimproSyncOperation = {
   detail?: string;
 };
 
+type SimproSyncEntity = SimproSyncOperation["entity"];
+
 type SimproSyncRun = {
   id: string;
   mode: "preview" | "apply";
   startedAt: string;
   finishedAt: string;
   actor: string;
-  entities: Array<"clients" | "sites" | "quotes" | "jobs" | "invoices">;
+  entities: SimproSyncEntity[];
   totals: {
     fetched: number;
     created: number;
@@ -1701,6 +1703,14 @@ type SimproSyncStatus = {
   lastRun?: SimproSyncRun;
   recentRuns: SimproSyncRun[];
 };
+
+const simproImportEntityOptions: Array<{ key: SimproSyncEntity; label: string }> = [
+  { key: "clients", label: "Clients" },
+  { key: "sites", label: "Sites" },
+  { key: "quotes", label: "Quotes" },
+  { key: "jobs", label: "Jobs" },
+  { key: "invoices", label: "Invoices" },
+];
 
 type SimproReconnectStatus = {
   ready: boolean;
@@ -6714,6 +6724,9 @@ export default function Dashboard() {
   const [simproSyncStatus, setSimproSyncStatus] = useState<SimproSyncStatus | null>(null);
   const [simproReconnectStatus, setSimproReconnectStatus] = useState<SimproReconnectStatus | null>(null);
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
+  const [selectedSimproImportEntities, setSelectedSimproImportEntities] = useState<SimproSyncEntity[]>(
+    simproImportEntityOptions.map((item) => item.key),
+  );
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isSubmittingSimproReconnect, setIsSubmittingSimproReconnect] = useState(false);
@@ -10824,7 +10837,20 @@ export default function Dashboard() {
     }
   }
 
+  function toggleSimproImportEntity(entity: SimproSyncEntity) {
+    setSelectedSimproImportEntities((current) => (
+      current.includes(entity)
+        ? current.filter((item) => item !== entity)
+        : [...current, entity]
+    ));
+  }
+
   async function runSimproSync(mode: "preview" | "apply") {
+    if (!selectedSimproImportEntities.length) {
+      showNotice("Select at least one simPRO record type before running the import.");
+      return;
+    }
+
     if (mode === "preview") {
       setIsRunningSimproPreview(true);
     } else {
@@ -10840,7 +10866,7 @@ export default function Dashboard() {
         },
         body: JSON.stringify({
           mode,
-          entities: ["clients", "sites", "quotes", "jobs", "invoices"],
+          entities: selectedSimproImportEntities,
           actor: activeEmployee?.name ?? "NeXa user",
         }),
       });
@@ -10854,8 +10880,8 @@ export default function Dashboard() {
 
       showNotice(
         mode === "preview"
-          ? `simPRO preview complete: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
-          : `simPRO safe import complete: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
+          ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
+          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
@@ -29711,6 +29737,31 @@ export default function Dashboard() {
 	                              ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
 	                              : `Missing ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_API_BASE_URL, SIMPRO_ACCESS_TOKEN and SIMPRO_COMPANY_ID"}.`}
 	                          </small>
+	                          <div className="setup-sync-entity-picker">
+	                            <div className="setup-sync-entity-copy">
+	                              <span>Import selection</span>
+	                              <strong>Choose exactly what NeXa should pull in</strong>
+	                              <small>Preview or apply only the record groups you tick here.</small>
+	                            </div>
+	                            <div className="setup-sync-entity-list" role="group" aria-label="simPRO import record types">
+	                              {simproImportEntityOptions.map((option) => {
+	                                const checked = selectedSimproImportEntities.includes(option.key);
+	                                return (
+	                                  <label
+	                                    key={option.key}
+	                                    className={checked ? "setup-sync-entity-option active" : "setup-sync-entity-option"}
+	                                  >
+	                                    <input
+	                                      type="checkbox"
+	                                      checked={checked}
+	                                      onChange={() => toggleSimproImportEntity(option.key)}
+	                                    />
+	                                    <span>{option.label}</span>
+	                                  </label>
+	                                );
+	                              })}
+	                            </div>
+	                          </div>
 	                          <div className="setup-integration-reconnect">
 	                            <div className="setup-integration-reconnect-copy">
 	                              <span>simPRO reconnect</span>
