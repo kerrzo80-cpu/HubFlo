@@ -19996,12 +19996,16 @@ body:has(.platform) {
 
 html.nexa-survey-scroll,
 html.nexa-survey-scroll body,
+html.nexa-takeoff-scroll,
+html.nexa-takeoff-scroll body,
 html:has(.survey-simple-app),
 body:has(.survey-simple-app),
 html:has(.survey-simple-loading),
 body:has(.survey-simple-loading),
 html:has(.guided-survey-app),
-body:has(.guided-survey-app) {
+body:has(.guided-survey-app),
+html:has(.takeoff-app),
+body:has(.takeoff-app) {
   height: 100% !important;
   max-height: 100% !important;
   overflow: hidden !important;
@@ -22105,9 +22109,22 @@ body:has(.guided-survey-app) {
   color: var(--ink);
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  min-height: 100vh;
+  height: 100dvh;
+  left: 0;
+  max-height: 100dvh;
+  min-height: 0;
   overflow: hidden;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 100%;
+  z-index: 1;
+}
+
+.takeoff-app.takeoff-drawing-mode,
+.takeoff-app.takeoff-markup-fullscreen {
+  /* Drawing mode keeps its own fullscreen rules below. */
+  bottom: 0;
 }
 
 .takeoff-header {
@@ -22217,8 +22234,12 @@ body:has(.guided-survey-app) {
   gap: 18px;
   grid-template-columns: 304px minmax(0, 1fr);
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding: 18px;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  -webkit-overflow-scrolling: touch;
 }
 
 .takeoff-sidebar,
@@ -25722,6 +25743,70 @@ img.markup-document-preview {
   grid-template-columns: 150px minmax(230px, 1fr) 74px 82px minmax(190px, 1fr) 32px;
 }
 
+/* Phone: keep BoQ tables in the vertical page scroll instead of a trapped wide grid. */
+@media (max-width: 720px) {
+  .takeoff-app:not(.takeoff-drawing-mode) .takeoff-shell {
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    touch-action: pan-y;
+  }
+
+  .takeoff-table {
+    overflow: visible;
+  }
+
+  .takeoff-table-head,
+  .takeoff-table-row {
+    min-width: 0;
+  }
+
+  .takeoff-table.materials .takeoff-table-head,
+  .takeoff-table.materials .takeoff-table-row {
+    grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr) 52px 44px 36px;
+    min-width: 0;
+  }
+
+  .takeoff-table.materials .takeoff-table-head > span:nth-child(n+5),
+  .takeoff-table.materials .takeoff-table-row > :nth-child(n+5) {
+    display: none;
+  }
+
+  .takeoff-table.labour .takeoff-table-head,
+  .takeoff-table.labour .takeoff-table-row {
+    grid-template-columns: minmax(90px, 0.8fr) minmax(0, 1fr) 56px 36px;
+    min-width: 0;
+  }
+
+  .takeoff-table.labour .takeoff-table-head > span:nth-child(n+4),
+  .takeoff-table.labour .takeoff-table-row > :nth-child(n+4) {
+    display: none;
+  }
+
+  .takeoff-table.labour .takeoff-table-head > span:last-child,
+  .takeoff-table.labour .takeoff-table-row > :last-child,
+  .takeoff-table.materials .takeoff-table-head > span:last-child,
+  .takeoff-table.materials .takeoff-table-row > :last-child {
+    display: block;
+  }
+
+  .takeoff-table.boq-preview .takeoff-table-head,
+  .takeoff-table.boq-preview .takeoff-table-row {
+    grid-template-columns: 70px minmax(80px, 0.7fr) minmax(0, 1.3fr);
+    min-width: 0;
+  }
+
+  .takeoff-table.boq-preview .takeoff-table-head > span:nth-child(n+4),
+  .takeoff-table.boq-preview .takeoff-table-row > :nth-child(n+4) {
+    display: none;
+  }
+
+  .takeoff-panel {
+    overflow: visible;
+  }
+}
+
 .takeoff-review-actions {
   display: flex;
   flex-wrap: wrap;
@@ -26516,6 +26601,7 @@ img.markup-document-preview {
   .takeoff-shell {
     grid-template-columns: 1fr;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .takeoff-sidebar {
@@ -26524,7 +26610,7 @@ img.markup-document-preview {
   }
 
   .takeoff-main {
-    overflow-y: visible;
+    overflow: visible;
     padding-right: 0;
   }
 

@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { TakeoffScrollUnlock } from "./takeoff-scroll-unlock";
 
 export const metadata: Metadata = {
   title: "NeXa Takeoffs",
@@ -19,10 +20,21 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function TakeoffLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return children;
+  return (
+    <>
+      <TakeoffScrollUnlock />
+      {children}
+    </>
+  );
 }
