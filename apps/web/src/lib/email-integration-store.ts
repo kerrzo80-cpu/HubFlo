@@ -1,6 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import net from "node:net";
-import tls from "node:tls";
+import nodemailer from "nodemailer";
 
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
@@ -25,6 +24,8 @@ type EmailIntegrationStore = {
   smtpPort: number;
   secure: boolean;
   lastTestedAt?: string;
+  lastTestRecipient?: string;
+  lastTestMessageId?: string;
   lastError?: string;
 };
 
@@ -38,6 +39,8 @@ export type EmailIntegrationStatus = {
   secure: boolean;
   secretStored: boolean;
   lastTestedAt?: string;
+  lastTestRecipient?: string;
+  lastTestMessageId?: string;
   lastError?: string;
 };
 
@@ -104,6 +107,8 @@ function sanitizeStore(store: EmailIntegrationStore): EmailIntegrationStatus {
     secure: store.secure,
     secretStored: Boolean(store.encryptedSecret),
     lastTestedAt: store.lastTestedAt,
+    lastTestRecipient: store.lastTestRecipient,
+    lastTestMessageId: store.lastTestMessageId,
     lastError: store.lastError,
   };
 }
@@ -123,6 +128,8 @@ export function saveEmailIntegrationSettings(input: EmailIntegrationInput) {
     smtpPort: input.smtpPort && Number.isFinite(input.smtpPort) ? input.smtpPort : defaults.port,
     secure: input.secure ?? defaults.secure,
     lastTestedAt: emailIntegrationStore.lastTestedAt,
+    lastTestRecipient: emailIntegrationStore.lastTestRecipient,
+    lastTestMessageId: emailIntegrationStore.lastTestMessageId,
     lastError: emailIntegrationStore.lastError,
   };
   Object.assign(emailIntegrationStore, next);
@@ -141,42 +148,47 @@ export async function testEmailIntegrationConnection() {
     throw new Error("Add the sender email, username and app password before testing.");
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const timeoutMs = 5000;
-    const done = (error?: Error) => {
-      if (error) reject(error);
-      else resolve();
-    };
-
-    const socket = emailIntegrationStore.secure
-      ? tls.connect({
-          host: emailIntegrationStore.smtpHost,
-          port: emailIntegrationStore.smtpPort,
-          servername: emailIntegrationStore.smtpHost,
-          rejectUnauthorized: false,
-        })
-      : net.createConnection({
-          host: emailIntegrationStore.smtpHost,
-          port: emailIntegrationStore.smtpPort,
-        });
-
-    const finish = (error?: Error) => {
-      socket.removeAllListeners();
-      socket.end();
-      socket.destroy();
-      done(error);
-    };
-
-    socket.setTimeout(timeoutMs, () => finish(new Error("Connection timed out.")));
-    socket.once("error", (error) => finish(error instanceof Error ? error : new Error("Connection failed.")));
-    socket.once("connect", () => finish());
-    if ("once" in socket) {
-      socket.once("secureConnect" as never, () => finish());
-    }
+  const transport = nodemailer.createTransport({
+    host: emailIntegrationStore.smtpHost,
+    port: emailIntegrationStore.smtpPort,
+    secure: emailIntegrationStore.secure,
+    requireTLS: !emailIntegrationStore.secure,
+    auth: {
+      user: emailIntegrationStore.username,
+      pass: secret,
+    },
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 15_000,
   });
 
-  emailIntegrationStore.lastTestedAt = new Date().toISOString();
-  emailIntegrationStore.lastError = undefined;
-  persist(emailIntegrationStore);
-  return sanitizeStore(emailIntegrationStore);
+  try {
+    await transport.verify();
+    const sent = await transport.sendMail({
+      from: emailIntegrationStore.senderEmail,
+      to: emailIntegrationStore.senderEmail,
+      subject: "NeXa email connection test",
+      text: [
+        "This test email was sent by NeXa.",
+        "",
+        `Provider: ${emailIntegrationStore.provider}`,
+        `Sent: ${new Date().toISOString()}`,
+        "",
+        "Receiving this message confirms that NeXa authenticated with your email provider and sent successfully.",
+      ].join("\n"),
+    });
+
+    emailIntegrationStore.lastTestedAt = new Date().toISOString();
+    emailIntegrationStore.lastTestRecipient = emailIntegrationStore.senderEmail;
+    emailIntegrationStore.lastTestMessageId = sent.messageId;
+    emailIntegrationStore.lastError = undefined;
+    persist(emailIntegrationStore);
+    return sanitizeStore(emailIntegrationStore);
+  } catch (error) {
+    emailIntegrationStore.lastError = error instanceof Error ? error.message : "Email authentication or send failed.";
+    persist(emailIntegrationStore);
+    throw error;
+  } finally {
+    transport.close();
+  }
 }

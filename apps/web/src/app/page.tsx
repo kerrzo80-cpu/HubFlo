@@ -1467,6 +1467,8 @@ type EmailIntegrationStatus = {
   secure: boolean;
   secretStored: boolean;
   lastTestedAt?: string;
+  lastTestRecipient?: string;
+  lastTestMessageId?: string;
   lastError?: string;
 };
 
@@ -6824,6 +6826,7 @@ export default function Dashboard() {
   );
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
+  const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
   const [isSubmittingSimproReconnect, setIsSubmittingSimproReconnect] = useState(false);
   const [simproReconnectDraft, setSimproReconnectDraft] = useState("");
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
@@ -6841,6 +6844,7 @@ export default function Dashboard() {
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
   const pendingEmployeeSaveRef = useRef(false);
+  const loadedEmployeeDraftIdRef = useRef<string | null>(null);
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
@@ -8340,6 +8344,8 @@ export default function Dashboard() {
   useEffect(() => {
     if (!editingEmployeeId || !activeEditingEmployee) return;
     if (editingEmployeeId === newEmployeeId) return;
+    if (loadedEmployeeDraftIdRef.current === editingEmployeeId) return;
+    loadedEmployeeDraftIdRef.current = editingEmployeeId;
     setEmployeeRoleDraft(activeEditingEmployee.role);
     setEmployeePermissionDraft({ ...(activeEditingEmployee.permissions ?? {}) });
     const draft = makeEmployeeProfileDraft(activeEditingEmployee);
@@ -11075,6 +11081,26 @@ export default function Dashboard() {
     }
   }
 
+  async function testSimproConnection() {
+    setIsTestingSimproConnection(true);
+    try {
+      const response = await fetch("/api/integrations/simpro/test", {
+        method: "POST",
+        headers: requestHeaders,
+      });
+      const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string } | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || `simPRO connection test returned HTTP ${response.status}`);
+      }
+      await refreshIntegrationConnectionStatus();
+      showNotice(result.message || "simPRO connection verified.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to test the simPRO connection.");
+    } finally {
+      setIsTestingSimproConnection(false);
+    }
+  }
+
   function markSetupEdited() {
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
@@ -12806,6 +12832,7 @@ export default function Dashboard() {
   }
 
   function clearEmployeeEditingState() {
+    loadedEmployeeDraftIdRef.current = null;
     setEditingEmployeeId(null);
     setEmployeePermissionDraft({});
     setEmployeeProfileDraft(createBlankEmployeeProfileDraft());
@@ -30339,6 +30366,14 @@ export default function Dashboard() {
 	                              <button
 	                                className="secondary-button"
 	                                type="button"
+	                                disabled={isTestingSimproConnection}
+	                                onClick={() => void testSimproConnection()}
+	                              >
+	                                {isTestingSimproConnection ? "Testing..." : "Test connection"}
+	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
 	                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
 	                                onClick={() => runSimproSync("preview")}
 	                              >
@@ -30585,7 +30620,11 @@ export default function Dashboard() {
                           <h2>Email, WhatsApp and supplier doorways</h2>
                         </div>
                         <span className="setup-status-label">
-                          {emailIntegrationStatus?.configured ? `${emailIntegrationStatus.provider} ready` : "Setup required"}
+                          {emailIntegrationStatus?.lastTestMessageId
+                            ? `${emailIntegrationStatus.provider} test sent`
+                            : emailIntegrationStatus?.configured
+                              ? `${emailIntegrationStatus.provider} saved, not tested`
+                              : "Setup required"}
                         </span>
                       </div>
                       <div className="setup-integration-grid">
@@ -30685,13 +30724,13 @@ export default function Dashboard() {
                             </label>
                           </div>
                           <small>
-                            Credentials are stored on the server side only. The test currently checks SMTP reachability from NeXa so we can confirm the connection path before wiring live send/auth flows.
+                            Credentials are stored on the server side only. Test connection authenticates with the provider and sends a real test message to the sender address.
                           </small>
                           <div className="setup-readiness-grid setup-sync-grid">
                             <article>
                               <span>Status</span>
-                              <strong>{emailIntegrationStatus?.configured ? "Configured" : "Not configured"}</strong>
-                              <small>{emailIntegrationStatus?.lastError || "Save settings, then run a connection test."}</small>
+                              <strong>{emailIntegrationStatus?.lastTestMessageId ? "Test email sent" : emailIntegrationStatus?.configured ? "Saved, not proven" : "Not configured"}</strong>
+                              <small>{emailIntegrationStatus?.lastError || (emailIntegrationStatus?.lastTestRecipient ? `Sent to ${emailIntegrationStatus.lastTestRecipient}` : "Save settings, then send a test email.")}</small>
                             </article>
                             <article>
                               <span>Secret</span>
@@ -30844,6 +30883,14 @@ export default function Dashboard() {
                               <strong>{simproSyncStatus?.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : "One-way push ready") : integrationSettings.simproMode}</strong>
                             </div>
                             <div className="setup-sync-actions">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isTestingSimproConnection}
+                                onClick={() => void testSimproConnection()}
+                              >
+                                {isTestingSimproConnection ? "Testing..." : "Test connection"}
+                              </button>
                               <button
                                 className="secondary-button"
                                 type="button"

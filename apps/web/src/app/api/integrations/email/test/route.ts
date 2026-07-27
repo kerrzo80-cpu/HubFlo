@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     const status = await testEmailIntegrationConnection();
     return NextResponse.json({
       ok: true,
-      message: `Connected to ${status.smtpHost}:${status.smtpPort}.`,
+      message: `Authenticated and sent a test email to ${status.lastTestRecipient}.`,
       status,
     });
   } catch (error) {
