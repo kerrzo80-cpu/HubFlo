@@ -26735,8 +26735,11 @@ img.markup-document-preview {
     -webkit-overflow-scrolling: touch;
   }
 
-  .takeoff-app.takeoff-page-scroll .takeoff-shell {
-    overflow: visible;
+  .takeoff-app.takeoff-page-scroll .takeoff-shell,
+  .takeoff-app.takeoff-page-scroll .takeoff-main {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
   }
 
   .takeoff-sidebar {
