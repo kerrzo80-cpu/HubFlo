@@ -19996,21 +19996,41 @@ body:has(.platform) {
 
 html.nexa-survey-scroll,
 html.nexa-survey-scroll body,
-html.nexa-takeoff-scroll,
-html.nexa-takeoff-scroll body,
 html:has(.survey-simple-app),
 body:has(.survey-simple-app),
 html:has(.survey-simple-loading),
 body:has(.survey-simple-loading),
 html:has(.guided-survey-app),
 body:has(.guided-survey-app),
-html:has(.takeoff-app),
-body:has(.takeoff-app) {
+/* Markup / drawing only — lock the document and use the fullscreen canvas viewport. */
+html.nexa-takeoff-scroll:has(.takeoff-drawing-mode),
+html.nexa-takeoff-scroll:has(.takeoff-drawing-mode) body,
+html:has(.takeoff-app.takeoff-drawing-mode),
+body:has(.takeoff-app.takeoff-drawing-mode),
+html:has(.takeoff-app.takeoff-markup-fullscreen),
+body:has(.takeoff-app.takeoff-markup-fullscreen) {
   height: 100% !important;
   max-height: 100% !important;
   overflow: hidden !important;
   overscroll-behavior: none;
   touch-action: manipulation;
+}
+
+/* Documents / BoQ / Handoff: use native document scroll (reliable on iPhone with form inputs). */
+html.nexa-takeoff-scroll:has(.takeoff-page-scroll),
+html.nexa-takeoff-scroll:has(.takeoff-page-scroll) body,
+html.nexa-takeoff-page-scroll,
+html.nexa-takeoff-page-scroll body,
+html:has(.takeoff-app.takeoff-page-scroll),
+body:has(.takeoff-app.takeoff-page-scroll) {
+  height: auto !important;
+  max-height: none !important;
+  min-height: 100% !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  overscroll-behavior-y: auto !important;
+  touch-action: auto !important;
+  -webkit-overflow-scrolling: touch;
 }
 
 .platform {
@@ -22118,15 +22138,20 @@ body:has(.takeoff-app) {
   z-index: 1;
 }
 
-/* Documents / BoQ / Handoff: app itself scrolls (same pattern as simple Survey). */
+/* Documents / BoQ / Handoff: normal document flow so the phone can scroll the page. */
 .takeoff-app.takeoff-page-scroll {
-  bottom: 0;
+  bottom: auto;
+  display: block;
   height: auto;
+  left: auto;
   max-height: none;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
+  min-height: 100dvh;
+  overflow: visible;
+  position: relative;
+  right: auto;
+  top: auto;
+  width: 100%;
+  z-index: auto;
 }
 
 .takeoff-app.takeoff-page-scroll .takeoff-header {
@@ -22136,12 +22161,15 @@ body:has(.takeoff-app) {
 }
 
 .takeoff-app.takeoff-page-scroll .takeoff-shell,
-.takeoff-app.takeoff-page-scroll .takeoff-main {
-  flex: 0 0 auto;
+.takeoff-app.takeoff-page-scroll .takeoff-main,
+.takeoff-app.takeoff-page-scroll .takeoff-panel,
+.takeoff-app.takeoff-page-scroll .takeoff-sidebar,
+.takeoff-app.takeoff-page-scroll .takeoff-table {
+  flex: none;
   height: auto;
   max-height: none;
   min-height: 0;
-  overflow: visible;
+  overflow: visible !important;
 }
 
 .takeoff-app.takeoff-drawing-mode,
@@ -22151,6 +22179,7 @@ body:has(.takeoff-app) {
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
+  position: fixed;
 }
 
 .takeoff-header {
@@ -25769,14 +25798,13 @@ img.markup-document-preview {
   grid-template-columns: 150px minmax(230px, 1fr) 74px 82px minmax(190px, 1fr) 32px;
 }
 
-/* Phone: BoQ uses the page scrollport; tables become stacked cards. */
+/* Phone: BoQ uses native page scroll; tables become stacked cards. */
 @media (max-width: 720px) {
   .takeoff-app.takeoff-page-scroll {
-    overflow-x: hidden;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
-    touch-action: pan-y;
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    position: relative !important;
   }
 
   .takeoff-app.takeoff-page-scroll .takeoff-shell,
