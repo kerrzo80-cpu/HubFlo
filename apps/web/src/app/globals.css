@@ -22109,11 +22109,8 @@ body:has(.takeoff-app) {
   color: var(--ink);
   display: flex;
   flex-direction: column;
-  height: 100dvh;
   left: 0;
-  max-height: 100dvh;
   min-height: 0;
-  overflow: hidden;
   position: fixed;
   right: 0;
   top: 0;
@@ -22121,10 +22118,39 @@ body:has(.takeoff-app) {
   z-index: 1;
 }
 
+/* Documents / BoQ / Handoff: app itself scrolls (same pattern as simple Survey). */
+.takeoff-app.takeoff-page-scroll {
+  bottom: 0;
+  height: auto;
+  max-height: none;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.takeoff-app.takeoff-page-scroll .takeoff-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.takeoff-app.takeoff-page-scroll .takeoff-shell,
+.takeoff-app.takeoff-page-scroll .takeoff-main {
+  flex: 0 0 auto;
+  height: auto;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+}
+
 .takeoff-app.takeoff-drawing-mode,
 .takeoff-app.takeoff-markup-fullscreen {
   /* Drawing mode keeps its own fullscreen rules below. */
   bottom: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
 }
 
 .takeoff-header {
@@ -25743,9 +25769,9 @@ img.markup-document-preview {
   grid-template-columns: 150px minmax(230px, 1fr) 74px 82px minmax(190px, 1fr) 32px;
 }
 
-/* Phone: keep BoQ tables in the vertical page scroll instead of a trapped wide grid. */
+/* Phone: BoQ uses the page scrollport; tables become stacked cards. */
 @media (max-width: 720px) {
-  .takeoff-app:not(.takeoff-drawing-mode) .takeoff-shell {
+  .takeoff-app.takeoff-page-scroll {
     overflow-x: hidden;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
@@ -25753,8 +25779,20 @@ img.markup-document-preview {
     touch-action: pan-y;
   }
 
+  .takeoff-app.takeoff-page-scroll .takeoff-shell,
+  .takeoff-app.takeoff-page-scroll .takeoff-main,
+  .takeoff-app.takeoff-page-scroll .takeoff-panel,
+  .takeoff-app.takeoff-page-scroll .takeoff-table {
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
   .takeoff-table {
     overflow: visible;
+  }
+
+  .takeoff-table-head {
+    display: none;
   }
 
   .takeoff-table-head,
@@ -25762,44 +25800,41 @@ img.markup-document-preview {
     min-width: 0;
   }
 
-  .takeoff-table.materials .takeoff-table-head,
-  .takeoff-table.materials .takeoff-table-row {
-    grid-template-columns: minmax(90px, 0.7fr) minmax(0, 1.3fr) 52px 44px 36px;
-    min-width: 0;
-  }
-
-  .takeoff-table.materials .takeoff-table-head > span:nth-child(n+5),
-  .takeoff-table.materials .takeoff-table-row > :nth-child(n+5) {
-    display: none;
-  }
-
-  .takeoff-table.labour .takeoff-table-head,
-  .takeoff-table.labour .takeoff-table-row {
-    grid-template-columns: minmax(90px, 0.8fr) minmax(0, 1fr) 56px 36px;
-    min-width: 0;
-  }
-
-  .takeoff-table.labour .takeoff-table-head > span:nth-child(n+4),
-  .takeoff-table.labour .takeoff-table-row > :nth-child(n+4) {
-    display: none;
-  }
-
-  .takeoff-table.labour .takeoff-table-head > span:last-child,
-  .takeoff-table.labour .takeoff-table-row > :last-child,
-  .takeoff-table.materials .takeoff-table-head > span:last-child,
-  .takeoff-table.materials .takeoff-table-row > :last-child {
-    display: block;
-  }
-
-  .takeoff-table.boq-preview .takeoff-table-head,
+  .takeoff-table.materials .takeoff-table-row,
+  .takeoff-table.labour .takeoff-table-row,
   .takeoff-table.boq-preview .takeoff-table-row {
-    grid-template-columns: 70px minmax(80px, 0.7fr) minmax(0, 1.3fr);
+    align-items: stretch;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 10px;
     min-width: 0;
+    padding: 12px;
   }
 
-  .takeoff-table.boq-preview .takeoff-table-head > span:nth-child(n+4),
+  .takeoff-table.materials .takeoff-table-row > :nth-child(1),
+  .takeoff-table.materials .takeoff-table-row > :nth-child(2),
+  .takeoff-table.labour .takeoff-table-row > :nth-child(1),
+  .takeoff-table.labour .takeoff-table-row > :nth-child(2),
+  .takeoff-table.boq-preview .takeoff-table-row > :nth-child(1),
+  .takeoff-table.boq-preview .takeoff-table-row > :nth-child(2),
+  .takeoff-table.boq-preview .takeoff-table-row > :nth-child(3) {
+    grid-column: 1 / -1;
+  }
+
+  .takeoff-table.materials .takeoff-table-row > :nth-child(n+5),
+  .takeoff-table.labour .takeoff-table-row > :nth-child(n+4),
   .takeoff-table.boq-preview .takeoff-table-row > :nth-child(n+4) {
     display: none;
+  }
+
+  .takeoff-table.labour .takeoff-table-row > :last-child,
+  .takeoff-table.materials .takeoff-table-row > :last-child {
+    display: inline-flex;
+    grid-column: 1 / -1;
+    justify-self: end;
   }
 
   .takeoff-panel {
@@ -25812,6 +25847,74 @@ img.markup-document-preview {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
+}
+
+.takeoff-boq-hero {
+  align-items: start;
+  display: grid;
+  gap: 16px;
+}
+
+.takeoff-boq-hero h2 {
+  font-size: 22px;
+  margin: 0 0 6px;
+}
+
+.takeoff-boq-hero p {
+  color: var(--muted);
+  margin: 0;
+  max-width: 52ch;
+}
+
+.takeoff-boq-hero-metrics {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.takeoff-boq-hero-metrics > div {
+  background: #f4f8fa;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.takeoff-boq-hero-metrics span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.takeoff-boq-hero-metrics strong {
+  font-size: 18px;
+}
+
+.takeoff-boq-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .takeoff-boq-hero-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-boq-hero-actions > * {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+
+  .takeoff-app.takeoff-page-scroll .takeoff-sidebar {
+    display: none;
+  }
+
+  .takeoff-app.takeoff-page-scroll .estimate-flow-strip {
+    display: none;
+  }
 }
 
 .takeoff-review-meta {
@@ -26602,6 +26705,10 @@ img.markup-document-preview {
     grid-template-columns: 1fr;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  .takeoff-app.takeoff-page-scroll .takeoff-shell {
+    overflow: visible;
   }
 
   .takeoff-sidebar {

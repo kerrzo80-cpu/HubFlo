@@ -2,7 +2,11 @@
 
 import { useEffect } from "react";
 
-/** Opt Takeoff into an independent mobile scrollport outside the Core shell. */
+/**
+ * Keep Takeoff outside the Core shell scroll lock.
+ * Non-markup tabs scroll on `.takeoff-app.takeoff-page-scroll`;
+ * markup keeps its own fullscreen viewport.
+ */
 export function TakeoffScrollUnlock() {
   useEffect(() => {
     const root = document.documentElement;

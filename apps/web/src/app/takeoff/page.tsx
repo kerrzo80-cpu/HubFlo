@@ -6341,7 +6341,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   return (
-    <main className={activeTab === "markup" ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen" : "takeoff-app"}>
+    <main className={activeTab === "markup" ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen" : "takeoff-app takeoff-page-scroll"}>
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
@@ -6541,9 +6541,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 <div>
                   <Sparkles size={18} />
                   <span>
-                    <strong>Markup &amp; BoQ</strong>
+                    <strong>AI takeoff</strong>
                     <small>
-                      Mark up drawings, confirm quantities, then push to Core quote
+                      Upload drawings, let Buddy build the BoQ, tweak what matters, then hand off to quote
                       {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
                     </small>
                   </span>
@@ -6554,7 +6554,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <strong>{aiStatus?.connected ? `AI ready · ${aiStatus.model}` : "AI key missing"}</strong>
                     <small>
                       {aiStatus?.connected
-                        ? "Survey cost centres and AI scan use this connection."
+                        ? "Survey packs and AI scan use this connection."
                         : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live, then redeploy.`}
                     </small>
                   </span>
@@ -8605,7 +8605,50 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               ) : null}
 
               {activeTab === "boq" ? (
-                <section className="takeoff-grid">
+                <section className="takeoff-grid takeoff-boq-simple">
+                  <article className="takeoff-panel takeoff-boq-hero">
+                    <div>
+                      <h2>Bill of quantities</h2>
+                      <p>
+                        Buddy drafts materials and labour from Survey cost centres and AI scan.
+                        Edit lines if needed, then hand off to quote.
+                      </p>
+                    </div>
+                    <div className="takeoff-boq-hero-metrics">
+                      <div>
+                        <span>Materials</span>
+                        <strong>{selectedProject.materialAllowances.length}</strong>
+                      </div>
+                      <div>
+                        <span>Labour</span>
+                        <strong>{projectTotals.labourHours.toFixed(1)} hrs</strong>
+                      </div>
+                      <div>
+                        <span>Sell</span>
+                        <strong>{money(projectTotals.totalSell)}</strong>
+                      </div>
+                    </div>
+                    <div className="takeoff-boq-hero-actions">
+                      <button
+                        className="takeoff-primary-button"
+                        type="button"
+                        disabled={isExtracting || selectedProject.documents.length === 0}
+                        onClick={runAiExtraction}
+                      >
+                        <Sparkles size={15} />
+                        {isExtracting ? "Scanning…" : "Rebuild with AI"}
+                      </button>
+                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("review")}>
+                        <CheckCircle2 size={15} />
+                        Review &amp; handoff
+                      </button>
+                      <button className="takeoff-small-button" type="button" onClick={() => setActiveTab("markup")}>
+                        <Wrench size={15} />
+                        Open markup
+                      </button>
+                    </div>
+                  </article>
+
                   <article className="takeoff-panel">
                     <PanelTitle icon={PackageSearch} title="Materials" action={money(projectTotals.materialSell)}>
                       <button className="takeoff-small-button" type="button" onClick={addMaterial}>
