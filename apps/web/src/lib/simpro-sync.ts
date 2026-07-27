@@ -264,6 +264,17 @@ function saveLink(link: Omit<SimproSyncLink, "id" | "lastSyncedAt">) {
   return next;
 }
 
+export function findSimproLinkForNexa(entity: SimproSyncEntity, nexaId?: string) {
+  if (!nexaId?.trim()) return undefined;
+  return simproSyncStore.links.find((link) => link.nexaType === entity && link.nexaId === nexaId);
+}
+
+export function upsertSimproLink(link: Omit<SimproSyncLink, "id" | "lastSyncedAt">) {
+  const saved = saveLink(link);
+  persistStore();
+  return saved;
+}
+
 function operation(
   entity: SimproSyncEntity,
   action: SimproSyncOperationAction,

@@ -1,6 +1,7 @@
 import { appendAuditEvent, getClientSites, getClients, type AuditEvent } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
-import { getSimproDirectConfigStatus, resolveSimproDirectConfig } from "@/lib/simpro-auth";
+import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
+import { findSimproLinkForNexa, upsertSimproLink } from "@/lib/simpro-sync";
 import { getJobs, getQuotes, updateJob, updateQuote, type Job, type Quote } from "@/lib/workflow-data";
 
 type UnknownRecord = Record<string, unknown>;
@@ -67,6 +68,8 @@ export type SimproQuoteExportPayload = {
     name: string;
     email?: string;
     phone?: string;
+    accountReference?: string;
+    billingAddress?: string;
   };
   site: {
     id?: string;
@@ -107,6 +110,8 @@ export type SimproJobExportPayload = {
     name: string;
     email?: string;
     phone?: string;
+    accountReference?: string;
+    billingAddress?: string;
   };
   site: {
     id?: string;
@@ -609,7 +614,9 @@ function buildPayload(quote: Quote, costCentresInput?: unknown): SimproQuoteExpo
   const clients = getClients();
   const sites = getClientSites();
   const client = clients.find((item) => item.id === quote.clientId || item.name === quote.customer);
-  const site = sites.find((item) => item.id === quote.siteId || item.clientId === client?.id);
+  const site =
+    sites.find((item) => item.id === quote.siteId) ||
+    sites.find((item) => item.clientId === client?.id && !item.archived);
   const costCentres = normaliseCostCentres(costCentresInput ?? quoteCostCentresFromHubState(quote.id));
   const lines = costCentres.flatMap((centre) => centre.lines);
   const cost = Math.round(lines.reduce((sum, line) => sum + line.totalCost, 0) * 100) / 100;
@@ -632,11 +639,13 @@ function buildPayload(quote: Quote, costCentresInput?: unknown): SimproQuoteExpo
       name: client?.name ?? quote.customer,
       email: client?.email,
       phone: client?.phone,
+      accountReference: client?.accountReference,
+      billingAddress: client?.billingAddress,
     },
     site: {
       id: site?.id ?? quote.siteId,
       name: site?.name,
-      address: site?.address,
+      address: site?.address || client?.billingAddress,
     },
     costCentres,
     totals: {
@@ -657,7 +666,9 @@ function buildJobPayload(
   const clients = getClients();
   const sites = getClientSites();
   const client = clients.find((item) => item.id === job.clientId || item.name === job.customer);
-  const site = sites.find((item) => item.id === job.siteId || item.clientId === client?.id);
+  const site =
+    sites.find((item) => item.id === job.siteId) ||
+    sites.find((item) => item.clientId === client?.id && !item.archived);
   const costCentres = normaliseCostCentres(options.costCentres ?? jobCostCentresFromHubState(job.id));
   const schedule = normaliseJobSchedule(options.schedule);
   const lines = costCentres.flatMap((centre) => centre.lines);
@@ -683,11 +694,13 @@ function buildJobPayload(
       name: client?.name ?? job.customer,
       email: client?.email,
       phone: client?.phone,
+      accountReference: client?.accountReference,
+      billingAddress: client?.billingAddress,
     },
     site: {
       id: site?.id ?? job.siteId,
       name: site?.name,
-      address: site?.address ?? job.site,
+      address: site?.address ?? job.site ?? client?.billingAddress,
     },
     costCentres,
     schedule,
@@ -853,6 +866,388 @@ function numericId(value?: string) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function extractEmbeddedSimproId(...values: Array<string | undefined>) {
+  for (const value of values) {
+    if (!value) continue;
+    const direct = numericId(value.trim());
+    if (direct) return direct;
+    const simproPrefixed = value.match(/(?:^|[^a-z0-9])simpro[-_]?(\d+)/i);
+    if (simproPrefixed?.[1]) {
+      const parsed = numericId(simproPrefixed[1]);
+      if (parsed) return parsed;
+    }
+    const trailing = value.match(/(\d{3,})$/);
+    if (trailing?.[1] && /simpro/i.test(value)) {
+      const parsed = numericId(trailing[1]);
+      if (parsed) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function defaultQuoteType() {
+  const raw = (process.env.SIMPRO_DEFAULT_QUOTE_TYPE || process.env.SIMPRO_QUOTE_TYPE || "Service").trim();
+  if (raw === "Project" || raw === "Service" || raw === "Prepaid") return raw;
+  return "Service";
+}
+
+function defaultJobType() {
+  const raw = (process.env.SIMPRO_DEFAULT_JOB_TYPE || process.env.SIMPRO_JOB_TYPE || defaultQuoteType()).trim();
+  if (raw === "Project" || raw === "Service" || raw === "Prepaid") return raw;
+  return "Service";
+}
+
+function normaliseMatchText(value?: string) {
+  return (value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isPlaceholderAddress(value?: string) {
+  const text = normaliseMatchText(value);
+  if (!text) return true;
+  return /^(site to confirm|address to confirm|to confirm|to be confirmed|tbc|n\/?a|unknown)$/i.test(text);
+}
+
+function looksLikeCompanyName(name: string) {
+  return /\b(ltd|limited|plc|llc|inc|corp|company|co\.|group|properties|services|care|trust|association|council)\b/i.test(name);
+}
+
+function splitPersonName(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { givenName: "Customer", familyName: "Unknown" };
+  if (parts.length === 1) return { givenName: parts[0]!, familyName: "Customer" };
+  return { givenName: parts[0]!, familyName: parts.slice(1).join(" ") };
+}
+
+function parseUkStyleAddress(raw?: string) {
+  const fallback = (!isPlaceholderAddress(raw) && raw?.trim()) || "Address to confirm";
+  const parts = fallback.split(",").map((part) => part.trim()).filter(Boolean);
+  const postcodeMatch = fallback.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+  const postalCode = postcodeMatch?.[1]?.toUpperCase().replace(/\s+/, " ") || "";
+  const addressLine = parts[0] || fallback;
+  let city = "";
+  if (parts.length >= 2) {
+    const last = parts[parts.length - 1] || "";
+    const lastIsPostcode = Boolean(postalCode && last.toUpperCase().replace(/\s+/g, "").includes(postalCode.replace(/\s+/g, "")));
+    city = (lastIsPostcode ? parts[parts.length - 2] : parts[parts.length - 1]) || "";
+  }
+  return {
+    Address: addressLine,
+    City: city || "Aberdeen",
+    State: "",
+    PostalCode: postalCode,
+    Country: "United Kingdom",
+  };
+}
+
+function customerDisplayName(record: UnknownRecord) {
+  return (
+    asString(record.CompanyName) ||
+    asString(record.Name) ||
+    asString(record.CustomerName) ||
+    asString(record.DisplayName) ||
+    [asString(record.GivenName), asString(record.FamilyName)].filter(Boolean).join(" ") ||
+    ""
+  );
+}
+
+function extractRecords(body: unknown) {
+  if (Array.isArray(body)) return body.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  const record = asRecord(body);
+  if (!record) return [];
+  for (const key of ["data", "items", "results", "Results", "Records", "records"]) {
+    const value = record[key];
+    if (Array.isArray(value)) return value.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  }
+  return [];
+}
+
+async function simproApiFetch(direct: ResolvedSimproDirectConfig, path: string, init?: RequestInit) {
+  const endpoint = `${direct.baseUrl}/companies/${direct.companyId}${path}`;
+  const response = await fetch(endpoint, {
+    ...init,
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${direct.token}`,
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(init?.headers || {}),
+    },
+    cache: "no-store",
+  });
+  const body = await response.json().catch(() => ({})) as UnknownRecord | UnknownRecord[];
+  return { endpoint, response, body };
+}
+
+function rememberSimproLink(input: {
+  nexaType: "clients" | "sites";
+  nexaId?: string;
+  nexaRef?: string;
+  nexaName: string;
+  simproId: number;
+  simproName: string;
+}) {
+  if (!input.nexaId) return;
+  upsertSimproLink({
+    nexaType: input.nexaType,
+    nexaId: input.nexaId,
+    nexaRef: input.nexaRef,
+    nexaName: input.nexaName,
+    simproType: input.nexaType,
+    simproId: String(input.simproId),
+    simproName: input.simproName,
+    lastDirection: "nexa-to-simpro",
+  });
+}
+
+function resolveKnownCustomerId(customer: SimproQuoteExportPayload["customer"]) {
+  return (
+    numericId(customer.id) ||
+    numericId(findSimproLinkForNexa("clients", customer.id)?.simproId) ||
+    extractEmbeddedSimproId(customer.id, customer.accountReference) ||
+    numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID ?? process.env.SIMPRO_CUSTOMER_ID)
+  );
+}
+
+function resolveKnownSiteId(site: SimproQuoteExportPayload["site"]) {
+  return (
+    numericId(site.id) ||
+    numericId(findSimproLinkForNexa("sites", site.id)?.simproId) ||
+    extractEmbeddedSimproId(site.id) ||
+    numericId(process.env.SIMPRO_DEFAULT_SITE_ID ?? process.env.SIMPRO_SITE_ID)
+  );
+}
+
+async function searchSimproCustomerId(direct: ResolvedSimproDirectConfig, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return undefined;
+  const queries = [
+    `?pageSize=25&Search=${encodeURIComponent(trimmed)}`,
+    `?pageSize=25&CompanyName=${encodeURIComponent(trimmed)}`,
+  ];
+  const target = normaliseMatchText(trimmed);
+  for (const query of queries) {
+    const { response, body } = await simproApiFetch(direct, `/customers/${query}`);
+    if (!response.ok) continue;
+    const matches = extractRecords(body)
+      .map((record) => ({ id: numericId(asIdentifier(record.ID) ?? asIdentifier(record.id)), name: customerDisplayName(record) }))
+      .filter((item): item is { id: number; name: string } => Boolean(item.id));
+    const exact = matches.find((item) => normaliseMatchText(item.name) === target);
+    if (exact) return exact.id;
+    if (matches.length === 1 && matches[0]) return matches[0].id;
+  }
+  return undefined;
+}
+
+function pickSiteId(records: UnknownRecord[], preferredAddress?: string) {
+  const preferred = normaliseMatchText(preferredAddress);
+  const sites = records
+    .map((record) => ({
+      id: numericId(asIdentifier(record.ID) ?? asIdentifier(record.id)),
+      name: asString(record.Name),
+      address: asString(asRecord(record.Address)?.Address) || asString(record.Address) || asString(record.Name),
+    }))
+    .filter((item): item is { id: number; name: string; address: string } => Boolean(item.id));
+  if (preferred) {
+    const match = sites.find((item) =>
+      normaliseMatchText(item.address).includes(preferred) ||
+      preferred.includes(normaliseMatchText(item.address)) ||
+      normaliseMatchText(item.name) === preferred,
+    );
+    if (match) return match.id;
+  }
+  return sites[0]?.id;
+}
+
+async function firstCustomerSiteId(direct: ResolvedSimproDirectConfig, customerId: number, preferredAddress?: string) {
+  const { response, body } = await simproApiFetch(direct, `/customers/${customerId}/sites/?pageSize=50`);
+  if (!response.ok) {
+    const fallback = await simproApiFetch(direct, `/sites/?pageSize=50&Customer=${customerId}`);
+    if (!fallback.response.ok) return undefined;
+    return pickSiteId(extractRecords(fallback.body), preferredAddress);
+  }
+  return pickSiteId(extractRecords(body), preferredAddress);
+}
+
+async function createSimproCustomerWithSite(
+  direct: ResolvedSimproDirectConfig,
+  customer: SimproQuoteExportPayload["customer"],
+  site: SimproQuoteExportPayload["site"],
+) {
+  const addressSource = !isPlaceholderAddress(site.address)
+    ? site.address
+    : !isPlaceholderAddress(customer.billingAddress)
+      ? customer.billingAddress
+      : site.name && !isPlaceholderAddress(site.name)
+        ? site.name
+        : customer.name;
+  const address = parseUkStyleAddress(addressSource);
+  const companyLike = looksLikeCompanyName(customer.name);
+  const path = companyLike
+    ? `/customers/companies/?createSite=true`
+    : `/customers/individuals/?createSite=true`;
+  const body: UnknownRecord = companyLike
+    ? {
+        CompanyName: customer.name.slice(0, 100),
+        Email: customer.email && !isPlaceholderAddress(customer.email) ? customer.email : undefined,
+        Phone: customer.phone && !isPlaceholderAddress(customer.phone) ? customer.phone : undefined,
+        CustomerType: "Customer",
+        Address: address,
+      }
+    : {
+        ...(() => {
+          const person = splitPersonName(customer.name);
+          return { GivenName: person.givenName, FamilyName: person.familyName };
+        })(),
+        Email: customer.email && !isPlaceholderAddress(customer.email) ? customer.email : undefined,
+        Phone: customer.phone && !isPlaceholderAddress(customer.phone) ? customer.phone : undefined,
+        CustomerType: "Customer",
+        Address: address,
+      };
+
+  const { endpoint, response, body: result } = await simproApiFetch(direct, path, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const record = asRecord(result) ?? {};
+  if (!response.ok) {
+    throw new Error(simproHttpErrorMessage(record, response.status, endpoint));
+  }
+
+  const customerId =
+    numericId(asIdentifier(record.ID) ?? asIdentifier(record.id) ?? asIdentifier(record.CustomerID));
+  if (!customerId) {
+    throw new Error(`Simpro created a customer for ${customer.name} but did not return an ID.`);
+  }
+
+  rememberSimproLink({
+    nexaType: "clients",
+    nexaId: customer.id,
+    nexaRef: customer.accountReference,
+    nexaName: customer.name,
+    simproId: customerId,
+    simproName: customer.name,
+  });
+
+  const siteFromResponse =
+    numericId(asIdentifier(asRecord(record.Site)?.ID)) ||
+    numericId(asIdentifier(asRecord(record.PrimarySite)?.ID)) ||
+    pickSiteId(
+      Array.isArray(record.Sites)
+        ? record.Sites.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+        : [],
+      site.address,
+    );
+
+  const siteId = siteFromResponse || (await firstCustomerSiteId(direct, customerId, site.address || address.Address));
+  if (siteId) {
+    rememberSimproLink({
+      nexaType: "sites",
+      nexaId: site.id,
+      nexaName: site.name || site.address || customer.name,
+      simproId: siteId,
+      simproName: site.name || site.address || customer.name,
+    });
+  }
+
+  return { customerId, siteId };
+}
+
+async function createSimproSite(
+  direct: ResolvedSimproDirectConfig,
+  customerId: number,
+  customer: SimproQuoteExportPayload["customer"],
+  site: SimproQuoteExportPayload["site"],
+) {
+  const addressSource = !isPlaceholderAddress(site.address)
+    ? site.address
+    : !isPlaceholderAddress(customer.billingAddress)
+      ? customer.billingAddress
+      : customer.name;
+  const address = parseUkStyleAddress(addressSource);
+  const name = (site.name && !isPlaceholderAddress(site.name) ? site.name : address.Address).slice(0, 100);
+  const { endpoint, response, body } = await simproApiFetch(direct, "/sites/", {
+    method: "POST",
+    body: JSON.stringify({
+      Name: name,
+      Customers: [customerId],
+      Address: address,
+    }),
+  });
+  const record = asRecord(body) ?? {};
+  if (!response.ok) {
+    throw new Error(simproHttpErrorMessage(record, response.status, endpoint));
+  }
+  const siteId = numericId(asIdentifier(record.ID) ?? asIdentifier(record.id));
+  if (!siteId) {
+    throw new Error(`Simpro created a site for ${name} but did not return an ID.`);
+  }
+  rememberSimproLink({
+    nexaType: "sites",
+    nexaId: site.id,
+    nexaName: name,
+    simproId: siteId,
+    simproName: name,
+  });
+  return siteId;
+}
+
+async function ensureSimproCustomerAndSite(
+  direct: ResolvedSimproDirectConfig,
+  payload: Pick<SimproQuoteExportPayload, "customer" | "site">,
+) {
+  let customerId = resolveKnownCustomerId(payload.customer);
+  let siteId = resolveKnownSiteId(payload.site);
+
+  if (!customerId && payload.customer.name?.trim()) {
+    customerId = await searchSimproCustomerId(direct, payload.customer.name);
+    if (customerId) {
+      rememberSimproLink({
+        nexaType: "clients",
+        nexaId: payload.customer.id,
+        nexaRef: payload.customer.accountReference,
+        nexaName: payload.customer.name,
+        simproId: customerId,
+        simproName: payload.customer.name,
+      });
+    }
+  }
+
+  if (customerId && !siteId) {
+    siteId = await firstCustomerSiteId(
+      direct,
+      customerId,
+      payload.site.address || payload.site.name || payload.customer.billingAddress,
+    );
+    if (siteId) {
+      rememberSimproLink({
+        nexaType: "sites",
+        nexaId: payload.site.id,
+        nexaName: payload.site.name || payload.site.address || payload.customer.name,
+        simproId: siteId,
+        simproName: payload.site.name || payload.site.address || payload.customer.name,
+      });
+    }
+  }
+
+  if (!customerId) {
+    const created = await createSimproCustomerWithSite(direct, payload.customer, payload.site);
+    customerId = created.customerId;
+    siteId = created.siteId ?? siteId;
+  }
+
+  if (customerId && !siteId) {
+    siteId = await createSimproSite(direct, customerId, payload.customer, payload.site);
+  }
+
+  if (!customerId || !siteId) {
+    const missing = [!customerId ? "Customer" : null, !siteId ? "Site" : null].filter(Boolean).join(" and ");
+    throw new Error(
+      `Cannot send to Simpro: ${missing} could not be resolved. Link this quote to a Simpro customer/site, or set SIMPRO_DEFAULT_CUSTOMER_ID / SIMPRO_DEFAULT_SITE_ID.`,
+    );
+  }
+
+  return { customerId, siteId };
+}
+
 function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
   const costCentreLines = payload.costCentres.flatMap((centre) => {
     const heading = [`Cost centre: ${centre.name}`];
@@ -876,19 +1271,17 @@ function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
-function buildDirectQuoteBody(payload: SimproQuoteExportPayload) {
-  const customerId =
-    numericId(payload.customer.id) ?? numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID ?? process.env.SIMPRO_CUSTOMER_ID);
-  const siteId = numericId(payload.site.id) ?? numericId(process.env.SIMPRO_DEFAULT_SITE_ID ?? process.env.SIMPRO_SITE_ID);
-  const body: UnknownRecord = {
+function buildDirectQuoteBody(
+  payload: SimproQuoteExportPayload,
+  ids: { customerId: number; siteId: number },
+) {
+  return {
+    Type: defaultQuoteType(),
     Name: `${payload.quote.ref} - ${payload.quote.description}`.slice(0, 120),
     Description: buildSimproQuoteDescription(payload),
+    Customer: ids.customerId,
+    Site: ids.siteId,
   };
-
-  if (customerId) body.Customer = customerId;
-  if (siteId) body.Site = siteId;
-
-  return body;
 }
 
 function buildSimproJobDescription(payload: SimproJobExportPayload) {
@@ -925,25 +1318,24 @@ function buildSimproJobDescription(payload: SimproJobExportPayload) {
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
-function buildDirectJobBody(payload: SimproJobExportPayload) {
-  const customerId =
-    numericId(payload.customer.id) ?? numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID ?? process.env.SIMPRO_CUSTOMER_ID);
-  const siteId = numericId(payload.site.id) ?? numericId(process.env.SIMPRO_DEFAULT_SITE_ID ?? process.env.SIMPRO_SITE_ID);
-  const body: UnknownRecord = {
+function buildDirectJobBody(
+  payload: SimproJobExportPayload,
+  ids: { customerId: number; siteId: number },
+) {
+  return {
+    Type: defaultJobType(),
     Name: `${payload.job.ref} - ${payload.job.description}`.slice(0, 120),
     Description: buildSimproJobDescription(payload),
+    Customer: ids.customerId,
+    Site: ids.siteId,
   };
-
-  if (customerId) body.Customer = customerId;
-  if (siteId) body.Site = siteId;
-
-  return body;
 }
 
 async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
   const direct = await resolveSimproDirectConfig().catch(() => null);
   if (!direct) return null;
 
+  const ids = await ensureSimproCustomerAndSite(direct, payload);
   const endpoint = `${direct.baseUrl}/companies/${direct.companyId}/quotes/`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -952,7 +1344,7 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${direct.token}`,
     },
-    body: JSON.stringify(buildDirectQuoteBody(payload)),
+    body: JSON.stringify(buildDirectQuoteBody(payload, ids)),
   });
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
@@ -974,6 +1366,7 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
   const direct = await resolveSimproDirectConfig().catch(() => null);
   if (!direct) return null;
 
+  const ids = await ensureSimproCustomerAndSite(direct, payload);
   const hasExistingJob = Boolean(numericId(payload.job.simproJobId));
   const endpoint = hasExistingJob
     ? `${direct.baseUrl}/companies/${direct.companyId}/jobs/${payload.job.simproJobId}/`
@@ -985,7 +1378,7 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${direct.token}`,
     },
-    body: JSON.stringify(buildDirectJobBody(payload)),
+    body: JSON.stringify(buildDirectJobBody(payload, ids)),
   });
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
