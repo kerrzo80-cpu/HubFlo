@@ -33310,3 +33310,70 @@ body {
     flex-wrap: wrap;
   }
 }
+
+
+.takeoff-simple-banner {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: space-between;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+}
+
+.takeoff-simple-banner > div:first-child {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.takeoff-simple-banner span {
+  display: grid;
+  gap: 3px;
+}
+
+.takeoff-simple-banner strong {
+  font-size: 14px;
+}
+
+.takeoff-simple-banner small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.takeoff-simple-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.takeoff-simple-banner-actions button {
+  align-items: center;
+  background: #f4fafc;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: inherit;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+}
+
+.takeoff-tabs-simple {
+  margin-bottom: 12px;
+}
+
+.survey-simple-primary-link {
+  background: var(--survey-blue) !important;
+  border-color: var(--survey-blue) !important;
+  color: #fff !important;
+}

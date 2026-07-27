@@ -125,11 +125,10 @@ type HeatCalcDraft = {
 };
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
-  { key: "intake", label: "1. Documents", icon: Upload },
-  { key: "markup", label: "2. Services markup", icon: Wrench },
-  { key: "rooms", label: "3. Zones / rooms", icon: Ruler },
-  { key: "boq", label: "4. Quantities / RFQ", icon: PackageSearch },
-  { key: "review", label: "5. Review & handoff", icon: CheckCircle2 },
+  { key: "intake", label: "Documents", icon: Upload },
+  { key: "markup", label: "Markup", icon: Wrench },
+  { key: "boq", label: "BoQ / RFQ", icon: PackageSearch },
+  { key: "review", label: "Handoff", icon: CheckCircle2 },
 ];
 
 const requestHeaders: HeadersInit = {
@@ -2122,7 +2121,16 @@ export default function TakeoffPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [activeTab, setActiveTab] = useState<TakeoffTab>("intake");
+  const [activeTab, setActiveTab] = useState<TakeoffTab>(() => {
+    if (typeof window === "undefined") return "markup";
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "pack" || tab === "estimate") return "review";
+    if (tab && ["intake", "markup", "rooms", "boq", "review", "surveyor", "survey", "heat", "runs"].includes(tab)) {
+      return tab as TakeoffTab;
+    }
+    return params.get("project") ? "markup" : "markup";
+  });
   const [newProject, setNewProject] = useState<NewProjectDraft>(blankNewProject);
   const [quoteSearch, setQuoteSearch] = useState("");
   const [isQuoteSearchOpen, setIsQuoteSearchOpen] = useState(false);
@@ -2880,15 +2888,28 @@ const filteredMarkupPlantTools = useMemo(() => {
   }, []);
 
   useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const project = params.get("project");
     if (tab === "pack" || tab === "estimate") {
       setActiveTab("review");
       return;
     }
     if (tabs.some((item) => item.key === tab)) {
       setActiveTab(tab as TakeoffTab);
+      return;
     }
+    if (project) setActiveTab("markup");
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !selectedProjectId) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("project", selectedProjectId);
+    params.set("tab", activeTab === "rooms" ? "markup" : activeTab);
+    const next = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, "", next);
+  }, [activeTab, selectedProjectId]);
 
   useEffect(() => {
     setQuoteSearch(selectedQuote ? quoteSearchLabel(selectedQuote, clientSites) : "");
@@ -6404,7 +6425,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                   type="button"
                   onClick={() => {
                     setSelectedProjectId(project.id);
-                    setActiveTab("intake");
+                    setActiveTab((current) => (current === "intake" ? "markup" : current));
                   }}
                 >
                   <span>
@@ -6499,7 +6520,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                   <strong>Survey</strong>
                   <small>Upload evidence and describe the works</small>
                 </a>
-                <button className={activeTab === "markup" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
+                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
                   <strong>Markup</strong>
                   <small>Mark up drawings and measured routes</small>
@@ -6516,72 +6537,29 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 </button>
               </section>
 
-              <section className="takeoff-ai-handoff">
+              <section className="takeoff-simple-banner">
                 <div>
-                  <Sparkles size={20} />
+                  <Sparkles size={18} />
                   <span>
-                    <strong>Takeoff stays focused on markup and quantities</strong>
+                    <strong>Simple takeoff path</strong>
                     <small>
-                      Use Survey to upload evidence and generate cost centres. Mark up drawings here, then build the bill of quantities for supplier RFQ.
-                      {" "}
-                      {selectedQuote
-                        ? `Linked to ${selectedQuote.ref}. Push estimate writes the reviewed BoQ into Core as quote cost centres.`
-                        : "Link this Takeoff to a Core quote first, then push the reviewed BoQ into that quote as cost centres."}
+                      Survey builds the cost centres. Here you mark up drawings and confirm the BoQ / supplier RFQ list
+                      {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
                     </small>
                   </span>
                 </div>
-                <div className="takeoff-ai-handoff-actions">
-                  <a className="takeoff-primary-button" href="/survey">
-                    <MessageCircle size={15} />
-                    Open Survey
-                  </a>
-                  <UploadButton
-                    kind="LiDAR scan"
-                    label={isUploadingDocs ? "Importing LiDAR" : "Import LiDAR scan"}
-                    accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply,application/json,model/*"
-                    disabled={isUploadingDocs}
-                    onUpload={addLidarDocuments}
-                  />
-                  <button className="takeoff-primary-button" type="button" onClick={() => setActiveTab("markup")}>
-                    <Wrench size={15} />
-                    Open services markup
-                  </button>
-                  <button
-                    className="takeoff-secondary-button"
-                    type="button"
-                    disabled={isExtracting || selectedProject.documents.length === 0}
-                    onClick={runAiExtraction}
-                  >
-                    <Sparkles size={15} />
-                    {isExtracting ? "Scanning" : "Scan documents"}
-                  </button>
-                  <button className="takeoff-secondary-button" type="button" disabled={isPushing || !selectedProject.linkedQuoteId} onClick={pushProject}>
+                <div className="takeoff-simple-banner-actions">
+                  <button type="button" onClick={() => setActiveTab("intake")}><Upload size={15} /> Documents</button>
+                  <button type="button" onClick={() => setActiveTab("markup")}><Wrench size={15} /> Markup</button>
+                  <button type="button" onClick={() => setActiveTab("boq")}><PackageSearch size={15} /> BoQ / RFQ</button>
+                  <button type="button" disabled={isPushing || !selectedProject.linkedQuoteId} onClick={pushProject}>
                     <Send size={15} />
-                    {isPushing ? "Pushing" : selectedProject.linkedQuoteId ? "Push to Core quote" : "Link quote first"}
+                    {isPushing ? "Pushing" : selectedProject.linkedQuoteId ? "Push to quote" : "Link quote first"}
                   </button>
                 </div>
               </section>
 
-              <section className="takeoff-metrics" aria-label="Takeoff totals">
-                <article>
-                  <span>Material sell</span>
-                  <strong>{money(projectTotals.materialSell)}</strong>
-                </article>
-                <article>
-                  <span>Labour sell</span>
-                  <strong>{money(projectTotals.labourSell)}</strong>
-                </article>
-                <article>
-                  <span>Labour hours</span>
-                  <strong>{projectTotals.labourHours.toFixed(1)}</strong>
-                </article>
-                <article>
-                  <span>Supplier items</span>
-                  <strong>{projectTotals.supplierCount}</strong>
-                </article>
-              </section>
-
-              <nav className="takeoff-tabs" aria-label="Takeoff sections">
+              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Takeoff sections">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   return (

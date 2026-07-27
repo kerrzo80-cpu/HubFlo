@@ -417,7 +417,7 @@ export default function SimpleSurveyWorkspacePage() {
         ) : null}
 
         <footer className="survey-simple-footer">
-          <a href={takeoffHref}><Ruler size={16} /> Mark up drawings</a>
+          <a className="survey-simple-primary-link" href={takeoffHref}><Ruler size={16} /> Mark up drawings</a>
           <a href={boqHref}><ClipboardList size={16} /> Bill of quantities</a>
           {survey.estimateId ? <a href={`/estimator?estimate=${encodeURIComponent(survey.estimateId)}`}><Sparkles size={16} /> Open estimate / RFQ</a> : null}
           <a href={`/survey/guided/${encodeURIComponent(survey.id)}`}>Advanced capture</a>

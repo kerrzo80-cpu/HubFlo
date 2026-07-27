@@ -17,6 +17,7 @@ import {
   createTakeoffProject,
   updateTakeoffProject,
   getTakeoffProject,
+  type TakeoffDocument,
   type TakeoffLabourAllowance,
   type TakeoffMaterialAllowance,
   type TakeoffSupplierRequestItem,
@@ -395,7 +396,7 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
 
   costCentres.forEach((centre) => {
     centre.materials.forEach((material) => {
-      const materialId = makeId("takeoff-mat");
+      const materialId = makeId("survey-mat");
       materials.push({
         id: materialId,
         section: centre.name,
@@ -407,7 +408,7 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
         supplierRequired: true,
       });
       supplierRequests.push({
-        id: makeId("takeoff-rfq"),
+        id: makeId("survey-rfq"),
         supplier: "To confirm",
         description: material.description,
         quantity: material.quantity,
@@ -423,7 +424,7 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
           ? "Joiner"
           : "Plumber";
       labour.push({
-        id: makeId("takeoff-lab"),
+        id: makeId("survey-lab"),
         section: centre.name,
         role: item.trade || key,
         hours: item.hours,
@@ -435,6 +436,61 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
   });
 
   return { materials, labour, supplierRequests };
+}
+
+function mergeTakeoffRows(
+  existing: {
+    materialAllowances: TakeoffMaterialAllowance[];
+    labourAllowances: TakeoffLabourAllowance[];
+    supplierRequests: TakeoffSupplierRequestItem[];
+  },
+  next: {
+    materials: TakeoffMaterialAllowance[];
+    labour: TakeoffLabourAllowance[];
+    supplierRequests: TakeoffSupplierRequestItem[];
+  },
+) {
+  const keepMaterials = existing.materialAllowances.filter((line) => (
+    line.id.startsWith("markup-material")
+    || line.id.startsWith("markup-symbol-material")
+  ));
+  const keepLabour = existing.labourAllowances.filter((line) => line.id.startsWith("markup-labour"));
+  const keepSupplier = existing.supplierRequests.filter((line) => (
+    line.id.startsWith("markup-")
+    || keepMaterials.some((material) => material.id === line.linkedMaterialId)
+  ));
+  return {
+    materialAllowances: [...next.materials, ...keepMaterials],
+    labourAllowances: [...next.labour, ...keepLabour],
+    supplierRequests: [...next.supplierRequests, ...keepSupplier],
+  };
+}
+
+function documentsFromSurveyPhotos(survey: SurveyRecord, existingDocuments: TakeoffDocument[]) {
+  const existingKeys = new Set(existingDocuments.map((document) => document.storageKey).filter(Boolean));
+  const existingNames = new Set(existingDocuments.map((document) => document.fileName.toLowerCase()));
+  return survey.photos.flatMap((photo) => {
+    if (!photo.storageKey) return [];
+    if (existingKeys.has(photo.storageKey) || existingNames.has(photo.fileName.toLowerCase())) return [];
+    const isScan = /lidar|roomplan|room scan|\.json|\.usd|\.usdz|\.obj|\.glb|\.gltf|\.ply|model\//i
+      .test(`${photo.fileName} ${photo.mimeType} ${photo.caption}`);
+    const isDrawing = /\.pdf$/i.test(photo.fileName) || /drawing|plan/i.test(photo.caption);
+    const kind: TakeoffDocument["kind"] = isScan ? "LiDAR scan" : isDrawing ? "Drawing" : "Survey photo";
+    return [{
+      id: makeId("takeoff-doc"),
+      kind,
+      fileName: photo.fileName,
+      mimeType: photo.mimeType,
+      size: photo.size,
+      storageKey: photo.storageKey,
+      uploadedAt: photo.capturedAt || nowIso(),
+      status: "Uploaded" as const,
+      notes: [
+        `Imported from survey ${survey.reference}`,
+        photo.caption || photo.category,
+      ].filter(Boolean),
+    } satisfies TakeoffDocument];
+  });
 }
 
 function ensureEstimate(
@@ -597,11 +653,13 @@ export async function buildQuickCostCentrePack(
   let takeoffProjectId = survey.legacyTakeoffProjectId;
   let takeoff = takeoffProjectId ? getTakeoffProject(takeoffProjectId) : null;
   if (!takeoff) {
+    const importedDocuments = documentsFromSurveyPhotos(survey, []);
     takeoff = createTakeoffProject({
       name: `${survey.reference} takeoff`,
       customer: survey.customerName,
       site: survey.siteAddress,
       description: survey.customerRequirements,
+      documents: importedDocuments,
       materialAllowances: takeoffRows.materials,
       labourAllowances: takeoffRows.labour,
       supplierRequests: takeoffRows.supplierRequests,
@@ -612,13 +670,16 @@ export async function buildQuickCostCentrePack(
     });
     takeoffProjectId = takeoff.id;
   } else {
+    const merged = mergeTakeoffRows(takeoff, takeoffRows);
+    const importedDocuments = documentsFromSurveyPhotos(survey, takeoff.documents);
     takeoff = updateTakeoffProject(takeoff.id, {
       customer: survey.customerName || takeoff.customer,
       site: survey.siteAddress || takeoff.site,
       description: survey.customerRequirements || takeoff.description,
-      materialAllowances: takeoffRows.materials,
-      labourAllowances: takeoffRows.labour,
-      supplierRequests: takeoffRows.supplierRequests,
+      documents: [...takeoff.documents, ...importedDocuments],
+      materialAllowances: merged.materialAllowances,
+      labourAllowances: merged.labourAllowances,
+      supplierRequests: merged.supplierRequests,
       review: {
         ...takeoff.review,
         officeNotes: pack.summary,
