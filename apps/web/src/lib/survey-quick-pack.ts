@@ -118,7 +118,105 @@ function normaliseTrade(value: unknown): EstimateTrade {
   return "Plumbing/Heating";
 }
 
-function normaliseCostCentres(raw: unknown): QuickCostCentre[] {
+function normaliseUnit(value: unknown) {
+  const unit = String(value || "nr").trim().toLowerCase();
+  if (!unit || unit === "lot" || unit === "item" || unit === "allowance" || unit === "sum" || unit === "ls") return "nr";
+  if (unit === "mtr" || unit === "lm" || unit === "lin.m") return "m";
+  if (unit === "no" || unit === "nos" || unit === "each" || unit === "ea") return "nr";
+  return String(value || "nr").trim() || "nr";
+}
+
+function isVagueMaterialDescription(description: string) {
+  const text = description.trim().toLowerCase();
+  if (!text) return true;
+  return /^(new\s+)?(pipework|plumbing|heating|materials?|fittings?|sundries|consumables|allowance|provisional|tbc|as required)\b/.test(text)
+    || /\b(1\s+)?lot\b/.test(text)
+    || /\ballowance\b/.test(text)
+    || /\bas required\b/.test(text)
+    || /\bmaterials?\s+only\b/.test(text)
+    || text.split(/\s+/).length <= 3 && /materials?|fittings?|pipework/.test(text);
+}
+
+function materialLine(description: string, quantity: number, unit: string): QuickCostCentreMaterial {
+  return { description, quantity, unit: normaliseUnit(unit) };
+}
+
+/** Practical UK plumbing RFQ lines for common works when sizes are not yet measured. */
+function itemisedMaterialsForWorks(works: string): QuickCostCentreMaterial[] {
+  const text = works.toLowerCase();
+  if (/rip\s*out|renew|replace.*pipe|pipework|pipe work|heating|plumb/.test(text)) {
+    return [
+      materialLine("Copper tube 15mm (provisional — confirm from markup/measure)", 25, "m"),
+      materialLine("Copper tube 22mm (provisional — confirm from markup/measure)", 12, "m"),
+      materialLine("15mm elbow (end feed / press / push-fit to match site)", 20, "nr"),
+      materialLine("15mm equal tee", 8, "nr"),
+      materialLine("15mm coupling / straight connector", 10, "nr"),
+      materialLine("22mm elbow", 10, "nr"),
+      materialLine("22mm equal tee", 4, "nr"),
+      materialLine("22×15mm reducing coupling", 6, "nr"),
+      materialLine("15mm isolation / service valve", 6, "nr"),
+      materialLine("Pipe clips / pipe supports 15–22mm", 40, "nr"),
+      materialLine("Stop ends / caps for temporary isolation during strip-out", 6, "nr"),
+      materialLine("PTFE tape", 2, "nr"),
+      materialLine("Soft solder reel", 1, "nr"),
+      materialLine("Flux pot", 1, "nr"),
+      materialLine("Inhibitor (central heating system treatment)", 1, "nr"),
+      materialLine("System cleaner / flush chemical", 1, "nr"),
+    ];
+  }
+  if (/boiler/.test(text)) {
+    return [
+      materialLine("Boiler (make/model TBC — supplier quote)", 1, "nr"),
+      materialLine("Magnetic filter", 1, "nr"),
+      materialLine("Condensate pipe and fittings (provisional)", 8, "m"),
+      materialLine("Gas isolation valve and fittings (size TBC)", 1, "nr"),
+      materialLine("Flow/return copper tube 22mm (provisional)", 8, "m"),
+      materialLine("22mm elbows / tees / couplings assortment for boiler connections", 12, "nr"),
+      materialLine("Flue components (route/length TBC — supplier quote)", 1, "nr"),
+      materialLine("Inhibitor", 1, "nr"),
+      materialLine("System cleaner / flush chemical", 1, "nr"),
+    ];
+  }
+  if (/radiator|towel/.test(text)) {
+    return [
+      materialLine("Radiator / towel rail (size/output TBC)", 1, "nr"),
+      materialLine("TRV and lockshield valve set", 1, "nr"),
+      materialLine("Copper tube 15mm (provisional route)", 6, "m"),
+      materialLine("15mm elbows / couplings / tails adapters", 10, "nr"),
+      materialLine("Pipe clips", 10, "nr"),
+      materialLine("Inhibitor top-up", 1, "nr"),
+    ];
+  }
+  return [
+    materialLine("Copper tube 15mm (provisional — confirm from markup/measure)", 15, "m"),
+    materialLine("15mm elbows / tees / couplings", 20, "nr"),
+    materialLine("15mm isolation valves", 4, "nr"),
+    materialLine("Pipe clips / supports", 20, "nr"),
+    materialLine("PTFE tape", 1, "nr"),
+    materialLine("Soft solder reel", 1, "nr"),
+    materialLine("Flux pot", 1, "nr"),
+  ];
+}
+
+function ensureItemisedMaterials(centre: QuickCostCentre, works: string): QuickCostCentre {
+  const usable = centre.materials.filter((item) => !isVagueMaterialDescription(item.description));
+  if (usable.length >= 4) {
+    return {
+      ...centre,
+      materials: usable.map((item) => ({
+        ...item,
+        unit: normaliseUnit(item.unit),
+        quantity: item.quantity > 0 ? item.quantity : 1,
+      })),
+    };
+  }
+  return {
+    ...centre,
+    materials: itemisedMaterialsForWorks(`${centre.name} ${centre.jobDescription} ${works}`),
+  };
+}
+
+function normaliseCostCentres(raw: unknown, works = ""): QuickCostCentre[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
@@ -129,7 +227,7 @@ function normaliseCostCentres(raw: unknown): QuickCostCentre[] {
           .map((row) => ({
             description: String(row.description || "").trim(),
             quantity: Number(row.quantity) > 0 ? Number(row.quantity) : 1,
-            unit: String(row.unit || "nr").trim() || "nr",
+            unit: normaliseUnit(row.unit),
           }))
           .filter((row) => row.description)
         : [];
@@ -143,44 +241,74 @@ function normaliseCostCentres(raw: unknown): QuickCostCentre[] {
           }))
           .filter((row) => row.description)
         : [];
-      return {
+      return ensureItemisedMaterials({
         name: String(item.name || "").trim(),
         jobDescription: String(item.jobDescription || "").trim(),
         trade: normaliseTrade(item.trade),
         materials,
         labour,
-      };
+      }, works);
     })
     .filter((item) => item.name && item.jobDescription);
 }
 
 function fallbackCostCentres(survey: SurveyRecord, reason: string): AiQuickPack {
+  const works = survey.customerRequirements.trim();
   const intent = inferSurveyorIntent({
-    text: survey.customerRequirements,
+    text: works,
     jobType: survey.jobType,
     currentIntent: survey.surveyIntent,
     evidenceCount: survey.photos.length,
   });
   const path = buildDynamicSurveyPath(intent);
+  const renewPipework = /rip\s*out|renew|replace.*pipe|old pipe|pipework/.test(works.toLowerCase());
+
+  if (renewPipework) {
+    return {
+      summary: `${reason} Materials are itemised for supplier RFQ — lengths/sizes are provisional until markup confirms them.`,
+      costCentres: [
+        {
+          name: "Pipework removal",
+          jobDescription: "Isolate, drain where required, strip out existing pipework and prepare the route for renewal.",
+          trade: "Plumbing/Heating",
+          materials: [
+            materialLine("Heavy-duty rubble / waste sacks", 10, "nr"),
+            materialLine("Stop ends / caps for temporary isolation", 6, "nr"),
+            materialLine("PTFE tape", 1, "nr"),
+          ],
+          labour: [
+            { description: "Isolate, drain and remove existing pipework", hours: 8, trade: "Plumber" },
+          ],
+        },
+        {
+          name: "Pipework installation",
+          jobDescription: works || "Install new pipework to replace the stripped-out system, then fill, treat, test and commission.",
+          trade: "Plumbing/Heating",
+          materials: itemisedMaterialsForWorks(works),
+          labour: [
+            { description: "Install, clip, joint and connect new pipework", hours: 10, trade: "Plumber" },
+            { description: "Fill, treat, test and balance", hours: 2, trade: "Plumber" },
+          ],
+        },
+      ],
+    };
+  }
+
   const name = `${path.intent.itemGroup} ${path.intent.workType}`.trim() || survey.jobType;
   return {
-    summary: reason,
+    summary: `${reason} Materials are itemised for supplier RFQ — review sizes and quantities before sending.`,
     costCentres: [
-      {
+      ensureItemisedMaterials({
         name,
-        jobDescription: survey.customerRequirements.trim() || `Carry out ${name.toLowerCase()} as described on site evidence.`,
+        jobDescription: works || `Carry out ${name.toLowerCase()} as described on site evidence.`,
         trade: "Plumbing/Heating",
-        materials: path.materialBuild.slice(0, 8).map((item) => ({
-          description: item,
-          quantity: 1,
-          unit: "nr",
-        })),
+        materials: [],
         labour: path.labourBuild.slice(0, 4).map((item) => ({
           description: item,
           hours: 2,
           trade: /electr/i.test(item) ? "Electrician" : /join/i.test(item) ? "Joiner" : "Plumber",
         })),
-      },
+      }, works),
     ],
   };
 }
@@ -224,11 +352,14 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
   };
 
   const prompt = [
-    "You are Buddy building a simple NeXa estimating pack for UK plumbing and heating.",
+    "You are Buddy building a NeXa estimating pack for UK plumbing and heating.",
     "From the works description and evidence metadata, propose cost centres.",
     "Each cost centre needs name, jobDescription, trade, materials[{description,quantity,unit}], labour[{description,hours,trade}].",
-    "Do not invent prices. Materials will go on a supplier quote request.",
-    "Return JSON only with keys summary and costCentres.",
+    "Materials are for a supplier RFQ: itemise specific products a merchant can price.",
+    "NEVER use units or descriptions like lot, item, allowance, sundry, materials, pipework materials, or as required.",
+    "Prefer concrete lines such as: Copper tube 15mm (m), 15mm elbow (nr), 15mm isolation valve (nr), pipe clips (nr), inhibitor (nr).",
+    "If lengths/sizes are unknown, still list separate provisional lines and say provisional/TBC in the description — do not collapse into one lot.",
+    "Do not invent prices. Return JSON only with keys summary and costCentres.",
     JSON.stringify(context),
   ].join("\n");
 
@@ -244,7 +375,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "Return strict JSON only for NeXa cost centres." },
+          { role: "system", content: "Return strict JSON only. Materials must be itemised merchant lines, never lots or allowances." },
           { role: "user", content: prompt },
         ],
       }),
@@ -274,7 +405,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
       };
     }
     const parsed = JSON.parse(text) as { summary?: string; costCentres?: unknown };
-    const costCentres = normaliseCostCentres(parsed.costCentres);
+    const costCentres = normaliseCostCentres(parsed.costCentres, survey.customerRequirements);
     if (!costCentres.length) {
       return {
         connected: true,
@@ -289,7 +420,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
       pack: {
         summary: typeof parsed.summary === "string" && parsed.summary.trim()
           ? parsed.summary.trim()
-          : "AI cost centres prepared from the works description and evidence.",
+          : "AI cost centres prepared with itemised materials for supplier RFQ.",
         costCentres,
       },
     };

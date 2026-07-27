@@ -454,7 +454,7 @@ export default function SimpleSurveyWorkspacePage() {
           <section className="survey-simple-centres">
             <header>
               <h2>Cost centres</h2>
-              <p>Materials are unpriced for supplier RFQ. Labour hours are suggestions.</p>
+              <p>Materials are itemised for a supplier RFQ (no prices yet). Lengths/sizes marked provisional until markup confirms them. Labour hours are suggestions.</p>
             </header>
             {costCentres.map((centre) => (
               <article key={centre.name}>
@@ -478,7 +478,7 @@ export default function SimpleSurveyWorkspacePage() {
                           </li>
                         ))}
                       </ul>
-                    ) : <p className="survey-simple-muted">No materials listed.</p>}
+                    ) : <p className="survey-simple-muted">No itemised materials yet — rebuild cost centres or add lines in the estimate.</p>}
                   </div>
                   <div>
                     <h3>Suggested labour</h3>
