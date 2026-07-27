@@ -32892,7 +32892,14 @@ body {
     radial-gradient(circle at top left, rgba(25, 152, 207, 0.16), transparent 34%),
     linear-gradient(180deg, #eef6f9 0%, #f7fbfd 42%, #f2f7f9 100%);
   color: var(--survey-ink);
-  min-height: 100dvh;
+  /* Core locks html/body overflow; this page must be its own scroll container. */
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .survey-simple-topbar {
