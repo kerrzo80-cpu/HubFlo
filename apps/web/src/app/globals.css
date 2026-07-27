@@ -26158,6 +26158,26 @@ img.markup-document-preview {
   padding: 10px 12px;
 }
 
+.takeoff-boq-next-step.warn,
+.takeoff-markup-cal-banner {
+  background: #fff7e8;
+  border-color: #ecd4a2;
+  color: #6a4b12;
+  display: grid;
+  gap: 10px;
+}
+
+.takeoff-markup-cal-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.takeoff-small-button.warn {
+  border-color: #e0b45c;
+  color: #6a4b12;
+}
+
 .takeoff-empty-table-note {
   padding: 14px 4px 6px;
 }

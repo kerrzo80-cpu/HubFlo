@@ -298,6 +298,140 @@ export function materialAllowancesFromAcceptedPackages(
   ));
 }
 
+function normaliseOverlapText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/·.*$/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Keyword families for survey provisional lines covered by accepted package children. */
+const packageChildSurveyOverlapPatterns: Record<string, RegExp[]> = {
+  "flue-kit": [/\bflue\b/],
+  controls: [/\bthermostat\b/, /\bprogrammer\b/, /\bcontrols?\s+pack\b/, /\broom\s+stat\b/],
+  "mag-filter": [/\bmag(?:netic)?\b.*\bfilter\b/, /\bsystem\s+filter\b/],
+  condensate: [/\bcondensate\b/],
+  "gas-isolation": [/\bgas\b.*\bisolation\b/, /\bisolation\b.*\bgas\b/],
+  "filling-loop": [/\bfilling\s+loop\b/],
+  chemicals: [/\binhibitor\b/, /\bsystem\s+cleaner\b/, /\bflush(?:ing)?\s+chemical/],
+  "valve-set": [/\btrv\b/, /\blockshield\b/, /\bradiator\s+valve/],
+  tails: [/\bradiator\s+tails?\b/, /\btails?\s*\/?\s*adapters?\b/],
+  brackets: [/\bradiator\s+brackets?\b/],
+  "pipe-fittings": [/\b15\s*mm\b.*\bfittings?\b.*\bradiator\b/],
+  "pipe-route": [/\b15\s*mm\b.*\b(?:pipe|copper)\b.*\bradiator\b/, /\bcopper\s+tube\s+15/],
+  stat: [/\bcylinder\s+thermostat\b/],
+  "zone-valve": [/\bzone\s+valve\b/, /\b2[- ]?port\b/],
+  expansion: [/\bexpansion\s+vessel\b/, /\bunvented\s+kit\b/],
+  tundish: [/\btundish\b/],
+  "drain-isolation": [/\bdrain\s+cock\b/],
+  connections: [/\bcylinder\s+connection\b/],
+  "bath-waste": [/\bbath\b.*\bwaste\b/],
+  "bath-trap": [/\bbath\b.*\btrap\b/],
+  "bath-taps": [/\bbath\b.*\b(?:taps?|mixer)\b/],
+  "basin-waste": [/\bbasin\b.*\bwaste\b/],
+  "basin-trap": [/\bbasin\b.*\btrap\b/],
+  "basin-taps": [/\bbasin\b.*\b(?:taps?|mixer)\b/],
+  "sink-waste": [/\bsink\b.*\bwaste\b/],
+  "sink-trap": [/\bsink\b.*\btrap\b/],
+  "sink-taps": [/\b(?:kitchen\s+)?(?:taps?|mixer)\b.*\bsink\b/, /\bsink\b.*\b(?:taps?|mixer)\b/, /\bkitchen\s+taps?\b/],
+  "shower-trap": [/\bshower\b.*\btrap\b/],
+  "shower-valve": [/\bshower\b.*\b(?:valve|mixer)\b/],
+  "waste-pipe": [/\bwaste\s+pipe\b/],
+  isolation: [/\bisolation\s+valves?\b/, /\bservice\s+valves?\b/],
+  "tap-connectors": [/\btap\s+connectors?\b/, /\bflexible\s+tap\s+connectors?\b/],
+  "pan-connector": [/\bpan\s+connector\b/, /\bwc\s+connector\b/],
+  "cistern-kit": [/\bcistern\b.*\b(?:inlet|flush|valve)\b/],
+  flexi: [/\bflexible\s+(?:cistern|shower)\s+(?:connector|hose)\b/, /\bcistern\s+connector\b/],
+  "strap-boss": [/\bstrap\s+boss\b/, /\bboss\s+adaptor\b/],
+  "boss-adaptor": [/\bboss\s+adaptor\b/],
+  "waste-branch": [/\bwaste\s+branch\b/, /\bstack\s+connector\b/],
+  sundries: [/\bsilicone\b/, /\bsealant\b.*\b(?:bath|shower|tray)\b/, /\bfitting\s+sundries\b/],
+};
+
+function packageChildOverlapsSurveyText(
+  childId: string,
+  templateId: string,
+  surveyText: string,
+) {
+  const patterns = packageChildSurveyOverlapPatterns[childId];
+  if (!patterns?.length) return false;
+  if (!patterns.some((pattern) => pattern.test(surveyText))) return false;
+
+  // Keep gas isolation separate from sanitary isolation.
+  if (childId === "isolation") {
+    if (/\bgas\b/.test(surveyText)) return false;
+  }
+  if (childId === "gas-isolation" && !/\bgas\b/.test(surveyText)) return false;
+
+  // Fixture-scoped traps/wastes: require matching package family when possible.
+  if (/trap|waste|taps|valve/.test(childId)) {
+    if (templateId.includes("bath") && !/\bbath\b/.test(surveyText) && childId.startsWith("bath")) return false;
+    if (templateId.includes("basin") && !/\bbasin\b/.test(surveyText) && childId.startsWith("basin")) return false;
+    if (templateId.includes("kitchen-sink") && !/\bsink\b|kitchen/.test(surveyText) && childId.startsWith("sink")) return false;
+    if (templateId.includes("shower") && !/\bshower\b/.test(surveyText) && childId.startsWith("shower")) return false;
+  }
+
+  return true;
+}
+
+export function surveyMaterialOverlapsAcceptedPackage(
+  surveyDescription: string,
+  packages: TakeoffMarkupPackageInstance[] | undefined,
+) {
+  const surveyText = normaliseOverlapText(surveyDescription);
+  if (!surveyText) return false;
+  const accepted = (packages ?? []).filter((item) => item.status === "accepted");
+  return accepted.some((pack) => (
+    pack.childItems.some((child) => (
+      child.selected
+      && packageChildOverlapsSurveyText(child.id, pack.templateId, surveyText)
+    ))
+  ));
+}
+
+export function isSurveyProvisionalMaterialId(id: string) {
+  return id.startsWith("survey-mat") || id.startsWith("openai-survey-material");
+}
+
+export function filterSurveyMaterialsCoveredByPackages<T extends { id: string; description: string }>(
+  materials: T[],
+  packages: TakeoffMarkupPackageInstance[] | undefined,
+) {
+  return materials.filter((line) => (
+    !isSurveyProvisionalMaterialId(line.id)
+    || !surveyMaterialOverlapsAcceptedPackage(line.description, packages)
+  ));
+}
+
+export function filterSupplierRequestsForKeptMaterials<T extends {
+  id: string;
+  description: string;
+  linkedMaterialId?: string;
+  notes?: string;
+}>(
+  requests: T[],
+  keptMaterialIds: Set<string>,
+  packages: TakeoffMarkupPackageInstance[] | undefined,
+) {
+  return requests.filter((line) => {
+    if (line.linkedMaterialId && !keptMaterialIds.has(line.linkedMaterialId)) {
+      // Drop RFQs that pointed at removed survey materials.
+      if (isSurveyProvisionalMaterialId(line.linkedMaterialId) || line.id.startsWith("survey-rfq")) {
+        return false;
+      }
+    }
+    if (
+      (line.id.startsWith("survey-rfq") || /supplier quote request/i.test(line.notes || ""))
+      && surveyMaterialOverlapsAcceptedPackage(line.description, packages)
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
 export function supplierRequestsFromPackageMaterials(
   materials: TakeoffMaterialAllowance[],
   existing: TakeoffSupplierRequestItem[],

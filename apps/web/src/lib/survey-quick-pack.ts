@@ -20,8 +20,13 @@ import {
   type TakeoffDocument,
   type TakeoffLabourAllowance,
   type TakeoffMaterialAllowance,
+  type TakeoffServicesMarkup,
   type TakeoffSupplierRequestItem,
 } from "@/lib/takeoff-data";
+import {
+  filterSupplierRequestsForKeptMaterials,
+  filterSurveyMaterialsCoveredByPackages,
+} from "@/lib/takeoff-markup-packages";
 import {
   attachQuickPackToSurvey,
   getEstimate,
@@ -681,6 +686,7 @@ function mergeTakeoffRows(
     materialAllowances: TakeoffMaterialAllowance[];
     labourAllowances: TakeoffLabourAllowance[];
     supplierRequests: TakeoffSupplierRequestItem[];
+    servicesMarkup?: TakeoffServicesMarkup;
   },
   next: {
     materials: TakeoffMaterialAllowance[];
@@ -688,6 +694,7 @@ function mergeTakeoffRows(
     supplierRequests: TakeoffSupplierRequestItem[];
   },
 ) {
+  const packages = existing.servicesMarkup?.packages;
   const keepMaterials = existing.materialAllowances.filter((line) => (
     line.id.startsWith("markup-material")
     || line.id.startsWith("markup-symbol-material")
@@ -700,10 +707,16 @@ function mergeTakeoffRows(
     || line.notes === "From Markup package"
     || keepMaterials.some((material) => material.id === line.linkedMaterialId)
   ));
+  const nextMaterials = filterSurveyMaterialsCoveredByPackages(next.materials, packages);
+  const keptIds = new Set([
+    ...keepMaterials.map((line) => line.id),
+    ...nextMaterials.map((line) => line.id),
+  ]);
+  const nextSupplier = filterSupplierRequestsForKeptMaterials(next.supplierRequests, keptIds, packages);
   return {
-    materialAllowances: [...next.materials, ...keepMaterials],
+    materialAllowances: [...nextMaterials, ...keepMaterials],
     labourAllowances: [...next.labour, ...keepLabour],
-    supplierRequests: [...next.supplierRequests, ...keepSupplier],
+    supplierRequests: [...nextSupplier, ...keepSupplier],
   };
 }
 

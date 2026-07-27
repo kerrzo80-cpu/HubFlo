@@ -60,12 +60,15 @@ import {
   acceptMarkupPackage,
   dismissMarkupPackage,
   ensureSuggestedPackage,
+  filterSupplierRequestsForKeptMaterials,
+  filterSurveyMaterialsCoveredByPackages,
   isAutoFittingOwnedByPackage,
   materialAllowancesFromAcceptedPackages,
   normaliseMarkupPackages,
   packageOwnedParentSymbolIds,
   packagesForSymbol,
   prunePackagesForMissingSymbols,
+  surveyMaterialOverlapsAcceptedPackage,
   togglePackageChild,
 } from "@/lib/takeoff-markup-packages";
 
@@ -1303,6 +1306,11 @@ function markupCalibrated(calibration: TakeoffServicesMarkup["calibration"]) {
   );
 }
 
+function markupNeedsCalibrationNudge(markup: TakeoffServicesMarkup) {
+  return !markupCalibrated(markup.calibration)
+    && markup.pipes.some((pipe) => pipe.included && pipe.points.length >= 2);
+}
+
 type ServicesMarkupSummary = {
   pipeRows: Array<{
     id: string;
@@ -1524,15 +1532,18 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
     const id = markupLineId("markup-material", row.id);
     const existing = existingMarkupMaterials.find((line) => line.id === id)
       ?? existingMarkupMaterials.find((line) => line.section === "Services markup" && line.description.startsWith(`${row.service} - ${row.label}`));
+    const uncalibrated = !row.calibrated || row.stockQuantity <= 0;
+    const description = markupSupplierPipeDescription(row, stockLength);
     return {
       id,
       section: row.costCentreSection ?? "Services markup",
-      description: markupSupplierPipeDescription(row, stockLength),
+      description: uncalibrated ? `Uncalibrated — ${description}` : description,
       quantity: row.stockQuantity,
       unit: `${markupSupplierQuantity(stockLength)}m length`,
       unitCost: existing?.unitCost ?? 0,
       markupPercent: existing?.markupPercent ?? 30,
-      supplierRequired: existing?.supplierRequired ?? true,
+      // Don't RFQ zero-length pipe stock until the drawing is calibrated.
+      supplierRequired: uncalibrated ? false : (existing?.supplierRequired ?? true),
       preferredSupplier: existing?.preferredSupplier ?? "",
     };
   });
@@ -1559,11 +1570,24 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   const excludedIds = new Set(markup.excludedQuantityIds ?? []);
   const markupMaterials = [...pipeMaterials, ...symbolMaterials, ...packageMaterials]
     .filter((line) => !excludedIds.has(line.id));
+  const preservedNonMarkup = filterSurveyMaterialsCoveredByPackages(
+    project.materialAllowances.filter((line) => (
+      !line.id.startsWith("markup-material")
+      && !line.id.startsWith("markup-symbol-material")
+      && !line.id.startsWith("markup-package-material")
+    )),
+    markup.packages,
+  );
+  const keptMaterialIds = new Set([
+    ...preservedNonMarkup.map((line) => line.id),
+    ...markupMaterials.map((line) => line.id),
+  ]);
   const existingMarkupRequests = project.supplierRequests.filter((line) => (
     line.notes === "From Services Markup" || line.notes === "From Markup package"
   ));
   const supplierRowsByKey = new Map<string, TakeoffSupplierRequestItem>();
   markupMaterials.forEach((line) => {
+    if (!line.supplierRequired) return;
     const key = `${line.description.trim().toLowerCase()}::${line.unit.trim().toLowerCase()}`;
     const existingGroup = supplierRowsByKey.get(key);
     if (existingGroup) {
@@ -1589,21 +1613,22 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
     });
   });
   const supplierRows = Array.from(supplierRowsByKey.values());
+  const preservedSupplierRequests = filterSupplierRequestsForKeptMaterials(
+    project.supplierRequests.filter((line) => (
+      line.notes !== "From Services Markup" && line.notes !== "From Markup package"
+    )),
+    keptMaterialIds,
+    markup.packages,
+  );
 
   return {
     summary,
     materialAllowances: [
-      ...project.materialAllowances.filter((line) => (
-        !line.id.startsWith("markup-material")
-        && !line.id.startsWith("markup-symbol-material")
-        && !line.id.startsWith("markup-package-material")
-      )),
+      ...preservedNonMarkup,
       ...markupMaterials,
     ],
     supplierRequests: [
-      ...project.supplierRequests.filter((line) => (
-        line.notes !== "From Services Markup" && line.notes !== "From Markup package"
-      )),
+      ...preservedSupplierRequests,
       ...supplierRows,
     ],
   };
@@ -5301,11 +5326,19 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     const found = findMarkupPackageWorkingSet(packageId);
     if (!found) return;
     const accepted = acceptMarkupPackage(found.working, packageId);
+    const packagesForOverlap = [
+      ...(displayedServicesMarkup.packages ?? []).filter((item) => item.id !== packageId),
+      ...accepted.filter((item) => item.id === packageId),
+    ];
+    const covered = selectedProject?.materialAllowances.filter((line) => (
+      (line.id.startsWith("survey-mat") || line.id.startsWith("openai-survey-material"))
+      && surveyMaterialOverlapsAcceptedPackage(line.description, packagesForOverlap)
+    )).length ?? 0;
     upsertMarkupPackagesForParent(found.parentSymbolId, accepted);
     const pack = accepted.find((item) => item.id === packageId);
     const count = pack?.childItems.filter((child) => child.selected).length ?? 0;
     setNotice(count
-      ? `${pack?.title ?? "Package"} added to quantities (${count} item${count === 1 ? "" : "s"}).`
+      ? `${pack?.title ?? "Package"} added to quantities (${count} item${count === 1 ? "" : "s"})${covered ? `; ${covered} survey provisional line${covered === 1 ? "" : "s"} covered by the package` : ""}.`
       : "Package accepted.");
   }
 
@@ -5438,13 +5471,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     restoreServicesMarkupFromUndo(previousMarkup);
   }
 
-  function pushMarkupToBoq() {
+  function pushMarkupToBoq(options: { force?: boolean } = {}) {
     if (!selectedProject) return;
+    if (!options.force && markupNeedsCalibrationNudge(displayedServicesMarkup)) {
+      setNotice("Pipe routes are drawn but the drawing isn’t calibrated — stock lengths would be 0m. Calibrate first, or send anyway from the banner.");
+      startMarkupCalibration();
+      return;
+    }
     const quantityPatch = buildMarkupQuantityPatch(displayedServicesMarkup, selectedProject);
     updateProject({
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
-    }, "Takeoff quantities are up to date.");
+    }, options.force && markupNeedsCalibrationNudge(displayedServicesMarkup)
+      ? "Quantities sent — pipe stock lengths are still 0m until you calibrate."
+      : "Takeoff quantities are up to date.");
     setActiveTab("boq");
   }
 
@@ -7046,11 +7086,29 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <Maximize2 size={14} />
                         {isMarkupExpanded ? "Exit focus" : "Focus board"}
                       </button>
-                      <button className="takeoff-small-button" type="button" onClick={pushMarkupToBoq}>
+                      <button
+                        className={markupNeedsCalibrationNudge(displayedServicesMarkup) ? "takeoff-small-button warn" : "takeoff-small-button"}
+                        type="button"
+                        onClick={() => pushMarkupToBoq()}
+                      >
                         <PackageSearch size={14} />
                         Send to quantities
                       </button>
                     </PanelTitle>
+
+                    {markupNeedsCalibrationNudge(displayedServicesMarkup) ? (
+                      <div className="takeoff-boq-next-step warn takeoff-markup-cal-banner">
+                        <span>Pipe routes are drawn but not calibrated — stock lengths will be 0m until you set a known length on the drawing.</span>
+                        <div className="takeoff-markup-cal-banner-actions">
+                          <button className="takeoff-primary-button" type="button" onClick={startMarkupCalibration}>
+                            Calibrate now
+                          </button>
+                          <button className="takeoff-small-button" type="button" onClick={() => pushMarkupToBoq({ force: true })}>
+                            Send anyway
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="services-markup-setup">
                         <label>
@@ -9041,10 +9099,22 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <p className="takeoff-boq-next-step">
                         No materials yet. Upload a drawing, place plant on markup (boiler, bath, shower…), accept the package card, or rebuild from Survey.
                       </p>
-                    ) : !markupCalibrated(workingServicesMarkup.calibration) && workingServicesMarkup.pipes.some((pipe) => pipe.included) ? (
-                      <p className="takeoff-boq-next-step">
-                        Pipe routes are on the drawing but not calibrated — open markup, calibrate a known length, then send quantities again for stock lengths.
-                      </p>
+                    ) : markupNeedsCalibrationNudge(workingServicesMarkup) ? (
+                      <div className="takeoff-boq-next-step warn">
+                        <span>Pipe routes are on the drawing but not calibrated — stock lengths stay 0m and won’t go on RFQ until you calibrate.</span>
+                        <div className="takeoff-markup-cal-banner-actions">
+                          <button
+                            className="takeoff-primary-button"
+                            type="button"
+                            onClick={() => {
+                              setActiveTab("markup");
+                              window.setTimeout(() => startMarkupCalibration(), 0);
+                            }}
+                          >
+                            Calibrate in markup
+                          </button>
+                        </div>
+                      </div>
                     ) : null}
                   </article>
 
