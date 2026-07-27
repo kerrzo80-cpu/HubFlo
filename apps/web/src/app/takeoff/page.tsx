@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -2122,14 +2122,16 @@ export default function TakeoffPage() {
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [activeTab, setActiveTab] = useState<TakeoffTab>(() => {
-    if (typeof window === "undefined") return "markup";
+    // Default to a page-scroll tab. SSR cannot read the URL; locking into markup/drawing
+    // mode on the server left BoQ stuck with overflow:hidden after hydration.
+    if (typeof window === "undefined") return "boq";
     const params = new URLSearchParams(window.location.search);
     const tab = params.get("tab");
     if (tab === "pack" || tab === "estimate") return "review";
     if (tab && ["intake", "markup", "rooms", "boq", "review", "surveyor", "survey", "heat", "runs"].includes(tab)) {
       return tab as TakeoffTab;
     }
-    return params.get("project") ? "markup" : "markup";
+    return "boq";
   });
   const [newProject, setNewProject] = useState<NewProjectDraft>(blankNewProject);
   const [quoteSearch, setQuoteSearch] = useState("");
@@ -2215,6 +2217,23 @@ export default function TakeoffPage() {
     if (activeTab !== "markup") return;
     setIsMarkupMaterialsCollapsed(false);
   }, [activeTab, selectedProject?.id]);
+
+  const takeoffDrawingMode = activeTab === "markup";
+  const takeoffAppClassName = takeoffDrawingMode
+    ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen"
+    : "takeoff-app takeoff-page-scroll";
+  const takeoffAppRef = useRef<HTMLElement | null>(null);
+
+  // Defensive: React was updating children for BoQ while leaving the SSR drawing-mode
+  // className stuck on <main>, which kept html/body overflow locked on iPhone.
+  useLayoutEffect(() => {
+    const node = takeoffAppRef.current;
+    if (!node) return;
+    if (node.className !== takeoffAppClassName) {
+      node.className = takeoffAppClassName;
+    }
+    node.setAttribute("data-takeoff-mode", takeoffDrawingMode ? "drawing" : "page");
+  }, [takeoffAppClassName, takeoffDrawingMode]);
 
   useEffect(() => () => {
     if (markupViewFrameRef.current !== null && typeof window !== "undefined") {
@@ -6341,7 +6360,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   return (
-    <main className={activeTab === "markup" ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen" : "takeoff-app takeoff-page-scroll"}>
+    <main
+      key={takeoffDrawingMode ? "drawing" : "page"}
+      ref={takeoffAppRef}
+      className={takeoffAppClassName}
+      data-takeoff-mode={takeoffDrawingMode ? "drawing" : "page"}
+    >
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />

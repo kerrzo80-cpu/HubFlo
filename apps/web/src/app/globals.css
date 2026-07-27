@@ -20005,10 +20005,14 @@ body:has(.guided-survey-app),
 /* Markup / drawing only — lock the document and use the fullscreen canvas viewport. */
 html.nexa-takeoff-scroll:has(.takeoff-drawing-mode),
 html.nexa-takeoff-scroll:has(.takeoff-drawing-mode) body,
+html.nexa-takeoff-scroll:has([data-takeoff-mode="drawing"]),
+html.nexa-takeoff-scroll:has([data-takeoff-mode="drawing"]) body,
 html:has(.takeoff-app.takeoff-drawing-mode),
 body:has(.takeoff-app.takeoff-drawing-mode),
 html:has(.takeoff-app.takeoff-markup-fullscreen),
-body:has(.takeoff-app.takeoff-markup-fullscreen) {
+body:has(.takeoff-app.takeoff-markup-fullscreen),
+html:has([data-takeoff-mode="drawing"]),
+body:has([data-takeoff-mode="drawing"]) {
   height: 100% !important;
   max-height: 100% !important;
   overflow: hidden !important;
@@ -20019,10 +20023,14 @@ body:has(.takeoff-app.takeoff-markup-fullscreen) {
 /* Documents / BoQ / Handoff: use native document scroll (reliable on iPhone with form inputs). */
 html.nexa-takeoff-scroll:has(.takeoff-page-scroll),
 html.nexa-takeoff-scroll:has(.takeoff-page-scroll) body,
+html.nexa-takeoff-scroll:has([data-takeoff-mode="page"]),
+html.nexa-takeoff-scroll:has([data-takeoff-mode="page"]) body,
 html.nexa-takeoff-page-scroll,
 html.nexa-takeoff-page-scroll body,
 html:has(.takeoff-app.takeoff-page-scroll),
-body:has(.takeoff-app.takeoff-page-scroll) {
+body:has(.takeoff-app.takeoff-page-scroll),
+html:has([data-takeoff-mode="page"]),
+body:has([data-takeoff-mode="page"]) {
   height: auto !important;
   max-height: none !important;
   min-height: 100% !important;
@@ -22139,7 +22147,8 @@ body:has(.takeoff-app.takeoff-page-scroll) {
 }
 
 /* Documents / BoQ / Handoff: normal document flow so the phone can scroll the page. */
-.takeoff-app.takeoff-page-scroll {
+.takeoff-app.takeoff-page-scroll,
+.takeoff-app[data-takeoff-mode="page"] {
   bottom: auto;
   display: block;
   height: auto;
@@ -22154,7 +22163,8 @@ body:has(.takeoff-app.takeoff-page-scroll) {
   z-index: auto;
 }
 
-.takeoff-app.takeoff-page-scroll .takeoff-header {
+.takeoff-app.takeoff-page-scroll .takeoff-header,
+.takeoff-app[data-takeoff-mode="page"] .takeoff-header {
   position: sticky;
   top: 0;
   z-index: 30;
@@ -22164,7 +22174,12 @@ body:has(.takeoff-app.takeoff-page-scroll) {
 .takeoff-app.takeoff-page-scroll .takeoff-main,
 .takeoff-app.takeoff-page-scroll .takeoff-panel,
 .takeoff-app.takeoff-page-scroll .takeoff-sidebar,
-.takeoff-app.takeoff-page-scroll .takeoff-table {
+.takeoff-app.takeoff-page-scroll .takeoff-table,
+.takeoff-app[data-takeoff-mode="page"] .takeoff-shell,
+.takeoff-app[data-takeoff-mode="page"] .takeoff-main,
+.takeoff-app[data-takeoff-mode="page"] .takeoff-panel,
+.takeoff-app[data-takeoff-mode="page"] .takeoff-sidebar,
+.takeoff-app[data-takeoff-mode="page"] .takeoff-table {
   flex: none;
   height: auto;
   max-height: none;
