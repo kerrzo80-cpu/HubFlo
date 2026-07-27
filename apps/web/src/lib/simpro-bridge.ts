@@ -179,6 +179,9 @@ export type SimproBridgeStatus = {
   mode: "webhook" | "scheduler" | "direct" | "missing";
   missing: string[];
   endpoint?: string;
+  guidance: string;
+  quotePushReady: boolean;
+  jobPushReady: boolean;
   detectedEnvKeys: string[];
   sourceNames?: {
     webhookUrl?: string;
@@ -188,6 +191,14 @@ export type SimproBridgeStatus = {
     directToken?: string;
     companyId?: string;
   };
+};
+
+export type SimproOutboundTestResult = {
+  ok: boolean;
+  mode: SimproBridgeStatus["mode"];
+  message: string;
+  endpoint?: string;
+  checkedAt: string;
 };
 
 function asRecord(value: unknown): UnknownRecord | null {
@@ -291,6 +302,9 @@ function getSchedulerConfig(entity: "quote" | "job" = "quote") {
 export function getSimproBridgeStatus(): SimproBridgeStatus {
   const endpoint = getBridgeEndpoint();
   const detectedEnvKeys = detectedSimproEnvKeys();
+  const schedulerQuote = getSchedulerConfig("quote");
+  const schedulerJob = getSchedulerConfig("job");
+  const direct = getSimproDirectConfigStatus();
 
   if (endpoint) {
     return {
@@ -298,6 +312,9 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
       mode: "webhook",
       missing: [],
       endpoint,
+      guidance: "Quotes and jobs will POST to the configured webhook bridge.",
+      quotePushReady: true,
+      jobPushReady: true,
       detectedEnvKeys,
       sourceNames: {
         webhookUrl: "SIMPRO_QUOTE_PUSH_URL",
@@ -305,28 +322,34 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     };
   }
 
-  const scheduler = getSchedulerConfig("quote");
-  if (scheduler.configured) {
+  if (schedulerQuote.configured) {
     return {
       configured: true,
       mode: "scheduler",
-      missing: [],
-      endpoint: scheduler.endpoint,
+      missing: schedulerJob.configured ? [] : schedulerJob.missing,
+      endpoint: schedulerQuote.endpoint,
+      guidance: schedulerJob.configured
+        ? "Quotes and jobs will push through the HUB scheduler bridge into simPRO."
+        : `Quotes can push through the scheduler. Jobs still need ${schedulerJob.missing.join(", ")}.`,
+      quotePushReady: true,
+      jobPushReady: schedulerJob.configured,
       detectedEnvKeys,
       sourceNames: {
-        schedulerUrl: scheduler.sourceNames.schedulerUrl,
-        schedulerPassword: scheduler.sourceNames.schedulerPassword,
+        schedulerUrl: schedulerQuote.sourceNames.schedulerUrl,
+        schedulerPassword: schedulerQuote.sourceNames.schedulerPassword,
       },
     };
   }
 
-  const direct = getSimproDirectConfigStatus();
   if (direct.configured) {
     return {
       configured: true,
       mode: "direct",
       missing: [],
       endpoint: `${direct.baseUrl}/companies/${direct.companyId}/quotes/`,
+      guidance: "NeXa will create quotes and jobs directly in simPRO using the OAuth connection. Keep Setup on One-way push while simPRO remains the downstream system.",
+      quotePushReady: true,
+      jobPushReady: true,
       detectedEnvKeys,
       sourceNames: {
         directBaseUrl: direct.sourceNames.baseUrl,
@@ -336,33 +359,114 @@ export function getSimproBridgeStatus(): SimproBridgeStatus {
     };
   }
 
-  if (scheduler.hasAnyConfig) {
-    return {
-      configured: false,
-      mode: "missing",
-      missing: [...scheduler.missing, ...direct.missing],
-      endpoint: scheduler.endpoint,
-      detectedEnvKeys,
-      sourceNames: {
-        schedulerUrl: scheduler.sourceNames.schedulerUrl,
-        schedulerPassword: scheduler.sourceNames.schedulerPassword,
-        directBaseUrl: direct.sourceNames.baseUrl,
-        directToken: direct.sourceNames.token,
-        companyId: direct.sourceNames.companyId,
-      },
-    };
-  }
+  const missing = [
+    ...(schedulerQuote.hasAnyConfig ? schedulerQuote.missing : []),
+    ...direct.missing,
+  ];
+  const uniqueMissing = [...new Set(missing.length
+    ? missing
+    : [
+        "SIMPRO_BASE_URL (or SIMPRO_API_BASE_URL)",
+        "SIMPRO_COMPANY_ID",
+        "SIMPRO_CLIENT_ID / SIMPRO_CLIENT_SECRET / SIMPRO_REFRESH_TOKEN",
+      ])];
 
   return {
     configured: false,
     mode: "missing",
-    missing: ["SIMPRO_QUOTE_PUSH_URL or SIMPRO_SCHEDULER_QUOTE_PUSH_URL", ...direct.missing],
+    missing: uniqueMissing,
+    endpoint: schedulerQuote.endpoint ?? direct.baseUrl,
+    guidance: "Add the simPRO OAuth variables in Render (preferred), or the scheduler bridge password and base URL, then use Test connection.",
+    quotePushReady: false,
+    jobPushReady: false,
     detectedEnvKeys,
     sourceNames: {
+      schedulerUrl: schedulerQuote.sourceNames.schedulerUrl,
+      schedulerPassword: schedulerQuote.sourceNames.schedulerPassword,
       directBaseUrl: direct.sourceNames.baseUrl,
       directToken: direct.sourceNames.token,
       companyId: direct.sourceNames.companyId,
     },
+  };
+}
+
+export async function testSimproOutboundBridge(): Promise<SimproOutboundTestResult> {
+  const status = getSimproBridgeStatus();
+  const checkedAt = new Date().toISOString();
+
+  if (!status.configured) {
+    return {
+      ok: false,
+      mode: status.mode,
+      message: `simPRO outbound push is not configured. Missing: ${status.missing.join(", ")}.`,
+      endpoint: status.endpoint,
+      checkedAt,
+    };
+  }
+
+  if (status.mode === "direct") {
+    const config = await resolveSimproDirectConfig();
+    const endpoint = `${config.baseUrl}/companies/${config.companyId}/customers/?pageSize=1`;
+    const response = await fetch(endpoint, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.token}`,
+      },
+      cache: "no-store",
+    });
+    const body = await response.json().catch(() => null) as UnknownRecord | null;
+    if (!response.ok) {
+      throw new Error(
+        asString(body?.error) ||
+          asString(body?.message) ||
+          `simPRO returned HTTP ${response.status} while testing the direct connection.`,
+      );
+    }
+    return {
+      ok: true,
+      mode: "direct",
+      message: `Direct simPRO connection verified for company ${config.companyId}. Quote Send and job push are ready.`,
+      endpoint,
+      checkedAt,
+    };
+  }
+
+  if (status.mode === "scheduler") {
+    const scheduler = getSchedulerConfig("quote");
+    if (!scheduler.configured) {
+      return {
+        ok: false,
+        mode: "scheduler",
+        message: `Scheduler bridge incomplete: ${scheduler.missing.join(", ")}.`,
+        checkedAt,
+      };
+    }
+    const baseUrl = schedulerBaseFromEndpoint(scheduler.endpoint);
+    const loginResponse = await fetch(`${baseUrl}/hub/login?next=/hub/`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ password: scheduler.password }).toString(),
+    });
+    const cookieHeader = cookieHeaderFromResponse(loginResponse);
+    if (!cookieHeader) {
+      throw new Error("Scheduler bridge login failed. Check SIMPRO_SCHEDULER_HUB_PASSWORD.");
+    }
+    return {
+      ok: true,
+      mode: "scheduler",
+      message: "HUB scheduler bridge login succeeded. Quotes can be pushed through the temporary bridge.",
+      endpoint: scheduler.endpoint,
+      checkedAt,
+    };
+  }
+
+  return {
+    ok: true,
+    mode: status.mode,
+    message: `Outbound webhook bridge is configured at ${status.endpoint}.`,
+    endpoint: status.endpoint,
+    checkedAt,
   };
 }
 
@@ -880,8 +984,8 @@ export async function pushQuoteToSimpro(
 
   const bridgeStatus = getSimproBridgeStatus();
 
-  if (!bridgeStatus.configured) {
-    exportRecord.setupRequired = bridgeStatus.missing.join(", ");
+  if (!bridgeStatus.configured || !bridgeStatus.quotePushReady) {
+    exportRecord.setupRequired = bridgeStatus.missing.join(", ") || bridgeStatus.guidance;
   } else {
     const sendMode = bridgeStatus.mode === "direct" ? "direct" : bridgeStatus.mode === "scheduler" ? "scheduler" : "webhook";
     try {
@@ -897,6 +1001,10 @@ export async function pushQuoteToSimpro(
         exportRecord.mode = sendMode;
         exportRecord.endpoint = sendResult.endpoint;
         exportRecord.simproQuoteId = sendResult.simproQuoteId;
+      } else {
+        exportRecord.status = "Failed";
+        exportRecord.mode = sendMode;
+        exportRecord.error = `simPRO ${sendMode} push returned no result. Check the bridge settings and try Test connection in Setup.`;
       }
     } catch (error) {
       exportRecord.status = "Failed";
@@ -974,8 +1082,8 @@ export async function pushJobToSimpro(
 
   const bridgeStatus = getSimproBridgeStatus();
 
-  if (!bridgeStatus.configured) {
-    exportRecord.setupRequired = bridgeStatus.missing.join(", ");
+  if (!bridgeStatus.configured || !bridgeStatus.jobPushReady) {
+    exportRecord.setupRequired = bridgeStatus.missing.join(", ") || bridgeStatus.guidance;
   } else {
     const sendMode = bridgeStatus.mode === "direct" ? "direct" : bridgeStatus.mode === "scheduler" ? "scheduler" : "webhook";
     try {
@@ -991,6 +1099,10 @@ export async function pushJobToSimpro(
         exportRecord.mode = sendMode;
         exportRecord.endpoint = sendResult.endpoint;
         exportRecord.simproJobId = sendResult.simproJobId ?? job.simproJobId;
+      } else {
+        exportRecord.status = "Failed";
+        exportRecord.mode = sendMode;
+        exportRecord.error = `simPRO ${sendMode} job push returned no result. Check the bridge settings and try Test connection in Setup.`;
       }
     } catch (error) {
       exportRecord.status = "Failed";

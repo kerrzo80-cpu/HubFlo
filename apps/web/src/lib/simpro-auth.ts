@@ -331,7 +331,7 @@ export function getSimproDirectConfigStatus(): SimproDirectConfigStatus {
     !base ? "SIMPRO_API_BASE_URL / SIMPRO_BUILD_URL / SIMPRO_URL" : null,
     !companyId ? "SIMPRO_COMPANY_ID / SIMPRO_COMPANY" : null,
     !directToken && !hasOauthConfig
-      ? "SIMPRO_ACCESS_TOKEN or SIMPRO_CLIENT_ID / SIMPRO_CLIENT_SECRET / SIMPRO_REFRESH_TOKEN"
+      ? "SIMPRO_CLIENT_ID / SIMPRO_CLIENT_SECRET / SIMPRO_REFRESH_TOKEN (or SIMPRO_REFRESH_TOKEN_FILE)"
       : null,
   ].filter((item): item is string => Boolean(item));
 

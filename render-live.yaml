@@ -31,17 +31,39 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-live.onrender.com
+      # Preferred: direct simPRO OAuth for quote/job push while NeXa is the front end
+      - key: SIMPRO_BASE_URL
+        sync: false
       - key: SIMPRO_API_BASE_URL
+        sync: false
+      - key: SIMPRO_COMPANY_ID
+        sync: false
+      - key: SIMPRO_CLIENT_ID
+        sync: false
+      - key: SIMPRO_CLIENT_SECRET
         sync: false
       - key: SIMPRO_REFRESH_TOKEN_FILE
         value: /var/data/simpro_refresh_token.txt
       - key: SIMPRO_REFRESH_TOKEN
         sync: false
-      - key: SIMPRO_ACCESS_TOKEN
+      - key: SIMPRO_DEFAULT_CUSTOMER_ID
         sync: false
-      - key: SIMPRO_COMPANY_ID
+      - key: SIMPRO_DEFAULT_SITE_ID
         sync: false
       - key: SIMPRO_WEBHOOK_SECRET
         sync: false
+      # Optional temporary scheduler bridge fallback
+      - key: SIMPRO_SCHEDULER_BASE_URL
+        value: https://ewg-hub-scheduler.onrender.com
+      - key: SIMPRO_SCHEDULER_QUOTE_PUSH_URL
+        sync: false
+      - key: SIMPRO_SCHEDULER_JOB_PUSH_URL
+        sync: false
+      - key: SIMPRO_SCHEDULER_HUB_PASSWORD
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: NEXA_OPENAI_API_KEY
+        sync: false
+      - key: NEXA_ASSISTANT_OPENAI_MODEL
+        value: gpt-4.1-mini

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { resolveSimproDirectConfig } from "@/lib/simpro-auth";
+import { getSimproBridgeStatus, testSimproOutboundBridge } from "@/lib/simpro-bridge";
 
 export async function POST(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -10,32 +10,36 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const config = await resolveSimproDirectConfig();
-    const endpoint = `${config.baseUrl}/companies/${config.companyId}/customers/?pageSize=1`;
-    const response = await fetch(endpoint, {
-      headers: {
-        Accept: "application/json",
-        Authorization: `Bearer ${config.token}`,
-      },
-      cache: "no-store",
-    });
-    const body = await response.json().catch(() => null) as { error?: string; message?: string } | null;
-
-    if (!response.ok) {
-      throw new Error(body?.error || body?.message || `simPRO returned HTTP ${response.status}.`);
+    const result = await testSimproOutboundBridge();
+    const bridge = getSimproBridgeStatus();
+    if (!result.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: result.message,
+          mode: result.mode,
+          endpoint: result.endpoint,
+          bridge,
+          checkedAt: result.checkedAt,
+        },
+        { status: 422 },
+      );
     }
 
     return NextResponse.json({
       ok: true,
-      message: `simPRO authenticated successfully for company ${config.companyId}.`,
-      endpoint,
-      checkedAt: new Date().toISOString(),
+      message: result.message,
+      mode: result.mode,
+      endpoint: result.endpoint,
+      bridge,
+      checkedAt: result.checkedAt,
     });
   } catch (error) {
     return NextResponse.json(
       {
         ok: false,
         error: error instanceof Error ? error.message : "Unable to test the simPRO connection.",
+        bridge: getSimproBridgeStatus(),
       },
       { status: 422 },
     );

@@ -1798,6 +1798,9 @@ type SimproBridgeStatus = {
   mode: "webhook" | "scheduler" | "direct" | "missing" | "unknown";
   missing: string[];
   endpoint?: string;
+  guidance?: string;
+  quotePushReady?: boolean;
+  jobPushReady?: boolean;
   checkedAt?: string;
   detectedEnvKeys?: string[];
   sync?: SimproSyncStatus;
@@ -6747,11 +6750,12 @@ export default function Dashboard() {
   const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
   const [nexaAssistantMessages, setNexaAssistantMessages] = useState<NexaAssistantMessage[]>([
     {
-      id: "nexa-assistant-welcome",
+      id: "buddy-welcome",
       role: "assistant",
-      text: "Ask me about the live team diary. I can check availability and prepare a job booking for you to confirm.",
+      text: "Hi — I'm Buddy. Ask me about the live diary, quotes, jobs or follow-ups. I will never change schedules or commercial figures without your confirmation.",
     },
   ]);
+  const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
@@ -7187,6 +7191,12 @@ export default function Dashboard() {
     const timer = window.setInterval(refreshPlannerClock, 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const node = nexaAssistantMessagesRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [nexaAssistantMessages, nexaAssistantBusy, nexaAssistantOpen]);
 
   const activeRecordFingerprint = useMemo(() => {
     if (homeView === "lead-record" && selectedLead) {
@@ -10927,6 +10937,9 @@ export default function Dashboard() {
       role: "user",
       text: message,
     };
+    const history = [...nexaAssistantMessages, userMessage]
+      .filter((item) => item.id !== "buddy-welcome")
+      .map((item) => ({ role: item.role, text: item.text }));
     setNexaAssistantMessages((current) => [...current, userMessage]);
     setNexaAssistantDraft("");
     setNexaAssistantBusy(true);
@@ -10934,15 +10947,15 @@ export default function Dashboard() {
       const response = await fetch("/api/nexa-assistant", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, history }),
       });
       const result = (await response.json()) as NexaAssistantApiResponse;
       setNexaAssistantMessages((current) => [
         ...current,
         {
-          id: `nexa-assistant-${crypto.randomUUID()}`,
+          id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: result.reply || result.error || "NeXa could not complete that request.",
+          text: result.reply || result.error || "Buddy could not complete that request.",
           action: result.action,
           aiUsed: result.aiUsed,
         },
@@ -10951,9 +10964,9 @@ export default function Dashboard() {
       setNexaAssistantMessages((current) => [
         ...current,
         {
-          id: `nexa-assistant-${crypto.randomUUID()}`,
+          id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: "I could not reach the live NeXa schedule. Nothing was changed.",
+          text: "I could not reach the live NeXa workspace. Nothing was changed.",
         },
       ]);
     } finally {
@@ -10976,7 +10989,7 @@ export default function Dashboard() {
           message.action?.id === action.id ? { ...message, action: undefined } : message,
         ),
         {
-          id: `nexa-assistant-${crypto.randomUUID()}`,
+          id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
           text: result.reply || result.error || "The booking was not created.",
         },
@@ -10994,13 +11007,13 @@ export default function Dashboard() {
           }));
         }
         await refreshCoreWorkflowRecords();
-        showNotice("Live schedule updated by NeXa Assistant.");
+        showNotice("Live schedule updated by Buddy.");
       }
     } catch {
       setNexaAssistantMessages((current) => [
         ...current,
         {
-          id: `nexa-assistant-${crypto.randomUUID()}`,
+          id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
           text: "The live booking could not be saved. Nothing was changed.",
         },
@@ -20738,14 +20751,6 @@ export default function Dashboard() {
             <Bell size={18} />
             <span className="alert-dot" />
           </button>
-          <button
-            className={nexaAssistantOpen ? "header-icon nexa-assistant-trigger active" : "header-icon nexa-assistant-trigger"}
-            aria-label="Open NeXa Assistant"
-            title="Ask NeXa"
-            onClick={() => setNexaAssistantOpen((current) => !current)}
-          >
-            <Bot size={19} />
-          </button>
           <button className="create-button" aria-label="Open create menu" onClick={openCreateMenu}>
             <Plus size={17} />
             <span>Create</span>
@@ -20772,32 +20777,27 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {nexaAssistantOpen ? (
-        <>
-          <button
-            className="nexa-assistant-backdrop"
-            aria-label="Close NeXa Assistant"
-            onClick={() => setNexaAssistantOpen(false)}
-          />
-          <aside className="nexa-assistant-panel" aria-label="NeXa Assistant">
+      <div className="buddy-dock" aria-live="polite">
+        {nexaAssistantOpen ? (
+          <aside className="buddy-panel" aria-label="Buddy assistant">
             <header>
               <div>
-                <span className="nexa-assistant-mark"><Bot size={18} /></span>
+                <span className="buddy-mark"><Bot size={18} /></span>
                 <div>
-                  <strong>Ask NeXa</strong>
-                  <small>Live diary and scheduling</small>
+                  <strong>Buddy</strong>
+                  <small>Live NeXa conversation</small>
                 </div>
               </div>
-              <button className="icon-button" aria-label="Close NeXa Assistant" onClick={() => setNexaAssistantOpen(false)}>
+              <button className="icon-button" aria-label="Close Buddy" onClick={() => setNexaAssistantOpen(false)}>
                 <X size={18} />
               </button>
             </header>
-            <div className="nexa-assistant-messages" aria-live="polite">
+            <div className="buddy-messages" ref={nexaAssistantMessagesRef}>
               {nexaAssistantMessages.map((message) => (
-                <article className={`nexa-assistant-message ${message.role}`} key={message.id}>
+                <article className={`buddy-message ${message.role}`} key={message.id}>
                   <p>{message.text}</p>
                   {message.action ? (
-                    <div className="nexa-assistant-action">
+                    <div className="buddy-action">
                       <strong>{message.action.title}</strong>
                       <span>{message.action.detail}</span>
                       <button
@@ -20810,21 +20810,21 @@ export default function Dashboard() {
                       </button>
                     </div>
                   ) : null}
-                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with NeXa AI · verified against live data</small> : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Buddy AI · checked against live NeXa data</small> : null}
                 </article>
               ))}
-              {nexaAssistantBusy ? <p className="nexa-assistant-thinking">Checking the live workspace...</p> : null}
+              {nexaAssistantBusy ? <p className="buddy-thinking">Buddy is checking the live workspace...</p> : null}
             </div>
             <form
-              className="nexa-assistant-composer"
+              className="buddy-composer"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendNexaAssistantMessage();
               }}
             >
               <textarea
-                aria-label="Ask NeXa a question"
-                placeholder="Is Murray available on Tuesday 27 May next year?"
+                aria-label="Chat with Buddy"
+                placeholder="Ask Buddy about quotes, jobs, follow-ups or availability..."
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -20834,14 +20834,23 @@ export default function Dashboard() {
                   }
                 }}
               />
-              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to NeXa">
+              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Buddy">
                 <Send size={17} />
               </button>
             </form>
-            <small className="nexa-assistant-safety">Bookings are only written after you confirm the review card.</small>
+            <small className="buddy-safety">Bookings and commercial changes only happen after you confirm.</small>
           </aside>
-        </>
-      ) : null}
+        ) : null}
+        <button
+          className={nexaAssistantOpen ? "buddy-launcher active" : "buddy-launcher"}
+          aria-label={nexaAssistantOpen ? "Close Buddy" : "Open Buddy"}
+          title="Chat with Buddy"
+          onClick={() => setNexaAssistantOpen((current) => !current)}
+        >
+          {nexaAssistantOpen ? <X size={22} /> : <Bot size={22} />}
+          <span>Buddy</span>
+        </button>
+      </div>
 
       <nav className="module-bar" aria-label="Main modules">
         <button className="mobile-menu" aria-label="Open navigation" onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}>
@@ -30772,7 +30781,7 @@ export default function Dashboard() {
 	                            Refresh status
 	                          </button>
 	                          <span className="setup-status-label">
-	                            simPRO {simproSyncStatus?.configured ? "ready" : "needs setup"} · Xero {xeroConnectionStatus?.configured ? "ready" : "needs setup"}
+	                            simPRO {simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero {xeroConnectionStatus?.configured ? "ready" : "needs setup"}
 	                          </span>
 	                        </div>
 	                      </div>
@@ -30782,7 +30791,7 @@ export default function Dashboard() {
 	                          <header>
 	                            <div>
 	                              <span>simPRO</span>
-	                              <strong>{simproSyncStatus?.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : "One-way push ready") : "Connection not complete"}</strong>
+	                              <strong>{simproBridgeStatus.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : `One-way push ready · ${simproBridgeStatus.mode}`) : "Connection not complete"}</strong>
 	                            </div>
 	                            <div className="setup-sync-actions">
 	                              <button
@@ -30841,11 +30850,11 @@ export default function Dashboard() {
 	                            </label>
 	                          </div>
 	                          <small>
-	                            {simproSyncStatus?.configured
+	                            {simproBridgeStatus.configured
 	                              ? integrationSettings.simproMode === "Two-way sync"
-	                                ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
-	                                : `Direct API is ready at ${simproSyncStatus.endpoint}. NeXa is set to push downstream only, so inbound imports are paused.`
-	                              : `Missing ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_API_BASE_URL, SIMPRO_ACCESS_TOKEN and SIMPRO_COMPANY_ID"}.`}
+	                                ? `Outbound and inbound are available via ${simproBridgeStatus.mode}${simproBridgeStatus.endpoint ? ` at ${simproBridgeStatus.endpoint}` : ""}. Preview imports before applying anything live.`
+	                                : `${simproBridgeStatus.guidance || `Outbound push is ready via ${simproBridgeStatus.mode}.`} Open a quote and use Send to Simpro.`
+	                              : `Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_BASE_URL, SIMPRO_COMPANY_ID, SIMPRO_CLIENT_ID, SIMPRO_CLIENT_SECRET and SIMPRO_REFRESH_TOKEN"}. ${simproBridgeStatus.guidance || ""}`}
 	                          </small>
 	                          {integrationSettings.simproMode === "Two-way sync" ? (
 	                          <div className="setup-sync-entity-picker">
@@ -30888,7 +30897,11 @@ export default function Dashboard() {
 	                              <article>
 	                                <span>Outbound bridge</span>
 	                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
-	                                <small>{simproBridgeStatus.configured ? "Quotes and jobs can be handed downstream from NeXa." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
+	                                <small>
+	                                  {simproBridgeStatus.configured
+	                                    ? `Quotes ${simproBridgeStatus.quotePushReady === false ? "blocked" : "ready"} · Jobs ${simproBridgeStatus.jobPushReady === false ? "blocked" : "ready"}. ${simproBridgeStatus.guidance || ""}`
+	                                    : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}
+	                                </small>
 	                              </article>
 	                            </div>
 	                          )}

@@ -1,9 +1,10 @@
-import { appendAuditEvent } from "@/lib/people-data";
+import { appendAuditEvent, getClients } from "@/lib/people-data";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { getLeads } from "@/lib/lead-store";
+import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { pushJobToSimpro } from "@/lib/simpro-bridge";
-import { getJobs, updateJob, type Job } from "@/lib/workflow-data";
+import { getJobs, getQuotes, updateJob, type Job } from "@/lib/workflow-data";
 import type { Employee, Weekday } from "@/lib/access";
 
 type ScheduleAssignment = {
@@ -22,7 +23,7 @@ type ScheduleAssignment = {
 };
 
 type AssistantIntent = {
-  action: "availability" | "book" | "help";
+  action: "availability" | "book" | "help" | "chat";
   employeeName?: string;
   dateText?: string;
   dateIso?: string;
@@ -52,6 +53,11 @@ type PendingBooking = {
 };
 
 type PendingStore = { actions: PendingBooking[] };
+
+export type BuddyHistoryMessage = {
+  role: "assistant" | "user";
+  text: string;
+};
 
 export type NexaAssistantResponse = {
   reply: string;
@@ -203,11 +209,29 @@ function extractJobRef(message: string) {
   return message.match(/\bJ[-\s]?\d{3,6}\b/i)?.[0]?.toUpperCase().replace(/\s/, "-");
 }
 
+function currency(value: number) {
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP", maximumFractionDigits: 0 }).format(value);
+}
+
+function looksLikeScheduling(message: string) {
+  return /\b(available|availability|free|diary|book|schedule|assign|put)\b/i.test(message)
+    || Boolean(extractJobRef(message))
+    || Boolean(parseTime(message))
+    || Boolean(parseDuration(message));
+}
+
 function deterministicIntent(message: string, employees: Employee[], now = new Date()): AssistantIntent {
   const date = parseDate(message, now);
   const lower = message.toLowerCase();
+  const scheduling = looksLikeScheduling(message);
   return {
-    action: /\b(book|schedule|assign|put)\b/i.test(message) ? "book" : /\b(available|availability|free|diary)\b/i.test(message) ? "availability" : "help",
+    action: !scheduling
+      ? "chat"
+      : /\b(book|schedule|assign|put)\b/i.test(message)
+        ? "book"
+        : /\b(available|availability|free|diary)\b/i.test(message)
+          ? "availability"
+          : "help",
     employeeName: extractEmployeeName(message, employees),
     dateText: message,
     dateIso: date.dateIso,
@@ -220,11 +244,11 @@ function deterministicIntent(message: string, employees: Employee[], now = new D
 }
 
 async function aiIntent(message: string, employees: Employee[], now: Date): Promise<AssistantIntent | null> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const apiKey = resolveOpenAiApiKey();
   if (!apiKey) return null;
   const model = process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim()
     || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
-    || "gpt-5.6-sol";
+    || "gpt-4.1-mini";
   try {
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
@@ -236,7 +260,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
             role: "system",
             content: [{
               type: "input_text",
-              text: `Extract a NeXa scheduling intent. Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
+              text: `Extract a Buddy scheduling intent when the user is asking about diaries or bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
             }],
           },
           { role: "user", content: [{ type: "input_text", text: message }] },
@@ -250,7 +274,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
               type: "object",
               additionalProperties: false,
               properties: {
-                action: { type: "string", enum: ["availability", "book", "help"] },
+                action: { type: "string", enum: ["availability", "book", "help", "chat"] },
                 employeeName: { type: ["string", "null"] },
                 dateText: { type: ["string", "null"] },
                 dateIso: { type: ["string", "null"] },
@@ -335,10 +359,204 @@ function resolveCostCentre(job: Job, requested?: string) {
   return { centre: centres.length === 1 ? centres[0] : undefined, choices: centres };
 }
 
-export async function handleNexaAssistantMessage(
+function buildWorkspaceContext() {
+  const hubState = getHubDetailState();
+  const employees = (hubState.employees ?? []) as Employee[];
+  const quotes = getQuotes();
+  const jobs = getJobs();
+  const leads = getLeads();
+  const clients = getClients();
+  const quoteFollowUps = quotes.filter((quote) => ["Draft", "Sent"].includes(quote.status)).slice(0, 12);
+  const openJobs = jobs.filter((job) => !["Complete", "Completed", "Cancelled", "Invoiced"].includes(job.status));
+  const unscheduled = openJobs.filter((job) => !job.scheduledDate).slice(0, 10);
+  const labourOverruns = jobs
+    .filter((job) => typeof job.labourCostVariance === "number" && job.labourCostVariance > 0)
+    .slice(0, 8);
+  const salesThisMonth = quotes
+    .filter((quote) => ["Accepted", "Converted"].includes(quote.status))
+    .reduce((sum, quote) => sum + (quote.value || 0), 0);
+
+  return {
+    summary: {
+      customers: clients.length,
+      employees: employees.filter((employee) => employee.login?.enabled !== false).length,
+      leads: leads.length,
+      quotes: quotes.length,
+      jobs: jobs.length,
+      openJobs: openJobs.length,
+      acceptedSalesValue: salesThisMonth,
+    },
+    employees: employees.slice(0, 40).map((employee) => ({
+      name: employee.name,
+      role: employee.role,
+    })),
+    quoteFollowUps: quoteFollowUps.map((quote) => ({
+      ref: quote.ref,
+      customer: quote.customer,
+      status: quote.status,
+      value: quote.value,
+      next: quote.next,
+      due: quote.due,
+    })),
+    openJobs: openJobs.slice(0, 20).map((job) => ({
+      ref: job.ref,
+      customer: job.customer,
+      status: job.status,
+      manager: job.manager,
+      scheduledDate: job.scheduledDate,
+      value: job.value,
+      next: job.next,
+    })),
+    unscheduledJobs: unscheduled.map((job) => ({ ref: job.ref, customer: job.customer, description: job.description })),
+    labourOverruns: labourOverruns.map((job) => ({
+      ref: job.ref,
+      customer: job.customer,
+      variance: job.labourCostVariance,
+      planned: job.scheduledDurationHours,
+      actual: job.actualDurationHours,
+    })),
+    recentLeads: leads.slice(0, 12).map((lead) => ({
+      ref: lead.ref,
+      customer: lead.customerName,
+      status: lead.status,
+      next: lead.next,
+    })),
+  };
+}
+
+function deterministicBusinessReply(message: string): string | null {
+  const lower = message.toLowerCase();
+  const context = buildWorkspaceContext();
+
+  if (/\b(hello|hi|hey|good (morning|afternoon|evening))\b/i.test(message)) {
+    return `Hi — I'm Buddy, your NeXa business assistant. I can check the diary, quote pipeline, jobs and follow-ups using live NeXa data. What do you need?`;
+  }
+
+  if (/\b(help|what can you)\b/i.test(message)) {
+    return [
+      "I can help with live NeXa questions such as:",
+      "• When is an engineer available?",
+      "• Which quotes need follow-up?",
+      "• Which jobs are open or unscheduled?",
+      "• Which jobs are over their labour allowance?",
+      "• Draft a booking — I will always ask you to confirm before writing the diary.",
+    ].join("\n");
+  }
+
+  if (/\b(quote|quotation).*(follow|outstanding|pipeline|not followed)|follow.?up.*quote/i.test(lower)
+    || /\bwhich quotes\b/i.test(lower)) {
+    if (!context.quoteFollowUps.length) return "There are no draft or sent quotes waiting for follow-up in NeXa right now.";
+    return `Quotes needing attention:\n${context.quoteFollowUps
+      .map((quote) => `• ${quote.ref} · ${quote.customer} · ${quote.status} · ${currency(quote.value)} · ${quote.next || quote.due}`)
+      .join("\n")}`;
+  }
+
+  if (/\bunscheduled|not (been )?allocated|no (labour|schedule)|which jobs.*(free|open)/i.test(lower)) {
+    if (!context.unscheduledJobs.length) return "Every open job currently has a scheduled date in NeXa.";
+    return `Open jobs without a scheduled date:\n${context.unscheduledJobs
+      .map((job) => `• ${job.ref} · ${job.customer} · ${job.description}`)
+      .join("\n")}`;
+  }
+
+  if (/\bover.*(labour|hours)|labour.*(over|variance)|running over/i.test(lower)) {
+    if (!context.labourOverruns.length) return "No jobs currently show a positive labour cost variance in NeXa.";
+    return `Jobs with labour over allowance:\n${context.labourOverruns
+      .map((job) => `• ${job.ref} · ${job.customer} · variance ${currency(job.variance || 0)} (planned ${job.planned ?? "?"}h / actual ${job.actual ?? "?"}h)`)
+      .join("\n")}`;
+  }
+
+  if (/\b(sales|turnover|pipeline|how (are|is) (we|sales))\b/i.test(lower)) {
+    return [
+      `Live NeXa snapshot:`,
+      `• ${context.summary.quotes} quotes · ${context.summary.openJobs} open jobs · ${context.summary.leads} leads`,
+      `• Accepted/converted quote value currently held: ${currency(context.summary.acceptedSalesValue)}`,
+      `• ${context.quoteFollowUps.length} quotes still in Draft/Sent follow-up`,
+      `• ${context.unscheduledJobs.length} open jobs without a schedule date`,
+    ].join("\n");
+  }
+
+  if (/\b(how many|count).*(job|quote|lead|customer|employee)/i.test(lower)) {
+    return `NeXa currently has ${context.summary.customers} customers, ${context.summary.employees} employees, ${context.summary.leads} leads, ${context.summary.quotes} quotes and ${context.summary.jobs} jobs (${context.summary.openJobs} open).`;
+  }
+
+  return null;
+}
+
+async function conversationalReply(
+  message: string,
+  history: BuddyHistoryMessage[],
+  actorName: string,
+): Promise<{ reply: string; aiUsed: boolean }> {
+  const deterministic = deterministicBusinessReply(message);
+  const apiKey = resolveOpenAiApiKey();
+  if (!apiKey) {
+    return {
+      reply: deterministic
+        ?? "I can answer from live NeXa data about quotes, jobs, follow-ups and the diary. Ask a specific NeXa question, or check that NEXA_OPENAI_API_KEY is set in Render for freer conversation.",
+      aiUsed: false,
+    };
+  }
+
+  const model = process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim()
+    || process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
+    || "gpt-4.1-mini";
+  const context = buildWorkspaceContext();
+  const recentHistory = history.slice(-12).map((item) => ({
+    role: item.role === "assistant" ? "assistant" : "user",
+    content: item.text,
+  }));
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        messages: [
+          {
+            role: "system",
+            content: [
+              "You are Buddy, the NeXa business assistant for Errol Watson Group field-service operations.",
+              "Answer using only the supplied NeXa workspace JSON and the conversation.",
+              "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
+              "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
+              "Keep answers concise, plain English, and useful for a commercial manager.",
+              `The current user is ${actorName}.`,
+              `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
+            ].join("\n"),
+          },
+          ...recentHistory,
+          { role: "user", content: message },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      return {
+        reply: deterministic ?? "Buddy could not reach the AI service just now. Try a more specific NeXa question about quotes, jobs or the diary.",
+        aiUsed: false,
+      };
+    }
+    const body = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const reply = body.choices?.[0]?.message?.content?.trim();
+    if (!reply) {
+      return { reply: deterministic ?? "I could not form a reply from the live workspace.", aiUsed: false };
+    }
+    return { reply, aiUsed: true };
+  } catch {
+    return {
+      reply: deterministic ?? "Buddy hit a temporary error talking to the AI service. Your NeXa data was not changed.",
+      aiUsed: false,
+    };
+  }
+}
+
+async function handleSchedulingMessage(
   message: string,
   actor: { id: string; name: string },
-  now = new Date(),
+  now: Date,
 ): Promise<NexaAssistantResponse> {
   const hubState = getHubDetailState();
   const employees = (hubState.employees ?? []) as Employee[];
@@ -349,13 +567,12 @@ export async function handleNexaAssistantMessage(
     ...Object.fromEntries(Object.entries(extracted ?? {}).filter(([, value]) => value !== undefined)),
   };
 
-  // Record identities and calendar facts come from the user's literal text so the
-  // model cannot invent an employee, job or silently repaired date.
   intent.employeeName = deterministic.employeeName;
   intent.jobRef = deterministic.jobRef;
   const localDate = parseDate(message, now);
   if (localDate.dateIso) intent.dateIso = localDate.dateIso;
   if (localDate.namedWeekday) intent.weekday = localDate.namedWeekday;
+  if (intent.action === "chat") intent.action = deterministic.action === "chat" ? "help" : deterministic.action;
   const employee = findEmployee(employees, intent.employeeName);
 
   if (!employee) {
@@ -488,11 +705,39 @@ export async function handleNexaAssistantMessage(
   };
 }
 
+export async function handleNexaAssistantMessage(
+  message: string,
+  actor: { id: string; name: string },
+  options: {
+    history?: BuddyHistoryMessage[];
+    now?: Date;
+  } = {},
+): Promise<NexaAssistantResponse> {
+  const now = options.now ?? new Date();
+  const history = options.history ?? [];
+  const hubState = getHubDetailState();
+  const employees = (hubState.employees ?? []) as Employee[];
+  const deterministic = deterministicIntent(message, employees, now);
+
+  if (deterministic.action === "chat" || (!deterministic.employeeName && deterministic.action !== "book")) {
+    if (deterministic.action === "chat" || !looksLikeScheduling(message)) {
+      const chat = await conversationalReply(message, history, actor.name);
+      return {
+        reply: chat.reply,
+        intent: { action: "chat" },
+        aiUsed: chat.aiUsed,
+      };
+    }
+  }
+
+  return handleSchedulingMessage(message, actor, now);
+}
+
 export async function confirmNexaAssistantAction(actionId: string, actor: { id: string; name: string }) {
   refreshPendingStore();
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
-    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask NeXa to check the slot again." };
+    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask Buddy to check the slot again." };
   }
   const employee = ((getHubDetailState().employees ?? []) as Employee[]).find((item) => item.id === action.employeeId);
   const job = getJobs().find((item) => item.id === action.jobId);
@@ -519,7 +764,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
     endDate: action.date,
     endTime: action.endTime,
     plannedHours: action.durationHours,
-    notes: `Scheduled by NeXa Assistant for ${actor.name}.`,
+    notes: `Scheduled by Buddy for ${actor.name}.`,
   };
   const nextPlans = {
     ...plans,
@@ -538,11 +783,11 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   });
   appendAuditEvent({
     actor: actor.name,
-    action: "scheduled by NeXa Assistant",
+    action: "scheduled by Buddy",
     recordType: "job",
     recordId: job.id,
     summary: `${employee.name} assigned to ${action.costCentreName} on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.`,
-    source: "NeXa Assistant",
+    source: "Buddy",
     importance: "high",
   });
   pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);
