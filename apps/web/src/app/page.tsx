@@ -18304,7 +18304,8 @@ export default function Dashboard() {
         if (!usersResponse.ok) throw new Error("secure user accounts are unavailable");
         const authUsers = (await usersResponse.json()) as ServerAuthUser[];
         const existingAuthUser = authUsers.find((user) => user.employeeId === editingEmployeeId);
-        if (employeeProfileDraft.loginEnabled && !existingAuthUser && enteredLoginPassword.length < 10) {
+        const isCreatingLogin = employeeProfileDraft.loginEnabled && !existingAuthUser && Boolean(enteredLoginPassword);
+        if (isCreatingLogin && enteredLoginPassword.length < 10) {
           throw new Error("set a password of at least 10 characters on the Login tab");
         }
 
@@ -18323,7 +18324,7 @@ export default function Dashboard() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
             })
-          : employeeProfileDraft.loginEnabled
+          : isCreatingLogin
             ? await fetch("/api/auth/users", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
