@@ -12,7 +12,6 @@ import {
   type SurveyScopeItem,
 } from "@hubflo/domain";
 
-import { resolveOpenAiApiKey } from "@/lib/openai-env";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   createTakeoffProject,
@@ -162,7 +161,7 @@ function fallbackCostCentres(survey: SurveyRecord): AiQuickPack {
   const path = buildDynamicSurveyPath(intent);
   const name = `${path.intent.itemGroup} ${path.intent.workType}`.trim() || survey.jobType;
   return {
-    summary: "Rule-based cost centres prepared from the works description. Add NEXA_OPENAI_API_KEY for fuller AI packs.",
+    summary: "Rule-based cost centres prepared from the works description. Set OPENAI_API_KEY or NEXA_OPENAI_API_KEY in Render (the model name alone is not enough).",
     costCentres: [
       {
         name,
@@ -184,10 +183,11 @@ function fallbackCostCentres(survey: SurveyRecord): AiQuickPack {
 }
 
 async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: AiQuickPack; aiUsed: boolean }> {
-  const apiKey = resolveOpenAiApiKey();
+  const openAi = getTakeoffOpenAiConfig();
+  const apiKey = openAi.apiKey;
   if (!apiKey) return { pack: fallbackCostCentres(survey), aiUsed: false };
 
-  const model = getTakeoffOpenAiConfig().model;
+  const model = openAi.model;
   const context = {
     reference: survey.reference,
     jobType: survey.jobType,
