@@ -349,11 +349,14 @@ export async function handleNexaAssistantMessage(
     ...Object.fromEntries(Object.entries(extracted ?? {}).filter(([, value]) => value !== undefined)),
   };
 
-  // Calendar facts are recalculated locally so the model cannot invent or silently repair them.
+  // Record identities and calendar facts come from the user's literal text so the
+  // model cannot invent an employee, job or silently repaired date.
+  intent.employeeName = deterministic.employeeName;
+  intent.jobRef = deterministic.jobRef;
   const localDate = parseDate(message, now);
   if (localDate.dateIso) intent.dateIso = localDate.dateIso;
   if (localDate.namedWeekday) intent.weekday = localDate.namedWeekday;
-  const employee = findEmployee(employees, intent.employeeName ?? deterministic.employeeName);
+  const employee = findEmployee(employees, intent.employeeName);
 
   if (!employee) {
     return {
