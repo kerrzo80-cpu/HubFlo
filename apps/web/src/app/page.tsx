@@ -18241,50 +18241,6 @@ export default function Dashboard() {
       ? ""
       : enteredLoginPassword || activeEditingEmployee?.login?.password || "EWG2026";
 
-    if (serverAuthMode === "users") {
-      try {
-        const usersResponse = await fetch("/api/auth/users");
-        if (!usersResponse.ok) throw new Error("Unable to read secure user accounts.");
-        const authUsers = (await usersResponse.json()) as ServerAuthUser[];
-        const existingAuthUser = authUsers.find((user) => user.employeeId === editingEmployeeId);
-        if (employeeProfileDraft.loginEnabled && !existingAuthUser && enteredLoginPassword.length < 10) {
-          showNotice("Set a password of at least 10 characters for this new login.");
-          setActiveEmployeeTab("login");
-          return;
-        }
-
-        const payload = {
-          employeeId: editingEmployeeId,
-          name: savedEmployeeName,
-          username: savedLoginUsername,
-          role: employeeRoleDraft,
-          permissions: employeePermissionDraft,
-          enabled: employeeProfileDraft.loginEnabled,
-          ...(enteredLoginPassword ? { password: enteredLoginPassword } : {}),
-        };
-        const response = existingAuthUser
-          ? await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            })
-          : employeeProfileDraft.loginEnabled
-            ? await fetch("/api/auth/users", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-              })
-            : null;
-        if (response && !response.ok) {
-          const result = await response.json().catch(() => ({})) as { error?: string };
-          throw new Error(result.error || "Unable to save the secure login.");
-        }
-      } catch (error) {
-        showNotice(error instanceof Error ? error.message : "Unable to save the secure login.");
-        return;
-      }
-    }
-
     markEmployeeEdited();
     const nextEmployees = employees.map((employee) =>
         employee.id === editingEmployeeId
@@ -18341,6 +18297,49 @@ export default function Dashboard() {
       return;
     }
 
+    let loginSyncWarning = "";
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (!usersResponse.ok) throw new Error("secure user accounts are unavailable");
+        const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+        const existingAuthUser = authUsers.find((user) => user.employeeId === editingEmployeeId);
+        if (employeeProfileDraft.loginEnabled && !existingAuthUser && enteredLoginPassword.length < 10) {
+          throw new Error("set a password of at least 10 characters on the Login tab");
+        }
+
+        const payload = {
+          employeeId: editingEmployeeId,
+          name: savedEmployeeName,
+          username: savedLoginUsername,
+          role: employeeRoleDraft,
+          permissions: employeePermissionDraft,
+          enabled: employeeProfileDraft.loginEnabled,
+          ...(enteredLoginPassword ? { password: enteredLoginPassword } : {}),
+        };
+        const response = existingAuthUser
+          ? await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            })
+          : employeeProfileDraft.loginEnabled
+            ? await fetch("/api/auth/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              })
+            : null;
+        if (response && !response.ok) {
+          const result = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(result.error || "the secure login could not be updated");
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "the secure login could not be updated";
+        loginSyncWarning = ` Employee details were saved, but the login was not changed: ${reason}.`;
+      }
+    }
+
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "updated",
@@ -18352,7 +18351,7 @@ export default function Dashboard() {
     });
     setNewEmployeeId(null);
     setSectionError(null);
-    showNotice("Employee card updated.");
+    showNotice(loginSyncWarning ? `Employee card saved.${loginSyncWarning}` : "Employee card saved.");
   }
 
   function openCreateMenu(event: MouseEvent<HTMLButtonElement>) {
