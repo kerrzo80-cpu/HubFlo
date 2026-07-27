@@ -691,10 +691,13 @@ function mergeTakeoffRows(
   const keepMaterials = existing.materialAllowances.filter((line) => (
     line.id.startsWith("markup-material")
     || line.id.startsWith("markup-symbol-material")
+    || line.id.startsWith("markup-package-material")
   ));
   const keepLabour = existing.labourAllowances.filter((line) => line.id.startsWith("markup-labour"));
   const keepSupplier = existing.supplierRequests.filter((line) => (
     line.id.startsWith("markup-")
+    || line.notes === "From Services Markup"
+    || line.notes === "From Markup package"
     || keepMaterials.some((material) => material.id === line.linkedMaterialId)
   ));
   return {

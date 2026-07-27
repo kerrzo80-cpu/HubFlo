@@ -60,8 +60,10 @@ import {
   acceptMarkupPackage,
   dismissMarkupPackage,
   ensureSuggestedPackage,
+  isAutoFittingOwnedByPackage,
   materialAllowancesFromAcceptedPackages,
   normaliseMarkupPackages,
+  packageOwnedParentSymbolIds,
   packagesForSymbol,
   prunePackagesForMissingSymbols,
   togglePackageChild,
@@ -1377,7 +1379,11 @@ function summariseServicesMarkup(
   });
 
   const symbolRows = new Map<string, ServicesMarkupSummary["symbolRows"][number]>();
-  markup.symbols.filter((symbol) => symbol.included).forEach((symbol) => {
+  const packageParentIds = packageOwnedParentSymbolIds(markup.packages);
+  markup.symbols.filter((symbol) => (
+    symbol.included
+    && !isAutoFittingOwnedByPackage(symbol, packageParentIds)
+  )).forEach((symbol) => {
     const locationKey = markupContextId(symbol);
     const locationLabel = markupContextLabel(symbol, documents, { showDrawing });
     const key = `${locationKey}|${symbol.category}-${symbol.kind}-${symbol.service ?? ""}-${symbol.material ?? ""}-${symbol.diameter ?? ""}`;
@@ -5030,7 +5036,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     setLastCommittedMarkupElementId(nextSymbol.id);
     setIsMarkupMaterialsCollapsed(false);
     if (ensureSuggestedPackage([], nextSymbol).length) {
-      setNotice(`${nextSymbol.kind} placed — choose package items on the right (or in the package card on the drawing).`);
+      setNotice(`${nextSymbol.kind} placed — tick the package card on the drawing, then add selected items to quantities.`);
     }
     return nextSymbol;
   }
@@ -9031,6 +9037,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         Open markup
                       </button>
                     </div>
+                    {!selectedProject.materialAllowances.length ? (
+                      <p className="takeoff-boq-next-step">
+                        No materials yet. Upload a drawing, place plant on markup (boiler, bath, shower…), accept the package card, or rebuild from Survey.
+                      </p>
+                    ) : !markupCalibrated(workingServicesMarkup.calibration) && workingServicesMarkup.pipes.some((pipe) => pipe.included) ? (
+                      <p className="takeoff-boq-next-step">
+                        Pipe routes are on the drawing but not calibrated — open markup, calibrate a known length, then send quantities again for stock lengths.
+                      </p>
+                    ) : null}
                   </article>
 
                   <article className="takeoff-panel">
@@ -9067,6 +9082,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </button>
                         </div>
                       ))}
+                      {!selectedProject.materialAllowances.length ? (
+                        <p className="takeoff-empty-table-note">Materials appear here from Survey AI, markup packages, and pipe takeoff.</p>
+                      ) : null}
                     </div>
                   </article>
 
