@@ -14411,7 +14411,11 @@ export default function Dashboard() {
       if (exportRecord.status === "Sent") {
         showNotice(`${selectedQuote.ref} sent to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`);
       } else if (exportRecord.status === "Failed") {
-        const message = exportRecord.error ?? "Simpro bridge failed.";
+        const message = typeof exportRecord.error === "string" && exportRecord.error.trim()
+          ? exportRecord.error
+          : exportRecord.error
+            ? JSON.stringify(exportRecord.error)
+            : "Simpro bridge failed.";
         setSectionError(message);
         showNotice(message);
       } else {
@@ -14479,7 +14483,14 @@ export default function Dashboard() {
       if (result.exportRecord.status === "Sent") {
         showNotice(`${job.ref} sent to simPRO${result.exportRecord.simproJobId ? ` as ${result.exportRecord.simproJobId}` : ""}.`);
       } else if (result.exportRecord.status === "Failed") {
-        throw new Error(result.exportRecord.error ?? "simPRO bridge failed for this job.");
+        const failed = result.exportRecord.error;
+        throw new Error(
+          typeof failed === "string" && failed.trim()
+            ? failed
+            : failed
+              ? JSON.stringify(failed)
+              : "simPRO bridge failed for this job.",
+        );
       } else {
         showNotice(`${job.ref} is queued in NeXa only until the simPRO job bridge settings are completed.`);
       }

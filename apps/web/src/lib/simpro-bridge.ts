@@ -209,6 +209,55 @@ function asString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : fallback;
 }
 
+/** Turn Simpro/API error payloads into a readable banner string (never "[object Object]"). */
+function formatSimproErrorValue(value: unknown, depth = 0): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (depth > 3) return "";
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => formatSimproErrorValue(item, depth + 1))
+      .filter(Boolean)
+      .join("; ");
+  }
+
+  const record = asRecord(value);
+  if (!record) return "";
+
+  const message = asString(record.message)
+    || asString(record.error)
+    || asString(record.detail)
+    || asString(record.title)
+    || asString(record.msg)
+    || formatSimproErrorValue(record.errors, depth + 1);
+
+  const path = asString(record.path)
+    || asString(record.field)
+    || asString(record.property)
+    || asString(record.name);
+
+  if (message && path) return `${path}: ${message}`;
+  if (message) return message;
+  if (path) return path;
+
+  try {
+    const json = JSON.stringify(record);
+    return json && json !== "{}" ? json : "";
+  } catch {
+    return "";
+  }
+}
+
+function simproHttpErrorMessage(body: UnknownRecord, status: number, endpoint: string) {
+  const returnedMessage = formatSimproErrorValue(body.error)
+    || formatSimproErrorValue(body.message)
+    || formatSimproErrorValue(body.errors)
+    || formatSimproErrorValue(body);
+  return returnedMessage || `Simpro returned HTTP ${status} from ${endpoint}`;
+}
+
 function asNumber(value: unknown, fallback = 0) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string") {
@@ -666,7 +715,10 @@ async function postToWebhook(payload: SimproQuoteExportPayload | SimproJobExport
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
-    const message = asString(body.error) || asString(body.message) || `Webhook returned HTTP ${response.status}`;
+    const message = formatSimproErrorValue(body.error)
+      || formatSimproErrorValue(body.message)
+      || formatSimproErrorValue(body.errors)
+      || `Webhook returned HTTP ${response.status}`;
     throw new Error(message);
   }
 
@@ -728,7 +780,10 @@ async function postToSchedulerBridge(payload: SimproQuoteExportPayload) {
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
-    const message = asString(body.error) || asString(body.message) || `Scheduler Simpro bridge returned HTTP ${response.status}`;
+    const message = formatSimproErrorValue(body.error)
+      || formatSimproErrorValue(body.message)
+      || formatSimproErrorValue(body.errors)
+      || `Scheduler Simpro bridge returned HTTP ${response.status}`;
     throw new Error(message);
   }
 
@@ -774,7 +829,10 @@ async function postToSchedulerJobBridge(payload: SimproJobExportPayload) {
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
-    const message = asString(body.error) || asString(body.message) || `Scheduler Simpro job bridge returned HTTP ${response.status}`;
+    const message = formatSimproErrorValue(body.error)
+      || formatSimproErrorValue(body.message)
+      || formatSimproErrorValue(body.errors)
+      || `Scheduler Simpro job bridge returned HTTP ${response.status}`;
     throw new Error(message);
   }
 
@@ -899,11 +957,10 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
-    const errors = Array.isArray(body.errors) ? body.errors.join("; ") : "";
-    const returnedMessage = asString(body.error) || asString(body.message) || errors;
+    const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
     const message = response.status === 401
       ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
-      : returnedMessage || `Simpro returned HTTP ${response.status} from ${endpoint}`;
+      : returnedMessage;
     throw new Error(message);
   }
 
@@ -933,11 +990,10 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
 
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
-    const errors = Array.isArray(body.errors) ? body.errors.join("; ") : "";
-    const returnedMessage = asString(body.error) || asString(body.message) || errors;
+    const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
     const message = response.status === 401
       ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
-      : returnedMessage || `Simpro returned HTTP ${response.status} from ${endpoint}`;
+      : returnedMessage;
     throw new Error(message);
   }
 
