@@ -109,7 +109,6 @@ export default function SurveyDirectoryPage() {
           <a href="/"><LayoutDashboard size={16} /> Core</a>
           <a href="/takeoff"><FileSearch size={16} /> Takeoffs</a>
           <a href="/estimator"><Sparkles size={16} /> Estimator</a>
-          <a href="/survey/guided">Advanced capture</a>
         </nav>
       </header>
 

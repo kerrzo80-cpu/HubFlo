@@ -33231,6 +33231,72 @@ body {
   margin: 8px 0 24px;
 }
 
+.survey-simple-buddy {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--survey-line);
+  border-radius: 18px;
+  display: grid;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 16px 18px;
+}
+
+.survey-simple-buddy > header h2 {
+  align-items: center;
+  display: flex;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 1.55rem;
+  font-weight: 600;
+  gap: 8px;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+
+.survey-simple-buddy > header p {
+  color: var(--survey-muted);
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.survey-simple-buddy-list {
+  display: grid;
+  gap: 12px;
+}
+
+.survey-simple-buddy-list label {
+  display: grid;
+  gap: 8px;
+}
+
+.survey-simple-buddy-list span {
+  display: grid;
+  gap: 3px;
+}
+
+.survey-simple-buddy-list strong {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.survey-simple-buddy-list small {
+  color: var(--survey-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.survey-simple-buddy-list textarea {
+  background: #fff;
+  border: 1px solid var(--survey-line);
+  border-radius: 12px;
+  color: var(--survey-ink);
+  font: inherit;
+  font-size: 14px;
+  min-height: 64px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
 .survey-simple-centres {
   display: grid;
   gap: 16px;

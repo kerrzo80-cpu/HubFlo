@@ -51,6 +51,12 @@ export type QuickCostCentre = {
   labour: QuickCostCentreLabour[];
 };
 
+export type QuickClarifyingQuestion = {
+  key: string;
+  question: string;
+  why: string;
+};
+
 export type QuickPackResult = {
   ok: boolean;
   status: number;
@@ -59,6 +65,7 @@ export type QuickPackResult = {
   estimateReference?: string;
   takeoffProjectId?: string;
   costCentres: QuickCostCentre[];
+  clarifyingQuestions: QuickClarifyingQuestion[];
   aiUsed: boolean;
   aiConnected: boolean;
   aiModel?: string;
@@ -69,6 +76,7 @@ export type QuickPackResult = {
 type AiQuickPack = {
   summary: string;
   costCentres: QuickCostCentre[];
+  clarifyingQuestions: QuickClarifyingQuestion[];
 };
 
 const tradeOptions: EstimateTrade[] = [
@@ -135,6 +143,94 @@ function isVagueMaterialDescription(description: string) {
     || /\bas required\b/.test(text)
     || /\bmaterials?\s+only\b/.test(text)
     || text.split(/\s+/).length <= 3 && /materials?|fittings?|pipework/.test(text);
+}
+
+function clarifyingQuestionsForWorks(works: string, answeredKeys: Set<string>): QuickClarifyingQuestion[] {
+  const text = works.toLowerCase();
+  const questions: QuickClarifyingQuestion[] = [];
+  const push = (key: string, question: string, why: string) => {
+    if (!answeredKeys.has(key)) questions.push({ key, question, why });
+  };
+
+  if (/rip\s*out|renew|replace.*pipe|pipework|pipe work|heating|plumb/.test(text)) {
+    push("buddy-pipe-material", "What pipe material and jointing method is on site (copper solder, press-fit, push-fit, plastic)?", "This decides the fittings list and labour.");
+    push("buddy-pipe-sizes", "Which pipe sizes are being renewed (15mm, 22mm, mixed), and roughly how much route is changing?", "Stops the RFQ from guessing metreage.");
+    push("buddy-system-drain", "Does the system need a full drain-down, or can work be isolated locally?", "Big labour difference and treatment chemicals.");
+    push("buddy-access", "Where does the pipe run — floors, boxing, loft, external — and what making-good is expected?", "Access changes labour and exclusions.");
+  } else if (/boiler/.test(text)) {
+    push("buddy-boiler-model", "What is the existing boiler make/model, and is this a like-for-like swap or relocation?", "Controls flue, condensate, gas and controls scope.");
+    push("buddy-flue-route", "What flue route/terminal is proposed?", "Flue parts and labour are often the biggest miss.");
+    push("buddy-controls", "Are controls staying, being upgraded, or unknown?", "Wiring/controls need to be on the RFQ or excluded.");
+  } else if (/radiator|towel/.test(text)) {
+    push("buddy-rad-scope", "Is this like-for-like in the same position, or a move/resize?", "Relocation needs pipe route materials; like-for-like may not.");
+    push("buddy-rad-valves", "Are TRV/lockshields being reused or replaced?", "Valve sets are commonly missed.");
+  } else {
+    push("buddy-scope-clear", "What exactly is included and excluded in these works?", "Keeps the pack from inventing scope.");
+    push("buddy-key-sizes", "Any known pipe sizes, appliance models or measured lengths?", "Turns provisional materials into a tighter RFQ.");
+  }
+
+  if (!answeredKeys.has("buddy-supplier-prefs")) {
+    questions.push({
+      key: "buddy-supplier-prefs",
+      question: "Any preferred supplier, brand standards, or parts that must match existing?",
+      why: "Stops the RFQ listing the wrong fittings family.",
+    });
+  }
+
+  return questions.slice(0, 5);
+}
+
+function normaliseClarifyingQuestions(raw: unknown, works: string, answeredKeys: Set<string>): QuickClarifyingQuestion[] {
+  // Trust an explicit AI array (including empty = description clear enough).
+  // Only use rule-based questions when the model omitted the field.
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
+      .map((item, index) => ({
+        key: String(item.key || `buddy-q-${index + 1}`).trim() || `buddy-q-${index + 1}`,
+        question: String(item.question || "").trim(),
+        why: String(item.why || "Needed before a firm supplier RFQ.").trim() || "Needed before a firm supplier RFQ.",
+      }))
+      .filter((item) => item.question && !answeredKeys.has(item.key))
+      .slice(0, 5);
+  }
+  return clarifyingQuestionsForWorks(works, answeredKeys);
+}
+
+function mergeBuddyAnswers(survey: SurveyRecord, questions: QuickClarifyingQuestion[]) {
+  const existingByKey = new Map(survey.answers.map((answer) => [answer.key, answer]));
+  const next = [...survey.answers];
+  const stamped = nowIso();
+  questions.forEach((question) => {
+    const existing = existingByKey.get(question.key);
+    if (existing) {
+      if (existing.question !== question.question || existing.notes !== question.why) {
+        const index = next.findIndex((item) => item.id === existing.id);
+        if (index >= 0) {
+          next[index] = {
+            ...existing,
+            question: question.question,
+            notes: question.why,
+            updatedAt: stamped,
+          };
+        }
+      }
+      return;
+    }
+    next.push({
+      id: makeId("survey-answer"),
+      key: question.key,
+      section: "Buddy checks",
+      question: question.question,
+      value: "",
+      status: "TBC",
+      tbcReason: question.why,
+      notes: question.why,
+      photoIds: [],
+      updatedAt: stamped,
+    });
+  });
+  return next;
 }
 
 function materialLine(description: string, quantity: number, unit: string): QuickCostCentreMaterial {
@@ -254,6 +350,12 @@ function normaliseCostCentres(raw: unknown, works = ""): QuickCostCentre[] {
 
 function fallbackCostCentres(survey: SurveyRecord, reason: string): AiQuickPack {
   const works = survey.customerRequirements.trim();
+  const answeredKeys = new Set(
+    survey.answers
+      .filter((answer) => String(answer.value || "").trim())
+      .map((answer) => answer.key),
+  );
+  const clarifyingQuestions = clarifyingQuestionsForWorks(works, answeredKeys);
   const intent = inferSurveyorIntent({
     text: works,
     jobType: survey.jobType,
@@ -266,6 +368,7 @@ function fallbackCostCentres(survey: SurveyRecord, reason: string): AiQuickPack 
   if (renewPipework) {
     return {
       summary: `${reason} Materials are itemised for supplier RFQ — lengths/sizes are provisional until markup confirms them.`,
+      clarifyingQuestions,
       costCentres: [
         {
           name: "Pipework removal",
@@ -297,6 +400,7 @@ function fallbackCostCentres(survey: SurveyRecord, reason: string): AiQuickPack 
   const name = `${path.intent.itemGroup} ${path.intent.workType}`.trim() || survey.jobType;
   return {
     summary: `${reason} Materials are itemised for supplier RFQ — review sizes and quantities before sending.`,
+    clarifyingQuestions,
     costCentres: [
       ensureItemisedMaterials({
         name,
@@ -336,6 +440,11 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
     };
   }
 
+  const answeredKeys = new Set(
+    survey.answers
+      .filter((answer) => String(answer.value || "").trim())
+      .map((answer) => answer.key),
+  );
   const model = openAi.model || "gpt-4.1-mini";
   const context = {
     reference: survey.reference,
@@ -344,6 +453,9 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
     customerName: survey.customerName,
     siteAddress: survey.siteAddress,
     evidenceCount: survey.photos.length,
+    answeredBuddyChecks: survey.answers
+      .filter((answer) => answer.section === "Buddy checks" && String(answer.value || "").trim())
+      .map((answer) => ({ key: answer.key, question: answer.question, answer: String(answer.value) })),
     photos: survey.photos.slice(0, 20).map((photo) => ({
       category: photo.category,
       caption: photo.caption,
@@ -353,13 +465,16 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
 
   const prompt = [
     "You are Buddy building a NeXa estimating pack for UK plumbing and heating.",
-    "From the works description and evidence metadata, propose cost centres.",
+    "From the works description, Buddy answers already given, and evidence metadata, propose cost centres.",
     "Each cost centre needs name, jobDescription, trade, materials[{description,quantity,unit}], labour[{description,hours,trade}].",
     "Materials are for a supplier RFQ: itemise specific products a merchant can price.",
     "NEVER use units or descriptions like lot, item, allowance, sundry, materials, pipework materials, or as required.",
     "Prefer concrete lines such as: Copper tube 15mm (m), 15mm elbow (nr), 15mm isolation valve (nr), pipe clips (nr), inhibitor (nr).",
     "If lengths/sizes are unknown, still list separate provisional lines and say provisional/TBC in the description — do not collapse into one lot.",
-    "Do not invent prices. Return JSON only with keys summary and costCentres.",
+    "Also return clarifyingQuestions[{key,question,why}] for anything still unclear that would change materials, labour or exclusions.",
+    "Ask only unanswered commercial/site questions. Skip anything already answered in answeredBuddyChecks.",
+    "If the description is clear enough, clarifyingQuestions can be an empty array.",
+    "Do not invent prices. Return JSON only with keys summary, costCentres and clarifyingQuestions.",
     JSON.stringify(context),
   ].join("\n");
 
@@ -375,7 +490,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "Return strict JSON only. Materials must be itemised merchant lines, never lots or allowances." },
+          { role: "system", content: "Return strict JSON only. Materials must be itemised merchant lines, never lots. Ask clarifyingQuestions when unsure." },
           { role: "user", content: prompt },
         ],
       }),
@@ -404,7 +519,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
         pack: fallbackCostCentres(survey, "OpenAI responded with an empty pack. Showing a rule-based draft instead."),
       };
     }
-    const parsed = JSON.parse(text) as { summary?: string; costCentres?: unknown };
+    const parsed = JSON.parse(text) as { summary?: string; costCentres?: unknown; clarifyingQuestions?: unknown };
     const costCentres = normaliseCostCentres(parsed.costCentres, survey.customerRequirements);
     if (!costCentres.length) {
       return {
@@ -422,6 +537,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
           ? parsed.summary.trim()
           : "AI cost centres prepared with itemised materials for supplier RFQ.",
         costCentres,
+        clarifyingQuestions: normaliseClarifyingQuestions(parsed.clarifyingQuestions, survey.customerRequirements, answeredKeys),
       },
     };
   } catch (error) {
@@ -693,7 +809,7 @@ export async function buildQuickCostCentrePack(
 ): Promise<QuickPackResult> {
   let survey = getSurvey(tenantId, surveyId);
   if (!survey) {
-    return { ok: false, status: 404, costCentres: [], aiUsed: false, aiConnected: false, summary: "", error: "Survey not found." };
+    return { ok: false, status: 404, costCentres: [], clarifyingQuestions: [], aiUsed: false, aiConnected: false, summary: "", error: "Survey not found." };
   }
   if (!survey.customerRequirements.trim()) {
     return {
@@ -701,6 +817,7 @@ export async function buildQuickCostCentrePack(
       status: 422,
       survey,
       costCentres: [],
+      clarifyingQuestions: clarifyingQuestionsForWorks("", new Set()),
       aiUsed: false,
       aiConnected: getTakeoffOpenAiConfig().connected,
       aiModel: getTakeoffOpenAiConfig().model,
@@ -761,6 +878,7 @@ export async function buildQuickCostCentrePack(
         status: updated.reason === "version_conflict" ? 409 : 422,
         survey,
         costCentres: [],
+        clarifyingQuestions: [],
         aiUsed: false,
         aiConnected: getTakeoffOpenAiConfig().connected,
         aiModel: getTakeoffOpenAiConfig().model,
@@ -773,6 +891,23 @@ export async function buildQuickCostCentrePack(
 
   const { pack, aiUsed, connected, error: aiError } = await generateCostCentresWithAi(survey);
   const openAi = getTakeoffOpenAiConfig();
+  const clarifyingQuestions = Array.isArray(pack.clarifyingQuestions)
+    ? pack.clarifyingQuestions
+    : clarifyingQuestionsForWorks(
+      survey.customerRequirements,
+      new Set(survey.answers.filter((answer) => String(answer.value || "").trim()).map((answer) => answer.key)),
+    );
+  const mergedAnswers = mergeBuddyAnswers(survey, clarifyingQuestions);
+  if (JSON.stringify(mergedAnswers) !== JSON.stringify(survey.answers)) {
+    const withAnswers = updateSurvey(tenantId, survey.id, { answers: mergedAnswers }, survey.version, actor, {
+      action: "Buddy checks prepared",
+      detail: clarifyingQuestions.length
+        ? `Buddy asked ${clarifyingQuestions.length} clarifying question(s).`
+        : "Buddy had no further clarifying questions.",
+    });
+    if (withAnswers.ok) survey = withAnswers.value;
+  }
+
   const estimate = ensureEstimate(tenantId, survey, pack.costCentres, pack.summary);
   saveEstimateRecord(tenantId, estimate);
 
@@ -831,6 +966,7 @@ export async function buildQuickCostCentrePack(
       estimateReference: estimate.reference,
       takeoffProjectId,
       costCentres: pack.costCentres,
+      clarifyingQuestions,
       aiUsed,
       aiConnected: connected,
       aiModel: openAi.model,
@@ -847,6 +983,7 @@ export async function buildQuickCostCentrePack(
     estimateReference: estimate.reference,
     takeoffProjectId,
     costCentres: pack.costCentres,
+    clarifyingQuestions,
     aiUsed,
     aiConnected: connected,
     aiModel: openAi.model,

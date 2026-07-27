@@ -297,7 +297,7 @@ export default function EstimatorPage() {
           <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa Estimator" />
           <span><strong>NeXa Estimator</strong><small>Survey to priced work package</small></span>
         </div>
-        <nav><a href="/"><ArrowLeft size={17} /> Core</a><a href="/survey/guided"><ClipboardList size={17} /> Surveys</a></nav>
+        <nav><a href="/"><ArrowLeft size={17} /> Core</a><a href="/survey"><ClipboardList size={17} /> Surveys</a></nav>
       </header>
 
       <div className="estimator-shell">
@@ -315,7 +315,7 @@ export default function EstimatorPage() {
 
         <section className="estimator-workspace">
           {loading ? <div className="estimator-loading"><Loader2 className="spin" size={24} /> Loading estimate</div> : null}
-          {!loading && !estimate ? <div className="estimator-loading"><Calculator size={28} /><strong>No estimate selected</strong><a href="/survey/guided">Open guided surveys</a></div> : null}
+          {!loading && !estimate ? <div className="estimator-loading"><Calculator size={28} /><strong>No estimate selected</strong><a href="/survey">Open surveys</a></div> : null}
           {estimate && totals ? (
             <>
               <div className="estimator-titlebar">
@@ -368,7 +368,7 @@ export default function EstimatorPage() {
               ) : null}
 
               {activeTab === "source" ? (
-                <div className="estimator-content"><section className="estimate-source"><div><h2>Source survey</h2><a href={`/survey/guided/${encodeURIComponent(estimate.surveyId)}`}>{survey?.reference || estimate.surveyId} · version {estimate.sourceSurveyVersion}</a><a className="estimate-pdf-link" href={`/api/surveys/${encodeURIComponent(estimate.surveyId)}/pdf`} target="_blank" rel="noreferrer"><Download size={15} /> Open branded survey PDF</a><p>Every generated line names the survey record or reusable assembly that produced it.</p></div><div><h2>Generation history</h2>{estimate.generationRuns.map((run) => <p key={`${run.id}-${run.completedAt}`}><strong>{new Date(run.completedAt).toLocaleString("en-GB")}</strong><span>{run.summary}</span></p>)}</div><div><h2>Manual corrections</h2>{estimate.corrections.length ? estimate.corrections.map((item) => <p key={item.id}><strong>{item.actor}</strong><span>{item.reason}</span></p>) : <p>No manual corrections recorded.</p>}</div></section></div>
+                <div className="estimator-content"><section className="estimate-source"><div><h2>Source survey</h2><a href={`/survey/${encodeURIComponent(estimate.surveyId)}`}>{survey?.reference || estimate.surveyId} · version {estimate.sourceSurveyVersion}</a><a className="estimate-pdf-link" href={`/api/surveys/${encodeURIComponent(estimate.surveyId)}/pdf`} target="_blank" rel="noreferrer"><Download size={15} /> Open branded survey PDF</a><p>Every generated line names the survey record or reusable assembly that produced it.</p></div><div><h2>Generation history</h2>{estimate.generationRuns.map((run) => <p key={`${run.id}-${run.completedAt}`}><strong>{new Date(run.completedAt).toLocaleString("en-GB")}</strong><span>{run.summary}</span></p>)}</div><div><h2>Manual corrections</h2>{estimate.corrections.length ? estimate.corrections.map((item) => <p key={item.id}><strong>{item.actor}</strong><span>{item.reason}</span></p>) : <p>No manual corrections recorded.</p>}</div></section></div>
               ) : null}
             </>
           ) : null}

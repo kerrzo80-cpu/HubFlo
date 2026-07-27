@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
+  Bot,
   Camera,
   CheckCircle2,
   ClipboardList,
@@ -15,7 +16,7 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
-import type { SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
+import type { SurveyAnswer, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
@@ -346,6 +347,24 @@ export default function SimpleSurveyWorkspacePage() {
   const boqHref = survey.legacyTakeoffProjectId
     ? `/takeoff?project=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
     : "/takeoff?tab=boq";
+  const buddyQuestions = survey.answers.filter((answer) => answer.section === "Buddy checks");
+  const openBuddyQuestions = buddyQuestions.filter((answer) => !String(answer.value || "").trim());
+
+  function updateBuddyAnswer(answer: SurveyAnswer, value: string) {
+    const current = surveyRef.current;
+    if (!current) return;
+    const nextAnswers = current.answers.map((item) => (
+      item.id === answer.id
+        ? {
+          ...item,
+          value,
+          status: value.trim() ? "Confirmed" as const : "TBC" as const,
+          updatedAt: new Date().toISOString(),
+        }
+        : item
+    ));
+    queuePatch({ answers: nextAnswers });
+  }
 
   return (
     <main className="survey-simple-app">
@@ -449,6 +468,35 @@ export default function SimpleSurveyWorkspacePage() {
             {generating ? "Building…" : costCentres.length ? "Rebuild cost centres" : "Generate cost centres"}
           </button>
         </div>
+
+        {buddyQuestions.length ? (
+          <section className="survey-simple-buddy">
+            <header>
+              <h2><Bot size={18} /> Buddy checks</h2>
+              <p>
+                {openBuddyQuestions.length
+                  ? `Buddy needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild.`
+                  : "Buddy’s checks are answered. Rebuild cost centres to tighten materials and labour."}
+              </p>
+            </header>
+            <div className="survey-simple-buddy-list">
+              {buddyQuestions.map((answer) => (
+                <label key={answer.id}>
+                  <span>
+                    <strong>{answer.question}</strong>
+                    {answer.notes ? <small>{answer.notes}</small> : null}
+                  </span>
+                  <textarea
+                    value={String(answer.value || "")}
+                    onChange={(event) => updateBuddyAnswer(answer, event.target.value)}
+                    placeholder="Type the site answer…"
+                    rows={2}
+                  />
+                </label>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {costCentres.length ? (
           <section className="survey-simple-centres">

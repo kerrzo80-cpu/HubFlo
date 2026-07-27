@@ -21054,7 +21054,7 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/survey/guided" className="context-link" aria-label="NeXa Surveyor" data-tooltip="NeXa Surveyor">
+          <a href="/survey" className="context-link" aria-label="NeXa Surveyor" data-tooltip="NeXa Surveyor">
             <Sparkles size={17} />
             <span>NeXa Surveyor</span>
           </a>
@@ -22700,7 +22700,7 @@ export default function Dashboard() {
               </div>
 
               <div className="addon-card-grid">
-                <a className="addon-product-card" href="/survey/guided">
+                <a className="addon-product-card" href="/survey">
                   <span className="addon-icon"><ClipboardCheck size={20} /></span>
                   <div>
                     <strong>NeXa Surveyor</strong>
