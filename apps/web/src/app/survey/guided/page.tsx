@@ -62,18 +62,21 @@ function GuidedSurveyDirectoryContent() {
       <section className="guided-directory-content">
         <div className="guided-directory-heading">
           <div>
-            <span className="guided-eyebrow">Primary survey path</span>
+            <span className="guided-eyebrow">Advanced capture</span>
             <h1>Guided surveys</h1>
-            <p>Capture site facts with Buddy, then generate an AI estimate pack for review before it reaches Core or simPRO.</p>
+            <p>Use the full step-by-step capture when you need detailed conditions, pipe runs and evidence checks. For most jobs, start on the simpler Survey page.</p>
           </div>
-          <button type="button" onClick={createSurvey} disabled={creating}>
-            {creating ? <Loader2 className="spin" size={17} /> : <Plus size={17} />}
-            New survey
-          </button>
+          <div className="guided-directory-actions">
+            <a className="guided-secondary-action" href="/survey">Simple Survey</a>
+            <button type="button" onClick={createSurvey} disabled={creating}>
+              {creating ? <Loader2 className="spin" size={17} /> : <Plus size={17} />}
+              New guided survey
+            </button>
+          </div>
         </div>
         {fromLegacy === "ai-surveyor" || fromLegacy === "survey-chat" ? (
           <p className="guided-notice">
-            Those older survey screens now open here. Use Guided Surveyor for capture, Ask Buddy for help, and Generate AI estimate pack on the review step.
+            Older survey screens now open here. Prefer the simpler Survey flow for uploads and AI cost centres, or continue with Guided Surveyor for detailed capture.
           </p>
         ) : null}
         {error ? <p className="guided-error">{error}</p> : null}

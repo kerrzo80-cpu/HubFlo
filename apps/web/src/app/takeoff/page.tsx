@@ -6494,20 +6494,25 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               ) : null}
 
               <section className="estimate-flow-strip" aria-label="Estimate workflow">
-                <button type="button" onClick={() => setActiveTab("surveyor")}>
+                <a href="/survey">
                   <span>1</span>
                   <strong>Survey</strong>
-                  <small>Guided survey, photos, LiDAR, heat loss</small>
-                </button>
+                  <small>Upload evidence and describe the works</small>
+                </a>
                 <button className={activeTab === "markup" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
-                  <strong>Takeoff</strong>
-                  <small>Drawings, specs and contractor BOQs</small>
+                  <strong>Markup</strong>
+                  <small>Mark up drawings and measured routes</small>
                 </button>
-                <button type="button" onClick={() => setActiveTab("review")}>
+                <button className={activeTab === "boq" ? "active" : ""} type="button" onClick={() => setActiveTab("boq")}>
                   <span>3</span>
-                  <strong>Estimate pack</strong>
-                  <small>Review cost centres before quote push</small>
+                  <strong>BoQ / RFQ</strong>
+                  <small>Quantities and supplier quote requests</small>
+                </button>
+                <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => setActiveTab("review")}>
+                  <span>4</span>
+                  <strong>Handoff</strong>
+                  <small>Review then push to Core quote</small>
                 </button>
               </section>
 
@@ -6515,18 +6520,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 <div>
                   <Sparkles size={20} />
                   <span>
-                    <strong>Office takeoff: documents in, estimate pack out</strong>
+                    <strong>Takeoff stays focused on markup and quantities</strong>
                     <small>
+                      Use Survey to upload evidence and generate cost centres. Mark up drawings here, then build the bill of quantities for supplier RFQ.
+                      {" "}
                       {selectedQuote
-                        ? `Linked to ${selectedQuote.ref}. Push estimate writes the reviewed BOQ into Core as quote cost centres.`
-                        : "Link this Takeoff to a Core quote first, then push the reviewed BOQ into that quote as cost centres."}
+                        ? `Linked to ${selectedQuote.ref}. Push estimate writes the reviewed BoQ into Core as quote cost centres.`
+                        : "Link this Takeoff to a Core quote first, then push the reviewed BoQ into that quote as cost centres."}
                     </small>
                   </span>
                 </div>
                 <div className="takeoff-ai-handoff-actions">
-                  <a className="takeoff-primary-button" href="/survey/guided">
+                  <a className="takeoff-primary-button" href="/survey">
                     <MessageCircle size={15} />
-                    Open Guided Survey
+                    Open Survey
                   </a>
                   <UploadButton
                     kind="LiDAR scan"

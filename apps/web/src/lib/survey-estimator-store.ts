@@ -575,6 +575,52 @@ export function getEstimate(tenantId: string, id: string) {
   return estimate ? clone(estimate) : undefined;
 }
 
+export function saveEstimateRecord(tenantId: string, estimate: EstimateRecord) {
+  ensureLegacyMigration();
+  const index = store.estimates.findIndex((item) => item.tenantId === tenantId && item.id === estimate.id);
+  if (index >= 0) store.estimates[index] = clone(estimate);
+  else store.estimates.unshift(clone(estimate));
+  persist();
+  return clone(estimate);
+}
+
+export function attachQuickPackToSurvey(
+  tenantId: string,
+  surveyId: string,
+  payload: {
+    estimateId: string;
+    takeoffProjectId: string;
+    expectedVersion?: number;
+    actor: string;
+    detail: string;
+  },
+): VersionedMutationResult<SurveyRecord> {
+  ensureLegacyMigration();
+  const index = store.surveys.findIndex((item) => item.tenantId === tenantId && (item.id === surveyId || item.reference === surveyId));
+  const current = index >= 0 ? store.surveys[index] : undefined;
+  if (!current) return { ok: false, reason: "not_found", message: "Survey not found." };
+  if (payload.expectedVersion !== undefined && payload.expectedVersion !== current.version) {
+    return { ok: false, reason: "version_conflict", current: clone(current), message: "This survey changed on another device. Reload before saving again." };
+  }
+  const updatedAt = nowIso();
+  const updated: SurveyRecord = {
+    ...current,
+    estimateId: payload.estimateId,
+    legacyTakeoffProjectId: payload.takeoffProjectId,
+    status: "Sent to estimator",
+    sentToEstimatorAt: updatedAt,
+    version: current.version + 1,
+    audit: [
+      ...current.audit,
+      audit(payload.actor, "Quick cost centres generated", payload.detail),
+    ].slice(-200),
+    updatedAt,
+  };
+  store.surveys[index] = updated;
+  persist();
+  return { ok: true, value: clone(updated) };
+}
+
 export function regenerateEstimate(
   tenantId: string,
   id: string,
