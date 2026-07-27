@@ -60,6 +60,8 @@ export type QuickPackResult = {
   takeoffProjectId?: string;
   costCentres: QuickCostCentre[];
   aiUsed: boolean;
+  aiConnected: boolean;
+  aiModel?: string;
   summary: string;
   error?: string;
 };
@@ -152,7 +154,7 @@ function normaliseCostCentres(raw: unknown): QuickCostCentre[] {
     .filter((item) => item.name && item.jobDescription);
 }
 
-function fallbackCostCentres(survey: SurveyRecord): AiQuickPack {
+function fallbackCostCentres(survey: SurveyRecord, reason: string): AiQuickPack {
   const intent = inferSurveyorIntent({
     text: survey.customerRequirements,
     jobType: survey.jobType,
@@ -162,7 +164,7 @@ function fallbackCostCentres(survey: SurveyRecord): AiQuickPack {
   const path = buildDynamicSurveyPath(intent);
   const name = `${path.intent.itemGroup} ${path.intent.workType}`.trim() || survey.jobType;
   return {
-    summary: "Rule-based cost centres prepared from the works description. Set OPENAI_API_KEY or NEXA_OPENAI_API_KEY in Render (the model name alone is not enough).",
+    summary: reason,
     costCentres: [
       {
         name,
@@ -183,28 +185,55 @@ function fallbackCostCentres(survey: SurveyRecord): AiQuickPack {
   };
 }
 
-async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: AiQuickPack; aiUsed: boolean }> {
+function extractChatText(body: unknown) {
+  if (!body || typeof body !== "object") return "";
+  const choices = (body as { choices?: unknown }).choices;
+  if (!Array.isArray(choices) || !choices[0] || typeof choices[0] !== "object") return "";
+  const message = (choices[0] as { message?: { content?: unknown } }).message;
+  return typeof message?.content === "string" ? message.content.trim() : "";
+}
+
+async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: AiQuickPack; aiUsed: boolean; connected: boolean; error?: string }> {
   const openAi = getTakeoffOpenAiConfig();
   const apiKey = openAi.apiKey;
-  if (!apiKey) return { pack: fallbackCostCentres(survey), aiUsed: false };
+  if (!apiKey) {
+    return {
+      connected: false,
+      aiUsed: false,
+      error: "OpenAI key missing on this Render service.",
+      pack: fallbackCostCentres(
+        survey,
+        "OpenAI is not connected on this live service. In Render → nexa-live → Environment, set OPENAI_API_KEY, then Manual Deploy / restart.",
+      ),
+    };
+  }
 
-  const model = openAi.model;
+  const model = openAi.model || "gpt-4.1-mini";
   const context = {
     reference: survey.reference,
     jobType: survey.jobType,
     customerRequirements: survey.customerRequirements,
     customerName: survey.customerName,
     siteAddress: survey.siteAddress,
-    photos: survey.photos.map((photo) => ({
+    evidenceCount: survey.photos.length,
+    photos: survey.photos.slice(0, 20).map((photo) => ({
       category: photo.category,
       caption: photo.caption,
       fileName: photo.fileName,
-      mimeType: photo.mimeType,
     })),
   };
 
+  const prompt = [
+    "You are Buddy building a simple NeXa estimating pack for UK plumbing and heating.",
+    "From the works description and evidence metadata, propose cost centres.",
+    "Each cost centre needs name, jobDescription, trade, materials[{description,quantity,unit}], labour[{description,hours,trade}].",
+    "Do not invent prices. Materials will go on a supplier quote request.",
+    "Return JSON only with keys summary and costCentres.",
+    JSON.stringify(context),
+  ].join("\n");
+
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -212,94 +241,47 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
       },
       body: JSON.stringify({
         model,
-        input: [
-          {
-            role: "system",
-            content: [{
-              type: "input_text",
-              text: [
-                "You are Buddy building a simple NeXa estimating pack for UK plumbing and heating.",
-                "From the works description and evidence metadata, propose cost centres.",
-                "Each cost centre needs a clear job description, materials list, and suggested labour hours.",
-                "Do not invent prices, supplier rates, or exact measured lengths you cannot see.",
-                "Materials will be sent on a supplier quote request, so omit costs.",
-                "Keep labour as practical hour allowances an estimator can review.",
-                "Return strict JSON only.",
-              ].join(" "),
-            }],
-          },
-          {
-            role: "user",
-            content: [{ type: "input_text", text: JSON.stringify(context) }],
-          },
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "Return strict JSON only for NeXa cost centres." },
+          { role: "user", content: prompt },
         ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "nexa_quick_cost_centres",
-            strict: true,
-            schema: {
-              type: "object",
-              additionalProperties: false,
-              properties: {
-                summary: { type: "string" },
-                costCentres: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      name: { type: "string" },
-                      jobDescription: { type: "string" },
-                      trade: {
-                        type: "string",
-                        enum: ["Plumbing/Heating", "Joinery", "Electrical", "Tiling/Flooring", "Painting", "Other"],
-                      },
-                      materials: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          additionalProperties: false,
-                          properties: {
-                            description: { type: "string" },
-                            quantity: { type: "number" },
-                            unit: { type: "string" },
-                          },
-                          required: ["description", "quantity", "unit"],
-                        },
-                      },
-                      labour: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          additionalProperties: false,
-                          properties: {
-                            description: { type: "string" },
-                            hours: { type: "number" },
-                            trade: { type: "string" },
-                          },
-                          required: ["description", "hours", "trade"],
-                        },
-                      },
-                    },
-                    required: ["name", "jobDescription", "trade", "materials", "labour"],
-                  },
-                },
-              },
-              required: ["summary", "costCentres"],
-            },
-          },
-        },
       }),
     });
-    if (!response.ok) return { pack: fallbackCostCentres(survey), aiUsed: false };
-    const body = await response.json();
-    const text = getOutputText(body);
-    if (!text) return { pack: fallbackCostCentres(survey), aiUsed: false };
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = typeof (body as { error?: { message?: string } }).error?.message === "string"
+        ? (body as { error: { message: string } }).error.message
+        : `OpenAI HTTP ${response.status}`;
+      return {
+        connected: true,
+        aiUsed: false,
+        error: detail,
+        pack: fallbackCostCentres(survey, `OpenAI key is present, but Buddy could not build the pack (${detail}). Showing a rule-based draft instead.`),
+      };
+    }
+    const text = extractChatText(body) || getOutputText(body);
+    if (!text) {
+      return {
+        connected: true,
+        aiUsed: false,
+        error: "Empty OpenAI response",
+        pack: fallbackCostCentres(survey, "OpenAI responded with an empty pack. Showing a rule-based draft instead."),
+      };
+    }
     const parsed = JSON.parse(text) as { summary?: string; costCentres?: unknown };
     const costCentres = normaliseCostCentres(parsed.costCentres);
-    if (!costCentres.length) return { pack: fallbackCostCentres(survey), aiUsed: false };
+    if (!costCentres.length) {
+      return {
+        connected: true,
+        aiUsed: false,
+        error: "No cost centres in OpenAI JSON",
+        pack: fallbackCostCentres(survey, "OpenAI returned no usable cost centres. Showing a rule-based draft instead."),
+      };
+    }
     return {
+      connected: true,
       aiUsed: true,
       pack: {
         summary: typeof parsed.summary === "string" && parsed.summary.trim()
@@ -308,8 +290,14 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
         costCentres,
       },
     };
-  } catch {
-    return { pack: fallbackCostCentres(survey), aiUsed: false };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "OpenAI request failed";
+    return {
+      connected: true,
+      aiUsed: false,
+      error: detail,
+      pack: fallbackCostCentres(survey, `Buddy hit an error talking to OpenAI (${detail}). Showing a rule-based draft instead.`),
+    };
   }
 }
 
@@ -571,7 +559,7 @@ export async function buildQuickCostCentrePack(
 ): Promise<QuickPackResult> {
   let survey = getSurvey(tenantId, surveyId);
   if (!survey) {
-    return { ok: false, status: 404, costCentres: [], aiUsed: false, summary: "", error: "Survey not found." };
+    return { ok: false, status: 404, costCentres: [], aiUsed: false, aiConnected: false, summary: "", error: "Survey not found." };
   }
   if (!survey.customerRequirements.trim()) {
     return {
@@ -580,6 +568,8 @@ export async function buildQuickCostCentrePack(
       survey,
       costCentres: [],
       aiUsed: false,
+      aiConnected: getTakeoffOpenAiConfig().connected,
+      aiModel: getTakeoffOpenAiConfig().model,
       summary: "",
       error: "Add a description of the works before generating cost centres.",
     };
@@ -638,6 +628,8 @@ export async function buildQuickCostCentrePack(
         survey,
         costCentres: [],
         aiUsed: false,
+        aiConnected: getTakeoffOpenAiConfig().connected,
+        aiModel: getTakeoffOpenAiConfig().model,
         summary: "",
         error: updated.message || "Unable to prepare the survey for a quick pack.",
       };
@@ -645,7 +637,8 @@ export async function buildQuickCostCentrePack(
     survey = updated.value;
   }
 
-  const { pack, aiUsed } = await generateCostCentresWithAi(survey);
+  const { pack, aiUsed, connected, error: aiError } = await generateCostCentresWithAi(survey);
+  const openAi = getTakeoffOpenAiConfig();
   const estimate = ensureEstimate(tenantId, survey, pack.costCentres, pack.summary);
   saveEstimateRecord(tenantId, estimate);
 
@@ -705,8 +698,10 @@ export async function buildQuickCostCentrePack(
       takeoffProjectId,
       costCentres: pack.costCentres,
       aiUsed,
+      aiConnected: connected,
+      aiModel: openAi.model,
       summary: pack.summary,
-      error: linked.message || "Cost centres were built, but the survey link could not be saved.",
+      error: linked.message || aiError || "Cost centres were built, but the survey link could not be saved.",
     };
   }
 
@@ -719,6 +714,9 @@ export async function buildQuickCostCentrePack(
     takeoffProjectId,
     costCentres: pack.costCentres,
     aiUsed,
+    aiConnected: connected,
+    aiModel: openAi.model,
     summary: pack.summary,
+    error: aiUsed ? undefined : aiError,
   };
 }

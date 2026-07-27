@@ -25,6 +25,13 @@ const requestHeaders: HeadersInit = {
 
 type SaveState = "Saved" | "Unsaved" | "Saving" | "Error";
 
+type AiStatus = {
+  connected: boolean;
+  model?: string;
+  source?: string;
+  keyName?: string;
+};
+
 function isLidarOrModel(photo: SurveyPhoto) {
   const haystack = `${photo.fileName} ${photo.mimeType} ${photo.caption}`.toLowerCase();
   return photo.category === "Measurement evidence"
@@ -46,9 +53,11 @@ export default function SimpleSurveyWorkspacePage() {
   const [saveState, setSaveState] = useState<SaveState>("Saved");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [costCentres, setCostCentres] = useState<QuickCostCentre[]>([]);
+  const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const surveyRef = useRef<SurveyRecord | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,6 +74,19 @@ export default function SimpleSurveyWorkspacePage() {
     });
     return { drawings, photos, scans };
   }, [survey]);
+
+  useEffect(() => {
+    async function loadAiStatus() {
+      try {
+        const response = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
+        if (!response.ok) return;
+        setAiStatus(await response.json() as AiStatus);
+      } catch {
+        // Status chip is optional; generate still reports the real outcome.
+      }
+    }
+    void loadAiStatus();
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -209,7 +231,8 @@ export default function SimpleSurveyWorkspacePage() {
         surveyRef.current = body.survey;
         setSurvey(body.survey);
       }
-      setNotice(`${files.length} file${files.length === 1 ? "" : "s"} added to the survey evidence.`);
+      setNoticeTone("ok");
+      setNotice(`${files.length} file${files.length === 1 ? "" : "s"} added.`);
       setSaveState("Saved");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload evidence.");
@@ -242,6 +265,8 @@ export default function SimpleSurveyWorkspacePage() {
         summary?: string;
         error?: string;
         aiUsed?: boolean;
+        aiConnected?: boolean;
+        aiModel?: string;
         estimateId?: string;
         takeoffProjectId?: string;
       };
@@ -249,11 +274,20 @@ export default function SimpleSurveyWorkspacePage() {
         setSurvey(body.survey);
         surveyRef.current = body.survey;
       }
+      if (typeof body.aiConnected === "boolean") {
+        setAiStatus((currentStatus) => ({
+          connected: body.aiConnected === true,
+          model: body.aiModel || currentStatus?.model,
+          source: currentStatus?.source,
+          keyName: currentStatus?.keyName,
+        }));
+      }
       if (!response.ok || !body.costCentres?.length) {
         throw new Error(body.error || "Unable to generate cost centres.");
       }
       setCostCentres(body.costCentres);
-      setNotice(body.summary || "Cost centres ready for review.");
+      setNoticeTone(body.aiUsed ? "ok" : "warn");
+      setNotice(body.summary || (body.aiUsed ? "Buddy built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "Unable to generate cost centres.");
     } finally {
@@ -289,6 +323,10 @@ export default function SimpleSurveyWorkspacePage() {
           </span>
         </div>
         <div className="survey-simple-top-actions">
+          <span className={`survey-simple-ai ${aiStatus?.connected ? "connected" : "missing"}`}>
+            <Sparkles size={14} />
+            {aiStatus == null ? "Checking AI…" : aiStatus.connected ? `AI ready · ${aiStatus.model || "OpenAI"}` : "AI key missing"}
+          </span>
           <span className={`survey-simple-save ${saveState.toLowerCase()}`}>
             {saveState === "Saving" ? <Loader2 className="spin" size={14} /> : saveState === "Saved" ? <CheckCircle2 size={14} /> : <Save size={14} />}
             {saveState}
@@ -299,11 +337,16 @@ export default function SimpleSurveyWorkspacePage() {
 
       <section className="survey-simple-stage">
         <div className="survey-simple-hero">
-          <h1>Build the job from evidence</h1>
-          <p>Upload drawings, photos, LiDAR or AR scans. Describe the works. Buddy drafts cost centres, materials for supplier RFQ, and suggested labour.</p>
+          <h1>Survey</h1>
+          <p>Evidence in, works description, then Buddy builds cost centres for markup and supplier RFQ.</p>
         </div>
 
-        {notice ? <p className="survey-simple-notice">{notice}</p> : null}
+        {aiStatus && !aiStatus.connected ? (
+          <p className="survey-simple-warning">
+            OpenAI is not connected on this live service. Set <code>{aiStatus.keyName || "OPENAI_API_KEY"}</code> on Render → nexa-live → Environment, then Manual Deploy.
+          </p>
+        ) : null}
+        {notice ? <p className={noticeTone === "warn" ? "survey-simple-warning" : "survey-simple-notice"}>{notice}</p> : null}
         {error ? <p className="survey-simple-error">{error}</p> : null}
 
         <div className="survey-simple-grid">
@@ -319,12 +362,12 @@ export default function SimpleSurveyWorkspacePage() {
 
         <div className="survey-simple-upload">
           <div>
-            <strong>Drawings, photos, LiDAR / AR</strong>
+            <strong>Evidence</strong>
             <p>{evidenceSummary.drawings} drawings · {evidenceSummary.photos} photos · {evidenceSummary.scans} scans</p>
           </div>
           <label className="survey-simple-upload-button">
             {uploading ? <Loader2 className="spin" size={17} /> : <Upload size={17} />}
-            Upload evidence
+            Upload
             <input
               hidden
               type="file"
@@ -354,24 +397,23 @@ export default function SimpleSurveyWorkspacePage() {
           <textarea
             value={survey.customerRequirements}
             onChange={(event) => queuePatch({ customerRequirements: event.target.value })}
-            placeholder="Example: Relocate the existing boiler to the utility cupboard, alter flow and return, renew the flue route, and move two radiators in the living room."
-            rows={5}
+            placeholder="Example: Rip out old pipework and renew. Relocate boiler, renew flue, move two radiators."
+            rows={4}
           />
         </label>
 
         <div className="survey-simple-cta-row">
           <button type="button" className="survey-simple-primary" disabled={generating || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
             {generating ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} />}
-            {generating ? "Building cost centres..." : costCentres.length ? "Rebuild cost centres" : "Generate cost centres"}
+            {generating ? "Building…" : costCentres.length ? "Rebuild cost centres" : "Generate cost centres"}
           </button>
-          <button type="button" onClick={() => void flushAutosave()}><Save size={16} /> Save</button>
         </div>
 
         {costCentres.length ? (
           <section className="survey-simple-centres">
             <header>
               <h2>Cost centres</h2>
-              <p>Materials have no prices yet — send them on the supplier quote request. Labour hours are suggestions to review.</p>
+              <p>Materials are unpriced for supplier RFQ. Labour hours are suggestions.</p>
             </header>
             {costCentres.map((centre) => (
               <article key={centre.name}>
@@ -419,8 +461,7 @@ export default function SimpleSurveyWorkspacePage() {
         <footer className="survey-simple-footer">
           <a className="survey-simple-primary-link" href={takeoffHref}><Ruler size={16} /> Mark up drawings</a>
           <a href={boqHref}><ClipboardList size={16} /> Bill of quantities</a>
-          {survey.estimateId ? <a href={`/estimator?estimate=${encodeURIComponent(survey.estimateId)}`}><Sparkles size={16} /> Open estimate / RFQ</a> : null}
-          <a href={`/survey/guided/${encodeURIComponent(survey.id)}`}>Advanced capture</a>
+          {survey.estimateId ? <a href={`/estimator?estimate=${encodeURIComponent(survey.estimateId)}`}><Sparkles size={16} /> Estimate / RFQ</a> : null}
         </footer>
       </section>
     </main>

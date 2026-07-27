@@ -25,6 +25,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       survey: result.survey,
       costCentres: result.costCentres,
       aiUsed: result.aiUsed,
+      aiConnected: result.aiConnected,
+      aiModel: result.aiModel,
       estimateId: result.estimateId,
       takeoffProjectId: result.takeoffProjectId,
     }, { status: result.status });
@@ -34,6 +36,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     ok: true,
     summary: result.summary,
     aiUsed: result.aiUsed,
+    aiConnected: result.aiConnected,
+    aiModel: result.aiModel,
+    error: result.error,
     survey: result.survey,
     estimateId: result.estimateId,
     estimateReference: result.estimateReference,

@@ -117,7 +117,7 @@ export default function SurveyDirectoryPage() {
         <div className="survey-simple-directory-head">
           <div>
             <h1>Surveys</h1>
-            <p>Upload drawings or site evidence, describe the works, and let Buddy draft cost centres with materials for supplier RFQ and suggested labour.</p>
+            <p>Upload evidence, describe the works, generate cost centres, then mark up drawings in Takeoffs.</p>
           </div>
           <div className="survey-simple-directory-actions">
             <label className="survey-simple-toggle">

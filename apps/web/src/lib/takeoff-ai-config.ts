@@ -2,7 +2,7 @@ import { openAiApiKeyEnvName, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 const STORE_NAME = "takeoff-ai-config";
-const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_MODEL = "gpt-4.1-mini";
 
 type StoredTakeoffAiConfig = {
   apiKey?: string;

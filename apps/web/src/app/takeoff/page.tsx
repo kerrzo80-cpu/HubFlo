@@ -6541,21 +6541,23 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 <div>
                   <Sparkles size={18} />
                   <span>
-                    <strong>Simple takeoff path</strong>
+                    <strong>Markup &amp; BoQ</strong>
                     <small>
-                      Survey builds the cost centres. Here you mark up drawings and confirm the BoQ / supplier RFQ list
+                      Mark up drawings, confirm quantities, then push to Core quote
                       {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
                     </small>
                   </span>
                 </div>
-                <div className="takeoff-simple-banner-actions">
-                  <button type="button" onClick={() => setActiveTab("intake")}><Upload size={15} /> Documents</button>
-                  <button type="button" onClick={() => setActiveTab("markup")}><Wrench size={15} /> Markup</button>
-                  <button type="button" onClick={() => setActiveTab("boq")}><PackageSearch size={15} /> BoQ / RFQ</button>
-                  <button type="button" disabled={isPushing || !selectedProject.linkedQuoteId} onClick={pushProject}>
-                    <Send size={15} />
-                    {isPushing ? "Pushing" : selectedProject.linkedQuoteId ? "Push to quote" : "Link quote first"}
-                  </button>
+                <div className={`takeoff-ai-status compact ${aiStatus?.connected ? "connected" : "missing"}`}>
+                  <Sparkles size={14} />
+                  <span>
+                    <strong>{aiStatus?.connected ? `AI ready · ${aiStatus.model}` : "AI key missing"}</strong>
+                    <small>
+                      {aiStatus?.connected
+                        ? "Survey cost centres and AI scan use this connection."
+                        : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live, then redeploy.`}
+                    </small>
+                  </span>
                 </div>
               </section>
 
@@ -6636,11 +6638,11 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <div className={`takeoff-ai-status ${aiStatus?.connected ? "connected" : "missing"}`}>
                       <Sparkles size={15} />
                       <span>
-                        <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected yet"}</strong>
+                        <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected"}</strong>
                         <small>
                           {aiStatus?.connected
-                            ? `AI scan will use ${aiStatus.model}${aiStatus.source === "local" ? " from local pilot settings" : ""}. ${aiReadyDocumentCount} of ${selectedProject.documents.length} file(s) are AI-ready.`
-                            : "Paste an OpenAI Platform API key below, then re-upload files for a live scan."}
+                            ? `AI scan uses ${aiStatus.model}${aiStatus.source === "local" ? " from local pilot settings" : ""}. ${aiReadyDocumentCount} of ${selectedProject.documents.length} file(s) are AI-ready.`
+                            : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live → Environment (model name alone is not enough), then Manual Deploy. You can also paste a key below for this service.`}
                         </small>
                       </span>
                       {!aiStatus?.connected ? (
