@@ -32,6 +32,23 @@ type AiStatus = {
   keyName?: string;
 };
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(`Empty response from server (HTTP ${response.status}).`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
+    throw new Error(
+      response.ok
+        ? `Server returned a non-JSON response. ${snippet}`
+        : `Upload failed (HTTP ${response.status}). ${snippet || "Try JPG/PNG, one photo at a time."}`,
+    );
+  }
+}
+
 function isLidarOrModel(photo: SurveyPhoto) {
   const haystack = `${photo.fileName} ${photo.mimeType} ${photo.caption}`.toLowerCase();
   return photo.category === "Measurement evidence"
@@ -42,7 +59,7 @@ function categoryForFile(file: File): SurveyPhotoCategory {
   const name = file.name.toLowerCase();
   if (/\.(pdf|dwg|dxf)$/.test(name) || file.type === "application/pdf") return "Other";
   if (/\.(json|usd|usdz|obj|glb|gltf|ply)$/.test(name) || file.type.startsWith("model/")) return "Measurement evidence";
-  if (file.type.startsWith("image/")) return "Existing condition";
+  if (file.type.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|heif|dng)$/.test(name)) return "Existing condition";
   return "Other";
 }
 
@@ -61,6 +78,7 @@ export default function SimpleSurveyWorkspacePage() {
   const surveyRef = useRef<SurveyRecord | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const evidenceSummary = useMemo(() => {
     if (!survey) return { drawings: 0, photos: 0, scans: 0 };
@@ -174,7 +192,7 @@ export default function SimpleSurveyWorkspacePage() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ expectedVersion: current.version, patch }),
       });
-      const body = await response.json() as SurveyRecord & { error?: string; current?: SurveyRecord };
+      const body = await readJsonResponse<SurveyRecord & { error?: string; current?: SurveyRecord }>(response);
       if (!response.ok) {
         if (response.status === 409 && body.current) {
           surveyRef.current = body.current;
@@ -210,27 +228,33 @@ export default function SimpleSurveyWorkspacePage() {
   async function uploadEvidence(event: ChangeEvent<HTMLInputElement>) {
     const files = event.target.files ? Array.from(event.target.files) : [];
     const current = await flushAutosave();
-    if (!current || !files.length) return;
+    if (!files.length) return;
+    if (!current) {
+      setError("Save the survey first, then try uploading again.");
+      event.target.value = "";
+      return;
+    }
     setUploading(true);
     setError("");
+    setNotice("");
     try {
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append("files", file);
-        formData.append("category", categoryForFile(file));
-        formData.append("caption", file.name);
-        formData.append("surveySection", "Evidence");
-        formData.append("expectedVersion", String(surveyRef.current?.version || current.version));
-        const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/photos`, {
-          method: "POST",
-          headers: requestHeaders,
-          body: formData,
-        });
-        const body = await response.json() as { survey?: SurveyRecord; error?: string };
-        if (!response.ok || !body.survey) throw new Error(body.error || `Unable to upload ${file.name}.`);
-        surveyRef.current = body.survey;
-        setSurvey(body.survey);
-      }
+      const formData = new FormData();
+      const primary = files[0];
+      if (!primary) throw new Error("Choose at least one photo or drawing.");
+      files.forEach((file) => formData.append("files", file, file.name || `photo-${Date.now()}.jpg`));
+      formData.append("category", categoryForFile(primary));
+      formData.append("caption", files.length === 1 ? (primary.name || "Site photo") : `${files.length} evidence files`);
+      formData.append("surveySection", "Evidence");
+      formData.append("expectedVersion", String(surveyRef.current?.version || current.version));
+      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/photos`, {
+        method: "POST",
+        headers: requestHeaders,
+        body: formData,
+      });
+      const body = await readJsonResponse<{ survey?: SurveyRecord; error?: string }>(response);
+      if (!response.ok || !body.survey) throw new Error(body.error || `Unable to upload evidence (HTTP ${response.status}).`);
+      surveyRef.current = body.survey;
+      setSurvey(body.survey);
       setNoticeTone("ok");
       setNotice(`${files.length} file${files.length === 1 ? "" : "s"} added.`);
       setSaveState("Saved");
@@ -258,7 +282,7 @@ export default function SimpleSurveyWorkspacePage() {
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ expectedVersion: current.version }),
       });
-      const body = await response.json() as {
+      const body = await readJsonResponse<{
         ok?: boolean;
         survey?: SurveyRecord;
         costCentres?: QuickCostCentre[];
@@ -269,7 +293,7 @@ export default function SimpleSurveyWorkspacePage() {
         aiModel?: string;
         estimateId?: string;
         takeoffProjectId?: string;
-      };
+      }>(response);
       if (body.survey) {
         setSurvey(body.survey);
         surveyRef.current = body.survey;
@@ -365,17 +389,23 @@ export default function SimpleSurveyWorkspacePage() {
             <strong>Evidence</strong>
             <p>{evidenceSummary.drawings} drawings · {evidenceSummary.photos} photos · {evidenceSummary.scans} scans</p>
           </div>
-          <label className="survey-simple-upload-button">
+          <button
+            type="button"
+            className="survey-simple-upload-button"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
             {uploading ? <Loader2 className="spin" size={17} /> : <Upload size={17} />}
-            Upload
-            <input
-              hidden
-              type="file"
-              multiple
-              accept="image/*,.pdf,.dwg,.dxf,.json,.usd,.usdz,.obj,.glb,.gltf,.ply,application/pdf,model/*"
-              onChange={(event) => void uploadEvidence(event)}
-            />
-          </label>
+            {uploading ? "Uploading…" : "Upload"}
+          </button>
+          <input
+            ref={fileInputRef}
+            hidden
+            type="file"
+            multiple
+            accept="image/*,image/heic,image/heif,.heic,.heif,.jpg,.jpeg,.png,.webp,.pdf,application/pdf"
+            onChange={(event) => void uploadEvidence(event)}
+          />
         </div>
 
         {survey.photos.length ? (
