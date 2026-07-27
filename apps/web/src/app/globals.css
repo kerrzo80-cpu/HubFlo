@@ -19986,7 +19986,23 @@ kbd,
 html,
 body {
   height: 100%;
+}
+
+/* Core shell owns scrolling; standalone apps (Survey/Estimator/Takeoff) must be able to scroll the page. */
+html:has(.platform),
+body:has(.platform) {
   overflow: hidden;
+}
+
+html:has(.survey-simple-app),
+body:has(.survey-simple-app),
+html:has(.survey-simple-loading),
+body:has(.survey-simple-loading) {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .platform {
@@ -32892,14 +32908,9 @@ body {
     radial-gradient(circle at top left, rgba(25, 152, 207, 0.16), transparent 34%),
     linear-gradient(180deg, #eef6f9 0%, #f7fbfd 42%, #f2f7f9 100%);
   color: var(--survey-ink);
-  /* Core locks html/body overflow; this page must be its own scroll container. */
-  height: 100dvh;
-  max-height: 100dvh;
-  min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
+  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
 }
 
 .survey-simple-topbar {
@@ -33269,13 +33280,9 @@ body {
   align-items: center;
   display: grid;
   gap: 12px;
-  height: 100dvh;
   justify-items: center;
-  max-height: 100dvh;
-  min-height: 100vh;
-  overflow-y: auto;
+  min-height: 100dvh;
   place-content: center;
-  -webkit-overflow-scrolling: touch;
 }
 
 .survey-simple-notice,

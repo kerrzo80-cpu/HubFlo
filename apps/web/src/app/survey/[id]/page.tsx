@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
+import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
@@ -41,6 +42,9 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
     return JSON.parse(text) as T;
   } catch {
     const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
+    if (response.status === 502 || /<!DOCTYPE html>|>\s*502\s*</i.test(text)) {
+      throw new Error("Upload failed on the live server (502). NeXa is compressing photos before upload — try again after refresh, one photo at a time.");
+    }
     throw new Error(
       response.ok
         ? `Server returned a non-JSON response. ${snippet}`
@@ -238,25 +242,32 @@ export default function SimpleSurveyWorkspacePage() {
     setError("");
     setNotice("");
     try {
-      const formData = new FormData();
-      const primary = files[0];
-      if (!primary) throw new Error("Choose at least one photo or drawing.");
-      files.forEach((file) => formData.append("files", file, file.name || `photo-${Date.now()}.jpg`));
-      formData.append("category", categoryForFile(primary));
-      formData.append("caption", files.length === 1 ? (primary.name || "Site photo") : `${files.length} evidence files`);
-      formData.append("surveySection", "Evidence");
-      formData.append("expectedVersion", String(surveyRef.current?.version || current.version));
-      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/photos`, {
-        method: "POST",
-        headers: requestHeaders,
-        body: formData,
-      });
-      const body = await readJsonResponse<{ survey?: SurveyRecord; error?: string }>(response);
-      if (!response.ok || !body.survey) throw new Error(body.error || `Unable to upload evidence (HTTP ${response.status}).`);
-      surveyRef.current = body.survey;
-      setSurvey(body.survey);
+      const prepared: File[] = [];
+      for (const file of files) {
+        prepared.push(await prepareSurveyEvidenceFile(file));
+      }
+      // One request per file keeps Render starter memory stable.
+      let latest = current;
+      for (const file of prepared) {
+        const formData = new FormData();
+        formData.append("files", file, file.name || `photo-${Date.now()}.jpg`);
+        formData.append("category", categoryForFile(file));
+        formData.append("caption", file.name || "Site photo");
+        formData.append("surveySection", "Evidence");
+        formData.append("expectedVersion", String(surveyRef.current?.version || latest.version));
+        const response = await fetch(`/api/surveys/${encodeURIComponent(latest.id)}/photos`, {
+          method: "POST",
+          headers: requestHeaders,
+          body: formData,
+        });
+        const body = await readJsonResponse<{ survey?: SurveyRecord; error?: string }>(response);
+        if (!response.ok || !body.survey) throw new Error(body.error || `Unable to upload evidence (HTTP ${response.status}).`);
+        latest = body.survey;
+        surveyRef.current = body.survey;
+        setSurvey(body.survey);
+      }
       setNoticeTone("ok");
-      setNotice(`${files.length} file${files.length === 1 ? "" : "s"} added.`);
+      setNotice(`${prepared.length} file${prepared.length === 1 ? "" : "s"} added.`);
       setSaveState("Saved");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload evidence.");
