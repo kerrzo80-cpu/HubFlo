@@ -33,6 +33,7 @@ import {
   buildDynamicSurveyPath,
   inferSurveyJobTypeFromText,
   inferSurveyorIntent,
+  reviewSurveyCompletion,
   surveyQuestionSetForJobType,
   surveyJobTypes,
   surveyorItemGroupLabels,
@@ -41,6 +42,7 @@ import {
   surveyorWorkTypes,
   type SurveyEvidenceConfidence,
   type SurveyAnswer,
+  type SurveyCompletionIssue,
   type SurveyCompletionReview,
   type SurveyEquipmentItem,
   type SurveyJobLink,
@@ -71,6 +73,32 @@ const steps = [
 ] as const;
 type StepKey = (typeof steps)[number]["key"];
 type SaveState = "Saved" | "Unsaved" | "Saving" | "Error";
+
+function stepForIssue(issue: SurveyCompletionIssue): StepKey {
+  switch (issue.section) {
+    case "Job details":
+      return "details";
+    case "Proposed scope":
+      return "scope";
+    case "Pipe runs":
+    case "Equipment":
+    case "Rooms and measurements":
+      return "measurements";
+    case "Photographs":
+      return "photos";
+    default:
+      return "conditions";
+  }
+}
+
+function outstandingIssues(review: SurveyCompletionReview) {
+  return [...review.blockers, ...review.pricingReadinessIssues, ...review.missingInformation];
+}
+
+function stepHasOutstandingIssues(review: SurveyCompletionReview, step: StepKey) {
+  if (step === "review") return !review.canComplete;
+  return outstandingIssues(review).some((issue) => stepForIssue(issue) === step);
+}
 
 type LinkOption = {
   type: SurveyJobLink["type"];
@@ -553,9 +581,22 @@ export default function GuidedSurveyPage() {
   }) : null, [survey, scopeDraft.taskType, scopeDraft.notes]);
   const surveyorPath = useMemo(() => surveyorIntent ? buildDynamicSurveyPath(surveyorIntent) : null, [surveyorIntent]);
   const currentStepIndex = steps.findIndex((step) => step.key === activeStep);
+  const liveReview = useMemo(() => (survey ? reviewSurveyCompletion(survey) : null), [survey]);
+  const displayedReview = review || liveReview;
+  const aiPackUnlocked = Boolean(
+    displayedReview?.canComplete
+    || displayedReview?.canSendToEstimator
+    || survey?.status === "Complete"
+    || survey?.status === "Sent to estimator",
+  );
   const takeoffRoomsHref = survey
     ? `/takeoff?tab=rooms&survey=${encodeURIComponent(survey.id)}${survey.legacyTakeoffProjectId ? `&project=${encodeURIComponent(survey.legacyTakeoffProjectId)}` : ""}`
     : "/takeoff?tab=rooms";
+
+  useEffect(() => {
+    if (!liveReview) return;
+    setReview(liveReview);
+  }, [liveReview]);
 
   function updateCustomerRequirement(value: string) {
     if (!survey) return;
@@ -598,9 +639,19 @@ export default function GuidedSurveyPage() {
 
       <div className="guided-survey-shell">
         <nav className="guided-step-nav" aria-label="Survey progress">
-          {steps.map((step, index) => {
+          {steps.map((step) => {
             const Icon = step.icon;
-            return <button className={step.key === activeStep ? "active" : index < currentStepIndex ? "done" : ""} type="button" key={step.key} onClick={() => void goToStep(step.key)}><span>{index < currentStepIndex ? <Check size={15} /> : <Icon size={16} />}</span><b>{step.label}</b></button>;
+            const incomplete = liveReview ? stepHasOutstandingIssues(liveReview, step.key) : step.key !== "review";
+            const isActive = step.key === activeStep;
+            const isDone = !incomplete && !isActive;
+            const needsAttention = incomplete && !isActive;
+            const className = isActive ? "active" : isDone ? "done" : needsAttention ? "attention" : "";
+            return (
+              <button className={className} type="button" key={step.key} onClick={() => void goToStep(step.key)}>
+                <span>{isDone ? <Check size={15} /> : needsAttention ? <AlertTriangle size={15} /> : <Icon size={16} />}</span>
+                <b>{step.label}</b>
+              </button>
+            );
           })}
         </nav>
 
@@ -868,14 +919,30 @@ export default function GuidedSurveyPage() {
 
           {activeStep === "review" ? (
             <section className="guided-review">
-              <div className="guided-review-banner" data-ready={review?.canSendToEstimator ? "true" : "false"}>{review?.canSendToEstimator ? <CheckCircle2 size={24} /> : <AlertTriangle size={24} />}<span><h2>{review?.canSendToEstimator ? "Ready for Estimator" : review?.canComplete ? "Survey captured; pricing information is still needed" : "Completion checks need attention"}</h2><p>Complete captures the site record. Estimator handoff also requires a clear customer outcome, structured scope and usable evidence.</p></span></div>
+              <div className="guided-review-banner" data-ready={displayedReview?.canSendToEstimator ? "true" : "false"}>
+                {displayedReview?.canSendToEstimator ? <CheckCircle2 size={24} /> : <AlertTriangle size={24} />}
+                <span>
+                  <h2>
+                    {displayedReview?.canSendToEstimator
+                      ? "Ready for Estimator"
+                      : displayedReview?.canComplete
+                        ? "Survey captured; pricing information is still needed"
+                        : "Completion checks need attention"}
+                  </h2>
+                  <p>
+                    {displayedReview?.canSendToEstimator
+                      ? "Complete captures the site record. Estimator handoff also requires a clear customer outcome, structured scope and usable evidence."
+                      : `${displayedReview?.blockers.length || 0} blocking · ${displayedReview?.missingInformation.length || 0} missing · ${displayedReview?.pricingReadinessIssues.length || 0} pricing. Green ticks only appear when a step is actually complete.`}
+                  </p>
+                </span>
+              </div>
               <div className="guided-review-groups">
-                <ReviewGroup title="Blocking items" tone="danger" items={review?.blockers.map((item) => item.message) || []} />
-                <ReviewGroup title="Pricing readiness" tone="danger" items={review?.pricingReadinessIssues.map((item) => item.message) || []} />
-                <ReviewGroup title="Missing information" items={review?.missingInformation.map((item) => item.message) || []} />
-                <ReviewGroup title="TBC items" items={review?.tbcItems.map((item) => item.message) || []} />
-                <ReviewGroup title="Design dependencies" items={review?.designDependencies.map((item) => item.message) || []} />
-                <ReviewGroup title="Supplier RFQs" items={review?.supplierRfqs.map((item) => item.message) || []} />
+                <ReviewGroup title="Blocking items" tone="danger" items={displayedReview?.blockers || []} onSelect={(step) => void goToStep(step)} />
+                <ReviewGroup title="Pricing readiness" tone="danger" items={displayedReview?.pricingReadinessIssues || []} onSelect={(step) => void goToStep(step)} />
+                <ReviewGroup title="Missing information" items={displayedReview?.missingInformation || []} onSelect={(step) => void goToStep(step)} />
+                <ReviewGroup title="TBC items" items={displayedReview?.tbcItems || []} onSelect={(step) => void goToStep(step)} />
+                <ReviewGroup title="Design dependencies" items={displayedReview?.designDependencies || []} onSelect={(step) => void goToStep(step)} />
+                <ReviewGroup title="Supplier RFQs" items={displayedReview?.supplierRfqs || []} onSelect={(step) => void goToStep(step)} />
               </div>
               <div className="guided-review-actions">
                 <button type="button" onClick={() => void loadReview()}><ClipboardCheck size={16} /> Refresh review</button>
@@ -884,23 +951,27 @@ export default function GuidedSurveyPage() {
                 <button
                   className="guided-primary-action guided-ai-pack-action"
                   type="button"
-                  disabled={aiPackBusy || !(review?.canComplete || review?.canSendToEstimator || survey.status === "Complete" || survey.status === "Sent to estimator")}
+                  disabled={aiPackBusy || !aiPackUnlocked}
                   onClick={() => void generateAiQuotePack()}
                 >
                   {aiPackBusy ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
                   {aiPackBusy ? "Building AI pack..." : survey.estimateId ? "Rebuild AI estimate pack" : "Generate AI estimate pack"}
                 </button>
                 {survey.status === "Complete" || survey.status === "Sent to estimator" ? (
-                  <button className="guided-secondary-action" type="button" disabled={!review?.canSendToEstimator || aiPackBusy} onClick={() => void sendToEstimator()}>
+                  <button className="guided-secondary-action" type="button" disabled={!displayedReview?.canSendToEstimator || aiPackBusy} onClick={() => void sendToEstimator()}>
                     <Send size={16} /> {survey.status === "Sent to estimator" ? "Update Estimator only" : "Send to Estimator only"}
                   </button>
                 ) : (
-                  <button className="guided-secondary-action" type="button" disabled={!review?.canComplete || aiPackBusy} onClick={() => void completeCurrentSurvey()}>
+                  <button className="guided-secondary-action" type="button" disabled={!displayedReview?.canComplete || aiPackBusy} onClick={() => void completeCurrentSurvey()}>
                     <CheckCircle2 size={16} /> Complete survey only
                   </button>
                 )}
               </div>
-              <p className="guided-ai-pack-hint">AI estimate pack uses Buddy plus NeXa estimating rules. It drafts scope, materials and labour for your review before anything goes to simPRO.</p>
+              {aiPackUnlocked ? (
+                <p className="guided-ai-pack-hint">AI estimate pack uses Buddy plus NeXa estimating rules. It drafts scope, materials and labour for your review before anything goes to simPRO.</p>
+              ) : (
+                <p className="guided-ai-pack-blocked">Generate AI estimate pack stays locked until blocking items are cleared. Tap any item above to jump back and finish that step.</p>
+              )}
             </section>
           ) : null}
 
@@ -915,6 +986,45 @@ export default function GuidedSurveyPage() {
   );
 }
 
-function ReviewGroup({ title, items, tone = "normal" }: { title: string; items: string[]; tone?: "normal" | "danger" }) {
-  return <section className={`guided-review-group ${tone}`}><header><strong>{title}</strong><b>{items.length}</b></header>{items.length ? <ul>{items.map((item, index) => <li key={`${title}-${index}`}>{item}</li>)}</ul> : <p>None</p>}</section>;
+function ReviewGroup({
+  title,
+  items,
+  tone = "normal",
+  onSelect,
+}: {
+  title: string;
+  items: SurveyCompletionIssue[];
+  tone?: "normal" | "danger";
+  onSelect?: (step: StepKey) => void;
+}) {
+  return (
+    <section className={`guided-review-group ${tone}`}>
+      <header>
+        <strong>{title}</strong>
+        <b>{items.length}</b>
+      </header>
+      {items.length ? (
+        <ul>
+          {items.map((item, index) => {
+            const step = stepForIssue(item);
+            const stepLabel = steps.find((entry) => entry.key === step)?.label || step;
+            return (
+              <li key={`${title}-${item.code}-${item.recordId || index}`}>
+                {onSelect ? (
+                  <button className="guided-review-jump" type="button" onClick={() => onSelect(step)}>
+                    <span>{item.message}</span>
+                    <small>Go to {stepLabel}</small>
+                  </button>
+                ) : (
+                  item.message
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p>None</p>
+      )}
+    </section>
+  );
 }

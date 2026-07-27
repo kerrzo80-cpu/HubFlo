@@ -859,6 +859,16 @@
   color: #167747;
 }
 
+.guided-step-nav button.attention {
+  color: #8c6514;
+}
+
+.guided-step-nav button.attention span {
+  background: #fff7e5;
+  border-color: #efd69d;
+  color: #8c6514;
+}
+
 .guided-workspace {
   min-width: 0;
   padding: 28px clamp(18px, 4vw, 52px) 60px;
@@ -1671,6 +1681,29 @@
   padding-left: 18px;
 }
 
+.guided-review-jump {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 2px;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.guided-review-jump:hover span {
+  color: var(--guided-blue-dark);
+  text-decoration: underline;
+}
+
+.guided-review-jump small {
+  color: var(--guided-blue);
+  font-size: 10px;
+}
+
 .guided-review-group p {
   color: #167747;
   font-size: 11px;
@@ -1685,12 +1718,17 @@
   margin-top: 18px;
 }
 
-.guided-ai-pack-hint {
+.guided-ai-pack-hint,
+.guided-ai-pack-blocked {
   color: #5d7582;
   font-size: 12px;
   line-height: 1.45;
   margin: 10px 0 0;
   text-align: right;
+}
+
+.guided-ai-pack-blocked {
+  color: #8c6514;
 }
 
 .guided-ai-pack-action {
