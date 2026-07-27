@@ -26142,6 +26142,26 @@ img.markup-document-preview {
   gap: 8px;
 }
 
+.takeoff-boq-next-step,
+.takeoff-empty-table-note {
+  color: var(--muted);
+  font-size: 13px;
+  grid-column: 1 / -1;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.takeoff-boq-next-step {
+  background: #eef7fb;
+  border: 1px solid #c7e0ea;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.takeoff-empty-table-note {
+  padding: 14px 4px 6px;
+}
+
 @media (max-width: 720px) {
   .takeoff-boq-hero-metrics {
     grid-template-columns: 1fr;
