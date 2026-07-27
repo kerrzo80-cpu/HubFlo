@@ -30622,6 +30622,8 @@ export default function Dashboard() {
                         <span className="setup-status-label">
                           {emailIntegrationStatus?.lastTestMessageId
                             ? `${emailIntegrationStatus.provider} test sent`
+                            : emailIntegrationStatus?.lastError
+                              ? `${emailIntegrationStatus.provider} test failed`
                             : emailIntegrationStatus?.configured
                               ? `${emailIntegrationStatus.provider} saved, not tested`
                               : "Setup required"}
