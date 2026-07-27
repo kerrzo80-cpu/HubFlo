@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  Bot,
   Building2,
   CalendarDays,
   Check,
@@ -1850,6 +1851,31 @@ type EmployeeProfileDraft = {
 type LoginDraft = {
   username: string;
   password: string;
+};
+
+type NexaAssistantAction = {
+  id: string;
+  kind: "confirm_booking";
+  title: string;
+  detail: string;
+  confirmLabel: string;
+};
+
+type NexaAssistantMessage = {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+  action?: NexaAssistantAction;
+  aiUsed?: boolean;
+};
+
+type NexaAssistantApiResponse = {
+  reply?: string;
+  error?: string;
+  action?: NexaAssistantAction;
+  aiUsed?: boolean;
+  assignment?: JobScheduleAssignment;
+  jobId?: string;
 };
 
 type ServerAuthUser = {
@@ -6716,6 +6742,16 @@ export default function Dashboard() {
   const [editingPurchaseRequestId, setEditingPurchaseRequestId] = useState<string | null>(null);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
+  const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
+  const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
+  const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
+  const [nexaAssistantMessages, setNexaAssistantMessages] = useState<NexaAssistantMessage[]>([
+    {
+      id: "nexa-assistant-welcome",
+      role: "assistant",
+      text: "Ask me about the live team diary. I can check availability and prepare a job booking for you to confirm.",
+    },
+  ]);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
@@ -10883,6 +10919,97 @@ export default function Dashboard() {
     noticeClearTimeout.current = setTimeout(() => setSectionNotice(null), 4200);
   }
 
+  async function sendNexaAssistantMessage() {
+    const message = nexaAssistantDraft.trim();
+    if (!message || nexaAssistantBusy) return;
+    const userMessage: NexaAssistantMessage = {
+      id: `nexa-user-${crypto.randomUUID()}`,
+      role: "user",
+      text: message,
+    };
+    setNexaAssistantMessages((current) => [...current, userMessage]);
+    setNexaAssistantDraft("");
+    setNexaAssistantBusy(true);
+    try {
+      const response = await fetch("/api/nexa-assistant", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      const result = (await response.json()) as NexaAssistantApiResponse;
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `nexa-assistant-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: result.reply || result.error || "NeXa could not complete that request.",
+          action: result.action,
+          aiUsed: result.aiUsed,
+        },
+      ]);
+    } catch {
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `nexa-assistant-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: "I could not reach the live NeXa schedule. Nothing was changed.",
+        },
+      ]);
+    } finally {
+      setNexaAssistantBusy(false);
+    }
+  }
+
+  async function confirmNexaAssistantBooking(action: NexaAssistantAction) {
+    if (nexaAssistantBusy) return;
+    setNexaAssistantBusy(true);
+    try {
+      const response = await fetch("/api/nexa-assistant", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmActionId: action.id }),
+      });
+      const result = (await response.json()) as NexaAssistantApiResponse;
+      setNexaAssistantMessages((current) => [
+        ...current.map((message) =>
+          message.action?.id === action.id ? { ...message, action: undefined } : message,
+        ),
+        {
+          id: `nexa-assistant-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: result.reply || result.error || "The booking was not created.",
+        },
+      ]);
+      if (response.ok) {
+        if (result.assignment) {
+          setJobSchedulePlans((current) => ({
+            ...current,
+            [result.assignment!.jobId]: [
+              ...(current[result.assignment!.jobId] ?? []).filter((item) => item.id !== result.assignment!.id),
+              result.assignment!,
+            ].sort((first, second) =>
+              `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`),
+            ),
+          }));
+        }
+        await refreshCoreWorkflowRecords();
+        showNotice("Live schedule updated by NeXa Assistant.");
+      }
+    } catch {
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `nexa-assistant-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: "The live booking could not be saved. Nothing was changed.",
+        },
+      ]);
+    } finally {
+      setNexaAssistantBusy(false);
+    }
+  }
+
   async function refreshCoreWorkflowRecords() {
     const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse] = await Promise.all([
       fetch("/api/clients", { headers: requestHeaders }),
@@ -12920,10 +13047,10 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
-  async function saveCurrentRecord() {
+  async function saveCurrentRecord(): Promise<boolean> {
     if (!activeRecordFingerprint) {
       showNotice("Open a lead, quote, job or invoice before saving.");
-      return;
+      return false;
     }
 
     setRecordSaveStatus("saving");
@@ -12969,11 +13096,34 @@ export default function Dashboard() {
       setRecordSaveStatus("saved");
       setSectionError(null);
       showNotice("Saved to NeXa.");
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save this record right now.";
       setRecordSaveStatus("error");
       setSectionError(message);
       showNotice(message);
+      return false;
+    }
+  }
+
+  async function saveCurrentCostCentreAndFinish(returnToRecord: () => void) {
+    const saved = await saveCurrentRecord();
+    if (saved) returnToRecord();
+  }
+
+  async function recheckXeroConfiguration() {
+    try {
+      const response = await fetch("/api/integrations/xero/status", { headers: requestHeaders });
+      if (!response.ok) throw new Error("Xero configuration check failed.");
+      const status = (await response.json()) as XeroConnectionStatus;
+      setXeroConnectionStatus(status);
+      showNotice(
+        status.configured
+          ? "Xero credentials are present. Live invoice export is not enabled yet."
+          : `Xero is blocked: missing ${status.missing.join(", ") || "required credentials"}.`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to check Xero configuration.");
     }
   }
 
@@ -13119,7 +13269,7 @@ export default function Dashboard() {
     setHomeView("settings");
     setActiveSetupSubItem(null);
     scrollWorkspaceToTop();
-    showNotice(`${item} settings are handled through Setup in this prototype.`);
+    showNotice(`${item} settings are managed through Setup.`);
   }
 
   function scrollToWorkspaceSection(sectionId: string) {
@@ -13748,7 +13898,7 @@ export default function Dashboard() {
       lines: nextLines,
       costTotal: nextLines.reduce((sum, line) => line.costToUs + sum, 0),
       chargeTotal: nextLines.reduce((sum, line) => line.chargeToClient + sum, 0),
-      accountsStatus: "Queued",
+      accountsStatus: "Not sent",
       paymentStatus: "Unpaid",
       paidAmount: 0,
     };
@@ -13775,7 +13925,7 @@ export default function Dashboard() {
       importance: "high",
     });
     setActiveInvoiceFolderKey("unpaid");
-    showNotice(`${applicationRef} approved. Invoice ${nextRef} created, marked unpaid and queued for Xero.`);
+    showNotice(`${applicationRef} approved. Invoice ${nextRef} created and marked unpaid. Xero export is not enabled yet.`);
   }
 
   function amendSelectedValuation() {
@@ -13801,25 +13951,6 @@ export default function Dashboard() {
     });
     setActiveInvoiceFolderKey("valuations");
     showNotice(`${selectedInvoice.ref} reopened. Amend the agreed values, then resubmit or approve.`);
-  }
-
-  function queueSelectedInvoiceToAccounts() {
-    if (!selectedInvoice || selectedInvoice.claimType === "valuation") return;
-    markInvoiceEdited();
-    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
-      ? { ...invoice, accountsStatus: "Queued" }
-      : invoice,
-    ));
-    logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
-      action: "queued for accounts",
-      recordType: "invoice",
-      recordId: selectedInvoice.id,
-      summary: `${selectedInvoice.ref} queued for the accounts connector.`,
-      source: "accounts handoff",
-      importance: "high",
-    });
-    showNotice(`${selectedInvoice.ref} queued. Connect Xero in Setup before live export.`);
   }
 
   function updateSelectedInvoicePayment(paymentStatus: InvoicePaymentStatus) {
@@ -20607,6 +20738,14 @@ export default function Dashboard() {
             <Bell size={18} />
             <span className="alert-dot" />
           </button>
+          <button
+            className={nexaAssistantOpen ? "header-icon nexa-assistant-trigger active" : "header-icon nexa-assistant-trigger"}
+            aria-label="Open NeXa Assistant"
+            title="Ask NeXa"
+            onClick={() => setNexaAssistantOpen((current) => !current)}
+          >
+            <Bot size={19} />
+          </button>
           <button className="create-button" aria-label="Open create menu" onClick={openCreateMenu}>
             <Plus size={17} />
             <span>Create</span>
@@ -20632,6 +20771,77 @@ export default function Dashboard() {
           </button>
         </div>
       </header>
+
+      {nexaAssistantOpen ? (
+        <>
+          <button
+            className="nexa-assistant-backdrop"
+            aria-label="Close NeXa Assistant"
+            onClick={() => setNexaAssistantOpen(false)}
+          />
+          <aside className="nexa-assistant-panel" aria-label="NeXa Assistant">
+            <header>
+              <div>
+                <span className="nexa-assistant-mark"><Bot size={18} /></span>
+                <div>
+                  <strong>Ask NeXa</strong>
+                  <small>Live diary and scheduling</small>
+                </div>
+              </div>
+              <button className="icon-button" aria-label="Close NeXa Assistant" onClick={() => setNexaAssistantOpen(false)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="nexa-assistant-messages" aria-live="polite">
+              {nexaAssistantMessages.map((message) => (
+                <article className={`nexa-assistant-message ${message.role}`} key={message.id}>
+                  <p>{message.text}</p>
+                  {message.action ? (
+                    <div className="nexa-assistant-action">
+                      <strong>{message.action.title}</strong>
+                      <span>{message.action.detail}</span>
+                      <button
+                        className="primary-button"
+                        disabled={nexaAssistantBusy}
+                        onClick={() => void confirmNexaAssistantBooking(message.action!)}
+                      >
+                        <Check size={15} />
+                        {message.action.confirmLabel}
+                      </button>
+                    </div>
+                  ) : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with NeXa AI · verified against live data</small> : null}
+                </article>
+              ))}
+              {nexaAssistantBusy ? <p className="nexa-assistant-thinking">Checking the live workspace...</p> : null}
+            </div>
+            <form
+              className="nexa-assistant-composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendNexaAssistantMessage();
+              }}
+            >
+              <textarea
+                aria-label="Ask NeXa a question"
+                placeholder="Is Murray available on Tuesday 27 May next year?"
+                value={nexaAssistantDraft}
+                onChange={(event) => setNexaAssistantDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendNexaAssistantMessage();
+                  }
+                }}
+              />
+              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to NeXa">
+                <Send size={17} />
+              </button>
+            </form>
+            <small className="nexa-assistant-safety">Bookings are only written after you confirm the review card.</small>
+          </aside>
+        </>
+      ) : null}
 
       <nav className="module-bar" aria-label="Main modules">
         <button className="mobile-menu" aria-label="Open navigation" onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}>
@@ -20724,7 +20934,7 @@ export default function Dashboard() {
                 } else {
                   setHomeView("settings");
                   setActiveSetupSubItem(null);
-                  showNotice(`${module.label} configuration opens through Setup in this prototype.`);
+                  showNotice(`${module.label} configuration opens through Setup.`);
                 }
                 closeContextSidebarOnMobile();
                 scrollWorkspaceToTop();
@@ -23973,7 +24183,14 @@ export default function Dashboard() {
                   </div>
                   <div className="simpro-title-actions">
                     <button className="simpro-grey-button" type="button" onClick={returnToQuoteRecord}>CANCEL</button>
-                    <button className="simpro-save-button" type="button" onClick={() => showNotice("Cost centre saved locally in this prototype.")}>SAVE AND FINISH</button>
+                    <button
+                      className="simpro-save-button"
+                      type="button"
+                      disabled={recordSaveStatus === "saving"}
+                      onClick={() => void saveCurrentCostCentreAndFinish(returnToQuoteRecord)}
+                    >
+                      {recordSaveStatus === "saving" ? "SAVING..." : "SAVE AND FINISH"}
+                    </button>
                   </div>
                 </div>
 
@@ -27109,7 +27326,14 @@ export default function Dashboard() {
                   </div>
                   <div className="simpro-title-actions">
                     <button className="simpro-grey-button" type="button" onClick={returnToJobRecord}>CANCEL</button>
-                    <button className="simpro-save-button" type="button" onClick={() => showNotice("Estimate saved locally in this prototype.")}>SAVE AND FINISH</button>
+                    <button
+                      className="simpro-save-button"
+                      type="button"
+                      disabled={recordSaveStatus === "saving"}
+                      onClick={() => void saveCurrentCostCentreAndFinish(returnToJobRecord)}
+                    >
+                      {recordSaveStatus === "saving" ? "SAVING..." : "SAVE AND FINISH"}
+                    </button>
                   </div>
                 </div>
 
@@ -28646,15 +28870,23 @@ export default function Dashboard() {
                           <div><span>Claim type</span><strong>{selectedInvoice.claimType === "deposit" ? `${selectedInvoice.claimPercent ?? 0}% deposit` : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice in full"}</strong></div>
                           <div><span>Payment status</span><strong>{selectedInvoice.paymentStatus ?? "Unpaid"}</strong></div>
                           <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
-                          <div><span>Connector</span><strong>Xero · Not connected</strong></div>
+                          <div>
+                            <span>Connector</span>
+                            <strong>{xeroConnectionStatus?.configured ? "Xero · credentials detected" : "Xero · not configured"}</strong>
+                          </div>
                         </div>
                         <footer>
-                          <small>Queueing preserves this handoff. Live export and payment reconciliation will switch on when the Xero connection is configured in Setup.</small>
+                          <small>Live Xero export is not enabled yet. This invoice remains in NeXa and no external send is claimed.</small>
                           <div>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Mark part paid</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Mark paid</button>
-                            <button className="primary-button" type="button" onClick={queueSelectedInvoiceToAccounts} disabled={selectedInvoice.accountsStatus === "Queued"}>
-                              Queue for Xero
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled
+                              title="Live Xero invoice export must be completed before this control can be used."
+                            >
+                              Xero export unavailable
                             </button>
                           </div>
                         </footer>
@@ -30736,14 +30968,14 @@ export default function Dashboard() {
 	                          <header>
 	                            <div>
 	                              <span>Xero</span>
-	                              <strong>{xeroConnectionStatus?.configured ? "Accounts connection ready" : "Accounts setup required"}</strong>
+	                              <strong>{xeroConnectionStatus?.configured ? "Credentials detected" : "Accounts setup required"}</strong>
 	                            </div>
 	                            <button
 	                              className="secondary-button"
 	                              type="button"
-	                              onClick={() => updateIntegrationSettings({ xeroLastSync: new Date().toISOString() })}
+	                              onClick={() => void recheckXeroConfiguration()}
 	                            >
-	                              Mark sync checked
+	                              Recheck configuration
 	                            </button>
 	                          </header>
 	                          <div className="setup-form-grid">
@@ -30777,7 +31009,7 @@ export default function Dashboard() {
 	                          </div>
 	                          <small>
 	                            {xeroConnectionStatus?.configured
-	                              ? "Render can see the required Xero OAuth settings. Invoice export and payment reconciliation can be wired next."
+	                              ? "Render can see the required Xero OAuth settings. Live invoice export is not enabled, so NeXa will not claim an invoice was sent."
 	                              : `Missing ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_TENANT_ID"}.`}
 	                          </small>
 	                          <div className="setup-readiness-grid setup-sync-grid">
@@ -31231,14 +31463,14 @@ export default function Dashboard() {
                           <header>
                             <div>
                               <span>Xero</span>
-                              <strong>{integrationSettings.xeroMode}</strong>
+                              <strong>{xeroConnectionStatus?.configured ? "Credentials detected" : "Not configured"}</strong>
                             </div>
                             <button
                               className="secondary-button"
                               type="button"
-                              onClick={() => updateIntegrationSettings({ xeroLastSync: new Date().toISOString() })}
+                              onClick={() => void recheckXeroConfiguration()}
                             >
-                              Mark sync checked
+                              Recheck configuration
                             </button>
                           </header>
                           <div className="setup-form-grid">
