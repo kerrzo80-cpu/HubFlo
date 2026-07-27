@@ -15,6 +15,18 @@ export type EmailIntegrationInput = {
   secure?: boolean;
 };
 
+export type OutboundEmailInput = {
+  to: string;
+  cc?: string;
+  subject: string;
+  text: string;
+  attachments?: Array<{
+    filename: string;
+    content: Buffer;
+    contentType: string;
+  }>;
+};
+
 type EmailIntegrationStore = {
   provider: EmailProvider;
   senderEmail: string;
@@ -26,6 +38,8 @@ type EmailIntegrationStore = {
   lastTestedAt?: string;
   lastTestRecipient?: string;
   lastTestMessageId?: string;
+  lastSentAt?: string;
+  lastSentMessageId?: string;
   lastError?: string;
 };
 
@@ -41,6 +55,8 @@ export type EmailIntegrationStatus = {
   lastTestedAt?: string;
   lastTestRecipient?: string;
   lastTestMessageId?: string;
+  lastSentAt?: string;
+  lastSentMessageId?: string;
   lastError?: string;
 };
 
@@ -109,6 +125,8 @@ function sanitizeStore(store: EmailIntegrationStore): EmailIntegrationStatus {
     lastTestedAt: store.lastTestedAt,
     lastTestRecipient: store.lastTestRecipient,
     lastTestMessageId: store.lastTestMessageId,
+    lastSentAt: store.lastSentAt,
+    lastSentMessageId: store.lastSentMessageId,
     lastError: store.lastError,
   };
 }
@@ -119,18 +137,32 @@ export function getEmailIntegrationStatus() {
 
 export function saveEmailIntegrationSettings(input: EmailIntegrationInput) {
   const defaults = defaultProviderHosts[input.provider];
+  const nextHost = input.smtpHost?.trim() || defaults.host;
+  const nextPort = input.smtpPort && Number.isFinite(input.smtpPort) ? input.smtpPort : defaults.port;
+  const nextSecure = input.secure ?? defaults.secure;
+  const connectionChanged = Boolean(
+    input.secret.trim()
+    || input.provider !== emailIntegrationStore.provider
+    || input.senderEmail.trim() !== emailIntegrationStore.senderEmail
+    || input.username.trim() !== emailIntegrationStore.username
+    || nextHost !== emailIntegrationStore.smtpHost
+    || nextPort !== emailIntegrationStore.smtpPort
+    || nextSecure !== emailIntegrationStore.secure,
+  );
   const next: EmailIntegrationStore = {
     provider: input.provider,
     senderEmail: input.senderEmail.trim(),
     username: input.username.trim(),
     encryptedSecret: input.secret.trim() ? encryptSecret(input.secret.trim()) : emailIntegrationStore.encryptedSecret,
-    smtpHost: input.smtpHost?.trim() || defaults.host,
-    smtpPort: input.smtpPort && Number.isFinite(input.smtpPort) ? input.smtpPort : defaults.port,
-    secure: input.secure ?? defaults.secure,
-    lastTestedAt: emailIntegrationStore.lastTestedAt,
-    lastTestRecipient: emailIntegrationStore.lastTestRecipient,
-    lastTestMessageId: emailIntegrationStore.lastTestMessageId,
-    lastError: emailIntegrationStore.lastError,
+    smtpHost: nextHost,
+    smtpPort: nextPort,
+    secure: nextSecure,
+    lastTestedAt: connectionChanged ? undefined : emailIntegrationStore.lastTestedAt,
+    lastTestRecipient: connectionChanged ? undefined : emailIntegrationStore.lastTestRecipient,
+    lastTestMessageId: connectionChanged ? undefined : emailIntegrationStore.lastTestMessageId,
+    lastSentAt: emailIntegrationStore.lastSentAt,
+    lastSentMessageId: emailIntegrationStore.lastSentMessageId,
+    lastError: connectionChanged ? undefined : emailIntegrationStore.lastError,
   };
   Object.assign(emailIntegrationStore, next);
   persist(emailIntegrationStore);
@@ -142,13 +174,13 @@ export function clearEmailIntegrationError() {
   persist(emailIntegrationStore);
 }
 
-export async function testEmailIntegrationConnection() {
+function configuredTransport() {
   const secret = decryptSecret(emailIntegrationStore.encryptedSecret);
   if (!emailIntegrationStore.senderEmail.trim() || !emailIntegrationStore.username.trim() || !secret.trim()) {
-    throw new Error("Add the sender email, username and app password before testing.");
+    throw new Error("Add the sender email, username and app password before sending.");
   }
 
-  const transport = nodemailer.createTransport({
+  return nodemailer.createTransport({
     host: emailIntegrationStore.smtpHost,
     port: emailIntegrationStore.smtpPort,
     secure: emailIntegrationStore.secure,
@@ -161,29 +193,36 @@ export async function testEmailIntegrationConnection() {
     greetingTimeout: 10_000,
     socketTimeout: 15_000,
   });
+}
 
+export async function sendEmailMessage(input: OutboundEmailInput) {
+  if (!input.to.trim() || !input.subject.trim() || !input.text.trim()) {
+    throw new Error("Recipient, subject and message are required.");
+  }
+  const transport = configuredTransport();
   try {
     await transport.verify();
     const sent = await transport.sendMail({
       from: emailIntegrationStore.senderEmail,
-      to: emailIntegrationStore.senderEmail,
-      subject: "NeXa email connection test",
-      text: [
-        "This test email was sent by NeXa.",
-        "",
-        `Provider: ${emailIntegrationStore.provider}`,
-        `Sent: ${new Date().toISOString()}`,
-        "",
-        "Receiving this message confirms that NeXa authenticated with your email provider and sent successfully.",
-      ].join("\n"),
+      to: input.to.trim(),
+      cc: input.cc?.trim() || undefined,
+      subject: input.subject.trim(),
+      text: input.text,
+      attachments: input.attachments,
     });
 
-    emailIntegrationStore.lastTestedAt = new Date().toISOString();
-    emailIntegrationStore.lastTestRecipient = emailIntegrationStore.senderEmail;
-    emailIntegrationStore.lastTestMessageId = sent.messageId;
+    emailIntegrationStore.lastSentAt = new Date().toISOString();
+    emailIntegrationStore.lastSentMessageId = sent.messageId;
     emailIntegrationStore.lastError = undefined;
     persist(emailIntegrationStore);
-    return sanitizeStore(emailIntegrationStore);
+    return {
+      provider: emailIntegrationStore.provider,
+      from: emailIntegrationStore.senderEmail,
+      messageId: sent.messageId,
+      accepted: sent.accepted.map(String),
+      rejected: sent.rejected.map(String),
+      sentAt: emailIntegrationStore.lastSentAt,
+    };
   } catch (error) {
     emailIntegrationStore.lastError = error instanceof Error ? error.message : "Email authentication or send failed.";
     persist(emailIntegrationStore);
@@ -191,4 +230,24 @@ export async function testEmailIntegrationConnection() {
   } finally {
     transport.close();
   }
+}
+
+export async function testEmailIntegrationConnection() {
+  const result = await sendEmailMessage({
+    to: emailIntegrationStore.senderEmail,
+    subject: "NeXa email connection test",
+    text: [
+      "This test email was sent by NeXa.",
+      "",
+      `Provider: ${emailIntegrationStore.provider}`,
+      `Sent: ${new Date().toISOString()}`,
+      "",
+      "Receiving this message confirms that NeXa authenticated with your email provider and sent successfully.",
+    ].join("\n"),
+  });
+  emailIntegrationStore.lastTestedAt = result.sentAt;
+  emailIntegrationStore.lastTestRecipient = emailIntegrationStore.senderEmail;
+  emailIntegrationStore.lastTestMessageId = result.messageId;
+  persist(emailIntegrationStore);
+  return sanitizeStore(emailIntegrationStore);
 }

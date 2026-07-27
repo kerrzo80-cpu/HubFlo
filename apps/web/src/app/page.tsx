@@ -1469,7 +1469,18 @@ type EmailIntegrationStatus = {
   lastTestedAt?: string;
   lastTestRecipient?: string;
   lastTestMessageId?: string;
+  lastSentAt?: string;
+  lastSentMessageId?: string;
   lastError?: string;
+};
+
+type LiveEmailDelivery = {
+  provider: "Outlook" | "Gmail";
+  from: string;
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+  sentAt: string;
 };
 
 type EmailIntegrationDraft = {
@@ -6677,6 +6688,7 @@ export default function Dashboard() {
   const [emailIntegrationStatus, setEmailIntegrationStatus] = useState<EmailIntegrationStatus | null>(null);
   const [isSavingEmailIntegration, setIsSavingEmailIntegration] = useState(false);
   const [isTestingEmailIntegration, setIsTestingEmailIntegration] = useState(false);
+  const [isSendingLiveEmail, setIsSendingLiveEmail] = useState(false);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
   const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
@@ -10984,6 +10996,40 @@ export default function Dashboard() {
     }
   }
 
+  async function sendThroughLiveOutbox(input: {
+    to: string;
+    cc?: string;
+    subject: string;
+    text: string;
+    document?: {
+      filename: string;
+      title: string;
+      businessName: string;
+      reference: string;
+      recipient: string;
+      subject: string;
+      rows: Array<{ description: string; detail?: string; value: string }>;
+      subtotal: string;
+      vat: string;
+      total: string;
+    };
+  }) {
+    const response = await fetch("/api/integrations/email/send", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      error?: string;
+      delivery?: LiveEmailDelivery;
+    } | null;
+    if (!response.ok || !result?.ok || !result.delivery) {
+      throw new Error(result?.error || `Email provider returned HTTP ${response.status}`);
+    }
+    return result.delivery;
+  }
+
   async function submitSimproReconnect() {
     const code = simproReconnectDraft.trim();
     if (!code) {
@@ -13831,14 +13877,48 @@ export default function Dashboard() {
     }));
   }
 
-  function sendSelectedInvoiceEmail() {
+  async function sendSelectedInvoiceEmail() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
     if (!selectedInvoiceEmailDraft.to.trim()) {
       showNotice("Add a recipient before sending the invoice.");
       return;
     }
-    const sentAt = workflowTimestamp();
-    const outlookMessageId = `outlook-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: selectedInvoiceEmailDraft.to,
+        cc: selectedInvoiceEmailDraft.cc,
+        subject: selectedInvoiceEmailDraft.subject,
+        text: selectedInvoiceEmailDraft.body,
+        document: selectedInvoiceEmailDraft.attachPdf
+          ? {
+              filename: `${selectedInvoice.ref}.pdf`,
+              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : "Invoice",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: selectedInvoice.ref,
+              recipient: selectedInvoice.customer,
+              subject: selectedInvoice.title,
+              rows: selectedInvoice.lines.map((line) => ({
+                description: line.description,
+                detail: line.note,
+                value: currency(line.chargeToClient),
+              })),
+              subtotal: currency(selectedInvoice.chargeTotal),
+              vat: currency(selectedInvoiceFinancials.vatAmount),
+              total: currency(selectedInvoiceFinancials.grandTotal),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send the invoice.";
+      setSectionError(message);
+      showNotice(`Invoice not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return;
+    }
+    const sentAt = delivery.sentAt;
+    const outlookMessageId = delivery.messageId;
     const sourceJob =
       selectedInvoice.sourceType === "job"
         ? jobs.find((job) => job.id === selectedInvoice.sourceId) ?? null
@@ -13903,7 +13983,7 @@ export default function Dashboard() {
       channel: "Outlook",
       subject: selectedInvoiceEmailDraft.subject,
       body: selectedInvoiceEmailDraft.body,
-      from: "accounts@errolwatsongroup.co.uk",
+      from: delivery.from,
       to: selectedInvoiceEmailDraft.to.trim(),
       cc: selectedInvoiceEmailDraft.cc.trim(),
       messageId: outlookMessageId,
@@ -13914,9 +13994,10 @@ export default function Dashboard() {
         ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.`
         : `Invoice ${selectedInvoice.ref} sent and logged.`,
     );
+    setIsSendingLiveEmail(false);
   }
 
-  function submitSelectedValuation() {
+  async function submitSelectedValuation() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
     if (selectedInvoice.claimType !== "valuation") {
       showNotice("Create a valuation from the job billing menu before submitting an application for payment.");
@@ -13929,7 +14010,41 @@ export default function Dashboard() {
 
     const subject = `Application for payment - ${selectedInvoice.sourceName}`;
     const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nNeXa`;
-    const messageId = `outlook-valuation-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: selectedInvoiceEmailDraft.to,
+        cc: selectedInvoiceEmailDraft.cc,
+        subject,
+        text: body,
+        document: selectedInvoiceEmailDraft.attachPdf
+          ? {
+              filename: `${selectedInvoice.ref}-application-for-payment.pdf`,
+              title: "Application for payment",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: selectedInvoice.ref,
+              recipient: selectedInvoice.customer,
+              subject: selectedInvoice.sourceName,
+              rows: selectedInvoice.lines.map((line) => ({
+                description: line.description,
+                detail: line.note,
+                value: currency(line.chargeToClient),
+              })),
+              subtotal: currency(selectedInvoice.chargeTotal),
+              vat: currency(selectedInvoiceFinancials.vatAmount),
+              total: currency(selectedInvoiceFinancials.grandTotal),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to submit the application for payment.";
+      setSectionError(message);
+      showNotice(`Valuation not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return;
+    }
+    const messageId = delivery.messageId;
 
     addCommunicationRecord({
       recordType: "invoice",
@@ -13939,14 +14054,14 @@ export default function Dashboard() {
       channel: "Outlook",
       subject,
       body,
-      from: "accounts@errolwatsongroup.co.uk",
+      from: delivery.from,
       to: selectedInvoiceEmailDraft.to.trim(),
       cc: selectedInvoiceEmailDraft.cc.trim(),
       messageId,
       status: "Sent",
     });
 
-    const sentAt = workflowTimestamp();
+    const sentAt = delivery.sentAt;
     markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
@@ -13982,6 +14097,7 @@ export default function Dashboard() {
     }
 
     showNotice("Application for payment submitted. Add the agreed values when the contractor replies.");
+    setIsSendingLiveEmail(false);
   }
 
   function openQuoteCostCentreRecord(centreId: string) {
@@ -14253,8 +14369,51 @@ export default function Dashboard() {
     const portalToken = quote.portalToken ?? makeQuotePortalToken(quote);
     const portalBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
     const portalUrl = quote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
-    const sentAt = workflowTimestamp();
-    const outlookMessageId = `outlook-${quote.ref.toLowerCase()}-${Date.now()}`;
+    const emailText = `${draft.body}\n\nView and accept your quote online: ${portalUrl}`;
+    const costCentres = quoteCostCentres[quote.id] ?? [];
+    const subtotal = costCentres.length
+      ? costCentres.reduce((sum, centre) => sum + quoteCostCentreTotals(centre).totalSell, 0)
+      : quote.value;
+    const vatAmount = subtotal * (numberFromSetting(normalizedFinanceSettings.vatRate, 20) / 100);
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: draft.to,
+        cc: draft.cc,
+        subject: draft.subject,
+        text: emailText,
+        document: draft.attachPdf
+          ? {
+              filename: `${quote.ref}.pdf`,
+              title: "Quotation",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: quote.ref,
+              recipient: quote.customer,
+              subject: quote.description,
+              rows: costCentres.length
+                ? costCentres.map((centre) => ({
+                    description: centre.name,
+                    detail: centre.clientDescription,
+                    value: currency(quoteCostCentreTotals(centre).totalSell),
+                  }))
+                : [{ description: quote.description, value: currency(subtotal) }],
+              subtotal: currency(subtotal),
+              vat: currency(vatAmount),
+              total: currency(subtotal + vatAmount),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send the quote.";
+      setSectionError(message);
+      showNotice(`Quote not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return false;
+    }
+    const sentAt = delivery.sentAt;
+    const outlookMessageId = delivery.messageId;
+    let recordUpdateWarning = "";
 
     try {
       await persistQuotePatch(quote.id, {
@@ -14266,10 +14425,8 @@ export default function Dashboard() {
         sentAt,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to send quote right now.";
-      setSectionError(message);
-      showNotice(message);
-      return false;
+      recordUpdateWarning = error instanceof Error ? error.message : "The quote record could not be updated.";
+      setSectionError(`The email was sent, but ${recordUpdateWarning}`);
     }
 
     logAuditEvent({
@@ -14277,7 +14434,7 @@ export default function Dashboard() {
       action: "emailed",
       recordType: "quote",
       recordId: quote.id,
-      summary: `${quote.ref} emailed from NeXa via Outlook to ${draft.to} with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
+      summary: `${quote.ref} emailed from NeXa via Outlook to ${draft.to}${draft.attachPdf ? ` with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached` : ""}. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
@@ -14288,8 +14445,8 @@ export default function Dashboard() {
       direction: "outbound",
       channel: "Outlook",
       subject: draft.subject,
-      body: `${draft.body}\n\nPortal link: ${portalUrl}`,
-      from: "office@errolwatsongroup.co.uk",
+      body: emailText,
+      from: delivery.from,
       to: draft.to.trim(),
       cc: draft.cc.trim(),
       messageId: outlookMessageId,
@@ -14304,7 +14461,8 @@ export default function Dashboard() {
       ));
     }
 
-    showNotice("Quote sent from NeXa and captured against the quote.");
+    showNotice(recordUpdateWarning ? `Quote email sent, but ${recordUpdateWarning}` : "Quote sent from NeXa and captured against the quote.");
+    setIsSendingLiveEmail(false);
     return true;
   }
 
@@ -23577,8 +23735,21 @@ export default function Dashboard() {
                           <aside className="quote-email-panel">
                             <div className="outlook-status-card">
                               <span>Outlook connection</span>
-                              <strong>Ready for Microsoft 365 link</strong>
-                              <p>Email will be sent through Outlook and captured back to the quote/job timeline once Graph auth is connected.</p>
+                              <strong>
+                                {emailIntegrationStatus?.lastTestMessageId
+                                  ? "Live outbox verified"
+                                  : emailIntegrationStatus?.lastError
+                                    ? "Outbox connection failed"
+                                    : emailIntegrationStatus?.configured
+                                      ? "Saved, send test required"
+                                      : "Not connected"}
+                              </strong>
+                              <p>
+                                {emailIntegrationStatus?.lastError
+                                  || (emailIntegrationStatus?.lastTestRecipient
+                                    ? `A real test message was sent to ${emailIntegrationStatus.lastTestRecipient}.`
+                                    : "Connect and test the email provider in Setup before sending customer documents.")}
+                              </p>
                             </div>
                             <label>
                               To
@@ -23617,9 +23788,14 @@ export default function Dashboard() {
                               />
                               Attach generated PDF
                             </label>
-                            <button className="primary-button" type="button" onClick={sendSelectedQuoteEmail}>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              onClick={() => void sendSelectedQuoteEmail()}
+                            >
                               <Mail size={15} />
-                              Send quote
+                              {isSendingLiveEmail ? "Sending..." : "Send quote"}
                             </button>
                           </aside>
                         </section>
@@ -28571,14 +28747,28 @@ export default function Dashboard() {
                                 : "Not sent yet"}
                           </small>
                           {selectedInvoice.claimType === "valuation" ? (
-                            <button className="primary-button" type="button" onClick={submitSelectedValuation}>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              onClick={() => void submitSelectedValuation()}
+                            >
                               <FileText size={15} />
-                              {selectedInvoice.valuationStatus === "Submitted" ? "Resubmit valuation" : "Submit valuation"}
+                              {isSendingLiveEmail
+                                ? "Sending..."
+                                : selectedInvoice.valuationStatus === "Submitted"
+                                  ? "Resubmit valuation"
+                                  : "Submit valuation"}
                             </button>
                           ) : (
-                            <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              onClick={() => void sendSelectedInvoiceEmail()}
+                            >
                               <Mail size={15} />
-                              Email invoice
+                              {isSendingLiveEmail ? "Sending..." : "Email invoice"}
                             </button>
                           )}
                         </div>
