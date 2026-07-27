@@ -12,6 +12,7 @@ export type ClientSite = {
   nextVisit: string;
   vatTreatment?: VatTreatment;
   vatRateOverride?: string;
+  archived?: boolean;
 };
 
 export type ClientRecord = {
@@ -27,6 +28,7 @@ export type ClientRecord = {
   notes: string;
   vatTreatment?: VatTreatment;
   vatRateOverride?: string;
+  archived?: boolean;
 };
 
 export type AuditEvent = {

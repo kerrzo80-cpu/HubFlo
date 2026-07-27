@@ -28,6 +28,8 @@ export type HubDetailState = {
   communications?: unknown[];
   invoices?: unknown[];
   suppliers?: unknown[];
+  contacts?: unknown[];
+  contractors?: unknown[];
   employees?: unknown[];
   simproExports?: unknown[];
   updatedAt?: string;

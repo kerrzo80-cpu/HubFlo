@@ -148,6 +148,8 @@ const STORAGE_KEYS = {
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
   suppliers: "hubflo:suppliers:v1",
+  contacts: "hubflo:contacts:v1",
+  contractors: "hubflo:contractors:v1",
   dashboardLayouts: "hubflo:dashboard-layouts:v1",
 } as const;
 
@@ -537,6 +539,7 @@ type HomeView =
   | "employee-card"
   | "clients"
   | "client-record"
+  | "directory-manager"
   | "quote-record"
   | "jobs"
   | "job-create"
@@ -566,7 +569,7 @@ type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one
 type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
-type DirectoryRecordScope = "lead" | "quote" | "job" | "invoice";
+type DirectoryRecordScope = "lead" | "quote" | "job" | "invoice" | "employee" | "client" | "site" | "supplier" | "contact" | "contractor";
 type SetupCategory =
   | "overview"
   | "business"
@@ -1427,6 +1430,54 @@ type SupplierDirectoryRecord = {
   account: string;
   category?: string;
   notes?: string;
+  archived?: boolean;
+};
+
+type ContactDirectoryRecord = {
+  id: string;
+  name: string;
+  company?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  archived?: boolean;
+};
+
+type ContractorDirectoryRecord = {
+  id: string;
+  name: string;
+  trade?: string;
+  primaryContact?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  archived?: boolean;
+};
+
+type DirectoryManagerEntity = "sites" | "suppliers" | "contacts" | "contractors";
+
+type EmailIntegrationStatus = {
+  configured: boolean;
+  provider: "Outlook" | "Gmail";
+  senderEmail: string;
+  username: string;
+  smtpHost: string;
+  smtpPort: number;
+  secure: boolean;
+  secretStored: boolean;
+  lastTestedAt?: string;
+  lastError?: string;
+};
+
+type EmailIntegrationDraft = {
+  provider: "Outlook" | "Gmail";
+  senderEmail: string;
+  username: string;
+  secret: string;
+  smtpHost: string;
+  smtpPort: string;
+  secure: boolean;
 };
 
 type LabourRateSetting = {
@@ -1635,6 +1686,8 @@ type HubDetailStatePayload = {
   communications?: CommunicationRecord[];
   invoices?: Invoice[];
   suppliers?: SupplierDirectoryRecord[];
+  contacts?: ContactDirectoryRecord[];
+  contractors?: ContractorDirectoryRecord[];
   simproExports?: SimproExportRecord[];
 };
 
@@ -1816,7 +1869,7 @@ const modules: ModuleItem[] = [
   { label: "Invoices", icon: PoundSterling },
   { label: "Reports", icon: BarChart3 },
   { label: "Add-ons", icon: Sparkles },
-  { label: "People", icon: Users, subItems: ["Employees", "Clients", "Suppliers"] },
+  { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
   { label: "Setup", icon: Settings },
 ];
 
@@ -2490,7 +2543,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
-  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Suppliers", "Leads", "Quotes", "Jobs", "Invoices"] },
+  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
   { key: "integrations", label: "Integrations", detail: "simPRO, Xero and live system sync", subItems: ["simPRO", "Xero", "Import from simPRO"] },
@@ -2623,9 +2676,24 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Customer account details", "Billing and site addresses", "VAT treatment defaults"],
       status: "Working import",
     },
+    Sites: {
+      summary: "Import site records separately when customers already exist and you just need the service addresses and site contacts.",
+      focus: ["Customer match", "Site name and address", "Site VAT overrides"],
+      status: "Working import",
+    },
     Suppliers: {
       summary: "Import supplier records used by purchase orders and supplier request forms.",
       focus: ["Supplier name and email", "Trade account references", "Purchasing categories"],
+      status: "Working import",
+    },
+    Contacts: {
+      summary: "Import office, site and commercial contacts so they are ready to attach to customers, sites, quotes and jobs.",
+      focus: ["Name and company", "Role, email and phone", "Duplicate protection"],
+      status: "Working import",
+    },
+    Contractors: {
+      summary: "Import subcontractors and specialist trade partners used across quotes, jobs and purchase requests.",
+      focus: ["Contractor name", "Trade and primary contact", "Email and phone"],
       status: "Working import",
     },
     Leads: {
@@ -4134,6 +4202,20 @@ const defaultSupplierDirectory: SupplierDirectoryRecord[] = [
   { id: "supplier-aldrite", name: "Aldrite Plumbing Ltd", email: "orders@aldrite.example", account: "Bathroom materials", category: "Bathroom materials" },
   { id: "supplier-valve-source", name: "Valve Source", email: "sales@valvesource.example", account: "Specialist valves", category: "Specialist valves" },
 ];
+
+const defaultContactDirectory: ContactDirectoryRecord[] = [];
+
+const defaultContractorDirectory: ContractorDirectoryRecord[] = [];
+
+const blankEmailIntegrationDraft: EmailIntegrationDraft = {
+  provider: "Outlook",
+  senderEmail: "",
+  username: "",
+  secret: "",
+  smtpHost: "smtp.office365.com",
+  smtpPort: "587",
+  secure: false,
+};
 
 const purchaseOrderStatusFilters = [
   "All POs",
@@ -6541,6 +6623,8 @@ export default function Dashboard() {
   const [clients, setClients] = useState<ClientRecord[]>(seedClients);
   const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
   const [suppliers, setSuppliers] = useState<SupplierDirectoryRecord[]>(defaultSupplierDirectory);
+  const [contacts, setContacts] = useState<ContactDirectoryRecord[]>(defaultContactDirectory);
+  const [contractors, setContractors] = useState<ContractorDirectoryRecord[]>(defaultContractorDirectory);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [activeEmployeeId, setActiveEmployeeId] = useState(seedEmployees[0]?.id ?? "");
   const [loggedInEmployeeId, setLoggedInEmployeeId] = useState<string | null>(null);
@@ -6550,6 +6634,7 @@ export default function Dashboard() {
   const [serverWorkspaceMode, setServerWorkspaceMode] = useState<ServerWorkspaceMode>("checking");
   const [serverAuthUser, setServerAuthUser] = useState<ServerAuthUser | null>(null);
   const [activeClientId, setActiveClientId] = useState(seedClients[0]?.id ?? "");
+  const [activeDirectoryManager, setActiveDirectoryManager] = useState<DirectoryManagerEntity>("suppliers");
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [newEmployeeId, setNewEmployeeId] = useState<string | null>(null);
   const [employeePermissionDraft, setEmployeePermissionDraft] = useState<AccessOverride>({});
@@ -6586,6 +6671,10 @@ export default function Dashboard() {
   const [workflowRules, setWorkflowRules] = useState<WorkflowRulesSettings>(defaultWorkflowRules);
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() => normalizeFinanceSettings(defaultFinanceSettings));
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>(defaultIntegrationSettings);
+  const [emailIntegrationDraft, setEmailIntegrationDraft] = useState<EmailIntegrationDraft>(blankEmailIntegrationDraft);
+  const [emailIntegrationStatus, setEmailIntegrationStatus] = useState<EmailIntegrationStatus | null>(null);
+  const [isSavingEmailIntegration, setIsSavingEmailIntegration] = useState(false);
+  const [isTestingEmailIntegration, setIsTestingEmailIntegration] = useState(false);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
   const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
@@ -8301,6 +8390,8 @@ export default function Dashboard() {
     setClients(storedClients);
     setClientSites(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
     setSuppliers(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.suppliers, defaultSupplierDirectory));
+    setContacts(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.contacts, defaultContactDirectory));
+    setContractors(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.contractors, defaultContractorDirectory));
     setAuditEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? "");
     const storedQuoteCostCentres = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
@@ -8490,6 +8581,8 @@ export default function Dashboard() {
           if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
           if (hubState.communications) setCommunicationRecords(hubState.communications);
           if (hubState.suppliers) setSuppliers(hubState.suppliers);
+          if (hubState.contacts) setContacts(hubState.contacts);
+          if (hubState.contractors) setContractors(hubState.contractors);
           if (hubState.invoices && !hasRecentLocalInvoiceEdit && !pendingInvoiceSaveRef.current) {
             setInvoices(hubState.invoices);
           }
@@ -8558,6 +8651,8 @@ export default function Dashboard() {
       communications: communicationRecords,
       invoices,
       suppliers,
+      contacts,
+      contractors,
       simproExports,
     };
   }
@@ -8734,6 +8829,8 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.clients, clients);
     safeSaveStoredJson(STORAGE_KEYS.clientSites, clientSites);
     safeSaveStoredJson(STORAGE_KEYS.suppliers, suppliers);
+    safeSaveStoredJson(STORAGE_KEYS.contacts, contacts);
+    safeSaveStoredJson(STORAGE_KEYS.contractors, contractors);
     safeSaveStoredJson(STORAGE_KEYS.leads, leads);
     safeSaveStoredJson(STORAGE_KEYS.jobs, jobs);
     safeSaveStoredJson(STORAGE_KEYS.quotes, quotes);
@@ -10789,10 +10886,11 @@ export default function Dashboard() {
 
   async function refreshIntegrationConnectionStatus() {
     try {
-      const [simproResponse, simproReconnectResponse, xeroResponse] = await Promise.all([
+      const [simproResponse, simproReconnectResponse, xeroResponse, emailResponse] = await Promise.all([
         fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
         fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
         fetch("/api/integrations/xero/status", { headers: requestHeaders }),
+        fetch("/api/integrations/email/settings", { headers: requestHeaders }),
       ]);
       if (simproResponse.ok) {
         const status = (await simproResponse.json()) as SimproBridgeStatus;
@@ -10805,9 +10903,78 @@ export default function Dashboard() {
       if (xeroResponse.ok) {
         setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
       }
+      if (emailResponse.ok) {
+        const status = (await emailResponse.json()) as EmailIntegrationStatus;
+        setEmailIntegrationStatus(status);
+        setEmailIntegrationDraft((current) => ({
+          ...current,
+          provider: status.provider,
+          senderEmail: status.senderEmail,
+          username: status.username,
+          smtpHost: status.smtpHost,
+          smtpPort: String(status.smtpPort),
+          secure: status.secure,
+          secret: "",
+        }));
+      }
       showNotice("Integration status refreshed.");
     } catch {
       showNotice("Unable to refresh integration status.");
+    }
+  }
+
+  async function saveEmailIntegrationSettings() {
+    if (!emailIntegrationDraft.senderEmail.trim() || !emailIntegrationDraft.username.trim()) {
+      showNotice("Add the sender email and username before saving the email integration.");
+      return;
+    }
+    setIsSavingEmailIntegration(true);
+    try {
+      const response = await fetch("/api/integrations/email/settings", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: emailIntegrationDraft.provider,
+          senderEmail: emailIntegrationDraft.senderEmail,
+          username: emailIntegrationDraft.username,
+          secret: emailIntegrationDraft.secret,
+          smtpHost: emailIntegrationDraft.smtpHost,
+          smtpPort: Number(emailIntegrationDraft.smtpPort) || undefined,
+          secure: emailIntegrationDraft.secure,
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as EmailIntegrationStatus | { error?: string } | null;
+      if (!response.ok || !result || "error" in result) {
+        throw new Error(result && "error" in result ? result.error || "Unable to save email settings." : "Unable to save email settings.");
+      }
+      const savedStatus = result as EmailIntegrationStatus;
+      setEmailIntegrationStatus(savedStatus);
+      setEmailIntegrationDraft((current) => ({ ...current, secret: "" }));
+      showNotice(`${savedStatus.provider} email settings saved.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to save the email integration.");
+    } finally {
+      setIsSavingEmailIntegration(false);
+    }
+  }
+
+  async function testEmailIntegrationSettings() {
+    setIsTestingEmailIntegration(true);
+    try {
+      const response = await fetch("/api/integrations/email/test", {
+        method: "POST",
+        headers: requestHeaders,
+      });
+      const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string; status?: EmailIntegrationStatus } | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || "Unable to test the email integration.");
+      }
+      if (result.status) setEmailIntegrationStatus(result.status);
+      showNotice(result.message || "Email connection looks reachable.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to test the email integration.");
+    } finally {
+      setIsTestingEmailIntegration(false);
     }
   }
 
@@ -11108,6 +11275,7 @@ export default function Dashboard() {
   }
 
   function updateDocumentFolder(folderId: string, patch: Partial<DocumentFolderTemplate>) {
+    markSetupEdited();
     setDocumentFolderTemplates((current) =>
       current.map((folder) => (folder.id === folderId ? { ...folder, ...patch } : folder)),
     );
@@ -11116,6 +11284,7 @@ export default function Dashboard() {
   function addDocumentFolderTemplate() {
     const name = newDocumentFolderName.trim();
     if (!name) return;
+    markSetupEdited();
     setDocumentFolderTemplates((current) => [
       ...current,
       {
@@ -11131,11 +11300,13 @@ export default function Dashboard() {
   }
 
   function removeDocumentFolderTemplate(folderId: string) {
+    markSetupEdited();
     setDocumentFolderTemplates((current) => current.filter((folder) => folder.id !== folderId));
     showNotice("Folder removed from the default template.");
   }
 
   function updateEngineerFlowStep(stepId: string, patch: Partial<EngineerFlowStep>) {
+    markSetupEdited();
     setEngineerFlowTemplates((current) =>
       current.map((template) =>
         template.id === activeEngineerFlowTemplate.id
@@ -11155,6 +11326,7 @@ export default function Dashboard() {
   }
 
   function updateEngineerFlowTemplate(templateId: string, patch: Partial<EngineerFlowTemplate>) {
+    markSetupEdited();
     setEngineerFlowTemplates((current) =>
       current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
     );
@@ -11166,6 +11338,7 @@ export default function Dashboard() {
   function addEngineerFlowTemplate() {
     const name = newEngineerFlowTemplateName.trim();
     if (!name) return;
+    markSetupEdited();
     const id = `engineer-flow-${Date.now()}`;
     const template: EngineerFlowTemplate = {
       id,
@@ -11190,6 +11363,7 @@ export default function Dashboard() {
   function addEngineerFlowStep() {
     const label = newEngineerFlowStepLabel.trim();
     if (!label) return;
+    markSetupEdited();
     const step: EngineerFlowStep = {
       id: `${activeEngineerFlowTemplate.id}-step-${Date.now()}`,
       stage: "Existing Boiler",
@@ -11209,6 +11383,7 @@ export default function Dashboard() {
       showNotice("A checklist needs at least one step.");
       return;
     }
+    markSetupEdited();
     updateEngineerFlowTemplate(activeEngineerFlowTemplate.id, {
       steps: activeEngineerFlowTemplate.steps.filter((step) => step.id !== stepId),
     });
@@ -11222,6 +11397,7 @@ export default function Dashboard() {
       showNotice(`${name} already exists.`);
       return;
     }
+    markSetupEdited();
     setCostCentreTypeOptions((current) => [...current, name]);
     setCostCentreFlowAssignmentDrafts((current) => ({
       ...current,
@@ -11234,6 +11410,7 @@ export default function Dashboard() {
   function updateCostCentreTypeOption(oldName: string, nextName: string) {
     const trimmed = nextName.trim();
     if (!trimmed) return;
+    markSetupEdited();
     setCostCentreTypeOptions((current) => current.map((typeName) => (typeName === oldName ? trimmed : typeName)));
     setCostCentreFlowAssignmentDrafts((current) => {
       const next = { ...current };
@@ -11251,6 +11428,7 @@ export default function Dashboard() {
       showNotice("Keep at least one cost centre type.");
       return;
     }
+    markSetupEdited();
     setCostCentreTypeOptions((current) => current.filter((item) => item !== typeName));
     setCostCentreFlowAssignmentDrafts((current) => {
       const next = { ...current };
@@ -11505,6 +11683,47 @@ export default function Dashboard() {
         setClientSites(nextSites);
       }
 
+      if (businessImportType === "sites") {
+        let nextClients = clients;
+        let nextSites = clientSites;
+        for (let index = 0; index < validRows.length; index += 1) {
+          const row = validRows[index]!;
+          const customerName = importValue(row, ["customer", "client", "customer_name", "client_name", "name"]);
+          const siteName = importValue(row, ["site_name", "site"]);
+          const siteAddress = importValue(row, ["site_address", "address"]);
+          const response = await fetch("/api/clients", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: customerName,
+              address: siteAddress,
+              primaryContact: importValue(row, ["primary_contact", "contact", "contact_name"]),
+              siteName,
+              siteAddress,
+              accessNotes: importValue(row, ["access_notes", "site_notes"]),
+              serviceLine: importValue(row, ["service_line", "work_type", "category"]),
+              nextVisit: importValue(row, ["next_visit", "next_service"]),
+              siteVatTreatment: importValue(row, ["site_vat_treatment", "site_vat_type"]),
+              siteVatRateOverride: importValue(row, ["site_vat_rate", "site_vat_rate_override"]),
+              source: "site import",
+              actor: activeEmployee?.name ?? "NeXa import",
+            }),
+          });
+          const result = await response.json().catch(() => ({})) as { error?: string; clients?: ClientRecord[]; clientSites?: ClientSite[] };
+          if (!response.ok) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${result.error || "site import failed"}.`);
+            continue;
+          }
+          if (result.clients) nextClients = result.clients;
+          if (result.clientSites) nextSites = result.clientSites;
+          imported += response.status === 200 ? 0 : 1;
+          if (response.status === 200) skipped += 1;
+        }
+        setClients(nextClients);
+        setClientSites(nextSites);
+      }
+
       if (businessImportType === "suppliers") {
         const existingKeys = new Set(
           suppliers.flatMap((supplier) => [supplier.name.trim().toLowerCase(), supplier.email.trim().toLowerCase()]).filter(Boolean),
@@ -11543,6 +11762,78 @@ export default function Dashboard() {
           if (!response.ok) throw new Error("Suppliers could not be saved to the shared workspace.");
           setSuppliers(nextSuppliers);
           pendingSetupSaveRef.current = false;
+        }
+      }
+
+      if (businessImportType === "contacts") {
+        const existingKeys = new Set(
+          contacts.flatMap((contact) => [
+            `${contact.name.trim().toLowerCase()}:${(contact.company ?? "").trim().toLowerCase()}`,
+            (contact.email ?? "").trim().toLowerCase(),
+          ]).filter(Boolean),
+        );
+        const importedContacts: ContactDirectoryRecord[] = [];
+        validRows.forEach((row, index) => {
+          const name = importValue(row, ["name", "contact", "contact_name"]);
+          const company = importValue(row, ["company", "customer", "client"]);
+          const email = importValue(row, ["email", "email_address"]);
+          const duplicateKey = `${name.toLowerCase()}:${company.toLowerCase()}`;
+          if (existingKeys.has(duplicateKey) || (email && existingKeys.has(email.toLowerCase()))) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists.`);
+            return;
+          }
+          importedContacts.push({
+            id: `contact-directory-${crypto.randomUUID()}`,
+            name,
+            company: company || undefined,
+            role: importValue(row, ["role", "job_title", "title"]) || undefined,
+            email: email || undefined,
+            phone: importValue(row, ["phone", "telephone", "mobile"]) || undefined,
+            notes: importValue(row, ["notes", "note"]) || undefined,
+          });
+          existingKeys.add(duplicateKey);
+          if (email) existingKeys.add(email.toLowerCase());
+          imported += 1;
+        });
+        if (importedContacts.length) {
+          markSetupEdited();
+          setContacts((current) => [...current, ...importedContacts].sort((first, second) => first.name.localeCompare(second.name)));
+        }
+      }
+
+      if (businessImportType === "contractors") {
+        const existingKeys = new Set(
+          contractors.flatMap((contractor) => [
+            contractor.name.trim().toLowerCase(),
+            (contractor.email ?? "").trim().toLowerCase(),
+          ]).filter(Boolean),
+        );
+        const importedContractors: ContractorDirectoryRecord[] = [];
+        validRows.forEach((row, index) => {
+          const name = importValue(row, ["contractor", "contractor_name", "name"]);
+          const email = importValue(row, ["email", "email_address"]);
+          if (existingKeys.has(name.toLowerCase()) || (email && existingKeys.has(email.toLowerCase()))) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists.`);
+            return;
+          }
+          importedContractors.push({
+            id: `contractor-${crypto.randomUUID()}`,
+            name,
+            trade: importValue(row, ["trade", "category", "work_type"]) || undefined,
+            primaryContact: importValue(row, ["primary_contact", "contact", "contact_name"]) || undefined,
+            email: email || undefined,
+            phone: importValue(row, ["phone", "telephone", "mobile"]) || undefined,
+            notes: importValue(row, ["notes", "note"]) || undefined,
+          });
+          existingKeys.add(name.toLowerCase());
+          if (email) existingKeys.add(email.toLowerCase());
+          imported += 1;
+        });
+        if (importedContractors.length) {
+          markSetupEdited();
+          setContractors((current) => [...current, ...importedContractors].sort((first, second) => first.name.localeCompare(second.name)));
         }
       }
 
@@ -12181,6 +12472,205 @@ export default function Dashboard() {
     }
   }
 
+  async function updateEmployeeArchive(employee: EmployeeCard, archived: boolean) {
+    closeDirectoryActionMenu();
+    markEmployeeEdited();
+    setEmployees((current) => current.map((item) => (item.id === employee.id ? { ...item, archived } : item)));
+
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (usersResponse.ok) {
+          const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+          const existingAuthUser = authUsers.find((user) => user.employeeId === employee.id);
+          if (existingAuthUser) {
+            await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled: !archived }),
+            });
+          }
+        }
+      } catch {
+        // Keep the employee archive working even if auth account sync fails.
+      }
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: archived ? "archived" : "restored",
+      recordType: "employee",
+      recordId: employee.id,
+      summary: `${employee.name} ${archived ? "archived" : "restored"}.`,
+      source: "directory actions",
+      importance: "normal",
+    });
+    showNotice(`${employee.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  async function deleteEmployeeFromDirectory(employee: EmployeeCard) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(employee.name)) return;
+    const previousEmployees = employees;
+    markEmployeeEdited();
+    setEmployees((current) => current.filter((item) => item.id !== employee.id));
+    if (editingEmployeeId === employee.id) {
+      clearEmployeeEditingState();
+      setHomeView("employees");
+    }
+
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (usersResponse.ok) {
+          const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+          const existingAuthUser = authUsers.find((user) => user.employeeId === employee.id);
+          if (existingAuthUser) {
+            const deleteResponse = await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "DELETE",
+            });
+            if (!deleteResponse.ok) throw new Error("Unable to remove secure login.");
+          }
+        }
+      } catch (error) {
+        setEmployees(previousEmployees);
+        showNotice(error instanceof Error ? error.message : `Unable to delete ${employee.name}.`);
+        return;
+      }
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "deleted",
+      recordType: "employee",
+      recordId: employee.id,
+      summary: `${employee.name} deleted from employee records.`,
+      source: "directory actions",
+      importance: "high",
+    });
+    showNotice(`${employee.name} deleted.`);
+  }
+
+  async function updateClientArchive(client: ClientRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    const previousClients = clients;
+    setClients((current) => current.map((item) => (item.id === client.id ? { ...item, archived } : item)));
+    try {
+      const response = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "NeXa user" }),
+      });
+      if (!response.ok) throw new Error("Unable to update the client record.");
+      showNotice(`${client.name} ${archived ? "archived" : "restored"}.`);
+    } catch (error) {
+      setClients(previousClients);
+      showNotice(error instanceof Error ? error.message : `Unable to update ${client.name}.`);
+    }
+  }
+
+  async function deleteClientFromDirectory(client: ClientRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(client.name)) return;
+    const previousClients = clients;
+    const previousSites = clientSites;
+    setClients((current) => current.filter((item) => item.id !== client.id));
+    setClientSites((current) => current.filter((site) => site.clientId !== client.id));
+    try {
+      const response = await fetch(`/api/clients/${client.id}`, {
+        method: "DELETE",
+        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      });
+      if (!response.ok) throw new Error("Unable to delete the client record.");
+      showNotice(`${client.name} deleted.`);
+    } catch (error) {
+      setClients(previousClients);
+      setClientSites(previousSites);
+      showNotice(error instanceof Error ? error.message : `Unable to delete ${client.name}.`);
+    }
+  }
+
+  async function updateSiteArchive(site: ClientSite, archived: boolean) {
+    closeDirectoryActionMenu();
+    const previousSites = clientSites;
+    setClientSites((current) => current.map((item) => (item.id === site.id ? { ...item, archived } : item)));
+    try {
+      const response = await fetch(`/api/client-sites/${site.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "NeXa user" }),
+      });
+      if (!response.ok) throw new Error("Unable to update the site record.");
+      showNotice(`${site.name} ${archived ? "archived" : "restored"}.`);
+    } catch (error) {
+      setClientSites(previousSites);
+      showNotice(error instanceof Error ? error.message : `Unable to update ${site.name}.`);
+    }
+  }
+
+  async function deleteSiteFromDirectory(site: ClientSite) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(site.name)) return;
+    const previousSites = clientSites;
+    setClientSites((current) => current.filter((item) => item.id !== site.id));
+    try {
+      const response = await fetch(`/api/client-sites/${site.id}`, {
+        method: "DELETE",
+        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      });
+      if (!response.ok) throw new Error("Unable to delete the site record.");
+      showNotice(`${site.name} deleted.`);
+    } catch (error) {
+      setClientSites(previousSites);
+      showNotice(error instanceof Error ? error.message : `Unable to delete ${site.name}.`);
+    }
+  }
+
+  function updateSupplierArchive(record: SupplierDirectoryRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    markSetupEdited();
+    setSuppliers((current) => current.map((item) => (item.id === record.id ? { ...item, archived } : item)));
+    showNotice(`${record.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  function deleteSupplierFromDirectory(record: SupplierDirectoryRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(record.name)) return;
+    markSetupEdited();
+    setSuppliers((current) => current.filter((item) => item.id !== record.id));
+    showNotice(`${record.name} deleted.`);
+  }
+
+  function updateContactArchive(record: ContactDirectoryRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    markSetupEdited();
+    setContacts((current) => current.map((item) => (item.id === record.id ? { ...item, archived } : item)));
+    showNotice(`${record.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  function deleteContactFromDirectory(record: ContactDirectoryRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(record.name)) return;
+    markSetupEdited();
+    setContacts((current) => current.filter((item) => item.id !== record.id));
+    showNotice(`${record.name} deleted.`);
+  }
+
+  function updateContractorArchive(record: ContractorDirectoryRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    markSetupEdited();
+    setContractors((current) => current.map((item) => (item.id === record.id ? { ...item, archived } : item)));
+    showNotice(`${record.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  function deleteContractorFromDirectory(record: ContractorDirectoryRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(record.name)) return;
+    markSetupEdited();
+    setContractors((current) => current.filter((item) => item.id !== record.id));
+    showNotice(`${record.name} deleted.`);
+  }
+
   function renderDirectoryActionMenu(
     scope: DirectoryRecordScope,
     id: string,
@@ -12529,12 +13019,28 @@ export default function Dashboard() {
       scrollWorkspaceToTop();
       return;
     }
-    if (item === "Suppliers") {
-      setHomeView("settings");
-      setActiveSetupCategory("communications");
-      setActiveSetupSubItem("Supplier emails");
+    if (item === "Sites") {
+      setActiveDirectoryManager("sites");
+      setHomeView("directory-manager");
       scrollWorkspaceToTop();
-      showNotice("Supplier request and communication settings opened.");
+      return;
+    }
+    if (item === "Suppliers") {
+      setActiveDirectoryManager("suppliers");
+      setHomeView("directory-manager");
+      scrollWorkspaceToTop();
+      return;
+    }
+    if (item === "Contacts") {
+      setActiveDirectoryManager("contacts");
+      setHomeView("directory-manager");
+      scrollWorkspaceToTop();
+      return;
+    }
+    if (item === "Contractors") {
+      setActiveDirectoryManager("contractors");
+      setHomeView("directory-manager");
+      scrollWorkspaceToTop();
       return;
     }
     setHomeView("settings");
@@ -20101,7 +20607,7 @@ export default function Dashboard() {
                   ? "Add-ons"
                 : homeView === "profile"
                   ? "My profile"
-                : homeView === "clients" || homeView === "client-record"
+                : homeView === "clients" || homeView === "client-record" || homeView === "directory-manager"
                   ? "Clients"
                   : homeView === "employees"
                     ? "People"
@@ -20244,7 +20750,7 @@ export default function Dashboard() {
                       ? "Add-ons"
                     : homeView === "client-record"
                       ? "Client record"
-                      : homeView === "clients"
+                      : homeView === "clients" || homeView === "directory-manager"
                         ? "Clients"
                     : homeView === "employees"
                       ? "Employees"
@@ -20298,10 +20804,18 @@ export default function Dashboard() {
                       ? "My profile"
                   : homeView === "addons"
                     ? "NeXa add-ons"
-                  : homeView === "client-record"
+                    : homeView === "client-record"
                     ? activeClient?.name || "Client record"
                     : homeView === "clients"
                       ? "Clients"
+                  : homeView === "directory-manager"
+                    ? activeDirectoryManager === "sites"
+                      ? "Sites"
+                      : activeDirectoryManager === "suppliers"
+                        ? "Suppliers"
+                        : activeDirectoryManager === "contacts"
+                          ? "Contacts"
+                          : "Contractors"
                   : homeView === "employees"
                     ? "Employee cards"
                     : "Operations overview"}
@@ -20355,6 +20869,14 @@ export default function Dashboard() {
                     ? `${activeClient?.primaryContact || "No contact"} · ${activeClient?.email || "No email on file"}`
                     : homeView === "clients"
                       ? `${clients.length} client accounts and ${clientSites.length} live sites in NeXa`
+                  : homeView === "directory-manager"
+                    ? activeDirectoryManager === "sites"
+                      ? `${clientSites.length} sites linked to ${clients.length} customer accounts`
+                      : activeDirectoryManager === "suppliers"
+                        ? `${suppliers.length} supplier records in the buying list`
+                        : activeDirectoryManager === "contacts"
+                          ? `${contacts.length} contact records ready to attach to work`
+                          : `${contractors.length} contractor records ready to allocate`
                   : homeView === "employees"
                     ? `${employees.length} employees onboarded in NeXa`
                     : `${currentOperatingDateLabel} · Live business position`}
@@ -30060,28 +30582,167 @@ export default function Dashboard() {
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Communications</span>
-                          <h2>Outlook, WhatsApp and supplier doorways</h2>
+                          <h2>Email, WhatsApp and supplier doorways</h2>
                         </div>
-                        <span className="setup-status-label">Next integration layer</span>
+                        <span className="setup-status-label">
+                          {emailIntegrationStatus?.configured ? `${emailIntegrationStatus.provider} ready` : "Setup required"}
+                        </span>
                       </div>
-                      <div className="setup-readiness-grid">
-                        <article>
-                          <span>Outlook</span>
-                          <strong>Quote, invoice and job emails send from HubFlo/NeXa</strong>
-                          <small>Captured against the lead, quote, job or invoice record.</small>
+                      <div className="setup-integration-grid">
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>Email provider</span>
+                              <strong>{emailIntegrationDraft.provider}</strong>
+                            </div>
+                            <div className="setup-sync-actions">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isTestingEmailIntegration}
+                                onClick={() => void testEmailIntegrationSettings()}
+                              >
+                                {isTestingEmailIntegration ? "Testing..." : "Test connection"}
+                              </button>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={isSavingEmailIntegration}
+                                onClick={() => void saveEmailIntegrationSettings()}
+                              >
+                                {isSavingEmailIntegration ? "Saving..." : "Save settings"}
+                              </button>
+                            </div>
+                          </header>
+                          <div className="setup-form-grid">
+                            <label>
+                              Provider
+                              <select
+                                value={emailIntegrationDraft.provider}
+                                onChange={(event) =>
+                                  setEmailIntegrationDraft((current) => ({
+                                    ...current,
+                                    provider: event.target.value as EmailIntegrationDraft["provider"],
+                                    smtpHost: event.target.value === "Gmail" ? "smtp.gmail.com" : "smtp.office365.com",
+                                    smtpPort: event.target.value === "Gmail" ? "465" : "587",
+                                    secure: event.target.value === "Gmail",
+                                  }))
+                                }
+                              >
+                                <option value="Outlook">Outlook</option>
+                                <option value="Gmail">Gmail</option>
+                              </select>
+                            </label>
+                            <label>
+                              Sender email
+                              <input
+                                value={emailIntegrationDraft.senderEmail}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, senderEmail: event.target.value }))}
+                                placeholder="quotes@yourcompany.co.uk"
+                              />
+                            </label>
+                            <label>
+                              Username
+                              <input
+                                value={emailIntegrationDraft.username}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, username: event.target.value }))}
+                                placeholder="smtp username"
+                              />
+                            </label>
+                            <label>
+                              App password / secret
+                              <input
+                                type="password"
+                                value={emailIntegrationDraft.secret}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secret: event.target.value }))}
+                                placeholder={emailIntegrationStatus?.secretStored ? "Stored securely - paste only to change it" : "Paste provider secret"}
+                              />
+                            </label>
+                            <label>
+                              SMTP host
+                              <input
+                                value={emailIntegrationDraft.smtpHost}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, smtpHost: event.target.value }))}
+                              />
+                            </label>
+                            <label>
+                              SMTP port
+                              <input
+                                inputMode="numeric"
+                                value={emailIntegrationDraft.smtpPort}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, smtpPort: event.target.value.replace(/[^\d]/g, "") }))}
+                              />
+                            </label>
+                          </div>
+                          <div className="setup-switch-grid">
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={emailIntegrationDraft.secure}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secure: event.target.checked }))}
+                              />
+                              Use secure SMTP / TLS
+                            </label>
+                          </div>
+                          <small>
+                            Credentials are stored on the server side only. The test currently checks SMTP reachability from NeXa so we can confirm the connection path before wiring live send/auth flows.
+                          </small>
+                          <div className="setup-readiness-grid setup-sync-grid">
+                            <article>
+                              <span>Status</span>
+                              <strong>{emailIntegrationStatus?.configured ? "Configured" : "Not configured"}</strong>
+                              <small>{emailIntegrationStatus?.lastError || "Save settings, then run a connection test."}</small>
+                            </article>
+                            <article>
+                              <span>Secret</span>
+                              <strong>{emailIntegrationStatus?.secretStored ? "Stored securely" : "Not stored"}</strong>
+                              <small>The secret never comes back to the browser after saving.</small>
+                            </article>
+                            <article>
+                              <span>Last test</span>
+                              <strong>{emailIntegrationStatus?.lastTestedAt ? emailIntegrationStatus.lastTestedAt.replace("T", " ").slice(0, 16) : "Not tested yet"}</strong>
+                              <small>Use this before switching live customer emails across to NeXa.</small>
+                            </article>
+                          </div>
                         </article>
-                        <article>
-                          <span>WhatsApp</span>
-                          <strong>Engineer confirmations and site updates can feed the job</strong>
-                          <small>Live Meta keys are still needed before production messaging.</small>
+
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>WhatsApp</span>
+                              <strong>Engineer confirmations and site updates</strong>
+                            </div>
+                          </header>
+                          <div className="setup-readiness-grid setup-sync-grid">
+                            <article>
+                              <span>Current state</span>
+                              <strong>Connector scaffolded</strong>
+                              <small>Live Meta credentials are still needed before production messaging can go out.</small>
+                            </article>
+                            <article>
+                              <span>Use case</span>
+                              <strong>Timesheets, updates, approvals</strong>
+                              <small>Messages still capture back into the related job or quote record.</small>
+                            </article>
+                            <article>
+                              <span>Next step</span>
+                              <strong>Verify live send</strong>
+                              <small>Once Meta is connected we can test a real field update loop.</small>
+                            </article>
+                          </div>
                         </article>
-                        <article>
-                          <span>Simpro bridge</span>
-                          <strong>
-                            {simproBridgeStatus.configured
-                              ? `Live quote handoff configured (${simproBridgeStatus.mode})`
-                              : "Quote handoffs queue in NeXa until the bridge is configured"}
-                          </strong>
+
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>simPRO bridge</span>
+                              <strong>
+                                {simproBridgeStatus.configured
+                                  ? `Live handoff configured (${simproBridgeStatus.mode})`
+                                  : "Quote and job handoffs queue until configured"}
+                              </strong>
+                            </div>
+                          </header>
                           <small>
                             {simproBridgeStatus.configured
                               ? `Posting to ${simproBridgeStatus.endpoint ?? "configured bridge endpoint"}.`
@@ -30540,6 +31201,165 @@ export default function Dashboard() {
                   </section>
               </div>
             </section>
+          ) : homeView === "directory-manager" ? (
+            (() => {
+              const query = search.trim().toLowerCase();
+              const clientNameById = new Map(clients.map((client) => [client.id, client.name]));
+              const config = activeDirectoryManager === "sites"
+                ? {
+                    title: "Sites",
+                    description: "Manage service addresses, site contacts and site-level records.",
+                    importType: "Sites",
+                    empty: "No site records yet.",
+                    scope: "site" as const,
+                    records: clientSites.map((site) => ({
+                      id: site.id,
+                      title: site.name,
+                      subtitle: clientNameById.get(site.clientId) ?? "Unlinked customer",
+                      meta: [site.address, `Contact: ${site.primaryContact}`, site.serviceLine].filter(Boolean),
+                      archived: Boolean(site.archived),
+                      matches: [site.name, site.address, site.primaryContact, site.serviceLine, clientNameById.get(site.clientId) ?? ""],
+                      actions: [
+                        {
+                          label: site.archived ? "Restore site" : "Archive site",
+                          onClick: () => updateSiteArchive(site, !site.archived),
+                        },
+                        { label: "Delete", onClick: () => void deleteSiteFromDirectory(site), danger: true },
+                      ],
+                    })),
+                  }
+                : activeDirectoryManager === "suppliers"
+                  ? {
+                      title: "Suppliers",
+                      description: "Manage supplier records used by POs and supplier requests.",
+                      importType: "Suppliers",
+                      empty: "No supplier records yet.",
+                      scope: "supplier" as const,
+                      records: suppliers.map((supplier) => ({
+                        id: supplier.id,
+                        title: supplier.name,
+                        subtitle: supplier.category || "Supplier",
+                        meta: [supplier.email, supplier.phone, supplier.account, supplier.notes].filter(Boolean),
+                        archived: Boolean(supplier.archived),
+                        matches: [supplier.name, supplier.category ?? "", supplier.email, supplier.phone ?? "", supplier.account, supplier.notes ?? ""],
+                        actions: [
+                          {
+                            label: supplier.archived ? "Restore supplier" : "Archive supplier",
+                            onClick: () => updateSupplierArchive(supplier, !supplier.archived),
+                          },
+                          { label: "Delete", onClick: () => deleteSupplierFromDirectory(supplier), danger: true },
+                        ],
+                      })),
+                    }
+                  : activeDirectoryManager === "contacts"
+                    ? {
+                        title: "Contacts",
+                        description: "Manage reusable people records for office, client and site communications.",
+                        importType: "Contacts",
+                        empty: "No contact records yet.",
+                        scope: "contact" as const,
+                        records: contacts.map((contact) => ({
+                          id: contact.id,
+                          title: contact.name,
+                          subtitle: contact.company || contact.role || "Contact",
+                          meta: [contact.role, contact.company, contact.email, contact.phone, contact.notes].filter(Boolean),
+                          archived: Boolean(contact.archived),
+                          matches: [contact.name, contact.company ?? "", contact.role ?? "", contact.email ?? "", contact.phone ?? "", contact.notes ?? ""],
+                          actions: [
+                            {
+                              label: contact.archived ? "Restore contact" : "Archive contact",
+                              onClick: () => updateContactArchive(contact, !contact.archived),
+                            },
+                            { label: "Delete", onClick: () => deleteContactFromDirectory(contact), danger: true },
+                          ],
+                        })),
+                      }
+                    : {
+                        title: "Contractors",
+                        description: "Manage subcontractors and external delivery partners.",
+                        importType: "Contractors",
+                        empty: "No contractor records yet.",
+                        scope: "contractor" as const,
+                        records: contractors.map((contractor) => ({
+                          id: contractor.id,
+                          title: contractor.name,
+                          subtitle: contractor.trade || "Contractor",
+                          meta: [contractor.primaryContact, contractor.email, contractor.phone, contractor.notes].filter(Boolean),
+                          archived: Boolean(contractor.archived),
+                          matches: [contractor.name, contractor.trade ?? "", contractor.primaryContact ?? "", contractor.email ?? "", contractor.phone ?? "", contractor.notes ?? ""],
+                          actions: [
+                            {
+                              label: contractor.archived ? "Restore contractor" : "Archive contractor",
+                              onClick: () => updateContractorArchive(contractor, !contractor.archived),
+                            },
+                            { label: "Delete", onClick: () => deleteContractorFromDirectory(contractor), danger: true },
+                          ],
+                        })),
+                      };
+
+              const filteredRecords = config.records.filter((record) =>
+                !query || record.matches.some((value) => value.toLowerCase().includes(query)),
+              );
+
+              return (
+                <section className="client-directory-panel">
+                  <div className="panel-header">
+                    <div>
+                      <h2>{config.title}</h2>
+                      <p>{config.description}</p>
+                    </div>
+                    <div className="panel-header-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setHomeView("settings");
+                          setActiveSetupCategory("imports");
+                          setActiveSetupSubItem(config.importType);
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Open import
+                      </button>
+                      <button className="link-button" onClick={returnToDashboard}>
+                        Back to dashboard
+                      </button>
+                    </div>
+                  </div>
+
+                  {filteredRecords.length ? (
+                    <div className="client-directory-grid">
+                      {filteredRecords.map((record) => (
+                        <article className="client-directory-card" key={`${config.scope}-${record.id}`}>
+                          <header>
+                            <div>
+                              <h3>{record.title}</h3>
+                              <small>{record.subtitle}</small>
+                            </div>
+                            <div className="directory-card-head-actions">
+                              <span className={`status-pill ${record.archived ? "amber" : "green"}`}>
+                                {record.archived ? "Archived" : "Active"}
+                              </span>
+                              {renderDirectoryActionMenu(config.scope, record.id, record.actions)}
+                            </div>
+                          </header>
+                          {record.meta.map((line) => (
+                            <p className="client-directory-meta" key={`${record.id}-${line}`}>
+                              {line}
+                            </p>
+                          ))}
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="employee-empty-panel">
+                      <strong>{config.empty}</strong>
+                      <span>Use Setup imports or day-to-day record creation to populate this directory.</span>
+                    </div>
+                  )}
+                </section>
+              );
+            })()
           ) : homeView === "clients" ? (
             <section className="client-directory-panel">
               <div className="panel-header">
@@ -30574,9 +31394,19 @@ export default function Dashboard() {
                           <h3>{client.name}</h3>
                           <small>{client.accountReference}</small>
                         </div>
-                        <span className={`status-pill ${client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
-                          {client.status}
-                        </span>
+                        <div className="directory-card-head-actions">
+                          <span className={`status-pill ${client.archived ? "amber" : client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
+                            {client.archived ? "Archived" : client.status}
+                          </span>
+                          {renderDirectoryActionMenu("client", client.id, [
+                            { label: "Open client", onClick: () => openClientRecordView(client.id) },
+                            {
+                              label: client.archived ? "Restore client" : "Archive client",
+                              onClick: () => updateClientArchive(client, !client.archived),
+                            },
+                            { label: "Delete", onClick: () => void deleteClientFromDirectory(client), danger: true },
+                          ])}
+                        </div>
                       </header>
                       <p>{client.primaryContact}</p>
                       <p className="client-directory-meta">{client.email}</p>
@@ -30746,23 +31576,18 @@ export default function Dashboard() {
                               <h3>{site.name}</h3>
                               <small>{site.serviceLine}</small>
                             </div>
-                            <button
-                              className="secondary-button"
-                              onClick={() => {
-                                logAuditEvent({
-                                  actor: activeEmployee?.name ?? "NeXa user",
-                                  action: "reviewed",
-                                  recordType: "site",
-                                  recordId: site.id,
-                                  summary: `Site record reviewed for ${site.name}.`,
-                                  source: "web",
-                                  importance: "normal",
-                                });
-                                showNotice("Site history note added.");
-                              }}
-                            >
-                              Log site check
-                            </button>
+                            <div className="directory-card-head-actions">
+                              <span className={`status-pill ${site.archived ? "amber" : "blue"}`}>
+                                {site.archived ? "Archived" : "Live"}
+                              </span>
+                              {renderDirectoryActionMenu("site", site.id, [
+                                {
+                                  label: site.archived ? "Restore site" : "Archive site",
+                                  onClick: () => updateSiteArchive(site, !site.archived),
+                                },
+                                { label: "Delete", onClick: () => void deleteSiteFromDirectory(site), danger: true },
+                              ])}
+                            </div>
                           </header>
                           <p>{site.address}</p>
                           <p className="client-directory-meta">Contact: {site.primaryContact}</p>
@@ -30868,8 +31693,23 @@ export default function Dashboard() {
                     tabIndex={0}
                   >
                     <header>
-                      <h3>{employee.name}</h3>
-                      <small>{employee.role}</small>
+                      <div>
+                        <h3>{employee.name}</h3>
+                        <small>{employee.role}</small>
+                      </div>
+                      <div className="directory-card-head-actions">
+                        <span className={`status-pill ${employee.archived ? "amber" : "green"}`}>
+                          {employee.archived ? "Archived" : "Active"}
+                        </span>
+                        {renderDirectoryActionMenu("employee", employee.id, [
+                          { label: "Open employee", onClick: () => openEmployeeCardView(employee.id) },
+                          {
+                            label: employee.archived ? "Restore employee" : "Archive employee",
+                            onClick: () => void updateEmployeeArchive(employee, !employee.archived),
+                          },
+                          { label: "Delete", onClick: () => void deleteEmployeeFromDirectory(employee), danger: true },
+                        ])}
+                      </div>
                     </header>
                     <p>
                       {employee.profile?.email || "No email on file"}
@@ -30910,6 +31750,29 @@ export default function Dashboard() {
                       {" · "}
                       {employeeRoleDraft}
                     </p>
+                  </div>
+                  <div className="employee-record-actions">
+                    <span className={`status-pill ${activeEditingEmployee.archived ? "amber" : "green"}`}>
+                      {activeEditingEmployee.archived ? "Archived" : "Active"}
+                    </span>
+                    <button className="secondary-button" onClick={resetEmployeeDraft}>
+                      Discard changes
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => void updateEmployeeArchive(activeEditingEmployee, !activeEditingEmployee.archived)}
+                    >
+                      {activeEditingEmployee.archived ? "Restore employee" : "Archive employee"}
+                    </button>
+                    <button
+                      className="danger-button"
+                      onClick={() => void deleteEmployeeFromDirectory(activeEditingEmployee)}
+                    >
+                      Delete employee
+                    </button>
+                    <button className="primary-button" onClick={saveEmployeeDetails}>
+                      Save employee details
+                    </button>
                   </div>
                   <div className="employee-record-stats">
                     <div>

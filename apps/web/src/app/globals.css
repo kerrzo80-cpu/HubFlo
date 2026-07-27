@@ -3159,6 +3159,19 @@ kbd {
   padding: 18px 20px;
 }
 
+.employee-record-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.employee-record-actions .status-pill {
+  min-height: 30px;
+}
+
 .employee-record-eyebrow {
   color: var(--blue-deep);
   display: block;
@@ -13926,6 +13939,12 @@ h1 {
   .employee-record-banner {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .employee-record-actions {
+    justify-content: flex-start;
+    margin-left: 0;
+    width: 100%;
   }
 
   .client-record-banner {

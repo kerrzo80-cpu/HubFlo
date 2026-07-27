@@ -316,3 +316,13 @@ export function updateAuthUser(
   persist();
   return safeUser(user);
 }
+
+export function deleteAuthUser(id: string) {
+  refresh();
+  const existing = authStore.users.find((user) => user.id === id);
+  if (!existing) return null;
+  authStore.users = authStore.users.filter((user) => user.id !== id);
+  authStore.sessions = authStore.sessions.filter((session) => session.userId !== id);
+  persist();
+  return safeUser(existing);
+}
