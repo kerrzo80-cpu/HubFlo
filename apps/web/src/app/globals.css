@@ -19994,15 +19994,19 @@ body:has(.platform) {
   overflow: hidden;
 }
 
+html.nexa-survey-scroll,
+html.nexa-survey-scroll body,
 html:has(.survey-simple-app),
 body:has(.survey-simple-app),
 html:has(.survey-simple-loading),
-body:has(.survey-simple-loading) {
-  height: auto;
-  min-height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+body:has(.survey-simple-loading),
+html:has(.guided-survey-app),
+body:has(.guided-survey-app) {
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow: hidden !important;
+  overscroll-behavior: none;
+  touch-action: manipulation;
 }
 
 .platform {
@@ -32908,9 +32912,38 @@ body {
     radial-gradient(circle at top left, rgba(25, 152, 207, 0.16), transparent 34%),
     linear-gradient(180deg, #eef6f9 0%, #f7fbfd 42%, #f2f7f9 100%);
   color: var(--survey-ink);
-  min-height: 100dvh;
+  /* Independent scrollport — Core keeps html/body overflow locked. */
+  bottom: 0;
+  left: 0;
   overflow-x: hidden;
-  padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  position: fixed;
+  right: 0;
+  top: 0;
+  -webkit-overflow-scrolling: touch;
+  z-index: 1;
+}
+
+.survey-simple-loading {
+  align-items: center;
+  background:
+    radial-gradient(circle at top left, rgba(25, 152, 207, 0.16), transparent 34%),
+    linear-gradient(180deg, #eef6f9 0%, #f7fbfd 42%, #f2f7f9 100%);
+  bottom: 0;
+  color: var(--survey-muted, #647985);
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  left: 0;
+  overflow-y: auto;
+  place-content: center;
+  position: fixed;
+  right: 0;
+  top: 0;
+  -webkit-overflow-scrolling: touch;
+  z-index: 1;
 }
 
 .survey-simple-topbar {
@@ -33277,12 +33310,8 @@ body {
 }
 
 .survey-simple-loading {
-  align-items: center;
-  display: grid;
-  gap: 12px;
-  justify-items: center;
-  min-height: 100dvh;
-  place-content: center;
+  /* position/size come from the fixed scrollport rule above */
+  min-height: 0;
 }
 
 .survey-simple-notice,

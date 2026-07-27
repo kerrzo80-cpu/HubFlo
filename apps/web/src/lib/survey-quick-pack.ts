@@ -254,11 +254,14 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
       const detail = typeof (body as { error?: { message?: string } }).error?.message === "string"
         ? (body as { error: { message: string } }).error.message
         : `OpenAI HTTP ${response.status}`;
+      const shortDetail = /quota|billing/i.test(detail)
+        ? "OpenAI quota or billing limit reached on this API key. Top up or change plan at platform.openai.com/account/billing, then try again."
+        : detail;
       return {
         connected: true,
         aiUsed: false,
-        error: detail,
-        pack: fallbackCostCentres(survey, `OpenAI key is present, but Buddy could not build the pack (${detail}). Showing a rule-based draft instead.`),
+        error: shortDetail,
+        pack: fallbackCostCentres(survey, `OpenAI key is present, but Buddy could not build the pack (${shortDetail}). Showing a rule-based draft instead.`),
       };
     }
     const text = extractChatText(body) || getOutputText(body);

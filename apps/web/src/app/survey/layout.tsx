@@ -1,4 +1,5 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { SurveyScrollUnlock } from "./survey-scroll-unlock";
 
 export const metadata: Metadata = {
   title: "NeXa Surveyor",
@@ -19,10 +20,21 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function SurveyLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return children;
+  return (
+    <>
+      <SurveyScrollUnlock />
+      {children}
+    </>
+  );
 }
