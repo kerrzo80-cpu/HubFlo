@@ -401,6 +401,8 @@ export type TakeoffServicesMarkup = {
   symbols: TakeoffMarkupSymbol[];
   /** Suggested/accepted plant packages (boiler flue pack, bath waste/taps, stack tap-in, etc.). */
   packages?: TakeoffMarkupPackageInstance[];
+  /** Material line IDs removed from BoQ that should not be regenerated from markup. */
+  excludedQuantityIds?: string[];
   assumptions: string[];
   updatedAt?: string;
 };

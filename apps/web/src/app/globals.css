@@ -23720,6 +23720,80 @@ img.markup-document-preview {
   padding: 10px;
 }
 
+.services-markup-package-float {
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid #c7e0ea;
+  border-radius: 14px;
+  box-shadow: 0 18px 40px rgba(12, 48, 68, 0.22);
+  display: grid;
+  gap: 10px;
+  left: 12px;
+  max-height: min(58vh, 460px);
+  max-width: min(420px, calc(100% - 24px));
+  overflow: auto;
+  padding: 12px;
+  pointer-events: auto;
+  position: absolute;
+  top: 12px;
+  z-index: 80;
+  -webkit-overflow-scrolling: touch;
+}
+
+.takeoff-app.takeoff-drawing-mode .services-markup-package-float,
+.takeoff-app.takeoff-markup-fullscreen .services-markup-package-float {
+  left: max(12px, env(safe-area-inset-left));
+  max-height: min(52vh, 420px);
+  max-width: min(420px, calc(100vw - 96px));
+  position: fixed;
+  top: max(72px, calc(env(safe-area-inset-top) + 56px));
+  z-index: 95;
+}
+
+.services-markup-package-float > section {
+  display: grid;
+  gap: 10px;
+}
+
+.services-markup-package-float > section > header {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.services-markup-package-float > section > header svg {
+  color: var(--blue-deep);
+  margin-top: 2px;
+}
+
+.services-markup-package-float > section > header strong {
+  display: block;
+  font-size: 14px;
+}
+
+.services-markup-package-float > section > header small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+@media (max-width: 900px) {
+  .services-markup-package-float {
+    left: 8px;
+    max-height: min(46vh, 360px);
+    right: 8px;
+    top: 8px;
+    width: auto;
+    max-width: none;
+  }
+
+  .services-markup-package-mobile {
+    display: flex;
+  }
+}
+
 .services-markup-package-mobile span {
   display: grid;
   flex: 1;

@@ -710,6 +710,7 @@ function createDefaultServicesMarkup(): TakeoffServicesMarkup {
     pipes: [],
     symbols: [],
     packages: [],
+    excludedQuantityIds: [],
     assumptions: [
       "Lengths are measured from the marked-up drawing and should be checked against site conditions before order.",
       "L-shaped pipe routes auto-add a 90 degree elbow at the bend; review fittings before issuing the supplier request.",
@@ -789,6 +790,9 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
       normaliseMarkupPackages(markup?.packages ?? fallback.packages),
       markup?.symbols ?? fallback.symbols,
     ),
+    excludedQuantityIds: Array.isArray(markup?.excludedQuantityIds)
+      ? markup.excludedQuantityIds.filter((id): id is string => typeof id === "string" && Boolean(id))
+      : fallback.excludedQuantityIds ?? [],
     assumptions: markup?.assumptions ?? fallback.assumptions,
   };
 }
@@ -1546,7 +1550,9 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   });
 
   const packageMaterials = materialAllowancesFromAcceptedPackages(markup.packages, existingMarkupMaterials);
-  const markupMaterials = [...pipeMaterials, ...symbolMaterials, ...packageMaterials];
+  const excludedIds = new Set(markup.excludedQuantityIds ?? []);
+  const markupMaterials = [...pipeMaterials, ...symbolMaterials, ...packageMaterials]
+    .filter((line) => !excludedIds.has(line.id));
   const existingMarkupRequests = project.supplierRequests.filter((line) => (
     line.notes === "From Services Markup" || line.notes === "From Markup package"
   ));
@@ -2540,6 +2546,26 @@ const filteredMarkupPlantTools = useMemo(() => {
     [displayedServicesMarkup.packages, selectedMarkupSymbol],
   );
 
+  // Show package cards even when the parent symbol is no longer selected
+  // (common after a tap-to-place on mobile / fullscreen markup).
+  const promptMarkupPackages = useMemo(() => {
+    const byId = new Map<string, (typeof selectedMarkupPackages)[number]>();
+    selectedMarkupPackages.forEach((pack) => byId.set(pack.id, pack));
+    (displayedServicesMarkup.packages ?? [])
+      .filter((pack) => pack.status === "suggested")
+      .forEach((pack) => {
+        if (!byId.has(pack.id)) byId.set(pack.id, pack);
+      });
+    return Array.from(byId.values());
+  }, [displayedServicesMarkup.packages, selectedMarkupPackages]);
+
+  useEffect(() => {
+    if (!promptMarkupPackages.length) return;
+    if (promptMarkupPackages.some((pack) => pack.status === "suggested")) {
+      setIsMarkupMaterialsCollapsed(false);
+    }
+  }, [promptMarkupPackages]);
+
   const markupSelectedDrawing = useMemo(
     () => drawingDocuments.find((document) => document.id === workingServicesMarkup.drawingDocumentId) ?? drawingDocuments[0] ?? null,
     [drawingDocuments, workingServicesMarkup.drawingDocumentId],
@@ -3074,13 +3100,21 @@ const filteredMarkupPlantTools = useMemo(() => {
       servicesMarkup: workingServicesMarkup,
     });
     const currentMaterials = selectedProject.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+      line.id.startsWith("markup-material")
+      || line.id.startsWith("markup-symbol-material")
+      || line.id.startsWith("markup-package-material")
     ));
     const nextMaterials = quantityPatch.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+      line.id.startsWith("markup-material")
+      || line.id.startsWith("markup-symbol-material")
+      || line.id.startsWith("markup-package-material")
     ));
-    const currentRequests = selectedProject.supplierRequests.filter((line) => line.notes === "From Services Markup");
-    const nextRequests = quantityPatch.supplierRequests.filter((line) => line.notes === "From Services Markup");
+    const currentRequests = selectedProject.supplierRequests.filter((line) => (
+      line.notes === "From Services Markup" || line.notes === "From Markup package"
+    ));
+    const nextRequests = quantityPatch.supplierRequests.filter((line) => (
+      line.notes === "From Services Markup" || line.notes === "From Markup package"
+    ));
     if (JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials) && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)) return;
     patchProject(selectedProject.id, {
       servicesMarkup: workingServicesMarkup,
@@ -4994,6 +5028,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       : `${nextSymbol.kind} placed on the drawing.`);
     setSelectedMarkupElementId(nextSymbol.id);
     setLastCommittedMarkupElementId(nextSymbol.id);
+    setIsMarkupMaterialsCollapsed(false);
+    if (ensureSuggestedPackage([], nextSymbol).length) {
+      setNotice(`${nextSymbol.kind} placed — choose package items on the right (or in the package card on the drawing).`);
+    }
     return nextSymbol;
   }
 
@@ -5219,10 +5257,24 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }));
   }
 
-  function upsertMarkupPackagesForSelected(nextPackages: ReturnType<typeof packagesForSymbol>) {
-    if (!selectedMarkupSymbol) return;
+  function findMarkupPackageWorkingSet(packageId: string) {
+    const fromStore = (displayedServicesMarkup.packages ?? []).find((item) => item.id === packageId);
+    const fromPrompt = promptMarkupPackages.find((item) => item.id === packageId) ?? fromStore;
+    if (!fromPrompt) return null;
+    const parentSymbol = displayedServicesMarkup.symbols.find((symbol) => symbol.id === fromPrompt.parentSymbolId)
+      ?? (selectedMarkupSymbol?.id === fromPrompt.parentSymbolId ? selectedMarkupSymbol : null);
+    const base = packagesForSymbol(displayedServicesMarkup.packages, fromPrompt.parentSymbolId);
+    const working = base.length
+      ? base
+      : parentSymbol
+        ? ensureSuggestedPackage([], parentSymbol)
+        : [fromPrompt];
+    return { parentSymbolId: fromPrompt.parentSymbolId, working };
+  }
+
+  function upsertMarkupPackagesForParent(parentSymbolId: string, nextPackages: ReturnType<typeof packagesForSymbol>) {
     updateServicesMarkup((current) => {
-      const withoutParent = (current.packages ?? []).filter((item) => item.parentSymbolId !== selectedMarkupSymbol.id);
+      const withoutParent = (current.packages ?? []).filter((item) => item.parentSymbolId !== parentSymbolId);
       return {
         ...current,
         packages: [...withoutParent, ...nextPackages],
@@ -5231,18 +5283,19 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleTogglePackageChild(packageId: string, childId: string, selected: boolean) {
-    if (!selectedMarkupSymbol) return;
-    const base = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
-    const working = base.length ? base : ensureSuggestedPackage([], selectedMarkupSymbol);
-    upsertMarkupPackagesForSelected(togglePackageChild(working, packageId, childId, selected));
+    const found = findMarkupPackageWorkingSet(packageId);
+    if (!found) return;
+    upsertMarkupPackagesForParent(
+      found.parentSymbolId,
+      togglePackageChild(found.working, packageId, childId, selected),
+    );
   }
 
   function handleAcceptMarkupPackage(packageId: string) {
-    if (!selectedMarkupSymbol) return;
-    const base = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
-    const working = base.length ? base : ensureSuggestedPackage([], selectedMarkupSymbol);
-    const accepted = acceptMarkupPackage(working, packageId);
-    upsertMarkupPackagesForSelected(accepted);
+    const found = findMarkupPackageWorkingSet(packageId);
+    if (!found) return;
+    const accepted = acceptMarkupPackage(found.working, packageId);
+    upsertMarkupPackagesForParent(found.parentSymbolId, accepted);
     const pack = accepted.find((item) => item.id === packageId);
     const count = pack?.childItems.filter((child) => child.selected).length ?? 0;
     setNotice(count
@@ -5251,10 +5304,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   function handleDismissMarkupPackage(packageId: string) {
-    if (!selectedMarkupSymbol) return;
-    const base = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
-    const working = base.length ? base : ensureSuggestedPackage([], selectedMarkupSymbol);
-    upsertMarkupPackagesForSelected(dismissMarkupPackage(working, packageId));
+    const found = findMarkupPackageWorkingSet(packageId);
+    if (!found) return;
+    upsertMarkupPackagesForParent(found.parentSymbolId, dismissMarkupPackage(found.working, packageId));
   }
 
   function moveSelectedMarkupElement(dx: number, dy: number) {
@@ -6332,6 +6384,115 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     updateProject({ materialAllowances: replaceById(selectedProject.materialAllowances, id, patch) });
   }
 
+  function removeMaterial(id: string) {
+    if (!selectedProject) return;
+    const line = selectedProject.materialAllowances.find((item) => item.id === id);
+    const isMarkupGenerated = (
+      id.startsWith("markup-material")
+      || id.startsWith("markup-symbol-material")
+      || id.startsWith("markup-package-material")
+    );
+
+    if (!isMarkupGenerated) {
+      updateProject({ materialAllowances: removeById(selectedProject.materialAllowances, id) });
+      setNotice("Material removed.");
+      return;
+    }
+
+    // Markup regenerates BoQ lines from the drawing unless we exclude them (and
+    // drop package children / un-include matching symbols).
+    updateServicesMarkup((current) => {
+      const excluded = new Set([...(current.excludedQuantityIds ?? []), id]);
+      let packages = current.packages ?? [];
+      let symbols = current.symbols;
+      const disabledSymbolIds = new Set<string>();
+
+      if (id.startsWith("markup-package-material-")) {
+        let removedChildId: string | null = null;
+        let removedTemplateId: string | null = null;
+        for (const pack of packages) {
+          const prefix = `markup-package-material-${pack.id}-`;
+          if (!id.startsWith(prefix)) continue;
+          removedChildId = id.slice(prefix.length);
+          removedTemplateId = pack.templateId;
+          break;
+        }
+        if (removedChildId) {
+          packages = packages.map((pack) => {
+            if (removedTemplateId && pack.templateId !== removedTemplateId) return pack;
+            excluded.add(`markup-package-material-${pack.id}-${removedChildId}`);
+            const childItems = pack.childItems.map((child) => (
+              child.id === removedChildId ? { ...child, selected: false } : child
+            ));
+            return {
+              ...pack,
+              childItems,
+              status: childItems.some((child) => child.selected) ? pack.status : "dismissed" as const,
+              updatedAt: new Date().toISOString(),
+            };
+          });
+        }
+      }
+
+      if (id.startsWith("markup-symbol-material") && line) {
+        const desc = line.description.toLowerCase();
+        symbols = symbols.map((symbol) => {
+          if (symbol.autoGenerated) return symbol;
+          const kind = String(symbol.kind).toLowerCase();
+          if (kind && desc.includes(kind)) {
+            disabledSymbolIds.add(symbol.id);
+            return { ...symbol, included: false };
+          }
+          return symbol;
+        });
+        if (disabledSymbolIds.size) {
+          packages = packages.map((pack) => {
+            if (!disabledSymbolIds.has(pack.parentSymbolId)) return pack;
+            pack.childItems.forEach((child) => {
+              excluded.add(`markup-package-material-${pack.id}-${child.id}`);
+            });
+            return {
+              ...pack,
+              status: "dismissed" as const,
+              updatedAt: new Date().toISOString(),
+            };
+          });
+        }
+      }
+
+      if (
+        id.startsWith("markup-material")
+        && !id.startsWith("markup-symbol-material")
+        && !id.startsWith("markup-package-material")
+        && line
+      ) {
+        const desc = line.description.toLowerCase();
+        return {
+          ...current,
+          packages,
+          symbols,
+          pipes: current.pipes.map((pipe) => {
+            if (!pipe.included) return pipe;
+            const haystack = `${pipe.service} ${pipe.material} ${pipe.diameter}`.toLowerCase();
+            if (desc.includes(pipe.material.toLowerCase()) && desc.includes(pipe.diameter.toLowerCase())) {
+              return { ...pipe, included: false };
+            }
+            if (desc.includes(haystack)) return { ...pipe, included: false };
+            return pipe;
+          }),
+          excludedQuantityIds: Array.from(excluded),
+        };
+      }
+
+      return {
+        ...current,
+        packages,
+        symbols,
+        excludedQuantityIds: Array.from(excluded),
+      };
+    }, "Material removed from quantities.");
+  }
+
   function addLabour() {
     if (!selectedProject) return;
     const labour: TakeoffLabourAllowance = {
@@ -7320,6 +7481,53 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </div>
 
                       <div className="services-markup-plan-stage" onWheel={handleMarkupWheel}>
+                        {promptMarkupPackages.length ? (
+                          <div
+                            className="services-markup-package-float"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onTouchStart={(event) => event.stopPropagation()}
+                          >
+                            {promptMarkupPackages.map((pack) => (
+                              <section key={`float-${pack.id}`} data-status={pack.status}>
+                                <header>
+                                  <Sparkles size={15} />
+                                  <div>
+                                    <strong>{pack.title}</strong>
+                                    <small>{pack.summary}</small>
+                                  </div>
+                                </header>
+                                <div className="services-markup-package-list">
+                                  {pack.childItems.map((child) => (
+                                    <label key={child.id}>
+                                      <input
+                                        type="checkbox"
+                                        checked={child.selected}
+                                        disabled={pack.status === "accepted"}
+                                        onChange={(event) => handleTogglePackageChild(pack.id, child.id, event.target.checked)}
+                                      />
+                                      <span>
+                                        <strong>{child.description}</strong>
+                                        <small>{child.quantity} {child.unit}</small>
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                                {pack.status !== "accepted" ? (
+                                  <div className="services-markup-package-actions">
+                                    <button className="takeoff-primary-button" type="button" onClick={() => handleAcceptMarkupPackage(pack.id)}>
+                                      Add selected to quantities
+                                    </button>
+                                    <button className="takeoff-small-button" type="button" onClick={() => handleDismissMarkupPackage(pack.id)}>
+                                      Dismiss
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="services-markup-package-note">Added to BoQ / RFQ.</p>
+                                )}
+                              </section>
+                            ))}
+                          </div>
+                        ) : null}
                         {markupToolMode === "calibrate" ? (
                           <div
                             className="takeoff-calibration-hud"
@@ -8841,7 +9049,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           <input type="number" value={line.markupPercent} onChange={(event) => updateMaterial(line.id, { markupPercent: numberFromInput(event.target.value) })} />
                           <input type="checkbox" checked={line.supplierRequired} onChange={(event) => updateMaterial(line.id, { supplierRequired: event.target.checked })} />
                           <input value={line.preferredSupplier ?? ""} onChange={(event) => updateMaterial(line.id, { preferredSupplier: event.target.value })} />
-                          <button type="button" aria-label="Remove material" onClick={() => updateProject({ materialAllowances: removeById(selectedProject.materialAllowances, line.id) })}>
+                          <button type="button" aria-label="Remove material" onClick={() => removeMaterial(line.id)}>
                             <Trash2 size={15} />
                           </button>
                         </div>
