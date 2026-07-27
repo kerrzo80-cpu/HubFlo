@@ -21054,9 +21054,9 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/survey" className="context-link" aria-label="NeXa Survey" data-tooltip="NeXa Survey">
+          <a href="/survey/guided" className="context-link" aria-label="NeXa Surveyor" data-tooltip="NeXa Surveyor">
             <Sparkles size={17} />
-            <span>NeXa Survey</span>
+            <span>NeXa Surveyor</span>
           </a>
           <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />
@@ -22700,12 +22700,30 @@ export default function Dashboard() {
               </div>
 
               <div className="addon-card-grid">
+                <a className="addon-product-card" href="/survey/guided">
+                  <span className="addon-icon"><ClipboardCheck size={20} /></span>
+                  <div>
+                    <strong>NeXa Surveyor</strong>
+                    <p>Guided site capture with Buddy, photos, measurements and AI estimate packs.</p>
+                    <small>Outputs survey evidence, assumptions, materials, labour and Estimator handoff.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
                 <a className="addon-product-card" href="/takeoff">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
                     <strong>NeXa Takeoff</strong>
                     <p>Drawings, specifications, BOQs, heat loss and supplier lists.</p>
                     <small>Outputs quote cost centres, BOQ lines, supplier requests and documents.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+                <a className="addon-product-card" href="/estimator">
+                  <span className="addon-icon"><FileText size={20} /></span>
+                  <div>
+                    <strong>NeXa Estimator</strong>
+                    <p>Review AI-built materials and labour, then push a Core quote.</p>
+                    <small>Outputs editable estimates, RFQs and simPRO-ready quote lines.</small>
                   </div>
                   <ChevronRight size={17} />
                 </a>

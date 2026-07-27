@@ -112,9 +112,14 @@ export default function EstimatorPage() {
         const loaded = await response.json() as EstimateRecord[];
         setEstimates(loaded);
         const requested = new URLSearchParams(window.location.search).get("estimate");
+        const fromAiPack = new URLSearchParams(window.location.search).get("from") === "ai-pack";
         const first = loaded.find((item) => item.id === requested || item.reference === requested) || loaded[0];
-        if (first) await openEstimate(first.id);
-        else setLoading(false);
+        if (first) {
+          await openEstimate(first.id);
+          if (fromAiPack) {
+            setNotice("Buddy prepared this estimate pack from the survey. Review materials and labour, then push it to a Core quote.");
+          }
+        } else setLoading(false);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Unable to load estimates.");
         setLoading(false);
@@ -305,7 +310,7 @@ export default function EstimatorPage() {
               <em>Survey v{item.sourceSurveyVersion} · {new Date(item.updatedAt).toLocaleDateString("en-GB")}</em>
             </button>
           ))}
-          {!estimates.length && !loading ? <p>Complete a guided survey and send it to Estimator to create the first pack.</p> : null}
+          {!estimates.length && !loading ? <p>Complete a guided survey and use Generate AI estimate pack to create the first estimate.</p> : null}
         </aside>
 
         <section className="estimator-workspace">

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ClipboardCheck, FileSearch, LayoutDashboard, Loader2, Plus } from "lucide-react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { ClipboardCheck, FileSearch, LayoutDashboard, Loader2, Plus, Sparkles } from "lucide-react";
 import type { SurveyRecord } from "@hubflo/domain";
 
 const requestHeaders: HeadersInit = {
@@ -9,11 +10,13 @@ const requestHeaders: HeadersInit = {
   "x-hubflo-employee-id": "Brian Kerr",
 };
 
-export default function GuidedSurveyDirectory() {
+function GuidedSurveyDirectoryContent() {
+  const searchParams = useSearchParams();
   const [surveys, setSurveys] = useState<SurveyRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const fromLegacy = searchParams.get("from");
 
   useEffect(() => {
     void fetch("/api/surveys", { headers: requestHeaders })
@@ -48,25 +51,31 @@ export default function GuidedSurveyDirectory() {
       <header className="guided-app-header">
         <div>
           <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa" />
-          <span><strong>NeXa Surveyor</strong><small>Guided site capture</small></span>
+          <span><strong>NeXa Surveyor</strong><small>AI-assisted site capture</small></span>
         </div>
         <div className="guided-header-actions">
           <a href="/"><LayoutDashboard size={17} /> Core</a>
           <a href="/takeoff"><FileSearch size={17} /> Takeoffs</a>
+          <a href="/estimator"><Sparkles size={17} /> Estimator</a>
         </div>
       </header>
       <section className="guided-directory-content">
         <div className="guided-directory-heading">
           <div>
-            <span className="guided-eyebrow">Site surveys</span>
+            <span className="guided-eyebrow">Primary survey path</span>
             <h1>Guided surveys</h1>
-            <p>Structured site facts and evidence, kept separate from pricing.</p>
+            <p>Capture site facts with Buddy, then generate an AI estimate pack for review before it reaches Core or simPRO.</p>
           </div>
           <button type="button" onClick={createSurvey} disabled={creating}>
             {creating ? <Loader2 className="spin" size={17} /> : <Plus size={17} />}
             New survey
           </button>
         </div>
+        {fromLegacy === "ai-surveyor" || fromLegacy === "survey-chat" ? (
+          <p className="guided-notice">
+            Those older survey screens now open here. Use Guided Surveyor for capture, Ask Buddy for help, and Generate AI estimate pack on the review step.
+          </p>
+        ) : null}
         {error ? <p className="guided-error">{error}</p> : null}
         <div className="guided-survey-table">
           <div className="guided-survey-table-head">
@@ -86,5 +95,13 @@ export default function GuidedSurveyDirectory() {
         </div>
       </section>
     </main>
+  );
+}
+
+export default function GuidedSurveyDirectory() {
+  return (
+    <Suspense fallback={<main className="guided-survey-directory"><p className="guided-empty"><Loader2 className="spin" size={18} /> Loading surveys</p></main>}>
+      <GuidedSurveyDirectoryContent />
+    </Suspense>
   );
 }

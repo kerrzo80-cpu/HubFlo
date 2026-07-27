@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "NeXa Estimator",
-  description: "NeXa estimator for site survey chat, room scans, heat loss and quote handoff.",
-  applicationName: "NeXa Estimator",
+  title: "NeXa Surveyor",
+  description: "NeXa Surveyor for guided site capture, Buddy assistance and AI estimate packs.",
+  applicationName: "NeXa Surveyor",
   manifest: "/manifest-estimator.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NeXa Estimator",
+    title: "NeXa Surveyor",
   },
   icons: {
     icon: [

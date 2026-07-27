@@ -24,6 +24,7 @@ import {
   Save,
   ScanLine,
   Send,
+  Sparkles,
   Trash2,
   Upload,
   Wrench,
@@ -199,6 +200,7 @@ export default function GuidedSurveyPage() {
   const [assistantDraft, setAssistantDraft] = useState("");
   const [assistantSending, setAssistantSending] = useState(false);
   const [assistantWarning, setAssistantWarning] = useState("");
+  const [aiPackBusy, setAiPackBusy] = useState(false);
   const surveyRef = useRef<SurveyRecord | null>(null);
   const assistantListRef = useRef<HTMLDivElement | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
@@ -402,6 +404,47 @@ export default function GuidedSurveyPage() {
     window.location.href = `/estimator?estimate=${encodeURIComponent(body.estimate.id)}`;
   }
 
+  async function generateAiQuotePack() {
+    const current = await flushAutosave();
+    if (!current) return;
+    setAiPackBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/surveys/${encodeURIComponent(current.id)}/ai-quote-pack`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion: current.version }),
+      });
+      const body = await response.json() as {
+        ok?: boolean;
+        survey?: SurveyRecord;
+        estimateId?: string;
+        estimateReference?: string;
+        summary?: string;
+        error?: string;
+        blockers?: string[];
+        aiUsed?: boolean;
+      };
+      if (body.survey) {
+        setSurvey(body.survey);
+        surveyRef.current = body.survey;
+      }
+      if (!response.ok || !body.estimateId) {
+        if (body.blockers?.length) setReview((currentReview) => currentReview);
+        setError([body.error, ...(body.blockers || [])].filter(Boolean).join(" "));
+        await loadReview();
+        return;
+      }
+      setNotice(body.summary || `${body.estimateReference || "Estimate"} ready for review.`);
+      window.location.href = `/estimator?estimate=${encodeURIComponent(body.estimateId)}&from=ai-pack`;
+    } catch (packError) {
+      setError(packError instanceof Error ? packError.message : "Unable to generate the AI estimate pack.");
+    } finally {
+      setAiPackBusy(false);
+    }
+  }
+
   async function uploadPhotos(event: ChangeEvent<HTMLInputElement>) {
     const files = event.target.files ? Array.from(event.target.files) : [];
     const current = await flushAutosave();
@@ -565,7 +608,7 @@ export default function GuidedSurveyPage() {
           <header className="guided-workspace-heading">
             <div><span className="guided-eyebrow">{survey.jobType}</span><h1>{steps[currentStepIndex]?.label}</h1><p>{survey.customerName || "Customer not selected"} · {survey.siteAddress || "Site address required"}</p></div>
             <div className="guided-workspace-actions">
-              <button className="guided-ask-toggle" type="button" aria-expanded={assistantOpen} onClick={() => setAssistantOpen((open) => !open)}><Bot size={16} /> Ask NeXa</button>
+              <button className="guided-ask-toggle" type="button" aria-expanded={assistantOpen} onClick={() => setAssistantOpen((open) => !open)}><Bot size={16} /> Ask Buddy</button>
               <b data-status={survey.status}>{survey.status}</b>
             </div>
           </header>
@@ -573,16 +616,16 @@ export default function GuidedSurveyPage() {
           {error ? <p className="guided-error">{error}</p> : null}
 
           {assistantOpen ? (
-            <aside className="guided-assistant-panel" aria-label="Ask NeXa survey assistant">
+            <aside className="guided-assistant-panel" aria-label="Ask Buddy survey assistant">
               <header>
-                <div><span className="guided-assistant-icon"><Bot size={17} /></span><span><strong>Ask NeXa</strong><small>Using this survey and the {steps[currentStepIndex]?.label.toLowerCase()} stage</small></span></div>
-                <button type="button" title="Close Ask NeXa" aria-label="Close Ask NeXa" onClick={() => setAssistantOpen(false)}><ChevronUp size={18} /></button>
+                <div><span className="guided-assistant-icon"><Bot size={17} /></span><span><strong>Ask Buddy</strong><small>Using this survey and the {steps[currentStepIndex]?.label.toLowerCase()} stage</small></span></div>
+                <button type="button" title="Close Ask Buddy" aria-label="Close Ask Buddy" onClick={() => setAssistantOpen(false)}><ChevronUp size={18} /></button>
               </header>
               <div className="guided-assistant-messages" ref={assistantListRef}>
                 {survey.assistantMessages?.length ? survey.assistantMessages.map((message) => (
-                  <article className={message.role} key={message.id}><span>{message.role === "assistant" ? "NeXa" : "You"}</span><p>{message.text}</p><small>{message.step}</small></article>
-                )) : <p className="guided-assistant-empty">Ask NeXa to check what is missing, explain what to capture, or challenge the survey before it reaches Estimator.</p>}
-                {assistantSending ? <article className="assistant thinking"><span>NeXa</span><p><Loader2 className="spin" size={16} /> Reviewing the live survey...</p></article> : null}
+                  <article className={message.role} key={message.id}><span>{message.role === "assistant" ? "Buddy" : "You"}</span><p>{message.text}</p><small>{message.step}</small></article>
+                )) : <p className="guided-assistant-empty">Ask Buddy to check what is missing, explain what to capture, or challenge the survey before it reaches Estimator.</p>}
+                {assistantSending ? <article className="assistant thinking"><span>Buddy</span><p><Loader2 className="spin" size={16} /> Reviewing the live survey...</p></article> : null}
               </div>
               <div className="guided-assistant-prompts">
                 <button type="button" disabled={assistantSending} onClick={() => void askNexa(undefined, "What is missing from this stage?")}>What is missing?</button>
@@ -590,8 +633,8 @@ export default function GuidedSurveyPage() {
                 <button type="button" disabled={assistantSending} onClick={() => void askNexa(undefined, "What should I capture next before this survey can be priced reliably?")}>What next?</button>
               </div>
               <form className="guided-assistant-compose" onSubmit={(event) => void askNexa(event)}>
-                <textarea aria-label="Ask NeXa" value={assistantDraft} onChange={(event) => setAssistantDraft(event.target.value)} placeholder="Ask about this job, the evidence or anything that may have been missed..." />
-                <button type="submit" title="Send to NeXa" aria-label="Send to NeXa" disabled={assistantSending || !assistantDraft.trim()}>{assistantSending ? <Loader2 className="spin" size={17} /> : <Send size={17} />}</button>
+                <textarea aria-label="Ask Buddy" value={assistantDraft} onChange={(event) => setAssistantDraft(event.target.value)} placeholder="Ask about this job, the evidence or anything that may have been missed..." />
+                <button type="submit" title="Send to Buddy" aria-label="Send to Buddy" disabled={assistantSending || !assistantDraft.trim()}>{assistantSending ? <Loader2 className="spin" size={17} /> : <Send size={17} />}</button>
               </form>
               {assistantWarning ? <p className="guided-assistant-warning">{assistantWarning}</p> : null}
             </aside>
@@ -834,7 +877,30 @@ export default function GuidedSurveyPage() {
                 <ReviewGroup title="Design dependencies" items={review?.designDependencies.map((item) => item.message) || []} />
                 <ReviewGroup title="Supplier RFQs" items={review?.supplierRfqs.map((item) => item.message) || []} />
               </div>
-              <div className="guided-review-actions"><button type="button" onClick={() => void loadReview()}><ClipboardCheck size={16} /> Refresh review</button><a href={`/api/surveys/${encodeURIComponent(survey.id)}/pdf`} target="_blank" rel="noreferrer"><Download size={16} /> Survey PDF</a>{survey.estimateId ? <a href={`/estimator?estimate=${encodeURIComponent(survey.estimateId)}`}><Calculator size={16} /> Open current estimate</a> : null}{survey.status === "Complete" || survey.status === "Sent to estimator" ? <button className="guided-primary-action" type="button" disabled={!review?.canSendToEstimator} onClick={() => void sendToEstimator()}><Send size={16} /> {survey.status === "Sent to estimator" ? "Update Estimator" : "Send to Estimator"}</button> : <button className="guided-primary-action" type="button" disabled={!review?.canComplete} onClick={() => void completeCurrentSurvey()}><CheckCircle2 size={16} /> Complete survey</button>}</div>
+              <div className="guided-review-actions">
+                <button type="button" onClick={() => void loadReview()}><ClipboardCheck size={16} /> Refresh review</button>
+                <a href={`/api/surveys/${encodeURIComponent(survey.id)}/pdf`} target="_blank" rel="noreferrer"><Download size={16} /> Survey PDF</a>
+                {survey.estimateId ? <a href={`/estimator?estimate=${encodeURIComponent(survey.estimateId)}`}><Calculator size={16} /> Open current estimate</a> : null}
+                <button
+                  className="guided-primary-action guided-ai-pack-action"
+                  type="button"
+                  disabled={aiPackBusy || !(review?.canComplete || review?.canSendToEstimator || survey.status === "Complete" || survey.status === "Sent to estimator")}
+                  onClick={() => void generateAiQuotePack()}
+                >
+                  {aiPackBusy ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+                  {aiPackBusy ? "Building AI pack..." : survey.estimateId ? "Rebuild AI estimate pack" : "Generate AI estimate pack"}
+                </button>
+                {survey.status === "Complete" || survey.status === "Sent to estimator" ? (
+                  <button className="guided-secondary-action" type="button" disabled={!review?.canSendToEstimator || aiPackBusy} onClick={() => void sendToEstimator()}>
+                    <Send size={16} /> {survey.status === "Sent to estimator" ? "Update Estimator only" : "Send to Estimator only"}
+                  </button>
+                ) : (
+                  <button className="guided-secondary-action" type="button" disabled={!review?.canComplete || aiPackBusy} onClick={() => void completeCurrentSurvey()}>
+                    <CheckCircle2 size={16} /> Complete survey only
+                  </button>
+                )}
+              </div>
+              <p className="guided-ai-pack-hint">AI estimate pack uses Buddy plus NeXa estimating rules. It drafts scope, materials and labour for your review before anything goes to simPRO.</p>
             </section>
           ) : null}
 
