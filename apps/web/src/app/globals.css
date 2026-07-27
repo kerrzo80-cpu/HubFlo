@@ -23615,6 +23615,133 @@ img.markup-document-preview {
   margin-top: 12px;
 }
 
+.services-markup-package {
+  background: linear-gradient(180deg, #f3fafd 0%, #eef6f9 100%);
+  border: 1px solid #c7e0ea;
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  grid-column: 1 / -1;
+  padding: 12px;
+}
+
+.services-markup-package > section {
+  display: grid;
+  gap: 10px;
+}
+
+.services-markup-package > section > header {
+  align-items: start;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.services-markup-package > section > header svg {
+  color: var(--blue-deep);
+  margin-top: 2px;
+}
+
+.services-markup-package > section > header strong {
+  display: block;
+  font-size: 14px;
+}
+
+.services-markup-package > section > header small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.services-markup-package > section > header b {
+  background: #dff1f8;
+  border-radius: 999px;
+  color: var(--blue-deep);
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.services-markup-package > section[data-status="accepted"] > header b {
+  background: #e5f6ea;
+  color: #1f7a3d;
+}
+
+.services-markup-package-list {
+  display: grid;
+  gap: 8px;
+}
+
+.services-markup-package-list label {
+  align-items: start;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px;
+}
+
+.services-markup-package-list label strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.services-markup-package-list label small {
+  color: var(--muted);
+  display: block;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.services-markup-package-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.services-markup-package-note {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.services-markup-package-mobile {
+  align-items: center;
+  background: #eef7fb;
+  border: 1px solid #c7e0ea;
+  border-radius: 10px;
+  display: none;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px;
+}
+
+.services-markup-package-mobile span {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.services-markup-package-mobile strong {
+  font-size: 13px;
+}
+
+.services-markup-package-mobile small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 900px) {
+  .services-markup-package-mobile {
+    display: flex;
+  }
+}
+
 .takeoff-secondary-button.danger {
   border-color: #efc7c7;
   color: var(--red);

@@ -56,6 +56,16 @@ import type {
   TakeoffServicesMarkup,
   TakeoffSupplierRequestItem,
 } from "@/lib/takeoff-data";
+import {
+  acceptMarkupPackage,
+  dismissMarkupPackage,
+  ensureSuggestedPackage,
+  materialAllowancesFromAcceptedPackages,
+  normaliseMarkupPackages,
+  packagesForSymbol,
+  prunePackagesForMissingSymbols,
+  togglePackageChild,
+} from "@/lib/takeoff-markup-packages";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
@@ -699,6 +709,7 @@ function createDefaultServicesMarkup(): TakeoffServicesMarkup {
     },
     pipes: [],
     symbols: [],
+    packages: [],
     assumptions: [
       "Lengths are measured from the marked-up drawing and should be checked against site conditions before order.",
       "L-shaped pipe routes auto-add a 90 degree elbow at the bend; review fittings before issuing the supplier request.",
@@ -774,6 +785,10 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
       drawingDocumentId: symbol.drawingDocumentId ?? markup?.drawingDocumentId,
       layerId: markupLayerIdForSymbol(symbol),
     })),
+    packages: prunePackagesForMissingSymbols(
+      normaliseMarkupPackages(markup?.packages ?? fallback.packages),
+      markup?.symbols ?? fallback.symbols,
+    ),
     assumptions: markup?.assumptions ?? fallback.assumptions,
   };
 }
@@ -1490,7 +1505,9 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   });
   const stockLength = Math.max(1, markup.settings.pipeStockLengthM || 3);
   const existingMarkupMaterials = project.materialAllowances.filter((line) => (
-    line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+    line.id.startsWith("markup-material")
+    || line.id.startsWith("markup-symbol-material")
+    || line.id.startsWith("markup-package-material")
   ));
 
   const pipeMaterials: TakeoffMaterialAllowance[] = summary.pipeRows.map((row) => {
@@ -1528,8 +1545,11 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
     };
   });
 
-  const markupMaterials = [...pipeMaterials, ...symbolMaterials];
-  const existingMarkupRequests = project.supplierRequests.filter((line) => line.notes === "From Services Markup");
+  const packageMaterials = materialAllowancesFromAcceptedPackages(markup.packages, existingMarkupMaterials);
+  const markupMaterials = [...pipeMaterials, ...symbolMaterials, ...packageMaterials];
+  const existingMarkupRequests = project.supplierRequests.filter((line) => (
+    line.notes === "From Services Markup" || line.notes === "From Markup package"
+  ));
   const supplierRowsByKey = new Map<string, TakeoffSupplierRequestItem>();
   markupMaterials.forEach((line) => {
     const key = `${line.description.trim().toLowerCase()}::${line.unit.trim().toLowerCase()}`;
@@ -1539,7 +1559,8 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
       return;
     }
 
-    const id = markupLineId("markup-rfq", line.id);
+    const fromPackage = line.id.startsWith("markup-package-material");
+    const id = markupLineId(fromPackage ? "markup-package-rfq" : "markup-rfq", line.id);
     const existing = existingMarkupRequests.find((item) => item.id === id || item.linkedMaterialId === line.id)
       ?? existingMarkupRequests.find((item) => (
         item.description.trim().toLowerCase() === line.description.trim().toLowerCase()
@@ -1552,7 +1573,7 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
       quantity: line.quantity,
       unit: line.unit,
       linkedMaterialId: existing?.linkedMaterialId ?? line.id,
-      notes: "From Services Markup",
+      notes: fromPackage ? "From Markup package" : "From Services Markup",
     });
   });
   const supplierRows = Array.from(supplierRowsByKey.values());
@@ -1560,11 +1581,17 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   return {
     summary,
     materialAllowances: [
-      ...project.materialAllowances.filter((line) => !line.id.startsWith("markup-material") && !line.id.startsWith("markup-symbol-material")),
+      ...project.materialAllowances.filter((line) => (
+        !line.id.startsWith("markup-material")
+        && !line.id.startsWith("markup-symbol-material")
+        && !line.id.startsWith("markup-package-material")
+      )),
       ...markupMaterials,
     ],
     supplierRequests: [
-      ...project.supplierRequests.filter((line) => line.notes !== "From Services Markup"),
+      ...project.supplierRequests.filter((line) => (
+        line.notes !== "From Services Markup" && line.notes !== "From Markup package"
+      )),
       ...supplierRows,
     ],
   };
@@ -2500,6 +2527,17 @@ const filteredMarkupPlantTools = useMemo(() => {
   const selectedMarkupSymbol = useMemo(
     () => displayedServicesMarkup.symbols.find((symbol) => symbol.id === selectedMarkupElementId) ?? null,
     [displayedServicesMarkup.symbols, selectedMarkupElementId],
+  );
+
+  const selectedMarkupPackages = useMemo(
+    () => {
+      if (!selectedMarkupSymbol || selectedMarkupSymbol.autoGenerated) return [];
+      const existing = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
+      if (existing.length) return existing;
+      const suggested = ensureSuggestedPackage([], selectedMarkupSymbol);
+      return suggested;
+    },
+    [displayedServicesMarkup.packages, selectedMarkupSymbol],
   );
 
   const markupSelectedDrawing = useMemo(
@@ -4950,6 +4988,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     updateServicesMarkup((current) => withRegeneratedPipeAutoSymbols({
       ...current,
       symbols: [...current.symbols, ...symbolsToAdd],
+      packages: ensureSuggestedPackage(current.packages, nextSymbol),
     }), linkedSymbols.length
       ? `${nextSymbol.kind} placed with ${linkedSymbols.length} associated item${linkedSymbols.length === 1 ? "" : "s"}.`
       : `${nextSymbol.kind} placed on the drawing.`);
@@ -5178,6 +5217,44 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         ...nextPatch,
       } : symbol)),
     }));
+  }
+
+  function upsertMarkupPackagesForSelected(nextPackages: ReturnType<typeof packagesForSymbol>) {
+    if (!selectedMarkupSymbol) return;
+    updateServicesMarkup((current) => {
+      const withoutParent = (current.packages ?? []).filter((item) => item.parentSymbolId !== selectedMarkupSymbol.id);
+      return {
+        ...current,
+        packages: [...withoutParent, ...nextPackages],
+      };
+    }, undefined, { recordUndo: false });
+  }
+
+  function handleTogglePackageChild(packageId: string, childId: string, selected: boolean) {
+    if (!selectedMarkupSymbol) return;
+    const base = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
+    const working = base.length ? base : ensureSuggestedPackage([], selectedMarkupSymbol);
+    upsertMarkupPackagesForSelected(togglePackageChild(working, packageId, childId, selected));
+  }
+
+  function handleAcceptMarkupPackage(packageId: string) {
+    if (!selectedMarkupSymbol) return;
+    const base = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
+    const working = base.length ? base : ensureSuggestedPackage([], selectedMarkupSymbol);
+    const accepted = acceptMarkupPackage(working, packageId);
+    upsertMarkupPackagesForSelected(accepted);
+    const pack = accepted.find((item) => item.id === packageId);
+    const count = pack?.childItems.filter((child) => child.selected).length ?? 0;
+    setNotice(count
+      ? `${pack?.title ?? "Package"} added to quantities (${count} item${count === 1 ? "" : "s"}).`
+      : "Package accepted.");
+  }
+
+  function handleDismissMarkupPackage(packageId: string) {
+    if (!selectedMarkupSymbol) return;
+    const base = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
+    const working = base.length ? base : ensureSuggestedPackage([], selectedMarkupSymbol);
+    upsertMarkupPackagesForSelected(dismissMarkupPackage(working, packageId));
   }
 
   function moveSelectedMarkupElement(dx: number, dy: number) {
@@ -6784,14 +6861,14 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <span>{isMarkupMaterialsCollapsed ? `Tools · ${servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length}` : "Hide"}</span>
                   </button>
                   <article className="takeoff-panel services-markup-toolbar">
-                    <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
+                    <PanelTitle icon={Wrench} title="Markup tools" action={servicesMarkup.calibration.status}>
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
                         <Maximize2 size={14} />
                         {isMarkupExpanded ? "Exit focus" : "Focus board"}
                       </button>
                       <button className="takeoff-small-button" type="button" onClick={pushMarkupToBoq}>
                         <PackageSearch size={14} />
-                        Send to Takeoff quantities
+                        Send to quantities
                       </button>
                     </PanelTitle>
 
@@ -7630,6 +7707,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
                     <aside className="takeoff-panel services-markup-properties">
                       <PanelTitle icon={ClipboardList} title="Selected item" action={selectedMarkupPipe ? "Pipe" : selectedMarkupSymbol?.category ?? "None"} />
+                      {selectedMarkupPackages.length ? (
+                        <div className="services-markup-package-mobile">
+                          <Sparkles size={14} />
+                          <span>
+                            <strong>{selectedMarkupPackages[0]?.title}</strong>
+                            <small>Tap items in the package list, then add to quantities.</small>
+                          </span>
+                          {selectedMarkupPackages[0]?.status !== "accepted" ? (
+                            <button type="button" className="takeoff-small-button" onClick={() => handleAcceptMarkupPackage(selectedMarkupPackages[0]!.id)}>
+                              Add package
+                            </button>
+                          ) : <b>Added</b>}
+                        </div>
+                      ) : null}
                       {selectedMarkupPipe ? (
                         <div className="takeoff-form-grid">
                           <label>
@@ -7679,6 +7770,50 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         </div>
                       ) : selectedMarkupSymbol ? (
                         <div className="takeoff-form-grid">
+                          {selectedMarkupPackages.length ? (
+                            <div className="services-markup-package wide">
+                              {selectedMarkupPackages.map((pack) => (
+                                <section key={pack.id} data-status={pack.status}>
+                                  <header>
+                                    <Sparkles size={15} />
+                                    <div>
+                                      <strong>{pack.title}</strong>
+                                      <small>{pack.summary}</small>
+                                    </div>
+                                    <b>{pack.status === "accepted" ? "Added" : "Suggested"}</b>
+                                  </header>
+                                  <div className="services-markup-package-list">
+                                    {pack.childItems.map((child) => (
+                                      <label key={child.id}>
+                                        <input
+                                          type="checkbox"
+                                          checked={child.selected}
+                                          disabled={pack.status === "accepted"}
+                                          onChange={(event) => handleTogglePackageChild(pack.id, child.id, event.target.checked)}
+                                        />
+                                        <span>
+                                          <strong>{child.description}</strong>
+                                          <small>{child.quantity} {child.unit}</small>
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                  {pack.status !== "accepted" ? (
+                                    <div className="services-markup-package-actions">
+                                      <button className="takeoff-primary-button" type="button" onClick={() => handleAcceptMarkupPackage(pack.id)}>
+                                        Add selected to quantities
+                                      </button>
+                                      <button className="takeoff-small-button" type="button" onClick={() => handleDismissMarkupPackage(pack.id)}>
+                                        Dismiss
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <p className="services-markup-package-note">Package items are in the BoQ / RFQ list. Un-dismiss and re-add if you need changes.</p>
+                                  )}
+                                </section>
+                              ))}
+                            </div>
+                          ) : null}
                           <label>
                             Item
                             <select
@@ -7794,6 +7929,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <div>
                         <span>Plant / equipment</span>
                         <strong>{servicesMarkupSummary.plantCount}</strong>
+                      </div>
+                      <div>
+                        <span>Packages added</span>
+                        <strong>{(displayedServicesMarkup.packages ?? []).filter((item) => item.status === "accepted").length}</strong>
                       </div>
                     </div>
                       <div className="services-markup-table">

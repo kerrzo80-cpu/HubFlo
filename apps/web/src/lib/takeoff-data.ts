@@ -355,6 +355,35 @@ export type TakeoffMarkupSymbol = {
   included: boolean;
 };
 
+export type TakeoffMarkupPackageStatus = "suggested" | "accepted" | "dismissed";
+
+export type TakeoffMarkupPackageChildItem = {
+  id: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  section?: string;
+  supplierRequired?: boolean;
+  note?: string;
+  defaultSelected?: boolean;
+  selected?: boolean;
+};
+
+export type TakeoffMarkupPackageInstance = {
+  id: string;
+  templateId: string;
+  title: string;
+  summary: string;
+  parentSymbolId: string;
+  parentKind: TakeoffMarkupSymbolKind;
+  parentCategory: TakeoffMarkupSymbolCategory;
+  status: TakeoffMarkupPackageStatus;
+  section: string;
+  childItems: Array<TakeoffMarkupPackageChildItem & { selected: boolean }>;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type TakeoffServicesMarkup = {
   drawingDocumentId?: string;
   calibration: {
@@ -370,6 +399,8 @@ export type TakeoffServicesMarkup = {
   };
   pipes: TakeoffMarkupPipe[];
   symbols: TakeoffMarkupSymbol[];
+  /** Suggested/accepted plant packages (boiler flue pack, bath waste/taps, stack tap-in, etc.). */
+  packages?: TakeoffMarkupPackageInstance[];
   assumptions: string[];
   updatedAt?: string;
 };
