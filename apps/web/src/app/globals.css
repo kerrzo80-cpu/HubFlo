@@ -33269,9 +33269,13 @@ body {
   align-items: center;
   display: grid;
   gap: 12px;
+  height: 100dvh;
   justify-items: center;
-  min-height: 60vh;
+  max-height: 100dvh;
+  min-height: 100vh;
+  overflow-y: auto;
   place-content: center;
+  -webkit-overflow-scrolling: touch;
 }
 
 .survey-simple-notice,
