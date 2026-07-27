@@ -28,6 +28,11 @@ import {
   filterSurveyMaterialsCoveredByPackages,
 } from "@/lib/takeoff-markup-packages";
 import {
+  isInstallMaterialOnRemoval,
+  isRemovalCostCentre,
+  itemisedMaterialsForRemoval as removalMaterialSeed,
+} from "@/lib/takeoff-removal-materials";
+import {
   attachQuickPackToSurvey,
   getEstimate,
   getSurvey,
@@ -150,6 +155,10 @@ function isVagueMaterialDescription(description: string) {
     || text.split(/\s+/).length <= 3 && /materials?|fittings?|pipework/.test(text);
 }
 
+function itemisedMaterialsForRemoval(): QuickCostCentreMaterial[] {
+  return removalMaterialSeed().map((item) => materialLine(item.description, item.quantity, item.unit));
+}
+
 function clarifyingQuestionsForWorks(works: string, answeredKeys: Set<string>): QuickClarifyingQuestion[] {
   const text = works.toLowerCase();
   const questions: QuickClarifyingQuestion[] = [];
@@ -245,7 +254,7 @@ function materialLine(description: string, quantity: number, unit: string): Quic
 /** Practical UK plumbing RFQ lines for common works when sizes are not yet measured. */
 function itemisedMaterialsForWorks(works: string): QuickCostCentreMaterial[] {
   const text = works.toLowerCase();
-  if (/rip\s*out|renew|replace.*pipe|pipework|pipe work|heating|plumb/.test(text)) {
+  if (/renew|replace.*pipe|pipework|pipe work|heating|plumb|rip\s*out/.test(text)) {
     return [
       materialLine("Copper tube 15mm (provisional — confirm from markup/measure)", 25, "m"),
       materialLine("Copper tube 22mm (provisional — confirm from markup/measure)", 12, "m"),
@@ -257,7 +266,6 @@ function itemisedMaterialsForWorks(works: string): QuickCostCentreMaterial[] {
       materialLine("22×15mm reducing coupling", 6, "nr"),
       materialLine("15mm isolation / service valve", 6, "nr"),
       materialLine("Pipe clips / pipe supports 15–22mm", 40, "nr"),
-      materialLine("Stop ends / caps for temporary isolation during strip-out", 6, "nr"),
       materialLine("PTFE tape", 2, "nr"),
       materialLine("Soft solder reel", 1, "nr"),
       materialLine("Flux pot", 1, "nr"),
@@ -300,6 +308,27 @@ function itemisedMaterialsForWorks(works: string): QuickCostCentreMaterial[] {
 }
 
 function ensureItemisedMaterials(centre: QuickCostCentre, works: string): QuickCostCentre {
+  if (isRemovalCostCentre(centre)) {
+    const usable = centre.materials
+      .filter((item) => !isVagueMaterialDescription(item.description))
+      .filter((item) => !isInstallMaterialOnRemoval(item));
+    const hadInstallLeak = centre.materials.some((item) => isInstallMaterialOnRemoval(item));
+    if (hadInstallLeak || usable.length < 2) {
+      return {
+        ...centre,
+        materials: itemisedMaterialsForRemoval(),
+      };
+    }
+    return {
+      ...centre,
+      materials: usable.map((item) => ({
+        ...item,
+        unit: normaliseUnit(item.unit),
+        quantity: item.quantity > 0 ? item.quantity : 1,
+      })),
+    };
+  }
+
   const usable = centre.materials.filter((item) => !isVagueMaterialDescription(item.description));
   if (usable.length >= 4) {
     return {
@@ -379,11 +408,7 @@ function fallbackCostCentres(survey: SurveyRecord, reason: string): AiQuickPack 
           name: "Pipework removal",
           jobDescription: "Isolate, drain where required, strip out existing pipework and prepare the route for renewal.",
           trade: "Plumbing/Heating",
-          materials: [
-            materialLine("Heavy-duty rubble / waste sacks", 10, "nr"),
-            materialLine("Stop ends / caps for temporary isolation", 6, "nr"),
-            materialLine("PTFE tape", 1, "nr"),
-          ],
+          materials: itemisedMaterialsForRemoval(),
           labour: [
             { description: "Isolate, drain and remove existing pipework", hours: 8, trade: "Plumber" },
           ],
@@ -476,6 +501,9 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
     "NEVER use units or descriptions like lot, item, allowance, sundry, materials, pipework materials, or as required.",
     "Prefer concrete lines such as: Copper tube 15mm (m), 15mm elbow (nr), 15mm isolation valve (nr), pipe clips (nr), inhibitor (nr).",
     "If lengths/sizes are unknown, still list separate provisional lines and say provisional/TBC in the description — do not collapse into one lot.",
+    "Split strip-out and install into separate cost centres when both apply.",
+    "For removal / strip-out / rip-out cost centres, ONLY include isolation and disposal materials: stop ends, caps, temporary isolation valves, drain-offs, waste sacks, PTFE.",
+    "NEVER put copper tube metreage, elbows, tees, couplings, pipe clips, solder, flux, inhibitor or new pipework fittings in a removal centre — those belong in the installation / renew centre.",
     "Also return clarifyingQuestions[{key,question,why}] for anything still unclear that would change materials, labour or exclusions.",
     "Ask only unanswered commercial/site questions. Skip anything already answered in answeredBuddyChecks.",
     "If the description is clear enough, clarifyingQuestions can be an empty array.",
@@ -495,7 +523,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
-          { role: "system", content: "Return strict JSON only. Materials must be itemised merchant lines, never lots. Ask clarifyingQuestions when unsure." },
+          { role: "system", content: "Return strict JSON only. Materials must be itemised merchant lines, never lots. Removal/strip-out centres get caps and isolation only — never pipe metreage. Ask clarifyingQuestions when unsure." },
           { role: "user", content: prompt },
         ],
       }),
@@ -638,11 +666,12 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
   const rates = labourRates();
 
   costCentres.forEach((centre) => {
-    centre.materials.forEach((material) => {
+    const normalised = ensureItemisedMaterials(centre, `${centre.name} ${centre.jobDescription}`);
+    normalised.materials.forEach((material) => {
       const materialId = makeId("survey-mat");
       materials.push({
         id: materialId,
-        section: centre.name,
+        section: normalised.name,
         description: material.description,
         quantity: material.quantity,
         unit: material.unit,
@@ -657,10 +686,10 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
         quantity: material.quantity,
         unit: material.unit,
         linkedMaterialId: materialId,
-        notes: `${centre.name} · supplier quote request`,
+        notes: `${normalised.name} · supplier quote request`,
       });
     });
-    centre.labour.forEach((item) => {
+    normalised.labour.forEach((item) => {
       const key = /electr/i.test(item.trade)
         ? "Electrician"
         : /join/i.test(item.trade)
@@ -668,7 +697,7 @@ function takeoffRowsFromCostCentres(costCentres: QuickCostCentre[]) {
           : "Plumber";
       labour.push({
         id: makeId("survey-lab"),
-        section: centre.name,
+        section: normalised.name,
         role: item.trade || key,
         hours: item.hours,
         costRate: rates[key].cost,

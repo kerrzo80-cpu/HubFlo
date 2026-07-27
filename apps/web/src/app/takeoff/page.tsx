@@ -71,6 +71,7 @@ import {
   surveyMaterialOverlapsAcceptedPackage,
   togglePackageChild,
 } from "@/lib/takeoff-markup-packages";
+import { sanitizeRemovalSectionTakeoffMaterials } from "@/lib/takeoff-removal-materials";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
@@ -3000,6 +3001,20 @@ const filteredMarkupPlantTools = useMemo(() => {
   useEffect(() => {
     loadData().catch(() => {});
   }, []);
+
+  // Strip install pipe metreage that landed under removal / strip-out sections.
+  useEffect(() => {
+    if (!selectedProject) return;
+    const sanitized = sanitizeRemovalSectionTakeoffMaterials(
+      selectedProject.materialAllowances,
+      selectedProject.supplierRequests,
+    );
+    if (!sanitized.changed) return;
+    updateProject({
+      materialAllowances: sanitized.materials,
+      supplierRequests: sanitized.supplierRequests,
+    }, "Removal section materials corrected — caps/isolation only, not pipe metreage.");
+  }, [selectedProject?.id, selectedProject?.materialAllowances, selectedProject?.supplierRequests]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
