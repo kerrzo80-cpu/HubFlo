@@ -5,6 +5,7 @@ import path from "node:path";
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getServerStoreDirectory, loadServerStore, writeServerStore } from "@/lib/server-store";
+import { getStoredXeroTenantId, getXeroAuthStatus, resolveXeroAccessToken } from "@/lib/xero-auth";
 
 export const runtime = "nodejs";
 
@@ -70,10 +71,10 @@ function buildInvoiceCsv(invoice: XeroExportInvoice) {
 }
 
 async function tryLiveXeroCreate(invoice: XeroExportInvoice) {
-  const accessToken = process.env.XERO_ACCESS_TOKEN?.trim();
-  const tenantId = process.env.XERO_TENANT_ID?.trim();
+  const accessToken = await resolveXeroAccessToken();
+  const tenantId = getStoredXeroTenantId();
   if (!accessToken || !tenantId) {
-    return { ok: false as const, reason: "No XERO_ACCESS_TOKEN + XERO_TENANT_ID for live API push." };
+    return { ok: false as const, reason: "No Xero OAuth token / static access token + tenant for live API push." };
   }
 
   const payload = {
@@ -127,8 +128,9 @@ export async function GET(request: NextRequest) {
   const store = loadServerStore<XeroExportStore>(STORE, { exports: [] });
   return NextResponse.json({
     exports: store.exports.slice(0, 100),
-    liveTokenPresent: Boolean(process.env.XERO_ACCESS_TOKEN?.trim()),
-    tenantIdPresent: Boolean(process.env.XERO_TENANT_ID?.trim()),
+    liveTokenPresent: Boolean(await resolveXeroAccessToken()),
+    tenantIdPresent: Boolean(getStoredXeroTenantId()),
+    status: getXeroAuthStatus(),
   });
 }
 

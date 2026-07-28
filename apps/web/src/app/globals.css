@@ -33916,6 +33916,14 @@ body {
   justify-content: space-between;
 }
 
+.setup-inline-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .setup-integration-card > header span {
   color: var(--muted);
   display: block;

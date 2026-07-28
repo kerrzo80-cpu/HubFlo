@@ -188,8 +188,11 @@ Until Brian cuts further, execute in this order:
 - Jobs folder **Ready to invoice** for Completed / Ready to invoice
 - New invoices use Setup payment terms days for due date
 - **Xero export** on invoice record (live API when tokens present, else CSV import pack) + accounts status Sent
+- **Xero OAuth connect** in Setup → Integrations (`/api/integrations/xero/connect` + callback); static token still supported; CSV always works
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
+- simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links
+- Catalogue **SKU ↔ stock** binding on PO receipt (SKU / catalogItemId / stockItemId)
 
 ### Waves 2–4 in product (28 Jul 2026)
 

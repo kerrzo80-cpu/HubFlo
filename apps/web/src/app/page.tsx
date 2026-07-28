@@ -1940,10 +1940,15 @@ type SimproBridgeStatus = {
 
 type XeroConnectionStatus = {
   configured: boolean;
+  mode: "oauth" | "static-token" | "csv-only" | "missing";
   missing: string[];
   detectedEnvKeys: string[];
   tenantIdPresent: boolean;
   redirectUriPresent: boolean;
+  hasRefreshToken: boolean;
+  hasAccessToken: boolean;
+  accessTokenExpiresAt?: string;
+  authUrl?: string;
   checkedAt: string;
 };
 
@@ -7146,6 +7151,7 @@ export default function Dashboard() {
   const [simproSyncStatus, setSimproSyncStatus] = useState<SimproSyncStatus | null>(null);
   const [simproReconnectStatus, setSimproReconnectStatus] = useState<SimproReconnectStatus | null>(null);
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
+  const [isConnectingXero, setIsConnectingXero] = useState(false);
   const [selectedSimproImportEntities, setSelectedSimproImportEntities] = useState<SimproSyncEntity[]>(
     ["clients", "sites"],
   );
@@ -9582,6 +9588,31 @@ export default function Dashboard() {
     setHandledInitialRoute(true);
     window.history.replaceState(null, "", window.location.pathname);
   }, [handledInitialRoute, hasHydratedLocalData, quotes]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const xeroResult = params.get("xero");
+    if (!xeroResult) return;
+    const message = params.get("message");
+    if (xeroResult === "connected") {
+      showNotice("Xero connected. Invoice export can use the live API when a tenant is present.");
+      void (async () => {
+        try {
+          const response = await fetch("/api/integrations/xero/status", { headers: requestHeaders });
+          if (response.ok) setXeroConnectionStatus((await response.json()) as XeroConnectionStatus);
+        } catch {
+          // status refresh is best-effort after OAuth redirect
+        }
+      })();
+    } else {
+      showNotice(message ? `Xero connect failed: ${decodeURIComponent(message)}` : "Xero connect failed.");
+    }
+    params.delete("xero");
+    params.delete("message");
+    const next = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
+  }, [hasHydratedLocalData]);
 
   useEffect(() => {
     return () => {
@@ -14087,14 +14118,48 @@ export default function Dashboard() {
       if (!response.ok) throw new Error("Xero configuration check failed.");
       const status = (await response.json()) as XeroConnectionStatus;
       setXeroConnectionStatus(status);
+      const modeLabel =
+        status.mode === "oauth"
+          ? "OAuth connected"
+          : status.mode === "static-token"
+            ? "static token"
+            : "CSV pack fallback";
       showNotice(
         status.configured
-          ? "Xero credentials are present. Invoice export is available from the invoice record (live API or CSV pack)."
-          : `Xero is blocked: missing ${status.missing.join(", ") || "required credentials"}.`,
+          ? `Xero ready (${modeLabel}). Invoice export uses live API when possible, otherwise a CSV pack.`
+          : status.authUrl
+            ? `Xero OAuth app is ready to connect. Missing for live push: ${status.missing.join(", ") || "tenant / token"}.`
+            : `Xero CSV export still works. To connect live API set ${status.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI"}.`,
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to check Xero configuration.");
     }
+  }
+
+  async function connectXeroOAuth() {
+    setIsConnectingXero(true);
+    try {
+      const response = await fetch("/api/integrations/xero/connect", { headers: requestHeaders });
+      const body = (await response.json().catch(() => null)) as
+        | { authUrl?: string; error?: string; status?: XeroConnectionStatus }
+        | null;
+      if (body?.status) setXeroConnectionStatus(body.status);
+      if (!response.ok || !body?.authUrl) {
+        throw new Error(body?.error || "Unable to start Xero OAuth connect.");
+      }
+      window.location.assign(body.authUrl);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to start Xero connect.");
+      setIsConnectingXero(false);
+    }
+  }
+
+  function xeroModeLabel(status: XeroConnectionStatus | null) {
+    if (!status) return "Xero · checking…";
+    if (status.mode === "oauth") return status.configured ? "Xero · OAuth live" : "Xero · OAuth needs tenant";
+    if (status.mode === "static-token") return "Xero · static token";
+    if (status.configured) return "Xero · credentials detected";
+    return "Xero · CSV pack ready";
   }
 
   function renderRecordSaveControls(mode: "record" | "nested" = "record") {
@@ -31778,7 +31843,7 @@ export default function Dashboard() {
                           <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
                           <div>
                             <span>Connector</span>
-                            <strong>{xeroConnectionStatus?.configured ? "Xero · credentials detected" : "Xero · CSV pack ready"}</strong>
+                            <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
                           </div>
                           <div>
                             <span>Amount remaining</span>
@@ -31831,9 +31896,11 @@ export default function Dashboard() {
                         ) : null}
                         <footer>
                           <small>
-                            {xeroConnectionStatus?.configured
-                              ? "Push creates the invoice in Xero when tokens are present; otherwise NeXa downloads a Xero CSV import pack and marks accounts status Sent."
-                              : "No live Xero token yet — export still works as a Xero CSV import pack and marks this invoice Sent for accounts. Record each payment against the ledger; totals stay append-only until cleared."}
+                            {xeroConnectionStatus?.mode === "oauth" && xeroConnectionStatus.configured
+                              ? "Live OAuth push creates the invoice in Xero. CSV pack remains available as fallback."
+                              : xeroConnectionStatus?.mode === "static-token"
+                                ? "Static access token push creates the invoice in Xero when present; otherwise NeXa downloads a CSV import pack."
+                              : "No live Xero token yet — export still works as a Xero CSV import pack and marks this invoice Sent for accounts. Record each payment against the ledger; totals stay append-only until cleared. Connect OAuth from Setup → Integrations when credentials are on Render."}
                           </small>
                           <div>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
@@ -33987,7 +34054,7 @@ export default function Dashboard() {
 	                            Refresh status
 	                          </button>
 	                          <span className="setup-status-label">
-	                            simPRO {simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero {xeroConnectionStatus?.configured ? "ready" : "needs setup"}
+	                            simPRO {simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero {xeroModeLabel(xeroConnectionStatus)}
 	                          </span>
 	                        </div>
 	                      </div>
@@ -34229,15 +34296,34 @@ export default function Dashboard() {
 	                          <header>
 	                            <div>
 	                              <span>Xero</span>
-	                              <strong>{xeroConnectionStatus?.configured ? "Credentials detected" : "Accounts setup required"}</strong>
+	                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
 	                            </div>
-	                            <button
-	                              className="secondary-button"
-	                              type="button"
-	                              onClick={() => void recheckXeroConfiguration()}
-	                            >
-	                              Recheck configuration
-	                            </button>
+	                            <div className="setup-inline-actions">
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={isConnectingXero || !xeroConnectionStatus?.authUrl}
+	                                onClick={() => void connectXeroOAuth()}
+	                                title={
+	                                  xeroConnectionStatus?.authUrl
+	                                    ? "Open Xero authorisation"
+	                                    : "Set XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI on Render first"
+	                                }
+	                              >
+	                                {isConnectingXero
+	                                  ? "Opening Xero…"
+	                                  : xeroConnectionStatus?.hasRefreshToken
+	                                    ? "Reconnect Xero"
+	                                    : "Connect Xero"}
+	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                onClick={() => void recheckXeroConfiguration()}
+	                              >
+	                                Recheck configuration
+	                              </button>
+	                            </div>
 	                          </header>
 	                          <div className="setup-form-grid">
 	                            <label>
@@ -34270,8 +34356,10 @@ export default function Dashboard() {
 	                          </div>
 	                          <small>
 	                            {xeroConnectionStatus?.configured
-	                              ? "Render can see Xero OAuth settings. Open an invoice and use Export to Xero — live push when tokens exist, otherwise a CSV import pack."
-	                              : `Missing ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_TENANT_ID"}.`}
+	                              ? `Live export mode: ${xeroConnectionStatus.mode}. Open an invoice and use Export to Xero — API push when a token is present, otherwise a CSV import pack.`
+	                              : xeroConnectionStatus?.authUrl
+	                                ? "OAuth app env is present. Click Connect Xero to authorise, or export invoices as CSV until then."
+	                                : `CSV export always works. For live OAuth set ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI"} (and XERO_TENANT_ID if not discovered).`}
 	                          </small>
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
@@ -34285,9 +34373,24 @@ export default function Dashboard() {
 	                              <small>Needed before invoices can be sent to the correct Xero organisation.</small>
 	                            </article>
 	                            <article>
+	                              <span>OAuth</span>
+	                              <strong>
+	                                {xeroConnectionStatus?.hasRefreshToken
+	                                  ? "Refresh token stored"
+	                                  : xeroConnectionStatus?.redirectUriPresent
+	                                    ? "Ready to connect"
+	                                    : "Redirect URI missing"}
+	                              </strong>
+	                              <small>
+	                                {xeroConnectionStatus?.accessTokenExpiresAt
+	                                  ? `Access token refreshes around ${xeroConnectionStatus.accessTokenExpiresAt.slice(0, 16).replace("T", " ")}`
+	                                  : "Connect once; NeXa stores the refresh token on the server."}
+	                              </small>
+	                            </article>
+	                            <article>
 	                              <span>Next use</span>
 	                              <strong>Invoices and valuations</strong>
-	                              <small>Approved valuations generate invoices, then the Xero connector will export them.</small>
+	                              <small>Approved valuations generate invoices, then the Xero connector exports them.</small>
 	                            </article>
 	                          </div>
 	                        </article>
@@ -34756,15 +34859,29 @@ export default function Dashboard() {
                           <header>
                             <div>
                               <span>Xero</span>
-                              <strong>{xeroConnectionStatus?.configured ? "Credentials detected" : "Not configured"}</strong>
+                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
                             </div>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={() => void recheckXeroConfiguration()}
-                            >
-                              Recheck configuration
-                            </button>
+                            <div className="setup-inline-actions">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isConnectingXero || !xeroConnectionStatus?.authUrl}
+                                onClick={() => void connectXeroOAuth()}
+                              >
+                                {isConnectingXero
+                                  ? "Opening Xero…"
+                                  : xeroConnectionStatus?.hasRefreshToken
+                                    ? "Reconnect Xero"
+                                    : "Connect Xero"}
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => void recheckXeroConfiguration()}
+                              >
+                                Recheck configuration
+                              </button>
+                            </div>
                           </header>
                           <div className="setup-form-grid">
                             <label>
@@ -34796,7 +34913,11 @@ export default function Dashboard() {
                             </label>
                           </div>
                           <small>
-                            Last sync check: {integrationSettings.xeroLastSync ? integrationSettings.xeroLastSync.slice(0, 16).replace("T", " ") : "Not checked yet"}
+                            Mode {xeroConnectionStatus?.mode || "csv-only"} · last sync check:{" "}
+                            {integrationSettings.xeroLastSync
+                              ? integrationSettings.xeroLastSync.slice(0, 16).replace("T", " ")
+                              : "Not checked yet"}
+                            {xeroConnectionStatus?.hasRefreshToken ? " · refresh token stored" : ""}
                           </small>
                         </article>
                       </div>
@@ -34820,7 +34941,7 @@ export default function Dashboard() {
                         <article>
                           <span>Accounts connector</span>
                           <strong>Xero · {integrationSettings.xeroMode}</strong>
-                          <small>Invoices and agreed progress claims can be queued now. OAuth export and payment reconciliation are the next integration step.</small>
+                          <small>Invoices and agreed progress claims export via OAuth/live token or CSV pack. Connect Xero from Setup when credentials are on Render; payment reconciliation is the next accounts step.</small>
                         </article>
                         <article>
                           <span>simPRO bridge</span>
