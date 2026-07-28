@@ -135,8 +135,8 @@ Later: replace tick with a real queue (BullMQ / pg-boss) once Postgres is live.
 
 | Phase | Status |
 |-------|--------|
-| A – API discovery | **In this PR** |
-| B – DB / store foundation | Next |
+| A – API discovery | **Done** |
+| B – DB / store foundation | **In progress** (`simpro-entity-links`, `simpro-import-runs`, import/entity-links APIs) |
 | C – Core import service | After B |
 | D – Reliability (pagination, worker, resume) | After C |
 | E – Admin UI | Parallel with D |
