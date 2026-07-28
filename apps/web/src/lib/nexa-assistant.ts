@@ -74,6 +74,7 @@ export type BuddyClientContext = {
     ref?: string;
     headline?: string;
     findings?: Array<{ severity: string; title: string; detail: string }>;
+    reviewQuestions?: Array<{ severity: string; title: string; detail: string }>;
   };
 };
 

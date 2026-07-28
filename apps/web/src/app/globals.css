@@ -2565,6 +2565,73 @@ kbd {
   top: -4px;
 }
 
+.buddy-launcher-badge.soft {
+  background: #ffe9a8;
+  color: #7a5d08;
+}
+
+.buddy-checks {
+  background: #fff;
+  border: 1px solid #d5e5eb;
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+}
+
+.buddy-checks.mood-alert {
+  background: linear-gradient(160deg, #fff8f3 0%, #fdeee4 100%);
+  border-color: #efc4a8;
+}
+
+.buddy-checks.mood-guide {
+  background: linear-gradient(160deg, #fffced 0%, #f7f0d2 100%);
+  border-color: #e4d48a;
+}
+
+.buddy-checks.mood-good {
+  background: linear-gradient(160deg, #f3fbf7 0%, #e5f4ec 100%);
+  border-color: #b7dcc9;
+}
+
+.buddy-checks strong {
+  color: #173949;
+  font-size: 13px;
+}
+
+.buddy-checks ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.buddy-checks li {
+  align-items: baseline;
+  color: #4d6672;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 6px 8px;
+  line-height: 1.4;
+}
+
+.buddy-finding-tag.high {
+  background: #f8d9c7;
+  color: #8a3a12;
+}
+
+.buddy-finding-tag.medium {
+  background: #f3e7b4;
+  color: #7a5d08;
+}
+
+.buddy-finding-tag.low {
+  background: #d7ebf3;
+  color: #1d5f78;
+}
+
 .buddy-watch-card {
   align-items: flex-start;
   background: linear-gradient(160deg, #f7fbfe 0%, #eef6fa 100%);

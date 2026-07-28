@@ -6768,7 +6768,7 @@ export default function Dashboard() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Buddy. I watch quotes before they go out, walk you through NeXa, and only change commercial figures after you confirm. Ask me anything.",
+      text: "Hi — I'm Buddy. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -7531,16 +7531,6 @@ export default function Dashboard() {
     [selectedQuoteBuddyFindings],
   );
 
-  const buddyMood: BuddyMood = useMemo(
-    () =>
-      buddyMoodFromFindings(
-        selectedQuoteBuddyFindings.some((item) => item.severity === "block"),
-        selectedQuoteBuddyFindings.some((item) => item.severity === "warn"),
-        nexaAssistantBusy || isSendingQuoteToSimpro,
-      ),
-    [isSendingQuoteToSimpro, nexaAssistantBusy, selectedQuoteBuddyFindings],
-  );
-
   const selectedQuoteBaseCostCentres = useMemo(
     () => selectedQuoteCostCentres.filter((centre) => !centre.isOption),
     [selectedQuoteCostCentres],
@@ -7627,6 +7617,36 @@ export default function Dashboard() {
         ? buildQuoteReviewQuestions(selectedQuote, selectedQuoteCostCentres, selectedQuoteTotals)
         : [],
     [selectedQuote, selectedQuoteCostCentres, selectedQuoteTotals],
+  );
+
+  const selectedQuoteOpenReviewQuestions = useMemo(
+    () => selectedQuoteReviewQuestions.filter((question) => !checkedQuoteReviewQuestions[question.id]),
+    [checkedQuoteReviewQuestions, selectedQuoteReviewQuestions],
+  );
+
+  const buddyAlertCount = useMemo(() => {
+    const blocks = selectedQuoteBuddyFindings.filter((item) => item.severity === "block").length;
+    const highs = selectedQuoteOpenReviewQuestions.filter((item) => item.severity === "high").length;
+    return blocks + highs;
+  }, [selectedQuoteBuddyFindings, selectedQuoteOpenReviewQuestions]);
+
+  const buddyHasOpenChecks = selectedQuoteBuddyFindings.length > 0 || selectedQuoteOpenReviewQuestions.length > 0;
+
+  const buddyMood: BuddyMood = useMemo(
+    () =>
+      buddyMoodFromFindings(
+        selectedQuoteBuddyFindings.some((item) => item.severity === "block") ||
+          selectedQuoteOpenReviewQuestions.some((item) => item.severity === "high"),
+        selectedQuoteBuddyFindings.some((item) => item.severity === "warn" || item.severity === "tip") ||
+          selectedQuoteOpenReviewQuestions.some((item) => item.severity === "medium" || item.severity === "low"),
+        nexaAssistantBusy || isSendingQuoteToSimpro,
+      ),
+    [
+      isSendingQuoteToSimpro,
+      nexaAssistantBusy,
+      selectedQuoteBuddyFindings,
+      selectedQuoteOpenReviewQuestions,
+    ],
   );
 
   const selectedJobEstimateCostCentres = useMemo(
@@ -11004,6 +11024,11 @@ export default function Dashboard() {
                   ref: selectedQuote.ref,
                   headline: selectedQuoteBuddySummary.headline,
                   findings: selectedQuoteBuddyFindings.slice(0, 6).map((item) => ({
+                    severity: item.severity,
+                    title: item.title,
+                    detail: item.detail,
+                  })),
+                  reviewQuestions: selectedQuoteOpenReviewQuestions.slice(0, 6).map((item) => ({
                     severity: item.severity,
                     title: item.title,
                     detail: item.detail,
@@ -20939,6 +20964,88 @@ export default function Dashboard() {
               </button>
             </header>
             <div className="buddy-messages" ref={nexaAssistantMessagesRef}>
+              {selectedQuote && buddyHasOpenChecks ? (
+                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Buddy quote checks">
+                  <strong>
+                    {buddyAlertCount > 0
+                      ? `${buddyAlertCount} important check${buddyAlertCount === 1 ? "" : "s"} on ${selectedQuote.ref}`
+                      : `Checks on ${selectedQuote.ref}`}
+                  </strong>
+                  <ul>
+                    {selectedQuoteBuddyFindings.slice(0, 3).map((finding) => (
+                      <li key={finding.id}>
+                        <span className={`buddy-finding-tag ${finding.severity}`}>{finding.severity}</span>
+                        <span>{finding.title}</span>
+                        <button
+                          className="text-button"
+                          type="button"
+                          onClick={() => {
+                            const next = dismissBuddyFinding(buddyMemory, selectedQuote.id, finding.id);
+                            setBuddyMemory(next);
+                          }}
+                        >
+                          Dismiss
+                        </button>
+                      </li>
+                    ))}
+                    {selectedQuoteOpenReviewQuestions.slice(0, 3).map((question) => (
+                      <li key={question.id}>
+                        <span className={`buddy-finding-tag ${question.severity}`}>{question.severity}</span>
+                        <span>{question.title}</span>
+                        {question.action !== "none" ? (
+                          <button className="text-button" type="button" onClick={() => actOnQuoteReviewQuestion(question)}>
+                            {question.action === "open-centre" ? "Open" : "Review"}
+                          </button>
+                        ) : null}
+                        <button className="text-button" type="button" onClick={() => markQuoteReviewQuestionChecked(question.id)}>
+                          Checked
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="buddy-watch-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setNexaAssistantMessages((current) => [
+                          ...current,
+                          {
+                            id: `buddy-guide-${crypto.randomUUID()}`,
+                            role: "assistant",
+                            text: [
+                              "Here’s how I’d finish this quote:",
+                              "1. Confirm client and site on quote details.",
+                              "2. Open Build quote costs and check materials + labour.",
+                              "3. Review margin / allowances if I’ve flagged them.",
+                              "4. Come back and Send to Simpro.",
+                              "",
+                              ...selectedQuoteBuddyFindings.map((item) => `• ${item.title}${item.actionHint ? ` — ${item.actionHint}` : ""}`),
+                              ...selectedQuoteOpenReviewQuestions.map((item) => `• ${item.title} — ${item.detail}`),
+                            ].join("\n"),
+                          },
+                        ]);
+                        const next = markWalkthroughComplete(buddyMemory, "quote-send-check");
+                        setBuddyMemory(next);
+                      }}
+                    >
+                      Walk me through it
+                    </button>
+                    {selectedQuoteBuddyFindings.some((item) => item.severity === "block") ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setBuddySendOverride(true);
+                          showNotice("Buddy will allow the next Send to Simpro.");
+                        }}
+                      >
+                        Send anyway next
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
               {nexaAssistantMessages.map((message) => (
                 <article className={`buddy-message ${message.role}`} key={message.id}>
                   <p>{message.text}</p>
@@ -21008,9 +21115,13 @@ export default function Dashboard() {
             <img src={buddyAvatarSrc} alt="" className="buddy-avatar buddy-launcher-avatar" />
           )}
           <span>Buddy</span>
-          {!nexaAssistantOpen && selectedQuoteBuddyFindings.some((item) => item.severity === "block") ? (
+          {!nexaAssistantOpen && buddyAlertCount > 0 ? (
             <em className="buddy-launcher-badge" aria-hidden>
-              !
+              {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
+            </em>
+          ) : !nexaAssistantOpen && buddyHasOpenChecks ? (
+            <em className="buddy-launcher-badge soft" aria-hidden>
+              ·
             </em>
           ) : null}
         </button>
@@ -23014,80 +23125,6 @@ export default function Dashboard() {
                       <article className="client-info-card">
                         <span className="permission-heading">Commercial position</span>
                         <p>Build the quote from cost centres before it becomes a job. Jobs should inherit this structure rather than inventing costs after conversion.</p>
-                        {selectedQuoteBuddyFindings.length > 0 ? (
-                          <div className={`buddy-watch-card mood-${selectedQuoteBuddySummary.mood}`} role="status">
-                            <img src={buddyAvatarSrc} alt="" className="buddy-avatar" />
-                            <div>
-                              <strong>{selectedQuoteBuddySummary.headline}</strong>
-                              <ul>
-                                {selectedQuoteBuddyFindings.slice(0, 4).map((finding) => (
-                                  <li key={finding.id}>
-                                    <span className={`buddy-finding-tag ${finding.severity}`}>{finding.severity}</span>
-                                    {finding.title}
-                                    <button
-                                      className="text-button"
-                                      type="button"
-                                      onClick={() => {
-                                        const next = dismissBuddyFinding(buddyMemory, selectedQuote.id, finding.id);
-                                        setBuddyMemory(next);
-                                      }}
-                                    >
-                                      Dismiss
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                              <div className="buddy-watch-actions">
-                                <button
-                                  className="secondary-button"
-                                  type="button"
-                                  onClick={() => {
-                                    setNexaAssistantOpen(true);
-                                    setNexaAssistantMessages((current) => [
-                                      ...current,
-                                      {
-                                        id: `buddy-guide-${crypto.randomUUID()}`,
-                                        role: "assistant",
-                                        text: [
-                                          "Here’s how to finish this quote with me:",
-                                          "1. Confirm client and site on quote details.",
-                                          "2. Open Build quote costs and check materials + labour.",
-                                          "3. Come back here and Send to Simpro.",
-                                          "",
-                                          ...selectedQuoteBuddyFindings.map((item) => `• ${item.title}${item.actionHint ? ` — ${item.actionHint}` : ""}`),
-                                        ].join("\n"),
-                                      },
-                                    ]);
-                                    const next = markWalkthroughComplete(buddyMemory, "quote-send-check");
-                                    setBuddyMemory(next);
-                                  }}
-                                >
-                                  Walk me through it
-                                </button>
-                                {selectedQuoteBuddyFindings.some((item) => item.severity === "block") ? (
-                                  <button
-                                    className="secondary-button"
-                                    type="button"
-                                    onClick={() => {
-                                      setBuddySendOverride(true);
-                                      showNotice("Buddy will allow the next Send to Simpro.");
-                                    }}
-                                  >
-                                    Send anyway next
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="buddy-watch-card mood-good" role="status">
-                            <img src={buddyAvatarSrc} alt="" className="buddy-avatar" />
-                            <div>
-                              <strong>Looks good to Buddy</strong>
-                              <p>Client, site and cost build look ready for Simpro.</p>
-                            </div>
-                          </div>
-                        )}
                         <div className="quote-action-stack">
                           <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
                             Build quote costs
@@ -23100,70 +23137,50 @@ export default function Dashboard() {
                           >
                             {isSendingQuoteToSimpro ? "Sending..." : "Send to Simpro"}
                           </button>
+                          {buddyHasOpenChecks ? (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => {
+                                setNexaAssistantOpen(true);
+                                setNexaAssistantMessages((current) => [
+                                  ...current,
+                                  {
+                                    id: `buddy-brief-${crypto.randomUUID()}`,
+                                    role: "assistant",
+                                    text: [
+                                      selectedQuoteBuddySummary.headline + ".",
+                                      "",
+                                      ...selectedQuoteBuddyFindings.slice(0, 4).map(
+                                        (item) => `• ${item.title}${item.actionHint ? ` — ${item.actionHint}` : ""}`,
+                                      ),
+                                      ...selectedQuoteOpenReviewQuestions.slice(0, 4).map(
+                                        (item) => `• ${item.title} — ${item.detail}`,
+                                      ),
+                                      "",
+                                      selectedQuoteBuddyFindings.some((item) => item.severity === "block")
+                                        ? "I’ll stop a Simpro send while blockers are open. Say “send anyway” if you’re sure, or ask me to walk you through it."
+                                        : "Ask me to walk you through any of these, or mark them checked once you’ve reviewed them.",
+                                    ].join("\n"),
+                                  },
+                                ]);
+                              }}
+                            >
+                              Ask Buddy ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
+                            </button>
+                          ) : null}
                           <small>
                             {selectedQuote.simproStatus === "Sent"
                               ? `Last sent${selectedQuote.simproQuoteId ? ` as ${selectedQuote.simproQuoteId}` : ""}.`
                               : selectedQuote.simproStatus === "Queued"
                                 ? `Queued in NeXa only. It will not appear in Simpro until ${selectedQuoteSimproExports[0]?.setupRequired ?? "SIMPRO_QUOTE_PUSH_URL"} is configured.`
                                 : simproBridgeStatus.configured
-                                  ? "Live Simpro bridge is configured. Buddy watches this send for missing client, site, labour and materials."
+                                  ? "Live Simpro bridge is configured. Buddy holds readiness and commercial checks for this quote."
                                   : `Simpro bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} missing.`}
                           </small>
                         </div>
                       </article>
                     </div>
-
-                    <section className="ai-quote-review-panel">
-                      <header>
-                        <div>
-                          <span><Sparkles size={15} /> NeXa AI review</span>
-                          <h2>Questions before this quote goes out</h2>
-                        </div>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => showNotice("AI review refreshed against the latest quote costs.")}
-                        >
-                          Ask again
-                        </button>
-                      </header>
-                      <div className="ai-review-summary">
-                        <strong>{selectedQuoteReviewQuestions.filter((question) => !checkedQuoteReviewQuestions[question.id]).length}</strong>
-                        <span>open questions from {selectedQuotePricedCostCentres.length} priced cost centres</span>
-                      </div>
-                      {selectedQuoteReviewQuestions.length > 0 ? (
-                        <div className="ai-review-question-list">
-                          {selectedQuoteReviewQuestions.map((question) => {
-                            const checked = checkedQuoteReviewQuestions[question.id];
-                            return (
-                              <article className={checked ? "ai-review-question checked" : "ai-review-question"} key={question.id}>
-                                <div className={`ai-review-severity ${question.severity}`}>{question.severity}</div>
-                                <div>
-                                  <strong>{question.title}</strong>
-                                  <p>{question.detail}</p>
-                                </div>
-                                <div className="ai-review-actions">
-                                  {question.action !== "none" ? (
-                                    <button className="secondary-button" type="button" onClick={() => actOnQuoteReviewQuestion(question)}>
-                                      {question.action === "open-centre" ? "Open cost centre" : "Review costs"}
-                                    </button>
-                                  ) : null}
-                                  <button className="primary-button" type="button" onClick={() => markQuoteReviewQuestionChecked(question.id)}>
-                                    <Check size={14} />
-                                    Checked
-                                  </button>
-                                </div>
-                              </article>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="ai-review-empty">
-                          <Check size={18} />
-                          <span>No obvious quote gaps found from the current cost centres.</span>
-                        </div>
-                      )}
-                    </section>
 
                     <section className="simpro-summary-panel quote-combined-summary">
                       <h2>Quote commercial summary</h2>
