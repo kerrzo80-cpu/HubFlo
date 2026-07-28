@@ -25738,10 +25738,6 @@ export default function Dashboard() {
         </label>
 
         <div className="header-actions">
-          <button className="header-icon" aria-label="Messages" onClick={openCommunicationsHub}>
-            <Mail size={18} />
-            <span className="counter">3</span>
-          </button>
           <button className="header-icon" aria-label="Notifications" onClick={() => openDashboardQueue("dashboard-notifications")}>
             <Bell size={18} />
             <span className="alert-dot" />
