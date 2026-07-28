@@ -619,6 +619,7 @@ type QuoteDraft = {
   clientId: string;
   siteId: string;
   customer: string;
+  contactName: string;
   phone: string;
   email: string;
   address: string;
@@ -634,6 +635,7 @@ type JobDraft = {
   clientId: string;
   siteId: string;
   customer: string;
+  contactName: string;
   phone: string;
   email: string;
   address: string;
@@ -4170,6 +4172,7 @@ const blankQuote: QuoteDraft = {
   clientId: "",
   siteId: "",
   customer: "",
+  contactName: "",
   phone: "",
   email: "",
   address: "",
@@ -4185,6 +4188,7 @@ const blankJob: JobDraft = {
   clientId: "",
   siteId: "",
   customer: "",
+  contactName: "",
   phone: "",
   email: "",
   address: "",
@@ -6798,6 +6802,8 @@ export default function Dashboard() {
   const [leadPostcodeSearch, setLeadPostcodeSearch] = useState("");
   const [newQuote, setNewQuote] = useState<QuoteDraft>(blankQuote);
   const [newJob, setNewJob] = useState<JobDraft>(blankJob);
+  const [quotePostcodeSearch, setQuotePostcodeSearch] = useState("");
+  const [jobPostcodeSearch, setJobPostcodeSearch] = useState("");
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [purchaseDraft, setPurchaseDraft] = useState(blankPurchaseRequest);
   const [editingPurchaseRequestId, setEditingPurchaseRequestId] = useState<string | null>(null);
@@ -11087,6 +11093,24 @@ export default function Dashboard() {
       .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
       .slice(0, 8);
   }, [leadPostcodeSearch]);
+
+  const quoteAddressMatches = useMemo(() => {
+    const query = quotePostcodeSearch.trim().toLowerCase();
+    if (query.length < 3) return [];
+    return postcodeDirectory
+      .filter((entry) => entry.postcode.toLowerCase().includes(query))
+      .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
+      .slice(0, 8);
+  }, [quotePostcodeSearch]);
+
+  const jobAddressMatches = useMemo(() => {
+    const query = jobPostcodeSearch.trim().toLowerCase();
+    if (query.length < 3) return [];
+    return postcodeDirectory
+      .filter((entry) => entry.postcode.toLowerCase().includes(query))
+      .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
+      .slice(0, 8);
+  }, [jobPostcodeSearch]);
 
   function showNotice(message: string) {
     if (noticeClearTimeout.current) clearTimeout(noticeClearTimeout.current);
@@ -19183,6 +19207,7 @@ export default function Dashboard() {
       clientId,
       siteId: site?.id ?? "",
       customer: client.name,
+      contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
       address: site?.address ?? client.billingAddress,
@@ -19204,6 +19229,7 @@ export default function Dashboard() {
       clientId: "",
       siteId: "",
       customer: "",
+      contactName: "",
       phone: "",
       email: "",
       address: "",
@@ -19219,6 +19245,7 @@ export default function Dashboard() {
       clientId,
       siteId: site?.id ?? "",
       customer: client.name,
+      contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
       address: site?.address ?? client.billingAddress,
@@ -19236,12 +19263,23 @@ export default function Dashboard() {
     }));
   }
 
+  function selectQuoteAddress(address: string, postcode: string) {
+    setNewQuote((current) => ({ ...current, address }));
+    setQuotePostcodeSearch(postcode);
+  }
+
+  function selectJobAddress(address: string, postcode: string) {
+    setNewJob((current) => ({ ...current, address, site: address }));
+    setJobPostcodeSearch(postcode);
+  }
+
   function clearJobCustomerMatch() {
     setNewJob((current) => ({
       ...current,
       clientId: "",
       siteId: "",
       customer: "",
+      contactName: "",
       phone: "",
       email: "",
       address: "",
@@ -19249,7 +19287,7 @@ export default function Dashboard() {
     }));
   }
 
-  async function createCustomerFromDraft(source: string, draft: { customer: string; phone: string; email: string; address: string }) {
+  async function createCustomerFromDraft(source: string, draft: { customer: string; contactName?: string; phone: string; email: string; address: string }) {
     if (!draft.customer.trim()) {
       showNotice("Add the customer name before creating the customer record.");
       return null;
@@ -19272,7 +19310,7 @@ export default function Dashboard() {
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
         name: draft.customer.trim(),
-        primaryContact: draft.customer.trim(),
+        primaryContact: draft.contactName?.trim() || draft.customer.trim(),
         phone: draft.phone.trim(),
         email: draft.email.trim(),
         address: draft.address.trim(),
@@ -34007,26 +34045,9 @@ export default function Dashboard() {
                   <p className="lead-match-empty">No existing customer found. This quote can save a new customer record.</p>
                 ) : null}
               </div>
-              {!newQuote.clientId && newQuote.customer.trim().length >= 2 ? (
-                <div className="full-field quick-customer-fields">
-                  <span className="permission-heading">New customer details</span>
-                  <label>
-                    Phone
-                    <input value={newQuote.phone} onChange={(event) => setNewQuote((current) => ({ ...current, phone: event.target.value }))} />
-                  </label>
-                  <label>
-                    Email
-                    <input value={newQuote.email} onChange={(event) => setNewQuote((current) => ({ ...current, email: event.target.value }))} />
-                  </label>
-                  <label className="full-field">
-                    Site address
-                    <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
-                  </label>
-                </div>
-              ) : null}
               {newQuote.clientId ? (
                 <label className="full-field">
-                  Site
+                  Existing site
                   <select value={newQuote.siteId} onChange={(event) => setQuoteExistingSite(event.target.value)}>
                     {quoteClientSites.length === 0 ? <option value="">No sites saved</option> : null}
                     {quoteClientSites.map((site) => (
@@ -34037,18 +34058,77 @@ export default function Dashboard() {
                   </select>
                 </label>
               ) : null}
-              <label>
-                Owner
-                <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
-                  <option>Errol Watson</option>
-                  <option>Brian Kerr</option>
-                  <option>Chris Lawson</option>
-                </select>
-              </label>
-              <label className="full-field">
-                Description
-                <input value={newQuote.description} onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))} />
-              </label>
+              <div className="full-field lead-contact-panel">
+                <div className="lead-form-section-heading">
+                  <div>
+                    <span className="permission-heading">Main contact</span>
+                    <strong>Who should the quote go to?</strong>
+                  </div>
+                </div>
+                <div className="lead-contact-grid">
+                  <label>
+                    Contact name
+                    <input value={newQuote.contactName} onChange={(event) => setNewQuote((current) => ({ ...current, contactName: event.target.value }))} />
+                  </label>
+                  <label>
+                    Phone
+                    <input value={newQuote.phone} onChange={(event) => setNewQuote((current) => ({ ...current, phone: event.target.value }))} />
+                  </label>
+                  <label>
+                    Email
+                    <input value={newQuote.email} onChange={(event) => setNewQuote((current) => ({ ...current, email: event.target.value }))} />
+                  </label>
+                  <label>
+                    Owner
+                    <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
+                      <option>Errol Watson</option>
+                      <option>Brian Kerr</option>
+                      <option>Chris Lawson</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div className="full-field lead-address-lookup">
+                <label>
+                  Postcode lookup
+                  <input value={quotePostcodeSearch} onChange={(event) => setQuotePostcodeSearch(event.target.value)} placeholder="Type postcode, e.g. AB15 4EQ" />
+                </label>
+                {quoteAddressMatches.length > 0 ? (
+                  <div className="lead-address-results" aria-label="Quote address matches">
+                    {quoteAddressMatches.map((match) => (
+                      <button type="button" key={match.address} onClick={() => selectQuoteAddress(match.address, match.postcode)}>
+                        {match.address}
+                      </button>
+                    ))}
+                  </div>
+                ) : quotePostcodeSearch.trim().length >= 3 ? (
+                  <p className="lead-match-empty">No address match in the demo lookup. Type the address manually below.</p>
+                ) : null}
+              </div>
+              <div className="full-field lead-address-map-grid">
+                <div className="lead-address-fields">
+                  <label className="full-field">
+                    Site address
+                    <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
+                  </label>
+                </div>
+                <div className="lead-map-preview" aria-label="Quote address map preview">
+                  {newQuote.address ? (
+                    <>
+                      <iframe title="Quote map preview" src={leadMapEmbedUrl(newQuote.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                      <a href={leadMapSearchUrl(newQuote.address)} target="_blank" rel="noreferrer" className="lead-map-link">
+                        Open in maps
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin size={22} />
+                      <strong>Select an address</strong>
+                      <span>Postcode lookup will place the quote site here</span>
+                    </>
+                  )}
+                </div>
+              </div>
               <label>
                 Status
                 <select value={newQuote.status} onChange={(event) => setNewQuote((current) => ({ ...current, status: event.target.value as QuoteStatus }))}>
@@ -34056,6 +34136,10 @@ export default function Dashboard() {
                     <option key={status}>{status}</option>
                   ))}
                 </select>
+              </label>
+              <label className="full-field">
+                Description of work
+                <textarea value={newQuote.description} onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))} />
               </label>
               <label>
                 Quote value
@@ -34159,26 +34243,9 @@ export default function Dashboard() {
                   <p className="lead-match-empty">No existing customer found. This job can save a new customer record.</p>
                 ) : null}
               </div>
-              {!newJob.clientId && newJob.customer.trim().length >= 2 ? (
-                <div className="full-field quick-customer-fields">
-                  <span className="permission-heading">New customer details</span>
-                  <label>
-                    Phone
-                    <input value={newJob.phone} onChange={(event) => setNewJob((current) => ({ ...current, phone: event.target.value }))} />
-                  </label>
-                  <label>
-                    Email
-                    <input value={newJob.email} onChange={(event) => setNewJob((current) => ({ ...current, email: event.target.value }))} />
-                  </label>
-                  <label className="full-field">
-                    Site address
-                    <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value }))} />
-                  </label>
-                </div>
-              ) : null}
               {newJob.clientId ? (
                 <label className="full-field">
-                  Site
+                  Existing site
                   <select value={newJob.siteId} onChange={(event) => setJobExistingSite(event.target.value)}>
                     {jobClientSites.length === 0 ? <option value="">No sites saved</option> : null}
                     {jobClientSites.map((site) => (
@@ -34189,17 +34256,80 @@ export default function Dashboard() {
                   </select>
                 </label>
               ) : null}
+              <div className="full-field lead-contact-panel">
+                <div className="lead-form-section-heading">
+                  <div>
+                    <span className="permission-heading">Main contact</span>
+                    <strong>Who should we speak to about the job?</strong>
+                  </div>
+                </div>
+                <div className="lead-contact-grid">
+                  <label>
+                    Contact name
+                    <input value={newJob.contactName} onChange={(event) => setNewJob((current) => ({ ...current, contactName: event.target.value }))} />
+                  </label>
+                  <label>
+                    Phone
+                    <input value={newJob.phone} onChange={(event) => setNewJob((current) => ({ ...current, phone: event.target.value }))} />
+                  </label>
+                  <label>
+                    Email
+                    <input value={newJob.email} onChange={(event) => setNewJob((current) => ({ ...current, email: event.target.value }))} />
+                  </label>
+                  <label>
+                    Manager
+                    <select value={newJob.manager} onChange={(event) => setNewJob((current) => ({ ...current, manager: event.target.value }))}>
+                      {surveyorOptions.map((manager) => (
+                        <option key={manager}>{manager}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div className="full-field lead-address-lookup">
+                <label>
+                  Postcode lookup
+                  <input value={jobPostcodeSearch} onChange={(event) => setJobPostcodeSearch(event.target.value)} placeholder="Type postcode, e.g. AB15 4EQ" />
+                </label>
+                {jobAddressMatches.length > 0 ? (
+                  <div className="lead-address-results" aria-label="Job address matches">
+                    {jobAddressMatches.map((match) => (
+                      <button type="button" key={match.address} onClick={() => selectJobAddress(match.address, match.postcode)}>
+                        {match.address}
+                      </button>
+                    ))}
+                  </div>
+                ) : jobPostcodeSearch.trim().length >= 3 ? (
+                  <p className="lead-match-empty">No address match in the demo lookup. Type the address manually below.</p>
+                ) : null}
+              </div>
+              <div className="full-field lead-address-map-grid">
+                <div className="lead-address-fields">
+                  <label className="full-field">
+                    Site address
+                    <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value, site: event.target.value }))} />
+                  </label>
+                </div>
+                <div className="lead-map-preview" aria-label="Job address map preview">
+                  {newJob.address ? (
+                    <>
+                      <iframe title="Job map preview" src={leadMapEmbedUrl(newJob.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                      <a href={leadMapSearchUrl(newJob.address)} target="_blank" rel="noreferrer" className="lead-map-link">
+                        Open in maps
+                      </a>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin size={22} />
+                      <strong>Select an address</strong>
+                      <span>Postcode lookup will place the job site here</span>
+                    </>
+                  )}
+                </div>
+              </div>
               <label className="full-field">
-                Description
-                <input value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} />
-              </label>
-              <label>
-                Manager
-                <select value={newJob.manager} onChange={(event) => setNewJob((current) => ({ ...current, manager: event.target.value }))}>
-                  {surveyorOptions.map((manager) => (
-                    <option key={manager}>{manager}</option>
-                  ))}
-                </select>
+                Description of work
+                <textarea value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} />
               </label>
               <label>
                 Status
