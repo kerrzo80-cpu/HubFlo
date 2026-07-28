@@ -17853,6 +17853,21 @@ export default function Dashboard() {
         ];
         return { ...current, [event.jobId]: nextCentres };
       });
+
+      const job = jobs.find((row) => row.id === event.jobId);
+      if (job) {
+        const approvedHours =
+          jobDeliveryEvents
+            .filter((row) => row.jobId === event.jobId && row.kind === "timesheet" && (row.status === "Approved" || row.id === eventId))
+            .reduce((total, row) => total + (row.id === eventId ? hours : row.hours ?? 0), 0);
+        const plannedHours = Math.max(0, job.scheduledDurationHours ?? 0);
+        void persistJobPatch(event.jobId, {
+          actualDurationHours: approvedHours,
+          labourCostVariance: plannedHours > 0 ? approvedHours - plannedHours : undefined,
+        }).catch(() => {
+          // local UI already updated via delivery events / cost centres
+        });
+      }
     }
 
     logAuditEvent({
@@ -30252,6 +30267,19 @@ export default function Dashboard() {
                     <div className={selectedJobCostSummary.projectedProfit >= 0 ? "profit-positive" : "profit-negative"}>
                       <strong>{currency(selectedJobCostSummary.projectedProfit)}</strong>
                       <span>{selectedJobCostSummary.projectedMargin}% margin</span>
+                    </div>
+                    <div className={(selectedJob.labourCostVariance ?? 0) > 0 ? "profit-negative" : "profit-positive"}>
+                      <strong>
+                        {(selectedJob.actualDurationHours ?? selectedJobApprovedTimesheetHours).toFixed(1)}h
+                      </strong>
+                      <span>
+                        Labour actual
+                        {typeof selectedJob.labourCostVariance === "number"
+                          ? ` · ${selectedJob.labourCostVariance > 0 ? "+" : ""}${selectedJob.labourCostVariance.toFixed(1)}h vs plan`
+                          : selectedJob.scheduledDurationHours
+                            ? ` · plan ${selectedJob.scheduledDurationHours}h`
+                            : ""}
+                      </span>
                     </div>
                   </div>
                 </div>

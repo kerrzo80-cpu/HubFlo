@@ -66,7 +66,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Service jobs | Partial | Status machine, SLA, customer notifications, job card PDF |
 | Project / multi-stage jobs | Thin | Stages, progress invoices, retainage |
 | Scheduling & dispatch | Partial | Multi-tech board + job confirmation email; SMS/WhatsApp ETA still thin |
-| Timesheets / labour | Thin | Approve → job cost → variance |
+| Timesheets / labour | Partial | Approve → job labour cost + actual hours / variance vs plan |
 | Tasks & alerts | Thin | Assignable tasks, escalation |
 | Digital forms / compliance | Partial | Form builder, Gas Safe certificate packs |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
