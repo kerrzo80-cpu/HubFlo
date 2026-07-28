@@ -185,83 +185,75 @@ html, body { margin: 0; min-height: 100%; }
   overflow: hidden;
 }
 
-.job-row {
-  align-items: start;
-  display: grid;
+.field-app .field-job-row {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  display: grid !important;
   gap: 14px;
-  grid-template-columns: 58px 1fr 20px;
-  padding: 18px 16px;
+  grid-template-columns: 56px minmax(0, 1fr) 18px !important;
+  min-height: 0;
+  padding: 16px;
+  text-decoration: none;
 }
 
-.job-row + .job-row {
-  border-top: 1px solid var(--line);
+.field-app .field-job-row:last-child {
+  border-bottom: 0;
 }
 
-.job-row-time {
-  padding-top: 2px;
+.field-app .field-job-time {
+  display: grid;
+  gap: 2px;
 }
 
-.job-row-time strong,
-.job-row-time span {
+.field-app .field-job-time strong,
+.field-app .field-job-time span {
   display: block;
 }
 
-.job-row-time strong {
+.field-app .field-job-time strong {
+  color: var(--ink);
   font-size: 15px;
   font-weight: 700;
 }
 
-.job-row-time span {
+.field-app .field-job-time span {
   color: var(--steel);
   font-size: 12px;
-  margin-top: 2px;
 }
 
-.job-row-copy {
-  display: grid;
+.field-app .field-job-copy {
+  display: grid !important;
   gap: 4px;
   min-width: 0;
 }
 
-.job-row-copy h2 {
+.field-app .field-job-name {
+  color: var(--ink);
+  display: block;
   font-family: Sora, Inter, sans-serif;
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  margin: 0;
-}
-
-.job-row-copy p {
-  color: var(--steel);
-  font-size: 13px;
-  margin: 0;
-}
-
-.job-row-address {
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.job-row-flag,
-.job-row-status {
-  font-size: 12px;
-  font-weight: 700;
-  margin-top: 4px;
-  width: fit-content;
+.field-app .field-job-address {
+  color: var(--steel);
+  display: block !important;
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.job-row-flag {
-  color: #9a6a12;
-}
-
-.job-row-status {
-  color: var(--teal);
-}
-
-.job-row-chevron {
+.field-app .field-job-chevron {
   color: #9aa7af;
-  margin-top: 4px;
+  flex-shrink: 0;
 }
 
 .back-link {
