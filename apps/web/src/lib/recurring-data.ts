@@ -92,6 +92,14 @@ export function dueRecurringPlans(asOf = new Date().toISOString().slice(0, 10)) 
   return listRecurringPlans().filter((plan) => plan.nextDueDate <= asOf);
 }
 
+export function upcomingRecurringPlans(withinDays = 7, asOf = new Date().toISOString().slice(0, 10)) {
+  const horizon = new Date(`${asOf}T12:00:00Z`);
+  if (Number.isNaN(horizon.getTime())) return [];
+  horizon.setUTCDate(horizon.getUTCDate() + Math.max(0, withinDays));
+  const until = horizon.toISOString().slice(0, 10);
+  return listRecurringPlans().filter((plan) => plan.nextDueDate > asOf && plan.nextDueDate <= until);
+}
+
 export function markRecurringGenerated(id: string, generatedRef: string) {
   const store = readStore();
   store.plans = store.plans.map((plan) => {

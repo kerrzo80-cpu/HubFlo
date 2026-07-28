@@ -16141,6 +16141,7 @@ export default function Dashboard() {
     customer: string;
     site?: string;
     description: string;
+    nextDueDate?: string;
   }): Promise<string | null> {
     const client = clients.find((item) => item.name.toLowerCase() === plan.customer.trim().toLowerCase())
       ?? clients.find((item) => item.name.toLowerCase().includes(plan.customer.trim().toLowerCase()));
@@ -16159,6 +16160,7 @@ export default function Dashboard() {
       showNotice(`Client ${client.name} needs a site before a recurring job can be generated.`);
       return null;
     }
+    const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(plan.nextDueDate || "") ? plan.nextDueDate! : "This week";
     const payload = {
       ref: numberedReference("job", normalizedFinanceSettings, jobs.map((item) => item.ref)),
       clientId: client.id,
@@ -16170,7 +16172,8 @@ export default function Dashboard() {
       status: "Needs scheduling",
       value: 0,
       next: `Generated from recurring plan ${plan.name}`,
-      due: "This week",
+      due: dueDate,
+      scheduledDate: /^\d{4}-\d{2}-\d{2}$/.test(plan.nextDueDate || "") ? plan.nextDueDate : undefined,
     };
     try {
       const response = await fetch("/api/jobs", {
@@ -16203,6 +16206,7 @@ export default function Dashboard() {
     site?: string;
     description: string;
     amount?: number;
+    nextDueDate?: string;
   }): Promise<string | null> {
     const client = clients.find((item) => item.name.toLowerCase() === plan.customer.trim().toLowerCase())
       ?? clients.find((item) => item.name.toLowerCase().includes(plan.customer.trim().toLowerCase()));
@@ -16219,7 +16223,9 @@ export default function Dashboard() {
       return null;
     }
     const vatProfile = resolveVatProfile(normalizedFinanceSettings, client ?? null, site ?? null);
-    const issuedDate = new Date().toISOString().slice(0, 10);
+    const issuedDate = /^\d{4}-\d{2}-\d{2}$/.test(plan.nextDueDate || "")
+      ? plan.nextDueDate!
+      : currentOperatingDate;
     const created: Invoice = {
       id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
       ref: buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref)),

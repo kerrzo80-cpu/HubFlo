@@ -7,6 +7,7 @@ import {
   listRecurringPlans,
   markRecurringGenerated,
   setRecurringActive,
+  upcomingRecurringPlans,
   upsertRecurringPlan,
   type RecurringFrequency,
   type RecurringKind,
@@ -21,9 +22,11 @@ export async function GET(request: NextRequest) {
   }
   const includeInactive = request.nextUrl.searchParams.get("all") === "1";
   const asOf = request.nextUrl.searchParams.get("asOf") || undefined;
+  const upcomingDays = Number(request.nextUrl.searchParams.get("upcomingDays") || "7");
   return NextResponse.json({
     plans: listRecurringPlans(includeInactive),
     due: dueRecurringPlans(asOf),
+    upcoming: upcomingRecurringPlans(Number.isFinite(upcomingDays) ? upcomingDays : 7, asOf),
   });
 }
 
@@ -54,14 +57,18 @@ export async function POST(request: NextRequest) {
   try {
     if (body?.action === "activate" || body?.action === "deactivate") {
       if (!body.id) return NextResponse.json({ error: "id required" }, { status: 400 });
-      return NextResponse.json({ plans: setRecurringActive(body.id, body.action === "activate") });
+      return NextResponse.json({
+        plans: setRecurringActive(body.id, body.action === "activate"),
+        due: dueRecurringPlans(),
+        upcoming: upcomingRecurringPlans(),
+      });
     }
     if (body?.action === "mark-generated") {
       if (!body.id || !body.generatedRef) {
         return NextResponse.json({ error: "id and generatedRef required" }, { status: 400 });
       }
       const plan = markRecurringGenerated(body.id, body.generatedRef);
-      return NextResponse.json({ plan, plans: listRecurringPlans(true), due: dueRecurringPlans() });
+      return NextResponse.json({ plan, plans: listRecurringPlans(true), due: dueRecurringPlans(), upcoming: upcomingRecurringPlans() });
     }
     if (!body?.kind || !body.name || !body.customer || !body.description || !body.frequency || !body.nextDueDate) {
       return NextResponse.json({ error: "Missing required recurring plan fields." }, { status: 400 });
@@ -81,7 +88,7 @@ export async function POST(request: NextRequest) {
       notes: body.notes,
       active: body.active,
     });
-    return NextResponse.json({ plans, due: dueRecurringPlans() });
+    return NextResponse.json({ plans, due: dueRecurringPlans(), upcoming: upcomingRecurringPlans() });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to save recurring plan." },

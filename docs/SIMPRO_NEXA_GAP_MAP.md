@@ -14,7 +14,7 @@ Status legend:
 | Missing | Not built |
 | NeXa ahead | Keep and extend |
 
-Counts from the matrix below: **Strong 1 · Partial 16 · Thin 10 · Missing 6 · NeXa ahead 2**
+Counts from the matrix below: **Strong 1 · Partial 17 · Thin 10 · Missing 5 · NeXa ahead 2**
 
 ---
 
@@ -71,7 +71,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Digital forms / compliance | Partial | Form builder, Gas Safe certificate packs |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
 | Asset register | Missing | Site assets, QR, certificates, warranty |
-| PPM / Maintenance Planner | Missing | Service plans, auto jobs, renewals |
+| PPM / Maintenance Planner | Partial | Recurring due/overdue + 14-day upcoming queue, generate-all, pause/activate |
 | Inventory / stock | Partial | Locations/vans/transfers/stocktake; catalogue preferred-supplier sync |
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
@@ -201,6 +201,7 @@ Until Brian cuts further, execute in this order:
 - **Credit notes** — issue credit against a sent invoice (Credits folder); applies ledger adjustment up to outstanding; excluded from billed-to-date
 - **Job confirmation email** — from job record (Setup `job-confirmation` template + PDF); stores `confirmationSentAt` / `confirmationSentTo` and clears readiness communication check
 - **Catalogue CSV → preferred supplier** — importing catalogue rows with SKU + supplier upserts stock preferred supplier and binds `catalogItemId`
+- **Recurring / PPM polish** — due/overdue + 14-day upcoming queues, generate-all, pause/activate; generated jobs/invoices stamp the plan due date
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client

@@ -768,7 +768,10 @@ export function RecurringOpsPanel({
 }) {
   const [plans, setPlans] = useState<RecurringPlan[]>([]);
   const [due, setDue] = useState<RecurringPlan[]>([]);
+  const [upcoming, setUpcoming] = useState<RecurringPlan[]>([]);
   const [error, setError] = useState("");
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
+  const [generatingAll, setGeneratingAll] = useState(false);
   const [draft, setDraft] = useState({
     kind: "Job" as "Job" | "Invoice",
     name: "",
@@ -780,14 +783,19 @@ export function RecurringOpsPanel({
     amount: "",
   });
 
+  function applyLists(body: { plans?: RecurringPlan[]; due?: RecurringPlan[]; upcoming?: RecurringPlan[] }) {
+    setPlans(body.plans || []);
+    setDue(body.due || []);
+    setUpcoming(body.upcoming || []);
+  }
+
   async function load() {
     setError("");
     try {
-      const response = await fetch("/api/recurring?all=1", { headers: requestHeaders });
+      const response = await fetch("/api/recurring?all=1&upcomingDays=14", { headers: requestHeaders });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to load recurring plans");
-      setPlans(body.plans || []);
-      setDue(body.due || []);
+      applyLists(body);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load recurring");
     }
@@ -811,8 +819,7 @@ export function RecurringOpsPanel({
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to save plan");
-      setPlans(body.plans || []);
-      setDue(body.due || []);
+      applyLists(body);
       onNotice("Recurring plan saved.");
       setDraft((current) => ({ ...current, name: "", description: "", amount: "" }));
     } catch (saveError) {
@@ -820,22 +827,70 @@ export function RecurringOpsPanel({
     }
   }
 
+  async function setActive(plan: RecurringPlan, active: boolean) {
+    try {
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: active ? "activate" : "deactivate", id: plan.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to update plan");
+      applyLists(body);
+      onNotice(`${plan.name} ${active ? "activated" : "paused"}.`);
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Unable to update plan");
+    }
+  }
+
   async function generate(plan: RecurringPlan) {
-    const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
-    if (!ref) return;
-    const response = await fetch("/api/recurring", {
-      method: "POST",
-      headers: { ...requestHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "mark-generated", id: plan.id, generatedRef: ref }),
-    });
-    const body = await response.json();
-    if (!response.ok) {
-      onNotice(body.error || "Generated but could not advance next due date.");
+    setGeneratingId(plan.id);
+    try {
+      const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
+      if (!ref) return;
+      const response = await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark-generated", id: plan.id, generatedRef: ref }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        onNotice(body.error || "Generated but could not advance next due date.");
+        return;
+      }
+      applyLists(body);
+      onNotice(`${plan.kind} ${ref} generated from ${plan.name}. Next due ${body.plan?.nextDueDate || "advanced"}.`);
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
+  async function generateAllDue() {
+    if (!due.length) {
+      onNotice("Nothing due to generate.");
       return;
     }
-    setPlans(body.plans || []);
-    setDue(body.due || []);
-    onNotice(`${plan.kind} ${ref} generated from ${plan.name}.`);
+    setGeneratingAll(true);
+    let created = 0;
+    try {
+      for (const plan of [...due]) {
+        const ref = plan.kind === "Job" ? await onGenerateJob(plan) : await onGenerateInvoice(plan);
+        if (!ref) continue;
+        const response = await fetch("/api/recurring", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "mark-generated", id: plan.id, generatedRef: ref }),
+        });
+        const body = await response.json();
+        if (!response.ok) continue;
+        applyLists(body);
+        created += 1;
+      }
+      onNotice(created ? `Generated ${created} recurring record(s).` : "No recurring records were generated.");
+      await load();
+    } finally {
+      setGeneratingAll(false);
+    }
   }
 
   return (
@@ -844,11 +899,21 @@ export function RecurringOpsPanel({
         <div>
           <span className="permission-heading">Contracts</span>
           <h2><Repeat size={18} /> Recurring jobs &amp; invoices</h2>
-          <p>Service plans that auto-create the next job or invoice when due.</p>
+          <p>Service plans that create the next job or invoice when due, then advance the next visit.</p>
         </div>
-        <button className="secondary-button" type="button" onClick={() => void load()}>
-          <RefreshCw size={15} /> Refresh
-        </button>
+        <div className="setup-template-actions">
+          <button className="secondary-button" type="button" onClick={() => void load()}>
+            <RefreshCw size={15} /> Refresh
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            disabled={generatingAll || !due.length}
+            onClick={() => void generateAllDue()}
+          >
+            {generatingAll ? "Generating…" : `Generate all due (${due.length})`}
+          </button>
+        </div>
       </header>
       {error ? <p className="ops-module-error">{error}</p> : null}
       <div className="ops-form-grid">
@@ -874,7 +939,7 @@ export function RecurringOpsPanel({
       <button className="primary-button" type="button" onClick={() => void savePlan()}>
         <Plus size={15} /> Save plan
       </button>
-      <h3>Due now ({due.length})</h3>
+      <h3>Due / overdue ({due.length})</h3>
       <div className="ops-table">
         <div className="ops-table-head"><span>Plan</span><span>Customer</span><span>Due</span><span>Kind</span><span /></div>
         {due.map((plan) => (
@@ -883,10 +948,38 @@ export function RecurringOpsPanel({
             <span>{plan.customer}</span>
             <span>{plan.nextDueDate}</span>
             <span>{plan.kind}</span>
-            <button className="primary-button" type="button" onClick={() => void generate(plan)}>Generate</button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={generatingId === plan.id || generatingAll}
+              onClick={() => void generate(plan)}
+            >
+              {generatingId === plan.id ? "Generating…" : "Generate"}
+            </button>
           </div>
         ))}
-        {!due.length ? <p className="muted">Nothing due today.</p> : null}
+        {!due.length ? <p className="muted">Nothing due or overdue.</p> : null}
+      </div>
+      <h3>Coming up (14 days) ({upcoming.length})</h3>
+      <div className="ops-table">
+        <div className="ops-table-head"><span>Plan</span><span>Customer</span><span>Due</span><span>Kind</span><span /></div>
+        {upcoming.map((plan) => (
+          <div className="ops-table-row" key={plan.id}>
+            <strong>{plan.name}</strong>
+            <span>{plan.customer}</span>
+            <span>{plan.nextDueDate}</span>
+            <span>{plan.kind}</span>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={generatingId === plan.id || generatingAll}
+              onClick={() => void generate(plan)}
+            >
+              Generate early
+            </button>
+          </div>
+        ))}
+        {!upcoming.length ? <p className="muted">No visits due in the next two weeks.</p> : null}
       </div>
       <h3>All plans</h3>
       <div className="ops-table">
@@ -897,7 +990,13 @@ export function RecurringOpsPanel({
             <span>{plan.frequency}</span>
             <span>{plan.nextDueDate}</span>
             <span>{plan.lastGeneratedRef || "—"}</span>
-            <span>{plan.active ? "Yes" : "No"}</span>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void setActive(plan, !plan.active)}
+            >
+              {plan.active ? "Pause" : "Activate"}
+            </button>
           </div>
         ))}
       </div>
