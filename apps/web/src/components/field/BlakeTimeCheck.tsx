@@ -180,7 +180,7 @@ export function BlakeTimeCheck() {
             <p className="eyebrow">Blake · Daily time check</p>
             <h1>Quick time check</h1>
             <p>
-              Confirm as booked, or amend if it took longer or less. Those hours are what get charged against the job.
+              Confirm as booked, or amend if it ran long or short. Those hours charge against the job.
             </p>
           </div>
         </div>
