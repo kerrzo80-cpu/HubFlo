@@ -63,7 +63,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Survey → estimate pack | **NeXa ahead** | Keep; deepen photo vision + Takeoffs handoff |
 | Takeoffs / plan markup | Partial | Finish survey→takeoff→estimate chain; locked plans |
 | Vendor catalogues | Partial | CSV import; preferred supplier syncs to stock on SKU rows |
-| Service jobs | Partial | Status machine, customer complete notice; SLA clocks still thin |
+| Service jobs | Partial | Status machine, complete notice, overdue booked-job queue; SLA clocks still thin |
 | Project / multi-stage jobs | Thin | Stages, progress invoices, retainage |
 | Scheduling & dispatch | Partial | Multi-tech board + job confirmation + ETA email/WhatsApp |
 | Timesheets / labour | Partial | Approve → job labour cost + actual hours / variance vs plan |
@@ -220,6 +220,7 @@ Until Brian cuts further, execute in this order:
 - **Stocktake expected + variance** — stocktake mode shows on-hand at location and counted − expected before/after save
 - **Engineer flow evidence** — stop/go steps capture Text / Number / Photo / Signature name (not checkbox-only); persists `flowStepEvidence`
 - **Job complete notice** — email + WhatsApp (`job-complete` template); stores `completionSentAt` / `completionSentTo`
+- **Overdue scheduled jobs** — dashboard queue for open jobs whose booked date is before today
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links

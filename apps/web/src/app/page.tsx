@@ -194,6 +194,7 @@ const dashboardPanelIds = [
   "approvedQuotes",
   "timesheets",
   "assetDue",
+  "overdueJobs",
 ] as const;
 
 type DashboardPanelId = (typeof dashboardPanelIds)[number];
@@ -216,6 +217,7 @@ const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: Dashbo
   approvedQuotes: { label: "Approved quotes", size: "standard" },
   timesheets: { label: "Timesheets", size: "standard" },
   assetDue: { label: "Assets due", size: "standard" },
+  overdueJobs: { label: "Overdue jobs", size: "standard" },
 };
 
 const defaultDashboardLayout: DashboardLayout = {
@@ -10652,6 +10654,18 @@ export default function Dashboard() {
       }),
     [jobDeliveryEvents, jobs],
   );
+
+  const overdueScheduledJobs = useMemo(() => {
+    const closed = new Set(["Completed", "Ready to invoice", "Invoiced", "Cancelled", "Closed"]);
+    return jobs
+      .filter((job) => {
+        if (closed.has(job.status)) return false;
+        const date = job.scheduledDate;
+        if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return false;
+        return date < currentOperatingDate;
+      })
+      .sort((left, right) => (left.scheduledDate || "").localeCompare(right.scheduledDate || ""));
+  }, [currentOperatingDate, jobs]);
 
   const uninvoicedCompletedJobs = useMemo(
     () =>
@@ -24738,7 +24752,8 @@ export default function Dashboard() {
       overdueTimesheetJobs.length +
       overdueInvoiceRows.length +
       uninvoicedCompletedJobs.length +
-      unassignedProgressJobs.length;
+      unassignedProgressJobs.length +
+      overdueScheduledJobs.length;
 
     const renderDashboardPanel = (panelId: DashboardPanelId) => {
       switch (panelId) {
@@ -24992,6 +25007,14 @@ export default function Dashboard() {
                   <strong>{dueSiteAssetRows.length}</strong>
                   <b>Assets due / overdue</b>
                   <small>Service dates in the next 30 days</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-overdue-jobs")}>
+                <Clock3 size={18} />
+                <span>
+                  <strong>{overdueScheduledJobs.length}</strong>
+                  <b>Overdue scheduled jobs</b>
+                  <small>Booked date before today, still open</small>
                 </span>
               </button>
             </div>
@@ -25264,6 +25287,43 @@ export default function Dashboard() {
                   );
                 })}
                 {!dueSiteAssetRows.length ? <div className="ops-queue-empty">No assets due in the next 30 days.</div> : null}
+              </div>
+            </section>
+          );
+
+        case "overdueJobs":
+          return (
+            <section className="ops-queue-panel" id="dashboard-overdue-jobs">
+              <header>
+                <div>
+                  <h3>Overdue jobs</h3>
+                  <p>{overdueScheduledJobs.length} open job{overdueScheduledJobs.length === 1 ? "" : "s"} past booked date</p>
+                </div>
+                <Clock3 size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {overdueScheduledJobs.slice(0, 8).map((job) => (
+                  <article className="ops-queue-item" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref}</strong>
+                      <span>{job.customer}</span>
+                      <small>
+                        Booked {job.scheduledDate}
+                        {job.scheduledTime ? ` at ${job.scheduledTime}` : ""}
+                        {job.manager ? ` · ${job.manager}` : ""}
+                      </small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{job.status}</span>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Open
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!overdueScheduledJobs.length ? (
+                  <div className="ops-queue-empty">No open jobs are past their booked date.</div>
+                ) : null}
               </div>
             </section>
           );
