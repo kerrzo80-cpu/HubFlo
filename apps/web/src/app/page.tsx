@@ -3763,6 +3763,13 @@ const postcodeDirectory = [
     ],
   },
   {
+    postcode: "AB10 1YP",
+    addresses: [
+      "12 Albyn Terrace, Aberdeen, AB10 1YP",
+      "14 Albyn Terrace, Aberdeen, AB10 1YP",
+    ],
+  },
+  {
     postcode: "AB15 4EQ",
     addresses: [
       "136 King's Gate, Aberdeen, AB15 4EQ",
@@ -3779,11 +3786,25 @@ const postcodeDirectory = [
     ],
   },
   {
+    postcode: "AB15 4AL",
+    addresses: [
+      "8 Rubislaw Den North, Aberdeen, AB15 4AL",
+      "10 Rubislaw Den North, Aberdeen, AB15 4AL",
+    ],
+  },
+  {
     postcode: "AB21 9JD",
     addresses: [
       "4 Stoneywood Road, Aberdeen, AB21 9JD",
       "6 Stoneywood Road, Aberdeen, AB21 9JD",
       "8 Stoneywood Road, Aberdeen, AB21 9JD",
+    ],
+  },
+  {
+    postcode: "AB24",
+    addresses: [
+      "12 Hopetoun Crescent, Aberdeen, AB24",
+      "14 Hopetoun Crescent, Aberdeen, AB24",
     ],
   },
 ];
@@ -8822,6 +8843,44 @@ export default function Dashboard() {
           }
           if (hubState.simproExports) setSimproExports(hubState.simproExports);
           setHasLoadedHubDetailState(true);
+
+          try {
+            const documentsResponse = await fetch("/api/record-documents", { headers: requestHeaders });
+            if (documentsResponse.ok) {
+              const payload = (await documentsResponse.json()) as {
+                documents?: Array<{
+                  scope: RecordDocumentScope;
+                  recordRef: string;
+                  folderId: string;
+                  name: string;
+                  type: string;
+                  visibility: "Private" | "Engineer" | "Public" | "Client";
+                  linkedTo: string;
+                  fileUrl: string;
+                }>;
+              };
+              const next: ManualRecordDocuments = {};
+              for (const document of payload.documents ?? []) {
+                const key = recordDocumentStorageKey(document.scope, document.recordRef);
+                const visibility: DocumentVisibility =
+                  document.visibility === "Public" ? "Client" : (document.visibility as DocumentVisibility);
+                next[key] = [
+                  ...(next[key] ?? []),
+                  {
+                    folderId: document.folderId,
+                    name: document.name,
+                    type: document.type,
+                    visibility,
+                    linkedTo: document.linkedTo,
+                    fileUrl: document.fileUrl,
+                  },
+                ];
+              }
+              setManualRecordDocuments(next);
+            }
+          } catch {
+            // Documents stay empty until next successful load.
+          }
         } else {
           hasOfflineFallback = true;
         }
@@ -11121,6 +11180,23 @@ export default function Dashboard() {
       entry.postcode.toLowerCase().includes(query) &&
       entry.addresses.some((candidate) => candidate.trim().toLowerCase() === target),
     );
+  }
+
+  function intakeAddressReady(input: {
+    postcodeSearch: string;
+    address: string;
+    clientId?: string;
+    siteId?: string;
+  }) {
+    const address = input.address.trim();
+    if (!address) return false;
+    // Existing linked site/customer already carries a confirmed address.
+    if (input.siteId || input.clientId) return true;
+    if (addressSelectedFromPostcode(input.postcodeSearch, address)) return true;
+    // Allow a typed UK address when postcode search was started and address includes a postcode.
+    const searched = input.postcodeSearch.trim().length >= 3;
+    const hasPostcode = Boolean(postcodeFromAddress(address));
+    return searched && hasPostcode && address.length >= 10;
   }
 
   function showNotice(message: string) {
@@ -19223,6 +19299,8 @@ export default function Dashboard() {
     const client = clients.find((item) => item.id === clientId);
     const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
+    const address = site?.address ?? client.billingAddress;
+    setQuotePostcodeSearch(postcodeFromAddress(address));
     setNewQuote((current) => ({
       ...current,
       clientId,
@@ -19231,16 +19309,18 @@ export default function Dashboard() {
       contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
-      address: site?.address ?? client.billingAddress,
+      address,
     }));
   }
 
   function setQuoteExistingSite(siteId: string) {
     const site = clientSites.find((item) => item.id === siteId);
+    const address = site?.address ?? "";
+    if (address) setQuotePostcodeSearch(postcodeFromAddress(address));
     setNewQuote((current) => ({
       ...current,
       siteId,
-      address: site?.address ?? current.address,
+      address: address || current.address,
     }));
   }
 
@@ -19261,6 +19341,8 @@ export default function Dashboard() {
     const client = clients.find((item) => item.id === clientId);
     const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
+    const address = site?.address ?? client.billingAddress;
+    setJobPostcodeSearch(postcodeFromAddress(address));
     setNewJob((current) => ({
       ...current,
       clientId,
@@ -19269,18 +19351,20 @@ export default function Dashboard() {
       contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
-      address: site?.address ?? client.billingAddress,
-      site: site?.address ?? current.site,
+      address,
+      site: address || current.site,
     }));
   }
 
   function setJobExistingSite(siteId: string) {
     const site = clientSites.find((item) => item.id === siteId);
+    const address = site?.address ?? "";
+    if (address) setJobPostcodeSearch(postcodeFromAddress(address));
     setNewJob((current) => ({
       ...current,
       siteId,
-      address: site?.address ?? current.address,
-      site: site?.address ?? current.site,
+      address: address || current.address,
+      site: address || current.site,
     }));
   }
 
@@ -19479,6 +19563,53 @@ export default function Dashboard() {
     fileList: FileList | null,
   ) {
     if (!fileList?.length) return;
+
+    // Live/shared workspace: persist files on the server so they survive refresh.
+    if (serverWorkspaceMode === "live") {
+      try {
+        const body = new FormData();
+        body.set("scope", recordType);
+        body.set("recordRef", recordRef);
+        Array.from(fileList).forEach((file) => body.append("files", file));
+        const response = await fetch("/api/record-documents", {
+          method: "POST",
+          headers: { ...requestHeaders },
+          body,
+        });
+        const payload = (await response.json()) as { documents?: Array<{
+          id: string;
+          folderId: string;
+          name: string;
+          type: string;
+          visibility: "Private" | "Engineer" | "Public" | "Client";
+          linkedTo: string;
+          fileUrl: string;
+        }>; error?: string };
+        if (!response.ok || !payload.documents?.length) {
+          throw new Error(payload.error || "Upload failed");
+        }
+        appendManualRecordDocuments(
+          recordType,
+          recordRef,
+          payload.documents.map((document) => ({
+            folderId: document.folderId,
+            name: document.name,
+            type: document.type,
+            visibility: (document.visibility === "Public" ? "Client" : document.visibility) as DocumentVisibility,
+            linkedTo: document.linkedTo,
+            fileUrl: document.fileUrl,
+          })),
+        );
+        showNotice(`${payload.documents.length} file${payload.documents.length === 1 ? "" : "s"} saved to ${recordRef}.`);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to upload documents.";
+        showNotice(message);
+        setSectionError(message);
+        return;
+      }
+    }
+
     const files = await Promise.all(
       Array.from(fileList).map(async (file): Promise<RecordDocumentFile> => {
         const previewImageDataUrl = await new Promise<string>((resolve) => {
@@ -20058,7 +20189,12 @@ export default function Dashboard() {
       showNotice("Add the main contact before creating the quote.");
       return;
     }
-    if (!addressSelectedFromPostcode(quotePostcodeSearch, newQuote.address)) {
+    if (!intakeAddressReady({
+      postcodeSearch: quotePostcodeSearch,
+      address: newQuote.address,
+      clientId: newQuote.clientId,
+      siteId: newQuote.siteId,
+    })) {
       showNotice("Search by postcode first, then choose the address from the dropdown before creating the quote.");
       return;
     }
@@ -20120,12 +20256,16 @@ export default function Dashboard() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error("Unable to create quote");
+      const createdPayload = (await response.json()) as Quote & { error?: string };
+      if (!response.ok || !createdPayload.id) {
+        throw new Error(createdPayload.error || "Unable to create quote");
+      }
 
-      const created = (await response.json()) as Quote;
+      const created = createdPayload;
       setQuotes((current) => [created, ...current]);
       setShowCreateQuote(false);
       setNewQuote(blankQuote);
+      setQuotePostcodeSearch("");
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "created",
@@ -20137,8 +20277,10 @@ export default function Dashboard() {
       });
       openQuoteDrawer(created.id);
       showNotice(`Quote ${created.ref} created and opened.`);
-    } catch {
-      setSectionError("Unable to create quote right now.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create quote right now.";
+      setSectionError(message);
+      showNotice(message);
     }
   }
 
@@ -20153,7 +20295,12 @@ export default function Dashboard() {
       showNotice("Add the main contact before creating the job.");
       return;
     }
-    if (!addressSelectedFromPostcode(jobPostcodeSearch, newJob.address)) {
+    if (!intakeAddressReady({
+      postcodeSearch: jobPostcodeSearch,
+      address: newJob.address,
+      clientId: newJob.clientId,
+      siteId: newJob.siteId,
+    })) {
       showNotice("Search by postcode first, then choose the address from the dropdown before creating the job.");
       return;
     }
