@@ -18,6 +18,7 @@ export type StockItem = {
   minLevel: number;
   unitCost: number;
   preferredSupplier?: string;
+  catalogItemId?: string;
   archived?: boolean;
 };
 
@@ -129,6 +130,7 @@ export function upsertStockItem(input: {
   minLevel?: number;
   unitCost?: number;
   preferredSupplier?: string;
+  catalogItemId?: string;
 }) {
   const store = readStore();
   const sku = input.sku.trim();
@@ -146,6 +148,7 @@ export function upsertStockItem(input: {
             minLevel: input.minLevel ?? item.minLevel,
             unitCost: input.unitCost ?? item.unitCost,
             preferredSupplier: input.preferredSupplier ?? item.preferredSupplier,
+            catalogItemId: input.catalogItemId ?? item.catalogItemId,
           }
         : item,
     );
@@ -161,6 +164,7 @@ export function upsertStockItem(input: {
       minLevel: input.minLevel ?? 0,
       unitCost: input.unitCost ?? 0,
       preferredSupplier: input.preferredSupplier?.trim() || undefined,
+      catalogItemId: input.catalogItemId?.trim() || undefined,
     });
   }
   return writeStore(store);
@@ -220,7 +224,15 @@ export function recordStockMovement(input: {
 }
 
 export function receivePurchaseIntoStock(input: {
-  lines: Array<{ sku: string; name: string; quantity: number; unitCost?: number; unit?: string }>;
+  lines: Array<{
+    sku: string;
+    name: string;
+    quantity: number;
+    unitCost?: number;
+    unit?: string;
+    stockItemId?: string;
+    catalogItemId?: string;
+  }>;
   locationId?: string;
   poNumber?: string;
   jobRef?: string;
@@ -233,7 +245,17 @@ export function receivePurchaseIntoStock(input: {
   for (const line of input.lines) {
     if (!line.quantity) continue;
     store = readStore();
-    let item = store.items.find((row) => row.sku.toLowerCase() === line.sku.trim().toLowerCase() && !row.archived);
+    let item =
+      (line.stockItemId
+        ? store.items.find((row) => row.id === line.stockItemId && !row.archived)
+        : undefined) ||
+      (line.sku.trim()
+        ? store.items.find((row) => row.sku.toLowerCase() === line.sku.trim().toLowerCase() && !row.archived)
+        : undefined) ||
+      (line.catalogItemId
+        ? store.items.find((row) => row.catalogItemId === line.catalogItemId && !row.archived)
+        : undefined);
+
     if (!item) {
       item = {
         id: uid("stock-item"),
@@ -242,10 +264,24 @@ export function receivePurchaseIntoStock(input: {
         unit: line.unit || "each",
         minLevel: 0,
         unitCost: line.unitCost ?? 0,
+        catalogItemId: line.catalogItemId,
       };
       store.items.unshift(item);
       writeStore(store);
+    } else if (line.unitCost !== undefined || line.catalogItemId) {
+      store.items = store.items.map((row) =>
+        row.id === item!.id
+          ? {
+              ...row,
+              unitCost: line.unitCost ?? row.unitCost,
+              catalogItemId: line.catalogItemId || row.catalogItemId,
+              name: line.name.trim() || row.name,
+            }
+          : row,
+      );
+      writeStore(store);
     }
+
     recordStockMovement({
       itemId: item.id,
       quantity: line.quantity,

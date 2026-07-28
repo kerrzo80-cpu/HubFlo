@@ -109,6 +109,8 @@ export interface PurchaseOrderLine {
   estimatedCost: number;
   actualCost?: number;
   receivedPercent: number;
+  catalogItemId?: string;
+  sku?: string;
 }
 
 export interface WorkflowStore {

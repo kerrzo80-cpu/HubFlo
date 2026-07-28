@@ -1376,6 +1376,8 @@ type CatalogItem = {
   category?: string;
   supplierId?: string;
   supplierName?: string;
+  sku?: string;
+  stockItemId?: string;
 };
 
 type QuoteCostLine = {
@@ -4409,6 +4411,8 @@ type PurchaseOrderLineDraft = {
   estimatedCost: string;
   actualCost: string;
   receivedPercent: string;
+  catalogItemId?: string;
+  sku?: string;
 };
 
 function makePurchaseOrderLineDraft(index = 0): PurchaseOrderLineDraft {
@@ -4419,6 +4423,8 @@ function makePurchaseOrderLineDraft(index = 0): PurchaseOrderLineDraft {
     estimatedCost: "",
     actualCost: "",
     receivedPercent: "0",
+    catalogItemId: undefined,
+    sku: "",
   };
 }
 
@@ -7065,6 +7071,7 @@ export default function Dashboard() {
     unit: "each",
     costRate: "",
     sellRate: "",
+    sku: "",
   });
   const [businessImportType, setBusinessImportType] = useState<BusinessImportType>("employees");
   const [businessImportFileName, setBusinessImportFileName] = useState("");
@@ -7148,6 +7155,7 @@ export default function Dashboard() {
     requestId: string;
     locationId: string;
     locations: Array<{ id: string; name: string; kind: string }>;
+    stockItems: Array<{ id: string; sku: string; name: string; catalogItemId?: string }>;
     lines: Array<{
       id: string;
       description: string;
@@ -7156,6 +7164,8 @@ export default function Dashboard() {
       sku: string;
       unitCost: string;
       alreadyReceivedPercent: number;
+      catalogItemId?: string;
+      stockItemId?: string;
     }>;
   } | null>(null);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
@@ -12351,6 +12361,7 @@ export default function Dashboard() {
       const typeIndex = detectColumn(header, [["type", "category type", "item type"]]);
       const folderIndex = detectColumn(header, [["folder", "category", "group", "section"]]);
       const supplierIndex = detectColumn(header, [["supplier", "vendor", "manufacturer", "brand"]]);
+      const skuIndex = detectColumn(header, [["sku", "part number", "part no", "part code", "code", "item code", "product code"]]);
 
       if (nameIndex < 0) {
         showNotice("No description/name column found in the catalogue file.");
@@ -12375,6 +12386,7 @@ export default function Dashboard() {
         const sellRate = parseNumberish(row[sellIndex] ?? "") ?? lineSellFromMarkup(costRate, fallbackMarkup);
         const category = row[folderIndex]?.trim() || catalogImportDraft.folder;
         const rowSupplier = row[supplierIndex]?.trim() || "";
+        const sku = row[skuIndex]?.trim() || undefined;
         return [{
           id: `imported-catalog-${Date.now()}-${index}`,
           type,
@@ -12385,6 +12397,7 @@ export default function Dashboard() {
           category,
           supplierId: selectedSupplier?.id,
           supplierName: selectedSupplier?.name || rowSupplier || undefined,
+          sku,
         } satisfies CatalogItem];
       });
 
@@ -12509,12 +12522,59 @@ export default function Dashboard() {
       category: catalogImportDraft.folder,
       supplierId: selectedSupplier?.id,
       supplierName: selectedSupplier?.name,
+      sku: newCatalogItemDraft.sku.trim() || undefined,
     };
     markSetupEdited();
     setCustomQuoteCatalog((current) => [item, ...current]);
-    setNewCatalogItemDraft({ name: "", unit: "each", costRate: "", sellRate: "" });
+    setNewCatalogItemDraft({ name: "", unit: "each", costRate: "", sellRate: "", sku: "" });
     setActiveCatalogueFolder(item.category || catalogImportDraft.folder);
-    showNotice(`${item.name} added to ${item.category}.`);
+    showNotice(`${item.name} added to ${item.category}${item.sku ? ` · SKU ${item.sku}` : ""}.`);
+  }
+
+  async function bindCatalogItemToStock(item: CatalogItem) {
+    if (item.type === "Labour") {
+      showNotice("Labour catalogue items are not stocked.");
+      return;
+    }
+    const sku = (item.sku || item.name).trim();
+    if (!sku) {
+      showNotice("Add a SKU on the catalogue item before binding stock.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsert-item",
+          item: {
+            id: item.stockItemId,
+            sku,
+            name: item.name,
+            unit: item.unit,
+            unitCost: item.costRate,
+            preferredSupplier: item.supplierName,
+            catalogItemId: item.id,
+          },
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to bind stock item");
+      const stockItem = (body.items || []).find((row: { sku?: string; catalogItemId?: string; id?: string }) =>
+        row.catalogItemId === item.id || row.sku?.toLowerCase() === sku.toLowerCase(),
+      );
+      markSetupEdited();
+      setCustomQuoteCatalog((current) =>
+        current.map((row) =>
+          row.id === item.id
+            ? { ...row, sku, stockItemId: stockItem?.id || row.stockItemId }
+            : row,
+        ),
+      );
+      showNotice(`${item.name} bound to stock as SKU ${sku}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to bind stock item.");
+    }
   }
 
   function resetBusinessImportFile() {
@@ -21745,6 +21805,9 @@ export default function Dashboard() {
         .filter((line) => line.description.trim() || line.estimatedCost.trim() || line.actualCost.trim() || Number(line.receivedPercent) > 0)
         .map((line, index) => {
           const receivedPercent = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
+          const catalog = line.catalogItemId
+            ? availableQuoteCatalog.find((item) => item.id === line.catalogItemId)
+            : availableQuoteCatalog.find((item) => item.name.toLowerCase() === line.description.trim().toLowerCase());
           return {
             id: line.id || `po-line-${index + 1}`,
             description: line.description.trim() || `Open material line ${index + 1}`,
@@ -21752,6 +21815,8 @@ export default function Dashboard() {
             estimatedCost: Number(line.estimatedCost) || 0,
             actualCost: line.actualCost.trim() ? Number(line.actualCost) || 0 : undefined,
             receivedPercent,
+            catalogItemId: line.catalogItemId || catalog?.id,
+            sku: line.sku?.trim() || catalog?.sku || undefined,
           };
         });
       const lineEstimatedCost = lines.reduce((total, line) => total + line.estimatedCost, 0);
@@ -21835,6 +21900,8 @@ export default function Dashboard() {
             estimatedCost: String(line.estimatedCost || ""),
             actualCost: line.actualCost !== undefined ? String(line.actualCost) : "",
             receivedPercent: String(line.receivedPercent ?? 0),
+            catalogItemId: line.catalogItemId,
+            sku: line.sku || "",
           }))
         : [{
             ...makePurchaseOrderLineDraft(),
@@ -21911,30 +21978,52 @@ export default function Dashboard() {
           receivedPercent: request.status === "Received" ? 100 : 0,
         }];
     let locations: Array<{ id: string; name: string; kind: string }> = [];
+    let stockItems: Array<{ id: string; sku: string; name: string; catalogItemId?: string }> = [];
     try {
       const response = await fetch("/api/stock", { headers: requestHeaders });
       const body = await response.json();
-      if (response.ok) locations = body.locations || [];
+      if (response.ok) {
+        locations = body.locations || [];
+        stockItems = body.items || [];
+      }
     } catch {
       locations = [];
+      stockItems = [];
     }
     const warehouse = locations.find((row) => row.kind === "Warehouse") || locations[0];
     setPoReceiptDraft({
       requestId: request.id,
       locationId: warehouse?.id || "",
       locations,
+      stockItems,
       lines: baseLines.map((line, index) => {
         const orderedQty = Math.max(1, Number(line.quantity) || 1);
         const already = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
         const remainingQty = Math.max(0, orderedQty * (1 - already / 100));
+        const catalog =
+          (line.catalogItemId ? availableQuoteCatalog.find((item) => item.id === line.catalogItemId) : undefined) ||
+          availableQuoteCatalog.find((item) => item.name.toLowerCase() === line.description.toLowerCase());
+        const sku =
+          line.sku?.trim() ||
+          catalog?.sku?.trim() ||
+          stockItems.find((item) => item.catalogItemId && item.catalogItemId === (line.catalogItemId || catalog?.id))?.sku ||
+          "";
+        const stockItem =
+          (catalog?.stockItemId ? stockItems.find((item) => item.id === catalog.stockItemId) : undefined) ||
+          (sku ? stockItems.find((item) => item.sku.toLowerCase() === sku.toLowerCase()) : undefined) ||
+          (line.catalogItemId || catalog?.id
+            ? stockItems.find((item) => item.catalogItemId === (line.catalogItemId || catalog?.id))
+            : undefined);
         return {
           id: line.id,
           description: line.description,
           orderedQty,
           receiveQty: remainingQty > 0 ? String(Number(remainingQty.toFixed(2))) : "0",
-          sku: `${request.poNumber || request.id}-${index + 1}`,
-          unitCost: String(((line.actualCost ?? line.estimatedCost) / orderedQty) || 0),
+          sku: sku || `${request.poNumber || request.id}-${index + 1}`,
+          unitCost: String(((line.actualCost ?? line.estimatedCost) / orderedQty) || catalog?.costRate || 0),
           alreadyReceivedPercent: already,
+          catalogItemId: line.catalogItemId || catalog?.id,
+          stockItemId: stockItem?.id || catalog?.stockItemId,
         };
       }),
     });
@@ -21984,6 +22073,8 @@ export default function Dashboard() {
         ...line,
         actualCost: lineActual || line.actualCost || line.estimatedCost,
         receivedPercent,
+        sku: receipt.sku || line.sku,
+        catalogItemId: receipt.catalogItemId || line.catalogItemId,
       };
     });
 
@@ -22018,6 +22109,8 @@ export default function Dashboard() {
               quantity: line.qty,
               unitCost: line.unitCost,
               unit: "each",
+              stockItemId: line.stockItemId,
+              catalogItemId: line.catalogItemId,
             })),
             poNumber: request.poNumber,
             jobRef: request.jobRef,
@@ -31038,7 +31131,11 @@ export default function Dashboard() {
                                               } : current)}
                                             />
                                           </label>
-                                          <small>Ordered {line.orderedQty} · already {line.alreadyReceivedPercent}%</small>
+                                          <small>
+                                            Ordered {line.orderedQty} · already {line.alreadyReceivedPercent}%
+                                            {line.catalogItemId ? " · linked catalogue" : ""}
+                                            {line.stockItemId ? " · existing stock" : ""}
+                                          </small>
                                         </div>
                                       ))}
                                     </div>
@@ -33291,7 +33388,7 @@ export default function Dashboard() {
                         <label className="full-field">
                           Upload supplier price list (CSV / TSV / TXT)
                           <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
-                          <small>Need columns like Description/Name and Cost/Trade price. Excel .xlsx is not supported yet — save as CSV first.</small>
+                          <small>Need columns like Description/Name, Cost/Trade price, and optionally SKU / Part number. Excel .xlsx is not supported yet — save as CSV first.</small>
                         </label>
                       </div>
 
@@ -33321,6 +33418,7 @@ export default function Dashboard() {
                           <div className="setup-rate-table setup-catalog-table">
                             <div className="setup-rate-row table-head">
                               <span>Item</span>
+                              <span>SKU</span>
                               <span>Folder</span>
                               <span>Supplier</span>
                               <span>Cost</span>
@@ -33329,6 +33427,7 @@ export default function Dashboard() {
                             {catalogImportPreview.items.slice(0, 20).map((item) => (
                               <div className="setup-rate-row" key={item.id}>
                                 <span>{item.name}</span>
+                                <span>{item.sku || "—"}</span>
                                 <span>{item.category}</span>
                                 <span>{item.supplierName || "—"}</span>
                                 <span>{currency(item.costRate)}</span>
@@ -33337,8 +33436,8 @@ export default function Dashboard() {
                             ))}
                             {catalogImportPreview.items.length > 20 ? (
                               <div className="setup-rate-row">
-                                <span>+{catalogImportPreview.items.length - 20} more will import…</span>
-                                <span /><span /><span /><span />
+                                <span>+{catalogImportPreview.items.length > 20 ? catalogImportPreview.items.length - 20 : 0} more will import…</span>
+                                <span /><span /><span /><span /><span />
                               </div>
                             ) : null}
                           </div>
@@ -33362,6 +33461,14 @@ export default function Dashboard() {
                             value={newCatalogItemDraft.name}
                             placeholder="e.g. Compact K2 600x1000"
                             onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, name: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          SKU / part no.
+                          <input
+                            value={newCatalogItemDraft.sku}
+                            placeholder="e.g. RAD-K2-600"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, sku: event.target.value }))}
                           />
                         </label>
                         <label>
@@ -33398,10 +33505,12 @@ export default function Dashboard() {
                       <div className="setup-rate-table setup-catalog-table">
                         <div className="setup-rate-row table-head">
                           <span>Item</span>
+                          <span>SKU</span>
                           <span>Folder</span>
                           <span>Supplier</span>
                           <span>Cost</span>
                           <span>Sell</span>
+                          <span>Stock</span>
                         </div>
                         {customQuoteCatalog.map((item) => (
                           <div className="setup-rate-row" key={item.id}>
@@ -33411,6 +33520,18 @@ export default function Dashboard() {
                                 markSetupEdited();
                                 setCustomQuoteCatalog((current) =>
                                   current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, name: event.target.value } : catalogItem),
+                                );
+                              }}
+                            />
+                            <input
+                              value={item.sku || ""}
+                              placeholder="SKU"
+                              onChange={(event) => {
+                                markSetupEdited();
+                                setCustomQuoteCatalog((current) =>
+                                  current.map((catalogItem) =>
+                                    catalogItem.id === item.id ? { ...catalogItem, sku: event.target.value || undefined } : catalogItem,
+                                  ),
                                 );
                               }}
                             />
@@ -33448,12 +33569,23 @@ export default function Dashboard() {
                             </select>
                             <span>{currency(item.costRate)}</span>
                             <span>{currency(item.sellRate)}</span>
+                            {item.type === "Labour" ? (
+                              <span className="muted">—</span>
+                            ) : (
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => void bindCatalogItemToStock(item)}
+                              >
+                                {item.stockItemId ? "Rebind stock" : "Bind stock"}
+                              </button>
+                            )}
                           </div>
                         ))}
                         {customQuoteCatalog.length === 0 ? (
                           <div className="setup-rate-row">
                             <span>No catalogue items yet — upload a CSV or add one above.</span>
-                            <span /><span /><span /><span />
+                            <span /><span /><span /><span /><span /><span />
                           </div>
                         ) : null}
                       </div>
@@ -36754,6 +36886,29 @@ export default function Dashboard() {
                       <label>
                         Item {index + 1}
                         <input value={line.description} onChange={(event) => updatePurchaseLineDraft(line.id, { description: event.target.value })} />
+                      </label>
+                      <label>
+                        SKU
+                        <input
+                          list={`po-catalog-sku-${line.id}`}
+                          value={line.sku || ""}
+                          placeholder="Catalogue / stock SKU"
+                          onChange={(event) => {
+                            const sku = event.target.value;
+                            const catalog = availableQuoteCatalog.find((item) => item.sku && item.sku.toLowerCase() === sku.trim().toLowerCase());
+                            updatePurchaseLineDraft(line.id, {
+                              sku,
+                              catalogItemId: catalog?.id || line.catalogItemId,
+                              description: line.description.trim() || catalog?.name || line.description,
+                              estimatedCost: line.estimatedCost || (catalog ? String(catalog.costRate * (Number(line.quantity) || 1)) : line.estimatedCost),
+                            });
+                          }}
+                        />
+                        <datalist id={`po-catalog-sku-${line.id}`}>
+                          {availableQuoteCatalog.filter((item) => item.sku).slice(0, 80).map((item) => (
+                            <option key={item.id} value={item.sku}>{item.name}</option>
+                          ))}
+                        </datalist>
                       </label>
                       <label>
                         Qty
