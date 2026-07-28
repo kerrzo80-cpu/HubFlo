@@ -121,6 +121,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     leadId,
     {
       status: payload.status,
+      lostReason: payload.lostReason,
       surveyor: payload.surveyor,
       surveyDate: payload.surveyDate,
       surveyTime: payload.surveyTime,

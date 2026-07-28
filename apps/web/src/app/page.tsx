@@ -827,6 +827,7 @@ type Lead = {
   address: string;
   description: string;
   status: LeadStatus;
+  lostReason?: string;
   surveyor: string;
   surveyDate: string;
   surveyTime: string;
@@ -1194,19 +1195,44 @@ function makeInvoiceFromJobTotals(
   };
 }
 
-function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null): InvoiceEmailDraft {
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
+  const totalDue = currency(invoice.chargeTotal * (1 + invoice.vatRate / 100));
   const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
+  const vars = {
+    ref: invoice.ref,
+    description: invoice.title,
+    contact: contactName,
+    company: companyName,
+    total: totalDue,
+    date: invoice.dueDate || invoice.issuedDate || "",
+  };
   return {
     to: client?.email ?? "",
     cc: "",
-    subject: `${invoice.ref} - ${invoice.title}`,
-    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.${vatNote}\n\nKind regards,\nNeXa`,
+    subject: template?.subject
+      ? fillEmailTemplate(template.subject, vars)
+      : `${invoice.ref} - ${invoice.title}`,
+    body: template?.body
+      ? `${fillEmailTemplate(template.body, vars)}${vatNote}`
+      : `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${totalDue}.${vatNote}\n\nKind regards,\n${companyName}`,
     attachPdf: true,
   };
 }
 
 type DocumentVisibility = "Private" | "Engineer" | "Client";
+
+type SetupEmailTemplateRow = {
+  id: string;
+  key: string;
+  name: string;
+  subject: string;
+  body: string;
+};
+
+function fillEmailTemplate(text: string, vars: Record<string, string>) {
+  return text.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? "");
+}
 
 type DocumentFolderTemplate = {
   id: string;
@@ -6648,14 +6674,25 @@ function numericSetting(value: string | number, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteEmailDraft {
+function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): QuoteEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
-
+  const vars = {
+    ref: quote.ref,
+    description: quote.description,
+    contact: contactName,
+    company: companyName,
+    total: currency(quote.value),
+    date: quote.due || "",
+  };
   return {
     to: client?.email ?? "",
     cc: "",
-    subject: `${quote.ref} - ${quote.description}`,
-    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nNeXa`,
+    subject: template?.subject
+      ? fillEmailTemplate(template.subject, vars)
+      : `${quote.ref} - ${quote.description}`,
+    body: template?.body
+      ? `${fillEmailTemplate(template.body, vars)}\n\nView and accept online:\n${quotePortalLink(quote)}`
+      : `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\n${companyName}`,
     layout: "quote",
     attachPdf: true,
   };
@@ -13161,15 +13198,37 @@ export default function Dashboard() {
   async function updateLeadStatusFromDirectory(lead: Lead, status: LeadStatus) {
     closeDirectoryActionMenu();
     if (lead.status === status) return;
+    let lostReason = lead.lostReason;
+    if (status === "Lost") {
+      try {
+        const response = await fetch("/api/setup-config", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as { lostReasons?: Array<{ label: string }> } | null;
+        const reasons = (body?.lostReasons || []).map((row) => row.label).filter(Boolean);
+        const promptText = reasons.length
+          ? `Lost reason for ${lead.ref}:\n${reasons.map((reason, index) => `${index + 1}. ${reason}`).join("\n")}\n\nType the reason (or number):`
+          : `Lost reason for ${lead.ref}:`;
+        const typed = window.prompt(promptText, reasons[0] || "Price");
+        if (typed === null) return;
+        const asNumber = Number(typed.trim());
+        if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= reasons.length) {
+          lostReason = reasons[asNumber - 1];
+        } else {
+          lostReason = typed.trim() || reasons[0] || "Unspecified";
+        }
+      } catch {
+        lostReason = window.prompt(`Lost reason for ${lead.ref}:`, "Price") || "Unspecified";
+      }
+    }
     const previous = lead;
     const nextLead = {
       ...lead,
       status,
-      next: status === "Lost" ? "Archived as lost." : status === "Quoted" ? "Marked as quoted." : lead.next,
+      lostReason: status === "Lost" ? lostReason : lead.lostReason,
+      next: status === "Lost" ? `Archived as lost${lostReason ? ` · ${lostReason}` : ""}.` : status === "Quoted" ? "Marked as quoted." : lead.next,
     };
     setLeads((current) => current.map((item) => (item.id === lead.id ? nextLead : item)));
 
-    const result = await syncLead(lead.id, { status, next: nextLead.next });
+    const result = await syncLead(lead.id, { status, next: nextLead.next, lostReason: nextLead.lostReason });
     if (!result.ok) {
       setLeads((current) => current.map((item) => (item.id === lead.id ? previous : item)));
       showNotice(result.error || `Unable to update ${lead.ref}.`);
@@ -13182,11 +13241,11 @@ export default function Dashboard() {
       action: status.toLowerCase(),
       recordType: "lead",
       recordId: lead.id,
-      summary: `${lead.ref} status changed to ${status}.`,
+      summary: `${lead.ref} status changed to ${status}${status === "Lost" && lostReason ? ` (${lostReason})` : ""}.`,
       source: "directory actions",
       importance: status === "Lost" ? "high" : "normal",
     });
-    showNotice(`${lead.ref} moved to ${status}.`);
+    showNotice(`${lead.ref} moved to ${status}${status === "Lost" && lostReason ? ` · ${lostReason}` : ""}.`);
   }
 
   async function deleteLeadFromDirectory(lead: Lead) {
@@ -15499,6 +15558,42 @@ export default function Dashboard() {
       ...current,
       [selectedQuote.id]: { ...existing, ...patch },
     }));
+  }
+
+  async function applySetupEmailTemplate(kind: "quote" | "invoice" | "follow-up") {
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      if (!response.ok) throw new Error("Unable to load Setup email templates.");
+      const templates = body?.emailTemplates || [];
+      const template = templates.find((row) => row.key === kind) || templates.find((row) => row.key === "quote");
+      if (!template) {
+        showNotice(`No Setup email template found for ${kind}. Add one under Setup → Email templates.`);
+        return;
+      }
+      if (kind === "invoice") {
+        if (!selectedInvoice) return;
+        const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+        const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
+        setInvoiceEmailDrafts((current) => ({
+          ...current,
+          [selectedInvoice.id]: { ...existing, subject: next.subject, body: next.body },
+        }));
+        showNotice(`Applied Setup template “${template.name}”.`);
+        return;
+      }
+      if (!selectedQuote) return;
+      const existing = quoteEmailDrafts[selectedQuote.id] ?? makeQuoteEmailDraft(selectedQuote, selectedQuoteClient);
+      const next = makeQuoteEmailDraft(selectedQuote, selectedQuoteClient, template, companyName);
+      setQuoteEmailDrafts((current) => ({
+        ...current,
+        [selectedQuote.id]: { ...existing, subject: next.subject, body: next.body },
+      }));
+      showNotice(`Applied Setup template “${template.name}”.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to apply email template.");
+    }
   }
 
   async function persistQuotePatch(quoteId: string, patch: Partial<Quote>) {
@@ -20727,7 +20822,7 @@ export default function Dashboard() {
 
   async function syncLead(
     leadId: string,
-    patch: Partial<Pick<Lead, "status" | "surveyor" | "surveyDate" | "surveyTime" | "next">>,
+    patch: Partial<Pick<Lead, "status" | "lostReason" | "surveyor" | "surveyDate" | "surveyTime" | "next">>,
   ): Promise<LeadSyncResult> {
     try {
       const response = await fetch(`/api/leads/${leadId}`, {
@@ -25990,6 +26085,14 @@ export default function Dashboard() {
                                     : "Connect and test the email provider in Setup before sending customer documents.")}
                               </p>
                             </div>
+                            <div className="setup-template-actions">
+                              <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("quote")}>
+                                Apply quote template
+                              </button>
+                              <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("follow-up")}>
+                                Apply follow-up template
+                              </button>
+                            </div>
                             <label>
                               To
                               <input
@@ -31062,9 +31165,14 @@ export default function Dashboard() {
                             <span className="permission-heading">Outlook invoice email</span>
                             <h2>{selectedInvoice.claimType === "valuation" ? "Submit application for payment" : "Send invoice"}</h2>
                           </div>
-                          <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
-                            {selectedInvoice.status}
-                          </span>
+                          <div className="setup-template-actions">
+                            <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("invoice")}>
+                              Apply invoice template
+                            </button>
+                            <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
+                              {selectedInvoice.status}
+                            </span>
+                          </div>
                         </header>
                         <div className="invoice-email-grid">
                           <label>
@@ -33984,7 +34092,7 @@ export default function Dashboard() {
                         <strong>{lead.surveyor}</strong>
                         <small>{lead.surveyDate && lead.surveyTime ? `${lead.surveyDate} at ${lead.surveyTime}` : "Not booked"}</small>
                       </div>
-                      <span className={`status-pill ${lead.status === "Lost" ? "red" : lead.status === "Survey booked" || lead.status === "Quoted" ? "green" : "amber"}`}>
+                      <span className={`status-pill ${lead.status === "Lost" ? "red" : lead.status === "Survey booked" || lead.status === "Quoted" ? "green" : "amber"}`} title={lead.lostReason || undefined}>
                         {lead.status}
                       </span>
                       <div className="next-action">

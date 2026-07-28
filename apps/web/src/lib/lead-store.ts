@@ -30,6 +30,7 @@ export type LeadRecord = {
   address: string;
   description: string;
   status: LeadStatus;
+  lostReason?: string;
   surveyor: string;
   surveyDate: string;
   surveyTime: string;
@@ -75,7 +76,7 @@ export type LeadCreationResult = {
 };
 
 export type LeadPatchPayload = Partial<
-  Pick<LeadRecord, "status" | "surveyor" | "surveyDate" | "surveyTime" | "siteId" | "next">
+  Pick<LeadRecord, "status" | "lostReason" | "surveyor" | "surveyDate" | "surveyTime" | "siteId" | "next">
 >;
 
 export const seedLeads: LeadRecord[] = [
@@ -414,9 +415,11 @@ export function updateLead(id: string, patch: LeadPatchPayload, actor = "HubFlo 
       summary:
         patch.status === "Quoted"
           ? `${next.ref} marked as quoted.`
-          : bookingDone
-            ? `${next.ref} survey booked with ${next.surveyor}.`
-            : `${next.ref} updated.`,
+          : patch.status === "Lost"
+            ? `${next.ref} archived as lost${next.lostReason ? ` · ${next.lostReason}` : ""}.`
+            : bookingDone
+              ? `${next.ref} survey booked with ${next.surveyor}.`
+              : `${next.ref} updated.`,
       source: "lead intake",
       importance: patch.status === "Quoted" ? "normal" : "high",
     });

@@ -226,6 +226,7 @@ export function SiteAssetsPanel({
   onNotice: (message: string) => void;
 }) {
   const [assets, setAssets] = useState<SiteAsset[]>([]);
+  const [assetTypes, setAssetTypes] = useState<string[]>(["Gas appliance", "Oil Boiler", "Pipework", "Cylinder", "Controls", "Other"]);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState({
     type: "Gas appliance",
@@ -244,10 +245,21 @@ export function SiteAssetsPanel({
     }
     setError("");
     try {
-      const response = await fetch(`/api/site-assets?siteId=${encodeURIComponent(siteId)}`, { headers: requestHeaders });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Unable to load assets");
+      const [assetsResponse, setupResponse] = await Promise.all([
+        fetch(`/api/site-assets?siteId=${encodeURIComponent(siteId)}`, { headers: requestHeaders }),
+        fetch("/api/setup-config", { headers: requestHeaders }),
+      ]);
+      const body = await assetsResponse.json();
+      if (!assetsResponse.ok) throw new Error(body.error || "Unable to load assets");
       setAssets(body.assets || []);
+      if (setupResponse.ok) {
+        const setup = await setupResponse.json();
+        const types = (setup.assetTypes || []).map((row: { name: string }) => row.name).filter(Boolean);
+        if (types.length) {
+          setAssetTypes(types);
+          setDraft((current) => ({ ...current, type: types.includes(current.type) ? current.type : types[0] }));
+        }
+      }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load assets");
     }
@@ -310,7 +322,7 @@ export function SiteAssetsPanel({
         <label>
           Type
           <select value={draft.type} onChange={(e) => setDraft((c) => ({ ...c, type: e.target.value }))}>
-            {["Gas appliance", "Oil Boiler", "Pipework", "Cylinder", "Controls", "Other"].map((type) => (
+            {assetTypes.map((type) => (
               <option key={type} value={type}>{type}</option>
             ))}
           </select>
