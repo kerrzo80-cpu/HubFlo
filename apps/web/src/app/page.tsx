@@ -26526,15 +26526,22 @@ export default function Dashboard() {
                     </header>
                     <div className="report-table jobs">
                       <div className="report-table-head">
-                        <span>Job</span><span>Sell / WIP value</span><span>Cost committed</span><span>Billed</span><span>Unbilled</span><span>Margin</span>
+                        <span>Job</span><span>Sell / WIP value</span><span>Cost committed</span><span>Billed</span><span>Unbilled</span><span>Labour hrs</span><span>Margin</span>
                       </div>
                       {reportJobRows
                         .filter((row) => !["Invoiced", "Closed"].includes(row.job.status))
                         .map((row) => {
                           const billed = reportInvoiceRows
-                            .filter((invoiceRow) => invoiceRow.invoice.sourceId === row.job.id && invoiceRow.invoice.status !== "Cancelled")
+                            .filter((invoiceRow) => invoiceRow.invoice.sourceId === row.job.id && invoiceRow.invoice.status !== "Cancelled" && invoiceRow.invoice.claimType !== "credit-note")
                             .reduce((total, invoiceRow) => total + invoiceRow.revenue, 0);
                           const unbilled = Math.max(0, row.job.value - billed);
+                          const actualHours = row.job.actualDurationHours;
+                          const plannedHours = row.job.scheduledDurationHours;
+                          const labourLabel = typeof actualHours === "number"
+                            ? `${actualHours.toFixed(1)}h${typeof row.job.labourCostVariance === "number" ? ` (${row.job.labourCostVariance > 0 ? "+" : ""}${row.job.labourCostVariance.toFixed(1)})` : plannedHours ? ` / ${plannedHours}h` : ""}`
+                            : plannedHours
+                              ? `Plan ${plannedHours}h`
+                              : "—";
                           return (
                             <button className="report-table-row clickable" key={row.job.id} type="button" onClick={() => openJobDrawer(row.job.id)}>
                               <strong>{row.job.ref} · {row.job.customer}<small>{row.job.status} · {row.job.description}</small></strong>
@@ -26542,6 +26549,7 @@ export default function Dashboard() {
                               <span>{currency(row.committedCost || row.actualCost || row.projectedCost)}</span>
                               <span>{currency(billed)}</span>
                               <span>{currency(unbilled)}</span>
+                              <span>{labourLabel}</span>
                               <span>{row.margin}%</span>
                             </button>
                           );

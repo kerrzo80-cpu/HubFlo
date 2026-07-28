@@ -78,7 +78,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Invoicing | Partial | Recurring; credit notes + retention release now ship |
 | Payments | Partial | Ledger + remittance advice email; card/link pay still missing |
 | Accounting sync | Partial | Xero invoices/payments/bills + ACCRECCREDIT credit notes; deeper sync still open |
-| Cash / WIP reporting | Thin | True WIP, margin by job type, scheduled vs actual labour |
+| Cash / WIP reporting | Partial | WIP tab now shows labour actual vs plan hours; deeper margin packs still open |
 | Customer portal | Thin | Jobs status, invoices, pay, assets |
 | SMS / messaging | Partial | Job confirmation WhatsApp + email; ETA SMS still thin |
 | Email / calendar | Thin | M365/Gmail OAuth + calendar sync |
