@@ -30183,9 +30183,41 @@ export default function Dashboard() {
                 ) : null}
 
                 {activeCostCentreTab === "schedule" ? (
-                  <section className="simpro-empty-workspace">
-                    <h2>Schedule</h2>
-                    <p>No visits are scheduled for this quote cost centre yet.</p>
+                  <section className="quote-record-panel">
+                    <header className="ops-module-header">
+                      <div>
+                        <span className="permission-heading">Schedule</span>
+                        <h2>{selectedQuoteCostCentre?.name || "Cost centre"} visits</h2>
+                        <p>Quote-level diary bookings linked to this estimate.</p>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setHomeView("schedule");
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Open schedule board
+                      </button>
+                    </header>
+                    {selectedQuoteScheduleAssignments.length ? (
+                      <div className="ops-table">
+                        <div className="ops-table-head"><span>Engineer</span><span>Start</span><span>End</span><span>Notes</span></div>
+                        {selectedQuoteScheduleAssignments.map((assignment) => (
+                          <div className="ops-table-row" key={assignment.id}>
+                            <strong>{assignment.employeeName}</strong>
+                            <span>{assignment.startDate} {assignment.startTime}</span>
+                            <span>{assignment.endDate} {assignment.endTime}</span>
+                            <span>{assignment.notes || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="simpro-empty-workspace">
+                        <p>No visits are scheduled for this quote yet. Use the quote planner or schedule board to book survey/install time.</p>
+                      </div>
+                    )}
                   </section>
                 ) : null}
                 {activeCostCentreTab === "assets" ? (
@@ -32966,12 +32998,73 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "engineer-flow" ? renderEngineerFlowWorkspace(selectedJob, selectedCostCentre) : null}
 
-                {activeCostCentreTab === "schedule" ? (
-                  <section className="simpro-empty-workspace">
-                    <h2>Schedule</h2>
-                    <p>No visits are scheduled for this cost centre yet.</p>
-                  </section>
-                ) : null}
+                {activeCostCentreTab === "schedule" ? (() => {
+                  const centreAssignments = selectedJobScheduleAssignments.filter(
+                    (assignment) => !selectedCostCentre || assignment.costCentreId === selectedCostCentre.id,
+                  );
+                  return (
+                    <section className="quote-record-panel">
+                      <header className="ops-module-header">
+                        <div>
+                          <span className="permission-heading">Schedule</span>
+                          <h2>{selectedCostCentre?.name || "Cost centre"} visits</h2>
+                          <p>{centreAssignments.length} planned visit{centreAssignments.length === 1 ? "" : "s"} for this work package.</p>
+                        </div>
+                        <div className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isSendingJobConfirmation ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startDate ||
+                                selectedJob?.scheduledDate
+                              ) ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startTime ||
+                                selectedJob?.scheduledTime
+                              )
+                            }
+                            onClick={() => void sendSelectedJobConfirmation()}
+                          >
+                            {isSendingJobConfirmation
+                              ? "Sending…"
+                              : selectedJob?.confirmationSentAt
+                                ? "Resend confirmation"
+                                : "Send confirmation"}
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              setActiveJobTab("planner");
+                              scrollWorkspaceToTop();
+                            }}
+                          >
+                            Open planner
+                          </button>
+                        </div>
+                      </header>
+                      {centreAssignments.length ? (
+                        <div className="ops-table">
+                          <div className="ops-table-head"><span>Package</span><span>Engineer</span><span>Start</span><span>End</span></div>
+                          {centreAssignments.map((assignment) => (
+                            <div className="ops-table-row" key={assignment.id}>
+                              <strong>{assignment.costCentreName}</strong>
+                              <span>{assignment.employeeName}</span>
+                              <span>{assignment.startDate} {assignment.startTime}</span>
+                              <span>{assignment.endDate} {assignment.endTime}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="simpro-empty-workspace">
+                          <p>No visits are scheduled for this cost centre yet. Open the job planner to allocate an engineer and diary slot.</p>
+                        </div>
+                      )}
+                    </section>
+                  );
+                })() : null}
                 {activeCostCentreTab === "assets" ? (
                   <SiteAssetsPanel
                     requestHeaders={requestHeaders}
