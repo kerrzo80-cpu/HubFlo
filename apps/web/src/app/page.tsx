@@ -7346,6 +7346,7 @@ export default function Dashboard() {
     type: string;
     name: string;
     nextServiceDate?: string;
+    certificateExpiresAt?: string;
     make?: string;
     model?: string;
   }>>([]);
@@ -9931,6 +9932,7 @@ export default function Dashboard() {
             type: string;
             name: string;
             nextServiceDate?: string;
+            certificateExpiresAt?: string;
             make?: string;
             model?: string;
           }>;

@@ -70,7 +70,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Tasks & alerts | Thin | Assignable tasks, escalation |
 | Digital forms / compliance | Partial | Form builder + engineer flow Text/Photo/Number/Signature capture; canvas pad still thin |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
-| Asset register | Partial | Site assets with edit/archive + service due filters; QR/certs still missing |
+| Asset register | Partial | Site assets with cert number/dates + service/cert due filters; QR still missing |
 | PPM / Maintenance Planner | Partial | Recurring due/overdue + 14-day upcoming queue, generate-all, pause/activate |
 | Inventory / stock | Partial | Locations/vans/transfers/issue/return/stocktake + variance; catalogue preferred-supplier sync |
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
@@ -222,6 +222,7 @@ Until Brian cuts further, execute in this order:
 - **Job complete notice** — email + WhatsApp (`job-complete` template); stores `completionSentAt` / `completionSentTo`
 - **Overdue scheduled jobs** — dashboard queue for open jobs whose booked date is before today
 - **Stock return from job** — unused materials credited back to van/warehouse; WIP material cost reduced
+- **Site asset certificates** — number + issued/expiry dates, cert-expired filter, dashboard due queue includes cert dates
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links

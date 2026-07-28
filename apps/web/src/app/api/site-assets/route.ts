@@ -50,6 +50,9 @@ export async function POST(request: NextRequest) {
     lastServiceDate?: string;
     nextServiceDate?: string;
     warrantyUntil?: string;
+    certificateNumber?: string;
+    certificateIssuedAt?: string;
+    certificateExpiresAt?: string;
     notes?: string;
   }>(request);
 
@@ -74,6 +77,9 @@ export async function POST(request: NextRequest) {
       lastServiceDate: body.lastServiceDate,
       nextServiceDate: body.nextServiceDate,
       warrantyUntil: body.warrantyUntil,
+      certificateNumber: body.certificateNumber,
+      certificateIssuedAt: body.certificateIssuedAt,
+      certificateExpiresAt: body.certificateExpiresAt,
       notes: body.notes,
     });
     return NextResponse.json({ assets });

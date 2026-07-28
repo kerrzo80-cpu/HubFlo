@@ -16,6 +16,9 @@ export type SiteAsset = {
   lastServiceDate?: string;
   nextServiceDate?: string;
   warrantyUntil?: string;
+  certificateNumber?: string;
+  certificateIssuedAt?: string;
+  certificateExpiresAt?: string;
   notes?: string;
   archived?: boolean;
   createdAt: string;
@@ -98,6 +101,14 @@ export function dueSiteAssets(asOf = new Date().toISOString().slice(0, 10), with
   }
   const until = withinDays > 0 ? horizon.toISOString().slice(0, 10) : asOf;
   return listSiteAssets()
-    .filter((asset) => asset.nextServiceDate && asset.nextServiceDate <= until)
-    .sort((a, b) => String(a.nextServiceDate).localeCompare(String(b.nextServiceDate)));
+    .filter((asset) => {
+      const serviceDue = Boolean(asset.nextServiceDate && asset.nextServiceDate <= until);
+      const certDue = Boolean(asset.certificateExpiresAt && asset.certificateExpiresAt <= until);
+      return serviceDue || certDue;
+    })
+    .sort((a, b) => {
+      const left = [a.nextServiceDate, a.certificateExpiresAt].filter(Boolean).sort()[0] || "";
+      const right = [b.nextServiceDate, b.certificateExpiresAt].filter(Boolean).sort()[0] || "";
+      return left.localeCompare(right);
+    });
 }

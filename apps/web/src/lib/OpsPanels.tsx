@@ -47,6 +47,9 @@ type SiteAsset = {
   lastServiceDate?: string;
   nextServiceDate?: string;
   warrantyUntil?: string;
+  certificateNumber?: string;
+  certificateIssuedAt?: string;
+  certificateExpiresAt?: string;
   notes?: string;
 };
 
@@ -729,21 +732,30 @@ export function SiteAssetsPanel({
     lastServiceDate: "",
     nextServiceDate: "",
     warrantyUntil: "",
+    certificateNumber: "",
+    certificateIssuedAt: "",
+    certificateExpiresAt: "",
     notes: "",
   };
   const [assets, setAssets] = useState<SiteAsset[]>([]);
   const [assetTypes, setAssetTypes] = useState<string[]>(["Gas appliance", "Oil Boiler", "Pipework", "Cylinder", "Controls", "Other"]);
+  const [certRequiredByType, setCertRequiredByType] = useState<Record<string, boolean>>({
+    "Gas appliance": true,
+    "Oil Boiler": true,
+  });
   const [error, setError] = useState("");
-  const [filter, setFilter] = useState<"all" | "due" | "overdue">("all");
+  const [filter, setFilter] = useState<"all" | "due" | "overdue" | "cert">("all");
   const [draft, setDraft] = useState(blankDraft);
   const today = new Date().toISOString().slice(0, 10);
 
   const visibleAssets = useMemo(() => {
     return assets.filter((asset) => {
       if (filter === "all") return true;
+      if (filter === "cert") {
+        return Boolean(asset.certificateExpiresAt && asset.certificateExpiresAt < today);
+      }
       if (!asset.nextServiceDate) return false;
       if (filter === "overdue") return asset.nextServiceDate < today;
-      // due within 30 days
       const horizon = new Date(`${today}T12:00:00Z`);
       horizon.setUTCDate(horizon.getUTCDate() + 30);
       return asset.nextServiceDate >= today && asset.nextServiceDate <= horizon.toISOString().slice(0, 10);
@@ -757,6 +769,9 @@ export function SiteAssetsPanel({
     horizon.setUTCDate(horizon.getUTCDate() + 30);
     return asset.nextServiceDate <= horizon.toISOString().slice(0, 10);
   }).length;
+  const certOverdueCount = assets.filter(
+    (asset) => asset.certificateExpiresAt && asset.certificateExpiresAt < today,
+  ).length;
 
   async function load() {
     if (!siteId) {
@@ -774,11 +789,17 @@ export function SiteAssetsPanel({
       setAssets(body.assets || []);
       if (setupResponse.ok) {
         const setup = await setupResponse.json();
-        const types = (setup.assetTypes || []).map((row: { name: string }) => row.name).filter(Boolean);
+        const typeRows = (setup.assetTypes || []) as Array<{ name: string; certificateRequired?: boolean }>;
+        const types = typeRows.map((row) => row.name).filter(Boolean);
         if (types.length) {
           setAssetTypes(types);
           setDraft((current) => ({ ...current, type: types.includes(current.type) ? current.type : types[0] }));
         }
+        const certMap: Record<string, boolean> = {};
+        for (const row of typeRows) {
+          if (row.name) certMap[row.name] = Boolean(row.certificateRequired);
+        }
+        if (Object.keys(certMap).length) setCertRequiredByType(certMap);
       }
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load assets");
@@ -799,6 +820,9 @@ export function SiteAssetsPanel({
       onNotice("Enter an asset name.");
       return;
     }
+    if (certRequiredByType[draft.type] && !draft.certificateNumber.trim()) {
+      onNotice(`${draft.type} usually needs a certificate number — add it or clear the type requirement in Setup.`);
+    }
     try {
       const response = await fetch("/api/site-assets", {
         method: "POST",
@@ -818,6 +842,9 @@ export function SiteAssetsPanel({
           lastServiceDate: draft.lastServiceDate || undefined,
           nextServiceDate: draft.nextServiceDate || undefined,
           warrantyUntil: draft.warrantyUntil || undefined,
+          certificateNumber: draft.certificateNumber || undefined,
+          certificateIssuedAt: draft.certificateIssuedAt || undefined,
+          certificateExpiresAt: draft.certificateExpiresAt || undefined,
           notes: draft.notes || undefined,
         }),
       });
@@ -860,6 +887,9 @@ export function SiteAssetsPanel({
       lastServiceDate: asset.lastServiceDate || "",
       nextServiceDate: asset.nextServiceDate || "",
       warrantyUntil: asset.warrantyUntil || "",
+      certificateNumber: asset.certificateNumber || "",
+      certificateIssuedAt: asset.certificateIssuedAt || "",
+      certificateExpiresAt: asset.certificateExpiresAt || "",
       notes: asset.notes || "",
     });
   }
@@ -879,7 +909,8 @@ export function SiteAssetsPanel({
         <div>
           <h2>Customer Assets</h2>
           <p>
-            {siteLabel || "Site register"} — {overdueCount} overdue · {dueSoonCount} due in 30 days.
+            {siteLabel || "Site register"} — {overdueCount} overdue · {dueSoonCount} due in 30 days
+            {certOverdueCount ? ` · ${certOverdueCount} cert expired` : ""}.
           </p>
         </div>
         <div className="setup-template-actions">
@@ -891,6 +922,9 @@ export function SiteAssetsPanel({
           </button>
           <button className={filter === "due" ? "secondary-button active" : "secondary-button"} type="button" onClick={() => setFilter("due")}>
             Due soon ({dueSoonCount})
+          </button>
+          <button className={filter === "cert" ? "secondary-button active" : "secondary-button"} type="button" onClick={() => setFilter("cert")}>
+            Cert expired ({certOverdueCount})
           </button>
         </div>
       </header>
@@ -913,6 +947,16 @@ export function SiteAssetsPanel({
         <label>Last service<input type="date" value={draft.lastServiceDate} onChange={(e) => setDraft((c) => ({ ...c, lastServiceDate: e.target.value }))} /></label>
         <label>Next service<input type="date" value={draft.nextServiceDate} onChange={(e) => setDraft((c) => ({ ...c, nextServiceDate: e.target.value }))} /></label>
         <label>Warranty until<input type="date" value={draft.warrantyUntil} onChange={(e) => setDraft((c) => ({ ...c, warrantyUntil: e.target.value }))} /></label>
+        <label>
+          Cert number
+          <input
+            value={draft.certificateNumber}
+            onChange={(e) => setDraft((c) => ({ ...c, certificateNumber: e.target.value }))}
+            placeholder={certRequiredByType[draft.type] ? "Required for this type" : "Optional"}
+          />
+        </label>
+        <label>Cert issued<input type="date" value={draft.certificateIssuedAt} onChange={(e) => setDraft((c) => ({ ...c, certificateIssuedAt: e.target.value }))} /></label>
+        <label>Cert expires<input type="date" value={draft.certificateExpiresAt} onChange={(e) => setDraft((c) => ({ ...c, certificateExpiresAt: e.target.value }))} /></label>
         <label className="full">Notes<input value={draft.notes} onChange={(e) => setDraft((c) => ({ ...c, notes: e.target.value }))} /></label>
       </div>
       <div className="setup-template-actions">
@@ -926,9 +970,10 @@ export function SiteAssetsPanel({
         ) : null}
       </div>
       <div className="ops-table">
-        <div className="ops-table-head"><span>Type</span><span>Asset</span><span>Service</span><span>Warranty</span><span /></div>
+        <div className="ops-table-head"><span>Type</span><span>Asset</span><span>Service</span><span>Certificate</span><span /></div>
         {visibleAssets.map((asset) => {
           const overdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < today);
+          const certOverdue = Boolean(asset.certificateExpiresAt && asset.certificateExpiresAt < today);
           return (
             <div className="ops-table-row" key={asset.id}>
               <span>{asset.type}</span>
@@ -942,7 +987,15 @@ export function SiteAssetsPanel({
                 {asset.nextServiceDate ? `${overdue ? "Overdue " : ""}${asset.nextServiceDate}` : "—"}
                 {asset.lastServiceDate ? <small style={{ display: "block" }}>Last {asset.lastServiceDate}</small> : null}
               </span>
-              <span>{asset.warrantyUntil || "—"}</span>
+              <span className={certOverdue ? "ops-module-error" : undefined}>
+                {asset.certificateNumber || "—"}
+                {asset.certificateExpiresAt ? (
+                  <small style={{ display: "block" }}>
+                    {certOverdue ? "Expired " : "Expires "}
+                    {asset.certificateExpiresAt}
+                  </small>
+                ) : null}
+              </span>
               <span className="setup-template-actions">
                 <button className="secondary-button" type="button" onClick={() => editAsset(asset)}>Edit</button>
                 <button className="secondary-button" type="button" onClick={() => void archiveAsset(asset)}>Archive</button>
