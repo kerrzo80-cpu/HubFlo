@@ -7144,6 +7144,20 @@ export default function Dashboard() {
   const [invoicePaymentAmountDraft, setInvoicePaymentAmountDraft] = useState("");
   const [invoicePaymentMethodDraft, setInvoicePaymentMethodDraft] = useState("Bank transfer");
   const [invoicePaymentReferenceDraft, setInvoicePaymentReferenceDraft] = useState("");
+  const [poReceiptDraft, setPoReceiptDraft] = useState<{
+    requestId: string;
+    locationId: string;
+    locations: Array<{ id: string; name: string; kind: string }>;
+    lines: Array<{
+      id: string;
+      description: string;
+      orderedQty: number;
+      receiveQty: string;
+      sku: string;
+      unitCost: string;
+      alreadyReceivedPercent: number;
+    }>;
+  } | null>(null);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
@@ -21885,45 +21899,110 @@ export default function Dashboard() {
     );
   }
 
-  async function receivePurchaseOrderInvoice(request: PurchaseRequest) {
-    const receivedLines = request.lines?.map((line) => ({
-      ...line,
-      actualCost: line.actualCost ?? line.estimatedCost,
-      receivedPercent: 100,
-    }));
-    const actualCost = receivedLines?.length
-      ? receivedLines.reduce((total, line) => total + (line.actualCost ?? line.estimatedCost), 0)
-      : request.actualCost ?? request.estimatedCost;
-    await patchPurchaseRequest(
-      request.id,
-      {
-        status: "Received",
-        lines: receivedLines,
-        actualCost,
-        invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
-        invoiceReceivedAt: workflowTimestamp(),
-        receivedAt: workflowTimestamp(),
-      },
-      `${request.poNumber || "PO"} received. Cost is now actual against ${request.costCentreName ?? "the cost centre"}.`,
-    );
-
-    const stockLines = (receivedLines?.length
-      ? receivedLines
+  async function openPurchaseOrderReceipt(request: PurchaseRequest) {
+    const baseLines = request.lines?.length
+      ? request.lines
       : [{
           id: `${request.id}-line`,
           description: request.item || request.poNumber || "PO item",
           quantity: 1,
           estimatedCost: request.estimatedCost,
-          actualCost,
-          receivedPercent: 100,
-        }]
-    ).map((line, index) => ({
-      sku: `${request.poNumber || request.id}-${index + 1}`,
-      name: line.description || request.item || "PO receipt item",
-      quantity: Math.max(1, Number(line.quantity) || 1),
-      unitCost: (line.actualCost ?? line.estimatedCost) / Math.max(1, Number(line.quantity) || 1),
-      unit: "each",
-    }));
+          actualCost: request.actualCost,
+          receivedPercent: request.status === "Received" ? 100 : 0,
+        }];
+    let locations: Array<{ id: string; name: string; kind: string }> = [];
+    try {
+      const response = await fetch("/api/stock", { headers: requestHeaders });
+      const body = await response.json();
+      if (response.ok) locations = body.locations || [];
+    } catch {
+      locations = [];
+    }
+    const warehouse = locations.find((row) => row.kind === "Warehouse") || locations[0];
+    setPoReceiptDraft({
+      requestId: request.id,
+      locationId: warehouse?.id || "",
+      locations,
+      lines: baseLines.map((line, index) => {
+        const orderedQty = Math.max(1, Number(line.quantity) || 1);
+        const already = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
+        const remainingQty = Math.max(0, orderedQty * (1 - already / 100));
+        return {
+          id: line.id,
+          description: line.description,
+          orderedQty,
+          receiveQty: remainingQty > 0 ? String(Number(remainingQty.toFixed(2))) : "0",
+          sku: `${request.poNumber || request.id}-${index + 1}`,
+          unitCost: String(((line.actualCost ?? line.estimatedCost) / orderedQty) || 0),
+          alreadyReceivedPercent: already,
+        };
+      }),
+    });
+  }
+
+  async function receivePurchaseOrderInvoice(request: PurchaseRequest) {
+    const draft = poReceiptDraft?.requestId === request.id ? poReceiptDraft : null;
+    if (!draft) {
+      await openPurchaseOrderReceipt(request);
+      return;
+    }
+
+    const receiptLines = draft.lines
+      .map((line) => ({
+        ...line,
+        qty: Math.max(0, Number(line.receiveQty) || 0),
+        unitCost: Math.max(0, Number(line.unitCost) || 0),
+        sku: line.sku.trim() || `${request.poNumber || request.id}-${line.id}`,
+      }))
+      .filter((line) => line.qty > 0);
+
+    if (!receiptLines.length) {
+      showNotice("Enter a receive quantity on at least one line.");
+      return;
+    }
+    if (!draft.locationId) {
+      showNotice("Choose a stock location (warehouse or van) before receiving.");
+      return;
+    }
+
+    const updatedLines = (request.lines?.length ? request.lines : [{
+      id: `${request.id}-line`,
+      description: request.item || request.poNumber || "PO item",
+      quantity: 1,
+      estimatedCost: request.estimatedCost,
+      actualCost: request.actualCost,
+      receivedPercent: 0,
+    }]).map((line) => {
+      const receipt = receiptLines.find((row) => row.id === line.id);
+      if (!receipt) return line;
+      const orderedQty = Math.max(1, Number(line.quantity) || 1);
+      const previousQty = orderedQty * (Math.min(100, Math.max(0, line.receivedPercent || 0)) / 100);
+      const nextQty = Math.min(orderedQty, previousQty + receipt.qty);
+      const receivedPercent = Math.min(100, Math.round((nextQty / orderedQty) * 100));
+      const lineActual = receipt.unitCost * nextQty;
+      return {
+        ...line,
+        actualCost: lineActual || line.actualCost || line.estimatedCost,
+        receivedPercent,
+      };
+    });
+
+    const allReceived = updatedLines.every((line) => (line.receivedPercent || 0) >= 100);
+    const anyReceived = updatedLines.some((line) => (line.receivedPercent || 0) > 0);
+    const actualCost = updatedLines.reduce((total, line) => total + (line.actualCost ?? line.estimatedCost), 0);
+
+    await patchPurchaseRequest(
+      request.id,
+      {
+        status: allReceived ? "Received" : anyReceived ? "Part received" : request.status,
+        lines: updatedLines,
+        actualCost,
+        invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
+        invoiceReceivedAt: request.invoiceReceivedAt || workflowTimestamp(),
+        receivedAt: allReceived ? workflowTimestamp() : request.receivedAt,
+      },
+      `${request.poNumber || "PO"} ${allReceived ? "fully received" : "part received"} into stock.`,
+    );
 
     try {
       const response = await fetch("/api/stock", {
@@ -21932,7 +22011,14 @@ export default function Dashboard() {
         body: JSON.stringify({
           action: "receive-po",
           receipt: {
-            lines: stockLines,
+            locationId: draft.locationId,
+            lines: receiptLines.map((line) => ({
+              sku: line.sku,
+              name: line.description || request.item || "PO receipt item",
+              quantity: line.qty,
+              unitCost: line.unitCost,
+              unit: "each",
+            })),
             poNumber: request.poNumber,
             jobRef: request.jobRef,
           },
@@ -21940,12 +22026,14 @@ export default function Dashboard() {
       });
       const body = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) {
-        showNotice(body?.error || "PO received, but stock receipt could not be recorded.");
+        showNotice(body?.error || "PO updated, but stock receipt could not be recorded.");
         return;
       }
-      showNotice(`${request.poNumber || "PO"} received into Warehouse stock and costed to ${request.costCentreName ?? request.jobRef}.`);
+      const locationName = draft.locations.find((row) => row.id === draft.locationId)?.name || "stock";
+      showNotice(`${request.poNumber || "PO"} received into ${locationName} (${receiptLines.length} line${receiptLines.length === 1 ? "" : "s"}).`);
+      setPoReceiptDraft(null);
     } catch {
-      showNotice("PO received, but stock receipt could not be recorded.");
+      showNotice("PO updated, but stock receipt could not be recorded.");
     }
   }
 
@@ -30888,11 +30976,73 @@ export default function Dashboard() {
                                       </button>
                                     ) : null}
                                     {request.status === "Pending cost" || request.status === "Part received" ? (
-                                      <button className="primary-button" type="button" onClick={() => receivePurchaseOrderInvoice(request)}>
-                                        Mark invoice received
+                                      <button className="primary-button" type="button" onClick={() => void receivePurchaseOrderInvoice(request)}>
+                                        {poReceiptDraft?.requestId === request.id ? "Confirm receipt" : "Receive goods"}
+                                      </button>
+                                    ) : null}
+                                    {poReceiptDraft?.requestId === request.id ? (
+                                      <button className="secondary-button" type="button" onClick={() => setPoReceiptDraft(null)}>
+                                        Cancel
                                       </button>
                                     ) : null}
                                   </div>
+                                  {poReceiptDraft?.requestId === request.id ? (
+                                    <div className="ops-form-grid" style={{ gridColumn: "1 / -1", marginTop: "0.75rem" }}>
+                                      <label>
+                                        Stock location
+                                        <select
+                                          value={poReceiptDraft.locationId}
+                                          onChange={(event) => setPoReceiptDraft((current) => current ? { ...current, locationId: event.target.value } : current)}
+                                        >
+                                          {poReceiptDraft.locations.map((location) => (
+                                            <option key={location.id} value={location.id}>{location.name}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      {poReceiptDraft.lines.map((line) => (
+                                        <div key={line.id} className="ops-form-grid" style={{ gridColumn: "1 / -1" }}>
+                                          <strong style={{ gridColumn: "1 / -1" }}>{line.description}</strong>
+                                          <label>
+                                            SKU
+                                            <input
+                                              value={line.sku}
+                                              onChange={(event) => setPoReceiptDraft((current) => current ? {
+                                                ...current,
+                                                lines: current.lines.map((row) => row.id === line.id ? { ...row, sku: event.target.value } : row),
+                                              } : current)}
+                                            />
+                                          </label>
+                                          <label>
+                                            Receive qty
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              value={line.receiveQty}
+                                              onChange={(event) => setPoReceiptDraft((current) => current ? {
+                                                ...current,
+                                                lines: current.lines.map((row) => row.id === line.id ? { ...row, receiveQty: event.target.value } : row),
+                                              } : current)}
+                                            />
+                                          </label>
+                                          <label>
+                                            Unit cost
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              value={line.unitCost}
+                                              onChange={(event) => setPoReceiptDraft((current) => current ? {
+                                                ...current,
+                                                lines: current.lines.map((row) => row.id === line.id ? { ...row, unitCost: event.target.value } : row),
+                                              } : current)}
+                                            />
+                                          </label>
+                                          <small>Ordered {line.orderedQty} · already {line.alreadyReceivedPercent}%</small>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
                                 </article>
                               ))
                             ) : (
