@@ -35,7 +35,7 @@ export type StockMovement = {
   fromLocationId?: string;
   toLocationId?: string;
   quantity: number;
-  reason: "Receipt" | "Issue to job" | "Transfer" | "Stocktake" | "Adjustment";
+  reason: "Receipt" | "Issue to job" | "Return from job" | "Transfer" | "Stocktake" | "Adjustment";
   jobRef?: string;
   poNumber?: string;
   note?: string;
@@ -201,9 +201,14 @@ export function recordStockMovement(input: {
     setBalance(store, input.toLocationId, input.itemId, getBalance(store, input.toLocationId, input.itemId) + qty);
   } else if (input.reason === "Issue to job") {
     if (!input.fromLocationId) throw new Error("Issue needs a source location.");
+    if (!input.jobRef?.trim()) throw new Error("Issue needs a job reference.");
     const available = getBalance(store, input.fromLocationId, input.itemId);
     if (available < qty) throw new Error(`Only ${available} available to issue.`);
     setBalance(store, input.fromLocationId, input.itemId, available - qty);
+  } else if (input.reason === "Return from job") {
+    if (!input.toLocationId) throw new Error("Return needs a destination location.");
+    if (!input.jobRef?.trim()) throw new Error("Return needs a job reference.");
+    setBalance(store, input.toLocationId, input.itemId, getBalance(store, input.toLocationId, input.itemId) + qty);
   } else if (input.reason === "Stocktake") {
     if (!input.toLocationId) throw new Error("Stocktake needs a location.");
     setBalance(store, input.toLocationId, input.itemId, qty);

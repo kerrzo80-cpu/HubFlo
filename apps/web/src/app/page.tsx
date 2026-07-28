@@ -9896,11 +9896,16 @@ export default function Dashboard() {
         const costByItem = new Map((body.items || []).map((item) => [item.id, item.unitCost || 0]));
         const byJob: Record<string, number> = {};
         for (const movement of body.movements || []) {
-          if (movement.reason !== "Issue to job" || !movement.jobRef?.trim()) continue;
+          if (!movement.jobRef?.trim()) continue;
           const ref = movement.jobRef.trim().toLowerCase();
           const qty = Math.abs(Number(movement.quantity) || 0);
           const unitCost = costByItem.get(movement.itemId) || 0;
-          byJob[ref] = (byJob[ref] || 0) + qty * unitCost;
+          const lineCost = qty * unitCost;
+          if (movement.reason === "Issue to job") {
+            byJob[ref] = (byJob[ref] || 0) + lineCost;
+          } else if (movement.reason === "Return from job") {
+            byJob[ref] = (byJob[ref] || 0) - lineCost;
+          }
         }
         setStockIssueCostByJobRef(byJob);
       } catch {

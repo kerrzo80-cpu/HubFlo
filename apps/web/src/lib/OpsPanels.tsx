@@ -114,7 +114,7 @@ export function StockOpsPanel({
     qty: "1",
     jobRef: "",
     countedQty: "",
-    mode: "transfer" as "transfer" | "issue" | "stocktake",
+    mode: "transfer" as "transfer" | "issue" | "return" | "stocktake",
   });
 
   const openJobs = useMemo(
@@ -260,8 +260,8 @@ export function StockOpsPanel({
       onNotice(moveDraft.mode === "stocktake" ? "Enter the counted quantity." : "Enter a quantity greater than zero.");
       return;
     }
-    if (moveDraft.mode === "issue" && !moveDraft.jobRef.trim()) {
-      onNotice("Enter the job ref before issuing stock.");
+    if ((moveDraft.mode === "issue" || moveDraft.mode === "return") && !moveDraft.jobRef.trim()) {
+      onNotice(moveDraft.mode === "return" ? "Enter the job ref before returning stock." : "Enter the job ref before issuing stock.");
       return;
     }
     setBusy(true);
@@ -284,13 +284,22 @@ export function StockOpsPanel({
                 fromLocationId: moveDraft.fromLocationId,
                 jobRef: moveDraft.jobRef.trim(),
               }
-            : {
-                itemId: moveDraft.itemId,
-                quantity: qty,
-                reason: "Stocktake",
-                toLocationId: moveDraft.toLocationId || moveDraft.fromLocationId,
-                note: "Stocktake count",
-              };
+            : moveDraft.mode === "return"
+              ? {
+                  itemId: moveDraft.itemId,
+                  quantity: qty,
+                  reason: "Return from job",
+                  toLocationId: moveDraft.toLocationId || moveDraft.fromLocationId,
+                  jobRef: moveDraft.jobRef.trim(),
+                  note: "Unused materials returned from job",
+                }
+              : {
+                  itemId: moveDraft.itemId,
+                  quantity: qty,
+                  reason: "Stocktake",
+                  toLocationId: moveDraft.toLocationId || moveDraft.fromLocationId,
+                  note: "Stocktake count",
+                };
       const response = await fetch("/api/stock", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -312,11 +321,18 @@ export function StockOpsPanel({
           ? "Stock transferred."
           : moveDraft.mode === "issue"
             ? `Issued to ${moveDraft.jobRef.trim()}.`
-            : variance == null
-              ? "Stocktake count saved."
-              : `Stocktake saved · expected ${expectedBefore}, counted ${qty}, variance ${variance > 0 ? "+" : ""}${variance}.`,
+            : moveDraft.mode === "return"
+              ? `Returned from ${moveDraft.jobRef.trim()} to stock.`
+              : variance == null
+                ? "Stocktake count saved."
+                : `Stocktake saved · expected ${expectedBefore}, counted ${qty}, variance ${variance > 0 ? "+" : ""}${variance}.`,
       );
-      setMoveDraft((current) => ({ ...current, qty: "1", countedQty: "", jobRef: current.mode === "issue" ? "" : current.jobRef }));
+      setMoveDraft((current) => ({
+        ...current,
+        qty: "1",
+        countedQty: "",
+        jobRef: current.mode === "issue" || current.mode === "return" ? "" : current.jobRef,
+      }));
     } catch (moveError) {
       setError(moveError instanceof Error ? moveError.message : "Unable to update stock");
     } finally {
@@ -466,7 +482,7 @@ export function StockOpsPanel({
           </button>
         </article>
         <article>
-          <h3>Transfer / issue / stocktake</h3>
+          <h3>Transfer / issue / return / stocktake</h3>
           <div className="ops-form-grid">
             <label>
               Action
@@ -476,6 +492,7 @@ export function StockOpsPanel({
               >
                 <option value="transfer">Transfer warehouse ↔ van</option>
                 <option value="issue">Issue to job</option>
+                <option value="return">Return from job</option>
                 <option value="stocktake">Stocktake count</option>
               </select>
             </label>
@@ -487,7 +504,7 @@ export function StockOpsPanel({
                 ))}
               </select>
             </label>
-            {moveDraft.mode !== "stocktake" ? (
+            {moveDraft.mode !== "stocktake" && moveDraft.mode !== "return" ? (
               <label>
                 From
                 <select value={moveDraft.fromLocationId} onChange={(e) => setMoveDraft((c) => ({ ...c, fromLocationId: e.target.value }))}>
@@ -499,7 +516,7 @@ export function StockOpsPanel({
             ) : null}
             {moveDraft.mode !== "issue" ? (
               <label>
-                {moveDraft.mode === "stocktake" ? "Location" : "To"}
+                {moveDraft.mode === "stocktake" ? "Location" : moveDraft.mode === "return" ? "Return to" : "To"}
                 <select value={moveDraft.toLocationId} onChange={(e) => setMoveDraft((c) => ({ ...c, toLocationId: e.target.value }))}>
                   {(snapshot?.locations || []).map((location) => (
                     <option key={location.id} value={location.id}>{location.name}</option>
@@ -507,7 +524,7 @@ export function StockOpsPanel({
                 </select>
               </label>
             ) : null}
-            {moveDraft.mode === "issue" ? (
+            {moveDraft.mode === "issue" || moveDraft.mode === "return" ? (
               <label>
                 Job
                 <select value={moveDraft.jobRef} onChange={(e) => setMoveDraft((c) => ({ ...c, jobRef: e.target.value }))}>
@@ -554,7 +571,13 @@ export function StockOpsPanel({
             )}
           </div>
           <button className="primary-button" type="button" disabled={busy || !(snapshot?.items || []).length} onClick={() => void runStockMove()}>
-            {moveDraft.mode === "transfer" ? "Transfer stock" : moveDraft.mode === "issue" ? "Issue to job" : "Save stocktake"}
+            {moveDraft.mode === "transfer"
+              ? "Transfer stock"
+              : moveDraft.mode === "issue"
+                ? "Issue to job"
+                : moveDraft.mode === "return"
+                  ? "Return from job"
+                  : "Save stocktake"}
           </button>
         </article>
         <article>
