@@ -402,12 +402,26 @@ export function updateJob(id: string, patch: Partial<Job>): Job | null {
   if (index < 0) return null;
   const current = store.jobs[index];
   if (!current) return null;
+  const resolvedClient = (patch.clientId ?? current.clientId)
+    ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
+    : undefined;
+  const resolvedSite = (patch.siteId ?? current.siteId)
+    ? findSite(
+        patch.siteId ?? current.siteId,
+        resolvedClient?.id ?? patch.clientId ?? current.clientId,
+        patch.site ?? current.site,
+      )
+    : undefined;
   const nextHealth = patch.status ? deriveJobHealth(patch.status) : current.health;
   const updated: Job = {
     ...current,
     ...patch,
     id: current.id,
     health: nextHealth,
+    clientId: patch.clientId ?? resolvedClient?.id ?? current.clientId,
+    siteId: patch.siteId ?? resolvedSite?.id ?? current.siteId,
+    customer: resolvedClient?.name ?? patch.customer ?? current.customer,
+    site: resolvedSite?.address ?? patch.site ?? current.site,
   };
   store.jobs[index] = updated;
   persistWorkflowStore();
@@ -506,12 +520,25 @@ export function updateQuote(id: string, patch: Partial<Quote>): Quote | null {
   if (index < 0) return null;
   const current = store.quotes[index];
   if (!current) return null;
+  const resolvedClient = (patch.clientId ?? current.clientId)
+    ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
+    : undefined;
+  const resolvedSite = (patch.siteId ?? current.siteId)
+    ? findSite(
+        patch.siteId ?? current.siteId,
+        resolvedClient?.id ?? patch.clientId ?? current.clientId,
+        current.customer,
+      )
+    : undefined;
 
   const updated: Quote = {
     ...current,
     ...patch,
     id: current.id,
     ref: current.ref,
+    clientId: patch.clientId ?? resolvedClient?.id ?? current.clientId,
+    siteId: patch.siteId ?? resolvedSite?.id ?? current.siteId,
+    customer: resolvedClient?.name ?? patch.customer ?? current.customer,
   };
   store.quotes[index] = updated;
   persistWorkflowStore();

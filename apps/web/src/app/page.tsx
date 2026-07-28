@@ -162,6 +162,7 @@ const STORAGE_KEYS = {
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
+  manualRecordDocuments: "hubflo:manual-record-documents:v1",
   suppliers: "hubflo:suppliers:v1",
   contacts: "hubflo:contacts:v1",
   contractors: "hubflo:contractors:v1",
@@ -645,6 +646,25 @@ type JobDraft = {
   value: string;
   next: string;
   due: string;
+};
+
+type ClientRecordDraft = {
+  name: string;
+  primaryContact: string;
+  email: string;
+  phone: string;
+  billingAddress: string;
+  commercialOwner: string;
+  notes: string;
+};
+
+type ClientSiteDraft = {
+  name: string;
+  address: string;
+  primaryContact: string;
+  accessNotes: string;
+  serviceLine: string;
+  nextVisit: string;
 };
 
 type OneOffMaterialDraft = {
@@ -1170,6 +1190,8 @@ type RecordDocumentFile = {
   previewImageDataUrl?: string;
 };
 
+type ManualRecordDocuments = Record<string, RecordDocumentFile[]>;
+
 type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
 
 type EngineerFlowStep = {
@@ -1593,6 +1615,9 @@ type SurveyAsset = {
   status: "Draft" | "Review" | "Ready";
   clientVisible: boolean;
   createdAt: string;
+  fileName?: string;
+  fileUrl?: string;
+  previewImageDataUrl?: string;
 };
 
 type QuoteCostCentre = {
@@ -4172,6 +4197,25 @@ const blankJob: JobDraft = {
   value: "",
   next: "",
   due: "Today",
+};
+
+const blankClientRecordDraft: ClientRecordDraft = {
+  name: "",
+  primaryContact: "",
+  email: "",
+  phone: "",
+  billingAddress: "",
+  commercialOwner: "",
+  notes: "",
+};
+
+const blankClientSiteDraft: ClientSiteDraft = {
+  name: "",
+  address: "",
+  primaryContact: "",
+  accessNotes: "",
+  serviceLine: "",
+  nextVisit: "",
 };
 
 const blankOneOffMaterialDraft: OneOffMaterialDraft = {
@@ -6853,6 +6897,11 @@ export default function Dashboard() {
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
   const [jobInvoiceDraft, setJobInvoiceDraft] = useState<JobInvoiceDraft | null>(null);
+  const [manualRecordDocuments, setManualRecordDocuments] = useState<ManualRecordDocuments>({});
+  const [quoteClientDraft, setQuoteClientDraft] = useState<ClientRecordDraft>(blankClientRecordDraft);
+  const [quoteSiteDraft, setQuoteSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
+  const [jobClientDraft, setJobClientDraft] = useState<ClientRecordDraft>(blankClientRecordDraft);
+  const [jobSiteDraft, setJobSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [jobSections, setJobSections] = useState<Record<string, JobSection[]>>({});
   const [jobVariationSections, setJobVariationSections] = useState<Record<string, JobVariationSection[]>>({});
@@ -7363,6 +7412,52 @@ export default function Dashboard() {
         : null,
     [clientSites, selectedJob],
   );
+
+  useEffect(() => {
+    setQuoteClientDraft(selectedQuoteClient ? {
+      name: selectedQuoteClient.name,
+      primaryContact: selectedQuoteClient.primaryContact,
+      email: selectedQuoteClient.email,
+      phone: selectedQuoteClient.phone,
+      billingAddress: selectedQuoteClient.billingAddress,
+      commercialOwner: selectedQuoteClient.commercialOwner,
+      notes: selectedQuoteClient.notes,
+    } : blankClientRecordDraft);
+  }, [selectedQuoteClient]);
+
+  useEffect(() => {
+    setQuoteSiteDraft(selectedQuoteSite ? {
+      name: selectedQuoteSite.name,
+      address: selectedQuoteSite.address,
+      primaryContact: selectedQuoteSite.primaryContact,
+      accessNotes: selectedQuoteSite.accessNotes,
+      serviceLine: selectedQuoteSite.serviceLine,
+      nextVisit: selectedQuoteSite.nextVisit,
+    } : blankClientSiteDraft);
+  }, [selectedQuoteSite]);
+
+  useEffect(() => {
+    setJobClientDraft(selectedJobClient ? {
+      name: selectedJobClient.name,
+      primaryContact: selectedJobClient.primaryContact,
+      email: selectedJobClient.email,
+      phone: selectedJobClient.phone,
+      billingAddress: selectedJobClient.billingAddress,
+      commercialOwner: selectedJobClient.commercialOwner,
+      notes: selectedJobClient.notes,
+    } : blankClientRecordDraft);
+  }, [selectedJobClient]);
+
+  useEffect(() => {
+    setJobSiteDraft(selectedJobSite ? {
+      name: selectedJobSite.name,
+      address: selectedJobSite.address,
+      primaryContact: selectedJobSite.primaryContact,
+      accessNotes: selectedJobSite.accessNotes,
+      serviceLine: selectedJobSite.serviceLine,
+      nextVisit: selectedJobSite.nextVisit,
+    } : blankClientSiteDraft);
+  }, [selectedJobSite]);
 
   const selectedJobScheduleAssignments = useMemo(
     () =>
@@ -8577,6 +8672,7 @@ export default function Dashboard() {
     setJobDeliveryEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
     setJobVariationSections(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobVariationSections, {}));
     setCommunicationRecords(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.communications, []));
+    setManualRecordDocuments(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.manualRecordDocuments, {}));
     setHasHydratedLocalData(true);
   }, [hasHydratedLocalData, serverAuthMode, serverAuthUser, serverWorkspaceMode]);
 
@@ -8993,6 +9089,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
     safeSaveStoredJson(STORAGE_KEYS.jobVariationSections, jobVariationSections);
     safeSaveStoredJson(STORAGE_KEYS.communications, communicationRecords);
+    safeSaveStoredJson(STORAGE_KEYS.manualRecordDocuments, manualRecordDocuments);
 
     if (!hasLoadedHubDetailState) return;
 
@@ -9083,6 +9180,7 @@ export default function Dashboard() {
     jobDeliveryEvents,
     jobVariationSections,
     communicationRecords,
+    manualRecordDocuments,
     simproExports,
     hasHydratedLocalData,
     hasLoadedHubDetailState,
@@ -14456,6 +14554,51 @@ export default function Dashboard() {
     return updated;
   }
 
+  async function persistJobPatch(jobId: string, patch: Partial<Job>) {
+    const response = await fetch(`/api/jobs/${jobId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) throw new Error("Unable to update job");
+    const updated = (await response.json()) as Job;
+    setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+    return updated;
+  }
+
+  async function saveSelectedQuoteLinking(clientId: string, siteId: string) {
+    if (!selectedQuote) return;
+    const client = clients.find((item) => item.id === clientId);
+    const site = clientSites.find((item) => item.id === siteId);
+    if (!client) {
+      showNotice("Pick a customer before saving quote details.");
+      return;
+    }
+    const updated = await persistQuotePatch(selectedQuote.id, {
+      clientId: client.id,
+      siteId: site?.id,
+      customer: client.name,
+    });
+    showNotice(`${updated.ref} linked to ${client.name}${site ? ` / ${site.name}` : ""}.`);
+  }
+
+  async function saveSelectedJobLinking(clientId: string, siteId: string) {
+    if (!selectedJob) return;
+    const client = clients.find((item) => item.id === clientId);
+    const site = clientSites.find((item) => item.id === siteId);
+    if (!client) {
+      showNotice("Pick a customer before saving job details.");
+      return;
+    }
+    const updated = await persistJobPatch(selectedJob.id, {
+      clientId: client.id,
+      siteId: site?.id,
+      customer: client.name,
+      site: site?.address ?? selectedJob.site,
+    });
+    showNotice(`${updated.ref} linked to ${client.name}${site ? ` / ${site.name}` : ""}.`);
+  }
+
   async function sendSelectedQuoteToSimpro() {
     if (!selectedQuote) return;
 
@@ -17436,6 +17579,16 @@ export default function Dashboard() {
   function makeSurveyAsset(centre: QuoteCostCentre, kind: SurveyAssetKind): SurveyAsset {
     const stamp = new Date().toISOString();
     const count = (centre.surveyAssets ?? []).filter((asset) => asset.kind === kind).length + 1;
+    const previewLabel = `${kind}: ${centre.name}`;
+    const previewImageDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+        <rect width="900" height="600" fill="#eef6fa"/>
+        <rect x="40" y="40" width="820" height="520" rx="28" fill="#ffffff" stroke="#c8dde6" stroke-width="4"/>
+        <text x="80" y="150" font-family="Arial, sans-serif" font-size="44" fill="#173949">${previewLabel}</text>
+        <text x="80" y="220" font-family="Arial, sans-serif" font-size="28" fill="#4d6672">${centre.name}</text>
+        <text x="80" y="290" font-family="Arial, sans-serif" font-size="24" fill="#688492">Preview placeholder - replace with uploaded survey evidence.</text>
+      </svg>`,
+    )}`;
     const defaults: Record<SurveyAssetKind, Pick<SurveyAsset, "title" | "detail" | "status" | "clientVisible">> = {
       "Room scan": {
         title: `${centre.name} room scan ${count}`,
@@ -17461,6 +17614,8 @@ export default function Dashboard() {
       id: `${centre.id}-survey-${Date.now()}-${count}`,
       kind,
       createdAt: stamp,
+      fileName: `${centre.name}-${kind.toLowerCase().replace(/\s+/g, "-")}-${count}.svg`,
+      previewImageDataUrl,
       ...defaults[kind],
     };
   }
@@ -19145,6 +19300,138 @@ export default function Dashboard() {
     return { client: createdClient, site: createdSite };
   }
 
+  function syncClientAcrossWorkflowRecords(client: ClientRecord) {
+    setQuotes((current) => current.map((quote) => (
+      quote.clientId === client.id ? { ...quote, customer: client.name } : quote
+    )));
+    setJobs((current) => current.map((job) => (
+      job.clientId === client.id ? { ...job, customer: client.name } : job
+    )));
+  }
+
+  function syncSiteAcrossWorkflowRecords(site: ClientSite) {
+    setJobs((current) => current.map((job) => (
+      job.siteId === site.id ? { ...job, site: site.address } : job
+    )));
+  }
+
+  async function persistClientRecordPatch(clientId: string, patch: Partial<ClientRecord>) {
+    const response = await fetch(`/api/clients/${clientId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      client?: ClientRecord;
+      quotes?: Quote[];
+      jobs?: Job[];
+    };
+    if (!response.ok || !result.client) throw new Error(result.error || "Unable to update the customer record.");
+    setClients((current) => current.map((client) => (client.id === result.client!.id ? result.client! : client)));
+    syncClientAcrossWorkflowRecords(result.client);
+    if (result.quotes?.length) {
+      setQuotes((current) => current.map((quote) => result.quotes!.find((item) => item.id === quote.id) ?? quote));
+    }
+    if (result.jobs?.length) {
+      setJobs((current) => current.map((job) => result.jobs!.find((item) => item.id === job.id) ?? job));
+    }
+    return result.client;
+  }
+
+  async function persistSiteRecordPatch(siteId: string, patch: Partial<ClientSite>) {
+    const response = await fetch(`/api/client-sites/${siteId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      site?: ClientSite;
+      jobs?: Job[];
+    };
+    if (!response.ok || !result.site) throw new Error(result.error || "Unable to update the site record.");
+    setClientSites((current) => current.map((site) => (site.id === result.site!.id ? result.site! : site)));
+    syncSiteAcrossWorkflowRecords(result.site);
+    if (result.jobs?.length) {
+      setJobs((current) => current.map((job) => result.jobs!.find((item) => item.id === job.id) ?? job));
+    }
+    return result.site;
+  }
+
+  async function createSiteForClient(clientId: string, draft: ClientSiteDraft) {
+    const response = await fetch("/api/client-sites", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId,
+        name: draft.name,
+        address: draft.address,
+        primaryContact: draft.primaryContact,
+        accessNotes: draft.accessNotes,
+        serviceLine: draft.serviceLine,
+        nextVisit: draft.nextVisit,
+        actor: activeEmployee?.name ?? "NeXa user",
+      }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      site?: ClientSite;
+      clientSites?: ClientSite[];
+      auditEvents?: AuditEvent[];
+    };
+    if (!response.ok || !result.site) throw new Error(result.error || "Unable to create the site record.");
+    setClientSites((current) => {
+      const map = new Map<string, ClientSite>(current.map((site) => [site.id, site]));
+      (result.clientSites ?? [result.site!]).forEach((site) => map.set(site.id, site));
+      return Array.from(map.values());
+    });
+    if (result.auditEvents?.length) {
+      setAuditEvents((current) => [...result.auditEvents!, ...current.filter((item) => !result.auditEvents!.some((event) => event.id === item.id))]);
+    }
+    return result.site;
+  }
+
+  function recordDocumentStorageKey(recordType: RecordDocumentScope, recordRef: string) {
+    return `${recordType}:${recordRef}`;
+  }
+
+  function appendManualRecordDocuments(recordType: RecordDocumentScope, recordRef: string, files: RecordDocumentFile[]) {
+    const key = recordDocumentStorageKey(recordType, recordRef);
+    setManualRecordDocuments((current) => ({
+      ...current,
+      [key]: [...files, ...(current[key] ?? [])],
+    }));
+  }
+
+  async function addManualRecordDocuments(
+    recordType: RecordDocumentScope,
+    recordRef: string,
+    fileList: FileList | null,
+  ) {
+    if (!fileList?.length) return;
+    const files = await Promise.all(
+      Array.from(fileList).map(async (file): Promise<RecordDocumentFile> => {
+        const previewImageDataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+          reader.onerror = () => resolve("");
+          reader.readAsDataURL(file);
+        });
+        return {
+          folderId: file.type.startsWith("image/") ? (recordType === "job" ? "mid-work-photos" : "survey-photos") : "office-private",
+          name: file.name,
+          type: file.type || "Attachment",
+          visibility: recordType === "job" && file.type.startsWith("image/") ? "Engineer" : "Private",
+          linkedTo: recordRef,
+          previewImageDataUrl,
+        };
+      }),
+    );
+    appendManualRecordDocuments(recordType, recordRef, files);
+    showNotice(`${files.length} file${files.length === 1 ? "" : "s"} added to ${recordRef}.`);
+  }
+
   function selectLeadAddress(address: string, postcode: string) {
     const matchingSite = clientSites.find((site) => site.clientId === newLead.clientId && site.address === address);
     const addressParts = leadAddressPartsFromAddress(address, postcode);
@@ -20138,9 +20425,10 @@ export default function Dashboard() {
     const job = recordType === "job" ? jobs.find((item) => item.ref === recordRef) ?? null : null;
     if (recordType === "quote" && !quote) return baseFiles;
     if (recordType === "job" && !job) return baseFiles;
-    const centres = quote ? (quoteCostCentres[quote.id] ?? []) : [];
+    const quoteCentres = quote ? (quoteCostCentres[quote.id] ?? []) : [];
+    const jobCentres = job ? (jobEstimateCostCentres[job.id] ?? []) : [];
     const workflowFiles = quote
-      ? centres.flatMap((centre): RecordDocumentFile[] => {
+      ? quoteCentres.flatMap((centre): RecordDocumentFile[] => {
           const sourceDocuments = (centre.takeoffDocuments ?? []).map((document): RecordDocumentFile => ({
             folderId:
               document.kind === "Drawings"
@@ -20155,10 +20443,29 @@ export default function Dashboard() {
             fileUrl: document.fileUrl,
             previewImageDataUrl: document.previewImageDataUrl,
           }));
+          const surveyFiles = (centre.surveyAssets ?? []).map((asset): RecordDocumentFile => ({
+            folderId: asset.kind === "Concept look" ? "client-quote-pack" : "survey-photos",
+            name: asset.fileName || asset.title,
+            type: asset.kind,
+            visibility: asset.clientVisible ? "Client" : "Engineer",
+            linkedTo: centre.name,
+            fileUrl: asset.fileUrl,
+            previewImageDataUrl: asset.previewImageDataUrl,
+          }));
 
-          return [...sourceDocuments];
+          return [...sourceDocuments, ...surveyFiles];
         })
-      : [];
+      : jobCentres.flatMap((centre): RecordDocumentFile[] =>
+          (centre.surveyAssets ?? []).map((asset) => ({
+            folderId: asset.clientVisible ? "completion-photos" : "mid-work-photos",
+            name: asset.fileName || asset.title,
+            type: asset.kind,
+            visibility: asset.clientVisible ? "Client" : "Engineer",
+            linkedTo: centre.name,
+            fileUrl: asset.fileUrl,
+            previewImageDataUrl: asset.previewImageDataUrl,
+          })),
+        );
     const quoteSupplierDraft = quote ? supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY] : null;
     const jobSupplierDraft = recordType === "job" ? jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY] : null;
     const supplierFiles: RecordDocumentFile[] = quoteSupplierDraft?.fileName
@@ -20185,7 +20492,8 @@ export default function Dashboard() {
           ]
         : [];
 
-    return [...workflowFiles, ...supplierFiles, ...jobSupplierFiles, ...baseFiles];
+    const manualFiles = manualRecordDocuments[recordDocumentStorageKey(recordType, recordRef)] ?? [];
+    return [...manualFiles, ...workflowFiles, ...supplierFiles, ...jobSupplierFiles, ...baseFiles];
   }
 
   function openRecordDocumentFile(file: RecordDocumentFile) {
@@ -20250,20 +20558,19 @@ export default function Dashboard() {
             <span className="permission-heading">Document folders</span>
             <h2>{recordRef} document hub</h2>
           </div>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => {
-              setHomeView("settings");
-              setActiveSetupCategory("documents");
-              setActiveSetupSubItem("Folders");
-              scrollWorkspaceToTop();
-              showNotice("Document folders are editable here; quote and job files appear from the live workflow.");
-            }}
-          >
+          <label className="primary-button">
             <Plus size={15} />
             Add document
-          </button>
+            <input
+              className="file-input"
+              type="file"
+              multiple
+              onChange={(event) => {
+                void addManualRecordDocuments(recordType, recordRef, event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
         </div>
 
         <div className="document-folder-grid">
@@ -23102,27 +23409,139 @@ export default function Dashboard() {
                       <article className="client-info-card">
                         <span className="permission-heading">Quote details</span>
                         <dl>
-                          <div>
-                            <dt>Client</dt>
-                            <dd>{selectedQuoteClient?.name ?? selectedQuote.customer}</dd>
-                          </div>
-                          <div>
-                            <dt>Site</dt>
-                            <dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd>
-                          </div>
-                          <div>
-                            <dt>Owner</dt>
-                            <dd>{selectedQuote.owner}</dd>
-                          </div>
-                          <div>
-                            <dt>Status</dt>
-                            <dd>{selectedQuote.status}</dd>
-                          </div>
-                          <div>
-                            <dt>Simpro</dt>
-                            <dd>{selectedQuote.simproStatus ?? "Not sent"}</dd>
-                          </div>
+                          <div><dt>Owner</dt><dd>{selectedQuote.owner}</dd></div>
+                          <div><dt>Status</dt><dd>{selectedQuote.status}</dd></div>
+                          <div><dt>Simpro</dt><dd>{selectedQuote.simproStatus ?? "Not sent"}</dd></div>
                         </dl>
+                        <div className="record-inline-editor">
+                          <label>
+                            Customer record
+                            <select
+                              value={selectedQuote.clientId ?? ""}
+                              onChange={(event) => {
+                                void saveSelectedQuoteLinking(event.target.value, "");
+                              }}
+                            >
+                              <option value="">Select customer</option>
+                              {clients.map((client) => (
+                                <option key={client.id} value={client.id}>{client.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Site record
+                            <select
+                              value={selectedQuote.siteId ?? ""}
+                              onChange={(event) => {
+                                void saveSelectedQuoteLinking(selectedQuote.clientId ?? "", event.target.value);
+                              }}
+                            >
+                              <option value="">Select site</option>
+                              {clientSites
+                                .filter((site) => !selectedQuote.clientId || site.clientId === selectedQuote.clientId)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>{site.name} - {site.address}</option>
+                                ))}
+                            </select>
+                          </label>
+                          {selectedQuoteClient ? (
+                            <>
+                              <label>
+                                Customer name
+                                <input value={quoteClientDraft.name} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, name: event.target.value }))} />
+                              </label>
+                              <label>
+                                Main contact
+                                <input value={quoteClientDraft.primaryContact} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
+                              </label>
+                              <label>
+                                Email
+                                <input value={quoteClientDraft.email} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, email: event.target.value }))} />
+                              </label>
+                              <label>
+                                Phone
+                                <input value={quoteClientDraft.phone} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, phone: event.target.value }))} />
+                              </label>
+                              <label className="full-field">
+                                Billing address
+                                <input value={quoteClientDraft.billingAddress} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, billingAddress: event.target.value }))} />
+                              </label>
+                              <div className="quote-action-stack">
+                                <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedQuoteClient.id)}>
+                                  Open customer card
+                                </button>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => {
+                                    void persistClientRecordPatch(selectedQuoteClient.id, quoteClientDraft)
+                                      .then(() => showNotice("Customer record updated from quote details."))
+                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update customer."));
+                                  }}
+                                >
+                                  Save customer changes
+                                </button>
+                              </div>
+                            </>
+                          ) : null}
+                          {selectedQuoteSite ? (
+                            <>
+                              <label>
+                                Site name
+                                <input value={quoteSiteDraft.name} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, name: event.target.value }))} />
+                              </label>
+                              <label className="full-field">
+                                Site address
+                                <input value={quoteSiteDraft.address} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, address: event.target.value }))} />
+                              </label>
+                              <label>
+                                Site contact
+                                <input value={quoteSiteDraft.primaryContact} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
+                              </label>
+                              <label className="full-field">
+                                Access notes
+                                <input value={quoteSiteDraft.accessNotes} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, accessNotes: event.target.value }))} />
+                              </label>
+                              <div className="quote-action-stack">
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => {
+                                    void persistSiteRecordPatch(selectedQuoteSite.id, quoteSiteDraft)
+                                      .then((site) => saveSelectedQuoteLinking(selectedQuote.clientId ?? "", site.id))
+                                      .then(() => showNotice("Site updated from quote details."))
+                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update site."));
+                                  }}
+                                >
+                                  Save site changes
+                                </button>
+                              </div>
+                            </>
+                          ) : selectedQuote.clientId ? (
+                            <>
+                              <label>
+                                New site name
+                                <input value={quoteSiteDraft.name} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, name: event.target.value }))} placeholder="New site" />
+                              </label>
+                              <label className="full-field">
+                                New site address
+                                <input value={quoteSiteDraft.address} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, address: event.target.value }))} placeholder="Site address" />
+                              </label>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => {
+                                  void createSiteForClient(selectedQuote.clientId!, quoteSiteDraft)
+                                    .then((site) => saveSelectedQuoteLinking(selectedQuote.clientId!, site.id))
+                                    .then(() => showNotice("New site created and linked to the customer."))
+                                    .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to create site."));
+                                }}
+                              >
+                                Create site for this customer
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
                       </article>
                       <article className="client-info-card">
                         <span className="permission-heading">Commercial position</span>
@@ -23130,6 +23549,9 @@ export default function Dashboard() {
                         <div className="quote-action-stack">
                           <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
                             Build quote costs
+                          </button>
+                          <button className="secondary-button" type="button" onClick={() => setActiveQuoteTab("documents")}>
+                            Attachments / paper trail
                           </button>
                           <button
                             className="secondary-button"
@@ -25150,6 +25572,21 @@ export default function Dashboard() {
                                   <small>{asset.detail}</small>
                                 </div>
                                 <b>{asset.status}</b>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => openRecordDocumentFile({
+                                    folderId: asset.kind === "Concept look" ? "client-quote-pack" : "survey-photos",
+                                    name: asset.fileName || asset.title,
+                                    type: asset.kind,
+                                    visibility: asset.clientVisible ? "Client" : "Engineer",
+                                    linkedTo: selectedQuoteCostCentre.name,
+                                    fileUrl: asset.fileUrl,
+                                    previewImageDataUrl: asset.previewImageDataUrl,
+                                  })}
+                                >
+                                  Open
+                                </button>
                                 <label>
                                   <input
                                     checked={asset.clientVisible}
@@ -26073,27 +26510,139 @@ export default function Dashboard() {
                       <article className="client-info-card">
                         <span className="permission-heading">Job summary</span>
                         <dl>
-                          <div>
-                            <dt>Client</dt>
-                            <dd>{selectedJobClient?.name ?? selectedJob.customer}</dd>
-                          </div>
-                          <div>
-                            <dt>Site</dt>
-                            <dd>{selectedJobSite?.name ?? selectedJob.site}</dd>
-                          </div>
-                          <div>
-                            <dt>Status</dt>
-                            <dd>{selectedJob.status}</dd>
-                          </div>
-                          <div>
-                            <dt>simPRO</dt>
-                            <dd>{selectedJob.simproStatus ?? "Not sent"}</dd>
-                          </div>
-                          <div>
-                            <dt>Next action</dt>
-                            <dd>{selectedJob.next}</dd>
-                          </div>
+                          <div><dt>Status</dt><dd>{selectedJob.status}</dd></div>
+                          <div><dt>simPRO</dt><dd>{selectedJob.simproStatus ?? "Not sent"}</dd></div>
+                          <div><dt>Next action</dt><dd>{selectedJob.next}</dd></div>
                         </dl>
+                        <div className="record-inline-editor">
+                          <label>
+                            Customer record
+                            <select
+                              value={selectedJob.clientId ?? ""}
+                              onChange={(event) => {
+                                void saveSelectedJobLinking(event.target.value, "");
+                              }}
+                            >
+                              <option value="">Select customer</option>
+                              {clients.map((client) => (
+                                <option key={client.id} value={client.id}>{client.name}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label>
+                            Site record
+                            <select
+                              value={selectedJob.siteId ?? ""}
+                              onChange={(event) => {
+                                void saveSelectedJobLinking(selectedJob.clientId ?? "", event.target.value);
+                              }}
+                            >
+                              <option value="">Select site</option>
+                              {clientSites
+                                .filter((site) => !selectedJob.clientId || site.clientId === selectedJob.clientId)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>{site.name} - {site.address}</option>
+                                ))}
+                            </select>
+                          </label>
+                          {selectedJobClient ? (
+                            <>
+                              <label>
+                                Customer name
+                                <input value={jobClientDraft.name} onChange={(event) => setJobClientDraft((current) => ({ ...current, name: event.target.value }))} />
+                              </label>
+                              <label>
+                                Main contact
+                                <input value={jobClientDraft.primaryContact} onChange={(event) => setJobClientDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
+                              </label>
+                              <label>
+                                Email
+                                <input value={jobClientDraft.email} onChange={(event) => setJobClientDraft((current) => ({ ...current, email: event.target.value }))} />
+                              </label>
+                              <label>
+                                Phone
+                                <input value={jobClientDraft.phone} onChange={(event) => setJobClientDraft((current) => ({ ...current, phone: event.target.value }))} />
+                              </label>
+                              <label className="full-field">
+                                Billing address
+                                <input value={jobClientDraft.billingAddress} onChange={(event) => setJobClientDraft((current) => ({ ...current, billingAddress: event.target.value }))} />
+                              </label>
+                              <div className="quote-action-stack">
+                                <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedJobClient.id)}>
+                                  Open customer card
+                                </button>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => {
+                                    void persistClientRecordPatch(selectedJobClient.id, jobClientDraft)
+                                      .then(() => showNotice("Customer record updated from job details."))
+                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update customer."));
+                                  }}
+                                >
+                                  Save customer changes
+                                </button>
+                              </div>
+                            </>
+                          ) : null}
+                          {selectedJobSite ? (
+                            <>
+                              <label>
+                                Site name
+                                <input value={jobSiteDraft.name} onChange={(event) => setJobSiteDraft((current) => ({ ...current, name: event.target.value }))} />
+                              </label>
+                              <label className="full-field">
+                                Site address
+                                <input value={jobSiteDraft.address} onChange={(event) => setJobSiteDraft((current) => ({ ...current, address: event.target.value }))} />
+                              </label>
+                              <label>
+                                Site contact
+                                <input value={jobSiteDraft.primaryContact} onChange={(event) => setJobSiteDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
+                              </label>
+                              <label className="full-field">
+                                Access notes
+                                <input value={jobSiteDraft.accessNotes} onChange={(event) => setJobSiteDraft((current) => ({ ...current, accessNotes: event.target.value }))} />
+                              </label>
+                              <div className="quote-action-stack">
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => {
+                                    void persistSiteRecordPatch(selectedJobSite.id, jobSiteDraft)
+                                      .then((site) => saveSelectedJobLinking(selectedJob.clientId ?? "", site.id))
+                                      .then(() => showNotice("Site updated from job details."))
+                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update site."));
+                                  }}
+                                >
+                                  Save site changes
+                                </button>
+                              </div>
+                            </>
+                          ) : selectedJob.clientId ? (
+                            <>
+                              <label>
+                                New site name
+                                <input value={jobSiteDraft.name} onChange={(event) => setJobSiteDraft((current) => ({ ...current, name: event.target.value }))} placeholder="New site" />
+                              </label>
+                              <label className="full-field">
+                                New site address
+                                <input value={jobSiteDraft.address} onChange={(event) => setJobSiteDraft((current) => ({ ...current, address: event.target.value }))} placeholder="Site address" />
+                              </label>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => {
+                                  void createSiteForClient(selectedJob.clientId!, jobSiteDraft)
+                                    .then((site) => saveSelectedJobLinking(selectedJob.clientId!, site.id))
+                                    .then(() => showNotice("New site created and linked to the customer."))
+                                    .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to create site."));
+                                }}
+                              >
+                                Create site for this customer
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
                       </article>
                       <article className="client-info-card">
                         <span className="permission-heading">Source quote</span>
@@ -26110,6 +26659,13 @@ export default function Dashboard() {
                           <p>Manual job with no source quote.</p>
                         )}
                         <div className="quote-action-stack">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => setActiveJobTab("documents")}
+                          >
+                            Attachments / paper trail
+                          </button>
                           <button
                             className="secondary-button"
                             type="button"
@@ -26145,9 +26701,22 @@ export default function Dashboard() {
                           </div>
                           <div className="quote-survey-pack-list">
                             {selectedJobSurveyPack.assets.slice(0, 6).map((asset) => (
-                              <span key={`${asset.centreId}-${asset.id}`}>
+                              <button
+                                key={`${asset.centreId}-${asset.id}`}
+                                type="button"
+                                className="text-button"
+                                onClick={() => openRecordDocumentFile({
+                                  folderId: asset.clientVisible ? "completion-photos" : "mid-work-photos",
+                                  name: asset.fileName || asset.title,
+                                  type: asset.kind,
+                                  visibility: asset.clientVisible ? "Client" : "Engineer",
+                                  linkedTo: asset.centreName,
+                                  fileUrl: asset.fileUrl,
+                                  previewImageDataUrl: asset.previewImageDataUrl,
+                                })}
+                              >
                                 {asset.title} · {asset.centreName} · {asset.clientVisible ? "public" : "private"}
-                              </span>
+                              </button>
                             ))}
                           </div>
                         </>
