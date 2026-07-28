@@ -34,8 +34,15 @@ export type BuddyMemory = {
 
 const STORAGE_KEY = "hubflo:buddy-memory:v1";
 
-export const buddyAvatarSrc = "/brand/buddy-mascot.png";
-export const buddyPhotoAvatarSrc = "/brand/buddy-avatar.png";
+export const buddyAvatarSrc = "/brand/blake-poses/blake-idle.png";
+export const buddyPhotoAvatarSrc = "/brand/blake-poses/blake-idle.png";
+export const blakePoseSrc = {
+  idle: "/brand/blake-poses/blake-idle.png",
+  alert: "/brand/blake-poses/blake-alert.png",
+  thinking: "/brand/blake-poses/blake-thinking.png",
+  guide: "/brand/blake-poses/blake-guide.png",
+  good: "/brand/blake-poses/blake-good.png",
+} as const;
 
 export function defaultBuddyMemory(): BuddyMemory {
   return {
@@ -218,5 +225,5 @@ export function buddyMoodFromFindings(hasBlock: boolean, hasWarn: boolean, busy:
   if (busy) return "thinking";
   if (hasBlock) return "alert";
   if (hasWarn) return "guide";
-  return "good";
+  return "idle";
 }
