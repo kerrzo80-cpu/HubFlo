@@ -2419,9 +2419,14 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  pointer-events: none;
   position: fixed;
   right: 18px;
-  z-index: 220;
+  z-index: 80;
+}
+
+.buddy-dock > * {
+  pointer-events: auto;
 }
 
 .buddy-launcher {
@@ -12936,7 +12941,7 @@ h1 {
     #eff9fd;
   inset: 0;
   overflow: auto;
-  padding: 128px 28px 32px 116px;
+  padding: 128px 28px 120px 116px;
   position: fixed;
   z-index: 118;
 }

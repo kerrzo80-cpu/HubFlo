@@ -8810,8 +8810,9 @@ export default function Dashboard() {
     const loadLiveData = async () => {
       let hasOfflineFallback = false;
       try {
-        const [clientsResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
+        const [clientsResponse, clientSitesResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
           fetch("/api/clients", { headers: requestHeaders }),
+          fetch("/api/client-sites", { headers: requestHeaders }),
           fetch("/api/leads", { headers: requestHeaders }),
           fetch("/api/jobs", { headers: requestHeaders }),
           fetch("/api/quotes", { headers: requestHeaders }),
@@ -8824,6 +8825,12 @@ export default function Dashboard() {
 
         if (clientsResponse.ok) {
           setClients((await clientsResponse.json()) as ClientRecord[]);
+        } else {
+          hasOfflineFallback = true;
+        }
+
+        if (clientSitesResponse.ok) {
+          setClientSites((await clientSitesResponse.json()) as ClientSite[]);
         } else {
           hasOfflineFallback = true;
         }
@@ -22648,7 +22655,7 @@ export default function Dashboard() {
               <X size={18} />
             </span>
           ) : (
-            <BuddyCharacter mood={buddyMood} size="hero" className="buddy-launcher-mascot" />
+            <BuddyCharacter mood={buddyMood} size="lg" className="buddy-launcher-mascot" />
           )}
           <span className="buddy-launcher-label">Blake</span>
           {!nexaAssistantOpen && buddyAlertCount > 0 ? (
