@@ -13800,7 +13800,7 @@ h1 {
   border-bottom: 1px solid #eef2f5;
   display: grid;
   gap: 2px 10px;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   padding-bottom: 8px;
 }
 
@@ -13808,6 +13808,12 @@ h1 {
   color: var(--muted);
   font-size: 12px;
   grid-column: 2;
+}
+
+.ops-simple-list li .secondary-button {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  justify-self: end;
 }
 
 .ops-simple-list.warn li {
