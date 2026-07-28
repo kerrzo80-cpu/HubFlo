@@ -30,6 +30,7 @@ type PullInvoiceInput = {
   claimType?: string;
   payments?: LedgerPayment[];
   paidAmount?: number;
+  xeroInvoiceId?: string;
 };
 
 type XeroPaymentRow = {
@@ -71,11 +72,44 @@ function normalizeXeroDate(value: string | undefined) {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function fetchXeroInvoiceByNumber(invoiceNumber: string) {
+async function fetchXeroInvoiceById(invoiceId: string, accessToken: string, tenantId: string) {
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Invoices/${encodeURIComponent(invoiceId)}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      Accept: "application/json",
+    },
+  });
+  const body = (await response.json().catch(() => ({}))) as {
+    Invoices?: XeroInvoiceRow[];
+    Message?: string;
+    Detail?: string;
+  };
+  if (!response.ok) {
+    throw new Error(body.Detail || body.Message || `Xero invoice lookup by id failed (${response.status}).`);
+  }
+  const invoice = (body.Invoices || [])[0];
+  if (!invoice?.InvoiceID) throw new Error("Xero invoice id lookup returned no invoice.");
+  if (invoice.Type && invoice.Type !== "ACCREC") {
+    throw new Error(`Linked Xero invoice is ${invoice.Type}, expected ACCREC.`);
+  }
+  return invoice;
+}
+
+async function resolveXeroInvoiceForPull(invoiceNumber: string, preferredId?: string) {
   const accessToken = await resolveXeroAccessToken();
   const tenantId = getStoredXeroTenantId();
   if (!accessToken || !tenantId) {
     throw new Error("Xero live token and tenant are required to pull payments. Connect Xero in Setup or set XERO_ACCESS_TOKEN + XERO_TENANT_ID.");
+  }
+
+  if (preferredId?.trim()) {
+    try {
+      const byId = await fetchXeroInvoiceById(preferredId.trim(), accessToken, tenantId);
+      return { invoice: byId, accessToken, tenantId, matchedBy: "id" as const };
+    } catch {
+      // fall through to number lookup for stale links
+    }
   }
 
   const where = encodeURIComponent(`InvoiceNumber=="${invoiceNumber.replace(/"/g, "")}"`);
@@ -112,7 +146,7 @@ async function fetchXeroInvoiceByNumber(invoiceNumber: string) {
   if (!matched) {
     throw new Error(`No Xero ACCREC invoice found with number ${invoiceNumber}. Export it first, then pull payments.`);
   }
-  return { invoice: matched, accessToken, tenantId };
+  return { invoice: matched, accessToken, tenantId, matchedBy: "number" as const };
 }
 
 async function fetchXeroPaymentsForInvoice(invoiceId: string, accessToken: string, tenantId: string) {
@@ -157,7 +191,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { invoice: xeroInvoice, accessToken, tenantId } = await fetchXeroInvoiceByNumber(invoice.ref);
+    const { invoice: xeroInvoice, accessToken, tenantId, matchedBy } = await resolveXeroInvoiceForPull(
+      invoice.ref,
+      invoice.xeroInvoiceId,
+    );
     const xeroInvoiceId = xeroInvoice.InvoiceID || "";
     if (!xeroInvoiceId) {
       return NextResponse.json({ error: "Xero invoice is missing InvoiceID." }, { status: 502 });
@@ -261,7 +298,10 @@ export async function POST(request: NextRequest) {
       match: {
         invoiceNumber: xeroInvoice.InvoiceNumber || invoice.ref,
         xeroInvoiceId,
+        matchedBy,
       },
+      xeroInvoiceId,
+      xeroInvoiceNumber: xeroInvoice.InvoiceNumber || invoice.ref,
       fetchedCount: xeroPayments.length,
       addedCount: added.length,
       skippedCount,

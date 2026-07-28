@@ -947,6 +947,9 @@ type Invoice = {
   paymentStatus?: InvoicePaymentStatus;
   paidAmount?: number;
   payments?: InvoicePaymentRecord[];
+  xeroInvoiceId?: string;
+  xeroInvoiceNumber?: string;
+  xeroExportedAt?: string;
 };
 
 type InvoiceEmailDraft = {
@@ -15277,6 +15280,7 @@ export default function Dashboard() {
             chargeTotal: selectedInvoice.chargeTotal,
             vatRate: selectedInvoice.vatRate,
             notes: selectedInvoice.notes,
+            xeroInvoiceId: selectedInvoice.xeroInvoiceId,
             lines: selectedInvoice.lines.map((line) => ({
               description: line.description,
               category: line.category,
@@ -15287,10 +15291,13 @@ export default function Dashboard() {
         }),
       });
       const body = await response.json().catch(() => null) as {
-        export?: { mode?: string; detail?: string; status?: string };
+        export?: { mode?: string; detail?: string; status?: string; updatedExisting?: boolean };
         accountsStatus?: AccountsExportStatus;
         csv?: string | null;
         error?: string;
+        xeroInvoiceId?: string | null;
+        xeroInvoiceNumber?: string | null;
+        xeroExportedAt?: string | null;
       } | null;
       if (!response.ok || !body?.export) {
         throw new Error(body?.error || `Xero export failed (HTTP ${response.status})`);
@@ -15298,7 +15305,17 @@ export default function Dashboard() {
       const accountsStatus = body.accountsStatus ?? "Sent";
       markInvoiceEdited();
       setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
-        ? { ...invoice, accountsStatus }
+        ? {
+            ...invoice,
+            accountsStatus,
+            ...(body.xeroInvoiceId
+              ? {
+                  xeroInvoiceId: body.xeroInvoiceId,
+                  xeroInvoiceNumber: body.xeroInvoiceNumber || invoice.ref,
+                  xeroExportedAt: body.xeroExportedAt || new Date().toISOString(),
+                }
+              : {}),
+          }
         : invoice,
       ));
       logAuditEvent({
@@ -15352,6 +15369,7 @@ export default function Dashboard() {
             claimType: selectedInvoice.claimType,
             payments: selectedInvoice.payments || [],
             paidAmount: selectedInvoice.paidAmount ?? 0,
+            xeroInvoiceId: selectedInvoice.xeroInvoiceId,
           },
         }),
       });
@@ -15365,7 +15383,9 @@ export default function Dashboard() {
         paidAmount?: number;
         paymentStatus?: InvoicePaymentStatus;
         status?: InvoiceStatus;
-        match?: { invoiceNumber?: string; xeroInvoiceId?: string };
+        xeroInvoiceId?: string;
+        xeroInvoiceNumber?: string;
+        match?: { invoiceNumber?: string; xeroInvoiceId?: string; matchedBy?: string };
       } | null;
       if (!response.ok || !body?.payments) {
         throw new Error(body?.error || `Xero payment pull failed (HTTP ${response.status})`);
@@ -15381,6 +15401,12 @@ export default function Dashboard() {
                 paidAmount: body.paidAmount ?? invoice.paidAmount,
                 paymentStatus: body.paymentStatus ?? invoice.paymentStatus,
                 status: body.status ?? invoice.status,
+                ...(body.xeroInvoiceId
+                  ? {
+                      xeroInvoiceId: body.xeroInvoiceId,
+                      xeroInvoiceNumber: body.xeroInvoiceNumber || invoice.xeroInvoiceNumber || invoice.ref,
+                    }
+                  : {}),
               }
             : invoice,
         ),
@@ -31943,6 +31969,16 @@ export default function Dashboard() {
                             <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
                           </div>
                           <div>
+                            <span>Xero link</span>
+                            <strong>
+                              {selectedInvoice.xeroInvoiceId
+                                ? `Linked · ${selectedInvoice.xeroInvoiceNumber || selectedInvoice.ref}`
+                                : selectedInvoice.accountsStatus === "Sent"
+                                  ? "Sent (no live InvoiceID yet)"
+                                  : "Not linked"}
+                            </strong>
+                          </div>
+                          <div>
                             <span>Amount remaining</span>
                             <strong>{currency(Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0)))}</strong>
                           </div>
@@ -32026,7 +32062,13 @@ export default function Dashboard() {
                               disabled={isExportingInvoiceToXero || !access.canEditInvoice}
                               onClick={() => void exportSelectedInvoiceToXero()}
                             >
-                              {isExportingInvoiceToXero ? "Exporting…" : selectedInvoice.accountsStatus === "Sent" ? "Re-export to Xero" : "Export to Xero"}
+                              {isExportingInvoiceToXero
+                                ? "Exporting…"
+                                : selectedInvoice.xeroInvoiceId
+                                  ? "Update Xero invoice"
+                                  : selectedInvoice.accountsStatus === "Sent"
+                                    ? "Re-export to Xero"
+                                    : "Export to Xero"}
                             </button>
                           </div>
                         </footer>

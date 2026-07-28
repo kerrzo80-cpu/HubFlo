@@ -190,6 +190,7 @@ Until Brian cuts further, execute in this order:
 - **Xero export** on invoice record (live API when tokens present, else CSV import pack) + accounts status Sent
 - **Xero OAuth connect** in Setup → Integrations (`/api/integrations/xero/connect` + callback); static token still supported; CSV always works
 - **Xero payment pull** on invoice record (`/api/integrations/xero/payments`) — append-only import by invoice number with PaymentID dedupe
+- **Xero InvoiceID** stored on NeXa invoice after live export; re-export updates existing; payment pull prefers GUID then number
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links

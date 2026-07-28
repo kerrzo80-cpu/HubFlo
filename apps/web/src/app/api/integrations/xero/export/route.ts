@@ -18,6 +18,7 @@ type XeroExportInvoice = {
   chargeTotal: number;
   vatRate: number;
   notes?: string;
+  xeroInvoiceId?: string;
   lines: Array<{
     description: string;
     category: string;
@@ -37,6 +38,9 @@ type XeroExportRecord = {
   detail: string;
   csvPath?: string;
   externalId?: string;
+  xeroInvoiceId?: string;
+  xeroInvoiceNumber?: string;
+  updatedExisting?: boolean;
 };
 
 type XeroExportStore = {
@@ -70,14 +74,51 @@ function buildInvoiceCsv(invoice: XeroExportInvoice) {
   return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
 }
 
-async function tryLiveXeroCreate(invoice: XeroExportInvoice) {
+async function findXeroInvoiceIdByNumber(
+  invoiceNumber: string,
+  accessToken: string,
+  tenantId: string,
+): Promise<{ invoiceId: string; invoiceNumber: string } | null> {
+  const where = encodeURIComponent(`InvoiceNumber=="${invoiceNumber.replace(/"/g, "")}"`);
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/Invoices?where=${where}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      Accept: "application/json",
+    },
+  });
+  if (!response.ok) return null;
+  const body = (await response.json().catch(() => ({}))) as {
+    Invoices?: Array<{ InvoiceID?: string; InvoiceNumber?: string; Type?: string }>;
+  };
+  const match = (body.Invoices || []).find(
+    (row) =>
+      row.Type === "ACCREC" &&
+      String(row.InvoiceNumber || "").trim().toLowerCase() === invoiceNumber.trim().toLowerCase() &&
+      row.InvoiceID,
+  );
+  if (!match?.InvoiceID) return null;
+  return { invoiceId: match.InvoiceID, invoiceNumber: match.InvoiceNumber || invoiceNumber };
+}
+
+async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
   const accessToken = await resolveXeroAccessToken();
   const tenantId = getStoredXeroTenantId();
   if (!accessToken || !tenantId) {
     return { ok: false as const, reason: "No Xero OAuth token / static access token + tenant for live API push." };
   }
 
-  const payload = {
+  let xeroInvoiceId = invoice.xeroInvoiceId?.trim() || "";
+  let updatedExisting = Boolean(xeroInvoiceId);
+  if (!xeroInvoiceId) {
+    const existing = await findXeroInvoiceIdByNumber(invoice.ref, accessToken, tenantId).catch(() => null);
+    if (existing?.invoiceId) {
+      xeroInvoiceId = existing.invoiceId;
+      updatedExisting = true;
+    }
+  }
+
+  const payload: Record<string, unknown> = {
     Type: "ACCREC",
     Contact: { Name: invoice.customer },
     Date: invoice.issuedDate,
@@ -94,6 +135,7 @@ async function tryLiveXeroCreate(invoice: XeroExportInvoice) {
     })),
     Status: "AUTHORISED",
   };
+  if (xeroInvoiceId) payload.InvoiceID = xeroInvoiceId;
 
   const response = await fetch("https://api.xero.com/api.xro/2.0/Invoices", {
     method: "POST",
@@ -111,12 +153,17 @@ async function tryLiveXeroCreate(invoice: XeroExportInvoice) {
     return { ok: false as const, reason: `Xero API ${response.status}: ${text.slice(0, 240)}` };
   }
 
-  const body = await response.json().catch(() => ({})) as {
+  const body = (await response.json().catch(() => ({}))) as {
     Invoices?: Array<{ InvoiceID?: string; InvoiceNumber?: string }>;
   };
+  const returned = body.Invoices?.[0];
+  const externalId = returned?.InvoiceID || xeroInvoiceId || returned?.InvoiceNumber || invoice.ref;
   return {
     ok: true as const,
-    externalId: body.Invoices?.[0]?.InvoiceID || body.Invoices?.[0]?.InvoiceNumber || invoice.ref,
+    externalId,
+    xeroInvoiceId: returned?.InvoiceID || xeroInvoiceId || "",
+    xeroInvoiceNumber: returned?.InvoiceNumber || invoice.ref,
+    updatedExisting,
   };
 }
 
@@ -150,7 +197,7 @@ export async function POST(request: NextRequest) {
   const createdAt = new Date().toISOString();
   const store = loadServerStore<XeroExportStore>(STORE, { exports: [] });
 
-  const live = await tryLiveXeroCreate(invoice).catch((error) => ({
+  const live = await tryLiveXeroUpsert(invoice).catch((error) => ({
     ok: false as const,
     reason: error instanceof Error ? error.message : "Live Xero push failed",
   }));
@@ -165,8 +212,13 @@ export async function POST(request: NextRequest) {
       mode: "live-api",
       createdAt,
       actor,
-      detail: `Pushed to Xero as ${live.externalId}`,
+      detail: live.updatedExisting
+        ? `Updated existing Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})`
+        : `Created Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})`,
       externalId: live.externalId,
+      xeroInvoiceId: live.xeroInvoiceId || undefined,
+      xeroInvoiceNumber: live.xeroInvoiceNumber || invoice.ref,
+      updatedExisting: live.updatedExisting,
     };
   } else {
     const csv = buildInvoiceCsv(invoice);
@@ -197,5 +249,8 @@ export async function POST(request: NextRequest) {
     export: record,
     accountsStatus: "Sent" as const,
     csv: live.ok ? null : buildInvoiceCsv(invoice),
+    xeroInvoiceId: live.ok ? live.xeroInvoiceId || null : null,
+    xeroInvoiceNumber: live.ok ? live.xeroInvoiceNumber || invoice.ref : null,
+    xeroExportedAt: live.ok ? createdAt : null,
   });
 }
