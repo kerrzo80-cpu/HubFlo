@@ -25630,7 +25630,24 @@ export default function Dashboard() {
               );
             })() : <section className="record-folder-empty">Purchase order not found.</section>
           ) : homeView === "stock" ? (
-            <StockOpsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
+            <StockOpsPanel
+              requestHeaders={requestHeaders}
+              onNotice={showNotice}
+              jobs={jobs.map((job) => ({
+                id: job.id,
+                ref: job.ref,
+                customer: job.customer,
+                status: job.status,
+              }))}
+              actorName={activeEmployee?.name ?? "NeXa"}
+              defaultSupplier={suppliers[0]?.name || "Plumbase"}
+              onPurchaseRequestCreated={(created) => {
+                setPurchaseRequests((current) => {
+                  if (current.some((row) => row.id === created.id)) return current;
+                  return [created as PurchaseRequest, ...current];
+                });
+              }}
+            />
           ) : homeView === "recurring" ? (
             <RecurringOpsPanel
               requestHeaders={requestHeaders}

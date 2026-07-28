@@ -7,10 +7,31 @@ type RequestHeaders = HeadersInit;
 
 type StockSnapshot = {
   locations: Array<{ id: string; name: string; kind: string; engineerName?: string }>;
-  items: Array<{ id: string; sku: string; name: string; unit: string; minLevel: number; unitCost: number }>;
+  items: Array<{
+    id: string;
+    sku: string;
+    name: string;
+    unit: string;
+    minLevel: number;
+    unitCost: number;
+    preferredSupplier?: string;
+    catalogItemId?: string;
+  }>;
   balances: Array<{ locationId: string; itemId: string; quantity: number }>;
   movements: Array<{ id: string; at: string; itemId: string; quantity: number; reason: string; jobRef?: string; poNumber?: string; note?: string }>;
-  lowStock: Array<{ item: { id: string; sku: string; name: string; minLevel: number }; onHand: number }>;
+  lowStock: Array<{
+    item: {
+      id: string;
+      sku: string;
+      name: string;
+      unit?: string;
+      minLevel: number;
+      unitCost?: number;
+      preferredSupplier?: string;
+      catalogItemId?: string;
+    };
+    onHand: number;
+  }>;
 };
 
 type SiteAsset = {
@@ -42,13 +63,35 @@ type RecurringPlan = {
 export function StockOpsPanel({
   requestHeaders,
   onNotice,
+  jobs = [],
+  actorName = "NeXa",
+  defaultSupplier = "Plumbase",
+  onPurchaseRequestCreated,
 }: {
   requestHeaders: RequestHeaders;
   onNotice: (message: string) => void;
+  jobs?: Array<{ id: string; ref: string; customer: string; status: string }>;
+  actorName?: string;
+  defaultSupplier?: string;
+  onPurchaseRequestCreated?: (request: {
+    id: string;
+    jobId: string;
+    jobRef: string;
+    supplier: string;
+    item: string;
+    estimatedCost: number;
+    status: string;
+    poNumber: string;
+  }) => void;
 }) {
   const [snapshot, setSnapshot] = useState<StockSnapshot | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [reorderBusyId, setReorderBusyId] = useState<string | null>(null);
+  const [reorderDraft, setReorderDraft] = useState({
+    jobId: "",
+    supplier: defaultSupplier,
+  });
   const [draft, setDraft] = useState({ sku: "", name: "", unit: "each", minLevel: "0", unitCost: "0", locationId: "", qty: "1" });
   const [moveDraft, setMoveDraft] = useState({
     itemId: "",
@@ -59,6 +102,15 @@ export function StockOpsPanel({
     countedQty: "",
     mode: "transfer" as "transfer" | "issue" | "stocktake",
   });
+
+  const openJobs = useMemo(
+    () =>
+      jobs.filter(
+        (job) =>
+          !["Completed", "Cancelled", "Invoiced"].includes(job.status),
+      ),
+    [jobs],
+  );
 
   async function load() {
     setError("");
@@ -76,6 +128,11 @@ export function StockOpsPanel({
         fromLocationId: current.fromLocationId || body.locations?.[0]?.id || "",
         toLocationId: current.toLocationId || body.locations?.[1]?.id || body.locations?.[0]?.id || "",
       }));
+      setReorderDraft((current) => ({
+        ...current,
+        jobId: current.jobId || openJobs[0]?.id || jobs[0]?.id || "",
+        supplier: current.supplier || defaultSupplier,
+      }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load stock");
     }
@@ -85,6 +142,12 @@ export function StockOpsPanel({
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!reorderDraft.jobId && (openJobs[0]?.id || jobs[0]?.id)) {
+      setReorderDraft((current) => ({ ...current, jobId: openJobs[0]?.id || jobs[0]?.id || "" }));
+    }
+  }, [jobs, openJobs, reorderDraft.jobId]);
 
   const onHandByItem = useMemo(() => {
     const map = new Map<string, number>();
@@ -212,6 +275,62 @@ export function StockOpsPanel({
     }
   }
 
+  async function createLowStockReorder(row: StockSnapshot["lowStock"][number]) {
+    const job = jobs.find((item) => item.id === reorderDraft.jobId) || openJobs[0] || jobs[0];
+    if (!job) {
+      onNotice("Create or open a job first so the reorder PO has somewhere to charge.");
+      return;
+    }
+    const supplier = (reorderDraft.supplier || row.item.preferredSupplier || defaultSupplier).trim();
+    if (!supplier) {
+      onNotice("Enter a supplier for the reorder PO.");
+      return;
+    }
+    const shortfall = Math.max(row.item.minLevel - row.onHand, 0);
+    const orderQty = Math.max(shortfall || row.item.minLevel || 1, 1);
+    const unitCost = Number(row.item.unitCost) || 0;
+    const estimatedCost = Number((unitCost * orderQty).toFixed(2));
+
+    setReorderBusyId(row.item.id);
+    setError("");
+    try {
+      const response = await fetch("/api/purchase-requests", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: job.id,
+          jobRef: job.ref,
+          requestedBy: actorName,
+          supplier,
+          item: `${row.item.name} (${row.item.sku})`,
+          estimatedCost,
+          reason: `Low stock reorder · on hand ${row.onHand} · min ${row.item.minLevel}`,
+          lines: [
+            {
+              id: `reorder-${row.item.id}`,
+              description: row.item.name,
+              quantity: orderQty,
+              estimatedCost,
+              receivedPercent: 0,
+              sku: row.item.sku,
+              catalogItemId: row.item.catalogItemId,
+            },
+          ],
+        }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(body?.error || "Unable to create reorder PO");
+      onPurchaseRequestCreated?.(body);
+      onNotice(
+        `Reorder PO ${body.poNumber || "created"} for ${row.item.sku} × ${orderQty} against ${job.ref}.`,
+      );
+    } catch (reorderError) {
+      setError(reorderError instanceof Error ? reorderError.message : "Unable to create reorder PO");
+    } finally {
+      setReorderBusyId(null);
+    }
+  }
+
   return (
     <section className="ops-module-panel">
       <header className="ops-module-header">
@@ -315,15 +434,54 @@ export function StockOpsPanel({
           </ul>
           <h3>Low stock</h3>
           {(snapshot?.lowStock || []).length ? (
-            <ul className="ops-simple-list warn">
-              {snapshot?.lowStock.map((row) => (
-                <li key={row.item.id}>
-                  <AlertTriangle size={14} />
-                  <strong>{row.item.name}</strong>
-                  <span>{row.onHand} on hand · min {row.item.minLevel}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="ops-form-grid" style={{ marginBottom: "0.75rem" }}>
+                <label>
+                  Charge reorder to job
+                  <select
+                    value={reorderDraft.jobId}
+                    onChange={(e) => setReorderDraft((c) => ({ ...c, jobId: e.target.value }))}
+                  >
+                    {(openJobs.length ? openJobs : jobs).map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.ref} · {job.customer}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Supplier
+                  <input
+                    value={reorderDraft.supplier}
+                    onChange={(e) => setReorderDraft((c) => ({ ...c, supplier: e.target.value }))}
+                    placeholder="Plumbase"
+                  />
+                </label>
+              </div>
+              <ul className="ops-simple-list warn">
+                {snapshot?.lowStock.map((row) => {
+                  const shortfall = Math.max(row.item.minLevel - row.onHand, 0);
+                  const orderQty = Math.max(shortfall || row.item.minLevel || 1, 1);
+                  return (
+                    <li key={row.item.id}>
+                      <AlertTriangle size={14} />
+                      <strong>{row.item.name}</strong>
+                      <span>
+                        {row.onHand} on hand · min {row.item.minLevel} · order {orderQty} {row.item.unit || ""}
+                      </span>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={Boolean(reorderBusyId) || (!openJobs.length && !jobs.length)}
+                        onClick={() => void createLowStockReorder(row)}
+                      >
+                        {reorderBusyId === row.item.id ? "Creating…" : "Create reorder PO"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           ) : (
             <p className="muted">No items below minimum.</p>
           )}

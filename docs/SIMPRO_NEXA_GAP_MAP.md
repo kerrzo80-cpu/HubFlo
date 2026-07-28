@@ -192,6 +192,7 @@ Until Brian cuts further, execute in this order:
 - **Xero payment pull** on invoice record (`/api/integrations/xero/payments`) — append-only import by invoice number with PaymentID dedupe
 - **Xero InvoiceID** stored on NeXa invoice after live export; re-export updates existing; payment pull prefers GUID then number
 - **PO → Xero bill (ACCPAY)** export from purchase order record (live upsert or CSV pack); stores `xeroBillId`
+- **Low-stock reorder PO** from Stock panel (shortfall qty, supplier + charge-to job)
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links
