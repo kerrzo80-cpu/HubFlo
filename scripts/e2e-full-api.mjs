@@ -435,6 +435,13 @@ async function main() {
     }
   }
 
+  // Pre-builds catalogue kits available
+  {
+    const pb = await request("GET", "/api/prebuilds", null, cookie);
+    if (pb.status >= 400) note("issue", "Pre-builds list failed", { detail: JSON.stringify(pb.json).slice(0, 200) });
+    else note("info", "Pre-builds available", { detail: String((pb.json?.kits || []).length) });
+  }
+
   // Summary counts
   const leads = (await request("GET", "/api/leads", null, cookie)).json;
   const quotes = (await request("GET", "/api/quotes", null, cookie)).json;
