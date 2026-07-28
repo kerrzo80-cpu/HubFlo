@@ -75,8 +75,6 @@ import {
   type VatTreatment,
 } from "@/lib/people-seed-data";
 import {
-  buddyAvatarSrc,
-  buddyMemoryPrompt,
   buddyMoodFromFindings,
   defaultBuddyMemory,
   dismissBuddyFinding,
@@ -84,9 +82,11 @@ import {
   markWalkthroughComplete,
   recordBuddyMiss,
   recordBuddyQuotePattern,
+  buddyMemoryPrompt,
   type BuddyMemory,
   type BuddyMood,
 } from "@/lib/buddy-memory";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { buddyWatchSummary, watchQuoteReadiness, type BuddyWatchFinding } from "@/lib/buddy-quote-watch";
 import {
   employeeHeaderName,
@@ -20944,7 +20944,7 @@ export default function Dashboard() {
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
-                  <img src={buddyAvatarSrc} alt="" className="buddy-avatar" />
+                  <BuddyCharacter mood={buddyMood} size="md" />
                 </span>
                 <div>
                   <strong>Buddy</strong>
@@ -21110,11 +21110,13 @@ export default function Dashboard() {
           onClick={() => setNexaAssistantOpen((current) => !current)}
         >
           {nexaAssistantOpen ? (
-            <X size={22} />
+            <span className="buddy-launcher-close">
+              <X size={18} />
+            </span>
           ) : (
-            <img src={buddyAvatarSrc} alt="" className="buddy-avatar buddy-launcher-avatar" />
+            <BuddyCharacter mood={buddyMood} size="hero" className="buddy-launcher-mascot" />
           )}
-          <span>Buddy</span>
+          <span className="buddy-launcher-label">Buddy</span>
           {!nexaAssistantOpen && buddyAlertCount > 0 ? (
             <em className="buddy-launcher-badge" aria-hidden>
               {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
