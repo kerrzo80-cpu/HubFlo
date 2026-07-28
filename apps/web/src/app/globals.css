@@ -13773,11 +13773,18 @@ h1 {
 
 .ops-form-grid input,
 .ops-form-grid select,
+.ops-form-grid textarea,
 .accounts-payment-amount input {
   border: 1px solid var(--line);
   font: inherit;
   min-height: 38px;
   padding: 0 10px;
+}
+
+.ops-form-grid textarea {
+  min-height: 96px;
+  padding: 10px;
+  resize: vertical;
 }
 
 .ops-simple-list {

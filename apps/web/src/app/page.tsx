@@ -109,6 +109,7 @@ import {
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
+import { SetupConfigPanel, SetupStockLocationsPanel } from "@/lib/SetupExtraPanels";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -620,6 +621,12 @@ type SetupCategory =
   | "imports"
   | "catalogue"
   | "rates"
+  | "stock-setup"
+  | "asset-types"
+  | "statuses"
+  | "tax-codes"
+  | "email-templates"
+  | "security"
   | "integrations"
   | "communications"
   | "finance";
@@ -1422,6 +1429,11 @@ type BusinessSettings = {
   companyNumber: string;
   defaultFromEmail: string;
   clientPortalBrandLine: string;
+  brandPrimaryColor: string;
+  brandAccentColor: string;
+  logoUrl: string;
+  portalWelcomeText: string;
+  portalAcceptanceText: string;
 };
 
 type FormTemplate = {
@@ -1762,6 +1774,7 @@ type HubDetailStatePayload = {
   quoteSchedulePlans?: Record<string, QuoteScheduleAssignment[]>;
   jobSchedulePlans?: Record<string, JobScheduleAssignment[]>;
   customQuoteCatalog?: CatalogItem[];
+  catalogFolders?: string[];
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
   jobSections?: Record<string, JobSection[]>;
   jobReviews?: Record<string, JobReviewState>;
@@ -2107,6 +2120,11 @@ const defaultBusinessSettings: BusinessSettings = {
   companyNumber: "SC000000",
   defaultFromEmail: "office@errolwatsongroup.co.uk",
   clientPortalBrandLine: "Control every moving part.",
+  brandPrimaryColor: "#157fa8",
+  brandAccentColor: "#0f5f7d",
+  logoUrl: "/ewg-logo.png",
+  portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
+  portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
 };
 
 const defaultFormTemplates: FormTemplate[] = [
@@ -2661,6 +2679,12 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
+  { key: "stock-setup", label: "Stock locations", detail: "Warehouse and van stock locations" },
+  { key: "asset-types", label: "Asset types", detail: "Gas, oil, pipework and service intervals" },
+  { key: "statuses", label: "Statuses & reasons", detail: "Lead/quote/job/invoice statuses and lost reasons" },
+  { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
+  { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
+  { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
   { key: "integrations", label: "Integrations", detail: "simPRO, Xero and live system sync", subItems: ["simPRO", "Xero", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
@@ -2866,6 +2890,12 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
   },
+  "stock-setup": {},
+  "asset-types": {},
+  statuses: {},
+  "tax-codes": {},
+  "email-templates": {},
+  security: {},
   integrations: {
     simPRO: {
       summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm NeXa can keep pushing records across.",
@@ -8938,8 +8968,13 @@ export default function Dashboard() {
           if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.customQuoteCatalog) {
             setCustomQuoteCatalog(hubState.customQuoteCatalog);
             setCatalogFolders((current) =>
-              mergeCatalogFolderList(current, hubState.customQuoteCatalog!.map((item) => inferCatalogFolder(item))),
+              mergeCatalogFolderList(
+                hubState.catalogFolders?.length ? hubState.catalogFolders : current,
+                hubState.customQuoteCatalog!.map((item) => inferCatalogFolder(item)),
+              ),
             );
+          } else if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.catalogFolders?.length) {
+            setCatalogFolders((current) => mergeCatalogFolderList(hubState.catalogFolders!, current));
           }
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
@@ -9046,6 +9081,7 @@ export default function Dashboard() {
       quoteSchedulePlans,
       jobSchedulePlans,
       customQuoteCatalog,
+      catalogFolders,
       jobCostCentres: jobEstimateCostCentres,
       jobSections,
       jobReviews: jobReviewApprovals,
@@ -16958,7 +16994,15 @@ export default function Dashboard() {
   async function approveSelectedJobForInvoice() {
     if (!selectedJob) return;
     if (!selectedJobReviewComplete) {
+      if (workflowRules.requireCommercialReviewBeforeInvoice && !selectedJobReviewState.commercial) {
+        showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
+        return;
+      }
       showNotice("All completion review checks must be ticked before invoicing.");
+      return;
+    }
+    if (workflowRules.requireCommercialReviewBeforeInvoice && !selectedJobReviewState.commercial) {
+      showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
       return;
     }
     try {
@@ -21429,6 +21473,15 @@ export default function Dashboard() {
   }
 
   async function markPurchaseRequestStatus(id: string, status: PurchaseStatus) {
+    if (status === "Approved") {
+      const request = purchaseRequests.find((item) => item.id === id);
+      const threshold = Number(workflowRules.poApprovalThreshold) || 0;
+      const amount = request?.estimatedCost ?? 0;
+      if (threshold > 0 && amount > threshold && !access.canApprovePurchase) {
+        showNotice(`POs over £${threshold.toFixed(0)} need a purchaser with Approve POs access.`);
+        return;
+      }
+    }
     await patchPurchaseRequest(id, { status }, `PO marked ${status}.`);
   }
 
@@ -31998,12 +32051,33 @@ export default function Dashboard() {
                           Client portal brand line
                           <input value={businessSettings.clientPortalBrandLine} onChange={(event) => updateBusinessSettings({ clientPortalBrandLine: event.target.value })} />
                         </label>
+                        <label>
+                          Brand primary colour
+                          <input value={businessSettings.brandPrimaryColor} onChange={(event) => updateBusinessSettings({ brandPrimaryColor: event.target.value })} placeholder="#157fa8" />
+                        </label>
+                        <label>
+                          Brand accent colour
+                          <input value={businessSettings.brandAccentColor} onChange={(event) => updateBusinessSettings({ brandAccentColor: event.target.value })} placeholder="#0f5f7d" />
+                        </label>
+                        <label className="span-2">
+                          Logo URL
+                          <input value={businessSettings.logoUrl} onChange={(event) => updateBusinessSettings({ logoUrl: event.target.value })} placeholder="/ewg-logo.png" />
+                        </label>
+                        <label className="span-2">
+                          Portal welcome text
+                          <textarea value={businessSettings.portalWelcomeText} onChange={(event) => updateBusinessSettings({ portalWelcomeText: event.target.value })} rows={3} />
+                        </label>
+                        <label className="span-2">
+                          Portal acceptance wording
+                          <textarea value={businessSettings.portalAcceptanceText} onChange={(event) => updateBusinessSettings({ portalAcceptanceText: event.target.value })} rows={3} />
+                        </label>
                       </div>
 
-                      <div className="setup-preview-card">
-                        <span>Form header preview</span>
+                      <div className="setup-preview-card" style={{ borderTop: `4px solid ${businessSettings.brandPrimaryColor || "#157fa8"}` }}>
+                        <span>Form / portal preview</span>
                         <strong>{businessSettings.companyName}</strong>
                         <p>{businessSettings.clientPortalBrandLine}</p>
+                        <small>{businessSettings.portalWelcomeText}</small>
                         <small>{businessSettings.address} · {businessSettings.contactEmail} · VAT {businessSettings.vatNumber}</small>
                       </div>
                     </section>
@@ -32320,12 +32394,13 @@ export default function Dashboard() {
                                 Assigned engineer checklist
                                 <select
                                   value={assignedFlow.id}
-                                  onChange={(event) =>
+                                  onChange={(event) => {
+                                    markSetupEdited();
                                     setCostCentreFlowAssignmentDrafts((current) => ({
                                       ...current,
                                       [templateName]: event.target.value,
-                                    }))
-                                  }
+                                    }));
+                                  }}
                                 >
                                   {engineerFlowLibrary.map((template) => (
                                     <option key={template.id} value={template.id}>
@@ -33011,6 +33086,25 @@ export default function Dashboard() {
 	                      </div>
 	                    </section>
 	                  ) : null}
+
+                  {activeSetupCategory === "stock-setup" ? (
+                    <SetupStockLocationsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
+                  ) : null}
+                  {activeSetupCategory === "asset-types" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="assets" />
+                  ) : null}
+                  {activeSetupCategory === "statuses" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="statuses" />
+                  ) : null}
+                  {activeSetupCategory === "tax-codes" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="tax" />
+                  ) : null}
+                  {activeSetupCategory === "email-templates" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="email-templates" />
+                  ) : null}
+                  {activeSetupCategory === "security" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="security" />
+                  ) : null}
 
 	                  {activeSetupCategory === "integrations" ? (
 	                    <section className="setup-panel">

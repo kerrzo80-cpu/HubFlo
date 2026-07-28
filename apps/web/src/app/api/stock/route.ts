@@ -3,10 +3,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
+  archiveStockLocation,
   getStockSnapshot,
   recordStockMovement,
   receivePurchaseIntoStock,
   upsertStockItem,
+  upsertStockLocation,
+  type StockLocationKind,
   type StockMovement,
 } from "@/lib/stock-data";
 
@@ -27,8 +30,10 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await parseJsonRequestBody<{
-    action?: "upsert-item" | "move" | "receive-po";
+    action?: "upsert-item" | "move" | "receive-po" | "upsert-location" | "archive-location";
     item?: Parameters<typeof upsertStockItem>[0];
+    location?: { id?: string; name: string; kind: StockLocationKind; engineerName?: string };
+    locationId?: string;
     movement?: {
       itemId: string;
       quantity: number;
@@ -48,6 +53,12 @@ export async function POST(request: NextRequest) {
     if (body?.action === "upsert-item" && body.item) {
       upsertStockItem(body.item);
       return NextResponse.json(getStockSnapshot());
+    }
+    if (body?.action === "upsert-location" && body.location) {
+      return NextResponse.json(upsertStockLocation(body.location));
+    }
+    if (body?.action === "archive-location" && body.locationId) {
+      return NextResponse.json(archiveStockLocation(body.locationId));
     }
     if (body?.action === "move" && body.movement) {
       recordStockMovement({ ...body.movement, actor });

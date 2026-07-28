@@ -260,4 +260,48 @@ export function receivePurchaseIntoStock(input: {
   return getStockSnapshot();
 }
 
+export function upsertStockLocation(input: {
+  id?: string;
+  name: string;
+  kind: StockLocationKind;
+  engineerName?: string;
+}) {
+  const store = readStore();
+  const name = input.name.trim();
+  if (!name) throw new Error("Location name is required.");
+  if (input.id) {
+    store.locations = store.locations.map((location) =>
+      location.id === input.id
+        ? {
+            ...location,
+            name,
+            kind: input.kind,
+            engineerName: input.engineerName?.trim() || undefined,
+          }
+        : location,
+    );
+  } else {
+    store.locations.push({
+      id: uid("loc"),
+      name,
+      kind: input.kind,
+      engineerName: input.engineerName?.trim() || undefined,
+    });
+  }
+  writeStore(store);
+  return getStockSnapshot();
+}
+
+export function archiveStockLocation(id: string) {
+  const store = readStore();
+  const location = store.locations.find((row) => row.id === id);
+  if (!location) throw new Error("Location not found.");
+  if (location.kind === "Warehouse" && store.locations.filter((row) => row.kind === "Warehouse" && !row.archived).length <= 1) {
+    throw new Error("Keep at least one warehouse location.");
+  }
+  location.archived = true;
+  writeStore(store);
+  return getStockSnapshot();
+}
+
 export { balanceKey };
