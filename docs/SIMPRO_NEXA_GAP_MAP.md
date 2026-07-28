@@ -205,6 +205,9 @@ Until Brian cuts further, execute in this order:
 - **Xero credit-note export** — ACCRECCREDIT live upsert + CSV pack; allocates to original invoice when Xero InvoiceID/number known
 - **Job confirmation WhatsApp** — confirmation sends email and/or WhatsApp (phone) using Meta connector when configured
 - **Site asset register depth** — edit/archive, install/last/warranty fields, overdue + due-soon filters
+- **Timesheet labour variance** — approved timesheets stamp `actualDurationHours` / `labourCostVariance` on the job banner
+- **Dashboard assets-due queue** — overdue/due-soon site assets (30 days) on the ops dashboard
+- **Cost-centre schedule tabs** — quote/job package visits listed with confirmation/planner actions
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client

@@ -7295,6 +7295,7 @@ export default function Dashboard() {
   const [invoicePaymentAmountDraft, setInvoicePaymentAmountDraft] = useState("");
   const [invoicePaymentMethodDraft, setInvoicePaymentMethodDraft] = useState("Bank transfer");
   const [invoicePaymentReferenceDraft, setInvoicePaymentReferenceDraft] = useState("");
+  const [invoiceRemittanceAfterPayment, setInvoiceRemittanceAfterPayment] = useState(false);
   const [poReceiptDraft, setPoReceiptDraft] = useState<{
     requestId: string;
     locationId: string;
@@ -15667,9 +15668,19 @@ export default function Dashboard() {
     const stillRemaining = Math.max(0, grandTotal - nextPaid);
     setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
     showNotice(`${selectedInvoice.ref}: recorded ${currency(amount)} · paid to date ${currency(nextPaid)}.`);
+    if (invoiceRemittanceAfterPayment) {
+      void sendSelectedInvoiceRemittanceAdvice(undefined, {
+        payment,
+        paidAmount: nextPaid,
+        outstanding: stillRemaining,
+      });
+    }
   }
 
-  async function sendSelectedInvoiceRemittanceAdvice(paymentId?: string) {
+  async function sendSelectedInvoiceRemittanceAdvice(
+    paymentId?: string,
+    overrides?: { payment?: InvoicePaymentRecord; paidAmount?: number; outstanding?: number },
+  ) {
     if (!selectedInvoice) return;
     if (selectedInvoice.claimType === "valuation") {
       showNotice("Remittance advice is for collectible invoices, not valuations.");
@@ -15680,15 +15691,12 @@ export default function Dashboard() {
       return;
     }
     const payments = selectedInvoice.payments || [];
-    if (!payments.length) {
-      showNotice("Record a payment before sending remittance advice.");
-      return;
-    }
-    const payment = paymentId
-      ? payments.find((item) => item.id === paymentId) ?? payments[payments.length - 1]
-      : payments[payments.length - 1];
+    const payment = overrides?.payment
+      || (paymentId
+        ? payments.find((item) => item.id === paymentId) ?? payments[payments.length - 1]
+        : payments[payments.length - 1]);
     if (!payment) {
-      showNotice("No payment found to confirm.");
+      showNotice("Record a payment before sending remittance advice.");
       return;
     }
 
@@ -15707,8 +15715,8 @@ export default function Dashboard() {
       selectedInvoiceClient?.primaryContact?.split(" ")[0] ||
       selectedInvoice.customer.split(" ")[0] ||
       "there";
-    const outstanding = invoiceOutstandingBalance(selectedInvoice);
-    const paidToDate = selectedInvoice.paidAmount ?? 0;
+    const outstanding = overrides?.outstanding ?? invoiceOutstandingBalance(selectedInvoice);
+    const paidToDate = overrides?.paidAmount ?? selectedInvoice.paidAmount ?? 0;
     const paymentReference = payment.reference?.trim() || "Not supplied";
 
     let subject = `Remittance advice · ${selectedInvoice.ref} · ${currency(payment.amount)}`;
@@ -33866,6 +33874,18 @@ export default function Dashboard() {
                               placeholder="Bank ref / remittance"
                               aria-label="Payment reference"
                             />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>After payment</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                              <input
+                                type="checkbox"
+                                checked={invoiceRemittanceAfterPayment}
+                                onChange={(event) => setInvoiceRemittanceAfterPayment(event.target.checked)}
+                                aria-label="Email remittance advice after recording payment"
+                              />
+                              Email remittance
+                            </span>
                           </label>
                           {selectedInvoice.claimType !== "credit-note" ? (
                             <>
