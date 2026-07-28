@@ -13003,7 +13003,218 @@ h1 {
   overflow: visible;
 }
 
-/* Simpro-style create: Customer | Site | Record */
+/* Simpro-style create Setup: form left, map right */
+.simpro-setup-layout {
+  display: grid;
+  gap: 0;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  min-height: 560px;
+  padding: 0;
+}
+
+.simpro-setup-form {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 16px 20px 20px;
+  overflow: auto;
+}
+
+.simpro-setup-tabs {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid #d6e6ec;
+  margin-bottom: 6px;
+  padding-bottom: 8px;
+}
+
+.simpro-setup-tabs span {
+  color: #6d8490;
+  font-size: 13px;
+  font-weight: 650;
+  padding-bottom: 6px;
+}
+
+.simpro-setup-tabs span.active {
+  color: #157fa8;
+  border-bottom: 2px solid #157fa8;
+}
+
+.simpro-setup-field-with-action {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.simpro-setup-field-with-action label,
+.simpro-setup-form > label,
+.simpro-setup-grid-2 label,
+.simpro-setup-new-site label,
+.simpro-setup-rates-grid label {
+  display: grid;
+  gap: 6px;
+  color: #4d6672;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.simpro-required::before {
+  content: "* ";
+  color: #c0392b;
+}
+
+.simpro-setup-create-link {
+  background: none;
+  border: 0;
+  color: #157fa8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 0 10px;
+  white-space: nowrap;
+}
+
+.simpro-setup-create-link:hover {
+  text-decoration: underline;
+}
+
+.simpro-setup-form input,
+.simpro-setup-form select,
+.simpro-setup-form textarea,
+.simpro-setup-new-site input,
+.simpro-setup-new-site select,
+.simpro-setup-rates-grid input,
+.simpro-setup-rates-grid select {
+  background: #fff;
+  border: 1px solid #c9dde5;
+  border-radius: 6px;
+  color: #173949;
+  font: inherit;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.simpro-setup-grid-2 {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.simpro-setup-new-site {
+  background: #f7fbfd;
+  border: 1px solid #d5e5eb;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.simpro-setup-rates {
+  border-top: 1px solid #d6e6ec;
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding-top: 14px;
+}
+
+.simpro-setup-rates-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.simpro-setup-rates-head h4 {
+  color: #173949;
+  font-size: 13px;
+  font-weight: 750;
+  margin: 0;
+}
+
+.simpro-setup-rates-readonly {
+  display: grid;
+  gap: 10px 16px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+}
+
+.simpro-setup-rates-readonly > div {
+  display: grid;
+  gap: 2px;
+}
+
+.simpro-setup-rates-readonly dt {
+  color: #6d8490;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.simpro-setup-rates-readonly dd {
+  color: #173949;
+  font-size: 13px;
+  margin: 0;
+}
+
+@media (max-width: 980px) {
+  .simpro-setup-rates-readonly {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.simpro-setup-rates-grid {
+  display: grid;
+  gap: 10px 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.simpro-setup-toggle {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #c9dde5;
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 36px;
+}
+
+.simpro-setup-toggle button {
+  background: #fff;
+  border: 0;
+  color: #4d6672;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 8px 10px;
+}
+
+.simpro-setup-toggle button.active {
+  background: #157fa8;
+  color: #fff;
+}
+
+.simpro-setup-map {
+  background: #eef5f8;
+  border-left: 1px solid #d5e5eb;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 560px;
+  overflow: hidden;
+  padding: 12px;
+}
+
+.simpro-setup-map iframe {
+  border: 0;
+  border-radius: 8px;
+  flex: 1;
+  min-height: 480px;
+  width: 100%;
+}
+
+/* Legacy create helpers kept for older surfaces */
 .simpro-create-layout {
   display: grid;
   gap: 14px;
@@ -13192,6 +13403,26 @@ h1 {
   margin: 0;
 }
 
+.simpro-summary-block label,
+.simpro-summary-block .full-field {
+  display: grid;
+  gap: 6px;
+  color: #4d6672;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.simpro-summary-block label select,
+.simpro-summary-block .full-field select {
+  background: #fff;
+  border: 1px solid #c9dde5;
+  border-radius: 8px;
+  color: #173949;
+  font: inherit;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
 .simpro-summary-actions {
   display: flex;
   flex-wrap: wrap;
@@ -13223,8 +13454,23 @@ h1 {
 
 @media (max-width: 980px) {
   .simpro-create-layout,
+  .simpro-setup-layout,
   .simpro-record-summary {
     grid-template-columns: 1fr;
+  }
+
+  .simpro-setup-rates-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .simpro-setup-map {
+    border-left: 0;
+    border-top: 1px solid #d5e5eb;
+    min-height: 280px;
+  }
+
+  .simpro-setup-map iframe {
+    min-height: 240px;
   }
 
   .simpro-create-map {
