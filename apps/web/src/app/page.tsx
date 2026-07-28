@@ -6804,6 +6804,7 @@ export default function Dashboard() {
   const [newJob, setNewJob] = useState<JobDraft>(blankJob);
   const [quotePostcodeSearch, setQuotePostcodeSearch] = useState("");
   const [jobPostcodeSearch, setJobPostcodeSearch] = useState("");
+  const [newClientSiteDraft, setNewClientSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [purchaseDraft, setPurchaseDraft] = useState(blankPurchaseRequest);
   const [editingPurchaseRequestId, setEditingPurchaseRequestId] = useState<string | null>(null);
@@ -11112,6 +11113,16 @@ export default function Dashboard() {
       .slice(0, 8);
   }, [jobPostcodeSearch]);
 
+  function addressSelectedFromPostcode(postcodeSearch: string, address: string) {
+    const query = postcodeSearch.trim().toLowerCase();
+    const target = address.trim().toLowerCase();
+    if (query.length < 3 || !target) return false;
+    return postcodeDirectory.some((entry) =>
+      entry.postcode.toLowerCase().includes(query) &&
+      entry.addresses.some((candidate) => candidate.trim().toLowerCase() === target),
+    );
+  }
+
   function showNotice(message: string) {
     if (noticeClearTimeout.current) clearTimeout(noticeClearTimeout.current);
     setSectionNotice(message);
@@ -11575,7 +11586,17 @@ export default function Dashboard() {
     setClients((current) => current.map((client) => (client.id === clientId ? { ...client, ...patch } : client)));
   }
 
+  function updateClientRecordDraft(clientId: string, patch: Partial<ClientRecord>) {
+    markSetupEdited();
+    setClients((current) => current.map((client) => (client.id === clientId ? { ...client, ...patch } : client)));
+  }
+
   function updateSiteVatProfile(siteId: string, patch: Pick<Partial<ClientSite>, "vatTreatment" | "vatRateOverride">) {
+    markSetupEdited();
+    setClientSites((current) => current.map((site) => (site.id === siteId ? { ...site, ...patch } : site)));
+  }
+
+  function updateClientSiteDraft(siteId: string, patch: Partial<ClientSite>) {
     markSetupEdited();
     setClientSites((current) => current.map((site) => (site.id === siteId ? { ...site, ...patch } : site)));
   }
@@ -20029,6 +20050,18 @@ export default function Dashboard() {
   async function submitQuote() {
     let client = clients.find((item) => item.id === newQuote.clientId);
     let site = clientSites.find((item) => item.id === newQuote.siteId);
+    if (!newQuote.customer.trim()) {
+      showNotice("Choose or enter the customer before creating the quote.");
+      return;
+    }
+    if (!newQuote.contactName.trim()) {
+      showNotice("Add the main contact before creating the quote.");
+      return;
+    }
+    if (!addressSelectedFromPostcode(quotePostcodeSearch, newQuote.address)) {
+      showNotice("Search by postcode first, then choose the address from the dropdown before creating the quote.");
+      return;
+    }
     if (!client) {
       try {
         const createdCustomer = await createCustomerFromDraft("quote intake", newQuote);
@@ -20041,6 +20074,26 @@ export default function Dashboard() {
         showNotice(message);
         return;
       }
+    }
+    if (client && !site) {
+      try {
+        site = await createSiteForClient(client.id, {
+          ...blankClientSiteDraft,
+          name: newQuote.address.split(",")[0]?.trim() || "New site",
+          address: newQuote.address.trim(),
+          primaryContact: newQuote.contactName.trim(),
+          serviceLine: newQuote.description.trim() || "Quote work",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create site for the quote.";
+        setSectionError(message);
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site) {
+      showNotice("This quote needs a site before it can be created.");
+      return;
     }
     if (!newQuote.description.trim()) {
       showNotice("Add a quote description before creating the quote.");
@@ -20092,6 +20145,18 @@ export default function Dashboard() {
   async function createJob() {
     let client = clients.find((item) => item.id === newJob.clientId);
     let site = clientSites.find((item) => item.id === newJob.siteId);
+    if (!newJob.customer.trim()) {
+      showNotice("Choose or enter the customer before creating the job.");
+      return;
+    }
+    if (!newJob.contactName.trim()) {
+      showNotice("Add the main contact before creating the job.");
+      return;
+    }
+    if (!addressSelectedFromPostcode(jobPostcodeSearch, newJob.address)) {
+      showNotice("Search by postcode first, then choose the address from the dropdown before creating the job.");
+      return;
+    }
     if (!client) {
       try {
         const createdCustomer = await createCustomerFromDraft("reactive job intake", newJob);
@@ -20104,6 +20169,26 @@ export default function Dashboard() {
         showNotice(message);
         return;
       }
+    }
+    if (client && !site) {
+      try {
+        site = await createSiteForClient(client.id, {
+          ...blankClientSiteDraft,
+          name: newJob.address.split(",")[0]?.trim() || "New site",
+          address: newJob.address.trim(),
+          primaryContact: newJob.contactName.trim(),
+          serviceLine: newJob.description.trim() || "Job work",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create site for the job.";
+        setSectionError(message);
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site) {
+      showNotice("This job needs a site before it can be created.");
+      return;
     }
     if (!newJob.description.trim()) {
       showNotice("Add a job description before creating the job.");
@@ -32630,36 +32715,53 @@ export default function Dashboard() {
                     <div className="client-overview-grid">
                       <article className="client-info-card">
                         <span className="permission-heading">Account details</span>
-                        <dl>
-                          <div>
-                            <dt>Account ref</dt>
-                            <dd>{activeClient.accountReference}</dd>
-                          </div>
-                          <div>
-                            <dt>Primary contact</dt>
-                            <dd>{activeClient.primaryContact}</dd>
-                          </div>
-                          <div>
-                            <dt>Email</dt>
-                            <dd>{activeClient.email}</dd>
-                          </div>
-                          <div>
-                            <dt>Phone</dt>
-                            <dd>{activeClient.phone}</dd>
-                          </div>
-                          <div>
-                            <dt>Billing address</dt>
-                            <dd>{activeClient.billingAddress}</dd>
-                          </div>
-                          <div>
-                            <dt>Commercial owner</dt>
-                            <dd>{activeClient.commercialOwner}</dd>
-                          </div>
-                          <div>
-                            <dt>VAT treatment</dt>
-                            <dd>{resolveVatProfile(financeSettings, activeClient, null).note}</dd>
-                          </div>
-                        </dl>
+                        <div className="form-body employee-page-form two-column-form">
+                          <label>
+                            Account ref
+                            <input value={activeClient.accountReference} onChange={(event) => updateClientRecordDraft(activeClient.id, { accountReference: event.target.value })} />
+                          </label>
+                          <label>
+                            Customer name
+                            <input value={activeClient.name} onChange={(event) => updateClientRecordDraft(activeClient.id, { name: event.target.value })} />
+                          </label>
+                          <label>
+                            Primary contact
+                            <input value={activeClient.primaryContact} onChange={(event) => updateClientRecordDraft(activeClient.id, { primaryContact: event.target.value })} />
+                          </label>
+                          <label>
+                            Email
+                            <input value={activeClient.email} onChange={(event) => updateClientRecordDraft(activeClient.id, { email: event.target.value })} />
+                          </label>
+                          <label>
+                            Phone
+                            <input value={activeClient.phone} onChange={(event) => updateClientRecordDraft(activeClient.id, { phone: event.target.value })} />
+                          </label>
+                          <label>
+                            Commercial owner
+                            <input value={activeClient.commercialOwner} onChange={(event) => updateClientRecordDraft(activeClient.id, { commercialOwner: event.target.value })} />
+                          </label>
+                          <label className="full-field">
+                            Billing address
+                            <input value={activeClient.billingAddress} onChange={(event) => updateClientRecordDraft(activeClient.id, { billingAddress: event.target.value })} />
+                          </label>
+                          <label className="full-field">
+                            Commercial notes
+                            <textarea value={activeClient.notes} onChange={(event) => updateClientRecordDraft(activeClient.id, { notes: event.target.value })} />
+                          </label>
+                        </div>
+                        <div className="quote-action-stack">
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              void persistClientRecordPatch(activeClient.id, activeClient)
+                                .then(() => showNotice(`${activeClient.name} saved.`))
+                                .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to save customer."));
+                            }}
+                          >
+                            Save customer
+                          </button>
+                        </div>
                       </article>
 
                       <article className="client-info-card client-vat-card">
@@ -32722,6 +32824,57 @@ export default function Dashboard() {
 
                   {activeClientTab === "sites" ? (
                     <div className="client-sites-list">
+                      <article className="client-site-card">
+                        <header>
+                          <div>
+                            <h3>Add new site</h3>
+                            <small>Create a site directly under this customer</small>
+                          </div>
+                        </header>
+                        <div className="form-body employee-page-form two-column-form">
+                          <label>
+                            Site name
+                            <input value={newClientSiteDraft.name} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, name: event.target.value }))} />
+                          </label>
+                          <label>
+                            Primary contact
+                            <input value={newClientSiteDraft.primaryContact} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
+                          </label>
+                          <label className="full-field">
+                            Address
+                            <input value={newClientSiteDraft.address} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, address: event.target.value }))} />
+                          </label>
+                          <label>
+                            Service line
+                            <input value={newClientSiteDraft.serviceLine} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, serviceLine: event.target.value }))} />
+                          </label>
+                          <label>
+                            Next visit
+                            <input value={newClientSiteDraft.nextVisit} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, nextVisit: event.target.value }))} />
+                          </label>
+                          <label className="full-field">
+                            Access notes
+                            <input value={newClientSiteDraft.accessNotes} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, accessNotes: event.target.value }))} />
+                          </label>
+                        </div>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => {
+                            void createSiteForClient(activeClient.id, {
+                              ...newClientSiteDraft,
+                              primaryContact: newClientSiteDraft.primaryContact || activeClient.primaryContact,
+                            })
+                              .then(() => {
+                                setNewClientSiteDraft(blankClientSiteDraft);
+                                showNotice("Site created under this customer.");
+                              })
+                              .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to create site."));
+                          }}
+                        >
+                          Add site
+                        </button>
+                      </article>
                       {activeClientSites.map((site) => (
                         <article className="client-site-card" key={site.id}>
                           <header>
@@ -32742,8 +32895,28 @@ export default function Dashboard() {
                               ])}
                             </div>
                           </header>
-                          <p>{site.address}</p>
-                          <p className="client-directory-meta">Contact: {site.primaryContact}</p>
+                          <div className="form-body employee-page-form two-column-form">
+                            <label>
+                              Site name
+                              <input value={site.name} onChange={(event) => updateClientSiteDraft(site.id, { name: event.target.value })} />
+                            </label>
+                            <label>
+                              Primary contact
+                              <input value={site.primaryContact} onChange={(event) => updateClientSiteDraft(site.id, { primaryContact: event.target.value })} />
+                            </label>
+                            <label className="full-field">
+                              Address
+                              <input value={site.address} onChange={(event) => updateClientSiteDraft(site.id, { address: event.target.value })} />
+                            </label>
+                            <label>
+                              Service line
+                              <input value={site.serviceLine} onChange={(event) => updateClientSiteDraft(site.id, { serviceLine: event.target.value })} />
+                            </label>
+                            <label>
+                              Next visit
+                              <input value={site.nextVisit} onChange={(event) => updateClientSiteDraft(site.id, { nextVisit: event.target.value })} />
+                            </label>
+                          </div>
                           <p className="client-directory-meta">VAT: {resolveVatProfile(financeSettings, activeClient, site).note}</p>
                           <div className="client-vat-controls site-vat-controls">
                             <label>
@@ -32779,8 +32952,21 @@ export default function Dashboard() {
                               />
                             </label>
                           </div>
-                          <p className="client-directory-meta">Next visit: {site.nextVisit}</p>
-                          <p className="client-directory-meta">Access: {site.accessNotes}</p>
+                          <label className="full-field">
+                            Access notes
+                            <input value={site.accessNotes} onChange={(event) => updateClientSiteDraft(site.id, { accessNotes: event.target.value })} />
+                          </label>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              void persistSiteRecordPatch(site.id, site)
+                                .then(() => showNotice(`${site.name} saved.`))
+                                .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to save site."));
+                            }}
+                          >
+                            Save site
+                          </button>
                         </article>
                       ))}
                     </div>
