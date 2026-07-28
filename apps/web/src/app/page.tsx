@@ -2738,14 +2738,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Branding: {
-      summary: "Mockup area for logo placement, brand colours, form headers and client portal styling.",
-      focus: ["Upload company logo", "Set brand colours", "Preview quote and portal headers"],
-      status: "Mockup page",
+      summary: "Set logo URL, brand colours and preview how headers appear on quotes and the client portal.",
+      focus: ["Company logo URL", "Brand colours", "Preview quote and portal headers"],
+      status: "Editable now",
     },
     Portal: {
-      summary: "Mockup area for client portal wording, acceptance pages and customer-facing contact details.",
+      summary: "Edit client portal welcome and acceptance wording plus customer-facing contact details.",
       focus: ["Portal welcome text", "Online acceptance wording", "Public contact details"],
-      status: "Mockup page",
+      status: "Editable now",
     },
   },
   forms: {
@@ -2977,14 +2977,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Valuations: {
-      summary: "Mockup page for applications for payment, progress claims and staged valuation templates.",
-      focus: ["Application prefix", "Valuation layout", "Supporting evidence rules"],
-      status: "Mockup page",
+      summary: "Raise applications for payment and progress claims from jobs with billed-to-date remaining controls.",
+      focus: ["Application for payment", "Progress claims", "Remaining contract value"],
+      status: "Editable now",
     },
     "PO approvals": {
-      summary: "Mockup page for purchase order approval thresholds and cost-centre-level supplier spend controls.",
-      focus: ["Approval thresholds", "Cost centre allocation", "Supplier PO issue rules"],
-      status: "Mockup page",
+      summary: "Set purchase order approval thresholds used when POs need office sign-off before send.",
+      focus: ["Approval thresholds", "Workflow gate messaging", "Supplier PO issue rules"],
+      status: "Editable now",
     },
   },
 };
