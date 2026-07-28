@@ -1275,17 +1275,54 @@ function buildSimproOneOff(line: SimproQuoteExportLine) {
 }
 
 async function listSetupCostCenters(direct: ResolvedSimproDirectConfig) {
-  const { response, body } = await simproApiFetch(direct, "/setup/costCenters/?pageSize=250&columns=ID,Name");
-  if (!response.ok) {
-    const record = asRecord(body) ?? {};
-    throw new Error(simproHttpErrorMessage(record, response.status, `${direct.baseUrl}/companies/${direct.companyId}/setup/costCenters/`));
+  const candidates = [
+    "/setup/costCenters/?pageSize=250",
+    "/setup/accounts/costCenters/?pageSize=250",
+    "/costCenters/?pageSize=250",
+    "/quoteCostCenters/?pageSize=50",
+    "/jobCostCenters/?pageSize=50",
+  ];
+  const errors: string[] = [];
+  const discovered = new Map<number, string>();
+
+  for (const path of candidates) {
+    const { response, body, endpoint } = await simproApiFetch(direct, path);
+    if (!response.ok) {
+      errors.push(`${path}: ${simproHttpErrorMessage(asRecord(body) ?? {}, response.status, endpoint)}`);
+      continue;
+    }
+
+    for (const record of extractRecords(body)) {
+      const directId = numericId(asIdentifier(record.ID) ?? asIdentifier(record.id));
+      const nested = asRecord(record.CostCenter);
+      const nestedId = numericId(asIdentifier(nested?.ID) ?? asIdentifier(nested?.id));
+      const id = path.includes("quoteCostCenters") || path.includes("jobCostCenters") ? nestedId : directId ?? nestedId;
+      const name =
+        asString(record.Name) ||
+        asString(record.name) ||
+        asString(nested?.Name) ||
+        asString(nested?.name) ||
+        (id ? `Cost centre ${id}` : "");
+      if (id) discovered.set(id, name || `Cost centre ${id}`);
+    }
+
+    if (discovered.size && (path.includes("setup/") || path === "/costCenters/?pageSize=250")) {
+      return [...discovered.entries()].map(([id, name]) => ({ id, name }));
+    }
   }
-  return extractRecords(body)
-    .map((record) => ({
-      id: numericId(asIdentifier(record.ID) ?? asIdentifier(record.id)),
-      name: asString(record.Name) || asString(record.name),
-    }))
-    .filter((item): item is { id: number; name: string } => Boolean(item.id));
+
+  if (discovered.size) {
+    return [...discovered.entries()].map(([id, name]) => ({ id, name }));
+  }
+
+  const defaultId = numericId(process.env.SIMPRO_DEFAULT_COST_CENTER_ID ?? process.env.SIMPRO_COST_CENTER_ID);
+  if (defaultId) {
+    return [{ id: defaultId, name: "Default cost centre" }];
+  }
+
+  throw new Error(
+    `Cannot load Simpro setup cost centres (${errors[0] || "no usable route"}). Set SIMPRO_DEFAULT_COST_CENTER_ID to a Simpro cost centre ID and retry.`,
+  );
 }
 
 function resolveSetupCostCenterId(
@@ -1430,6 +1467,52 @@ function stripSectionItems(sections?: UnknownRecord[]) {
   });
 }
 
+async function loadRecordSectionsWithCostCenters(
+  direct: ResolvedSimproDirectConfig,
+  entity: "quotes" | "jobs",
+  recordId: string,
+) {
+  const detailed = await simproApiFetch(direct, `/${entity}/${recordId}/?display=all`);
+  if (detailed.response.ok) {
+    const record = asRecord(detailed.body) ?? {};
+    const nested = Array.isArray(record.Sections)
+      ? record.Sections.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+      : [];
+    if (nested.length) return nested;
+  }
+
+  const listed = await simproApiFetch(direct, `/${entity}/${recordId}/sections/?pageSize=50`);
+  if (!listed.response.ok) {
+    throw new Error(simproHttpErrorMessage(asRecord(listed.body) ?? {}, listed.response.status, listed.endpoint));
+  }
+  return extractRecords(listed.body);
+}
+
+async function postOneOffLine(
+  direct: ResolvedSimproDirectConfig,
+  entity: "quotes" | "jobs",
+  recordId: string,
+  sectionId: number,
+  costCenterId: number,
+  line: SimproQuoteExportLine,
+) {
+  const oneOff = buildSimproOneOff(line);
+  const candidates = [
+    `/${entity}/${recordId}/sections/${sectionId}/costCenters/${costCenterId}/oneOffs/`,
+    `/${entity}/${recordId}/sections/${sectionId}/costCenters/${costCenterId}/oneoffs/`,
+  ];
+  const errors: string[] = [];
+  for (const path of candidates) {
+    const posted = await simproApiFetch(direct, path, {
+      method: "POST",
+      body: JSON.stringify(oneOff),
+    });
+    if (posted.response.ok) return;
+    errors.push(`${posted.endpoint}: ${simproHttpErrorMessage(asRecord(posted.body) ?? {}, posted.response.status, posted.endpoint)}`);
+  }
+  throw new Error(errors.join(" | "));
+}
+
 async function attachOneOffsToCreatedRecord(
   direct: ResolvedSimproDirectConfig,
   entity: "quotes" | "jobs",
@@ -1439,15 +1522,7 @@ async function attachOneOffsToCreatedRecord(
   const usable = centres.filter((centre) => centre.lines.length > 0);
   if (!usable.length) return;
 
-  const { response, body, endpoint } = await simproApiFetch(
-    direct,
-    `/${entity}/${recordId}/sections/?pageSize=50&display=all`,
-  );
-  if (!response.ok) {
-    throw new Error(simproHttpErrorMessage(asRecord(body) ?? {}, response.status, endpoint));
-  }
-
-  const sections = extractRecords(body);
+  const sections = await loadRecordSectionsWithCostCenters(direct, entity, recordId);
   const slots: Array<{ sectionId: number; costCenterId: number; name: string }> = [];
 
   for (const section of sections) {
@@ -1461,7 +1536,7 @@ async function attachOneOffsToCreatedRecord(
     if (!costCenters.length) {
       const listed = await simproApiFetch(
         direct,
-        `/${entity}/${recordId}/sections/${sectionId}/costCenters/?pageSize=50&display=all`,
+        `/${entity}/${recordId}/sections/${sectionId}/costCenters/?pageSize=50`,
       );
       if (listed.response.ok) {
         costCenters = extractRecords(listed.body);
@@ -1495,9 +1570,7 @@ async function attachOneOffsToCreatedRecord(
       const name = normaliseMatchText(slot.name);
       return Boolean(name) && (name === centreName || name.includes(centreName) || centreName.includes(name));
     });
-    if (!matched) {
-      matched = slots.find((slot) => !used.has(slot.costCenterId));
-    }
+    if (!matched) matched = slots.find((slot) => !used.has(slot.costCenterId));
     if (!matched) {
       throw new Error(
         `Simpro ${entity.slice(0, -1)} ${recordId} was created, but no free cost centre slot was available for "${centre.name}".`,
@@ -1509,17 +1582,7 @@ async function attachOneOffsToCreatedRecord(
 
   for (const target of targets) {
     for (const line of target.centre.lines) {
-      const oneOff = buildSimproOneOff(line);
-      const path = `/${entity}/${recordId}/sections/${target.sectionId}/costCenters/${target.costCenterId}/oneOffs/`;
-      const posted = await simproApiFetch(direct, path, {
-        method: "POST",
-        body: JSON.stringify(oneOff),
-      });
-      if (!posted.response.ok) {
-        throw new Error(
-          simproHttpErrorMessage(asRecord(posted.body) ?? {}, posted.response.status, posted.endpoint),
-        );
-      }
+      await postOneOffLine(direct, entity, recordId, target.sectionId, target.costCenterId, line);
     }
   }
 }
@@ -1533,31 +1596,56 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
   const sections = buildSimproSections(payload.costCentres, setupCentres, defaultQuoteType()) as UnknownRecord[] | undefined;
   const endpoint = `${direct.baseUrl}/companies/${direct.companyId}/quotes/`;
 
-  // Create quote with cost-centre shell first, then attach one-off lines.
-  // Nested Items are not always persisted on create for Service quotes.
-  const response = await fetch(endpoint, {
+  // Prefer nested Items.OneOffs on create (supported for quote subresources).
+  let response = await fetch(endpoint, {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       Authorization: `Bearer ${direct.token}`,
     },
-    body: JSON.stringify(buildDirectQuoteBody(payload, ids, stripSectionItems(sections))),
+    body: JSON.stringify(buildDirectQuoteBody(payload, ids, sections)),
   });
-  const body = await response.json().catch(() => ({})) as UnknownRecord;
+  let body = await response.json().catch(() => ({})) as UnknownRecord;
+
   if (!response.ok) {
-    const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
-    const message = response.status === 401
-      ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
-      : returnedMessage;
-    throw new Error(message);
+    const nestedMessage = simproHttpErrorMessage(body, response.status, endpoint);
+    const canFallback = Boolean(sections?.length) && /oneoff|one-off|items|invalid column|invalid route/i.test(nestedMessage);
+    if (!canFallback) {
+      const message = response.status === 401
+        ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
+        : nestedMessage;
+      throw new Error(message);
+    }
+
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${direct.token}`,
+      },
+      body: JSON.stringify(buildDirectQuoteBody(payload, ids, stripSectionItems(sections))),
+    });
+    body = await response.json().catch(() => ({})) as UnknownRecord;
+    if (!response.ok) {
+      const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
+      const message = response.status === 401
+        ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
+        : returnedMessage;
+      throw new Error(message);
+    }
+
+    const quoteId = asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.quoteId) ?? asIdentifier(body.simproQuoteId);
+    if (!quoteId) throw new Error("Simpro created a quote but did not return an ID.");
+    await attachOneOffsToCreatedRecord(direct, "quotes", quoteId, payload.costCentres);
+    return { endpoint, simproQuoteId: quoteId };
   }
 
-  const quoteId = asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.quoteId) ?? asIdentifier(body.simproQuoteId);
-  if (!quoteId) throw new Error("Simpro created a quote but did not return an ID.");
-  await attachOneOffsToCreatedRecord(direct, "quotes", quoteId, payload.costCentres);
-
-  return { endpoint, simproQuoteId: quoteId };
+  return {
+    endpoint,
+    simproQuoteId: asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.quoteId) ?? asIdentifier(body.simproQuoteId),
+  };
 }
 
 async function postToDirectSimproJob(payload: SimproJobExportPayload) {
@@ -1596,29 +1684,55 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
     };
   }
 
-  const response = await fetch(endpoint, {
+  let response = await fetch(endpoint, {
     method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       Authorization: `Bearer ${direct.token}`,
     },
-    body: JSON.stringify(buildDirectJobBody(payload, ids, stripSectionItems(sections))),
+    body: JSON.stringify(buildDirectJobBody(payload, ids, sections)),
   });
-  const body = await response.json().catch(() => ({})) as UnknownRecord;
+  let body = await response.json().catch(() => ({})) as UnknownRecord;
+
   if (!response.ok) {
-    const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
-    const message = response.status === 401
-      ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
-      : returnedMessage;
-    throw new Error(message);
+    const nestedMessage = simproHttpErrorMessage(body, response.status, endpoint);
+    const canFallback = Boolean(sections?.length) && /oneoff|one-off|items|invalid column|invalid route/i.test(nestedMessage);
+    if (!canFallback) {
+      const message = response.status === 401
+        ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
+        : nestedMessage;
+      throw new Error(message);
+    }
+
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${direct.token}`,
+      },
+      body: JSON.stringify(buildDirectJobBody(payload, ids, stripSectionItems(sections))),
+    });
+    body = await response.json().catch(() => ({})) as UnknownRecord;
+    if (!response.ok) {
+      const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
+      const message = response.status === 401
+        ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
+        : returnedMessage;
+      throw new Error(message);
+    }
+
+    const jobId = asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.jobId) ?? asIdentifier(body.simproJobId);
+    if (!jobId) throw new Error("Simpro created a job but did not return an ID.");
+    await attachOneOffsToCreatedRecord(direct, "jobs", jobId, payload.costCentres);
+    return { endpoint, simproJobId: jobId };
   }
 
-  const jobId = asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.jobId) ?? asIdentifier(body.simproJobId);
-  if (!jobId) throw new Error("Simpro created a job but did not return an ID.");
-  await attachOneOffsToCreatedRecord(direct, "jobs", jobId, payload.costCentres);
-
-  return { endpoint, simproJobId: jobId };
+  return {
+    endpoint,
+    simproJobId: asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.jobId) ?? payload.job.simproJobId,
+  };
 }
 
 function saveExportRecord(record: SimproQuoteExportRecord) {
