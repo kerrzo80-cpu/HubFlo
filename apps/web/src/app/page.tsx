@@ -8462,18 +8462,27 @@ export default function Dashboard() {
   const jobInvoiceDraftTotals = useMemo(() => {
     if (!jobInvoiceDraft) return valuationLineTotals([], 0);
     const lines = jobInvoiceDraft.mode === "deposit"
-      ? jobInvoiceDraft.valuationLines.map((line) => ({
-          ...line,
-          requestedThisPeriod: line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100),
-          agreedThisPeriod: line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100),
-        }))
+      ? jobInvoiceDraft.valuationLines.map((line) => {
+          const remaining = Math.max(0, line.contractValue - line.previousApplications);
+          const target = line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100);
+          const requestedThisPeriod = Math.min(remaining, Math.max(0, target - line.previousApplications));
+          return {
+            ...line,
+            requestedThisPeriod,
+            agreedThisPeriod: requestedThisPeriod,
+          };
+        })
       : jobInvoiceDraft.mode === "full"
         ? jobInvoiceDraft.valuationLines.map((line) => ({
             ...line,
             requestedThisPeriod: Math.max(0, line.contractValue - line.previousApplications),
             agreedThisPeriod: Math.max(0, line.contractValue - line.previousApplications),
           }))
-        : jobInvoiceDraft.valuationLines;
+        : jobInvoiceDraft.valuationLines.map((line) => {
+            const remaining = Math.max(0, line.contractValue - line.previousApplications);
+            const requestedThisPeriod = Math.min(remaining, Math.max(0, line.requestedThisPeriod));
+            return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
+          });
     return valuationLineTotals(lines, jobInvoiceDraft.mode === "valuation" ? jobInvoiceDraft.retentionPercent : 0);
   }, [jobInvoiceDraft]);
 
@@ -14663,6 +14672,7 @@ export default function Dashboard() {
       normalizedFinanceSettings,
     );
     const previousByCentre = new Map<string, number>();
+    let unallocatedPrevious = 0;
 
     invoices
       .filter((invoice) =>
@@ -14672,11 +14682,19 @@ export default function Dashboard() {
         invoice.claimType !== "valuation",
       )
       .forEach((invoice) => {
-        invoice.valuationLines?.forEach((line) => {
-          if (!line.costCentreId) return;
-          const value = line.agreedThisPeriod || line.requestedThisPeriod;
-          previousByCentre.set(line.costCentreId, (previousByCentre.get(line.costCentreId) ?? 0) + value);
-        });
+        const lines = invoice.valuationLines || [];
+        if (lines.length) {
+          lines.forEach((line) => {
+            const value = line.agreedThisPeriod || line.requestedThisPeriod;
+            if (line.costCentreId) {
+              previousByCentre.set(line.costCentreId, (previousByCentre.get(line.costCentreId) ?? 0) + value);
+            } else {
+              unallocatedPrevious += value;
+            }
+          });
+        } else {
+          unallocatedPrevious += invoice.chargeTotal || 0;
+        }
       });
 
     const valuationLines: ValuationLine[] = centres.map((centre) => {
@@ -14699,9 +14717,15 @@ export default function Dashboard() {
         id: `valuation-${job.id}-${Date.now()}`,
         description: job.description || job.ref,
         contractValue: job.value,
-        previousApplications: 0,
+        previousApplications: unallocatedPrevious,
         requestedThisPeriod: 0,
         agreedThisPeriod: 0,
+      });
+    } else if (unallocatedPrevious > 0) {
+      const weightTotal = valuationLines.reduce((sum, line) => sum + Math.max(line.contractValue, 1), 0);
+      valuationLines.forEach((line) => {
+        const share = (Math.max(line.contractValue, 1) / weightTotal) * unallocatedPrevious;
+        line.previousApplications += share;
       });
     }
 
@@ -14762,7 +14786,9 @@ export default function Dashboard() {
 
     if (jobInvoiceDraft.mode === "deposit") {
       valuationLines = valuationLines.map((line) => {
-        const requestedThisPeriod = line.contractValue * (depositPercent / 100);
+        const remaining = Math.max(0, line.contractValue - line.previousApplications);
+        const target = line.contractValue * (depositPercent / 100);
+        const requestedThisPeriod = Math.min(remaining, Math.max(0, target - line.previousApplications));
         return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
       });
     }
@@ -14775,16 +14801,26 @@ export default function Dashboard() {
     }
 
     if (jobInvoiceDraft.mode === "valuation") {
-      valuationLines = valuationLines.map((line) => ({
-        ...line,
-        requestedThisPeriod: Math.max(0, line.requestedThisPeriod),
-        agreedThisPeriod: Math.max(0, line.requestedThisPeriod),
-      }));
+      valuationLines = valuationLines.map((line) => {
+        const remaining = Math.max(0, line.contractValue - line.previousApplications);
+        const requestedThisPeriod = Math.min(remaining, Math.max(0, line.requestedThisPeriod));
+        return {
+          ...line,
+          requestedThisPeriod,
+          agreedThisPeriod: requestedThisPeriod,
+        };
+      });
     }
 
     const grossClaim = valuationLines.reduce((sum, line) => sum + line.requestedThisPeriod, 0);
     if (grossClaim <= 0) {
-      showNotice(jobInvoiceDraft.mode === "valuation" ? "Add at least one value to this valuation." : "The claim value must be greater than zero.");
+      showNotice(
+        jobInvoiceDraft.mode === "deposit"
+          ? "Nothing left to claim for this deposit — previous claims already cover that percentage."
+          : jobInvoiceDraft.mode === "valuation"
+            ? "Add at least one value to this valuation (within remaining contract value)."
+            : "Nothing left to invoice — this job is already billed to contract value.",
+      );
       return;
     }
 
@@ -31055,7 +31091,8 @@ export default function Dashboard() {
                   </div>
                   <dl>
                     <div><dt>Contract value</dt><dd>{currency(jobInvoiceDraftTotals.contractValue)}</dd></div>
-                    <div><dt>Previously claimed</dt><dd>{currency(jobInvoiceDraftTotals.previous)}</dd></div>
+                    <div><dt>Billed to date</dt><dd>{currency(jobInvoiceDraftTotals.previous)}</dd></div>
+                    <div><dt>Remaining</dt><dd>{currency(Math.max(0, jobInvoiceDraftTotals.contractValue - jobInvoiceDraftTotals.previous))}</dd></div>
                     <div><dt>Claim now</dt><dd>{currency(jobInvoiceDraft.mode === "valuation" ? jobInvoiceDraftTotals.requestedNet : jobInvoiceDraftTotals.requested)}</dd></div>
                   </dl>
                 </header>
@@ -31156,10 +31193,12 @@ export default function Dashboard() {
                           <span>Complete</span>
                         </div>
                         {jobInvoiceDraft.valuationLines.map((line) => {
-                          const cumulative = line.previousApplications + line.requestedThisPeriod;
+                          const remaining = Math.max(0, line.contractValue - line.previousApplications);
+                          const requested = Math.min(remaining, Math.max(0, line.requestedThisPeriod));
+                          const cumulative = line.previousApplications + requested;
                           const completion = line.contractValue > 0 ? Math.min(100, cumulative / line.contractValue * 100) : 0;
                           const claimPercent = line.contractValue > 0
-                            ? Number(((line.requestedThisPeriod / line.contractValue) * 100).toFixed(2))
+                            ? Number(((requested / line.contractValue) * 100).toFixed(2))
                             : 0;
                           return (
                             <div className="valuation-entry-row" key={line.id}>
@@ -31173,10 +31212,11 @@ export default function Dashboard() {
                                   min="0"
                                   max="100"
                                   step="0.01"
-                                  value={line.requestedThisPeriod ? claimPercent : ""}
+                                  value={requested ? claimPercent : ""}
                                   onChange={(event) => {
                                     const percent = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                                    updateJobValuationLine(line.id, { requestedThisPeriod: line.contractValue * (percent / 100) });
+                                    const next = Math.min(remaining, line.contractValue * (percent / 100));
+                                    updateJobValuationLine(line.id, { requestedThisPeriod: next });
                                   }}
                                 />
                                 <span>%</span>
@@ -31187,9 +31227,13 @@ export default function Dashboard() {
                                   aria-label={`${line.description} amount this application`}
                                   type="number"
                                   min="0"
+                                  max={remaining}
                                   step="0.01"
-                                  value={line.requestedThisPeriod || ""}
-                                  onChange={(event) => updateJobValuationLine(line.id, { requestedThisPeriod: Number(event.target.value) || 0 })}
+                                  value={requested || ""}
+                                  onChange={(event) => {
+                                    const next = Math.min(remaining, Math.max(0, Number(event.target.value) || 0));
+                                    updateJobValuationLine(line.id, { requestedThisPeriod: next });
+                                  }}
                                 />
                               </label>
                               <span>{currency(cumulative)}</span>
