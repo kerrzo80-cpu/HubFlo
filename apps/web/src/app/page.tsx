@@ -584,6 +584,7 @@ type HomeView =
   | "invoices"
   | "invoice-create"
   | "invoice-record"
+  | "xero"
   | "job-record"
   | "quote-cost-centre-record"
   | "cost-centre-record";
@@ -2137,6 +2138,7 @@ const modules: ModuleItem[] = [
   { label: "Stock", icon: Package },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
+  { label: "Xero", icon: Building2 },
   { label: "Recurring", icon: Repeat },
   { label: "Reports", icon: BarChart3 },
   { label: "Add-ons", icon: Sparkles },
@@ -7333,6 +7335,10 @@ export default function Dashboard() {
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
+  const [activeXeroTab, setActiveXeroTab] = useState<"sales" | "bills" | "exported" | "connection">("sales");
+  const [xeroSelectedInvoiceIds, setXeroSelectedInvoiceIds] = useState<string[]>([]);
+  const [xeroSelectedPoIds, setXeroSelectedPoIds] = useState<string[]>([]);
+  const [xeroBusyId, setXeroBusyId] = useState<string | null>(null);
   const [isPullingPoBillPayments, setIsPullingPoBillPayments] = useState(false);
   const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
   const [isSendingInvoiceRemittance, setIsSendingInvoiceRemittance] = useState(false);
@@ -10449,6 +10455,7 @@ export default function Dashboard() {
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
+      if (module.label === "Xero" && !access.showFinance) return false;
       if (module.label === "Recurring" && !access.showJobs && !access.showFinance) return false;
       if (module.label === "Reports" && !access.showFinance) return false;
       return true;
@@ -10710,6 +10717,50 @@ export default function Dashboard() {
         })
         .sort((left, right) => right.daysOverdue - left.daysOverdue),
     [invoices],
+  );
+
+  const xeroSalesToExport = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => {
+          if (invoice.claimType === "valuation") return false;
+          if (invoice.status === "Cancelled" || invoice.status === "Draft") return false;
+          if (!invoice.lines.length) return false;
+          return (invoice.accountsStatus || "Not sent") !== "Sent";
+        })
+        .sort((left, right) => right.issuedDate.localeCompare(left.issuedDate)),
+    [invoices],
+  );
+
+  const xeroSalesExported = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => {
+          if (invoice.claimType === "valuation") return false;
+          return (invoice.accountsStatus || "Not sent") === "Sent" || Boolean(invoice.xeroInvoiceId || invoice.xeroExportedAt);
+        })
+        .sort((left, right) => String(right.xeroExportedAt || right.issuedDate).localeCompare(String(left.xeroExportedAt || left.issuedDate))),
+    [invoices],
+  );
+
+  const xeroBillsToExport = useMemo(
+    () =>
+      purchaseRequests
+        .filter((request) => {
+          if (request.status === "Rejected" || request.status === "Draft") return false;
+          if (!request.poNumber?.trim()) return false;
+          return (request.xeroAccountsStatus || "Not sent") !== "Sent" && !request.xeroBillId;
+        })
+        .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))),
+    [purchaseRequests],
+  );
+
+  const xeroBillsExported = useMemo(
+    () =>
+      purchaseRequests
+        .filter((request) => (request.xeroAccountsStatus || "Not sent") === "Sent" || Boolean(request.xeroBillId || request.xeroExportedAt))
+        .sort((left, right) => String(right.xeroExportedAt || right.createdAt).localeCompare(String(left.xeroExportedAt || left.createdAt))),
+    [purchaseRequests],
   );
 
   const officeAlerts = useMemo(
@@ -16223,42 +16274,43 @@ export default function Dashboard() {
     );
   }
 
-  async function exportSelectedInvoiceToXero() {
-    if (!selectedInvoice) return;
-    if (!selectedInvoice.lines.length) {
+  async function exportInvoiceToXero(invoice: Invoice) {
+    if (!invoice.lines.length) {
       showNotice("Add invoice lines before exporting to Xero.");
-      return;
+      return false;
     }
-    if (selectedInvoice.claimType === "valuation") {
+    if (invoice.claimType === "valuation") {
       showNotice("Convert the valuation to a progress claim before exporting to Xero.");
-      return;
+      return false;
     }
     setIsExportingInvoiceToXero(true);
+    setXeroBusyId(invoice.id);
     try {
-      const creditOfInvoice = selectedInvoice.creditOfInvoiceId
-        ? invoices.find((item) => item.id === selectedInvoice.creditOfInvoiceId) ?? null
+      const client = clients.find((item) => item.id === invoice.clientId) ?? null;
+      const creditOfInvoice = invoice.creditOfInvoiceId
+        ? invoices.find((item) => item.id === invoice.creditOfInvoiceId) ?? null
         : null;
       const response = await fetch("/api/integrations/xero/export", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           invoice: {
-            id: selectedInvoice.id,
-            ref: selectedInvoice.ref,
-            customer: selectedInvoice.customer,
-            customerEmail: selectedInvoiceClient?.email || selectedInvoice.sentTo || undefined,
-            clientId: selectedInvoice.clientId || selectedInvoiceClient?.id,
-            xeroContactId: selectedInvoiceClient?.xeroContactId,
-            issuedDate: selectedInvoice.issuedDate,
-            dueDate: selectedInvoice.dueDate,
-            chargeTotal: selectedInvoice.chargeTotal,
-            vatRate: selectedInvoice.vatRate,
-            notes: selectedInvoice.notes,
-            claimType: selectedInvoice.claimType,
-            creditOfRef: selectedInvoice.creditOfRef || creditOfInvoice?.ref,
+            id: invoice.id,
+            ref: invoice.ref,
+            customer: invoice.customer,
+            customerEmail: client?.email || invoice.sentTo || undefined,
+            clientId: invoice.clientId || client?.id,
+            xeroContactId: client?.xeroContactId,
+            issuedDate: invoice.issuedDate,
+            dueDate: invoice.dueDate,
+            chargeTotal: invoice.chargeTotal,
+            vatRate: invoice.vatRate,
+            notes: invoice.notes,
+            claimType: invoice.claimType,
+            creditOfRef: invoice.creditOfRef || creditOfInvoice?.ref,
             creditOfXeroInvoiceId: creditOfInvoice?.xeroInvoiceId,
-            xeroInvoiceId: selectedInvoice.xeroInvoiceId,
-            lines: selectedInvoice.lines.map((line) => ({
+            xeroInvoiceId: invoice.xeroInvoiceId,
+            lines: invoice.lines.map((line) => ({
               description: line.description,
               category: line.category,
               chargeToClient: line.chargeToClient,
@@ -16283,26 +16335,28 @@ export default function Dashboard() {
       }
       const accountsStatus = body.accountsStatus ?? "Sent";
       markInvoiceEdited();
-      setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+      setInvoices((current) => current.map((item) => item.id === invoice.id
         ? {
-            ...invoice,
+            ...item,
             accountsStatus,
             ...(body.xeroInvoiceId
               ? {
                   xeroInvoiceId: body.xeroInvoiceId,
-                  xeroInvoiceNumber: body.xeroInvoiceNumber || invoice.ref,
+                  xeroInvoiceNumber: body.xeroInvoiceNumber || item.ref,
                   xeroExportedAt: body.xeroExportedAt || new Date().toISOString(),
                 }
-              : {}),
+              : {
+                  xeroExportedAt: body.xeroExportedAt || item.xeroExportedAt || new Date().toISOString(),
+                }),
           }
-        : invoice,
+        : item,
       ));
-      if (body.xeroContactId && (body.clientId || selectedInvoiceClient?.id)) {
-        const clientId = body.clientId || selectedInvoiceClient?.id;
+      if (body.xeroContactId && (body.clientId || client?.id)) {
+        const clientId = body.clientId || client?.id;
         if (clientId) {
           setClients((current) =>
-            current.map((client) =>
-              client.id === clientId ? { ...client, xeroContactId: body.xeroContactId || client.xeroContactId } : client,
+            current.map((entry) =>
+              entry.id === clientId ? { ...entry, xeroContactId: body.xeroContactId || entry.xeroContactId } : entry,
             ),
           );
           void fetch(`/api/clients/${clientId}`, {
@@ -16316,8 +16370,8 @@ export default function Dashboard() {
         actor: activeEmployee?.name ?? "NeXa user",
         action: "xero export",
         recordType: "invoice",
-        recordId: selectedInvoice.id,
-        summary: `${selectedInvoice.ref} exported to Xero (${body.export.mode || "export"}): ${body.export.detail || accountsStatus}.`,
+        recordId: invoice.id,
+        summary: `${invoice.ref} exported to Xero (${body.export.mode || "export"}): ${body.export.detail || accountsStatus}.`,
         source: "web",
         importance: "high",
       });
@@ -16326,16 +16380,104 @@ export default function Dashboard() {
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `${selectedInvoice.ref}-xero.csv`;
+        link.download = `${invoice.ref}-xero.csv`;
         link.click();
         URL.revokeObjectURL(url);
       }
-      showNotice(body.export.detail || `${selectedInvoice.ref} sent to Xero.`);
+      showNotice(body.export.detail || `${invoice.ref} sent to Xero.`);
+      return true;
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to export invoice to Xero.");
+      return false;
     } finally {
       setIsExportingInvoiceToXero(false);
+      setXeroBusyId(null);
     }
+  }
+
+  async function exportSelectedInvoiceToXero() {
+    if (!selectedInvoice) return;
+    await exportInvoiceToXero(selectedInvoice);
+  }
+
+  function markInvoiceExportedInXero(invoice: Invoice, exported = true) {
+    markInvoiceEdited();
+    const stamp = new Date().toISOString();
+    setInvoices((current) => {
+      const next = current.map((item) =>
+        item.id === invoice.id
+          ? {
+              ...item,
+              accountsStatus: exported ? "Sent" : "Not sent",
+              xeroExportedAt: exported ? stamp : undefined,
+              ...(exported ? {} : { xeroInvoiceId: undefined, xeroInvoiceNumber: undefined }),
+            }
+          : item,
+      );
+      saveHubDetailStateWithInvoices(next, "Could not save Xero export status.");
+      return next;
+    });
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: exported ? "xero marked exported" : "xero unmarked",
+      recordType: "invoice",
+      recordId: invoice.id,
+      summary: exported
+        ? `${invoice.ref} marked as exported to Xero.`
+        : `${invoice.ref} unmarked from Xero exported list.`,
+      source: "xero hub",
+      importance: "normal",
+    });
+    showNotice(exported ? `${invoice.ref} marked as exported.` : `${invoice.ref} moved back to export queue.`);
+  }
+
+  async function markPurchaseOrderExportedInXero(request: PurchaseRequest, exported = true) {
+    const stamp = new Date().toISOString();
+    await patchPurchaseRequest(
+      request.id,
+      exported
+        ? {
+            xeroAccountsStatus: "Sent",
+            xeroExportedAt: stamp,
+          }
+        : {
+            xeroAccountsStatus: "Not sent",
+            xeroExportedAt: undefined,
+            xeroBillId: undefined,
+            xeroBillNumber: undefined,
+          },
+      exported
+        ? `${request.poNumber} marked as exported to Xero.`
+        : `${request.poNumber} unmarked from Xero exported list.`,
+    );
+  }
+
+  async function exportSelectedXeroInvoices() {
+    const queue = invoices.filter((invoice) => xeroSelectedInvoiceIds.includes(invoice.id));
+    if (!queue.length) {
+      showNotice("Select at least one sales invoice or credit to export.");
+      return;
+    }
+    let ok = 0;
+    for (const invoice of queue) {
+      if (await exportInvoiceToXero(invoice)) ok += 1;
+    }
+    setXeroSelectedInvoiceIds([]);
+    showNotice(`Exported ${ok} of ${queue.length} item(s) to Xero.`);
+  }
+
+  async function exportSelectedXeroBills() {
+    const queue = purchaseRequests.filter((request) => xeroSelectedPoIds.includes(request.id));
+    if (!queue.length) {
+      showNotice("Select at least one supplier bill to export.");
+      return;
+    }
+    for (const request of queue) {
+      setXeroBusyId(request.id);
+      await exportPurchaseOrderBillToXero(request);
+      setXeroBusyId(null);
+    }
+    setXeroSelectedPoIds([]);
   }
 
   async function pullSelectedInvoicePaymentsFromXero() {
@@ -25789,7 +25931,8 @@ export default function Dashboard() {
             (module.label === "Stock" && homeView === "stock") ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
-            (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
+            (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
+            (module.label === "Xero" && homeView === "xero") ||
             (module.label === "Recurring" && homeView === "recurring") ||
             (module.label === "Reports" && homeView === "reports") ||
             (module.label === "Add-ons" && homeView === "addons") ||
@@ -25861,6 +26004,9 @@ export default function Dashboard() {
                   setActiveSetupSubItem(null);
                 } else if (module.label === "Invoices") {
                   returnToInvoiceDirectory();
+                } else if (module.label === "Xero") {
+                  setHomeView("xero");
+                  setActiveXeroTab("sales");
                 } else if (module.label === "Recurring") {
                   setHomeView("recurring");
                 } else if (module.label === "Reports") {
@@ -25965,6 +26111,8 @@ export default function Dashboard() {
                   ? "Recurring"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
+                : homeView === "xero"
+                  ? "Xero"
                 : homeView === "reports"
                   ? "Reports"
                 : homeView === "leads"
@@ -26102,6 +26250,8 @@ export default function Dashboard() {
                       ? "Recurring"
                     : homeView === "invoices"
                       ? "Invoices"
+                    : homeView === "xero"
+                      ? "Xero"
                     : homeView === "reports"
                       ? "Reports"
                     : homeView === "invoice-create"
@@ -26162,6 +26312,8 @@ export default function Dashboard() {
                     ? "Recurring plans"
                   : homeView === "invoices"
                     ? "Invoices"
+                  : homeView === "xero"
+                    ? "Xero accounts"
                   : homeView === "reports"
                     ? "Reports & insights"
                   : homeView === "invoice-create"
@@ -26229,6 +26381,8 @@ export default function Dashboard() {
                     ? "Service plans that generate the next job or invoice when due"
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
+                  : homeView === "xero"
+                    ? `${xeroSalesToExport.length} sales to export · ${xeroBillsToExport.length} bills to export`
                   : homeView === "reports"
                     ? `${reportDateRangeLabel} · ${reportExecutive.grossMargin}% gross margin · ${currency(reportExecutive.cashOwed)} cash owed`
                   : homeView === "invoice-create"
@@ -26366,6 +26520,43 @@ export default function Dashboard() {
                   {access.canEditInvoice ? (
                     <button className="primary-button" onClick={openInvoiceSourcePicker}>
                       New invoice from source
+                    </button>
+                  ) : null}
+                </>
+              ) : homeView === "xero" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setHomeView("settings");
+                      setActiveSetupCategory("integrations");
+                      setActiveSetupSubItem("Xero");
+                    }}
+                  >
+                    Connection settings
+                  </button>
+                  {activeXeroTab === "sales" && access.canEditInvoice ? (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={!xeroSelectedInvoiceIds.length || isExportingInvoiceToXero}
+                      onClick={() => void exportSelectedXeroInvoices()}
+                    >
+                      {isExportingInvoiceToXero ? "Exporting…" : `Export selected (${xeroSelectedInvoiceIds.length})`}
+                    </button>
+                  ) : null}
+                  {activeXeroTab === "bills" && access.canEditInvoice ? (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={!xeroSelectedPoIds.length || isExportingPoBillToXero}
+                      onClick={() => void exportSelectedXeroBills()}
+                    >
+                      {isExportingPoBillToXero ? "Exporting…" : `Export selected (${xeroSelectedPoIds.length})`}
                     </button>
                   ) : null}
                 </>
@@ -34149,6 +34340,365 @@ export default function Dashboard() {
                 ) : null}
               </section>
                 ) : null
+          ) : homeView === "xero" ? (
+            <section className="quote-panel record-directory invoice-directory">
+              <div className="panel-header">
+                <div>
+                  <h2>Xero</h2>
+                  <p className="muted">
+                    Export queue for sales invoices, credit notes and supplier bills — same pattern as simPRO accounts, then we trim what you do not need.
+                  </p>
+                </div>
+                <span className={`status-pill ${xeroConnectionStatus?.configured ? "green" : "amber"}`}>
+                  {xeroConnectionStatus?.configured
+                    ? `Connected · ${xeroConnectionStatus.mode}`
+                    : xeroConnectionStatus?.authUrl
+                      ? "Ready to connect"
+                      : "CSV / setup needed"}
+                </span>
+              </div>
+
+              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Xero folders">
+                {[
+                  { key: "sales" as const, label: "Sales to export", count: xeroSalesToExport.length, tone: "amber" },
+                  { key: "bills" as const, label: "Bills to export", count: xeroBillsToExport.length, tone: "blue" },
+                  { key: "exported" as const, label: "Exported", count: xeroSalesExported.length + xeroBillsExported.length, tone: "green" },
+                  { key: "connection" as const, label: "Connection", count: xeroConnectionStatus?.configured ? 1 : 0, tone: "blue" },
+                ].map((tab) => (
+                  <button
+                    aria-selected={activeXeroTab === tab.key}
+                    className={`record-folder-card ${tab.tone} ${activeXeroTab === tab.key ? "active" : ""}`}
+                    key={tab.key}
+                    role="tab"
+                    type="button"
+                    onClick={() => setActiveXeroTab(tab.key)}
+                  >
+                    <span>{tab.label}</span>
+                    <strong>{tab.count}</strong>
+                  </button>
+                ))}
+              </div>
+
+              {activeXeroTab === "sales" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Sales invoices &amp; credits ready for Xero</h3>
+                      <p className="muted">Select rows to export, or mark as exported if already posted in Xero.</p>
+                    </div>
+                    <div className="setup-template-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          setXeroSelectedInvoiceIds(
+                            xeroSelectedInvoiceIds.length === xeroSalesToExport.length
+                              ? []
+                              : xeroSalesToExport.map((invoice) => invoice.id),
+                          )
+                        }
+                      >
+                        {xeroSelectedInvoiceIds.length === xeroSalesToExport.length && xeroSalesToExport.length
+                          ? "Clear selection"
+                          : "Select all"}
+                      </button>
+                    </div>
+                  </header>
+                  <div className="ops-table">
+                    <div className="ops-table-head">
+                      <span>Select</span>
+                      <span>Ref</span>
+                      <span>Customer</span>
+                      <span>Type</span>
+                      <span>Total</span>
+                      <span>Status</span>
+                      <span />
+                    </div>
+                    {xeroSalesToExport.map((invoice) => (
+                      <div className="ops-table-row" key={invoice.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={xeroSelectedInvoiceIds.includes(invoice.id)}
+                            onChange={(event) =>
+                              setXeroSelectedInvoiceIds((current) =>
+                                event.target.checked
+                                  ? [...current, invoice.id]
+                                  : current.filter((id) => id !== invoice.id),
+                              )
+                            }
+                            aria-label={`Select ${invoice.ref}`}
+                          />
+                        </label>
+                        <strong>{invoice.ref}</strong>
+                        <span>{invoice.customer}</span>
+                        <span>{invoiceClaimTypeLabel(invoice.claimType, invoice.claimPercent)}</span>
+                        <span>{currency(invoiceGrossTotal(invoice))}</span>
+                        <span>{invoice.accountsStatus || "Not sent"}</span>
+                        <span className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === invoice.id}
+                            onClick={() => markInvoiceExportedInXero(invoice, true)}
+                          >
+                            Mark exported
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === invoice.id || isExportingInvoiceToXero}
+                            onClick={() => void exportInvoiceToXero(invoice)}
+                          >
+                            {xeroBusyId === invoice.id ? "Exporting…" : "Export"}
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {!xeroSalesToExport.length ? <p className="muted">Nothing waiting to export. Sent invoices and credits appear here until marked or pushed to Xero.</p> : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeXeroTab === "bills" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Supplier bills ready for Xero</h3>
+                      <p className="muted">PO bills that have not been exported yet.</p>
+                    </div>
+                    <div className="setup-template-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          setXeroSelectedPoIds(
+                            xeroSelectedPoIds.length === xeroBillsToExport.length
+                              ? []
+                              : xeroBillsToExport.map((request) => request.id),
+                          )
+                        }
+                      >
+                        {xeroSelectedPoIds.length === xeroBillsToExport.length && xeroBillsToExport.length
+                          ? "Clear selection"
+                          : "Select all"}
+                      </button>
+                    </div>
+                  </header>
+                  <div className="ops-table">
+                    <div className="ops-table-head">
+                      <span>Select</span>
+                      <span>PO</span>
+                      <span>Supplier</span>
+                      <span>Job</span>
+                      <span>Amount</span>
+                      <span>Status</span>
+                      <span />
+                    </div>
+                    {xeroBillsToExport.map((request) => (
+                      <div className="ops-table-row" key={request.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={xeroSelectedPoIds.includes(request.id)}
+                            onChange={(event) =>
+                              setXeroSelectedPoIds((current) =>
+                                event.target.checked
+                                  ? [...current, request.id]
+                                  : current.filter((id) => id !== request.id),
+                              )
+                            }
+                            aria-label={`Select ${request.poNumber}`}
+                          />
+                        </label>
+                        <strong>{request.poNumber}</strong>
+                        <span>{request.supplier}</span>
+                        <span>{request.jobRef}</span>
+                        <span>{currency(request.actualCost ?? request.estimatedCost)}</span>
+                        <span>{request.xeroAccountsStatus || "Not sent"}</span>
+                        <span className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => {
+                              setSelectedPurchaseRequestId(request.id);
+                              setHomeView("purchase-order-record");
+                            }}
+                          >
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === request.id}
+                            onClick={() => void markPurchaseOrderExportedInXero(request, true)}
+                          >
+                            Mark exported
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === request.id || isExportingPoBillToXero}
+                            onClick={() => {
+                              setXeroBusyId(request.id);
+                              void exportPurchaseOrderBillToXero(request).finally(() => setXeroBusyId(null));
+                            }}
+                          >
+                            {xeroBusyId === request.id ? "Exporting…" : "Export"}
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {!xeroBillsToExport.length ? <p className="muted">No supplier bills waiting for Xero.</p> : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeXeroTab === "exported" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Already exported / marked</h3>
+                      <p className="muted">Unmark to put an item back on the export queue.</p>
+                    </div>
+                  </header>
+                  <div className="ops-table">
+                    <div className="ops-table-head">
+                      <span>Kind</span>
+                      <span>Ref</span>
+                      <span>Party</span>
+                      <span>Xero ID</span>
+                      <span>Exported</span>
+                      <span />
+                    </div>
+                    {xeroSalesExported.map((invoice) => (
+                      <div className="ops-table-row" key={`inv-${invoice.id}`}>
+                        <span>Sales</span>
+                        <strong>{invoice.ref}</strong>
+                        <span>{invoice.customer}</span>
+                        <span>{invoice.xeroInvoiceNumber || invoice.xeroInvoiceId || "—"}</span>
+                        <span>{(invoice.xeroExportedAt || "").slice(0, 10) || "Marked"}</span>
+                        <span className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice}
+                            onClick={() => markInvoiceExportedInXero(invoice, false)}
+                          >
+                            Unmark
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {xeroBillsExported.map((request) => (
+                      <div className="ops-table-row" key={`po-${request.id}`}>
+                        <span>Bill</span>
+                        <strong>{request.poNumber}</strong>
+                        <span>{request.supplier}</span>
+                        <span>{request.xeroBillNumber || request.xeroBillId || "—"}</span>
+                        <span>{(request.xeroExportedAt || "").slice(0, 10) || "Marked"}</span>
+                        <span className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => {
+                              setSelectedPurchaseRequestId(request.id);
+                              setHomeView("purchase-order-record");
+                            }}
+                          >
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice}
+                            onClick={() => void markPurchaseOrderExportedInXero(request, false)}
+                          >
+                            Unmark
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {!xeroSalesExported.length && !xeroBillsExported.length ? (
+                      <p className="muted">Nothing exported yet.</p>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeXeroTab === "connection" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Xero connection</h3>
+                      <p className="muted">Connect once here; day-to-day work stays on the export queues above.</p>
+                    </div>
+                  </header>
+                  <div className="setup-readiness-grid">
+                    <article>
+                      <span>Status</span>
+                      <strong>{xeroConnectionStatus?.configured ? "Ready" : "Not connected"}</strong>
+                      <small>{xeroConnectionStatus?.mode || "CSV fallback available"}</small>
+                    </article>
+                    <article>
+                      <span>Tenant</span>
+                      <strong>{xeroConnectionStatus?.tenantIdPresent ? "Present" : "Missing"}</strong>
+                      <small>{integrationSettings.xeroTenantName || "Organisation not named yet"}</small>
+                    </article>
+                    <article>
+                      <span>OAuth</span>
+                      <strong>
+                        {xeroConnectionStatus?.hasRefreshToken
+                          ? "Token stored"
+                          : xeroConnectionStatus?.authUrl
+                            ? "Connect available"
+                            : "Env incomplete"}
+                      </strong>
+                      <small>
+                        {xeroConnectionStatus?.missing?.length
+                          ? `Missing: ${xeroConnectionStatus.missing.join(", ")}`
+                          : "Live push when a token is present; otherwise CSV import pack."}
+                      </small>
+                    </article>
+                  </div>
+                  <div className="setup-template-actions" style={{ marginTop: "1rem" }}>
+                    <button className="secondary-button" type="button" onClick={() => void recheckXeroConfiguration()}>
+                      Recheck connection
+                    </button>
+                    {xeroConnectionStatus?.authUrl ? (
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={isConnectingXero}
+                        onClick={() => {
+                          setIsConnectingXero(true);
+                          window.location.href = xeroConnectionStatus.authUrl!;
+                        }}
+                      >
+                        {isConnectingXero ? "Opening Xero…" : "Connect Xero"}
+                      </button>
+                    ) : null}
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setHomeView("settings");
+                        setActiveSetupCategory("integrations");
+                        setActiveSetupSubItem("Xero");
+                      }}
+                    >
+                      Open Setup → Xero
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+            </section>
           ) : homeView === "invoices" ? (
             <section className="quote-panel record-directory invoice-directory">
               <div className="panel-header">
@@ -37448,10 +37998,10 @@ export default function Dashboard() {
 	                          </div>
 	                          <small>
 	                            {xeroConnectionStatus?.configured
-	                              ? `Live export mode: ${xeroConnectionStatus.mode}. Open an invoice and use Export to Xero — API push when a token is present, otherwise a CSV import pack.`
+	                              ? `Live export mode: ${xeroConnectionStatus.mode}. Use the Xero module in the left bar for the export queue (sales + bills), or open a single invoice for a one-off push.`
 	                              : xeroConnectionStatus?.authUrl
-	                                ? "OAuth app env is present. Click Connect Xero to authorise, or export invoices as CSV until then."
-	                                : `CSV export always works. For live OAuth set ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI"} (and XERO_TENANT_ID if not discovered).`}
+	                                ? "OAuth app env is present. Click Connect Xero to authorise, then use the Xero module export queues."
+	                                : `CSV export always works from the Xero module. For live OAuth set ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI"} (and XERO_TENANT_ID if not discovered).`}
 	                          </small>
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>

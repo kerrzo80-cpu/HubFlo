@@ -77,7 +77,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
 | Invoicing | Partial | Recurring; credit notes + retention release now ship |
 | Payments | Partial | Ledger + remittance advice email; card/link pay still missing |
-| Accounting sync | Partial | Xero invoices/payments/bills + ACCRECCREDIT credit notes; deeper sync still open |
+| Accounting sync | Partial | Xero left-nav hub with sales/bills export queues + mark exported; live OAuth/CSV; deeper sync still open |
 | Cash / WIP reporting | Partial | WIP tab now shows labour actual vs plan hours; deeper margin packs still open |
 | Customer portal | Thin | Jobs status, invoices, pay, assets |
 | SMS / messaging | Partial | Job confirmation + ETA WhatsApp/email; dedicated SMS gateway still thin |
@@ -223,6 +223,7 @@ Until Brian cuts further, execute in this order:
 - **Overdue scheduled jobs** — dashboard queue for open jobs whose booked date is before today
 - **Stock return from job** — unused materials credited back to van/warehouse; WIP material cost reduced
 - **Site asset certificates** — number + issued/expiry dates, cert-expired filter, dashboard due queue includes cert dates
+- **Xero accounts hub** — left-nav Xero module with Sales/Bills to export, Exported list (mark/unmark), and Connection (simPRO-style queue, not only per-invoice buttons)
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links
