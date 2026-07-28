@@ -3051,8 +3051,8 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Working bridge",
     },
     Xero: {
-      summary: "Prepare the Xero accounts connection used for invoice export, progress claim export and payment reconciliation.",
-      focus: ["OAuth tenant", "Invoice push", "Payment status sync"],
+      summary: "Connect Xero once, then use the Xero left-nav module for sales and supplier-bill export queues (simPRO-style).",
+      focus: ["OAuth tenant", "Export queues", "Mark exported"],
       status: "Setup area ready",
     },
     "Import from simPRO": {
