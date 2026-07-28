@@ -2578,7 +2578,7 @@ kbd {
   color: #7a5d08;
 }
 
-/* Clippy-style free-standing Buddy — uses the real Buddy mascot art */
+/* Clippy-style free-standing Buddy with layered mascot parts */
 .buddy-character {
   display: inline-flex;
   line-height: 0;
@@ -2587,6 +2587,7 @@ kbd {
 }
 
 .buddy-character-stage {
+  aspect-ratio: 626 / 942;
   display: block;
   position: relative;
   width: 100%;
@@ -2609,150 +2610,196 @@ kbd {
 }
 
 .buddy-character .buddy-shadow {
+  animation: buddy-shadow-breathe 2.8s ease-in-out infinite;
   background: radial-gradient(ellipse at center, rgba(23, 57, 73, 0.28) 0%, rgba(23, 57, 73, 0) 70%);
   border-radius: 50%;
   bottom: 0;
-  height: 12%;
-  left: 18%;
+  height: 5.5%;
+  left: 19%;
   position: absolute;
-  right: 18%;
-  animation: buddy-shadow-breathe 2.8s ease-in-out infinite;
+  right: 19%;
 }
 
-.buddy-character .buddy-figure {
-  display: block;
-  position: relative;
+.buddy-character .buddy-part {
+  position: absolute;
   transform-origin: center bottom;
-  animation: buddy-bob 2.8s ease-in-out infinite;
-  width: 100%;
 }
 
-.buddy-character .buddy-figure-art {
+.buddy-character .buddy-part-art {
   display: block;
-  filter: drop-shadow(0 8px 14px rgba(17, 52, 68, 0.18));
+  filter: drop-shadow(0 8px 14px rgba(17, 52, 68, 0.14));
   height: auto;
-  user-select: none;
   width: 100%;
 }
 
-/* Soft lid over the face screen for a Clippy-style wink */
-.buddy-character .buddy-wink-lid {
+.buddy-character .buddy-head {
+  animation: buddy-head-bob 2.8s ease-in-out infinite;
+  left: 14%;
+  top: 0%;
+  width: 72%;
+  z-index: 4;
+}
+
+.buddy-character .buddy-torso {
+  animation: buddy-torso-bob 2.8s ease-in-out infinite;
+  left: 19%;
+  top: 37%;
+  width: 62%;
+  z-index: 3;
+}
+
+.buddy-character .buddy-left-arm {
+  animation: buddy-left-arm-wave 3.8s ease-in-out infinite;
+  left: 0%;
+  top: 31%;
+  width: 30%;
+  z-index: 2;
+}
+
+.buddy-character .buddy-right-arm {
+  animation: buddy-right-arm-point 3.2s ease-in-out infinite;
+  right: 0%;
+  top: 18%;
+  width: 30%;
+  z-index: 5;
+}
+
+.buddy-character .buddy-legs {
+  animation: buddy-legs-step 2.8s ease-in-out infinite;
+  bottom: 0;
+  left: 17%;
+  width: 66%;
+  z-index: 1;
+}
+
+.buddy-character .buddy-eye-lid {
   background: #f2c94c;
-  border-radius: 40% 40% 35% 35%;
-  height: 14%;
-  left: 28%;
+  border-radius: 50%;
+  height: 6%;
   opacity: 0;
   position: absolute;
-  top: 18%;
+  top: 28%;
   transform-origin: center top;
-  width: 44%;
-  animation: buddy-wink 5.8s ease-in-out infinite;
+  width: 12%;
 }
 
-.buddy-character.mood-alert .buddy-figure {
-  animation: buddy-alert-jiggle 0.7s ease-in-out infinite;
+.buddy-character .buddy-eye-lid-left {
+  left: 35%;
+  animation: buddy-eye-blink 6s ease-in-out infinite;
 }
 
-.buddy-character.mood-thinking .buddy-figure {
-  animation: buddy-think-tilt 1.4s ease-in-out infinite;
+.buddy-character .buddy-eye-lid-right {
+  left: 52%;
+  animation: buddy-eye-blink 6s ease-in-out 0.1s infinite;
 }
 
-.buddy-character.mood-guide .buddy-figure {
-  animation: buddy-point-nudge 1.5s ease-in-out infinite;
+.buddy-character.mood-alert .buddy-head {
+  animation: buddy-head-alert 0.75s ease-in-out infinite;
 }
 
-.buddy-character.mood-good .buddy-figure {
-  animation: buddy-happy-bounce 1.8s ease-in-out infinite;
+.buddy-character.mood-alert .buddy-right-arm {
+  animation: buddy-right-arm-alert 0.95s ease-in-out infinite;
 }
 
-@keyframes buddy-bob {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-2deg);
-  }
-  50% {
-    transform: translateY(-8px) rotate(2deg);
-  }
+.buddy-character.mood-thinking .buddy-head {
+  animation: buddy-head-think 1.5s ease-in-out infinite;
+}
+
+.buddy-character.mood-thinking .buddy-left-arm {
+  animation: buddy-left-arm-think 1.8s ease-in-out infinite;
+}
+
+.buddy-character.mood-guide .buddy-right-arm {
+  animation: buddy-right-arm-guide 1.2s ease-in-out infinite;
+}
+
+.buddy-character.mood-good .buddy-head {
+  animation: buddy-head-happy 1.8s ease-in-out infinite;
+}
+
+.buddy-character.mood-good .buddy-legs {
+  animation: buddy-legs-happy 1.8s ease-in-out infinite;
+}
+
+@keyframes buddy-head-bob {
+  0%, 100% { transform: translateY(0) rotate(-1.6deg); }
+  50% { transform: translateY(-7px) rotate(1.6deg); }
+}
+
+@keyframes buddy-torso-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes buddy-left-arm-wave {
+  0%, 100% { transform: rotate(-1deg) translateY(0); }
+  50% { transform: rotate(5deg) translateY(-2px); }
+}
+
+@keyframes buddy-right-arm-point {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  50% { transform: rotate(6deg) translateY(-5px); }
+}
+
+@keyframes buddy-legs-step {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
 }
 
 @keyframes buddy-shadow-breathe {
-  0%,
-  100% {
-    opacity: 0.7;
-    transform: scaleX(1);
-  }
-  50% {
-    opacity: 0.35;
-    transform: scaleX(0.78);
-  }
+  0%, 100% { opacity: 0.65; transform: scaleX(1); }
+  50% { opacity: 0.32; transform: scaleX(0.82); }
 }
 
-@keyframes buddy-wink {
-  0%,
-  84%,
-  94%,
-  100% {
-    opacity: 0;
-    transform: scaleY(0.12);
-  }
-  88%,
-  90% {
-    opacity: 0.92;
-    transform: scaleY(1);
-  }
+@keyframes buddy-eye-blink {
+  0%, 84%, 94%, 100% { opacity: 0; transform: scaleY(0.12); }
+  88%, 90% { opacity: 0.96; transform: scaleY(1); }
 }
 
-@keyframes buddy-alert-jiggle {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-4deg);
-  }
-  50% {
-    transform: translateY(-4px) rotate(4deg);
-  }
+@keyframes buddy-head-alert {
+  0%, 100% { transform: translateY(0) rotate(-3deg); }
+  50% { transform: translateY(-3px) rotate(3deg); }
 }
 
-@keyframes buddy-think-tilt {
-  0%,
-  100% {
-    transform: translateY(-2px) rotate(-6deg);
-  }
-  50% {
-    transform: translateY(-6px) rotate(4deg);
-  }
+@keyframes buddy-right-arm-alert {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  50% { transform: rotate(10deg) translateY(-6px); }
 }
 
-@keyframes buddy-point-nudge {
-  0%,
-  100% {
-    transform: translateY(0) rotate(-1deg) scale(1);
-  }
-  50% {
-    transform: translateY(-7px) rotate(3deg) scale(1.04);
-  }
+@keyframes buddy-head-think {
+  0%, 100% { transform: translateY(-1px) rotate(-4deg); }
+  50% { transform: translateY(-6px) rotate(3deg); }
 }
 
-@keyframes buddy-happy-bounce {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  40% {
-    transform: translateY(-10px) scale(1.05);
-  }
-  60% {
-    transform: translateY(-2px) scale(0.98);
-  }
+@keyframes buddy-left-arm-think {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-7deg) translateY(-2px); }
+}
+
+@keyframes buddy-right-arm-guide {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  50% { transform: rotate(12deg) translateY(-8px); }
+}
+
+@keyframes buddy-head-happy {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  40% { transform: translateY(-9px) rotate(2deg); }
+  60% { transform: translateY(-2px) rotate(-1deg); }
+}
+
+@keyframes buddy-legs-happy {
+  0%, 100% { transform: translateY(0) scaleY(1); }
+  50% { transform: translateY(1px) scaleY(0.98); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .buddy-character .buddy-figure,
   .buddy-character .buddy-shadow,
-  .buddy-character .buddy-wink-lid,
-  .buddy-character.mood-alert .buddy-figure,
-  .buddy-character.mood-thinking .buddy-figure,
-  .buddy-character.mood-guide .buddy-figure,
-  .buddy-character.mood-good .buddy-figure {
+  .buddy-character .buddy-head,
+  .buddy-character .buddy-torso,
+  .buddy-character .buddy-left-arm,
+  .buddy-character .buddy-right-arm,
+  .buddy-character .buddy-legs,
+  .buddy-character .buddy-eye-lid {
     animation: none !important;
   }
 }
