@@ -2134,23 +2134,17 @@ const modules: ModuleItem[] = [
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
-  { label: "POs", icon: ClipboardCheck },
-  { label: "Stock", icon: Package },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
-  { label: "Xero", icon: Building2 },
-  { label: "Recurring", icon: Repeat },
-  { label: "Reports", icon: BarChart3 },
-  { label: "Add-ons", icon: Sparkles },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
+  { label: "More", icon: MoreHorizontal, subItems: ["POs", "Stock", "Xero", "Recurring", "Reports", "Add-ons"] },
   { label: "Setup", icon: Settings },
 ];
 
 const sideNavigation = [
   { label: "Overview", icon: Gauge, active: true },
-  { label: "My work", icon: ListChecks, badge: 6 },
+  { label: "My work", icon: ListChecks },
   { label: "Operations", icon: HardHat },
-  { label: "Communications", icon: Inbox, badge: 3 },
   { label: "Reports", icon: BarChart3 },
 ];
 
@@ -10450,14 +10444,29 @@ export default function Dashboard() {
     return modules.filter((module) => {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
-      if (module.label === "POs" && !access.canRequestPurchase && !access.canApprovePurchase && !access.showFinance) return false;
-      if (module.label === "Stock" && !access.showStock && !access.showFinance && !access.canRequestPurchase) return false;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
-      if (module.label === "Xero" && !access.showFinance) return false;
-      if (module.label === "Recurring" && !access.showJobs && !access.showFinance) return false;
-      if (module.label === "Reports" && !access.showFinance) return false;
+      if (module.label === "More") {
+        const canSeeAnyMore =
+          access.showFinance ||
+          access.showStock ||
+          access.canRequestPurchase ||
+          access.canApprovePurchase ||
+          access.showJobs;
+        return canSeeAnyMore;
+      }
+      return true;
+    });
+  }, [access]);
+
+  const visibleMoreItems = useMemo(() => {
+    const more = modules.find((module) => module.label === "More");
+    return (more?.subItems || []).filter((item) => {
+      if (item === "POs") return access.canRequestPurchase || access.canApprovePurchase || access.showFinance;
+      if (item === "Stock") return access.showStock || access.showFinance || access.canRequestPurchase;
+      if (item === "Xero" || item === "Reports") return access.showFinance;
+      if (item === "Recurring") return access.showJobs || access.showFinance;
       return true;
     });
   }, [access]);
@@ -14951,6 +14960,45 @@ export default function Dashboard() {
     setHomeView("jobs");
     scrollWorkspaceToTop();
     showNotice("Open a ready-to-invoice job, then choose Create invoice.");
+  }
+
+  function navigateToModule(label: string) {
+    if (label === "Dashboard") {
+      returnToDashboard();
+    } else if (label === "Leads") {
+      returnToLeadsDirectory();
+    } else if (label === "Quotes") {
+      returnToQuotesDirectory();
+    } else if (label === "Jobs") {
+      returnToJobsDirectory();
+    } else if (label === "POs") {
+      setHomeView("purchase-orders");
+    } else if (label === "Stock") {
+      setHomeView("stock");
+    } else if (label === "Schedules") {
+      setHomeView("schedule");
+    } else if (label === "Setup") {
+      setHomeView("settings");
+      setActiveSetupSubItem(null);
+    } else if (label === "Invoices") {
+      returnToInvoiceDirectory();
+    } else if (label === "Xero") {
+      setHomeView("xero");
+      setActiveXeroTab("sales");
+    } else if (label === "Recurring") {
+      setHomeView("recurring");
+    } else if (label === "Reports") {
+      setHomeView("reports");
+      setActiveReportTab("executive");
+    } else if (label === "Add-ons") {
+      setHomeView("addons");
+    } else {
+      setHomeView("settings");
+      setActiveSetupSubItem(null);
+      showNotice(`${label} configuration opens through Setup.`);
+    }
+    closeContextSidebarOnMobile();
+    scrollWorkspaceToTop();
   }
 
   function handleContextNavClick(label: string) {
@@ -25918,29 +25966,34 @@ export default function Dashboard() {
       </div>
 
       <nav className="module-bar" aria-label="Main modules">
-        <button className="mobile-menu" aria-label="Open navigation" onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}>
+        <button
+          className="mobile-menu sidebar-toggle"
+          aria-label={contextSidebarCollapsed ? "Open navigation" : "Close navigation"}
+          title={contextSidebarCollapsed ? "Open navigation" : "Close navigation"}
+          onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}
+        >
           <Menu size={19} />
         </button>
         {visibleModules.map((module) => {
           const Icon = module.icon;
+          const moreActive =
+            module.label === "More" &&
+            ["purchase-orders", "purchase-order-record", "stock", "xero", "recurring", "reports", "addons"].includes(homeView);
           const isActiveModule =
             (module.label === "Dashboard" && homeView === "dashboard") ||
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
             (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
             (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
-            (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
-            (module.label === "Stock" && homeView === "stock") ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
-            (module.label === "Xero" && homeView === "xero") ||
-            (module.label === "Recurring" && homeView === "recurring") ||
-            (module.label === "Reports" && homeView === "reports") ||
-            (module.label === "Add-ons" && homeView === "addons") ||
-            (module.label === "People" && ["employees", "employee-card", "clients", "client-record"].includes(homeView));
+            (module.label === "People" && ["employees", "employee-card", "clients", "client-record", "directory-manager"].includes(homeView)) ||
+            moreActive;
 
           if (module.subItems?.length) {
             const isOpen = openModuleMenu === module.label;
+            const submenuItems = module.label === "More" ? visibleMoreItems : module.subItems;
+            if (module.label === "More" && !submenuItems.length) return null;
             return (
               <div
                 key={module.label}
@@ -25959,13 +26012,18 @@ export default function Dashboard() {
                   <ChevronDown size={13} />
                 </button>
                 <div className={isOpen ? "module-submenu open" : "module-submenu"}>
-                  {module.subItems.map((item) => (
+                  {submenuItems.map((item) => (
                     <button
                       key={item}
                       type="button"
                       onClick={() => {
-                        goToPeopleSection(item);
-                        closeContextSidebarOnMobile();
+                        if (module.label === "People") {
+                          goToPeopleSection(item);
+                          closeContextSidebarOnMobile();
+                        } else {
+                          navigateToModule(item);
+                        }
+                        setOpenModuleMenu(null);
                       }}
                     >
                       {item}
@@ -25986,42 +26044,7 @@ export default function Dashboard() {
               onClick={(event) => {
                 if (module.href) return;
                 event.preventDefault();
-                if (module.label === "Dashboard") {
-                  returnToDashboard();
-                } else if (module.label === "Leads") {
-                  returnToLeadsDirectory();
-                } else if (module.label === "Quotes") {
-                  returnToQuotesDirectory();
-                } else if (module.label === "Jobs") {
-                  returnToJobsDirectory();
-                } else if (module.label === "POs") {
-                  setHomeView("purchase-orders");
-                } else if (module.label === "Stock") {
-                  setHomeView("stock");
-                } else if (module.label === "Schedules") {
-                  setHomeView("schedule");
-                } else if (module.label === "Setup") {
-                  setHomeView("settings");
-                  setActiveSetupSubItem(null);
-                } else if (module.label === "Invoices") {
-                  returnToInvoiceDirectory();
-                } else if (module.label === "Xero") {
-                  setHomeView("xero");
-                  setActiveXeroTab("sales");
-                } else if (module.label === "Recurring") {
-                  setHomeView("recurring");
-                } else if (module.label === "Reports") {
-                  setHomeView("reports");
-                  setActiveReportTab("executive");
-                } else if (module.label === "Add-ons") {
-                  setHomeView("addons");
-                } else {
-                  setHomeView("settings");
-                  setActiveSetupSubItem(null);
-                  showNotice(`${module.label} configuration opens through Setup.`);
-                }
-                closeContextSidebarOnMobile();
-                scrollWorkspaceToTop();
+                navigateToModule(module.label);
               }}
             >
               <Icon size={16} strokeWidth={1.8} />
@@ -26029,17 +26052,6 @@ export default function Dashboard() {
             </a>
           );
         })}
-        <button
-          className="module-more"
-          aria-label="More modules"
-          onClick={() => {
-            setHomeView("addons");
-            closeContextSidebarOnMobile();
-            scrollWorkspaceToTop();
-          }}
-        >
-          <MoreHorizontal size={18} />
-        </button>
       </nav>
 
       {openWorkspaceTabs.length ? (
@@ -26182,10 +26194,6 @@ export default function Dashboard() {
           <a href="/engineer" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
             <span>NeXa Field</span>
-          </a>
-          <a href="/office/whatsapp-pilot" className="context-link" aria-label="NeXa Connect" data-tooltip="NeXa Connect">
-            <Inbox size={17} />
-            <span>NeXa Connect</span>
           </a>
           <a href="/office/alerts" className="context-link" aria-label="Office alerts" data-tooltip="Office alerts">
             <Bell size={17} />
@@ -31578,33 +31586,6 @@ export default function Dashboard() {
                         <small>No survey records were handed over from the quote yet.</small>
                       )}
                     </section>
-                    <section className="job-readiness-panel">
-                      <header>
-                        <div>
-                          <span className="permission-heading">Ready to start</span>
-                          <h2>Pre-start control checklist</h2>
-                        </div>
-                        <strong>
-                          {selectedJobReadiness.completeCount}/{selectedJobReadiness.requiredCount}
-                          <span> required</span>
-                        </strong>
-                      </header>
-                      <div className="job-readiness-list">
-                        {selectedJobReadiness.items.map((item) => (
-                          <article
-                            className={item.complete ? "job-readiness-item complete" : "job-readiness-item"}
-                            key={item.label}
-                          >
-                            <span>{item.complete ? <Check size={15} /> : <AlertTriangle size={15} />}</span>
-                            <div>
-                              <strong>{item.label}</strong>
-                              <small>{item.detail}</small>
-                            </div>
-                            {item.optional ? <em>Optional</em> : null}
-                          </article>
-                        ))}
-                      </div>
-                    </section>
                     <section className="job-scheduling-panel">
                       <header>
                         <div>
@@ -31772,134 +31753,6 @@ export default function Dashboard() {
                         >
                           Approve for invoice
                         </button>
-                      </div>
-                    </section>
-                    <section className="job-delivery-panel">
-                      <header>
-                        <div>
-                          <span className="permission-heading">Project management</span>
-                          <h2>WhatsApp updates and timesheets</h2>
-                        </div>
-                        <span className="status-pill blue">{selectedJobDeliveryEvents.length} events</span>
-                      </header>
-
-                      <div className="job-delivery-stats" aria-label="Job delivery totals">
-                        <article>
-                          <span>Site updates</span>
-                          <strong>{selectedJobDeliveryEvents.filter((event) => event.kind === "whatsapp").length}</strong>
-                        </article>
-                        <article>
-                          <span>Timesheets</span>
-                          <strong>{selectedJobApprovedTimesheetHours.toFixed(1)}h approved</strong>
-                          <small>{selectedJobTimesheetHours.toFixed(1)}h submitted</small>
-                        </article>
-                        <article>
-                          <span>Cost-centre POs</span>
-                          <strong>{selectedJobPurchaseRequests.length}</strong>
-                        </article>
-                        <article>
-                          <span>Cost-centre variations</span>
-                          <strong>{selectedJobVariations.length}</strong>
-                        </article>
-                      </div>
-                      <div className="job-readiness-item">
-                        <span><FileText size={15} /></span>
-                        <div>
-                          <strong>Variations and purchase orders are controlled from cost centres</strong>
-                          <small>Open the cost centre and use its POs tab so supplier costs land against the right section of the job.</small>
-                        </div>
-                        <div className="job-readiness-actions">
-                          <button className="secondary-button" type="button" onClick={() => setActiveJobTab("cost-centres")}>
-                            Open cost centres
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="job-delivery-grid">
-                        <article className="job-delivery-card">
-                          <header>
-                            <strong>Site update</strong>
-                            <small>Captured from WhatsApp doorway</small>
-                          </header>
-                          <label>
-                            Message
-                            <textarea
-                              value={selectedJobDeliveryDraft.whatsappNote}
-                              onChange={(event) => updateSelectedJobDeliveryDraft({ whatsappNote: event.target.value })}
-                              placeholder="Example: arrived on site, customer asked about moving radiator..."
-                            />
-                          </label>
-                          <button className="secondary-button" type="button" onClick={logSelectedJobWhatsappUpdate}>
-                            Capture update
-                          </button>
-                        </article>
-
-                        <article className="job-delivery-card">
-                          <header>
-                            <strong>Timesheet</strong>
-                            <small>Engineer time against this job</small>
-                          </header>
-                          <div className="job-delivery-two-col">
-                            <label>
-                              Hours
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={selectedJobDeliveryDraft.timesheetHours}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ timesheetHours: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Engineer
-                              <input value={selectedJob.manager} readOnly />
-                            </label>
-                          </div>
-                          <label>
-                            Notes
-                            <textarea
-                              value={selectedJobDeliveryDraft.timesheetNote}
-                              onChange={(event) => updateSelectedJobDeliveryDraft({ timesheetNote: event.target.value })}
-                              placeholder="What was done during these hours?"
-                            />
-                          </label>
-                          <button className="secondary-button" type="button" onClick={submitSelectedJobTimesheet}>
-                            Submit timesheet
-                          </button>
-                        </article>
-
-                      </div>
-
-                      <div className="job-delivery-list">
-                        <strong>Latest job activity</strong>
-                        {selectedJobDeliveryEvents.length === 0 ? (
-                          <p>No site updates, timesheets, variations or PO requests captured yet.</p>
-                        ) : (
-                          selectedJobDeliveryEvents.slice(0, 8).map((event) => (
-                            <article key={event.id} className="job-delivery-event">
-                              <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
-                              <div>
-                                <strong>{event.summary}</strong>
-                                <small>
-                                  {event.actor} · {event.source} · {event.createdAt}
-                                  {event.status ? ` · ${event.status}` : ""}
-                                </small>
-                                {event.kind === "timesheet" && (event.status === "Submitted" || !event.status) ? (
-                                  <div className="ops-queue-actions" style={{ marginTop: "0.4rem" }}>
-                                    <button className="primary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Approved")}>
-                                      Approve
-                                    </button>
-                                    <button className="secondary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Rejected")}>
-                                      Reject
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </div>
-                              {event.kind === "timesheet" ? <b>{(event.hours ?? 0).toFixed(1)}h</b> : null}
-                              {event.kind === "po" || event.kind === "variation" ? <b>{currency(event.sellValue ?? event.costValue ?? 0)}</b> : null}
-                            </article>
-                          ))
-                        )}
                       </div>
                     </section>
                   </section>
