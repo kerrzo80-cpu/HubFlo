@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
   const canChat = access.showSchedule || access.showQuotes || access.showJobs || access.canCustomize || access.showFinance;
   if (!canChat) {
-    return NextResponse.json({ error: "Your role cannot use Buddy." }, { status: 403 });
+    return NextResponse.json({ error: "Your role cannot use Blake." }, { status: 403 });
   }
   const payload = await parseJsonRequestBody<AssistantRequest>(request);
   if (!payload) return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
@@ -34,14 +34,14 @@ export async function POST(request: Request) {
 
   if (payload.confirmActionId) {
     if (!access.canEditJobs) {
-      return NextResponse.json({ error: "Your role can chat with Buddy but cannot create bookings." }, { status: 403 });
+      return NextResponse.json({ error: "Your role can chat with Blake but cannot create bookings." }, { status: 403 });
     }
     const result = await confirmNexaAssistantAction(payload.confirmActionId, actor);
     return NextResponse.json(result, { status: result.status });
   }
 
   const message = payload.message?.trim();
-  if (!message) return NextResponse.json({ error: "Ask Buddy a question first." }, { status: 400 });
+  if (!message) return NextResponse.json({ error: "Ask Blake a question first." }, { status: 400 });
   const history = Array.isArray(payload.history)
     ? payload.history
       .filter((item): item is BuddyHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))

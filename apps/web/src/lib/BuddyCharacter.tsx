@@ -12,7 +12,7 @@ type BuddyCharacterProps = {
   size?: "sm" | "md" | "lg" | "hero";
   className?: string;
   title?: string;
-  /** When true, Buddy reacts to hover/press and does idle gestures. */
+  /** When true, Blake reacts to hover/press and does idle gestures. */
   interactive?: boolean;
 };
 
@@ -27,14 +27,14 @@ const PARTS = [
 const ROUTINE_MS = 4000;
 
 /**
- * Yellow/blue Buddy robot with independent parts.
+ * Yellow/blue Blake robot with independent parts.
  * Gesture routine mirrors the Wave → Wink → Stop reference clip.
  */
 export function BuddyCharacter({
   mood = "idle",
   size = "md",
   className = "",
-  title = "Buddy",
+  title = "Blake",
   interactive = true,
 }: BuddyCharacterProps) {
   const [gesture, setGesture] = useState<BuddyGesture>("none");

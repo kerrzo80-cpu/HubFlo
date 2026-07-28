@@ -6879,7 +6879,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                   <span>
                     <strong>AI takeoff</strong>
                     <small>
-                      Upload drawings, let Buddy build the BoQ, tweak what matters, then hand off to quote
+                      Upload drawings, let Blake build the BoQ, tweak what matters, then hand off to quote
                       {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
                     </small>
                   </span>
@@ -9073,7 +9073,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <div>
                       <h2>Bill of quantities</h2>
                       <p>
-                        Buddy drafts materials and labour from Survey cost centres and AI scan.
+                        Blake drafts materials and labour from Survey cost centres and AI scan.
                         Edit lines if needed, then hand off to quote.
                       </p>
                     </div>

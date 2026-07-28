@@ -37,7 +37,7 @@ function lineLooksLikeLabour(line: WatchLine) {
 }
 
 /**
- * Buddy watches a quote before it goes out (email / Simpro / accept).
+ * Blake watches a quote before it goes out (email / Simpro / accept).
  * Findings are ordered blockers first, then warnings, then tips.
  */
 export function watchQuoteReadiness(input: {
@@ -69,7 +69,7 @@ export function watchQuoteReadiness(input: {
     if (misses >= 2 && finding.severity === "warn") {
       findings.push({
         ...finding,
-        detail: `${finding.detail} Buddy has seen this crop up ${misses} times on your sends.`,
+        detail: `${finding.detail} Blake has seen this crop up ${misses} times on your sends.`,
       });
       return;
     }
@@ -81,7 +81,7 @@ export function watchQuoteReadiness(input: {
       id: "client-missing",
       severity: "block",
       title: "Client still needs confirming",
-      detail: "Buddy can’t see a proper linked client on this quote yet.",
+      detail: "Blake can’t see a proper linked client on this quote yet.",
       actionHint: "Open quote details and pick the customer before sending.",
     });
   }
@@ -101,7 +101,7 @@ export function watchQuoteReadiness(input: {
       id: "description-missing",
       severity: "warn",
       title: "Works description is thin",
-      detail: "A clear description helps Buddy, Simpro, and the customer understand the job.",
+      detail: "A clear description helps Blake, Simpro, and the customer understand the job.",
       actionHint: "Add a short plain-English description of the works.",
     });
   }
@@ -122,7 +122,7 @@ export function watchQuoteReadiness(input: {
       id: "empty-cost-centres",
       severity: "block",
       title: "Cost centres have no lines",
-      detail: "The centres exist, but Buddy can’t see labour or materials inside them.",
+      detail: "The centres exist, but Blake can’t see labour or materials inside them.",
       actionHint: "Open the cost build and add materials and labour.",
     });
   } else {
@@ -133,7 +133,7 @@ export function watchQuoteReadiness(input: {
         id: "no-labour",
         severity: "warn",
         title: "No labour hours on the build",
-        detail: "Buddy only sees materials so far — labour is usually needed before this goes out.",
+        detail: "Blake only sees materials so far — labour is usually needed before this goes out.",
         actionHint: "Add engineer/plumber hours to the cost centre.",
       });
     }
@@ -142,7 +142,7 @@ export function watchQuoteReadiness(input: {
         id: "no-materials",
         severity: "warn",
         title: "No materials / kit on the build",
-        detail: "Buddy only sees labour — boiler kit, radiators or fittings may be missing.",
+        detail: "Blake only sees labour — boiler kit, radiators or fittings may be missing.",
         actionHint: "Add the plant and materials lines before sending.",
       });
     }
@@ -165,7 +165,7 @@ export function watchQuoteReadiness(input: {
       id: "zero-sell",
       severity: "block",
       title: "Sell total is still £0",
-      detail: "Buddy won’t let a zero-value quote go out as if it’s ready.",
+      detail: "Blake won’t let a zero-value quote go out as if it’s ready.",
       actionHint: "Check unit sell prices on the cost lines.",
     });
   }
@@ -189,17 +189,17 @@ export function buddyWatchSummary(findings: BuddyWatchFinding[]) {
   if (blocks > 0) {
     return {
       mood: "alert" as const,
-      headline: blocks === 1 ? "Buddy spotted 1 thing to fix before send" : `Buddy spotted ${blocks} things to fix before send`,
+      headline: blocks === 1 ? "Blake spotted 1 thing to fix before send" : `Blake spotted ${blocks} things to fix before send`,
     };
   }
   if (warns > 0) {
     return {
       mood: "guide" as const,
-      headline: warns === 1 ? "Buddy has 1 check for you" : `Buddy has ${warns} checks for you`,
+      headline: warns === 1 ? "Blake has 1 check for you" : `Blake has ${warns} checks for you`,
     };
   }
   return {
     mood: "good" as const,
-    headline: "Looks good to Buddy — nothing blocking send",
+    headline: "Looks good to Blake — nothing blocking send",
   };
 }

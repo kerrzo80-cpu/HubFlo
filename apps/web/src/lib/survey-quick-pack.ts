@@ -234,7 +234,7 @@ function mergeBuddyAnswers(survey: SurveyRecord, questions: QuickClarifyingQuest
     next.push({
       id: makeId("survey-answer"),
       key: question.key,
-      section: "Buddy checks",
+      section: "Blake checks",
       question: question.question,
       value: "",
       status: "TBC",
@@ -484,7 +484,10 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
     siteAddress: survey.siteAddress,
     evidenceCount: survey.photos.length,
     answeredBuddyChecks: survey.answers
-      .filter((answer) => answer.section === "Buddy checks" && String(answer.value || "").trim())
+      .filter((answer) =>
+        (answer.section === "Blake checks" || answer.section === "Buddy checks") &&
+        String(answer.value || "").trim(),
+      )
       .map((answer) => ({ key: answer.key, question: answer.question, answer: String(answer.value) })),
     photos: survey.photos.slice(0, 20).map((photo) => ({
       category: photo.category,
@@ -494,8 +497,8 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
   };
 
   const prompt = [
-    "You are Buddy building a NeXa estimating pack for UK plumbing and heating.",
-    "From the works description, Buddy answers already given, and evidence metadata, propose cost centres.",
+    "You are Blake building a NeXa estimating pack for UK plumbing and heating.",
+    "From the works description, Blake answers already given, and evidence metadata, propose cost centres.",
     "Each cost centre needs name, jobDescription, trade, materials[{description,quantity,unit}], labour[{description,hours,trade}].",
     "Materials are for a supplier RFQ: itemise specific products a merchant can price.",
     "NEVER use units or descriptions like lot, item, allowance, sundry, materials, pipework materials, or as required.",
@@ -540,7 +543,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
         connected: true,
         aiUsed: false,
         error: shortDetail,
-        pack: fallbackCostCentres(survey, `OpenAI key is present, but Buddy could not build the pack (${shortDetail}). Showing a rule-based draft instead.`),
+        pack: fallbackCostCentres(survey, `OpenAI key is present, but Blake could not build the pack (${shortDetail}). Showing a rule-based draft instead.`),
       };
     }
     const text = extractChatText(body) || getOutputText(body);
@@ -579,7 +582,7 @@ async function generateCostCentresWithAi(survey: SurveyRecord): Promise<{ pack: 
       connected: true,
       aiUsed: false,
       error: detail,
-      pack: fallbackCostCentres(survey, `Buddy hit an error talking to OpenAI (${detail}). Showing a rule-based draft instead.`),
+      pack: fallbackCostCentres(survey, `Blake hit an error talking to OpenAI (${detail}). Showing a rule-based draft instead.`),
     };
   }
 }
@@ -945,10 +948,10 @@ export async function buildQuickCostCentrePack(
   const mergedAnswers = mergeBuddyAnswers(survey, clarifyingQuestions);
   if (JSON.stringify(mergedAnswers) !== JSON.stringify(survey.answers)) {
     const withAnswers = updateSurvey(tenantId, survey.id, { answers: mergedAnswers }, survey.version, actor, {
-      action: "Buddy checks prepared",
+      action: "Blake checks prepared",
       detail: clarifyingQuestions.length
-        ? `Buddy asked ${clarifyingQuestions.length} clarifying question(s).`
-        : "Buddy had no further clarifying questions.",
+        ? `Blake asked ${clarifyingQuestions.length} clarifying question(s).`
+        : "Blake had no further clarifying questions.",
     });
     if (withAnswers.ok) survey = withAnswers.value;
   }

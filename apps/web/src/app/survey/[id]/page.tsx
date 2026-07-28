@@ -323,7 +323,7 @@ export default function SimpleSurveyWorkspacePage() {
       }
       setCostCentres(body.costCentres);
       setNoticeTone(body.aiUsed ? "ok" : "warn");
-      setNotice(body.summary || (body.aiUsed ? "Buddy built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
+      setNotice(body.summary || (body.aiUsed ? "Blake built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "Unable to generate cost centres.");
     } finally {
@@ -347,7 +347,9 @@ export default function SimpleSurveyWorkspacePage() {
   const boqHref = survey.legacyTakeoffProjectId
     ? `/takeoff?project=${encodeURIComponent(survey.legacyTakeoffProjectId)}&tab=boq`
     : "/takeoff?tab=boq";
-  const buddyQuestions = survey.answers.filter((answer) => answer.section === "Buddy checks");
+  const buddyQuestions = survey.answers.filter((answer) =>
+    answer.section === "Blake checks" || answer.section === "Buddy checks",
+  );
   const openBuddyQuestions = buddyQuestions.filter((answer) => !String(answer.value || "").trim());
 
   function updateBuddyAnswer(answer: SurveyAnswer, value: string) {
@@ -392,7 +394,7 @@ export default function SimpleSurveyWorkspacePage() {
       <section className="survey-simple-stage">
         <div className="survey-simple-hero">
           <h1>Survey</h1>
-          <p>Evidence in, works description, then Buddy builds cost centres for markup and supplier RFQ.</p>
+          <p>Evidence in, works description, then Blake builds cost centres for markup and supplier RFQ.</p>
         </div>
 
         {aiStatus && !aiStatus.connected ? (
@@ -472,11 +474,11 @@ export default function SimpleSurveyWorkspacePage() {
         {buddyQuestions.length ? (
           <section className="survey-simple-buddy">
             <header>
-              <h2><Bot size={18} /> Buddy checks</h2>
+              <h2><Bot size={18} /> Blake checks</h2>
               <p>
                 {openBuddyQuestions.length
-                  ? `Buddy needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild.`
-                  : "Buddy’s checks are answered. Rebuild cost centres to tighten materials and labour."}
+                  ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild.`
+                  : "Blake’s checks are answered. Rebuild cost centres to tighten materials and labour."}
               </p>
             </header>
             <div className="survey-simple-buddy-list">

@@ -1,5 +1,5 @@
 /**
- * Buddy memory — light pattern learning that evolves with how the team works.
+ * Blake memory — light pattern learning that evolves with how the team works.
  * Stores preferences and repeated miss patterns locally per browser for now.
  * Safe for client use (no server imports).
  */
@@ -17,7 +17,7 @@ export type BuddyWorkHabits = {
 
 export type BuddyMemory = {
   version: 1;
-  /** Finding ids the user asked Buddy to stop nagging about (global). */
+  /** Finding ids the user asked Blake to stop nagging about (global). */
   mutedFindingIds: string[];
   /** How often a finding type blocked or warned before send. */
   missCounts: Record<string, number>;
@@ -25,7 +25,7 @@ export type BuddyMemory = {
   dismissedByQuote: Record<string, string[]>;
   /** Completed tutor flows, e.g. "quote-basics". */
   completedWalkthroughs: string[];
-  /** Free-text habits Buddy has noticed. */
+  /** Free-text habits Blake has noticed. */
   habits: string[];
   /** Rolling commercial work pattern stats. */
   workHabits: BuddyWorkHabits;
@@ -143,7 +143,7 @@ export function markWalkthroughComplete(memory: BuddyMemory, walkthroughId: stri
   );
 }
 
-/** Record a successful / attempted commercial send so Buddy learns typical quote shape. */
+/** Record a successful / attempted commercial send so Blake learns typical quote shape. */
 export function recordBuddyQuotePattern(
   memory: BuddyMemory,
   input: { lineCount: number; labourHours: number; sent: boolean },
@@ -180,7 +180,7 @@ export function recordBuddyQuotePattern(
   );
 }
 
-/** Compact summary for Buddy chat / system context. */
+/** Compact summary for Blake chat / system context. */
 export function buddyMemoryPrompt(memory: BuddyMemory) {
   const topMisses = Object.entries(memory.missCounts)
     .sort((a, b) => b[1] - a[1])

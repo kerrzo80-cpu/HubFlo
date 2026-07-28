@@ -3,7 +3,7 @@ import { SurveyScrollUnlock } from "./survey-scroll-unlock";
 
 export const metadata: Metadata = {
   title: "NeXa Surveyor",
-  description: "NeXa Surveyor for guided site capture, Buddy assistance and AI estimate packs.",
+  description: "NeXa Surveyor for guided site capture, Blake assistance and AI estimate packs.",
   applicationName: "NeXa Surveyor",
   manifest: "/manifest-estimator.json",
   appleWebApp: {

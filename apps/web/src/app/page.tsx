@@ -6853,7 +6853,7 @@ export default function Dashboard() {
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Buddy. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
+      text: "Hi — I'm Blake. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -11303,7 +11303,7 @@ export default function Dashboard() {
         {
           id: `buddy-${crypto.randomUUID()}`,
           role: "assistant",
-          text: result.reply || result.error || "Buddy could not complete that request.",
+          text: result.reply || result.error || "Blake could not complete that request.",
           action: result.action,
           aiUsed: result.aiUsed,
         },
@@ -11355,7 +11355,7 @@ export default function Dashboard() {
           }));
         }
         await refreshCoreWorkflowRecords();
-        showNotice("Live schedule updated by Buddy.");
+        showNotice("Live schedule updated by Blake.");
       }
     } catch {
       setNexaAssistantMessages((current) => [
@@ -14936,7 +14936,7 @@ export default function Dashboard() {
           ].join("\n"),
         },
       ]);
-      showNotice("Buddy stopped the Simpro send — check the alerts first.");
+      showNotice("Blake stopped the Simpro send — check the alerts first.");
       return;
     }
 
@@ -21686,14 +21686,14 @@ export default function Dashboard() {
 
       <div className="buddy-dock" aria-live="polite">
         {nexaAssistantOpen ? (
-          <aside className="buddy-panel" aria-label="Buddy assistant">
+          <aside className="buddy-panel" aria-label="Blake assistant">
             <header>
               <div>
                 <span className={`buddy-mark mood-${buddyMood}`}>
                   <BuddyCharacter mood={buddyMood} size="md" />
                 </span>
                 <div>
-                  <strong>Buddy</strong>
+                  <strong>Blake</strong>
                   <small>
                     {buddyMood === "alert"
                       ? "Spotted something that’s not right"
@@ -21705,13 +21705,13 @@ export default function Dashboard() {
                   </small>
                 </div>
               </div>
-              <button className="icon-button" aria-label="Close Buddy" onClick={() => setNexaAssistantOpen(false)}>
+              <button className="icon-button" aria-label="Close Blake" onClick={() => setNexaAssistantOpen(false)}>
                 <X size={18} />
               </button>
             </header>
             <div className="buddy-messages" ref={nexaAssistantMessagesRef}>
               {selectedQuote && buddyHasOpenChecks ? (
-                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Buddy quote checks">
+                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Blake quote checks">
                   <strong>
                     {buddyAlertCount > 0
                       ? `${buddyAlertCount} important check${buddyAlertCount === 1 ? "" : "s"} on ${selectedQuote.ref}`
@@ -21783,7 +21783,7 @@ export default function Dashboard() {
                         type="button"
                         onClick={() => {
                           setBuddySendOverride(true);
-                          showNotice("Buddy will allow the next Send to Simpro.");
+                          showNotice("Blake will allow the next Send to Simpro.");
                         }}
                       >
                         Send anyway next
@@ -21809,10 +21809,10 @@ export default function Dashboard() {
                       </button>
                     </div>
                   ) : null}
-                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Buddy AI · checked against live NeXa data</small> : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live NeXa data</small> : null}
                 </article>
               ))}
-              {nexaAssistantBusy ? <p className="buddy-thinking">Buddy is checking the live workspace...</p> : null}
+              {nexaAssistantBusy ? <p className="buddy-thinking">Blake is checking the live workspace...</p> : null}
             </div>
             <form
               className="buddy-composer"
@@ -21822,8 +21822,8 @@ export default function Dashboard() {
               }}
             >
               <textarea
-                aria-label="Chat with Buddy"
-                placeholder="Ask Buddy how to do a quote, what’s missing, or to send anyway..."
+                aria-label="Chat with Blake"
+                placeholder="Ask Blake how to do a quote, what’s missing, or to send anyway..."
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -21833,12 +21833,12 @@ export default function Dashboard() {
                   }
                 }}
               />
-              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Buddy">
+              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Blake">
                 <Send size={17} />
               </button>
             </form>
             <small className="buddy-safety">
-              Buddy learns your patterns on this device
+              Blake learns your patterns on this device
               {buddyMemory.workHabits.quotesWatched
                 ? ` · ~${buddyMemory.workHabits.avgLinesPerQuote || 0} lines/quote`
                 : ""}
@@ -21851,8 +21851,8 @@ export default function Dashboard() {
         ) : null}
         <button
           className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
-          aria-label={nexaAssistantOpen ? "Close Buddy" : "Open Buddy"}
-          title="Chat with Buddy"
+          aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
+          title="Chat with Blake"
           onClick={() => setNexaAssistantOpen((current) => !current)}
         >
           {nexaAssistantOpen ? (
@@ -21862,7 +21862,7 @@ export default function Dashboard() {
           ) : (
             <BuddyCharacter mood={buddyMood} size="hero" className="buddy-launcher-mascot" />
           )}
-          <span className="buddy-launcher-label">Buddy</span>
+          <span className="buddy-launcher-label">Blake</span>
           {!nexaAssistantOpen && buddyAlertCount > 0 ? (
             <em className="buddy-launcher-badge" aria-hidden>
               {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
@@ -23763,7 +23763,7 @@ export default function Dashboard() {
                   <span className="addon-icon"><ClipboardCheck size={20} /></span>
                   <div>
                     <strong>NeXa Surveyor</strong>
-                    <p>Guided site capture with Buddy, photos, measurements and AI estimate packs.</p>
+                    <p>Guided site capture with Blake, photos, measurements and AI estimate packs.</p>
                     <small>Outputs survey evidence, assumptions, materials, labour and Estimator handoff.</small>
                   </div>
                   <ChevronRight size={17} />
@@ -23972,7 +23972,7 @@ export default function Dashboard() {
                                 ]);
                               }}
                             >
-                              Ask Buddy ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
+                              Ask Blake ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
                             </button>
                           ) : null}
                         </div>

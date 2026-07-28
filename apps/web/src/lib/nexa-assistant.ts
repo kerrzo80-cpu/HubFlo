@@ -279,7 +279,7 @@ async function aiIntent(message: string, employees: Employee[], now: Date): Prom
             role: "system",
             content: [{
               type: "input_text",
-              text: `Extract a Buddy scheduling intent when the user is asking about diaries or bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
+              text: `Extract a Blake scheduling intent when the user is asking about diaries or bookings. Otherwise use action "chat". Today is ${now.toISOString().slice(0, 10)}. UK date order is day/month/year. Employees: ${employees.map((employee) => employee.name).join(", ")}. Never silently repair a weekday/date mismatch.`,
             }],
           },
           { role: "user", content: [{ type: "input_text", text: message }] },
@@ -448,7 +448,7 @@ function deterministicBusinessReply(message: string): string | null {
   const context = buildWorkspaceContext();
 
   if (/\b(hello|hi|hey|good (morning|afternoon|evening))\b/i.test(message)) {
-    return `Hi — I'm Buddy, your NeXa business assistant. I can check the diary, quote pipeline, jobs and follow-ups using live NeXa data. What do you need?`;
+    return `Hi — I'm Blake, your NeXa business assistant. I can check the diary, quote pipeline, jobs and follow-ups using live NeXa data. What do you need?`;
   }
 
   if (/\b(help|what can you)\b/i.test(message)) {
@@ -537,15 +537,15 @@ async function conversationalReply(
           {
             role: "system",
             content: [
-              "You are Buddy, the NeXa business assistant for Errol Watson Group field-service operations.",
-              "Answer using only the supplied NeXa workspace JSON, Buddy learning notes, and the conversation.",
+              "You are Blake, the NeXa business assistant for Errol Watson Group field-service operations.",
+              "Answer using only the supplied NeXa workspace JSON, Blake learning notes, and the conversation.",
               "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
               "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
               "When the user asks how to do something in NeXa, give a short numbered walkthrough.",
-              "Use Buddy learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
+              "Use Blake learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
               "Keep answers concise, plain English, and useful for a commercial manager.",
               `The current user is ${actorName}.`,
-              buddyContext ? `Buddy learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
+              buddyContext ? `Blake learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
               `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
             ].filter(Boolean).join("\n"),
           },
@@ -556,7 +556,7 @@ async function conversationalReply(
     });
     if (!response.ok) {
       return {
-        reply: deterministic ?? "Buddy could not reach the AI service just now. Try a more specific NeXa question about quotes, jobs or the diary.",
+        reply: deterministic ?? "Blake could not reach the AI service just now. Try a more specific NeXa question about quotes, jobs or the diary.",
         aiUsed: false,
       };
     }
@@ -570,7 +570,7 @@ async function conversationalReply(
     return { reply, aiUsed: true };
   } catch {
     return {
-      reply: deterministic ?? "Buddy hit a temporary error talking to the AI service. Your NeXa data was not changed.",
+      reply: deterministic ?? "Blake hit a temporary error talking to the AI service. Your NeXa data was not changed.",
       aiUsed: false,
     };
   }
@@ -761,7 +761,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   refreshPendingStore();
   const action = pendingStore.actions.find((item) => item.id === actionId);
   if (!action || action.actorId !== actor.id) {
-    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask Buddy to check the slot again." };
+    return { ok: false as const, status: 404, reply: "That booking request has expired. Ask Blake to check the slot again." };
   }
   const employee = ((getHubDetailState().employees ?? []) as Employee[]).find((item) => item.id === action.employeeId);
   const job = getJobs().find((item) => item.id === action.jobId);
@@ -788,7 +788,7 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
     endDate: action.date,
     endTime: action.endTime,
     plannedHours: action.durationHours,
-    notes: `Scheduled by Buddy for ${actor.name}.`,
+    notes: `Scheduled by Blake for ${actor.name}.`,
   };
   const nextPlans = {
     ...plans,
@@ -807,11 +807,11 @@ export async function confirmNexaAssistantAction(actionId: string, actor: { id: 
   });
   appendAuditEvent({
     actor: actor.name,
-    action: "scheduled by Buddy",
+    action: "scheduled by Blake",
     recordType: "job",
     recordId: job.id,
     summary: `${employee.name} assigned to ${action.costCentreName} on ${formatUkDate(action.date)} from ${action.startTime} to ${action.endTime}.`,
-    source: "Buddy",
+    source: "Blake",
     importance: "high",
   });
   pendingStore.actions = pendingStore.actions.filter((item) => item.id !== action.id);

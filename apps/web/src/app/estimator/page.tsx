@@ -117,7 +117,7 @@ export default function EstimatorPage() {
         if (first) {
           await openEstimate(first.id);
           if (fromAiPack) {
-            setNotice("Buddy prepared this estimate pack from the survey. Review materials and labour, then push it to a Core quote.");
+            setNotice("Blake prepared this estimate pack from the survey. Review materials and labour, then push it to a Core quote.");
           }
         } else setLoading(false);
       } catch (loadError) {
