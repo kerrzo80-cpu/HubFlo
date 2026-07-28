@@ -20,6 +20,7 @@ export type HubDetailState = {
   quoteSchedulePlans?: Record<string, unknown>;
   jobSchedulePlans?: Record<string, unknown>;
   customQuoteCatalog?: unknown[];
+  catalogFolders?: unknown[];
   jobCostCentres?: Record<string, unknown>;
   jobSections?: Record<string, unknown>;
   jobReviews?: Record<string, unknown>;
