@@ -861,7 +861,7 @@ type LeadDraft = Omit<Lead, "id" | "ref" | "createdAt" | "next"> & {
 
 type RecordDocumentScope = "lead" | "quote" | "job" | "invoice";
 type InvoiceScopeType = "quote" | "job";
-type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "retention-release" | "full";
+type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "retention-release" | "credit-note" | "full";
 type ValuationStatus = "Draft valuation" | "Submitted" | "Agreed" | "Progress claim";
 type AccountsExportStatus = "Not sent" | "Queued" | "Sent";
 type InvoicePaymentStatus = "Unpaid" | "Part paid" | "Paid";
@@ -895,7 +895,7 @@ type ValuationLine = {
 
 type JobInvoiceDraft = {
   jobId: string;
-  mode: Exclude<InvoiceClaimType, "progress-claim" | "retention-release">;
+  mode: Exclude<InvoiceClaimType, "progress-claim" | "retention-release" | "credit-note">;
   depositPercent: number;
   retentionPercent: number;
   valuationPeriod: string;
@@ -908,6 +908,7 @@ function invoiceClaimTypeLabel(claimType?: InvoiceClaimType, claimPercent?: numb
   if (claimType === "valuation") return "Application for payment";
   if (claimType === "progress-claim") return "Progress claim";
   if (claimType === "retention-release") return "Retention release";
+  if (claimType === "credit-note") return "Credit note";
   if (claimType === "full") return "Invoice in full";
   return "Invoice";
 }
@@ -954,6 +955,8 @@ type Invoice = {
   applicationRef?: string;
   retentionReleasedAmount?: number;
   retentionReleaseOfRefs?: string[];
+  creditOfInvoiceId?: string;
+  creditOfRef?: string;
   accountsStatus?: AccountsExportStatus;
   paymentStatus?: InvoicePaymentStatus;
   paidAmount?: number;
@@ -7316,6 +7319,8 @@ export default function Dashboard() {
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
+  const [invoiceCreditAmountDraft, setInvoiceCreditAmountDraft] = useState("");
+  const [invoiceCreditReasonDraft, setInvoiceCreditReasonDraft] = useState("");
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -8651,11 +8656,24 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedInvoice) {
       setInvoicePaymentAmountDraft("");
+      setInvoiceCreditAmountDraft("");
+      setInvoiceCreditReasonDraft("");
       return;
     }
     const remaining = Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0));
     setInvoicePaymentAmountDraft(remaining > 0 ? remaining.toFixed(2) : "");
-  }, [selectedInvoice?.id, selectedInvoice?.paidAmount, selectedInvoiceFinancials.grandTotal]);
+    if (
+      selectedInvoice.claimType === "valuation" ||
+      selectedInvoice.claimType === "credit-note" ||
+      selectedInvoice.status === "Cancelled"
+    ) {
+      setInvoiceCreditAmountDraft("");
+      setInvoiceCreditReasonDraft("");
+      return;
+    }
+    setInvoiceCreditAmountDraft(remaining > 0 ? remaining.toFixed(2) : selectedInvoiceFinancials.grandTotal.toFixed(2));
+    setInvoiceCreditReasonDraft("");
+  }, [selectedInvoice?.id, selectedInvoice?.paidAmount, selectedInvoice?.claimType, selectedInvoice?.status, selectedInvoiceFinancials.grandTotal]);
 
   const selectedRetentionBalances = useMemo(() => {
     if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
@@ -10203,8 +10221,11 @@ export default function Dashboard() {
       /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
       invoice.dueDate < currentOperatingDate;
 
+    const isCollectible = (invoice: Invoice) =>
+      invoice.claimType !== "valuation" && invoice.claimType !== "credit-note";
+
     const overdueItems = searchFilteredInvoices
-      .filter((invoice) => invoice.claimType !== "valuation" && isOverdue(invoice))
+      .filter((invoice) => isCollectible(invoice) && isOverdue(invoice))
       .map((invoice) => {
         const daysOverdue = daysSinceDate(invoice.dueDate) ?? 0;
         return { invoice, daysOverdue, band: invoiceAgeBand(Math.max(0, daysOverdue)) };
@@ -10233,7 +10254,7 @@ export default function Dashboard() {
         label: "Draft invoices",
         detail: "Created but not yet sent to the customer",
         tone: "amber",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Draft"),
+        items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Draft"),
       },
       {
         key: "valuations",
@@ -10243,12 +10264,19 @@ export default function Dashboard() {
         items: searchFilteredInvoices.filter((invoice) => invoice.claimType === "valuation"),
       },
       {
+        key: "credits",
+        label: "Credit notes",
+        detail: "Credits issued against invoices and applied to the ledger",
+        tone: "amber",
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType === "credit-note"),
+      },
+      {
         key: "unpaid",
         label: "Unpaid invoices",
         detail: "Sent or part-paid invoices inside payment terms",
         tone: "blue",
         items: searchFilteredInvoices.filter((invoice) =>
-          invoice.claimType !== "valuation" &&
+          isCollectible(invoice) &&
           invoice.status !== "Draft" &&
           !isOverdue(invoice) &&
           (invoice.status === "Sent" || invoice.status === "Partially paid"),
@@ -10259,17 +10287,17 @@ export default function Dashboard() {
         label: "Paid invoices",
         detail: "Closed billing records",
         tone: "green",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Paid"),
+        items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Paid"),
       },
       {
         key: "archived",
         label: "Archived",
         detail: "Cancelled or superseded finance records",
         tone: "green",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Cancelled"),
+        items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Cancelled"),
       },
     ];
-  }, [searchFilteredInvoices]);
+  }, [currentOperatingDate, searchFilteredInvoices]);
 
   const visibleInvoiceDirectoryGroups = useMemo(
     () => activeInvoiceFolderKey === "all"
@@ -15059,7 +15087,8 @@ export default function Dashboard() {
         invoice.sourceId === job.id &&
         invoice.status !== "Cancelled" &&
         invoice.claimType !== "valuation" &&
-        invoice.claimType !== "retention-release",
+        invoice.claimType !== "retention-release" &&
+        invoice.claimType !== "credit-note",
       )
       .forEach((invoice) => {
         const lines = invoice.valuationLines || [];
@@ -15551,6 +15580,10 @@ export default function Dashboard() {
       showNotice("Remittance advice is for collectible invoices, not valuations.");
       return;
     }
+    if (selectedInvoice.claimType === "credit-note") {
+      showNotice("Remittance advice is for the original invoice, not the credit note.");
+      return;
+    }
     const payments = selectedInvoice.payments || [];
     if (!payments.length) {
       showNotice("Record a payment before sending remittance advice.");
@@ -15686,6 +15719,157 @@ export default function Dashboard() {
     }
   }
 
+  function createCreditNoteFromSelectedInvoice() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Convert the valuation to a progress claim before issuing a credit.");
+      return;
+    }
+    if (selectedInvoice.claimType === "credit-note") {
+      showNotice("Open the original invoice to issue another credit.");
+      return;
+    }
+    if (selectedInvoice.status === "Cancelled" || selectedInvoice.status === "Draft") {
+      showNotice("Credit notes can only be issued against sent invoices.");
+      return;
+    }
+
+    const grandTotal = selectedInvoiceFinancials.grandTotal;
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    let amountIncVat = Number(invoiceCreditAmountDraft);
+    if (!Number.isFinite(amountIncVat) || amountIncVat <= 0) {
+      showNotice("Enter the credit amount before creating a credit note.");
+      return;
+    }
+    if (amountIncVat > grandTotal + 0.009) {
+      showNotice(`Credit cannot exceed the invoice total of ${currency(grandTotal)}.`);
+      return;
+    }
+    amountIncVat = Math.min(amountIncVat, grandTotal);
+
+    const vatRate = Math.max(0, selectedInvoice.vatRate || 0);
+    const netAmount = vatRate > 0 ? amountIncVat / (1 + vatRate / 100) : amountIncVat;
+    const reason = invoiceCreditReasonDraft.trim() || "Commercial credit";
+    const nextRef = buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref));
+    const creditLine: InvoiceLine = {
+      id: `credit-line-${Date.now()}`,
+      description: `Credit against ${selectedInvoice.ref}`,
+      category: "Other",
+      costToUs: 0,
+      chargeToClient: Math.round(netAmount * 100) / 100,
+      note: reason,
+    };
+    const creditNote: Invoice = {
+      id: `invoice-credit-${Date.now()}`,
+      ref: nextRef,
+      status: "Paid",
+      sourceType: selectedInvoice.sourceType,
+      sourceId: selectedInvoice.sourceId,
+      sourceRef: selectedInvoice.sourceRef,
+      sourceName: selectedInvoice.sourceName,
+      customer: selectedInvoice.customer,
+      issuedDate: currentOperatingDate,
+      dueDate: currentOperatingDate,
+      clientId: selectedInvoice.clientId,
+      siteId: selectedInvoice.siteId,
+      title: `Credit note · ${selectedInvoice.ref}`,
+      lines: [creditLine],
+      costTotal: 0,
+      chargeTotal: creditLine.chargeToClient,
+      vatRate: selectedInvoice.vatRate,
+      vatTreatment: selectedInvoice.vatTreatment,
+      vatNote: selectedInvoice.vatNote,
+      notes: `Credit against ${selectedInvoice.ref}. ${reason}`,
+      claimType: "credit-note",
+      creditOfInvoiceId: selectedInvoice.id,
+      creditOfRef: selectedInvoice.ref,
+      accountsStatus: "Not sent",
+      paymentStatus: "Paid",
+      paidAmount: invoiceGrossTotal({ chargeTotal: creditLine.chargeToClient, vatRate: selectedInvoice.vatRate }),
+      payments: [
+        {
+          id: `pay-credit-applied-${Date.now()}`,
+          paidAt: currentOperatingDate,
+          amount: invoiceGrossTotal({ chargeTotal: creditLine.chargeToClient, vatRate: selectedInvoice.vatRate }),
+          method: "Credit note",
+          reference: selectedInvoice.ref,
+          note: "Credit issued and applied",
+          actor: activeEmployee?.name ?? "NeXa user",
+          source: "adjustment",
+          sourceInvoiceId: selectedInvoice.id,
+        },
+      ],
+    };
+
+    const appliedToInvoice = Math.min(amountIncVat, outstanding);
+    const sourcePayment: InvoicePaymentRecord | null = appliedToInvoice > 0.009
+      ? {
+          id: `pay-credit-${Date.now()}`,
+          paidAt: currentOperatingDate,
+          amount: appliedToInvoice,
+          method: "Credit note",
+          reference: nextRef,
+          note: reason,
+          actor: activeEmployee?.name ?? "NeXa user",
+          source: "adjustment",
+          sourceInvoiceId: creditNote.id,
+        }
+      : null;
+
+    const nextPaid = (selectedInvoice.paidAmount ?? 0) + (sourcePayment?.amount ?? 0);
+    const nextPaymentStatus: InvoicePaymentStatus =
+      nextPaid >= grandTotal - 0.009 ? "Paid" : nextPaid > 0.009 ? "Part paid" : selectedInvoice.paymentStatus ?? "Unpaid";
+    const nextInvoiceStatus: InvoiceStatus =
+      nextPaymentStatus === "Paid"
+        ? "Paid"
+        : nextPaymentStatus === "Part paid"
+          ? "Partially paid"
+          : selectedInvoice.status === "Paid" || selectedInvoice.status === "Partially paid"
+            ? "Sent"
+            : selectedInvoice.status;
+
+    markInvoiceEdited();
+    const nextInvoices = [
+      creditNote,
+      ...invoices.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              paidAmount: nextPaid,
+              paymentStatus: nextPaymentStatus,
+              status: nextInvoiceStatus,
+              payments: sourcePayment ? [...(invoice.payments || []), sourcePayment] : invoice.payments || [],
+              notes: invoice.notes
+                ? `${invoice.notes}\nCredit ${nextRef} for ${currency(amountIncVat)} · ${reason}`
+                : `Credit ${nextRef} for ${currency(amountIncVat)} · ${reason}`,
+            }
+          : invoice,
+      ),
+    ];
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save credit note to the shared workspace.");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "credit note created",
+      recordType: "invoice",
+      recordId: creditNote.id,
+      summary: `${nextRef} credits ${currency(amountIncVat)} against ${selectedInvoice.ref}${
+        sourcePayment ? ` · applied ${currency(sourcePayment.amount)} to ledger` : " · original already paid"
+      }.`,
+      source: "invoice credit",
+      importance: "high",
+    });
+    setInvoiceCreditAmountDraft("");
+    setInvoiceCreditReasonDraft("");
+    setActiveInvoiceFolderKey("credits");
+    openInvoiceRecord(creditNote.id);
+    showNotice(
+      sourcePayment
+        ? `${nextRef} created and ${currency(sourcePayment.amount)} applied to ${selectedInvoice.ref}.`
+        : `${nextRef} created against paid invoice ${selectedInvoice.ref}.`,
+    );
+  }
+
   async function exportSelectedInvoiceToXero() {
     if (!selectedInvoice) return;
     if (!selectedInvoice.lines.length) {
@@ -15694,6 +15878,10 @@ export default function Dashboard() {
     }
     if (selectedInvoice.claimType === "valuation") {
       showNotice("Convert the valuation to a progress claim before exporting to Xero.");
+      return;
+    }
+    if (selectedInvoice.claimType === "credit-note") {
+      showNotice("Xero credit-note export is not wired yet. Ledger credit is recorded in NeXa.");
       return;
     }
     setIsExportingInvoiceToXero(true);
@@ -16082,7 +16270,7 @@ export default function Dashboard() {
         document: selectedInvoiceEmailDraft.attachPdf
           ? {
               filename: `${selectedInvoice.ref}.pdf`,
-              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "retention-release" ? "Retention release" : "Invoice",
+              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "retention-release" ? "Retention release" : selectedInvoice.claimType === "credit-note" ? "Credit note" : "Invoice",
               businessName: businessSettings.tradingName || businessSettings.companyName,
               reference: selectedInvoice.ref,
               recipient: selectedInvoice.customer,
@@ -33177,6 +33365,43 @@ export default function Dashboard() {
                               aria-label="Payment reference"
                             />
                           </label>
+                          {selectedInvoice.claimType !== "credit-note" ? (
+                            <>
+                              <label className="accounts-payment-amount">
+                                <span>Credit amount (inc VAT)</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={invoiceCreditAmountDraft}
+                                  onChange={(event) => setInvoiceCreditAmountDraft(event.target.value)}
+                                  aria-label="Credit note amount including VAT"
+                                />
+                              </label>
+                              <label className="accounts-payment-amount">
+                                <span>Credit reason</span>
+                                <input
+                                  value={invoiceCreditReasonDraft}
+                                  onChange={(event) => setInvoiceCreditReasonDraft(event.target.value)}
+                                  placeholder="Defect / omission / commercial"
+                                  aria-label="Credit note reason"
+                                />
+                              </label>
+                            </>
+                          ) : selectedInvoice.creditOfInvoiceId ? (
+                            <div>
+                              <span>Credits</span>
+                              <strong>
+                                <button
+                                  type="button"
+                                  className="text-button"
+                                  onClick={() => openInvoiceRecord(selectedInvoice.creditOfInvoiceId!)}
+                                >
+                                  {selectedInvoice.creditOfRef || "Original invoice"}
+                                </button>
+                              </strong>
+                            </div>
+                          ) : null}
                         </div>
                         {(selectedInvoice.payments || []).length ? (
                           <div className="ops-table" style={{ marginTop: "0.75rem" }}>
@@ -33203,6 +33428,16 @@ export default function Dashboard() {
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
+                            {selectedInvoice.claimType !== "credit-note" ? (
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={!access.canEditInvoice || selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled"}
+                                onClick={createCreditNoteFromSelectedInvoice}
+                              >
+                                Create credit note
+                              </button>
+                            ) : null}
                             <button
                               className="secondary-button"
                               type="button"

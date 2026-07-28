@@ -43,7 +43,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Recurring | Recurring Jobs + Recurring Invoices | Missing |
 | Schedules | Day/Week/Month/Job Focus/Project/Manual + Timesheets, Job Cards, Run Sheets | Partial — weekly schedule only; no run sheets/job cards depth |
 | Materials | Catalogue, Pre-Builds, Take Off Templates, Stock, Stock Takes, POs, Supplier Quotes, Receipts, Credits | Thin/Missing — PO requests only; no van stock / pre-builds / stocktakes |
-| Invoices | Unpaid/Paid, Payments, Credits, Retentions, Deposits + supplier/contractor invoice tabs | Partial — deposits, valuations, progress claims, retention release, payments, Xero; credits thinner |
+| Invoices | Unpaid/Paid, Payments, Credits, Retentions, Deposits + supplier/contractor invoice tabs | Partial — deposits, valuations, progress claims, retention release, credit notes, payments, remittance, Xero; contractor variance thinner |
 | Tasks | Office task list | Thin — alerts/overdue quick views only |
 | Payments | Simpro Payments / Stripe Get Connected | Missing |
 | Utilities | Plant & Equipment, Customer Assets, Business Toolkit, Import/Export, Xero, SMS, Backups, Data Feed | Missing/stubs — Xero stub; SMS none; assets none; Data Feed none |
@@ -75,7 +75,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Inventory / stock | Missing | Locations, van stock, transfers, stocktake |
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
-| Invoicing | Partial | Credits, recurring; retention release now ships |
+| Invoicing | Partial | Recurring; credit notes + retention release now ship |
 | Payments | Partial | Ledger + remittance advice email; card/link pay still missing |
 | Accounting sync | Missing | **Xero** customers/invoices/payments/bills (primary for EWG) |
 | Cash / WIP reporting | Thin | True WIP, margin by job type, scheduled vs actual labour |
@@ -198,6 +198,7 @@ Until Brian cuts further, execute in this order:
 - **Xero bill payment pull (AP)** — import ACCPAY payments onto the PO supplier payment ledger by BillID / PO number
 - **Customer statement** — email outstanding invoices from the client record (Setup `statement` template + PDF attachment)
 - **Remittance advice** — email payment confirmation from the invoice ledger (Setup `remittance` template + PDF; latest allocated payment)
+- **Credit notes** — issue credit against a sent invoice (Credits folder); applies ledger adjustment up to outstanding; excluded from billed-to-date
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client
