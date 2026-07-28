@@ -100,6 +100,10 @@ export interface PurchaseRequest {
   invoiceReceivedAt?: string;
   receivedAt?: string;
   updatedAt?: string;
+  xeroBillId?: string;
+  xeroBillNumber?: string;
+  xeroExportedAt?: string;
+  xeroAccountsStatus?: "Not sent" | "Queued" | "Sent";
 }
 
 export interface PurchaseOrderLine {
@@ -696,6 +700,10 @@ export function createPurchaseRequest(
     invoiceFileName: payload.invoiceFileName,
     invoiceReceivedAt: payload.invoiceReceivedAt,
     receivedAt: payload.receivedAt,
+    xeroBillId: payload.xeroBillId,
+    xeroBillNumber: payload.xeroBillNumber,
+    xeroExportedAt: payload.xeroExportedAt,
+    xeroAccountsStatus: payload.xeroAccountsStatus,
   };
   store.purchaseRequests = [created, ...store.purchaseRequests];
   persistWorkflowStore();

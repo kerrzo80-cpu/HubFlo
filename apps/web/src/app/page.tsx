@@ -7186,6 +7186,7 @@ export default function Dashboard() {
   } | null>(null);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
+  const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -22189,6 +22190,113 @@ export default function Dashboard() {
     );
   }
 
+  async function exportPurchaseOrderBillToXero(request: PurchaseRequest) {
+    if (!request.poNumber?.trim()) {
+      showNotice("Issue a PO number before exporting a supplier bill to Xero.");
+      return;
+    }
+    if (!request.supplier?.trim()) {
+      showNotice("Add a supplier before exporting a bill to Xero.");
+      return;
+    }
+
+    const lines = (request.lines?.length
+      ? request.lines
+      : [{
+          id: `${request.id}-line`,
+          description: request.item || request.poNumber || "Supplier materials",
+          quantity: 1,
+          estimatedCost: request.estimatedCost,
+          actualCost: request.actualCost,
+          receivedPercent: 0,
+        }]
+    ).map((line) => {
+      const quantity = Math.max(1, Number(line.quantity) || 1);
+      const total = Number(line.actualCost ?? line.estimatedCost) || 0;
+      return {
+        description: line.description || request.item || "PO line",
+        quantity,
+        unitAmount: total / quantity,
+      };
+    }).filter((line) => line.unitAmount > 0 || line.description);
+
+    if (!lines.length) {
+      showNotice("Add PO lines with cost before exporting to Xero.");
+      return;
+    }
+
+    setIsExportingPoBillToXero(true);
+    try {
+      const response = await fetch("/api/integrations/xero/bills", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bill: {
+            id: request.id,
+            poNumber: request.poNumber,
+            supplier: request.supplier,
+            jobRef: request.jobRef,
+            issuedDate: (request.invoiceReceivedAt || request.receivedAt || request.createdAt || "").slice(0, 10) || undefined,
+            notes: request.reason || request.invoiceFileName || undefined,
+            xeroBillId: request.xeroBillId,
+            lines,
+          },
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        export?: { mode?: string; detail?: string };
+        csv?: string | null;
+        xeroBillId?: string | null;
+        xeroBillNumber?: string | null;
+        xeroExportedAt?: string | null;
+        accountsStatus?: "Sent";
+      } | null;
+      if (!response.ok || !body?.export) {
+        throw new Error(body?.error || `Xero bill export failed (HTTP ${response.status})`);
+      }
+
+      await patchPurchaseRequest(
+        request.id,
+        {
+          xeroAccountsStatus: "Sent",
+          ...(body.xeroBillId
+            ? {
+                xeroBillId: body.xeroBillId,
+                xeroBillNumber: body.xeroBillNumber || request.poNumber,
+                xeroExportedAt: body.xeroExportedAt || new Date().toISOString(),
+              }
+            : { xeroExportedAt: new Date().toISOString() }),
+        },
+        body.export.detail || `${request.poNumber} bill sent to Xero.`,
+      );
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero bill export",
+        recordType: "purchase_request",
+        recordId: request.id,
+        summary: `${request.poNumber}: ${body.export.detail || "exported supplier bill to Xero"}.`,
+        source: "web",
+        importance: "high",
+      });
+
+      if (body.csv) {
+        const blob = new Blob([body.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${request.poNumber}-xero-bill.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to export PO bill to Xero.");
+    } finally {
+      setIsExportingPoBillToXero(false);
+    }
+  }
+
   async function openPurchaseOrderReceipt(request: PurchaseRequest) {
     const baseLines = request.lines?.length
       ? request.lines
@@ -25437,6 +25545,16 @@ export default function Dashboard() {
                         <div><dt>Supplier</dt><dd>{selectedPurchaseOrder.supplier}</dd></div>
                         <div><dt>Supplier email</dt><dd>{selectedPurchaseOrder.supplierEmail || "To be confirmed"}</dd></div>
                         <div><dt>Created by</dt><dd>{selectedPurchaseOrder.requestedBy}</dd></div>
+                        <div>
+                          <dt>Xero bill</dt>
+                          <dd>
+                            {selectedPurchaseOrder.xeroBillId
+                              ? `Linked · ${selectedPurchaseOrder.xeroBillNumber || selectedPurchaseOrder.poNumber}`
+                              : selectedPurchaseOrder.xeroAccountsStatus === "Sent"
+                                ? "CSV sent (no live BillID yet)"
+                                : "Not sent"}
+                          </dd>
+                        </div>
                       </dl>
                     </article>
                     <article className="client-info-card">
@@ -25493,6 +25611,18 @@ export default function Dashboard() {
                     />
                     <div className="record-form-preview-actions">
                       <button className="secondary-button" type="button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={isExportingPoBillToXero || !(access.canEditInvoice || access.showFinance || access.canEditJobs)}
+                        onClick={() => void exportPurchaseOrderBillToXero(selectedPurchaseOrder)}
+                      >
+                        {isExportingPoBillToXero
+                          ? "Exporting bill…"
+                          : selectedPurchaseOrder.xeroBillId
+                            ? "Update Xero bill"
+                            : "Export bill to Xero"}
+                      </button>
                       <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
                     </div>
                   </section>
