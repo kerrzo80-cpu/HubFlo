@@ -42,6 +42,9 @@ export interface Job {
   scheduledDurationHours?: number;
   confirmationSentAt?: string;
   confirmationSentTo?: string;
+  etaSentAt?: string;
+  etaSentTo?: string;
+  etaMinutes?: number;
   actualStartTime?: string;
   actualEndTime?: string;
   actualDurationHours?: number;

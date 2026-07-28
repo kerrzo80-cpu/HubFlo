@@ -26,7 +26,7 @@ export type SetupTaxCode = {
 
 export type SetupEmailTemplate = {
   id: string;
-  key: "quote" | "invoice" | "invoice-overdue" | "statement" | "remittance" | "po" | "follow-up" | "job-confirmation";
+  key: "quote" | "invoice" | "invoice-overdue" | "statement" | "remittance" | "po" | "follow-up" | "job-confirmation" | "job-eta";
   name: string;
   subject: string;
   body: string;
@@ -150,6 +150,13 @@ const defaults: SetupConfigStore = {
       name: "Job confirmation",
       subject: "Job {{ref}} confirmed · {{date}} {{time}}",
       body: "Hi {{contact}},\n\nWe have booked job {{ref}} for {{date}} at {{time}}.\n\nEngineer: {{engineer}}\nSite: {{site}}\nScope: {{description}}\n\nKind regards,\n{{company}}",
+    },
+    {
+      id: "em-job-eta",
+      key: "job-eta",
+      name: "Job ETA / on the way",
+      subject: "On the way · {{ref}} · ETA {{eta}}",
+      body: "Hi {{contact}},\n\nOur engineer {{engineer}} is on the way for job {{ref}}.\n\nETA: about {{eta}}.\nSite: {{site}}\n\nKind regards,\n{{company}}",
     },
   ],
   assetTypes: [

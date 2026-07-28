@@ -177,6 +177,21 @@ export function StockOpsPanel({
     return map;
   }, [snapshot]);
 
+  const stocktakeExpectedQty = useMemo(() => {
+    if (moveDraft.mode !== "stocktake" || !moveDraft.itemId || !moveDraft.toLocationId) return null;
+    const row = snapshot?.balances.find(
+      (balance) => balance.itemId === moveDraft.itemId && balance.locationId === moveDraft.toLocationId,
+    );
+    return row?.quantity ?? 0;
+  }, [moveDraft.itemId, moveDraft.mode, moveDraft.toLocationId, snapshot]);
+
+  const stocktakeVariance = useMemo(() => {
+    if (stocktakeExpectedQty == null || moveDraft.countedQty.trim() === "") return null;
+    const counted = Number(moveDraft.countedQty);
+    if (!Number.isFinite(counted)) return null;
+    return counted - stocktakeExpectedQty;
+  }, [moveDraft.countedQty, stocktakeExpectedQty]);
+
   async function addItemAndReceipt() {
     if (!draft.sku.trim() || !draft.name.trim()) {
       onNotice("Enter SKU and name first.");
@@ -284,12 +299,22 @@ export function StockOpsPanel({
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to update stock");
       setSnapshot(body as StockSnapshot);
+      const expectedBefore =
+        moveDraft.mode === "stocktake"
+          ? snapshot?.balances.find(
+              (balance) => balance.itemId === moveDraft.itemId && balance.locationId === (moveDraft.toLocationId || moveDraft.fromLocationId),
+            )?.quantity ?? 0
+          : null;
+      const variance =
+        expectedBefore == null || moveDraft.mode !== "stocktake" ? null : qty - expectedBefore;
       onNotice(
         moveDraft.mode === "transfer"
           ? "Stock transferred."
           : moveDraft.mode === "issue"
             ? `Issued to ${moveDraft.jobRef.trim()}.`
-            : "Stocktake count saved.",
+            : variance == null
+              ? "Stocktake count saved."
+              : `Stocktake saved · expected ${expectedBefore}, counted ${qty}, variance ${variance > 0 ? "+" : ""}${variance}.`,
       );
       setMoveDraft((current) => ({ ...current, qty: "1", countedQty: "", jobRef: current.mode === "issue" ? "" : current.jobRef }));
     } catch (moveError) {
@@ -496,7 +521,34 @@ export function StockOpsPanel({
               </label>
             ) : null}
             {moveDraft.mode === "stocktake" ? (
-              <label>Counted qty<input value={moveDraft.countedQty} onChange={(e) => setMoveDraft((c) => ({ ...c, countedQty: e.target.value }))} /></label>
+              <>
+                <label>
+                  Expected on hand
+                  <input
+                    value={stocktakeExpectedQty == null ? "" : String(stocktakeExpectedQty)}
+                    readOnly
+                    aria-label="Expected quantity on hand at this location"
+                  />
+                </label>
+                <label>
+                  Counted qty
+                  <input
+                    value={moveDraft.countedQty}
+                    onChange={(e) => setMoveDraft((c) => ({ ...c, countedQty: e.target.value }))}
+                  />
+                </label>
+                {stocktakeVariance != null ? (
+                  <p className={stocktakeVariance === 0 ? "muted" : "ops-module-error"}>
+                    Variance: {stocktakeVariance > 0 ? "+" : ""}
+                    {stocktakeVariance}
+                    {stocktakeVariance === 0
+                      ? " (matches expected)"
+                      : stocktakeVariance > 0
+                        ? " (over expected)"
+                        : " (under expected)"}
+                  </p>
+                ) : null}
+              </>
             ) : (
               <label>Qty<input value={moveDraft.qty} onChange={(e) => setMoveDraft((c) => ({ ...c, qty: e.target.value }))} /></label>
             )}

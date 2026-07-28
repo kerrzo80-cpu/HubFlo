@@ -65,14 +65,14 @@ NeXa is nowhere near closing that operational backlog yet.
 | Vendor catalogues | Partial | CSV import; preferred supplier syncs to stock on SKU rows |
 | Service jobs | Partial | Status machine, SLA, customer notifications, job card PDF |
 | Project / multi-stage jobs | Thin | Stages, progress invoices, retainage |
-| Scheduling & dispatch | Partial | Multi-tech board + job confirmation email; SMS/WhatsApp ETA still thin |
+| Scheduling & dispatch | Partial | Multi-tech board + job confirmation + ETA email/WhatsApp |
 | Timesheets / labour | Partial | Approve → job labour cost + actual hours / variance vs plan |
 | Tasks & alerts | Thin | Assignable tasks, escalation |
 | Digital forms / compliance | Partial | Form builder, Gas Safe certificate packs |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
 | Asset register | Partial | Site assets with edit/archive + service due filters; QR/certs still missing |
 | PPM / Maintenance Planner | Partial | Recurring due/overdue + 14-day upcoming queue, generate-all, pause/activate |
-| Inventory / stock | Partial | Locations/vans/transfers/stocktake; catalogue preferred-supplier sync |
+| Inventory / stock | Partial | Locations/vans/transfers/stocktake with expected qty + variance; catalogue preferred-supplier sync |
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
 | Invoicing | Partial | Recurring; credit notes + retention release now ship |
@@ -80,7 +80,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Accounting sync | Partial | Xero invoices/payments/bills + ACCRECCREDIT credit notes; deeper sync still open |
 | Cash / WIP reporting | Partial | WIP tab now shows labour actual vs plan hours; deeper margin packs still open |
 | Customer portal | Thin | Jobs status, invoices, pay, assets |
-| SMS / messaging | Partial | Job confirmation WhatsApp + email; ETA SMS still thin |
+| SMS / messaging | Partial | Job confirmation + ETA WhatsApp/email; dedicated SMS gateway still thin |
 | Email / calendar | Thin | M365/Gmail OAuth + calendar sync |
 | Data Feed / inbox | Thin | Mailbox rules: enquiry→lead, invoice→match |
 | Mobile field app | Partial | Offline-first, signatures, forms parity |
@@ -215,6 +215,9 @@ Until Brian cuts further, execute in this order:
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client
+- **Job ETA / on the way** — email + WhatsApp from job programme / cost-centre schedule (`job-eta` template); stores `etaSentAt` / `etaSentTo` / `etaMinutes`
+- **Deposit on quote acceptance** — Setup workflow rule auto-creates deposit invoice when a quote converts to a job (default %)
+- **Stocktake expected + variance** — stocktake mode shows on-hand at location and counted − expected before/after save
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links

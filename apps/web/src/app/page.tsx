@@ -1583,6 +1583,8 @@ type WorkflowRulesSettings = {
   defaultMarkupPercent: string;
   poApprovalThreshold: string;
   autoCreatePendingJobOnAcceptance: boolean;
+  autoCreateDepositOnAcceptance: boolean;
+  defaultDepositPercent: string;
   requireCommercialReviewBeforeInvoice: boolean;
 };
 
@@ -3835,6 +3837,8 @@ const defaultWorkflowRules: WorkflowRulesSettings = {
   defaultMarkupPercent: "30",
   poApprovalThreshold: "500",
   autoCreatePendingJobOnAcceptance: true,
+  autoCreateDepositOnAcceptance: false,
+  defaultDepositPercent: "30",
   requireCommercialReviewBeforeInvoice: true,
 };
 
@@ -7320,6 +7324,8 @@ export default function Dashboard() {
   const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
   const [isSendingInvoiceRemittance, setIsSendingInvoiceRemittance] = useState(false);
   const [isSendingJobConfirmation, setIsSendingJobConfirmation] = useState(false);
+  const [isSendingJobEta, setIsSendingJobEta] = useState(false);
+  const [jobEtaMinutesDraft, setJobEtaMinutesDraft] = useState("45");
   const [dueSiteAssetRows, setDueSiteAssetRows] = useState<Array<{
     id: string;
     siteId: string;
@@ -15308,6 +15314,124 @@ export default function Dashboard() {
     );
   }
 
+  function createDepositInvoiceForJob(job: Job, depositPercentInput: number, options?: { openRecord?: boolean; centres?: EstimateCostCentre[] }) {
+    const depositPercent = Math.max(1, Math.min(100, Math.round(Number(depositPercentInput) || 0)));
+    if (!Number.isFinite(depositPercent) || depositPercent <= 0) {
+      showNotice("Set a valid deposit percentage first.");
+      return null;
+    }
+
+    const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+    const centres =
+      options?.centres ??
+      jobEstimateCostCentres[job.id] ??
+      makeDefaultEstimateCostCentres(job);
+    const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(centres);
+    const sourceTotals = sourceLineTotals.reduce(
+      (acc, line) => ({
+        cost: acc.cost + line.costToUs,
+        charge: acc.charge + line.chargeToClient,
+        lineItems: [...acc.lineItems, line],
+      }),
+      { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
+    );
+    const base = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
+
+    let valuationLines: ValuationLine[] = centres.map((centre) => {
+      const totals = estimateCostCentreTotals(centre);
+      return {
+        id: `valuation-${centre.id}-${Date.now()}`,
+        costCentreId: centre.id,
+        category: centre.variation ? "variation" : "contractual",
+        description: centre.name,
+        comments: centre.variation ? centre.clientDescription : undefined,
+        contractValue: totals.totalSell,
+        previousApplications: 0,
+        requestedThisPeriod: 0,
+        agreedThisPeriod: 0,
+      };
+    });
+
+    if (valuationLines.length === 0) {
+      valuationLines = [
+        {
+          id: `valuation-${job.id}-${Date.now()}`,
+          description: job.description || job.ref,
+          contractValue: job.value || sourceTotals.charge,
+          previousApplications: 0,
+          requestedThisPeriod: 0,
+          agreedThisPeriod: 0,
+        },
+      ];
+    }
+
+    valuationLines = valuationLines.map((line) => {
+      const remaining = Math.max(0, line.contractValue - line.previousApplications);
+      const target = line.contractValue * (depositPercent / 100);
+      const requestedThisPeriod = Math.min(remaining, Math.max(0, target - line.previousApplications));
+      return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
+    });
+
+    const grossClaim = valuationLines.reduce((sum, line) => sum + line.requestedThisPeriod, 0);
+    if (grossClaim <= 0) {
+      showNotice(`Nothing left to claim for a ${depositPercent}% deposit on ${job.ref}.`);
+      return null;
+    }
+
+    const contractTotal = valuationLines.reduce((sum, line) => sum + line.contractValue, 0) || job.value || grossClaim;
+    const netClaim = valuationNetAmount(grossClaim, 0);
+    const costRatio = contractTotal > 0 ? Math.min(1, grossClaim / contractTotal) : 0;
+    const lines: InvoiceLine[] = valuationLines
+      .filter((line) => line.requestedThisPeriod > 0)
+      .map((line) => ({
+        id: `invoice-claim-${line.id}`,
+        description: line.description,
+        category: "Other",
+        costToUs: sourceTotals.cost * (line.contractValue / Math.max(1, contractTotal)) * costRatio,
+        chargeToClient: valuationNetAmount(line.requestedThisPeriod, 0),
+        note: `${depositPercent}% deposit claim`,
+      }));
+
+    const created: Invoice = {
+      ...base,
+      title: `${depositPercent}% deposit for ${job.ref}`,
+      lines,
+      costTotal: lines.reduce((sum, line) => sum + line.costToUs, 0),
+      chargeTotal: netClaim,
+      notes: `${depositPercent}% deposit created on quote acceptance for ${job.ref}. ${base.vatNote ?? ""}`.trim(),
+      claimType: "deposit",
+      claimPercent: depositPercent,
+      retentionPercent: 0,
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+      valuationLines,
+    };
+
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(
+      nextInvoices,
+      "Could not save deposit invoice to the shared workspace, so local fallback is being used.",
+    );
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "invoice created",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `${created.ref} created as ${depositPercent}% deposit from ${job.ref}.`,
+      source: "quote acceptance",
+      importance: "high",
+    });
+    if (options?.openRecord !== false) {
+      setActiveInvoiceFolderKey("unpaid");
+      openInvoiceRecord(created.id);
+    }
+    return created;
+  }
+
   function createInvoiceClaimFromJob() {
     if (!jobInvoiceDraft) return;
     const job = jobs.find((item) => item.id === jobInvoiceDraft.jobId);
@@ -17205,6 +17329,186 @@ export default function Dashboard() {
       showNotice(error instanceof Error ? error.message : "Unable to send job confirmation.");
     } finally {
       setIsSendingJobConfirmation(false);
+    }
+  }
+
+  async function sendSelectedJobEta() {
+    if (!selectedJob) return;
+    const etaMinutes = Math.max(1, Math.round(Number(jobEtaMinutesDraft) || 0));
+    if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
+      showNotice("Enter ETA minutes (e.g. 45) before sending.");
+      return;
+    }
+
+    const emailTo = selectedJobClient?.email?.trim() || "";
+    const phoneTo = (selectedJobClient?.phone || "").replace(/[^\d+]/g, "").trim();
+    const hasEmail = emailTo.includes("@");
+    const hasPhone = phoneTo.replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) {
+      showNotice("Add a customer email or phone before sending an ETA.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedJobClient?.primaryContact?.split(" ")[0] ||
+      selectedJob.customer.split(" ")[0] ||
+      "there";
+    const engineer =
+      selectedJobScheduleAssignments[0]?.employeeName ||
+      selectedJob.manager ||
+      "Our engineer";
+    const siteLabel =
+      selectedJobSite?.address ||
+      selectedJobSite?.name ||
+      selectedJob.site ||
+      "Site";
+    const etaLabel = etaMinutes === 1 ? "1 minute" : `${etaMinutes} minutes`;
+
+    let subject = `On the way · ${selectedJob.ref} · ETA ${etaLabel}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `Our engineer ${engineer} is on the way for job ${selectedJob.ref}.\n\n` +
+      `ETA: about ${etaLabel}.\n` +
+      `Site: ${siteLabel}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "job-eta");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedJob.ref,
+          engineer,
+          site: siteLabel,
+          description: selectedJob.description,
+          eta: etaLabel,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    const whatsappMessage =
+      `Hi ${contactName}, ${engineer} is on the way for job ${selectedJob.ref}. ` +
+      `ETA about ${etaLabel}. Site: ${siteLabel}. — ${companyName}`;
+
+    setIsSendingJobEta(true);
+    const channels: string[] = [];
+    try {
+      if (hasEmail) {
+        const delivery = await sendThroughLiveOutbox({
+          to: emailTo,
+          subject,
+          text: bodyText,
+          document: {
+            filename: `${selectedJob.ref}-eta.pdf`,
+            title: "Job ETA / on the way",
+            businessName: companyName,
+            reference: selectedJob.ref,
+            recipient: selectedJob.customer,
+            subject: `ETA about ${etaLabel}`,
+            rows: [
+              { description: "ETA", detail: etaLabel, value: selectedJob.ref },
+              { description: "Engineer", detail: engineer, value: "" },
+              { description: "Site", detail: siteLabel, value: "" },
+              { description: "Scope", detail: selectedJob.description, value: "" },
+            ],
+            subtotal: currency(selectedJob.value),
+            vat: currency(0),
+            total: currency(selectedJob.value),
+          },
+        });
+        channels.push(`email ${emailTo}`);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body: bodyText,
+          from: delivery.from,
+          to: emailTo,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+      }
+
+      if (hasPhone) {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+        } | null;
+        if (waResponse.ok && waBody?.status === "sent") {
+          channels.push(`WhatsApp ${phoneTo}`);
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject: `WhatsApp ETA · ${selectedJob.ref}`,
+            body: whatsappMessage,
+            from: "NeXa Connect",
+            to: phoneTo,
+            status: "Sent",
+          });
+        } else if (waBody?.status === "not_configured") {
+          channels.push(`WhatsApp preview to ${phoneTo} (connector not configured)`);
+        } else if (hasEmail) {
+          showNotice(`Email sent; WhatsApp failed${waBody?.error ? `: ${waBody.error}` : ""}.`);
+        } else {
+          throw new Error(waBody?.error || "WhatsApp ETA failed and no email was available.");
+        }
+      }
+
+      if (!channels.length) {
+        throw new Error("Unable to send ETA on email or WhatsApp.");
+      }
+
+      const sentTo = channels.join(" · ");
+      await persistJobPatch(selectedJob.id, {
+        etaSentAt: currentOperatingDate,
+        etaSentTo: sentTo,
+        etaMinutes,
+      });
+
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "whatsapp",
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        summary: `ETA sent via ${sentTo} · about ${etaLabel}`,
+        source: hasPhone ? "WhatsApp" : "NeXa",
+        status: "Captured",
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "eta sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} ETA sent via ${sentTo} · about ${etaLabel}.`,
+        source: hasPhone ? "whatsapp doorway" : "outlook draft",
+        importance: "high",
+      });
+      showNotice(`ETA sent via ${sentTo} · about ${etaLabel}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send job ETA.");
+    } finally {
+      setIsSendingJobEta(false);
     }
   }
 
@@ -23183,8 +23487,8 @@ export default function Dashboard() {
     }
   }
 
-  async function convertQuoteToJob(quote: Quote) {
-    if (!access.canCreateJob || quote.status !== "Accepted" || quote.convertedJobId) return;
+  async function convertQuoteToJob(quote: Quote): Promise<Job | null> {
+    if (!access.canCreateJob || quote.status !== "Accepted" || quote.convertedJobId) return null;
 
     try {
       const response = await fetch(`/api/quotes/${quote.id}/convert`, {
@@ -23204,13 +23508,15 @@ export default function Dashboard() {
         auditEvents: AuditEvent[];
       };
 
+      const centresFromQuote = estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []);
+
       setQuotes((current) =>
         current.map((item) => (item.id === result.quote.id ? result.quote : item)),
       );
       setJobs((current) => [result.job, ...current.filter((job) => job.id !== result.job.id)]);
       setJobEstimateCostCentres((current) => ({
         ...current,
-        [result.job.id]: estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []),
+        [result.job.id]: centresFromQuote,
       }));
       setAuditEvents((current) => [
         ...result.auditEvents,
@@ -23225,10 +23531,25 @@ export default function Dashboard() {
         source: "web",
         importance: "high",
       });
+
+      let depositNotice = "";
+      if (workflowRules.autoCreateDepositOnAcceptance) {
+        const depositPercent = Math.max(1, Math.min(100, Number(workflowRules.defaultDepositPercent) || 30));
+        const deposit = createDepositInvoiceForJob(result.job, depositPercent, {
+          openRecord: false,
+          centres: centresFromQuote,
+        });
+        if (deposit) {
+          depositNotice = ` Deposit ${deposit.ref} (${depositPercent}%) created.`;
+        }
+      }
+
       openJobDrawer(result.job.id);
-      showNotice(`${result.quote.ref} converted into ${result.job.ref}.`);
+      showNotice(`${result.quote.ref} converted into ${result.job.ref}.${depositNotice}`);
+      return result.job;
     } catch {
       setSectionError("Unable to convert quote into a job right now.");
+      return null;
     }
   }
 
@@ -30722,6 +31043,13 @@ export default function Dashboard() {
                               {selectedJob.confirmationSentTo ? ` to ${selectedJob.confirmationSentTo}` : ""}
                             </small>
                           ) : null}
+                          {selectedJob.etaSentAt ? (
+                            <small>
+                              ETA sent {selectedJob.etaSentAt}
+                              {selectedJob.etaMinutes ? ` · ${selectedJob.etaMinutes} min` : ""}
+                              {selectedJob.etaSentTo ? ` to ${selectedJob.etaSentTo}` : ""}
+                            </small>
+                          ) : null}
                         </div>
                         <div className="setup-template-actions">
                           <button
@@ -30750,6 +31078,34 @@ export default function Dashboard() {
                               : selectedJob.confirmationSentAt
                                 ? "Resend confirmation"
                                 : "Email job confirmation"}
+                          </button>
+                          <label className="ops-inline-edit" title="Minutes until arrival">
+                            <input
+                              type="number"
+                              min={1}
+                              step={5}
+                              value={jobEtaMinutesDraft}
+                              onChange={(event) => setJobEtaMinutesDraft(event.target.value)}
+                              aria-label="ETA minutes"
+                              style={{ width: "4.5rem" }}
+                            />
+                          </label>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={isSendingJobEta}
+                            title={
+                              selectedJobClient?.email?.includes("@") || (selectedJobClient?.phone || "").replace(/\D/g, "").length >= 10
+                                ? "Email and/or WhatsApp an on-the-way ETA"
+                                : "Customer needs an email or phone number first"
+                            }
+                            onClick={() => void sendSelectedJobEta()}
+                          >
+                            {isSendingJobEta
+                              ? "Sending ETA…"
+                              : selectedJob.etaSentAt
+                                ? "Resend ETA"
+                                : "Send ETA"}
                           </button>
                           <button
                             className="primary-button"
@@ -33300,6 +33656,29 @@ export default function Dashboard() {
                               : selectedJob?.confirmationSentAt
                                 ? "Resend confirmation"
                                 : "Send confirmation"}
+                          </button>
+                          <label className="ops-inline-edit" title="Minutes until arrival">
+                            <input
+                              type="number"
+                              min={1}
+                              step={5}
+                              value={jobEtaMinutesDraft}
+                              onChange={(event) => setJobEtaMinutesDraft(event.target.value)}
+                              aria-label="ETA minutes"
+                              style={{ width: "4.5rem" }}
+                            />
+                          </label>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={isSendingJobEta}
+                            onClick={() => void sendSelectedJobEta()}
+                          >
+                            {isSendingJobEta
+                              ? "Sending ETA…"
+                              : selectedJob?.etaSentAt
+                                ? "Resend ETA"
+                                : "Send ETA"}
                           </button>
                           <button
                             className="primary-button"
@@ -36142,6 +36521,25 @@ export default function Dashboard() {
                             onChange={(event) => updateWorkflowRules({ autoCreatePendingJobOnAcceptance: event.target.checked })}
                           />
                           Auto-create pending job when quote is accepted online
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={workflowRules.autoCreateDepositOnAcceptance}
+                            onChange={(event) => updateWorkflowRules({ autoCreateDepositOnAcceptance: event.target.checked })}
+                          />
+                          Auto-create deposit invoice when quote converts to a job
+                        </label>
+                        <label>
+                          Default deposit %
+                          <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={workflowRules.defaultDepositPercent}
+                            onChange={(event) => updateWorkflowRules({ defaultDepositPercent: event.target.value })}
+                            disabled={!workflowRules.autoCreateDepositOnAcceptance}
+                          />
                         </label>
                         <label>
                           <input
