@@ -1,8 +1,9 @@
 import type { NexaFieldClient } from "@/lib/field/types";
 import {
+  getMockJob,
+  getMockSchedule,
   getMockTimeCheck,
   MOCK_ENGINEER,
-  MOCK_SCHEDULE,
   submitMockTimeCheck,
   updateMockTimeLine,
 } from "@/lib/field/nexa/mock-data";
@@ -18,17 +19,17 @@ export function createMockNexaClient(): NexaFieldClient {
         mode: "mock",
         baseUrl: "",
         engineerId: MOCK_ENGINEER.id,
-        label: "Standalone demo (not connected to NeXa yet)",
+        label: "Standalone demo · 6 mock jobs for Chris Lawson",
       };
     },
     async getEngineer() {
       return MOCK_ENGINEER;
     },
     async getTodaySchedule() {
-      return MOCK_SCHEDULE;
+      return getMockSchedule();
     },
     async getJob(scheduleId) {
-      return MOCK_SCHEDULE.find((job) => job.scheduleId === scheduleId) ?? null;
+      return getMockJob(scheduleId);
     },
     async getTimeCheck() {
       return getMockTimeCheck();

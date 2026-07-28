@@ -50,7 +50,8 @@ export default function MyDayPage() {
         <p className="eyebrow">NeXa Field · {engineerName}</p>
         <h1>My jobs today</h1>
         <p>
-          Your booked visits, job packs and Blake time check — running standalone for now, ready to connect to NeXa.
+          Demo day for {engineerName}: boiler service, reactive leak, bathroom first fix, cylinder swap, joinery and a
+          callback. Open packs, tick stop/go, then let Blake walk your time check.
         </p>
         <div className="summary-grid">
           <div>

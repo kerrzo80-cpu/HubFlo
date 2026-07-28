@@ -1,14 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Link2, ShieldCheck } from "lucide-react";
+import { Link2, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
 import { useNexaClient } from "@/lib/nexa";
+import { resetMockDemo } from "@/lib/nexa/mock-data";
+
 
 export default function SettingsPage() {
   const client = useNexaClient();
   const connection = client.getConnection();
   const [baseUrl, setBaseUrl] = useState("https://nexa-pilot.onrender.com");
   const [engineerId, setEngineerId] = useState(connection.engineerId);
+  const [resetNotice, setResetNotice] = useState("");
+
+  function resetDemo() {
+    resetMockDemo();
+    setResetNotice("Demo reset. Reload My Day / Blake to start fresh.");
+  }
 
   return (
     <main className="field-content">
@@ -16,9 +24,32 @@ export default function SettingsPage() {
         <p className="eyebrow">Connect later</p>
         <h1>NeXa link</h1>
         <p>
-          The field app runs on its own mock schedule today. When you are ready, point it at NeXa and the same screens
-          will pull live jobs, packs and charge hours back.
+          Play on mock data today. When you are ready, point this app at NeXa and the same screens pull live jobs and
+          charge hours back.
         </p>
+      </section>
+
+      <section className="settings-card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Play tips</p>
+            <h2>What to try</h2>
+          </div>
+          <Sparkles size={22} />
+        </div>
+        <ul className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55 }}>
+          <li>Open <strong>J-1048</strong> pack — drawings, tenant photo, stop/go.</li>
+          <li>Tap checklist items on any job to mark evidence supplied.</li>
+          <li>
+            In <a href={"/time-check"}>Blake time check</a>, amend the cylinder job longer and the callback
+            shorter.
+          </li>
+          <li>Submit hours and see variance charged against the day.</li>
+        </ul>
+        <button className="primary-btn" type="button" style={{ marginTop: 14, width: "100%" }} onClick={resetDemo}>
+          <RotateCcw size={17} /> Reset demo data
+        </button>
+        {resetNotice ? <p className="muted" style={{ marginTop: 10 }}>{resetNotice}</p> : null}
       </section>
 
       <section className="settings-card">
@@ -31,8 +62,7 @@ export default function SettingsPage() {
         </div>
         <p>{connection.label}</p>
         <p className="muted">
-          Blake time checks and charged hours are saved in this device for now. Connecting to NeXa will swap the mock
-          client for the live engineer APIs without redesigning the screens.
+          Blake time checks, checklist ticks and charged hours stay on this device until NeXa is connected.
         </p>
       </section>
 
@@ -55,9 +85,6 @@ export default function SettingsPage() {
         <button className="primary-btn" type="button" style={{ marginTop: 14, width: "100%" }} disabled>
           Connect to NeXa (next step)
         </button>
-        <p className="muted" style={{ marginTop: 12 }}>
-          Wire-up target: field schedule + `/api/engineer/time-check` already started in the office app.
-        </p>
       </section>
     </main>
   );

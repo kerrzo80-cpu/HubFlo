@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { useNexaClient } from "@/lib/field/nexa";
+import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type { FieldScheduleItem } from "@/lib/field/types";
@@ -57,6 +58,16 @@ export default function JobDetailPage() {
       cancelled = true;
     };
   }, [client, params.scheduleId]);
+
+  function toggleRequirement(requirementId: string) {
+    if (!job) return;
+    try {
+      const next = toggleMockRequirement(job.scheduleId, requirementId);
+      setJob(next);
+    } catch {
+      // Demo-only toggle; ignore if storage unavailable.
+    }
+  }
 
   const drawings = useMemo(
     () => job?.attachments.filter((item) => item.type === "Drawing" || item.type === "PDF") ?? [],
@@ -170,21 +181,30 @@ export default function JobDetailPage() {
 
         {tab === "checklist" ? (
           <div className="checklist">
-            <p className="muted">Stop / go items for this cost centre. Missing items block completion.</p>
+            <p className="muted">
+              Stop / go for this cost centre. Tap an item to mark it supplied (demo only — saved on this device).
+            </p>
             {job.requirements.map((item) => (
-              <div className={`checklist-item ${item.status}`} key={item.id}>
+              <button
+                type="button"
+                className={`checklist-item ${item.status}`}
+                key={item.id}
+                disabled={item.status === "optional"}
+                onClick={() => toggleRequirement(item.id)}
+                style={{ textAlign: "left", width: "100%", cursor: item.status === "optional" ? "default" : "pointer" }}
+              >
                 <div>
                   <strong>{item.label}</strong>
                   <span>
                     {item.status === "missing"
-                      ? "Required before completion"
+                      ? "Required · tap to mark supplied"
                       : item.status === "done"
-                        ? "Evidence supplied"
+                        ? "Evidence supplied · tap to undo"
                         : "Optional"}
                   </span>
                 </div>
                 <em>{item.status === "missing" ? "Missing" : item.status === "done" ? "Done" : "Optional"}</em>
-              </div>
+              </button>
             ))}
           </div>
         ) : null}
