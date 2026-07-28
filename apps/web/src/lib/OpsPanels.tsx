@@ -88,11 +88,21 @@ export function StockOpsPanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [reorderBusyId, setReorderBusyId] = useState<string | null>(null);
+  const [supplierEditById, setSupplierEditById] = useState<Record<string, string>>({});
   const [reorderDraft, setReorderDraft] = useState({
     jobId: "",
-    supplier: defaultSupplier,
+    supplier: "",
   });
-  const [draft, setDraft] = useState({ sku: "", name: "", unit: "each", minLevel: "0", unitCost: "0", locationId: "", qty: "1" });
+  const [draft, setDraft] = useState({
+    sku: "",
+    name: "",
+    unit: "each",
+    minLevel: "0",
+    unitCost: "0",
+    preferredSupplier: "",
+    locationId: "",
+    qty: "1",
+  });
   const [moveDraft, setMoveDraft] = useState({
     itemId: "",
     fromLocationId: "",
@@ -131,8 +141,14 @@ export function StockOpsPanel({
       setReorderDraft((current) => ({
         ...current,
         jobId: current.jobId || openJobs[0]?.id || jobs[0]?.id || "",
-        supplier: current.supplier || defaultSupplier,
       }));
+      setSupplierEditById((current) => {
+        const next: Record<string, string> = { ...current };
+        for (const item of (body.items || []) as StockSnapshot["items"]) {
+          if (next[item.id] === undefined) next[item.id] = item.preferredSupplier || "";
+        }
+        return next;
+      });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load stock");
     }
@@ -176,6 +192,7 @@ export function StockOpsPanel({
             unit: draft.unit,
             minLevel: Number(draft.minLevel) || 0,
             unitCost: Number(draft.unitCost) || 0,
+            preferredSupplier: draft.preferredSupplier.trim() || undefined,
           },
         }),
       });
@@ -199,11 +216,14 @@ export function StockOpsPanel({
         const moveBody = await move.json();
         if (!move.ok) throw new Error(moveBody.error || "Unable to receive stock");
         setSnapshot(moveBody as StockSnapshot);
+        if (item.id) {
+          setSupplierEditById((current) => ({ ...current, [item.id]: draft.preferredSupplier.trim() }));
+        }
       } else {
         setSnapshot(upsertBody as StockSnapshot);
       }
       onNotice(`${draft.name} saved into stock.`);
-      setDraft((current) => ({ ...current, sku: "", name: "", qty: "1" }));
+      setDraft((current) => ({ ...current, sku: "", name: "", preferredSupplier: "", qty: "1" }));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save stock");
     } finally {
@@ -275,15 +295,56 @@ export function StockOpsPanel({
     }
   }
 
+  async function savePreferredSupplier(item: StockSnapshot["items"][number], preferredSupplier: string) {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsert-item",
+          item: {
+            id: item.id,
+            sku: item.sku,
+            name: item.name,
+            unit: item.unit,
+            minLevel: item.minLevel,
+            unitCost: item.unitCost,
+            preferredSupplier,
+            catalogItemId: item.catalogItemId,
+          },
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to save preferred supplier");
+      setSnapshot(body as StockSnapshot);
+      setSupplierEditById((current) => ({ ...current, [item.id]: preferredSupplier.trim() }));
+      onNotice(
+        preferredSupplier.trim()
+          ? `${item.sku} preferred supplier set to ${preferredSupplier.trim()}.`
+          : `${item.sku} preferred supplier cleared.`,
+      );
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save preferred supplier");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resolveReorderSupplier(itemPreferred?: string) {
+    return (reorderDraft.supplier.trim() || itemPreferred?.trim() || defaultSupplier).trim();
+  }
+
   async function createLowStockReorder(row: StockSnapshot["lowStock"][number]) {
     const job = jobs.find((item) => item.id === reorderDraft.jobId) || openJobs[0] || jobs[0];
     if (!job) {
       onNotice("Create or open a job first so the reorder PO has somewhere to charge.");
       return;
     }
-    const supplier = (reorderDraft.supplier || row.item.preferredSupplier || defaultSupplier).trim();
+    const supplier = resolveReorderSupplier(row.item.preferredSupplier);
     if (!supplier) {
-      onNotice("Enter a supplier for the reorder PO.");
+      onNotice("Enter a supplier override or set a preferred supplier on the stock item.");
       return;
     }
     const shortfall = Math.max(row.item.minLevel - row.onHand, 0);
@@ -304,7 +365,7 @@ export function StockOpsPanel({
           supplier,
           item: `${row.item.name} (${row.item.sku})`,
           estimatedCost,
-          reason: `Low stock reorder · on hand ${row.onHand} · min ${row.item.minLevel}`,
+          reason: `Low stock reorder · on hand ${row.onHand} · min ${row.item.minLevel} · supplier ${supplier}`,
           lines: [
             {
               id: `reorder-${row.item.id}`,
@@ -322,7 +383,7 @@ export function StockOpsPanel({
       if (!response.ok) throw new Error(body?.error || "Unable to create reorder PO");
       onPurchaseRequestCreated?.(body);
       onNotice(
-        `Reorder PO ${body.poNumber || "created"} for ${row.item.sku} × ${orderQty} against ${job.ref}.`,
+        `Reorder PO ${body.poNumber || "created"} for ${row.item.sku} × ${orderQty} via ${supplier} against ${job.ref}.`,
       );
     } catch (reorderError) {
       setError(reorderError instanceof Error ? reorderError.message : "Unable to create reorder PO");
@@ -353,6 +414,14 @@ export function StockOpsPanel({
             <label>Unit<input value={draft.unit} onChange={(e) => setDraft((c) => ({ ...c, unit: e.target.value }))} /></label>
             <label>Min level<input value={draft.minLevel} onChange={(e) => setDraft((c) => ({ ...c, minLevel: e.target.value }))} /></label>
             <label>Unit cost<input value={draft.unitCost} onChange={(e) => setDraft((c) => ({ ...c, unitCost: e.target.value }))} /></label>
+            <label>
+              Preferred supplier
+              <input
+                value={draft.preferredSupplier}
+                onChange={(e) => setDraft((c) => ({ ...c, preferredSupplier: e.target.value }))}
+                placeholder="e.g. Plumbase"
+              />
+            </label>
             <label>
               Location
               <select value={draft.locationId} onChange={(e) => setDraft((c) => ({ ...c, locationId: e.target.value }))}>
@@ -450,11 +519,11 @@ export function StockOpsPanel({
                   </select>
                 </label>
                 <label>
-                  Supplier
+                  Supplier override
                   <input
                     value={reorderDraft.supplier}
                     onChange={(e) => setReorderDraft((c) => ({ ...c, supplier: e.target.value }))}
-                    placeholder="Plumbase"
+                    placeholder="Blank = each item’s preferred supplier"
                   />
                 </label>
               </div>
@@ -462,12 +531,16 @@ export function StockOpsPanel({
                 {snapshot?.lowStock.map((row) => {
                   const shortfall = Math.max(row.item.minLevel - row.onHand, 0);
                   const orderQty = Math.max(shortfall || row.item.minLevel || 1, 1);
+                  const supplier = resolveReorderSupplier(row.item.preferredSupplier);
                   return (
                     <li key={row.item.id}>
                       <AlertTriangle size={14} />
                       <strong>{row.item.name}</strong>
                       <span>
                         {row.onHand} on hand · min {row.item.minLevel} · order {orderQty} {row.item.unit || ""}
+                        {" · "}
+                        {supplier || "no supplier"}
+                        {!reorderDraft.supplier.trim() && row.item.preferredSupplier ? " (preferred)" : ""}
                       </span>
                       <button
                         className="secondary-button"
@@ -505,14 +578,35 @@ export function StockOpsPanel({
         </article>
       </div>
       <div className="ops-table">
-        <div className="ops-table-head"><span>SKU</span><span>Item</span><span>On hand</span><span>Min</span><span>Cost</span></div>
+        <div className="ops-table-head ops-table-row-stock">
+          <span>SKU</span>
+          <span>Item</span>
+          <span>On hand</span>
+          <span>Min</span>
+          <span>Cost</span>
+          <span>Preferred supplier</span>
+        </div>
         {(snapshot?.items || []).map((item) => (
-          <div className="ops-table-row" key={item.id}>
+          <div className="ops-table-row ops-table-row-stock" key={item.id}>
             <span>{item.sku}</span>
             <strong>{item.name}</strong>
             <span>{onHandByItem.get(item.id) || 0} {item.unit}</span>
             <span>{item.minLevel}</span>
             <span>£{item.unitCost.toFixed(2)}</span>
+            <label className="ops-inline-edit">
+              <input
+                value={supplierEditById[item.id] ?? item.preferredSupplier ?? ""}
+                onChange={(e) => setSupplierEditById((current) => ({ ...current, [item.id]: e.target.value }))}
+                onBlur={() => {
+                  const next = (supplierEditById[item.id] ?? item.preferredSupplier ?? "").trim();
+                  const previous = (item.preferredSupplier || "").trim();
+                  if (next === previous) return;
+                  void savePreferredSupplier(item, next);
+                }}
+                placeholder="Set supplier"
+                aria-label={`Preferred supplier for ${item.sku}`}
+              />
+            </label>
           </div>
         ))}
         {!snapshot?.items.length ? <p className="muted">No stock items yet — receive a PO or add one above.</p> : null}

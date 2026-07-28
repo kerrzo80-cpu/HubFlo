@@ -13836,6 +13836,25 @@ h1 {
   padding: 10px 12px;
 }
 
+.ops-table-head.ops-table-row-stock,
+.ops-table-row.ops-table-row-stock {
+  grid-template-columns: 1fr 1.4fr 0.8fr 0.7fr 0.8fr 1.4fr;
+}
+
+.ops-inline-edit {
+  display: block;
+  min-width: 0;
+}
+
+.ops-inline-edit input {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  min-height: 34px;
+  padding: 6px 8px;
+  width: 100%;
+}
+
 .ops-table-head {
   background: #f4f7fa;
   color: var(--muted);

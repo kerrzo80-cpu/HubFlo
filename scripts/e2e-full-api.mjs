@@ -440,6 +440,27 @@ async function main() {
       }, cookie);
       if (issue.status >= 400) note("issue", "Stock issue to job failed", { detail: JSON.stringify(issue.json).slice(0, 200) });
       else note("info", "Stock issued to job", { detail: `${item.sku} → ${job.ref}` });
+
+      const preferred = await request("POST", "/api/stock", {
+        action: "upsert-item",
+        item: {
+          id: item.id,
+          sku: item.sku,
+          name: item.name,
+          unit: item.unit || "each",
+          minLevel: item.minLevel ?? 0,
+          unitCost: item.unitCost ?? 0,
+          preferredSupplier: "Plumbase E2E",
+          catalogItemId: item.catalogItemId,
+        },
+      }, cookie);
+      if (preferred.status >= 400) {
+        note("warn", "Preferred supplier save failed", { detail: JSON.stringify(preferred.json).slice(0, 200) });
+      } else {
+        const saved = (preferred.json?.items || []).find((row) => row.id === item.id);
+        if (saved?.preferredSupplier === "Plumbase E2E") note("info", "Preferred supplier saved on stock item", { detail: item.sku });
+        else note("issue", "Preferred supplier not persisted", { detail: JSON.stringify(saved || {}).slice(0, 200) });
+      }
     } else {
       note("warn", "Skipped stock transfer/issue — missing item or locations");
     }

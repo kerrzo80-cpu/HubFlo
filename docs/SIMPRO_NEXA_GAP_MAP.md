@@ -193,6 +193,7 @@ Until Brian cuts further, execute in this order:
 - **Xero InvoiceID** stored on NeXa invoice after live export; re-export updates existing; payment pull prefers GUID then number
 - **PO → Xero bill (ACCPAY)** export from purchase order record (live upsert or CSV pack); stores `xeroBillId`
 - **Low-stock reorder PO** from Stock panel (shortfall qty, supplier + charge-to job)
+- **Stock preferred supplier** editable on items; reorder uses override → preferred → workspace default
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts

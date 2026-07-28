@@ -147,7 +147,10 @@ export function upsertStockItem(input: {
             unit: input.unit?.trim() || item.unit,
             minLevel: input.minLevel ?? item.minLevel,
             unitCost: input.unitCost ?? item.unitCost,
-            preferredSupplier: input.preferredSupplier ?? item.preferredSupplier,
+            preferredSupplier:
+              input.preferredSupplier !== undefined
+                ? input.preferredSupplier.trim() || undefined
+                : item.preferredSupplier,
             catalogItemId: input.catalogItemId ?? item.catalogItemId,
           }
         : item,
