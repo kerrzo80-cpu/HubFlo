@@ -38,8 +38,10 @@ import {
   MapPin,
   Menu,
   MoreHorizontal,
+  Package,
   Plus,
   PoundSterling,
+  Repeat,
   Search,
   Send,
   Settings,
@@ -106,6 +108,7 @@ import {
   weekDays,
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
+import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -569,6 +572,8 @@ type HomeView =
   | "job-create"
   | "purchase-orders"
   | "purchase-order-record"
+  | "stock"
+  | "recurring"
   | "reports"
   | "invoices"
   | "invoice-create"
@@ -589,7 +594,7 @@ type OpenWorkspaceTab = {
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
 type ReportDateRange = "Today" | "This week" | "Last week" | "This month" | "Last month" | "Year to date" | "Last year" | "Custom" | "All time";
-type ReportTab = "executive" | "financial" | "jobs" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
+type ReportTab = "executive" | "financial" | "jobs" | "wip" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
 type ReportTone = "blue" | "green" | "amber" | "red";
 
 type ClientTab = "overview" | "sites" | "history";
@@ -1972,8 +1977,10 @@ const modules: ModuleItem[] = [
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
   { label: "POs", icon: ClipboardCheck },
+  { label: "Stock", icon: Package },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
+  { label: "Recurring", icon: Repeat },
   { label: "Reports", icon: BarChart3 },
   { label: "Add-ons", icon: Sparkles },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
@@ -2021,6 +2028,7 @@ const reportTabs: Array<{ key: ReportTab; label: string }> = [
   { key: "executive", label: "Executive" },
   { key: "financial", label: "Financial" },
   { key: "jobs", label: "Jobs" },
+  { key: "wip", label: "WIP" },
   { key: "engineers", label: "Engineers" },
   { key: "pipeline", label: "Estimating" },
   { key: "customers", label: "Customers" },
@@ -3286,8 +3294,8 @@ const seedEmployees: EmployeeCard[] = [
     permissions: {
       showQuotes: false,
       showFinance: false,
-      showAssets: false,
-      showStock: false,
+      showAssets: true,
+      showStock: true,
     },
     profile: {
       email: "chris.lawson@errolwatsongroup.com",
@@ -7034,8 +7042,10 @@ export default function Dashboard() {
   const [simproReconnectStatus, setSimproReconnectStatus] = useState<SimproReconnectStatus | null>(null);
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
   const [selectedSimproImportEntities, setSelectedSimproImportEntities] = useState<SimproSyncEntity[]>(
-    simproImportEntityOptions.map((item) => item.key),
+    ["clients", "sites"],
   );
+  const [invoicePaymentAmountDraft, setInvoicePaymentAmountDraft] = useState("");
+  const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -8312,6 +8322,15 @@ export default function Dashboard() {
       profit,
     };
   }, [selectedInvoice]);
+
+  useEffect(() => {
+    if (!selectedInvoice) {
+      setInvoicePaymentAmountDraft("");
+      return;
+    }
+    const remaining = Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0));
+    setInvoicePaymentAmountDraft(remaining > 0 ? remaining.toFixed(2) : "");
+  }, [selectedInvoice?.id, selectedInvoice?.paidAmount, selectedInvoiceFinancials.grandTotal]);
 
   const selectedValuationTotals = useMemo(
     () => valuationLineTotals(selectedInvoice?.valuationLines ?? [], selectedInvoice?.retentionPercent ?? 0),
@@ -9879,9 +9898,11 @@ export default function Dashboard() {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
       if (module.label === "POs" && !access.canRequestPurchase && !access.canApprovePurchase && !access.showFinance) return false;
+      if (module.label === "Stock" && !access.showStock && !access.showFinance && !access.canRequestPurchase) return false;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
+      if (module.label === "Recurring" && !access.showJobs && !access.showFinance) return false;
       if (module.label === "Reports" && !access.showFinance) return false;
       return true;
     });
@@ -10676,8 +10697,9 @@ export default function Dashboard() {
   const reportInvoiceRows = useMemo(
     () =>
       reportFilteredInvoices.map((invoice) => {
-        const paidAmount = invoice.status === "Paid" ? invoice.chargeTotal : invoice.paidAmount ?? 0;
-        const owed = invoice.status === "Cancelled" ? 0 : Math.max(0, invoice.chargeTotal - paidAmount);
+        const grandTotal = invoice.chargeTotal * (1 + invoice.vatRate / 100);
+        const paidAmount = invoice.status === "Paid" ? grandTotal : invoice.paidAmount ?? 0;
+        const owed = invoice.status === "Cancelled" ? 0 : Math.max(0, grandTotal - paidAmount);
         return {
           invoice,
           revenue: invoice.status === "Cancelled" ? 0 : invoice.chargeTotal,
@@ -13795,7 +13817,7 @@ export default function Dashboard() {
       setXeroConnectionStatus(status);
       showNotice(
         status.configured
-          ? "Xero credentials are present. Live invoice export is not enabled yet."
+          ? "Xero credentials are present. Invoice export is available from the invoice record (live API or CSV pack)."
           : `Xero is blocked: missing ${status.missing.join(", ") || "required credentials"}.`,
       );
     } catch (error) {
@@ -14782,22 +14804,253 @@ export default function Dashboard() {
 
   function updateSelectedInvoicePayment(paymentStatus: InvoicePaymentStatus) {
     if (!selectedInvoice) return;
-    const paidAmount = paymentStatus === "Paid"
-      ? selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100)
-      : paymentStatus === "Part paid"
-        ? (selectedInvoice.paidAmount || 0)
-        : 0;
+    const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
+    let paidAmount = 0;
+    if (paymentStatus === "Paid") {
+      paidAmount = grandTotal;
+    } else if (paymentStatus === "Part paid") {
+      const typed = Number(invoicePaymentAmountDraft);
+      if (!Number.isFinite(typed) || typed <= 0) {
+        showNotice("Enter the amount paid before marking part paid.");
+        return;
+      }
+      if (typed >= grandTotal) {
+        paidAmount = grandTotal;
+        paymentStatus = "Paid";
+      } else {
+        paidAmount = typed;
+      }
+    }
     markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
           paymentStatus,
           paidAmount,
-          status: paymentStatus === "Paid" ? "Paid" : paymentStatus === "Part paid" ? "Partially paid" : invoice.status,
+          status: paymentStatus === "Paid" ? "Paid" : paymentStatus === "Part paid" ? "Partially paid" : invoice.status === "Paid" || invoice.status === "Partially paid" ? "Sent" : invoice.status,
         }
       : invoice,
     ));
-    showNotice(`${selectedInvoice.ref} marked ${paymentStatus.toLowerCase()}.`);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "payment updated",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} payment set to ${paymentStatus}${paidAmount ? ` · ${currency(paidAmount)}` : ""}.`,
+      source: "web",
+      importance: paymentStatus === "Paid" ? "high" : "normal",
+    });
+    showNotice(`${selectedInvoice.ref} marked ${paymentStatus.toLowerCase()}${paidAmount ? ` (${currency(paidAmount)})` : ""}.`);
+  }
+
+  async function exportSelectedInvoiceToXero() {
+    if (!selectedInvoice) return;
+    if (!selectedInvoice.lines.length) {
+      showNotice("Add invoice lines before exporting to Xero.");
+      return;
+    }
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Convert the valuation to a progress claim before exporting to Xero.");
+      return;
+    }
+    setIsExportingInvoiceToXero(true);
+    try {
+      const response = await fetch("/api/integrations/xero/export", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice: {
+            id: selectedInvoice.id,
+            ref: selectedInvoice.ref,
+            customer: selectedInvoice.customer,
+            issuedDate: selectedInvoice.issuedDate,
+            dueDate: selectedInvoice.dueDate,
+            chargeTotal: selectedInvoice.chargeTotal,
+            vatRate: selectedInvoice.vatRate,
+            notes: selectedInvoice.notes,
+            lines: selectedInvoice.lines.map((line) => ({
+              description: line.description,
+              category: line.category,
+              chargeToClient: line.chargeToClient,
+              costToUs: line.costToUs,
+            })),
+          },
+        }),
+      });
+      const body = await response.json().catch(() => null) as {
+        export?: { mode?: string; detail?: string; status?: string };
+        accountsStatus?: AccountsExportStatus;
+        csv?: string | null;
+        error?: string;
+      } | null;
+      if (!response.ok || !body?.export) {
+        throw new Error(body?.error || `Xero export failed (HTTP ${response.status})`);
+      }
+      const accountsStatus = body.accountsStatus ?? "Sent";
+      markInvoiceEdited();
+      setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+        ? { ...invoice, accountsStatus }
+        : invoice,
+      ));
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero export",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref} exported to Xero (${body.export.mode || "export"}): ${body.export.detail || accountsStatus}.`,
+        source: "web",
+        importance: "high",
+      });
+      if (body.csv) {
+        const blob = new Blob([body.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${selectedInvoice.ref}-xero.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+      showNotice(body.export.detail || `${selectedInvoice.ref} sent to Xero.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to export invoice to Xero.");
+    } finally {
+      setIsExportingInvoiceToXero(false);
+    }
+  }
+
+  async function generateRecurringJobFromPlan(plan: {
+    name: string;
+    customer: string;
+    site?: string;
+    description: string;
+  }): Promise<string | null> {
+    const client = clients.find((item) => item.name.toLowerCase() === plan.customer.trim().toLowerCase())
+      ?? clients.find((item) => item.name.toLowerCase().includes(plan.customer.trim().toLowerCase()));
+    if (!client) {
+      showNotice(`No client matches "${plan.customer}". Create the client in People first.`);
+      return null;
+    }
+    const sitesForClient = clientSites.filter((site) => site.clientId === client.id);
+    const site = plan.site
+      ? sitesForClient.find((item) =>
+          item.name.toLowerCase().includes(plan.site!.trim().toLowerCase())
+          || item.address.toLowerCase().includes(plan.site!.trim().toLowerCase()),
+        ) ?? sitesForClient[0]
+      : sitesForClient[0];
+    if (!site) {
+      showNotice(`Client ${client.name} needs a site before a recurring job can be generated.`);
+      return null;
+    }
+    const payload = {
+      ref: numberedReference("job", normalizedFinanceSettings, jobs.map((item) => item.ref)),
+      clientId: client.id,
+      siteId: site.id,
+      customer: client.name,
+      site: site.address,
+      description: plan.description.trim() || plan.name,
+      manager: activeEmployee?.name || "Unassigned",
+      status: "Needs scheduling",
+      value: 0,
+      next: `Generated from recurring plan ${plan.name}`,
+      due: "This week",
+    };
+    try {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Unable to create recurring job");
+      const created = (await response.json()) as Job;
+      setJobs((current) => [created, ...current]);
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "created",
+        recordType: "job",
+        recordId: created.id,
+        summary: `Recurring job ${created.ref} generated from ${plan.name}.`,
+        source: "web",
+        importance: "high",
+      });
+      return created.ref;
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to generate recurring job.");
+      return null;
+    }
+  }
+
+  async function generateRecurringInvoiceFromPlan(plan: {
+    name: string;
+    customer: string;
+    site?: string;
+    description: string;
+    amount?: number;
+  }): Promise<string | null> {
+    const client = clients.find((item) => item.name.toLowerCase() === plan.customer.trim().toLowerCase())
+      ?? clients.find((item) => item.name.toLowerCase().includes(plan.customer.trim().toLowerCase()));
+    const sitesForClient = client ? clientSites.filter((site) => site.clientId === client.id) : [];
+    const site = plan.site
+      ? sitesForClient.find((item) =>
+          item.name.toLowerCase().includes(plan.site!.trim().toLowerCase())
+          || item.address.toLowerCase().includes(plan.site!.trim().toLowerCase()),
+        ) ?? sitesForClient[0]
+      : sitesForClient[0];
+    const amount = Number(plan.amount) || 0;
+    if (amount <= 0) {
+      showNotice("Set an amount on the recurring invoice plan before generating.");
+      return null;
+    }
+    const vatProfile = resolveVatProfile(normalizedFinanceSettings, client ?? null, site ?? null);
+    const issuedDate = new Date().toISOString().slice(0, 10);
+    const created: Invoice = {
+      id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      ref: buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref)),
+      status: "Draft",
+      sourceType: "job",
+      sourceId: `recurring-${plan.name}`,
+      sourceRef: plan.name,
+      sourceName: `Recurring · ${plan.name}`,
+      customer: client?.name || plan.customer,
+      issuedDate,
+      dueDate: invoiceDueDateFromSettings(normalizedFinanceSettings, issuedDate),
+      clientId: client?.id,
+      siteId: site?.id,
+      title: plan.name,
+      lines: [
+        {
+          id: `inv-line-${Date.now()}`,
+          description: plan.description || plan.name,
+          category: "Other",
+          costToUs: 0,
+          chargeToClient: amount,
+          note: "Recurring invoice plan",
+        },
+      ],
+      costTotal: 0,
+      chargeTotal: amount,
+      vatRate: vatProfile.rate,
+      vatTreatment: vatProfile.treatment,
+      vatNote: vatProfile.note,
+      notes: `Generated from recurring plan ${plan.name}. ${vatProfile.note}`,
+      claimType: "full",
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+    };
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save recurring invoice to the shared workspace.");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "invoice created",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `Recurring invoice ${created.ref} generated from ${plan.name}.`,
+      source: "web",
+      importance: "high",
+    });
+    return created.ref;
   }
 
   function updateSelectedInvoiceStatus(status: InvoiceStatus) {
@@ -21201,6 +21454,47 @@ export default function Dashboard() {
       },
       `${request.poNumber || "PO"} received. Cost is now actual against ${request.costCentreName ?? "the cost centre"}.`,
     );
+
+    const stockLines = (receivedLines?.length
+      ? receivedLines
+      : [{
+          id: `${request.id}-line`,
+          description: request.item || request.poNumber || "PO item",
+          quantity: 1,
+          estimatedCost: request.estimatedCost,
+          actualCost,
+          receivedPercent: 100,
+        }]
+    ).map((line, index) => ({
+      sku: `${request.poNumber || request.id}-${index + 1}`,
+      name: line.description || request.item || "PO receipt item",
+      quantity: Math.max(1, Number(line.quantity) || 1),
+      unitCost: (line.actualCost ?? line.estimatedCost) / Math.max(1, Number(line.quantity) || 1),
+      unit: "each",
+    }));
+
+    try {
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "receive-po",
+          receipt: {
+            lines: stockLines,
+            poNumber: request.poNumber,
+            jobRef: request.jobRef,
+          },
+        }),
+      });
+      const body = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) {
+        showNotice(body?.error || "PO received, but stock receipt could not be recorded.");
+        return;
+      }
+      showNotice(`${request.poNumber || "PO"} received into Warehouse stock and costed to ${request.costCentreName ?? request.jobRef}.`);
+    } catch {
+      showNotice("PO received, but stock receipt could not be recorded.");
+    }
   }
 
   function documentFilesForRecord(recordType: RecordDocumentScope, recordRef: string): RecordDocumentFile[] {
@@ -22380,10 +22674,12 @@ export default function Dashboard() {
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
             (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
             (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
-            (module.label === "POs" && homeView === "purchase-orders") ||
+            (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
+            (module.label === "Stock" && homeView === "stock") ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
+            (module.label === "Recurring" && homeView === "recurring") ||
             (module.label === "Reports" && homeView === "reports") ||
             (module.label === "Add-ons" && homeView === "addons") ||
             (module.label === "People" && ["employees", "employee-card", "clients", "client-record"].includes(homeView));
@@ -22445,6 +22741,8 @@ export default function Dashboard() {
                   returnToJobsDirectory();
                 } else if (module.label === "POs") {
                   setHomeView("purchase-orders");
+                } else if (module.label === "Stock") {
+                  setHomeView("stock");
                 } else if (module.label === "Schedules") {
                   setHomeView("schedule");
                 } else if (module.label === "Setup") {
@@ -22452,6 +22750,8 @@ export default function Dashboard() {
                   setActiveSetupSubItem(null);
                 } else if (module.label === "Invoices") {
                   returnToInvoiceDirectory();
+                } else if (module.label === "Recurring") {
+                  setHomeView("recurring");
                 } else if (module.label === "Reports") {
                   setHomeView("reports");
                   setActiveReportTab("executive");
@@ -22548,6 +22848,10 @@ export default function Dashboard() {
                   ? "Cost centre"
                 : homeView === "purchase-orders" || homeView === "purchase-order-record"
                   ? "Purchase orders"
+                : homeView === "stock"
+                  ? "Stock"
+                : homeView === "recurring"
+                  ? "Recurring"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
                 : homeView === "reports"
@@ -22681,6 +22985,10 @@ export default function Dashboard() {
                       ? "Purchase orders"
                     : homeView === "purchase-order-record"
                       ? selectedPurchaseOrder?.poNumber || "Purchase order"
+                    : homeView === "stock"
+                      ? "Stock"
+                    : homeView === "recurring"
+                      ? "Recurring"
                     : homeView === "invoices"
                       ? "Invoices"
                     : homeView === "reports"
@@ -22737,6 +23045,10 @@ export default function Dashboard() {
                     ? "Purchase orders"
                   : homeView === "purchase-order-record"
                     ? selectedPurchaseOrder?.poNumber || "Purchase order"
+                  : homeView === "stock"
+                    ? "Stock & van stock"
+                  : homeView === "recurring"
+                    ? "Recurring plans"
                   : homeView === "invoices"
                     ? "Invoices"
                   : homeView === "reports"
@@ -22800,6 +23112,10 @@ export default function Dashboard() {
                     ? `${purchaseOrderRows.length} purchase orders · ${purchaseOrderStatusFilter}`
                   : homeView === "purchase-order-record"
                     ? `${selectedPurchaseOrder?.supplier ?? "Supplier TBC"} · ${selectedPurchaseOrder?.jobRef ?? "No job linked"}`
+                  : homeView === "stock"
+                    ? "Warehouse + Chris / Murray / Raymond / Ryan vans"
+                  : homeView === "recurring"
+                    ? "Service plans that generate the next job or invoice when due"
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
                   : homeView === "reports"
@@ -22927,6 +23243,10 @@ export default function Dashboard() {
                     <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                   ) : null}
                 </>
+              ) : homeView === "stock" || homeView === "recurring" ? (
+                <button className="secondary-button" onClick={returnToDashboard}>
+                  Back to dashboard
+                </button>
               ) : homeView === "invoices" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
@@ -23853,6 +24173,67 @@ export default function Dashboard() {
                 </div>
               ) : null}
 
+              {activeReportTab === "wip" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Work in progress</span>
+                        <h3>Open jobs costed versus billed</h3>
+                      </div>
+                    </header>
+                    <div className="report-table jobs">
+                      <div className="report-table-head">
+                        <span>Job</span><span>Sell / WIP value</span><span>Cost committed</span><span>Billed</span><span>Unbilled</span><span>Margin</span>
+                      </div>
+                      {reportJobRows
+                        .filter((row) => !["Invoiced", "Closed"].includes(row.job.status))
+                        .map((row) => {
+                          const billed = reportInvoiceRows
+                            .filter((invoiceRow) => invoiceRow.invoice.sourceId === row.job.id && invoiceRow.invoice.status !== "Cancelled")
+                            .reduce((total, invoiceRow) => total + invoiceRow.revenue, 0);
+                          const unbilled = Math.max(0, row.job.value - billed);
+                          return (
+                            <button className="report-table-row clickable" key={row.job.id} type="button" onClick={() => openJobDrawer(row.job.id)}>
+                              <strong>{row.job.ref} · {row.job.customer}<small>{row.job.status} · {row.job.description}</small></strong>
+                              <span>{currency(row.job.value)}</span>
+                              <span>{currency(row.committedCost || row.actualCost || row.projectedCost)}</span>
+                              <span>{currency(billed)}</span>
+                              <span>{currency(unbilled)}</span>
+                              <span>{row.margin}%</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </section>
+                  <section className="report-card">
+                    <header><h3>WIP totals</h3></header>
+                    <div className="report-mini-stack">
+                      <article>
+                        <span>Open WIP value</span>
+                        <strong>{currency(reportJobRows.filter((row) => !["Invoiced", "Closed"].includes(row.job.status)).reduce((total, row) => total + row.job.value, 0))}</strong>
+                        <small>Jobs still live</small>
+                      </article>
+                      <article>
+                        <span>Cost committed</span>
+                        <strong>{currency(reportJobRows.filter((row) => !["Invoiced", "Closed"].includes(row.job.status)).reduce((total, row) => total + (row.committedCost || row.actualCost || row.projectedCost), 0))}</strong>
+                        <small>Materials + labour position</small>
+                      </article>
+                      <article>
+                        <span>Unbilled balance</span>
+                        <strong>{currency(reportJobRows.filter((row) => !["Invoiced", "Closed"].includes(row.job.status)).reduce((total, row) => {
+                          const billed = reportInvoiceRows
+                            .filter((invoiceRow) => invoiceRow.invoice.sourceId === row.job.id && invoiceRow.invoice.status !== "Cancelled")
+                            .reduce((sum, invoiceRow) => sum + invoiceRow.revenue, 0);
+                          return total + Math.max(0, row.job.value - billed);
+                        }, 0))}</strong>
+                        <small>Sell value not yet invoiced</small>
+                      </article>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
               {activeReportTab === "jobs" ? (
                 <section className="report-card wide">
                   <header>
@@ -24241,6 +24622,15 @@ export default function Dashboard() {
                 </section>
               );
             })() : <section className="record-folder-empty">Purchase order not found.</section>
+          ) : homeView === "stock" ? (
+            <StockOpsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
+          ) : homeView === "recurring" ? (
+            <RecurringOpsPanel
+              requestHeaders={requestHeaders}
+              onNotice={showNotice}
+              onGenerateJob={generateRecurringJobFromPlan}
+              onGenerateInvoice={generateRecurringInvoiceFromPlan}
+            />
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
               <div className="addon-hero">
@@ -27325,11 +27715,20 @@ export default function Dashboard() {
                   </section>
                 ) : null}
 
-                {activeCostCentreTab === "schedule" || activeCostCentreTab === "assets" ? (
+                {activeCostCentreTab === "schedule" ? (
                   <section className="simpro-empty-workspace">
-                    <h2>{activeCostCentreTab === "schedule" ? "Schedule" : "Customer Assets"}</h2>
-                    <p>{activeCostCentreTab === "schedule" ? "No visits are scheduled for this quote cost centre yet." : "No customer assets are linked to this quote cost centre yet."}</p>
+                    <h2>Schedule</h2>
+                    <p>No visits are scheduled for this quote cost centre yet.</p>
                   </section>
+                ) : null}
+                {activeCostCentreTab === "assets" ? (
+                  <SiteAssetsPanel
+                    requestHeaders={requestHeaders}
+                    siteId={selectedQuote?.siteId}
+                    clientId={selectedQuote?.clientId}
+                    siteLabel={selectedQuoteSite?.address || selectedQuoteSite?.name || selectedQuote?.customer}
+                    onNotice={showNotice}
+                  />
                 ) : null}
               </section>
             ) : null
@@ -29949,11 +30348,20 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "engineer-flow" ? renderEngineerFlowWorkspace(selectedJob, selectedCostCentre) : null}
 
-                {activeCostCentreTab === "schedule" || activeCostCentreTab === "assets" ? (
+                {activeCostCentreTab === "schedule" ? (
                   <section className="simpro-empty-workspace">
-                    <h2>{activeCostCentreTab === "schedule" ? "Schedule" : "Customer Assets"}</h2>
-                    <p>{activeCostCentreTab === "schedule" ? "No visits are scheduled for this cost centre yet." : "No customer assets are linked to this cost centre yet."}</p>
+                    <h2>Schedule</h2>
+                    <p>No visits are scheduled for this cost centre yet.</p>
                   </section>
+                ) : null}
+                {activeCostCentreTab === "assets" ? (
+                  <SiteAssetsPanel
+                    requestHeaders={requestHeaders}
+                    siteId={selectedJob?.siteId}
+                    clientId={selectedJob?.clientId}
+                    siteLabel={selectedJobSite?.address || selectedJob?.site || selectedJob?.customer}
+                    onNotice={showNotice}
+                  />
                 ) : null}
               </section>
                 ) : null
@@ -30518,21 +30926,41 @@ export default function Dashboard() {
                           <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
                           <div>
                             <span>Connector</span>
-                            <strong>{xeroConnectionStatus?.configured ? "Xero · credentials detected" : "Xero · not configured"}</strong>
+                            <strong>{xeroConnectionStatus?.configured ? "Xero · credentials detected" : "Xero · CSV pack ready"}</strong>
                           </div>
+                          <div>
+                            <span>Amount remaining</span>
+                            <strong>{currency(Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0)))}</strong>
+                          </div>
+                          <label className="accounts-payment-amount">
+                            <span>Payment amount</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={invoicePaymentAmountDraft}
+                              onChange={(event) => setInvoicePaymentAmountDraft(event.target.value)}
+                              aria-label="Payment amount"
+                            />
+                          </label>
                         </div>
                         <footer>
-                          <small>Live Xero export is not enabled yet. This invoice remains in NeXa and no external send is claimed.</small>
+                          <small>
+                            {xeroConnectionStatus?.configured
+                              ? "Push creates the invoice in Xero when tokens are present; otherwise NeXa downloads a Xero CSV import pack and marks accounts status Sent."
+                              : "No live Xero token yet — export still works as a Xero CSV import pack and marks this invoice Sent for accounts."}
+                          </small>
                           <div>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Mark unpaid</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Mark part paid</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Mark paid</button>
                             <button
                               className="primary-button"
                               type="button"
-                              disabled
-                              title="Live Xero invoice export must be completed before this control can be used."
+                              disabled={isExportingInvoiceToXero || !access.canEditInvoice}
+                              onClick={() => void exportSelectedInvoiceToXero()}
                             >
-                              Xero export unavailable
+                              {isExportingInvoiceToXero ? "Exporting…" : selectedInvoice.accountsStatus === "Sent" ? "Re-export to Xero" : "Export to Xero"}
                             </button>
                           </div>
                         </footer>
@@ -32670,7 +33098,15 @@ export default function Dashboard() {
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
 	                              <strong>Choose exactly what NeXa should pull in</strong>
-	                              <small>Preview or apply only the record groups you tick here.</small>
+	                              <small>Default is Clients + Sites to stop dual typing. Tick quotes/jobs/invoices only when you need them.</small>
+	                              <div className="setup-sync-entity-shortcuts">
+	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
+	                                  Customers &amp; sites
+	                                </button>
+	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(simproImportEntityOptions.map((item) => item.key))}>
+	                                  Select all
+	                                </button>
+	                              </div>
 	                            </div>
 	                            <div className="setup-sync-entity-list" role="group" aria-label="simPRO import record types">
 	                              {simproImportEntityOptions.map((option) => {
@@ -32831,7 +33267,7 @@ export default function Dashboard() {
 	                          </div>
 	                          <small>
 	                            {xeroConnectionStatus?.configured
-	                              ? "Render can see the required Xero OAuth settings. Live invoice export is not enabled, so NeXa will not claim an invoice was sent."
+	                              ? "Render can see Xero OAuth settings. Open an invoice and use Export to Xero — live push when tokens exist, otherwise a CSV import pack."
 	                              : `Missing ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_TENANT_ID"}.`}
 	                          </small>
 	                          <div className="setup-readiness-grid setup-sync-grid">

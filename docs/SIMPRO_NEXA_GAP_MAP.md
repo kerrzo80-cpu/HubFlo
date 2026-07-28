@@ -187,6 +187,17 @@ Until Brian cuts further, execute in this order:
 - Invoices open on **Overdue** by default; Draft folder added; due column shows days overdue
 - Jobs folder **Ready to invoice** for Completed / Ready to invoice
 - New invoices use Setup payment terms days for due date
+- **Xero export** on invoice record (live API when tokens present, else CSV import pack) + accounts status Sent
+- simPRO import defaults to **Clients + Sites** with one-click shortcuts
+- Payments: amount field + part-paid / paid / unpaid with audit
+
+### Waves 2–4 in product (28 Jul 2026)
+
+- **Stock** module: Warehouse + Chris/Murray/Raymond/Ryan vans; receive/add items; low-stock
+- PO **Mark invoice received** also receipts lines into Warehouse stock and keeps job cost actuals
+- Cost-centre **Customer Assets** tab: Gas / Oil / Pipework register per site
+- **Recurring** module: plans that generate next job or invoice and advance next due
+- Reports **WIP** tab: open jobs sell vs cost committed vs billed / unbilled
 
 ---
 

@@ -13683,6 +13683,191 @@ h1 {
   }
 }
 
+.ops-module-panel {
+  background: linear-gradient(180deg, #f7fafc 0%, #ffffff 42%);
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 18px;
+  padding: 18px 18px 22px;
+}
+
+.ops-module-panel.compact {
+  background: #fff;
+  gap: 14px;
+  padding: 14px;
+}
+
+.ops-module-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.ops-module-header h2 {
+  align-items: center;
+  display: flex;
+  font-size: 22px;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+
+.ops-module-header p,
+.ops-module-panel .muted {
+  color: var(--muted);
+  margin: 0;
+}
+
+.ops-module-error {
+  background: #fff4f2;
+  border: 1px solid #f0c2b8;
+  color: #9b341f;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.ops-module-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.9fr);
+}
+
+.ops-module-grid > article,
+.ops-form-grid,
+.ops-table {
+  background: #fff;
+  border: 1px solid var(--line);
+  padding: 14px;
+}
+
+.ops-module-grid h3,
+.ops-module-panel > h3 {
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+.ops-form-grid {
+  display: grid;
+  gap: 10px 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.ops-form-grid label,
+.accounts-payment-amount {
+  color: var(--muted);
+  display: grid;
+  font-size: 11px;
+  font-weight: 750;
+  gap: 6px;
+}
+
+.ops-form-grid label.full {
+  grid-column: 1 / -1;
+}
+
+.ops-form-grid input,
+.ops-form-grid select,
+.accounts-payment-amount input {
+  border: 1px solid var(--line);
+  font: inherit;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.ops-simple-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.ops-simple-list li {
+  align-items: center;
+  border-bottom: 1px solid #eef2f5;
+  display: grid;
+  gap: 2px 10px;
+  grid-template-columns: auto 1fr;
+  padding-bottom: 8px;
+}
+
+.ops-simple-list li span {
+  color: var(--muted);
+  font-size: 12px;
+  grid-column: 2;
+}
+
+.ops-simple-list.warn li {
+  color: #9b341f;
+}
+
+.ops-table {
+  display: grid;
+  gap: 0;
+  overflow: auto;
+  padding: 0;
+}
+
+.ops-table-head,
+.ops-table-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1.1fr 1.6fr 1fr 0.8fr 0.9fr;
+  padding: 10px 12px;
+}
+
+.ops-table-head {
+  background: #f4f7fa;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.ops-table-row {
+  border-top: 1px solid #eef2f5;
+  font-size: 13px;
+}
+
+.ops-table-row .primary-button,
+.ops-table-row .secondary-button {
+  justify-self: end;
+}
+
+.setup-sync-entity-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.accounts-handoff-grid .accounts-payment-amount {
+  grid-column: span 1;
+}
+
+@media (max-width: 960px) {
+  .ops-module-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-table-head,
+  .ops-table-row {
+    grid-template-columns: 1fr 1.2fr 0.8fr;
+  }
+
+  .ops-table-head span:nth-child(n + 4),
+  .ops-table-row span:nth-child(n + 4),
+  .ops-table-row strong:nth-child(n + 4) {
+    display: none;
+  }
+}
+
 .scheduler-job-picker,
 .scheduler-cost-centre-picker {
   color: var(--muted);
