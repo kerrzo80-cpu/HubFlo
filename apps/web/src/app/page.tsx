@@ -13485,6 +13485,45 @@ export default function Dashboard() {
     if (saved) returnToRecord();
   }
 
+  function finishActiveRecord() {
+    if (homeView === "lead-record" && selectedLeadId) {
+      forgetOpenWorkspaceTab("lead", selectedLeadId);
+      setSelectedLeadId(null);
+      setHomeView("leads");
+      showNotice("Lead finished and closed.");
+    } else if ((homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuoteId) {
+      const ref = selectedQuote?.ref || "Quote";
+      forgetOpenWorkspaceTab("quote", selectedQuoteId);
+      setSelectedQuoteId(null);
+      setSelectedQuoteCostCentreId(null);
+      setHomeView("quotes");
+      showNotice(`${ref} finished and closed.`);
+    } else if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJobId) {
+      const ref = selectedJob?.ref || "Job";
+      forgetOpenWorkspaceTab("job", selectedJobId);
+      setSelectedJobId(null);
+      setSelectedCostCentreId(null);
+      setHomeView("jobs");
+      showNotice(`${ref} finished and closed.`);
+    } else if (homeView === "invoice-record" && selectedInvoiceId) {
+      const ref = selectedInvoice?.ref || "Invoice";
+      forgetOpenWorkspaceTab("invoice", selectedInvoiceId);
+      setSelectedInvoiceId(null);
+      setHomeView("invoices");
+      showNotice(`${ref} finished and closed.`);
+    } else {
+      showNotice("Nothing to finish.");
+      return;
+    }
+    scrollWorkspaceToTop();
+  }
+
+  async function saveAndFinishRecord() {
+    const saved = await saveCurrentRecord();
+    if (!saved) return;
+    finishActiveRecord();
+  }
+
   async function recheckXeroConfiguration() {
     try {
       const response = await fetch("/api/integrations/xero/status", { headers: requestHeaders });
@@ -13501,7 +13540,7 @@ export default function Dashboard() {
     }
   }
 
-  function renderRecordSaveControls() {
+  function renderRecordSaveControls(mode: "record" | "nested" = "record") {
     const statusLabel = recordSaveStatus === "saving"
       ? "Saving..."
       : recordSaveStatus === "unsaved"
@@ -13509,23 +13548,44 @@ export default function Dashboard() {
         : recordSaveStatus === "error"
           ? "Save failed"
           : "All changes saved";
+    const finishNested = () => {
+      void saveCurrentCostCentreAndFinish(
+        homeView === "quote-cost-centre-record" ? returnToQuoteRecord : returnToJobRecord,
+      );
+    };
     return (
-      <>
+      <div className="record-save-controls">
+        <span className="record-autosave-pill" title="NeXa keeps saving while you work">
+          Auto-save on
+        </span>
         <span className={`record-save-status ${recordSaveStatus}`} aria-live="polite">
           {statusLabel}
         </span>
         <button
-          className="primary-button record-save-button"
+          className="secondary-button record-save-button"
           type="button"
-          aria-label={recordSaveStatus === "saving" ? "Saving changes" : "Save changes"}
-          title={recordSaveStatus === "saving" ? "Saving changes" : "Save changes"}
+          aria-label={recordSaveStatus === "saving" ? "Saving changes" : "Save now"}
+          title={recordSaveStatus === "saving" ? "Saving changes" : "Save now without leaving"}
           disabled={recordSaveStatus === "saving"}
-          onClick={saveCurrentRecord}
+          onClick={() => void saveCurrentRecord()}
         >
           <Check size={16} />
-          {recordSaveStatus === "saving" ? "Saving" : "Save changes"}
+          {recordSaveStatus === "saving" ? "Saving" : "Save now"}
         </button>
-      </>
+        <button
+          className="primary-button record-finish-button"
+          type="button"
+          aria-label={mode === "nested" ? "Save and return" : "Save and finish"}
+          title={mode === "nested" ? "Save and return to the parent record" : "Save and close this record tab"}
+          disabled={recordSaveStatus === "saving"}
+          onClick={() => {
+            if (mode === "nested") finishNested();
+            else void saveAndFinishRecord();
+          }}
+        >
+          {recordSaveStatus === "saving" ? "Saving..." : mode === "nested" ? "Save and return" : "Save and finish"}
+        </button>
+      </div>
     );
   }
 
@@ -22363,14 +22423,14 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToJobRecord}>
                     Back to job
                   </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("nested")}
                 </>
               ) : homeView === "quote-cost-centre-record" ? (
                 <>
                   <button className="secondary-button" onClick={returnToQuoteRecord}>
                     Back to quote
                   </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("nested")}
                 </>
               ) : homeView === "quote-create" ? (
                 <>
@@ -22474,7 +22534,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnFromInvoiceRecord}>
                     Back to source
                   </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("record")}
                   <button className="secondary-button" onClick={() => setActiveInvoiceTab("preview")}>
                     Preview client form
                   </button>
@@ -22496,10 +22556,16 @@ export default function Dashboard() {
                 </>
               ) : homeView === "quote-record" || homeView === "job-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnFromRecord}>
-                    Back to dashboard
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      if (homeView === "quote-record") returnToQuotesDirectory();
+                      else returnToJobsDirectory();
+                    }}
+                  >
+                    {homeView === "quote-record" ? "Back to quotes" : "Back to jobs"}
                   </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("record")}
                   <button
                     className="secondary-button"
                     onClick={() => homeView === "quote-record" ? setActiveQuoteTab("preview") : setActiveJobTab("forms")}
@@ -22581,7 +22647,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToLeadsDirectory}>
                     Back to leads
                   </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("record")}
                   {selectedLead ? (
                     <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
                       Create quote

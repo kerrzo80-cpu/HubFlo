@@ -4615,6 +4615,29 @@ h1 {
   justify-content: flex-end;
 }
 
+.record-save-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.record-autosave-pill {
+  align-items: center;
+  background: #e8f6ee;
+  border: 1px solid #9dceb2;
+  border-radius: 999px;
+  color: #1f6b45;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  padding: 5px 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
 .record-save-status {
   color: #647781;
   font-size: 10px;
