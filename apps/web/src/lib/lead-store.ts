@@ -67,6 +67,7 @@ export type LeadStoreApiPayload = Omit<LeadRecord, "id" | "ref" | "createdAt" | 
 
 export type LeadDraftFromClient = Omit<LeadStoreApiPayload, "source"> & {
   source: LeadSource;
+  siteName?: string;
 };
 
 export type LeadCreationResult = {
@@ -235,7 +236,7 @@ function buildClientFromLead(draft: LeadDraftFromClient, existingClients: Client
     ? {
         id: `site-${token}`,
         clientId: newClient.id,
-        name: draft.address.split(",")[0]?.trim() || "New site",
+        name: draft.siteName?.trim() || draft.address.split(",")[0]?.trim() || "New site",
         address: draft.address,
         accessNotes: "To confirm before first visit.",
         primaryContact: draft.customerName.trim(),
@@ -278,7 +279,7 @@ function resolveLeadSite(draft: LeadDraftFromClient, client?: ClientRecord, site
       ? {
           id: makeLeadSiteId(),
           clientId: client.id,
-          name: draft.address.split(",")[0]?.trim() || "New site",
+          name: draft.siteName?.trim() || draft.address.split(",")[0]?.trim() || "New site",
           address: draft.address,
           accessNotes: "To confirm before first visit.",
           primaryContact: draft.customerName.trim(),
