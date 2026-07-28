@@ -2719,3 +2719,104 @@ export function pushSurveyProjectToQuote(
     totalSell: applied.totalSell,
   };
 }
+
+export function materialAllowancesFromParsedBoq(
+  parsed: {
+    fileName: string;
+    lines: Array<{
+      ref: string;
+      section: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      rate: number | null;
+    }>;
+  },
+  documentId: string,
+): TakeoffMaterialAllowance[] {
+  const trade = parsed.fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Imported BOQ";
+  return parsed.lines.map((line, index) => {
+    const haystack = `${line.description} ${line.section}`.toLowerCase();
+    const supplierRequired = /prime cost|pc value|nominated supplier|sanitary|towel rail|cylinder|boiler|radiator|supply and install/.test(haystack);
+    return {
+      id: `boq-xlsx-${documentId}-${index}`,
+      section: line.section || trade,
+      description: line.description,
+      quantity: line.quantity,
+      unit: line.unit || "item",
+      unitCost: line.rate ?? 0,
+      markupPercent: 30,
+      supplierRequired,
+      preferredSupplier: "",
+      sourceDocumentId: documentId,
+    } satisfies TakeoffMaterialAllowance;
+  });
+}
+
+export function mergeBoqMaterialAllowances(
+  existing: TakeoffMaterialAllowance[],
+  incoming: TakeoffMaterialAllowance[],
+  documentIds: string[],
+) {
+  const retained = existing.filter((line) => !line.sourceDocumentId || !documentIds.includes(line.sourceDocumentId));
+  const keys = new Set(retained.map((line) => `${line.section}::${line.description}`.toLowerCase()));
+  const fresh = incoming.filter((line) => {
+    const key = `${line.section}::${line.description}`.toLowerCase();
+    if (keys.has(key)) return false;
+    keys.add(key);
+    return true;
+  });
+  return [...retained, ...fresh];
+}
+
+export function applyParsedBoqDocumentsToProject(
+  projectId: string,
+  imports: Array<{ documentId: string; materials: TakeoffMaterialAllowance[]; note: string }>,
+  actor = "NeXa Takeoff",
+): TakeoffProject | null {
+  refreshTakeoffStore();
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!project || !imports.length) return project ?? null;
+
+  const documentIds = imports.map((item) => item.documentId);
+  const incoming = imports.flatMap((item) => item.materials);
+  const materialAllowances = mergeBoqMaterialAllowances(project.materialAllowances, incoming, documentIds);
+  const notesByDocument = new Map(imports.map((item) => [item.documentId, item.note]));
+  const importedCount = incoming.length;
+
+  const updated = updateTakeoffProject(projectId, {
+    status: project.status === "Draft" ? "In review" : project.status,
+    materialAllowances,
+    documents: project.documents.map((document) => {
+      const note = notesByDocument.get(document.id);
+      if (!note) return document;
+      return {
+        ...document,
+        status: "Parsed",
+        notes: Array.from(new Set([...document.notes, note])),
+      };
+    }),
+    review: {
+      ...project.review,
+      riskFlags: Array.from(new Set([
+        ...project.review.riskFlags,
+        "Excel BOQ lines imported as material allowances — confirm rates, exclusions and provisional sums",
+      ])),
+      officeNotes: project.review.officeNotes || "Excel BOQ lines imported for office pricing.",
+    },
+  });
+
+  if (updated) {
+    appendAuditEvent({
+      actor,
+      action: "imported",
+      recordType: "takeoff_project",
+      recordId: project.id,
+      summary: `${project.reference} imported ${importedCount} Excel BOQ material line(s).`,
+      source: "takeoff add-on",
+      importance: "normal",
+    });
+  }
+
+  return updated;
+}

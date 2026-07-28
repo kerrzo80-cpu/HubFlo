@@ -5940,7 +5940,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         }
         throw new Error(body.error ?? (text || `Unable to upload Takeoff documents (${response.status})`));
       }
-      const result = (await response.json()) as { project?: TakeoffProject; documents?: TakeoffDocument[] };
+      const result = (await response.json()) as {
+        project?: TakeoffProject;
+        documents?: TakeoffDocument[];
+        importedBoqLines?: number;
+        parseWarnings?: string[];
+      };
       if (!result?.project) {
         throw new Error("Upload did not return an updated project.");
       }
@@ -5977,9 +5982,19 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       }
       replaceProject(updatedProject);
       setSelectedProjectId(updatedProject.id);
-      setNotice(kind === "Drawing"
-        ? `${files.length} drawing file${files.length === 1 ? "" : "s"} uploaded and locked into the markup workspace.`
-        : `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
+      if (kind === "Drawing") {
+        setNotice(`${files.length} drawing file${files.length === 1 ? "" : "s"} uploaded and locked into the markup workspace.`);
+      } else if ((result.importedBoqLines ?? 0) > 0) {
+        setActiveTab("boq");
+        setNotice(
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported into materials.`,
+        );
+      } else {
+        const warning = result.parseWarnings?.slice(0, 2).join(" ") ?? "";
+        setNotice(
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.${warning ? ` ${warning}` : ""}`,
+        );
+      }
       return updatedProject;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload Takeoff documents");
@@ -6967,9 +6982,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </button>
                     </PanelTitle>
                     <div className="takeoff-upload-strip">
-                    <UploadButton kind="Drawing" label="Drawings" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={isUploadingDocs} onUpload={addDocuments} />
-                      <UploadButton kind="Specification" label="Specs" disabled={isUploadingDocs} onUpload={addDocuments} />
-                      <UploadButton kind="Contractor BOQ" label="BOQs" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Drawing" label="Drawings" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Specification" label="Specs" accept=".pdf,.doc,.docx,.xlsx,.xlsm,.csv,.txt" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Contractor BOQ" label="BOQs" accept=".xlsx,.xlsm,.csv,.txt,.pdf" disabled={isUploadingDocs} onUpload={addDocuments} />
                     </div>
                     <div className={`takeoff-ai-status ${aiStatus?.connected ? "connected" : "missing"}`}>
                       <Sparkles size={15} />
