@@ -106,6 +106,23 @@ export interface PurchaseRequest {
   xeroBillNumber?: string;
   xeroExportedAt?: string;
   xeroAccountsStatus?: "Not sent" | "Queued" | "Sent";
+  supplierPaymentStatus?: "Unpaid" | "Part paid" | "Paid";
+  supplierPaidAmount?: number;
+  supplierPayments?: Array<{
+    id: string;
+    paidAt: string;
+    amount: number;
+    method: string;
+    reference?: string;
+    note?: string;
+    actor?: string;
+    source?: "manual" | "xero";
+    sourcePaymentId?: string;
+    sourceBillId?: string;
+    importedAt?: string;
+    reconciled?: boolean;
+  }>;
+  xeroPaymentsCheckedAt?: string;
 }
 
 export interface PurchaseOrderLine {
@@ -708,6 +725,10 @@ export function createPurchaseRequest(
     xeroBillNumber: payload.xeroBillNumber,
     xeroExportedAt: payload.xeroExportedAt,
     xeroAccountsStatus: payload.xeroAccountsStatus,
+    supplierPaymentStatus: payload.supplierPaymentStatus,
+    supplierPaidAmount: payload.supplierPaidAmount,
+    supplierPayments: payload.supplierPayments,
+    xeroPaymentsCheckedAt: payload.xeroPaymentsCheckedAt,
   };
   store.purchaseRequests = [created, ...store.purchaseRequests];
   persistWorkflowStore();

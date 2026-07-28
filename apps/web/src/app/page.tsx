@@ -7257,6 +7257,7 @@ export default function Dashboard() {
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
+  const [isPullingPoBillPayments, setIsPullingPoBillPayments] = useState(false);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
@@ -22564,6 +22565,96 @@ export default function Dashboard() {
     }
   }
 
+  async function pullPurchaseOrderBillPaymentsFromXero(request: PurchaseRequest) {
+    if (!request.poNumber?.trim()) {
+      showNotice("Issue a PO number before pulling Xero bill payments.");
+      return;
+    }
+    const billAmount =
+      typeof request.supplierInvoiceAmount === "number" && Number.isFinite(request.supplierInvoiceAmount)
+        ? request.supplierInvoiceAmount
+        : typeof request.actualCost === "number" && Number.isFinite(request.actualCost)
+          ? request.actualCost
+          : purchaseRequestOrderedCost(request);
+    if (billAmount <= 0) {
+      showNotice("Set a supplier invoice amount (or PO cost) before pulling payments.");
+      return;
+    }
+
+    setIsPullingPoBillPayments(true);
+    try {
+      const response = await fetch("/api/integrations/xero/bill-payments", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bill: {
+            id: request.id,
+            poNumber: request.poNumber,
+            billAmount,
+            xeroBillId: request.xeroBillId,
+            supplierPayments: request.supplierPayments || [],
+            supplierPaidAmount: request.supplierPaidAmount ?? 0,
+          },
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        addedCount?: number;
+        skippedCount?: number;
+        conflicts?: Array<{ xeroPaymentId: string; reason: string }>;
+        supplierPayments?: PurchaseRequest["supplierPayments"];
+        supplierPaidAmount?: number;
+        supplierPaymentStatus?: PurchaseRequest["supplierPaymentStatus"];
+        xeroBillId?: string;
+        xeroBillNumber?: string;
+        xeroPaymentsCheckedAt?: string;
+        match?: { xeroBillId?: string };
+      } | null;
+      if (!response.ok || !body?.supplierPayments) {
+        throw new Error(body?.error || `Xero bill payment pull failed (HTTP ${response.status})`);
+      }
+
+      await patchPurchaseRequest(
+        request.id,
+        {
+          supplierPayments: body.supplierPayments,
+          supplierPaidAmount: body.supplierPaidAmount ?? 0,
+          supplierPaymentStatus: body.supplierPaymentStatus || "Unpaid",
+          xeroPaymentsCheckedAt: body.xeroPaymentsCheckedAt || new Date().toISOString(),
+          ...(body.xeroBillId
+            ? {
+                xeroBillId: body.xeroBillId,
+                xeroBillNumber: body.xeroBillNumber || request.xeroBillNumber || request.poNumber,
+              }
+            : {}),
+        },
+        `${request.poNumber}: ${body.addedCount ?? 0} supplier payment(s) imported from Xero` +
+          `${body.skippedCount ? `, ${body.skippedCount} already on ledger` : ""}.`,
+      );
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero bill payment pull",
+        recordType: "purchase_request",
+        recordId: request.id,
+        summary: `${request.poNumber}: pulled ${body.addedCount ?? 0} Xero bill payment(s), skipped ${body.skippedCount ?? 0}, conflicts ${(body.conflicts || []).length} (Xero ${body.match?.xeroBillId || "bill"}).`,
+        source: "web",
+        importance: (body.addedCount ?? 0) > 0 ? "high" : "normal",
+      });
+
+      const firstConflict = (body.conflicts || [])[0];
+      if (firstConflict) {
+        showNotice(
+          `${request.poNumber}: ${body.addedCount ?? 0} payment(s) imported · ${body.conflicts!.length} need review (${firstConflict.reason}).`,
+        );
+      }
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to pull bill payments from Xero.");
+    } finally {
+      setIsPullingPoBillPayments(false);
+    }
+  }
+
   async function openPurchaseOrderReceipt(request: PurchaseRequest) {
     const baseLines = request.lines?.length
       ? request.lines
@@ -25839,6 +25930,15 @@ export default function Dashboard() {
                                 : "Not sent"}
                           </dd>
                         </div>
+                        <div>
+                          <dt>Supplier payment</dt>
+                          <dd>
+                            {selectedPurchaseOrder.supplierPaymentStatus || "Unpaid"}
+                            {typeof selectedPurchaseOrder.supplierPaidAmount === "number"
+                              ? ` · ${currency(selectedPurchaseOrder.supplierPaidAmount)} paid`
+                              : ""}
+                          </dd>
+                        </div>
                       </dl>
                     </article>
                     <article className="client-info-card">
@@ -25901,7 +26001,40 @@ export default function Dashboard() {
                               aria-label="Supplier invoice reference"
                             />
                           </label>
+                          <div>
+                            <span>Supplier payment</span>
+                            <strong>
+                              {selectedPurchaseOrder.supplierPaymentStatus || "Unpaid"}
+                              {typeof selectedPurchaseOrder.supplierPaidAmount === "number"
+                                ? ` · ${currency(selectedPurchaseOrder.supplierPaidAmount)}`
+                                : ""}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Remaining to supplier</span>
+                            <strong>
+                              {currency(
+                                Math.max(
+                                  0,
+                                  (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0),
+                                ),
+                              )}
+                            </strong>
+                          </div>
                         </div>
+                        {(selectedPurchaseOrder.supplierPayments || []).length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head"><span>Date</span><span>Amount</span><span>Method</span><span>Reference</span></div>
+                            {(selectedPurchaseOrder.supplierPayments || []).map((payment) => (
+                              <div className="ops-table-row" key={payment.id}>
+                                <span>{payment.paidAt}</span>
+                                <strong>{currency(payment.amount)}</strong>
+                                <span>{payment.source === "xero" ? `${payment.method} · Xero` : payment.method}</span>
+                                <span>{payment.reference || payment.actor || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         <footer>
                           <small>
                             {match.status === "Matched"
@@ -25912,6 +26045,9 @@ export default function Dashboard() {
                                     ? "."
                                     : ` · invoice ${currency(match.orderedVsInvoiced)} vs order.`)
                                 : "Enter the supplier invoice amount after goods receipt to complete the match."}
+                            {selectedPurchaseOrder.xeroPaymentsCheckedAt
+                              ? ` · Xero payments checked ${selectedPurchaseOrder.xeroPaymentsCheckedAt.slice(0, 16).replace("T", " ")}`
+                              : ""}
                           </small>
                           <div>
                             <button
@@ -25941,6 +26077,18 @@ export default function Dashboard() {
                               }}
                             >
                               Save supplier invoice
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={
+                                isPullingPoBillPayments ||
+                                !(access.canEditInvoice || access.showFinance || access.canApprovePurchase || access.canEditJobs) ||
+                                !(xeroConnectionStatus?.configured || xeroConnectionStatus?.hasAccessToken)
+                              }
+                              onClick={() => void pullPurchaseOrderBillPaymentsFromXero(selectedPurchaseOrder)}
+                            >
+                              {isPullingPoBillPayments ? "Pulling…" : "Pull Xero payments"}
                             </button>
                           </div>
                         </footer>
