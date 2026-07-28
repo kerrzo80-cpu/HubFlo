@@ -1259,6 +1259,7 @@ function buildSimproOneOff(line: SimproQuoteExportLine) {
   const quantity = Number.isFinite(line.quantity) ? line.quantity : 0;
   const unitCost = Number.isFinite(line.unitCost) ? line.unitCost : 0;
   const unitSell = Number.isFinite(line.unitSell) ? line.unitSell : 0;
+  // Simpro rejects payloads that include both Markup and SellPrice.
   const body: UnknownRecord = {
     Type: isLabour ? "Labor" : "Material",
     BillableStatus: "Billable",
@@ -1268,9 +1269,6 @@ function buildSimproOneOff(line: SimproQuoteExportLine) {
     Total: { Qty: quantity },
   };
   if (isLabour) body.EstimatedTime = quantity;
-  if (unitCost > 0) {
-    body.Markup = Math.round(((unitSell - unitCost) / unitCost) * 10000) / 100;
-  }
   return body;
 }
 
