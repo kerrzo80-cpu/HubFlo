@@ -1,12 +1,18 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { confirmNexaAssistantAction, handleNexaAssistantMessage, type BuddyHistoryMessage } from "@/lib/nexa-assistant";
+import {
+  confirmNexaAssistantAction,
+  handleNexaAssistantMessage,
+  type BuddyClientContext,
+  type BuddyHistoryMessage,
+} from "@/lib/nexa-assistant";
 import { parseJsonRequestBody } from "@/lib/http";
 
 type AssistantRequest = {
   message?: string;
   history?: BuddyHistoryMessage[];
+  buddyContext?: BuddyClientContext;
   confirmActionId?: string;
 };
 
@@ -42,5 +48,7 @@ export async function POST(request: Request) {
       .slice(-16)
       .map((item) => ({ role: item.role, text: item.text.slice(0, 4000) }))
     : [];
-  return NextResponse.json(await handleNexaAssistantMessage(message, actor, { history }));
+  const buddyContext =
+    payload.buddyContext && typeof payload.buddyContext === "object" ? payload.buddyContext : undefined;
+  return NextResponse.json(await handleNexaAssistantMessage(message, actor, { history, buddyContext }));
 }

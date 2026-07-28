@@ -59,6 +59,24 @@ export type BuddyHistoryMessage = {
   text: string;
 };
 
+export type BuddyClientContext = {
+  habits?: string[];
+  completedWalkthroughs?: string[];
+  mutedFindingIds?: string[];
+  topMisses?: string[];
+  workHabits?: {
+    quotesWatched?: number;
+    quotesSent?: number;
+    avgLinesPerQuote?: number;
+    avgLabourHours?: number;
+  };
+  quoteWatch?: {
+    ref?: string;
+    headline?: string;
+    findings?: Array<{ severity: string; title: string; detail: string }>;
+  };
+};
+
 export type NexaAssistantResponse = {
   reply: string;
   intent: AssistantIntent;
@@ -486,6 +504,7 @@ async function conversationalReply(
   message: string,
   history: BuddyHistoryMessage[],
   actorName: string,
+  buddyContext?: BuddyClientContext,
 ): Promise<{ reply: string; aiUsed: boolean }> {
   const deterministic = deterministicBusinessReply(message);
   const apiKey = resolveOpenAiApiKey();
@@ -518,13 +537,16 @@ async function conversationalReply(
             role: "system",
             content: [
               "You are Buddy, the NeXa business assistant for Errol Watson Group field-service operations.",
-              "Answer using only the supplied NeXa workspace JSON and the conversation.",
+              "Answer using only the supplied NeXa workspace JSON, Buddy learning notes, and the conversation.",
               "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
               "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",
+              "When the user asks how to do something in NeXa, give a short numbered walkthrough.",
+              "Use Buddy learning notes (habits, repeated misses, quote watch) to personalise advice — evolve with how this team works.",
               "Keep answers concise, plain English, and useful for a commercial manager.",
               `The current user is ${actorName}.`,
+              buddyContext ? `Buddy learning notes JSON:\n${JSON.stringify(buddyContext)}` : "",
               `Live NeXa workspace JSON:\n${JSON.stringify(context)}`,
-            ].join("\n"),
+            ].filter(Boolean).join("\n"),
           },
           ...recentHistory,
           { role: "user", content: message },
@@ -710,6 +732,7 @@ export async function handleNexaAssistantMessage(
   actor: { id: string; name: string },
   options: {
     history?: BuddyHistoryMessage[];
+    buddyContext?: BuddyClientContext;
     now?: Date;
   } = {},
 ): Promise<NexaAssistantResponse> {
@@ -721,7 +744,7 @@ export async function handleNexaAssistantMessage(
 
   if (deterministic.action === "chat" || (!deterministic.employeeName && deterministic.action !== "book")) {
     if (deterministic.action === "chat" || !looksLikeScheduling(message)) {
-      const chat = await conversationalReply(message, history, actor.name);
+      const chat = await conversationalReply(message, history, actor.name, options.buddyContext);
       return {
         reply: chat.reply,
         intent: { action: "chat" },

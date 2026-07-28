@@ -2437,7 +2437,8 @@ kbd {
   font-weight: 650;
   gap: 8px;
   min-height: 52px;
-  padding: 0 18px 0 14px;
+  padding: 0 18px 0 10px;
+  position: relative;
 }
 
 .buddy-launcher.active,
@@ -2496,9 +2497,175 @@ kbd {
   border-radius: 999px;
   color: #fff;
   display: inline-flex;
-  height: 36px;
+  height: 40px;
   justify-content: center;
-  width: 36px;
+  overflow: hidden;
+  width: 40px;
+}
+
+.buddy-mark.mood-alert {
+  background: #c45c26;
+  box-shadow: 0 0 0 3px rgba(196, 92, 38, 0.2);
+}
+
+.buddy-mark.mood-guide {
+  background: #c9a227;
+  box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.22);
+}
+
+.buddy-mark.mood-good {
+  background: #2f8f6b;
+}
+
+.buddy-mark.mood-thinking {
+  animation: buddy-pulse 1.4s ease-in-out infinite;
+}
+
+.buddy-avatar {
+  display: block;
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.buddy-launcher.mood-alert {
+  background: #c45c26;
+}
+
+.buddy-launcher.mood-guide {
+  background: #b88912;
+}
+
+.buddy-launcher.mood-good {
+  background: #2f8f6b;
+}
+
+.buddy-launcher-avatar {
+  border-radius: 999px;
+  height: 34px;
+  width: 34px;
+}
+
+.buddy-launcher-badge {
+  align-items: center;
+  background: #fff;
+  border-radius: 999px;
+  color: #c45c26;
+  display: inline-flex;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+  height: 18px;
+  justify-content: center;
+  line-height: 1;
+  min-width: 18px;
+  padding: 0 5px;
+  position: absolute;
+  right: 6px;
+  top: -4px;
+}
+
+.buddy-watch-card {
+  align-items: flex-start;
+  background: linear-gradient(160deg, #f7fbfe 0%, #eef6fa 100%);
+  border: 1px solid #c8dde6;
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 44px minmax(0, 1fr);
+  margin: 12px 0 14px;
+  padding: 12px;
+}
+
+.buddy-watch-card > .buddy-avatar {
+  border-radius: 12px;
+  height: 44px;
+  width: 44px;
+}
+
+.buddy-watch-card.mood-alert {
+  background: linear-gradient(160deg, #fff8f3 0%, #fdeee4 100%);
+  border-color: #efc4a8;
+}
+
+.buddy-watch-card.mood-guide {
+  background: linear-gradient(160deg, #fffced 0%, #f7f0d2 100%);
+  border-color: #e4d48a;
+}
+
+.buddy-watch-card.mood-good {
+  background: linear-gradient(160deg, #f3fbf7 0%, #e5f4ec 100%);
+  border-color: #b7dcc9;
+}
+
+.buddy-watch-card strong {
+  color: #173949;
+  display: block;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.buddy-watch-card p,
+.buddy-watch-card ul {
+  color: #4d6672;
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.buddy-watch-card ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+}
+
+.buddy-watch-card li {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+
+.buddy-finding-tag {
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+
+.buddy-finding-tag.block {
+  background: #f8d9c7;
+  color: #8a3a12;
+}
+
+.buddy-finding-tag.warn {
+  background: #f3e7b4;
+  color: #7a5d08;
+}
+
+.buddy-finding-tag.tip {
+  background: #d7ebf3;
+  color: #1d5f78;
+}
+
+.buddy-watch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+@keyframes buddy-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
 }
 
 .buddy-messages {

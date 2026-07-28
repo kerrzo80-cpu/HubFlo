@@ -75,6 +75,20 @@ import {
   type VatTreatment,
 } from "@/lib/people-seed-data";
 import {
+  buddyAvatarSrc,
+  buddyMemoryPrompt,
+  buddyMoodFromFindings,
+  defaultBuddyMemory,
+  dismissBuddyFinding,
+  loadBuddyMemory,
+  markWalkthroughComplete,
+  recordBuddyMiss,
+  recordBuddyQuotePattern,
+  type BuddyMemory,
+  type BuddyMood,
+} from "@/lib/buddy-memory";
+import { buddyWatchSummary, watchQuoteReadiness, type BuddyWatchFinding } from "@/lib/buddy-quote-watch";
+import {
   employeeHeaderName,
   getAccessProfile,
   permissionHeaderName,
@@ -6748,11 +6762,13 @@ export default function Dashboard() {
   const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
   const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
   const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
+  const [buddyMemory, setBuddyMemory] = useState<BuddyMemory>(() => defaultBuddyMemory());
+  const [buddySendOverride, setBuddySendOverride] = useState(false);
   const [nexaAssistantMessages, setNexaAssistantMessages] = useState<NexaAssistantMessage[]>([
     {
       id: "buddy-welcome",
       role: "assistant",
-      text: "Hi — I'm Buddy. Ask me about the live diary, quotes, jobs or follow-ups. I will never change schedules or commercial figures without your confirmation.",
+      text: "Hi — I'm Buddy. I watch quotes before they go out, walk you through NeXa, and only change commercial figures after you confirm. Ask me anything.",
     },
   ]);
   const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
@@ -7198,6 +7214,10 @@ export default function Dashboard() {
     node.scrollTop = node.scrollHeight;
   }, [nexaAssistantMessages, nexaAssistantBusy, nexaAssistantOpen]);
 
+  useEffect(() => {
+    setBuddyMemory(loadBuddyMemory());
+  }, []);
+
   const activeRecordFingerprint = useMemo(() => {
     if (homeView === "lead-record" && selectedLead) {
       return JSON.stringify({ type: "lead", record: selectedLead });
@@ -7492,6 +7512,33 @@ export default function Dashboard() {
   const selectedQuoteCostCentres = useMemo(
     () => (selectedQuote ? quoteCostCentres[selectedQuote.id] ?? [] : []),
     [quoteCostCentres, selectedQuote],
+  );
+
+  const selectedQuoteBuddyFindings = useMemo(() => {
+    if (!selectedQuote) return [] as BuddyWatchFinding[];
+    return watchQuoteReadiness({
+      quote: selectedQuote,
+      clientName: selectedQuoteClient?.name ?? selectedQuote.customer,
+      siteName: selectedQuoteSite?.name,
+      siteAddress: selectedQuoteSite?.address,
+      costCentres: selectedQuoteCostCentres,
+      memory: buddyMemory,
+    });
+  }, [buddyMemory, selectedQuote, selectedQuoteClient, selectedQuoteCostCentres, selectedQuoteSite]);
+
+  const selectedQuoteBuddySummary = useMemo(
+    () => buddyWatchSummary(selectedQuoteBuddyFindings),
+    [selectedQuoteBuddyFindings],
+  );
+
+  const buddyMood: BuddyMood = useMemo(
+    () =>
+      buddyMoodFromFindings(
+        selectedQuoteBuddyFindings.some((item) => item.severity === "block"),
+        selectedQuoteBuddyFindings.some((item) => item.severity === "warn"),
+        nexaAssistantBusy || isSendingQuoteToSimpro,
+      ),
+    [isSendingQuoteToSimpro, nexaAssistantBusy, selectedQuoteBuddyFindings],
   );
 
   const selectedQuoteBaseCostCentres = useMemo(
@@ -10947,7 +10994,24 @@ export default function Dashboard() {
       const response = await fetch("/api/nexa-assistant", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ message, history }),
+        body: JSON.stringify({
+          message,
+          history,
+          buddyContext: {
+            ...buddyMemoryPrompt(buddyMemory),
+            quoteWatch: selectedQuote
+              ? {
+                  ref: selectedQuote.ref,
+                  headline: selectedQuoteBuddySummary.headline,
+                  findings: selectedQuoteBuddyFindings.slice(0, 6).map((item) => ({
+                    severity: item.severity,
+                    title: item.title,
+                    detail: item.detail,
+                  })),
+                }
+              : undefined,
+          },
+        }),
       });
       const result = (await response.json()) as NexaAssistantApiResponse;
       setNexaAssistantMessages((current) => [
@@ -14369,6 +14433,42 @@ export default function Dashboard() {
 
   async function sendSelectedQuoteToSimpro() {
     if (!selectedQuote) return;
+
+    const findings = watchQuoteReadiness({
+      quote: selectedQuote,
+      clientName: selectedQuoteClient?.name ?? selectedQuote.customer,
+      siteName: selectedQuoteSite?.name,
+      siteAddress: selectedQuoteSite?.address,
+      costCentres: quoteCostCentres[selectedQuote.id] ?? [],
+      memory: buddyMemory,
+    });
+    const blockers = findings.filter((item) => item.severity === "block");
+    if (blockers.length > 0 && !buddySendOverride) {
+      const nextMemory = recordBuddyMiss(
+        buddyMemory,
+        blockers.map((item) => item.id),
+      );
+      setBuddyMemory(nextMemory);
+      setNexaAssistantOpen(true);
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `buddy-watch-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: [
+            selectedQuoteBuddySummary.headline + ".",
+            "",
+            ...blockers.map((item) => `• ${item.title} — ${item.detail}`),
+            "",
+            "Fix those, or tell me to send anyway if you’re sure.",
+          ].join("\n"),
+        },
+      ]);
+      showNotice("Buddy stopped the Simpro send — check the alerts first.");
+      return;
+    }
+
+    setBuddySendOverride(false);
     setIsSendingQuoteToSimpro(true);
     setSectionError(null);
 
@@ -14410,6 +14510,31 @@ export default function Dashboard() {
 
       if (exportRecord.status === "Sent") {
         showNotice(`${selectedQuote.ref} sent to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`);
+        const centres = quoteCostCentres[selectedQuote.id] ?? [];
+        const lines = centres.flatMap((centre) => centre.lines ?? []);
+        const labourHours = lines.reduce((sum, line) => {
+          const catalogId = (line.catalogItemId || "").toLowerCase();
+          const looksLabour =
+            catalogId.startsWith("labour-") ||
+            catalogId.startsWith("labor-") ||
+            /\b(labour|labor|engineer hours?|plumber hours?|fitter hours?)\b/i.test(line.description || "");
+          return looksLabour ? sum + (Number(line.quantity) || 0) : sum;
+        }, 0);
+        setBuddyMemory(
+          recordBuddyQuotePattern(buddyMemory, {
+            lineCount: lines.length,
+            labourHours,
+            sent: true,
+          }),
+        );
+        setNexaAssistantMessages((current) => [
+          ...current,
+          {
+            id: `buddy-sent-${crypto.randomUUID()}`,
+            role: "assistant",
+            text: `All good — ${selectedQuote.ref} is away to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`,
+          },
+        ]);
       } else if (exportRecord.status === "Failed") {
         const message = typeof exportRecord.error === "string" && exportRecord.error.trim()
           ? exportRecord.error
@@ -20793,10 +20918,20 @@ export default function Dashboard() {
           <aside className="buddy-panel" aria-label="Buddy assistant">
             <header>
               <div>
-                <span className="buddy-mark"><Bot size={18} /></span>
+                <span className={`buddy-mark mood-${buddyMood}`}>
+                  <img src={buddyAvatarSrc} alt="" className="buddy-avatar" />
+                </span>
                 <div>
                   <strong>Buddy</strong>
-                  <small>Live NeXa conversation</small>
+                  <small>
+                    {buddyMood === "alert"
+                      ? "Spotted something that’s not right"
+                      : buddyMood === "thinking"
+                        ? "Checking things out"
+                        : buddyMood === "guide"
+                          ? "Happy to walk you through it"
+                          : buddyMemory.habits[0] || "Watching this workspace with you"}
+                  </small>
                 </div>
               </div>
               <button className="icon-button" aria-label="Close Buddy" onClick={() => setNexaAssistantOpen(false)}>
@@ -20835,7 +20970,7 @@ export default function Dashboard() {
             >
               <textarea
                 aria-label="Chat with Buddy"
-                placeholder="Ask Buddy about quotes, jobs, follow-ups or availability..."
+                placeholder="Ask Buddy how to do a quote, what’s missing, or to send anyway..."
                 value={nexaAssistantDraft}
                 onChange={(event) => setNexaAssistantDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -20849,17 +20984,35 @@ export default function Dashboard() {
                 <Send size={17} />
               </button>
             </form>
-            <small className="buddy-safety">Bookings and commercial changes only happen after you confirm.</small>
+            <small className="buddy-safety">
+              Buddy learns your patterns on this device
+              {buddyMemory.workHabits.quotesWatched
+                ? ` · ~${buddyMemory.workHabits.avgLinesPerQuote || 0} lines/quote`
+                : ""}
+              {buddyMemory.workHabits.avgLabourHours
+                ? ` · ~${buddyMemory.workHabits.avgLabourHours}h labour`
+                : ""}
+              . Bookings and commercial changes only happen after you confirm.
+            </small>
           </aside>
         ) : null}
         <button
-          className={nexaAssistantOpen ? "buddy-launcher active" : "buddy-launcher"}
+          className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
           aria-label={nexaAssistantOpen ? "Close Buddy" : "Open Buddy"}
           title="Chat with Buddy"
           onClick={() => setNexaAssistantOpen((current) => !current)}
         >
-          {nexaAssistantOpen ? <X size={22} /> : <Bot size={22} />}
+          {nexaAssistantOpen ? (
+            <X size={22} />
+          ) : (
+            <img src={buddyAvatarSrc} alt="" className="buddy-avatar buddy-launcher-avatar" />
+          )}
           <span>Buddy</span>
+          {!nexaAssistantOpen && selectedQuoteBuddyFindings.some((item) => item.severity === "block") ? (
+            <em className="buddy-launcher-badge" aria-hidden>
+              !
+            </em>
+          ) : null}
         </button>
       </div>
 
@@ -22861,6 +23014,80 @@ export default function Dashboard() {
                       <article className="client-info-card">
                         <span className="permission-heading">Commercial position</span>
                         <p>Build the quote from cost centres before it becomes a job. Jobs should inherit this structure rather than inventing costs after conversion.</p>
+                        {selectedQuoteBuddyFindings.length > 0 ? (
+                          <div className={`buddy-watch-card mood-${selectedQuoteBuddySummary.mood}`} role="status">
+                            <img src={buddyAvatarSrc} alt="" className="buddy-avatar" />
+                            <div>
+                              <strong>{selectedQuoteBuddySummary.headline}</strong>
+                              <ul>
+                                {selectedQuoteBuddyFindings.slice(0, 4).map((finding) => (
+                                  <li key={finding.id}>
+                                    <span className={`buddy-finding-tag ${finding.severity}`}>{finding.severity}</span>
+                                    {finding.title}
+                                    <button
+                                      className="text-button"
+                                      type="button"
+                                      onClick={() => {
+                                        const next = dismissBuddyFinding(buddyMemory, selectedQuote.id, finding.id);
+                                        setBuddyMemory(next);
+                                      }}
+                                    >
+                                      Dismiss
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                              <div className="buddy-watch-actions">
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => {
+                                    setNexaAssistantOpen(true);
+                                    setNexaAssistantMessages((current) => [
+                                      ...current,
+                                      {
+                                        id: `buddy-guide-${crypto.randomUUID()}`,
+                                        role: "assistant",
+                                        text: [
+                                          "Here’s how to finish this quote with me:",
+                                          "1. Confirm client and site on quote details.",
+                                          "2. Open Build quote costs and check materials + labour.",
+                                          "3. Come back here and Send to Simpro.",
+                                          "",
+                                          ...selectedQuoteBuddyFindings.map((item) => `• ${item.title}${item.actionHint ? ` — ${item.actionHint}` : ""}`),
+                                        ].join("\n"),
+                                      },
+                                    ]);
+                                    const next = markWalkthroughComplete(buddyMemory, "quote-send-check");
+                                    setBuddyMemory(next);
+                                  }}
+                                >
+                                  Walk me through it
+                                </button>
+                                {selectedQuoteBuddyFindings.some((item) => item.severity === "block") ? (
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={() => {
+                                      setBuddySendOverride(true);
+                                      showNotice("Buddy will allow the next Send to Simpro.");
+                                    }}
+                                  >
+                                    Send anyway next
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="buddy-watch-card mood-good" role="status">
+                            <img src={buddyAvatarSrc} alt="" className="buddy-avatar" />
+                            <div>
+                              <strong>Looks good to Buddy</strong>
+                              <p>Client, site and cost build look ready for Simpro.</p>
+                            </div>
+                          </div>
+                        )}
                         <div className="quote-action-stack">
                           <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
                             Build quote costs
@@ -22879,7 +23106,7 @@ export default function Dashboard() {
                               : selectedQuote.simproStatus === "Queued"
                                 ? `Queued in NeXa only. It will not appear in Simpro until ${selectedQuoteSimproExports[0]?.setupRequired ?? "SIMPRO_QUOTE_PUSH_URL"} is configured.`
                                 : simproBridgeStatus.configured
-                                  ? "Live Simpro bridge is configured. This will push the quote payload to the bridge."
+                                  ? "Live Simpro bridge is configured. Buddy watches this send for missing client, site, labour and materials."
                                   : `Simpro bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} missing.`}
                           </small>
                         </div>
