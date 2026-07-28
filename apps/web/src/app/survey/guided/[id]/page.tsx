@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Guided Survey has been retired — open the same survey in simple Survey. */
+/** Guided Survey has been retired - open the same survey in simple Survey. */
 export default async function GuidedSurveyWorkspaceRedirect({
   params,
 }: {

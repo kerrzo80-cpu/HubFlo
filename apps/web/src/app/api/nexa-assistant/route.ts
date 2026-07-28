@@ -5,13 +5,13 @@ import {
   confirmNexaAssistantAction,
   handleNexaAssistantMessage,
   type BuddyClientContext,
-  type BuddyHistoryMessage,
+  type BlakeHistoryMessage,
 } from "@/lib/nexa-assistant";
 import { parseJsonRequestBody } from "@/lib/http";
 
 type AssistantRequest = {
   message?: string;
-  history?: BuddyHistoryMessage[];
+  history?: BlakeHistoryMessage[];
   buddyContext?: BuddyClientContext;
   confirmActionId?: string;
 };
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
   if (!message) return NextResponse.json({ error: "Ask Blake a question first." }, { status: 400 });
   const history = Array.isArray(payload.history)
     ? payload.history
-      .filter((item): item is BuddyHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))
+      .filter((item): item is BlakeHistoryMessage => Boolean(item && (item.role === "user" || item.role === "assistant") && typeof item.text === "string"))
       .slice(-16)
       .map((item) => ({ role: item.role, text: item.text.slice(0, 4000) }))
     : [];

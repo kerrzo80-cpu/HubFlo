@@ -54,7 +54,7 @@ type PendingBooking = {
 
 type PendingStore = { actions: PendingBooking[] };
 
-export type BuddyHistoryMessage = {
+export type BlakeHistoryMessage = {
   role: "assistant" | "user";
   text: string;
 };
@@ -503,7 +503,7 @@ function deterministicBusinessReply(message: string): string | null {
 
 async function conversationalReply(
   message: string,
-  history: BuddyHistoryMessage[],
+  history: BlakeHistoryMessage[],
   actorName: string,
   buddyContext?: BuddyClientContext,
 ): Promise<{ reply: string; aiUsed: boolean }> {
@@ -732,7 +732,7 @@ export async function handleNexaAssistantMessage(
   message: string,
   actor: { id: string; name: string },
   options: {
-    history?: BuddyHistoryMessage[];
+    history?: BlakeHistoryMessage[];
     buddyContext?: BuddyClientContext;
     now?: Date;
   } = {},
