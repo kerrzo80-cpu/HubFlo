@@ -148,8 +148,8 @@ const defaults: SetupConfigStore = {
       id: "em-job",
       key: "job-confirmation",
       name: "Job confirmation",
-      subject: "Job {{ref}} confirmed",
-      body: "Hi {{contact}},\n\nWe have booked job {{ref}} for {{date}}.\n\nKind regards,\n{{company}}",
+      subject: "Job {{ref}} confirmed · {{date}} {{time}}",
+      body: "Hi {{contact}},\n\nWe have booked job {{ref}} for {{date}} at {{time}}.\n\nEngineer: {{engineer}}\nSite: {{site}}\nScope: {{description}}\n\nKind regards,\n{{company}}",
     },
   ],
   assetTypes: [

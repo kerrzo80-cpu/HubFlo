@@ -40,6 +40,8 @@ export interface Job {
   scheduledDate?: string;
   scheduledTime?: string;
   scheduledDurationHours?: number;
+  confirmationSentAt?: string;
+  confirmationSentTo?: string;
   actualStartTime?: string;
   actualEndTime?: string;
   actualDurationHours?: number;

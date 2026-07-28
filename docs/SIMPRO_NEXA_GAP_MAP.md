@@ -14,7 +14,7 @@ Status legend:
 | Missing | Not built |
 | NeXa ahead | Keep and extend |
 
-Counts from the matrix below: **Strong 1 · Partial 14 · Thin 10 · Missing 8 · NeXa ahead 2**
+Counts from the matrix below: **Strong 1 · Partial 16 · Thin 10 · Missing 6 · NeXa ahead 2**
 
 ---
 
@@ -62,17 +62,17 @@ NeXa is nowhere near closing that operational backlog yet.
 | Estimating & quoting | Strong | Templates, deposit quotes, online acceptance, revision history |
 | Survey → estimate pack | **NeXa ahead** | Keep; deepen photo vision + Takeoffs handoff |
 | Takeoffs / plan markup | Partial | Finish survey→takeoff→estimate chain; locked plans |
-| Vendor catalogues | Missing | CSV / wholesaler catalog pipeline |
+| Vendor catalogues | Partial | CSV import; preferred supplier syncs to stock on SKU rows |
 | Service jobs | Partial | Status machine, SLA, customer notifications, job card PDF |
 | Project / multi-stage jobs | Thin | Stages, progress invoices, retainage |
-| Scheduling & dispatch | Partial | Multi-tech board, travel, conflicts, SMS confirmations |
+| Scheduling & dispatch | Partial | Multi-tech board + job confirmation email; SMS/WhatsApp ETA still thin |
 | Timesheets / labour | Thin | Approve → job cost → variance |
 | Tasks & alerts | Thin | Assignable tasks, escalation |
 | Digital forms / compliance | Partial | Form builder, Gas Safe certificate packs |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
 | Asset register | Missing | Site assets, QR, certificates, warranty |
 | PPM / Maintenance Planner | Missing | Service plans, auto jobs, renewals |
-| Inventory / stock | Missing | Locations, van stock, transfers, stocktake |
+| Inventory / stock | Partial | Locations/vans/transfers/stocktake; catalogue preferred-supplier sync |
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
 | Invoicing | Partial | Recurring; credit notes + retention release now ship |
@@ -199,6 +199,8 @@ Until Brian cuts further, execute in this order:
 - **Customer statement** — email outstanding invoices from the client record (Setup `statement` template + PDF attachment)
 - **Remittance advice** — email payment confirmation from the invoice ledger (Setup `remittance` template + PDF; latest allocated payment)
 - **Credit notes** — issue credit against a sent invoice (Credits folder); applies ledger adjustment up to outstanding; excluded from billed-to-date
+- **Job confirmation email** — from job record (Setup `job-confirmation` template + PDF); stores `confirmationSentAt` / `confirmationSentTo` and clears readiness communication check
+- **Catalogue CSV → preferred supplier** — importing catalogue rows with SKU + supplier upserts stock preferred supplier and binds `catalogItemId`
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client

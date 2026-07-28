@@ -7316,6 +7316,7 @@ export default function Dashboard() {
   const [isPullingPoBillPayments, setIsPullingPoBillPayments] = useState(false);
   const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
   const [isSendingInvoiceRemittance, setIsSendingInvoiceRemittance] = useState(false);
+  const [isSendingJobConfirmation, setIsSendingJobConfirmation] = useState(false);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
@@ -8980,11 +8981,12 @@ export default function Dashboard() {
       },
       {
         label: "Communication doorway",
-        detail:
-          communicationEvents > 0
+        detail: selectedJob.confirmationSentAt
+          ? `Confirmation sent ${selectedJob.confirmationSentAt}${selectedJob.confirmationSentTo ? ` to ${selectedJob.confirmationSentTo}` : ""}`
+          : communicationEvents > 0
             ? `${communicationEvents} confirmations or site messages captured`
-            : "Capture the first site update or office message.",
-        complete: communicationEvents > 0,
+            : "Send a job confirmation or capture the first site update.",
+        complete: Boolean(selectedJob.confirmationSentAt) || communicationEvents > 0,
       },
     ];
     const requiredItems = items.filter((item) => !item.optional);
@@ -12732,7 +12734,7 @@ export default function Dashboard() {
     }
   }
 
-  function commitCatalogImport() {
+  async function commitCatalogImport() {
     if (!catalogImportPreview?.items.length) {
       showNotice("Upload a price list first, then press Import.");
       return;
@@ -12754,16 +12756,67 @@ export default function Dashboard() {
       setCatalogFolders((current) => [...current, catalogImportDraft.folder]);
     }
     markSetupEdited();
+
+    const stockBindCandidates = fresh.filter(
+      (item) => item.type !== "Labour" && Boolean((item.sku || "").trim()) && Boolean((item.supplierName || "").trim()),
+    );
+    let stockPreferredSynced = 0;
+    if (stockBindCandidates.length) {
+      try {
+        for (const item of stockBindCandidates) {
+          const sku = (item.sku || "").trim();
+          const response = await fetch("/api/stock", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "upsert-item",
+              item: {
+                id: item.stockItemId,
+                sku,
+                name: item.name,
+                unit: item.unit,
+                unitCost: item.costRate,
+                preferredSupplier: item.supplierName,
+                catalogItemId: item.id,
+              },
+            }),
+          });
+          if (!response.ok) continue;
+          const body = await response.json().catch(() => null) as {
+            items?: Array<{ id?: string; sku?: string; catalogItemId?: string }>;
+          } | null;
+          const stockItem = (body?.items || []).find(
+            (row) => row.catalogItemId === item.id || row.sku?.toLowerCase() === sku.toLowerCase(),
+          );
+          if (stockItem?.id) {
+            stockPreferredSynced += 1;
+            setCustomQuoteCatalog((current) =>
+              current.map((row) => (row.id === item.id ? { ...row, stockItemId: stockItem.id } : row)),
+            );
+          }
+        }
+      } catch {
+        // catalogue import still succeeds even if stock sync fails
+      }
+    }
+
     setCatalogImportResult({
       imported: fresh.length,
       skipped,
-      errors: skipped
-        ? [`${skipped} duplicate item(s) were skipped (same name, type and folder).`]
-        : [],
+      errors: [
+        ...(skipped ? [`${skipped} duplicate item(s) were skipped (same name, type and folder).`] : []),
+        ...(stockPreferredSynced
+          ? [`${stockPreferredSynced} stock item(s) updated with preferred supplier from the catalogue.`]
+          : []),
+      ],
     });
     setCatalogImportPreview(null);
     if (fresh[0]?.category) setActiveCatalogueFolder(fresh[0].category);
-    showNotice(`${fresh.length} catalogue item(s) imported${skipped ? ` · ${skipped} duplicate(s) skipped` : ""}.`);
+    showNotice(
+      `${fresh.length} catalogue item(s) imported${skipped ? ` · ${skipped} duplicate(s) skipped` : ""}${
+        stockPreferredSynced ? ` · ${stockPreferredSynced} preferred supplier(s) synced to stock` : ""
+      }.`,
+    );
   }
 
   function clearCatalogImportPreview() {
@@ -16861,6 +16914,144 @@ export default function Dashboard() {
       site: site?.address ?? selectedJob.site,
     });
     showNotice(`${updated.ref} linked to ${client.name}${site ? ` / ${site.name}` : ""}.`);
+  }
+
+  async function sendSelectedJobConfirmation() {
+    if (!selectedJob) return;
+    const visitDate =
+      selectedJobScheduleAssignments[0]?.startDate ||
+      selectedJob.scheduledDate ||
+      "";
+    const visitTime =
+      selectedJobScheduleAssignments[0]?.startTime ||
+      selectedJob.scheduledTime ||
+      "";
+    if (!visitDate || !visitTime) {
+      showNotice("Book a date and time on the job before sending confirmation.");
+      return;
+    }
+
+    const to = selectedJobClient?.email?.trim() || "";
+    if (!to.includes("@")) {
+      showNotice("Add a customer email before sending job confirmation.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedJobClient?.primaryContact?.split(" ")[0] ||
+      selectedJob.customer.split(" ")[0] ||
+      "there";
+    const engineer =
+      selectedJobScheduleAssignments[0]?.employeeName ||
+      selectedJob.manager ||
+      "Our engineer";
+    const siteLabel =
+      selectedJobSite?.address ||
+      selectedJobSite?.name ||
+      selectedJob.site ||
+      "Site to confirm";
+    const whenLabel = `${visitDate} at ${visitTime}`;
+
+    let subject = `Job ${selectedJob.ref} confirmed · ${whenLabel}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `We have booked job ${selectedJob.ref} for ${whenLabel}.\n\n` +
+      `Engineer: ${engineer}\n` +
+      `Site: ${siteLabel}\n` +
+      `Scope: ${selectedJob.description}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "job-confirmation");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedJob.ref,
+          date: visitDate,
+          time: visitTime,
+          engineer,
+          site: siteLabel,
+          description: selectedJob.description,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    setIsSendingJobConfirmation(true);
+    try {
+      const delivery = await sendThroughLiveOutbox({
+        to,
+        subject,
+        text: bodyText,
+        document: {
+          filename: `${selectedJob.ref}-confirmation.pdf`,
+          title: "Job confirmation",
+          businessName: companyName,
+          reference: selectedJob.ref,
+          recipient: selectedJob.customer,
+          subject: `Visit booked for ${whenLabel}`,
+          rows: [
+            { description: "Visit date", detail: visitDate, value: visitTime },
+            { description: "Engineer", detail: engineer, value: selectedJob.ref },
+            { description: "Site", detail: siteLabel, value: "" },
+            { description: "Scope", detail: selectedJob.description, value: currency(selectedJob.value) },
+          ],
+          subtotal: currency(selectedJob.value),
+          vat: currency(0),
+          total: currency(selectedJob.value),
+        },
+      });
+
+      await persistJobPatch(selectedJob.id, {
+        confirmationSentAt: delivery.sentAt.slice(0, 10),
+        confirmationSentTo: to,
+      });
+
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "whatsapp",
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        summary: `Job confirmation emailed to ${to} for ${whenLabel}`,
+        source: "NeXa",
+        status: "Captured",
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "confirmation sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} confirmation emailed to ${to} · ${whenLabel}.`,
+        source: "outlook draft",
+        importance: "high",
+      });
+      addCommunicationRecord({
+        recordType: "job",
+        recordId: selectedJob.id,
+        relatedJobId: selectedJob.id,
+        direction: "outbound",
+        channel: "Outlook",
+        subject,
+        body: bodyText,
+        from: delivery.from,
+        to,
+        messageId: delivery.messageId,
+        status: "Sent",
+      });
+      showNotice(`Job confirmation sent to ${to} for ${whenLabel}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send job confirmation.");
+    } finally {
+      setIsSendingJobConfirmation(false);
+    }
   }
 
   async function sendSelectedQuoteToSimpro() {
@@ -30155,24 +30346,63 @@ export default function Dashboard() {
                           <strong>
                             {selectedJobScheduleAssignments[0]
                               ? `${selectedJobScheduleAssignments[0].costCentreName} · ${selectedJobScheduleAssignments[0].employeeName}`
-                              : "Not scheduled"}
+                              : selectedJob.scheduledDate && selectedJob.scheduledTime
+                                ? `${selectedJob.manager} · booked`
+                                : "Not scheduled"}
                           </strong>
                           <small>
                             {selectedJobScheduleAssignments[0]
                               ? `${selectedJobScheduleAssignments[0].startDate} ${selectedJobScheduleAssignments[0].startTime} to ${selectedJobScheduleAssignments[0].endDate} ${selectedJobScheduleAssignments[0].endTime}`
-                              : "Add cost-centre work packages in the Planner tab."}
+                              : selectedJob.scheduledDate && selectedJob.scheduledTime
+                                ? `${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}`
+                                : "Add cost-centre work packages in the Planner tab."}
                           </small>
+                          {selectedJob.confirmationSentAt ? (
+                            <small>
+                              Confirmation sent {selectedJob.confirmationSentAt}
+                              {selectedJob.confirmationSentTo ? ` to ${selectedJob.confirmationSentTo}` : ""}
+                            </small>
+                          ) : null}
                         </div>
-                        <button
-                          className="primary-button"
-                          type="button"
-                          onClick={() => {
-                            setActiveJobTab("planner");
-                            scrollWorkspaceToTop();
-                          }}
-                        >
-                          Open planner
-                        </button>
+                        <div className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isSendingJobConfirmation ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startDate ||
+                                selectedJob.scheduledDate
+                              ) ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startTime ||
+                                selectedJob.scheduledTime
+                              )
+                            }
+                            title={
+                              selectedJobClient?.email?.includes("@")
+                                ? "Email the customer a booking confirmation"
+                                : "Customer needs an email address first"
+                            }
+                            onClick={() => void sendSelectedJobConfirmation()}
+                          >
+                            {isSendingJobConfirmation
+                              ? "Sending confirmation…"
+                              : selectedJob.confirmationSentAt
+                                ? "Resend confirmation"
+                                : "Email job confirmation"}
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              setActiveJobTab("planner");
+                              scrollWorkspaceToTop();
+                            }}
+                          >
+                            Open planner
+                          </button>
+                        </div>
                       </div>
                     </section>
                     <section className="job-review-panel">
@@ -35112,7 +35342,7 @@ export default function Dashboard() {
                               <button className="secondary-button" type="button" onClick={clearCatalogImportPreview}>
                                 Cancel
                               </button>
-                              <button className="primary-button" type="button" onClick={commitCatalogImport}>
+                              <button className="primary-button" type="button" onClick={() => void commitCatalogImport()}>
                                 Import {catalogImportPreview.items.length} item{catalogImportPreview.items.length === 1 ? "" : "s"}
                               </button>
                             </div>
