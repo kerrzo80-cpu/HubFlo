@@ -192,6 +192,7 @@ const dashboardPanelIds = [
   "variations",
   "approvedQuotes",
   "timesheets",
+  "assetDue",
 ] as const;
 
 type DashboardPanelId = (typeof dashboardPanelIds)[number];
@@ -213,6 +214,7 @@ const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: Dashbo
   variations: { label: "Variations", size: "standard" },
   approvedQuotes: { label: "Approved quotes", size: "standard" },
   timesheets: { label: "Timesheets", size: "standard" },
+  assetDue: { label: "Assets due", size: "standard" },
 };
 
 const defaultDashboardLayout: DashboardLayout = {
@@ -7317,6 +7319,16 @@ export default function Dashboard() {
   const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
   const [isSendingInvoiceRemittance, setIsSendingInvoiceRemittance] = useState(false);
   const [isSendingJobConfirmation, setIsSendingJobConfirmation] = useState(false);
+  const [dueSiteAssetRows, setDueSiteAssetRows] = useState<Array<{
+    id: string;
+    siteId: string;
+    clientId?: string;
+    type: string;
+    name: string;
+    nextServiceDate?: string;
+    make?: string;
+    model?: string;
+  }>>([]);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
@@ -9832,6 +9844,36 @@ export default function Dashboard() {
     const next = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
   }, [hasHydratedLocalData]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/site-assets?due=1&withinDays=30", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as {
+          assets?: Array<{
+            id: string;
+            siteId: string;
+            clientId?: string;
+            type: string;
+            name: string;
+            nextServiceDate?: string;
+            make?: string;
+            model?: string;
+          }>;
+        } | null;
+        if (!cancelled && response.ok) {
+          setDueSiteAssetRows(body?.assets || []);
+        }
+      } catch {
+        // dashboard panel is best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydratedLocalData, requestHeaders, homeView]);
 
   useEffect(() => {
     if (!pendingInvoiceChaseId || !selectedInvoice || selectedInvoice.id !== pendingInvoiceChaseId) return;
@@ -24245,6 +24287,14 @@ export default function Dashboard() {
                   <small>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</small>
                 </span>
               </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-asset-due")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{dueSiteAssetRows.length}</strong>
+                  <b>Assets due / overdue</b>
+                  <small>Service dates in the next 30 days</small>
+                </span>
+              </button>
             </div>
           </aside>
           );
@@ -24475,6 +24525,48 @@ export default function Dashboard() {
               ) : null}
             </div>
           </section>
+          );
+
+        case "assetDue":
+          return (
+            <section className="ops-queue-panel" id="dashboard-asset-due">
+              <header>
+                <div>
+                  <h3>Assets due</h3>
+                  <p>{dueSiteAssetRows.length} service dates due or overdue in the next 30 days</p>
+                </div>
+                <AlertTriangle size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {dueSiteAssetRows.slice(0, 8).map((asset) => {
+                  const site = clientSites.find((row) => row.id === asset.siteId);
+                  const client = clients.find((row) => row.id === (asset.clientId || site?.clientId));
+                  const overdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < currentOperatingDate);
+                  return (
+                    <article className="ops-queue-item" key={asset.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (client) openClientSiteRecordView(client.id, site?.name);
+                          else showNotice("Open a job/quote for this site to manage the asset register.");
+                        }}
+                      >
+                        <strong>{asset.name}</strong>
+                        <span>{asset.type}</span>
+                        <small>
+                          {[client?.name, site?.name || site?.address].filter(Boolean).join(" · ") || "Site asset"}
+                          {asset.nextServiceDate ? ` · ${overdue ? "overdue " : "due "}${asset.nextServiceDate}` : ""}
+                        </small>
+                      </button>
+                      <div className="ops-queue-actions">
+                        <span className={`status-pill ${overdue ? "red" : "amber"}`}>{overdue ? "Overdue" : "Due soon"}</span>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!dueSiteAssetRows.length ? <div className="ops-queue-empty">No assets due in the next 30 days.</div> : null}
+              </div>
+            </section>
           );
 
         default:

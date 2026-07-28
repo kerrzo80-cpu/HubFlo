@@ -83,9 +83,21 @@ export function upsertSiteAsset(input: Omit<SiteAsset, "id" | "createdAt" | "upd
 
 export function archiveSiteAsset(id: string) {
   const store = readStore();
+  const current = store.assets.find((asset) => asset.id === id);
   store.assets = store.assets.map((asset) =>
     asset.id === id ? { ...asset, archived: true, updatedAt: new Date().toISOString() } : asset,
   );
   writeStore(store);
-  return listSiteAssets();
+  return listSiteAssets(current?.siteId ? { siteId: current.siteId } : undefined);
+}
+
+export function dueSiteAssets(asOf = new Date().toISOString().slice(0, 10), withinDays = 0) {
+  const horizon = new Date(`${asOf}T12:00:00Z`);
+  if (!Number.isNaN(horizon.getTime()) && withinDays > 0) {
+    horizon.setUTCDate(horizon.getUTCDate() + withinDays);
+  }
+  const until = withinDays > 0 ? horizon.toISOString().slice(0, 10) : asOf;
+  return listSiteAssets()
+    .filter((asset) => asset.nextServiceDate && asset.nextServiceDate <= until)
+    .sort((a, b) => String(a.nextServiceDate).localeCompare(String(b.nextServiceDate)));
 }

@@ -4,6 +4,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import {
   archiveSiteAsset,
+  dueSiteAssets,
   listSiteAssets,
   upsertSiteAsset,
   type SiteAssetType,
@@ -18,6 +19,13 @@ export async function GET(request: NextRequest) {
   }
   const siteId = request.nextUrl.searchParams.get("siteId") || undefined;
   const clientId = request.nextUrl.searchParams.get("clientId") || undefined;
+  const due = request.nextUrl.searchParams.get("due");
+  const withinDays = Number(request.nextUrl.searchParams.get("withinDays") || "0");
+  if (due === "1" || due === "true") {
+    return NextResponse.json({
+      assets: dueSiteAssets(undefined, Number.isFinite(withinDays) ? withinDays : 0),
+    });
+  }
   return NextResponse.json({ assets: listSiteAssets({ siteId, clientId }) });
 }
 
