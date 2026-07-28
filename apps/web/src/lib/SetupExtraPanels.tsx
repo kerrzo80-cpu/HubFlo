@@ -342,6 +342,7 @@ export function SetupConfigPanel({
               <option value="follow-up">follow-up</option>
               <option value="job-confirmation">job-confirmation</option>
               <option value="job-eta">job-eta</option>
+              <option value="job-complete">job-complete</option>
             </select>
           </label>
           <label className="full">Subject<input value={draft.subject || ""} onChange={(e) => setDraft((c) => ({ ...c, subject: e.target.value }))} /></label>

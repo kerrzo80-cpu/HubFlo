@@ -154,6 +154,7 @@ const STORAGE_KEYS = {
   financeSettings: "hubflo:finance-settings:v1",
   integrationSettings: "hubflo:integration-settings:v1",
   flowCompletion: "hubflo:flow-completion:v1",
+  flowEvidence: "hubflo:flow-evidence:v1",
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   quoteSections: "hubflo:quote-sections:v1",
   quoteSchedulePlans: "hubflo:quote-schedule-plans:v1",
@@ -1353,6 +1354,13 @@ type ManualRecordDocuments = Record<string, RecordDocumentFile[]>;
 
 type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
 
+type EngineerFlowStepEvidenceValue = {
+  text?: string;
+  numberValue?: string;
+  photoName?: string;
+  capturedAt?: string;
+};
+
 type EngineerFlowStep = {
   id: string;
   stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover";
@@ -1896,6 +1904,7 @@ type HubDetailStatePayload = {
   costCentreTypes?: string[];
   costCentreFlowAssignmentDrafts?: Record<string, string>;
   flowStepCompletion?: Record<string, boolean>;
+  flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
   quoteCostCentres?: Record<string, QuoteCostCentre[]>;
   quoteSections?: Record<string, QuoteSection[]>;
   quoteSchedulePlans?: Record<string, QuoteScheduleAssignment[]>;
@@ -7105,6 +7114,8 @@ export default function Dashboard() {
   const [activeSetupCategory, setActiveSetupCategory] = useState<SetupCategory>("overview");
   const [activeSetupSubItem, setActiveSetupSubItem] = useState<string | null>(null);
   const [flowStepCompletion, setFlowStepCompletion] = useState<Record<string, boolean>>({});
+  const [flowStepEvidence, setFlowStepEvidence] = useState<Record<string, EngineerFlowStepEvidenceValue>>({});
+  const [isSendingJobCompletion, setIsSendingJobCompletion] = useState(false);
   const [newDocumentFolderName, setNewDocumentFolderName] = useState("");
   const [newCostCentreTypeName, setNewCostCentreTypeName] = useState("");
   const [newEngineerFlowTemplateName, setNewEngineerFlowTemplateName] = useState("");
@@ -9183,6 +9194,7 @@ export default function Dashboard() {
       ),
     );
     setFlowStepCompletion(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
+    setFlowStepEvidence(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.flowEvidence, {}));
     setQuoteCostCentres(storedQuoteCostCentres);
     setQuoteSections(storedQuoteSections);
     setQuoteSchedulePlans(storedQuoteSchedulePlans);
@@ -9335,6 +9347,7 @@ export default function Dashboard() {
             hasAppliedHubSetupState.current = true;
           }
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
+          if (hubState.flowStepEvidence) setFlowStepEvidence(hubState.flowStepEvidence);
           if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current) {
             if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
             if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
@@ -9454,6 +9467,7 @@ export default function Dashboard() {
       costCentreTypes: costCentreTypeOptions,
       costCentreFlowAssignmentDrafts,
       flowStepCompletion,
+      flowStepEvidence,
       quoteCostCentres,
       quoteSections,
       quoteSchedulePlans,
@@ -9668,6 +9682,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.costCentreTypes, costCentreTypeOptions);
     safeSaveStoredJson(STORAGE_KEYS.costCentreFlowAssignments, costCentreFlowAssignmentDrafts);
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
+    safeSaveStoredJson(STORAGE_KEYS.flowEvidence, flowStepEvidence);
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.quoteSections, quoteSections);
     safeSaveStoredJson(STORAGE_KEYS.quoteSchedulePlans, quoteSchedulePlans);
@@ -9761,6 +9776,7 @@ export default function Dashboard() {
     costCentreTypeOptions,
     costCentreFlowAssignmentDrafts,
     flowStepCompletion,
+    flowStepEvidence,
     quoteCostCentres,
     quoteSections,
     quoteSchedulePlans,
@@ -13584,9 +13600,53 @@ export default function Dashboard() {
     return `${recordId}:${stepId}`;
   }
 
+  function isFlowStepEvidenceSatisfied(step: EngineerFlowStep, key: string) {
+    if (step.evidence === "Checkbox") {
+      return Boolean(flowStepCompletion[key]);
+    }
+    const evidence = flowStepEvidence[key];
+    if (!evidence) return false;
+    if (step.evidence === "Text" || step.evidence === "Signature") {
+      return Boolean(evidence.text?.trim());
+    }
+    if (step.evidence === "Number") {
+      return evidence.numberValue != null && String(evidence.numberValue).trim() !== "";
+    }
+    if (step.evidence === "Photo") {
+      return Boolean(evidence.photoName?.trim());
+    }
+    return Boolean(flowStepCompletion[key]);
+  }
+
   function toggleFlowStep(recordId: string, stepId: string) {
     const key = flowCompletionKey(recordId, stepId);
     setFlowStepCompletion((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function updateFlowStepEvidence(recordId: string, step: EngineerFlowStep, patch: EngineerFlowStepEvidenceValue) {
+    const key = flowCompletionKey(recordId, step.id);
+    setFlowStepEvidence((current) => {
+      const nextValue = { ...(current[key] || {}), ...patch, capturedAt: new Date().toISOString() };
+      return { ...current, [key]: nextValue };
+    });
+    const merged = { ...(flowStepEvidence[key] || {}), ...patch };
+    const satisfied =
+      step.evidence === "Photo"
+        ? Boolean((patch.photoName ?? merged.photoName)?.trim())
+        : step.evidence === "Number"
+          ? String(patch.numberValue ?? merged.numberValue ?? "").trim() !== ""
+          : Boolean((patch.text ?? merged.text)?.trim());
+    setFlowStepCompletion((current) => ({ ...current, [key]: satisfied }));
+  }
+
+  function clearFlowStepEvidence(recordId: string, stepId: string) {
+    const key = flowCompletionKey(recordId, stepId);
+    setFlowStepEvidence((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setFlowStepCompletion((current) => ({ ...current, [key]: false }));
   }
 
   function logAuditEvent(event: Omit<AuditEvent, "id" | "createdAt">) {
@@ -17509,6 +17569,177 @@ export default function Dashboard() {
       showNotice(error instanceof Error ? error.message : "Unable to send job ETA.");
     } finally {
       setIsSendingJobEta(false);
+    }
+  }
+
+  async function sendSelectedJobCompletion() {
+    if (!selectedJob) return;
+
+    const emailTo = selectedJobClient?.email?.trim() || "";
+    const phoneTo = (selectedJobClient?.phone || "").replace(/[^\d+]/g, "").trim();
+    const hasEmail = emailTo.includes("@");
+    const hasPhone = phoneTo.replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) {
+      showNotice("Add a customer email or phone before sending a completion notice.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedJobClient?.primaryContact?.split(" ")[0] ||
+      selectedJob.customer.split(" ")[0] ||
+      "there";
+    const engineer =
+      selectedJobScheduleAssignments[0]?.employeeName ||
+      selectedJob.manager ||
+      "Our engineer";
+    const siteLabel =
+      selectedJobSite?.address ||
+      selectedJobSite?.name ||
+      selectedJob.site ||
+      "Site";
+
+    let subject = `Work complete · ${selectedJob.ref}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `Our engineer has finished work on job ${selectedJob.ref}.\n\n` +
+      `Site: ${siteLabel}\n` +
+      `Scope: ${selectedJob.description}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "job-complete");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedJob.ref,
+          engineer,
+          site: siteLabel,
+          description: selectedJob.description,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    const whatsappMessage =
+      `Hi ${contactName}, work on job ${selectedJob.ref} is complete. ` +
+      `Site: ${siteLabel}. — ${companyName}`;
+
+    setIsSendingJobCompletion(true);
+    const channels: string[] = [];
+    try {
+      if (hasEmail) {
+        const delivery = await sendThroughLiveOutbox({
+          to: emailTo,
+          subject,
+          text: bodyText,
+          document: {
+            filename: `${selectedJob.ref}-complete.pdf`,
+            title: "Job complete",
+            businessName: companyName,
+            reference: selectedJob.ref,
+            recipient: selectedJob.customer,
+            subject: "Work finished",
+            rows: [
+              { description: "Engineer", detail: engineer, value: selectedJob.ref },
+              { description: "Site", detail: siteLabel, value: "" },
+              { description: "Scope", detail: selectedJob.description, value: "" },
+            ],
+            subtotal: currency(selectedJob.value),
+            vat: currency(0),
+            total: currency(selectedJob.value),
+          },
+        });
+        channels.push(`email ${emailTo}`);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body: bodyText,
+          from: delivery.from,
+          to: emailTo,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+      }
+
+      if (hasPhone) {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+        } | null;
+        if (waResponse.ok && waBody?.status === "sent") {
+          channels.push(`WhatsApp ${phoneTo}`);
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject: `WhatsApp complete · ${selectedJob.ref}`,
+            body: whatsappMessage,
+            from: "NeXa Connect",
+            to: phoneTo,
+            status: "Sent",
+          });
+        } else if (waBody?.status === "not_configured") {
+          channels.push(`WhatsApp preview to ${phoneTo} (connector not configured)`);
+        } else if (hasEmail) {
+          showNotice(`Email sent; WhatsApp failed${waBody?.error ? `: ${waBody.error}` : ""}.`);
+        } else {
+          throw new Error(waBody?.error || "WhatsApp completion notice failed and no email was available.");
+        }
+      }
+
+      if (!channels.length) {
+        throw new Error("Unable to send completion notice on email or WhatsApp.");
+      }
+
+      const sentTo = channels.join(" · ");
+      await persistJobPatch(selectedJob.id, {
+        completionSentAt: currentOperatingDate,
+        completionSentTo: sentTo,
+      });
+
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "whatsapp",
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        summary: `Job complete notice sent via ${sentTo}`,
+        source: hasPhone ? "WhatsApp" : "NeXa",
+        status: "Captured",
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "completion sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} completion notice sent via ${sentTo}.`,
+        source: hasPhone ? "whatsapp doorway" : "outlook draft",
+        importance: "high",
+      });
+      showNotice(`Completion notice sent via ${sentTo}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send job completion notice.");
+    } finally {
+      setIsSendingJobCompletion(false);
     }
   }
 
@@ -24358,8 +24589,12 @@ export default function Dashboard() {
     const flowTemplate = centre ? engineerFlowTemplateForCostCentre(centre) : engineerFlowTemplate;
     const completionRecordId = centre ? `${job.id}:${centre.id}` : job.id;
     const requiredSteps = flowTemplate.steps.filter((step) => step.required);
-    const completedRequired = requiredSteps.filter((step) => flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]).length;
-    const nextBlockedStep = requiredSteps.find((step) => !flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]);
+    const completedRequired = requiredSteps.filter((step) =>
+      isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
+    ).length;
+    const nextBlockedStep = requiredSteps.find(
+      (step) => !isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
+    );
 
     return (
       <section className="engineer-flow-workspace">
@@ -24384,18 +24619,108 @@ export default function Dashboard() {
 
         <div className="engineer-flow-list">
           {flowTemplate.steps.map((step) => {
-            const checked = Boolean(flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]);
+            const key = flowCompletionKey(completionRecordId, step.id);
+            const checked = isFlowStepEvidenceSatisfied(step, key);
+            const evidence = flowStepEvidence[key] || {};
             return (
-              <label className={checked ? "engineer-flow-step complete" : "engineer-flow-step"} key={step.id}>
-                <input type="checkbox" checked={checked} onChange={() => toggleFlowStep(completionRecordId, step.id)} />
-                <span>
-                  <strong>{step.label}</strong>
-                  <small>
-                    {step.stage} · {step.evidence}
-                    {step.required ? " · Required" : ""}
-                  </small>
-                </span>
-              </label>
+              <div className={checked ? "engineer-flow-step complete" : "engineer-flow-step"} key={step.id}>
+                {step.evidence === "Checkbox" ? (
+                  <label className="engineer-flow-check">
+                    <input type="checkbox" checked={checked} onChange={() => toggleFlowStep(completionRecordId, step.id)} />
+                    <span>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {step.stage} · {step.evidence}
+                        {step.required ? " · Required" : ""}
+                      </small>
+                    </span>
+                  </label>
+                ) : (
+                  <div className="engineer-flow-evidence">
+                    <div>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {step.stage} · {step.evidence}
+                        {step.required ? " · Required" : ""}
+                        {checked ? " · Captured" : ""}
+                      </small>
+                    </div>
+                    {step.evidence === "Text" || step.evidence === "Signature" ? (
+                      <div className="engineer-flow-evidence-row">
+                        <input
+                          type="text"
+                          value={evidence.text || ""}
+                          placeholder={step.evidence === "Signature" ? "Signed by…" : "Enter note / reading…"}
+                          onChange={(event) =>
+                            updateFlowStepEvidence(completionRecordId, step, { text: event.target.value })
+                          }
+                          aria-label={`${step.label} ${step.evidence.toLowerCase()}`}
+                        />
+                        {evidence.text?.trim() ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.evidence === "Number" ? (
+                      <div className="engineer-flow-evidence-row">
+                        <input
+                          type="number"
+                          value={evidence.numberValue || ""}
+                          placeholder="Enter value…"
+                          onChange={(event) =>
+                            updateFlowStepEvidence(completionRecordId, step, { numberValue: event.target.value })
+                          }
+                          aria-label={`${step.label} number`}
+                        />
+                        {evidence.numberValue?.trim() ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.evidence === "Photo" ? (
+                      <div className="engineer-flow-evidence-row">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            updateFlowStepEvidence(completionRecordId, step, { photoName: file.name });
+                            event.target.value = "";
+                          }}
+                          aria-label={`${step.label} photo`}
+                        />
+                        {evidence.photoName ? (
+                          <>
+                            <small className="muted">{evidence.photoName}</small>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                            >
+                              Clear
+                            </button>
+                          </>
+                        ) : (
+                          <small className="muted">Attach a photo to mark this step complete.</small>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -31050,6 +31375,12 @@ export default function Dashboard() {
                               {selectedJob.etaSentTo ? ` to ${selectedJob.etaSentTo}` : ""}
                             </small>
                           ) : null}
+                          {selectedJob.completionSentAt ? (
+                            <small>
+                              Completion notice sent {selectedJob.completionSentAt}
+                              {selectedJob.completionSentTo ? ` to ${selectedJob.completionSentTo}` : ""}
+                            </small>
+                          ) : null}
                         </div>
                         <div className="setup-template-actions">
                           <button
@@ -31106,6 +31437,23 @@ export default function Dashboard() {
                               : selectedJob.etaSentAt
                                 ? "Resend ETA"
                                 : "Send ETA"}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={isSendingJobCompletion}
+                            title={
+                              selectedJobClient?.email?.includes("@") || (selectedJobClient?.phone || "").replace(/\D/g, "").length >= 10
+                                ? "Email and/or WhatsApp that work is finished"
+                                : "Customer needs an email or phone number first"
+                            }
+                            onClick={() => void sendSelectedJobCompletion()}
+                          >
+                            {isSendingJobCompletion
+                              ? "Sending complete…"
+                              : selectedJob.completionSentAt
+                                ? "Resend complete"
+                                : "Send complete"}
                           </button>
                           <button
                             className="primary-button"

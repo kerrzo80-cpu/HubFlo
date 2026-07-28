@@ -63,12 +63,12 @@ NeXa is nowhere near closing that operational backlog yet.
 | Survey → estimate pack | **NeXa ahead** | Keep; deepen photo vision + Takeoffs handoff |
 | Takeoffs / plan markup | Partial | Finish survey→takeoff→estimate chain; locked plans |
 | Vendor catalogues | Partial | CSV import; preferred supplier syncs to stock on SKU rows |
-| Service jobs | Partial | Status machine, SLA, customer notifications, job card PDF |
+| Service jobs | Partial | Status machine, customer complete notice; SLA clocks still thin |
 | Project / multi-stage jobs | Thin | Stages, progress invoices, retainage |
 | Scheduling & dispatch | Partial | Multi-tech board + job confirmation + ETA email/WhatsApp |
 | Timesheets / labour | Partial | Approve → job labour cost + actual hours / variance vs plan |
 | Tasks & alerts | Thin | Assignable tasks, escalation |
-| Digital forms / compliance | Partial | Form builder, Gas Safe certificate packs |
+| Digital forms / compliance | Partial | Form builder + engineer flow Text/Photo/Number/Signature capture; canvas pad still thin |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
 | Asset register | Partial | Site assets with edit/archive + service due filters; QR/certs still missing |
 | PPM / Maintenance Planner | Partial | Recurring due/overdue + 14-day upcoming queue, generate-all, pause/activate |
@@ -218,6 +218,8 @@ Until Brian cuts further, execute in this order:
 - **Job ETA / on the way** — email + WhatsApp from job programme / cost-centre schedule (`job-eta` template); stores `etaSentAt` / `etaSentTo` / `etaMinutes`
 - **Deposit on quote acceptance** — Setup workflow rule auto-creates deposit invoice when a quote converts to a job (default %)
 - **Stocktake expected + variance** — stocktake mode shows on-hand at location and counted − expected before/after save
+- **Engineer flow evidence** — stop/go steps capture Text / Number / Photo / Signature name (not checkbox-only); persists `flowStepEvidence`
+- **Job complete notice** — email + WhatsApp (`job-complete` template); stores `completionSentAt` / `completionSentTo`
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links

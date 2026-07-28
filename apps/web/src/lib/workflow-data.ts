@@ -45,6 +45,8 @@ export interface Job {
   etaSentAt?: string;
   etaSentTo?: string;
   etaMinutes?: number;
+  completionSentAt?: string;
+  completionSentTo?: string;
   actualStartTime?: string;
   actualEndTime?: string;
   actualDurationHours?: number;

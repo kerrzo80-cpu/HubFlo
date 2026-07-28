@@ -12116,12 +12116,12 @@ h1 {
 }
 
 .engineer-flow-step {
-  align-items: center;
+  align-items: flex-start;
   border: 1px solid var(--line-soft);
   border-radius: 7px;
-  cursor: pointer;
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   min-height: 68px;
   padding: 12px;
 }
@@ -12131,10 +12131,34 @@ h1 {
   border-color: #b9e8c9;
 }
 
-.engineer-flow-step span {
+.engineer-flow-check {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  width: 100%;
+}
+
+.engineer-flow-step span,
+.engineer-flow-evidence {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  width: 100%;
+}
+
+.engineer-flow-evidence-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.engineer-flow-evidence-row input[type="text"],
+.engineer-flow-evidence-row input[type="number"] {
+  flex: 1 1 12rem;
+  min-width: 0;
 }
 
 .engineer-flow-step strong {
