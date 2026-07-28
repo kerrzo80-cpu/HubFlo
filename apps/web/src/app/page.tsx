@@ -6865,6 +6865,57 @@ function purchaseRequestReceiptPercent(request: PurchaseRequest) {
   return 0;
 }
 
+function purchaseRequestOrderedCost(request: PurchaseRequest) {
+  if (request.lines?.length) {
+    return request.lines.reduce((total, line) => total + (Number(line.estimatedCost) || 0), 0);
+  }
+  return Number(request.estimatedCost) || 0;
+}
+
+function purchaseRequestInvoicedCost(request: PurchaseRequest) {
+  if (typeof request.supplierInvoiceAmount === "number" && Number.isFinite(request.supplierInvoiceAmount)) {
+    return Math.max(0, request.supplierInvoiceAmount);
+  }
+  if (request.invoiceReceivedAt || request.invoiceFileName) {
+    if (typeof request.actualCost === "number" && Number.isFinite(request.actualCost)) {
+      return Math.max(0, request.actualCost);
+    }
+  }
+  return null;
+}
+
+function purchaseRequestThreeWayMatch(request: PurchaseRequest) {
+  const ordered = purchaseRequestOrderedCost(request);
+  const received = purchaseRequestActualCost(request);
+  const invoiced = purchaseRequestInvoicedCost(request);
+  const receiptPercent = purchaseRequestReceiptPercent(request);
+  const tolerance = Math.max(0.02, ordered * 0.01);
+  const receivedVsOrdered = Math.abs(received - ordered);
+  const invoicedVsOrdered = invoiced === null ? null : Math.abs(invoiced - ordered);
+  const invoicedVsReceived = invoiced === null ? null : Math.abs(invoiced - received);
+
+  let status: "Matched" | "Variance" | "Incomplete" = "Incomplete";
+  if (receiptPercent >= 100 && invoiced !== null) {
+    status =
+      receivedVsOrdered <= tolerance &&
+      (invoicedVsOrdered ?? Number.POSITIVE_INFINITY) <= tolerance &&
+      (invoicedVsReceived ?? Number.POSITIVE_INFINITY) <= tolerance
+        ? "Matched"
+        : "Variance";
+  }
+
+  return {
+    ordered,
+    received,
+    invoiced,
+    receiptPercent,
+    status,
+    orderedVsReceived: received - ordered,
+    orderedVsInvoiced: invoiced === null ? null : invoiced - ordered,
+    receivedVsInvoiced: invoiced === null ? null : invoiced - received,
+  };
+}
+
 function purchaseRequestTone(request: PurchaseRequest) {
   if (request.status === "Received") return "green";
   if (request.status === "Rejected" || request.status === "Disputed") return "red";
@@ -7207,6 +7258,7 @@ export default function Dashboard() {
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
+  const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -7501,6 +7553,28 @@ export default function Dashboard() {
         : null,
     [purchaseRequests, selectedPurchaseRequestId],
   );
+
+  useEffect(() => {
+    if (!selectedPurchaseOrder) {
+      setPoSupplierInvoiceDraft({ amount: "", reference: "" });
+      return;
+    }
+    setPoSupplierInvoiceDraft({
+      amount:
+        selectedPurchaseOrder.supplierInvoiceAmount !== undefined
+          ? String(selectedPurchaseOrder.supplierInvoiceAmount)
+          : selectedPurchaseOrder.actualCost !== undefined
+            ? String(selectedPurchaseOrder.actualCost)
+            : "",
+      reference: selectedPurchaseOrder.supplierInvoiceRef || selectedPurchaseOrder.invoiceFileName || "",
+    });
+  }, [
+    selectedPurchaseOrder?.id,
+    selectedPurchaseOrder?.supplierInvoiceAmount,
+    selectedPurchaseOrder?.supplierInvoiceRef,
+    selectedPurchaseOrder?.actualCost,
+    selectedPurchaseOrder?.invoiceFileName,
+  ]);
 
   const selectedInvoice = useMemo(
     () => (selectedInvoiceId ? invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null : null),
@@ -22614,6 +22688,7 @@ export default function Dashboard() {
         actualCost,
         invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
         invoiceReceivedAt: request.invoiceReceivedAt || workflowTimestamp(),
+        supplierInvoiceAmount: request.supplierInvoiceAmount ?? actualCost,
         receivedAt: allReceived ? workflowTimestamp() : request.receivedAt,
       },
       `${request.poNumber || "PO"} ${allReceived ? "fully received" : "part received"} into stock.`,
@@ -25687,7 +25762,13 @@ export default function Dashboard() {
                             </a>
                           </div>
                           <strong>{row.request.item}</strong>
-                          <small>{row.receiptPercent}% received</small>
+                          <small>
+                            {row.receiptPercent}% received
+                            {(() => {
+                              const match = purchaseRequestThreeWayMatch(row.request);
+                              return match.status !== "Incomplete" ? ` · ${match.status}` : "";
+                            })()}
+                          </small>
                         </div>
                         <span className={`status-pill ${purchaseRequestTone(row.request)}`}>{row.request.status}</span>
                         <span className="manager">{row.createdBy}</span>
@@ -25771,6 +25852,101 @@ export default function Dashboard() {
                       <button className="secondary-button" type="button" onClick={openSelectedPurchaseOrderJob}>Open linked job / cost centre</button>
                     </article>
                   </div>
+
+                  {(() => {
+                    const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
+                    const tone =
+                      match.status === "Matched" ? "green" : match.status === "Variance" ? "red" : "amber";
+                    return (
+                      <section className="accounts-handoff-panel" style={{ marginTop: "1rem" }}>
+                        <header>
+                          <div>
+                            <span className="permission-heading">Accounts check</span>
+                            <h2>Three-way match</h2>
+                          </div>
+                          <span className={`status-pill ${tone}`}>{match.status}</span>
+                        </header>
+                        <div className="accounts-handoff-grid">
+                          <div><span>Ordered</span><strong>{currency(match.ordered)}</strong></div>
+                          <div><span>Received into stock</span><strong>{currency(match.received)}</strong></div>
+                          <div>
+                            <span>Supplier invoice</span>
+                            <strong>{match.invoiced === null ? "Not entered" : currency(match.invoiced)}</strong>
+                          </div>
+                          <div>
+                            <span>Receipt</span>
+                            <strong>{match.receiptPercent}%</strong>
+                          </div>
+                          <label className="accounts-payment-amount">
+                            <span>Supplier invoice amount</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={poSupplierInvoiceDraft.amount}
+                              onChange={(event) =>
+                                setPoSupplierInvoiceDraft((current) => ({ ...current, amount: event.target.value }))
+                              }
+                              aria-label="Supplier invoice amount"
+                            />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Supplier invoice ref</span>
+                            <input
+                              value={poSupplierInvoiceDraft.reference}
+                              onChange={(event) =>
+                                setPoSupplierInvoiceDraft((current) => ({ ...current, reference: event.target.value }))
+                              }
+                              placeholder="Supplier INV / remittance"
+                              aria-label="Supplier invoice reference"
+                            />
+                          </label>
+                        </div>
+                        <footer>
+                          <small>
+                            {match.status === "Matched"
+                              ? "Ordered, received and supplier invoice amounts agree within 1%."
+                              : match.status === "Variance"
+                                ? `Variance — received ${currency(match.orderedVsReceived)} vs order` +
+                                  (match.orderedVsInvoiced === null
+                                    ? "."
+                                    : ` · invoice ${currency(match.orderedVsInvoiced)} vs order.`)
+                                : "Enter the supplier invoice amount after goods receipt to complete the match."}
+                          </small>
+                          <div>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => {
+                                const amount = Number(poSupplierInvoiceDraft.amount);
+                                if (!Number.isFinite(amount) || amount < 0) {
+                                  showNotice("Enter a valid supplier invoice amount.");
+                                  return;
+                                }
+                                void patchPurchaseRequest(
+                                  selectedPurchaseOrder.id,
+                                  {
+                                    supplierInvoiceAmount: amount,
+                                    supplierInvoiceRef: poSupplierInvoiceDraft.reference.trim() || undefined,
+                                    invoiceFileName:
+                                      selectedPurchaseOrder.invoiceFileName ||
+                                      poSupplierInvoiceDraft.reference.trim() ||
+                                      `${selectedPurchaseOrder.poNumber || selectedPurchaseOrder.id} supplier invoice`,
+                                    invoiceReceivedAt:
+                                      selectedPurchaseOrder.invoiceReceivedAt || workflowTimestamp(),
+                                    actualCost: selectedPurchaseOrder.actualCost ?? amount,
+                                  },
+                                  `${selectedPurchaseOrder.poNumber || "PO"} supplier invoice ${currency(amount)} saved for three-way match.`,
+                                );
+                              }}
+                            >
+                              Save supplier invoice
+                            </button>
+                          </div>
+                        </footer>
+                      </section>
+                    );
+                  })()}
 
                   <section className="record-form-preview-workspace">
                     <div className="documents-toolbar">

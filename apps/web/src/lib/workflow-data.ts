@@ -98,6 +98,8 @@ export interface PurchaseRequest {
   sentAt?: string;
   invoiceFileName?: string;
   invoiceReceivedAt?: string;
+  supplierInvoiceAmount?: number;
+  supplierInvoiceRef?: string;
   receivedAt?: string;
   updatedAt?: string;
   xeroBillId?: string;
@@ -699,6 +701,8 @@ export function createPurchaseRequest(
     sentAt: payload.sentAt,
     invoiceFileName: payload.invoiceFileName,
     invoiceReceivedAt: payload.invoiceReceivedAt,
+    supplierInvoiceAmount: payload.supplierInvoiceAmount,
+    supplierInvoiceRef: payload.supplierInvoiceRef,
     receivedAt: payload.receivedAt,
     xeroBillId: payload.xeroBillId,
     xeroBillNumber: payload.xeroBillNumber,
