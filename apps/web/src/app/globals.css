@@ -3770,6 +3770,88 @@ kbd {
   z-index: 10;
 }
 
+.open-record-tabs {
+  align-items: stretch;
+  background: #f4f7f8;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 6px 16px 7px;
+  position: sticky;
+  top: 49px;
+  z-index: 9;
+}
+
+.open-record-tab {
+  align-items: stretch;
+  background: #fff;
+  border: 1px solid #d7e0e4;
+  border-radius: 8px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  max-width: 240px;
+  min-width: 0;
+}
+
+.open-record-tab.active {
+  background: #eef6fb;
+  border-color: #7eb3d4;
+  box-shadow: inset 0 -2px 0 #2f7fad;
+}
+
+.open-record-tab-main {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #24333a;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 4px 6px 10px;
+  text-align: left;
+}
+
+.open-record-tab-kind {
+  color: #5f737c;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.open-record-tab-ref {
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.open-record-tab-title {
+  color: #536169;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.open-record-tab-close {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 0 7px 7px 0;
+  color: #6a7c85;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.open-record-tab-close:hover {
+  background: rgba(36, 51, 58, 0.06);
+  color: #24333a;
+}
+
 .module-link {
   align-items: center;
   border-bottom: 3px solid transparent;
@@ -15595,6 +15677,19 @@ h1 {
     height: 48px;
     overflow-x: auto;
     padding: 0 8px;
+  }
+
+  .open-record-tabs {
+    padding: 6px 8px 7px;
+    top: 48px;
+  }
+
+  .open-record-tab {
+    max-width: 180px;
+  }
+
+  .open-record-tab-title {
+    display: none;
   }
 
   .mobile-menu {

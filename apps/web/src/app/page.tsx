@@ -167,7 +167,10 @@ const STORAGE_KEYS = {
   contacts: "hubflo:contacts:v1",
   contractors: "hubflo:contractors:v1",
   dashboardLayouts: "hubflo:dashboard-layouts:v1",
+  openWorkspaceTabs: "hubflo:open-workspace-tabs:v1",
 } as const;
+
+const OPEN_WORKSPACE_TAB_LIMIT = 10;
 
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
@@ -568,6 +571,16 @@ type HomeView =
   | "job-record"
   | "quote-cost-centre-record"
   | "cost-centre-record";
+
+type OpenWorkspaceTabKind = "lead" | "quote" | "job" | "invoice" | "client";
+
+type OpenWorkspaceTab = {
+  kind: OpenWorkspaceTabKind;
+  recordId: string;
+  ref: string;
+  title: string;
+};
+
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
 type ReportDateRange = "Today" | "This week" | "Last week" | "This month" | "Last month" | "Year to date" | "Last year" | "Custom" | "All time";
@@ -6871,6 +6884,8 @@ export default function Dashboard() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedPurchaseRequestId, setSelectedPurchaseRequestId] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const [openWorkspaceTabs, setOpenWorkspaceTabs] = useState<OpenWorkspaceTab[]>([]);
+  const hasHydratedOpenWorkspaceTabs = useRef(false);
   const [selectedQuoteCostCentreId, setSelectedQuoteCostCentreId] = useState<string | null>(null);
   const [selectedCostCentreId, setSelectedCostCentreId] = useState<string | null>(null);
   const [quoteCostCentreNameDraft, setQuoteCostCentreNameDraft] = useState("");
@@ -9156,6 +9171,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.jobVariationSections, jobVariationSections);
     safeSaveStoredJson(STORAGE_KEYS.communications, communicationRecords);
     safeSaveStoredJson(STORAGE_KEYS.manualRecordDocuments, manualRecordDocuments);
+    safeSaveStoredJson(STORAGE_KEYS.openWorkspaceTabs, openWorkspaceTabs);
 
     if (!hasLoadedHubDetailState) return;
 
@@ -9247,11 +9263,45 @@ export default function Dashboard() {
     jobVariationSections,
     communicationRecords,
     manualRecordDocuments,
+    openWorkspaceTabs,
     simproExports,
     hasHydratedLocalData,
     hasLoadedHubDetailState,
     requestHeaders,
   ]);
+
+  useEffect(() => {
+    if (hasHydratedOpenWorkspaceTabs.current) return;
+    hasHydratedOpenWorkspaceTabs.current = true;
+    const stored = safeLoadStoredJson<OpenWorkspaceTab[]>(STORAGE_KEYS.openWorkspaceTabs, []);
+    if (Array.isArray(stored) && stored.length) {
+      setOpenWorkspaceTabs(
+        stored
+          .filter((item) => item && typeof item.recordId === "string" && typeof item.kind === "string")
+          .slice(-OPEN_WORKSPACE_TAB_LIMIT),
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || !openWorkspaceTabs.length) return;
+    const leadIds = new Set(leads.map((item) => item.id));
+    const quoteIds = new Set(quotes.map((item) => item.id));
+    const jobIds = new Set(jobs.map((item) => item.id));
+    const invoiceIds = new Set(invoices.map((item) => item.id));
+    const clientIds = new Set(clients.map((item) => item.id));
+    setOpenWorkspaceTabs((current) => {
+      const next = current.filter((tab) => {
+        if (tab.kind === "lead") return leadIds.has(tab.recordId);
+        if (tab.kind === "quote") return quoteIds.has(tab.recordId);
+        if (tab.kind === "job") return jobIds.has(tab.recordId);
+        if (tab.kind === "invoice") return invoiceIds.has(tab.recordId);
+        if (tab.kind === "client") return clientIds.has(tab.recordId);
+        return false;
+      });
+      return next.length === current.length ? current : next;
+    });
+  }, [clients, hasHydratedLocalData, invoices, jobs, leads, openWorkspaceTabs.length, quotes]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || !selectedJob) return;
@@ -12827,6 +12877,7 @@ export default function Dashboard() {
         setSelectedLeadId(null);
         setHomeView("leads");
       }
+      forgetOpenWorkspaceTab("lead", lead.id);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "deleted",
@@ -12899,6 +12950,7 @@ export default function Dashboard() {
         setSelectedQuoteId(null);
         setHomeView("quotes");
       }
+      forgetOpenWorkspaceTab("quote", quote.id);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "deleted",
@@ -12974,6 +13026,7 @@ export default function Dashboard() {
         setSelectedJobId(null);
         setHomeView("jobs");
       }
+      forgetOpenWorkspaceTab("job", job.id);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "deleted",
@@ -13834,7 +13887,101 @@ export default function Dashboard() {
     });
   }
 
+  function openWorkspaceTabKey(tab: Pick<OpenWorkspaceTab, "kind" | "recordId">) {
+    return `${tab.kind}:${tab.recordId}`;
+  }
+
+  function rememberOpenWorkspaceTab(tab: OpenWorkspaceTab) {
+    setOpenWorkspaceTabs((current) => {
+      const key = openWorkspaceTabKey(tab);
+      const without = current.filter((item) => openWorkspaceTabKey(item) !== key);
+      return [...without, tab].slice(-OPEN_WORKSPACE_TAB_LIMIT);
+    });
+  }
+
+  function isOpenWorkspaceTabActive(tab: OpenWorkspaceTab) {
+    if (tab.kind === "lead") return homeView === "lead-record" && selectedLeadId === tab.recordId;
+    if (tab.kind === "quote") {
+      return ["quote-record", "quote-cost-centre-record"].includes(homeView) && selectedQuoteId === tab.recordId;
+    }
+    if (tab.kind === "job") {
+      return ["job-record", "cost-centre-record"].includes(homeView) && selectedJobId === tab.recordId;
+    }
+    if (tab.kind === "invoice") return homeView === "invoice-record" && selectedInvoiceId === tab.recordId;
+    if (tab.kind === "client") return homeView === "client-record" && activeClientId === tab.recordId;
+    return false;
+  }
+
+  function activateOpenWorkspaceTab(tab: OpenWorkspaceTab) {
+    if (tab.kind === "lead") {
+      openLeadRecord(tab.recordId);
+      return;
+    }
+    if (tab.kind === "quote") {
+      openQuoteDrawer(tab.recordId);
+      return;
+    }
+    if (tab.kind === "job") {
+      openJobDrawer(tab.recordId);
+      return;
+    }
+    if (tab.kind === "invoice") {
+      openInvoiceRecord(tab.recordId);
+      return;
+    }
+    openClientRecordView(tab.recordId);
+  }
+
+  function closeOpenWorkspaceTab(tab: OpenWorkspaceTab, event?: MouseEvent<HTMLButtonElement>) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const wasActive = isOpenWorkspaceTabActive(tab);
+    const remaining = openWorkspaceTabs.filter((item) => openWorkspaceTabKey(item) !== openWorkspaceTabKey(tab));
+    setOpenWorkspaceTabs(remaining);
+
+    if (!wasActive) return;
+
+    const fallback = remaining[remaining.length - 1];
+    if (fallback) {
+      activateOpenWorkspaceTab(fallback);
+      return;
+    }
+
+    if (tab.kind === "lead") {
+      setSelectedLeadId(null);
+      setHomeView("leads");
+    } else if (tab.kind === "quote") {
+      setSelectedQuoteId(null);
+      setSelectedQuoteCostCentreId(null);
+      setHomeView("quotes");
+    } else if (tab.kind === "job") {
+      setSelectedJobId(null);
+      setSelectedCostCentreId(null);
+      setHomeView("jobs");
+    } else if (tab.kind === "invoice") {
+      setSelectedInvoiceId(null);
+      setHomeView("invoices");
+    } else {
+      setActiveClientId("");
+      setHomeView("clients");
+    }
+    scrollWorkspaceToTop();
+  }
+
+  function forgetOpenWorkspaceTab(kind: OpenWorkspaceTabKind, recordId: string) {
+    setOpenWorkspaceTabs((current) =>
+      current.filter((item) => !(item.kind === kind && item.recordId === recordId)),
+    );
+  }
+
   function openClientRecordView(clientId: string) {
+    const client = clients.find((item) => item.id === clientId);
+    rememberOpenWorkspaceTab({
+      kind: "client",
+      recordId: clientId,
+      ref: client?.accountReference || "Customer",
+      title: client?.name || "Customer",
+    });
     setActiveClientId(clientId);
     setActiveClientTab("overview");
     setHomeView("client-record");
@@ -13842,6 +13989,13 @@ export default function Dashboard() {
   }
 
   function openClientSiteRecordView(clientId: string, siteName?: string) {
+    const client = clients.find((item) => item.id === clientId);
+    rememberOpenWorkspaceTab({
+      kind: "client",
+      recordId: clientId,
+      ref: client?.accountReference || "Customer",
+      title: client?.name || "Customer",
+    });
     setActiveClientId(clientId);
     setActiveClientTab("sites");
     setHomeView("client-record");
@@ -13852,9 +14006,13 @@ export default function Dashboard() {
   }
 
   function openLeadRecord(leadId: string) {
-    setSelectedQuoteId(null);
-    setSelectedJobId(null);
-    setSelectedInvoiceId(null);
+    const lead = leads.find((item) => item.id === leadId);
+    rememberOpenWorkspaceTab({
+      kind: "lead",
+      recordId: leadId,
+      ref: lead?.ref || "Lead",
+      title: lead?.customerName || lead?.description || "Lead",
+    });
     setSelectedLeadId(leadId);
     setActiveLeadTab("details");
     setHomeView("lead-record");
@@ -13870,10 +14028,14 @@ export default function Dashboard() {
   }
 
   function openQuoteDrawer(quoteId: string) {
-    setSelectedLeadId(null);
-    setSelectedJobId(null);
+    const quote = quotes.find((item) => item.id === quoteId);
+    rememberOpenWorkspaceTab({
+      kind: "quote",
+      recordId: quoteId,
+      ref: quote?.ref || "Quote",
+      title: quote?.customer || quote?.description || "Quote",
+    });
     setSelectedQuoteCostCentreId(null);
-    setSelectedInvoiceId(null);
     setSelectedQuoteId(quoteId);
     setActiveQuoteTab("setup");
     setHomeView("quote-record");
@@ -13881,10 +14043,14 @@ export default function Dashboard() {
   }
 
   function openJobDrawer(jobId: string) {
-    setSelectedLeadId(null);
-    setSelectedQuoteId(null);
+    const job = jobs.find((item) => item.id === jobId);
+    rememberOpenWorkspaceTab({
+      kind: "job",
+      recordId: jobId,
+      ref: job?.ref || "Job",
+      title: job?.customer || job?.description || "Job",
+    });
     setSelectedQuoteCostCentreId(null);
-    setSelectedInvoiceId(null);
     setSelectedJobId(jobId);
     setSelectedCostCentreId(null);
     setActiveJobTab("summary");
@@ -13893,6 +14059,13 @@ export default function Dashboard() {
   }
 
   function openInvoiceRecord(invoiceId: string) {
+    const invoice = invoices.find((item) => item.id === invoiceId);
+    rememberOpenWorkspaceTab({
+      kind: "invoice",
+      recordId: invoiceId,
+      ref: invoice?.ref || "Invoice",
+      title: invoice?.customer || "Invoice",
+    });
     setSelectedInvoiceId(invoiceId);
     setActiveInvoiceTab("summary");
     setHomeView("invoice-record");
@@ -21771,7 +21944,7 @@ export default function Dashboard() {
                 if (module.label === "Dashboard") {
                   returnToDashboard();
                 } else if (module.label === "Leads") {
-                  setHomeView("leads");
+                  returnToLeadsDirectory();
                 } else if (module.label === "Quotes") {
                   returnToQuotesDirectory();
                 } else if (module.label === "Jobs") {
@@ -21784,7 +21957,7 @@ export default function Dashboard() {
                   setHomeView("settings");
                   setActiveSetupSubItem(null);
                 } else if (module.label === "Invoices") {
-                  setHomeView("invoices");
+                  returnToInvoiceDirectory();
                 } else if (module.label === "Reports") {
                   setHomeView("reports");
                   setActiveReportTab("executive");
@@ -21816,6 +21989,42 @@ export default function Dashboard() {
           <MoreHorizontal size={18} />
         </button>
       </nav>
+
+      {openWorkspaceTabs.length ? (
+        <div className="open-record-tabs" role="tablist" aria-label="Open records">
+          {openWorkspaceTabs.map((tab) => {
+            const active = isOpenWorkspaceTabActive(tab);
+            return (
+              <div
+                key={openWorkspaceTabKey(tab)}
+                className={active ? "open-record-tab active" : "open-record-tab"}
+                role="presentation"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className="open-record-tab-main"
+                  onClick={() => activateOpenWorkspaceTab(tab)}
+                  title={`${tab.ref} · ${tab.title}`}
+                >
+                  <span className="open-record-tab-kind">{tab.kind}</span>
+                  <span className="open-record-tab-ref">{tab.ref}</span>
+                  <span className="open-record-tab-title">{tab.title}</span>
+                </button>
+                <button
+                  type="button"
+                  className="open-record-tab-close"
+                  aria-label={`Close ${tab.ref}`}
+                  onClick={(event) => closeOpenWorkspaceTab(tab, event)}
+                >
+                  <X size={12} strokeWidth={2.2} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className={contextSidebarCollapsed ? "body-shell sidebar-collapsed" : "body-shell"}>
         {!contextSidebarCollapsed ? (
