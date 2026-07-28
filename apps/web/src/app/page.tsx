@@ -16403,12 +16403,13 @@ export default function Dashboard() {
   function markInvoiceExportedInXero(invoice: Invoice, exported = true) {
     markInvoiceEdited();
     const stamp = new Date().toISOString();
+    const accountsStatus: AccountsExportStatus = exported ? "Sent" : "Not sent";
     setInvoices((current) => {
       const next = current.map((item) =>
         item.id === invoice.id
           ? {
               ...item,
-              accountsStatus: exported ? "Sent" : "Not sent",
+              accountsStatus,
               xeroExportedAt: exported ? stamp : undefined,
               ...(exported ? {} : { xeroInvoiceId: undefined, xeroInvoiceNumber: undefined }),
             }
