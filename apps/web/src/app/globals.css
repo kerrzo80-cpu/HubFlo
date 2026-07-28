@@ -11405,6 +11405,25 @@ h1 {
   padding: 12px 14px;
 }
 
+.setup-import-preview {
+  background: #f4f8fa;
+  border: 1px solid #c8d2d9;
+  border-radius: 6px;
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+}
+
+.setup-import-preview .documents-toolbar {
+  align-items: flex-start;
+}
+
+.setup-import-preview p {
+  color: #5a6b75;
+  margin: 4px 0 0;
+}
+
 .setup-import-result.warning {
   background: #fff8e9;
   border-left-color: var(--nexa-brass);

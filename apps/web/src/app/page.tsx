@@ -162,6 +162,7 @@ const STORAGE_KEYS = {
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
+  catalogFolders: "hubflo:catalog-folders:v1",
   manualRecordDocuments: "hubflo:manual-record-documents:v1",
   suppliers: "hubflo:suppliers:v1",
   contacts: "hubflo:contacts:v1",
@@ -776,6 +777,14 @@ type QuoteScheduleDraft = {
 type CatalogImportDraft = {
   folder: string;
   type: CatalogItem["type"];
+  supplierId: string;
+};
+
+type CatalogImportPreview = {
+  fileName: string;
+  items: CatalogItem[];
+  skippedBlank: number;
+  headers: string[];
 };
 
 type BusinessImportResult = {
@@ -1315,6 +1324,8 @@ type CatalogItem = {
   costRate: number;
   sellRate: number;
   category?: string;
+  supplierId?: string;
+  supplierName?: string;
 };
 
 type QuoteCostLine = {
@@ -3824,6 +3835,7 @@ const postcodeDirectory = [
 
 const quoteCatalogFolders = [
   "Boiler parts",
+  "Radiators",
   "Bathroom items",
   "Pipework and fittings",
   "Consumables",
@@ -3838,10 +3850,21 @@ function inferCatalogFolder(item: Pick<CatalogItem, "name" | "type" | "category"
   if (item.type === "Plant") return "Plant and access";
   if (item.type === "Subcontractor") return "Subcontractors";
   if (name.includes("boiler")) return "Boiler parts";
+  if (name.includes("radiator") || name.includes("stelrad") || name.includes("k1") || name.includes("k2") || name.includes("k3")) return "Radiators";
   if (name.includes("bath") || name.includes("shower") || name.includes("toilet") || name.includes("basin")) return "Bathroom items";
   if (name.includes("pipe") || name.includes("fitting") || name.includes("valve")) return "Pipework and fittings";
   if (name.includes("consumable") || name.includes("skip") || name.includes("sundr")) return "Consumables";
   return "General materials";
+}
+
+function mergeCatalogFolderList(base: string[], extra: Array<string | undefined | null>) {
+  const next = [...base];
+  extra.forEach((folder) => {
+    const trimmed = folder?.trim();
+    if (!trimmed) return;
+    if (!next.some((item) => item.toLowerCase() === trimmed.toLowerCase())) next.push(trimmed);
+  });
+  return next;
 }
 
 const quoteCatalog: CatalogItem[] = [
@@ -6924,6 +6947,17 @@ export default function Dashboard() {
   const [catalogImportDraft, setCatalogImportDraft] = useState<CatalogImportDraft>({
     folder: quoteCatalogFolders[0] ?? "General materials",
     type: "Material",
+    supplierId: "",
+  });
+  const [catalogFolders, setCatalogFolders] = useState<string[]>(quoteCatalogFolders);
+  const [catalogImportPreview, setCatalogImportPreview] = useState<CatalogImportPreview | null>(null);
+  const [catalogImportResult, setCatalogImportResult] = useState<BusinessImportResult | null>(null);
+  const [newCatalogFolderName, setNewCatalogFolderName] = useState("");
+  const [newCatalogItemDraft, setNewCatalogItemDraft] = useState({
+    name: "",
+    unit: "each",
+    costRate: "",
+    sellRate: "",
   });
   const [businessImportType, setBusinessImportType] = useState<BusinessImportType>("employees");
   const [businessImportFileName, setBusinessImportFileName] = useState("");
@@ -8708,7 +8742,19 @@ export default function Dashboard() {
     setQuoteSections(storedQuoteSections);
     setQuoteSchedulePlans(storedQuoteSchedulePlans);
     setJobSchedulePlans(storedJobSchedulePlans);
-    setCustomQuoteCatalog(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
+    const storedCustomCatalog = isLiveWorkspace ? [] : (safeLoadStoredJson(STORAGE_KEYS.customCatalog, []) as CatalogItem[]);
+    setCustomQuoteCatalog(storedCustomCatalog);
+    {
+      const storedFolders = isLiveWorkspace
+        ? quoteCatalogFolders
+        : (safeLoadStoredJson(STORAGE_KEYS.catalogFolders, quoteCatalogFolders) as string[]);
+      setCatalogFolders(
+        mergeCatalogFolderList(
+          storedFolders.length ? storedFolders : quoteCatalogFolders,
+          storedCustomCatalog.map((item) => inferCatalogFolder(item)),
+        ),
+      );
+    }
     setJobEstimateCostCentres(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobSections(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobSections, {}));
     setJobReviewApprovals(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
@@ -8845,7 +8891,12 @@ export default function Dashboard() {
             if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
             if (hubState.jobSections) setJobSections(hubState.jobSections);
           }
-          if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
+          if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.customQuoteCatalog) {
+            setCustomQuoteCatalog(hubState.customQuoteCatalog);
+            setCatalogFolders((current) =>
+              mergeCatalogFolderList(current, hubState.customQuoteCatalog!.map((item) => inferCatalogFolder(item))),
+            );
+          }
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
@@ -9164,6 +9215,7 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.quoteSchedulePlans, quoteSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.jobSchedulePlans, jobSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
+    safeSaveStoredJson(STORAGE_KEYS.catalogFolders, catalogFolders);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobSections, jobSections);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
@@ -9256,6 +9308,7 @@ export default function Dashboard() {
     quoteSchedulePlans,
     jobSchedulePlans,
     customQuoteCatalog,
+    catalogFolders,
     jobEstimateCostCentres,
     jobSections,
     jobReviewApprovals,
@@ -12021,24 +12074,32 @@ export default function Dashboard() {
       const header = rows[0] ?? [];
       if (!header.length || rows.length < 2) {
         showNotice("Could not detect catalogue rows. Export as CSV with description/name, cost and sell/rate columns.");
+        setCatalogImportPreview(null);
         return;
       }
 
-      const nameIndex = detectColumn(header, [["description", "item description", "name", "item", "material", "part"], ["details"]]);
+      const nameIndex = detectColumn(header, [["description", "item description", "name", "item", "material", "part", "product"], ["details"]]);
       const unitIndex = detectColumn(header, [["unit", "uom", "measure"]]);
-      const costIndex = detectColumn(header, [["cost", "unit cost", "trade price", "buy", "buy price", "rate"], ["price"]]);
+      const costIndex = detectColumn(header, [["cost", "unit cost", "trade price", "buy", "buy price", "rate", "net", "list"], ["price"]]);
       const sellIndex = detectColumn(header, [["sell", "sell rate", "charge", "charge rate", "selling price"]]);
       const typeIndex = detectColumn(header, [["type", "category type", "item type"]]);
       const folderIndex = detectColumn(header, [["folder", "category", "group", "section"]]);
+      const supplierIndex = detectColumn(header, [["supplier", "vendor", "manufacturer", "brand"]]);
 
       if (nameIndex < 0) {
         showNotice("No description/name column found in the catalogue file.");
+        setCatalogImportPreview(null);
         return;
       }
 
+      const selectedSupplier = suppliers.find((item) => item.id === catalogImportDraft.supplierId);
+      let skippedBlank = 0;
       const imported = rows.slice(1).flatMap((row, index) => {
         const name = row[nameIndex]?.trim();
-        if (!name) return [];
+        if (!name) {
+          skippedBlank += 1;
+          return [];
+        }
         const typeValue = row[typeIndex]?.trim() as CatalogItem["type"] | undefined;
         const type: CatalogItem["type"] = ["Labour", "Material", "Plant", "Subcontractor"].includes(typeValue ?? "")
           ? typeValue!
@@ -12047,6 +12108,7 @@ export default function Dashboard() {
         const fallbackMarkup = defaultMarkupForCatalogType(type, normalizedFinanceSettings);
         const sellRate = parseNumberish(row[sellIndex] ?? "") ?? lineSellFromMarkup(costRate, fallbackMarkup);
         const category = row[folderIndex]?.trim() || catalogImportDraft.folder;
+        const rowSupplier = row[supplierIndex]?.trim() || "";
         return [{
           id: `imported-catalog-${Date.now()}-${index}`,
           type,
@@ -12055,26 +12117,138 @@ export default function Dashboard() {
           costRate,
           sellRate,
           category,
+          supplierId: selectedSupplier?.id,
+          supplierName: selectedSupplier?.name || rowSupplier || undefined,
         } satisfies CatalogItem];
       });
 
       if (!imported.length) {
-        showNotice("No catalogue items imported from that file.");
+        showNotice("No catalogue items found in that file.");
+        setCatalogImportPreview(null);
         return;
       }
 
-      setCustomQuoteCatalog((current) => {
-        const existingKeys = new Set(current.map((item) => `${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
-        const fresh = imported.filter((item) => !existingKeys.has(`${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
-        return [...fresh, ...current];
+      // Offer any new folder names from the file.
+      const foldersFromFile = Array.from(new Set(imported.map((item) => item.category).filter(Boolean) as string[]));
+      setCatalogFolders((current) => {
+        const next = [...current];
+        foldersFromFile.forEach((folder) => {
+          if (!next.some((item) => item.toLowerCase() === folder.toLowerCase())) next.push(folder);
+        });
+        return next;
       });
-      markSetupEdited();
-      showNotice(`${imported.length} catalogue item(s) imported from ${file.name}.`);
+
+      setCatalogImportPreview({
+        fileName: file.name,
+        items: imported,
+        skippedBlank,
+        headers: header,
+      });
+      setCatalogImportResult(null);
+      showNotice(`${imported.length} row(s) ready to import from ${file.name}. Review below, then press Import.`);
     } catch {
-      showNotice("Unable to import that catalogue file.");
+      showNotice("Unable to read that catalogue file. Use CSV / TSV / TXT (Excel .xlsx is not supported yet).");
+      setCatalogImportPreview(null);
     } finally {
       event.currentTarget.value = "";
     }
+  }
+
+  function commitCatalogImport() {
+    if (!catalogImportPreview?.items.length) {
+      showNotice("Upload a price list first, then press Import.");
+      return;
+    }
+    const selectedSupplier = suppliers.find((item) => item.id === catalogImportDraft.supplierId);
+    // Stamp the folder/supplier chosen in the form at Import time (user may change them after upload).
+    const incoming = catalogImportPreview.items.map((item) => ({
+      ...item,
+      category: catalogImportDraft.folder || item.category,
+      type: catalogImportDraft.type || item.type,
+      supplierId: selectedSupplier?.id ?? item.supplierId,
+      supplierName: selectedSupplier?.name ?? item.supplierName,
+    }));
+    const existingKeys = new Set(customQuoteCatalog.map((item) => `${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
+    const fresh = incoming.filter((item) => !existingKeys.has(`${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
+    const skipped = incoming.length - fresh.length;
+    setCustomQuoteCatalog((current) => [...fresh, ...current]);
+    if (!catalogFolders.some((folder) => folder.toLowerCase() === catalogImportDraft.folder.toLowerCase())) {
+      setCatalogFolders((current) => [...current, catalogImportDraft.folder]);
+    }
+    markSetupEdited();
+    setCatalogImportResult({
+      imported: fresh.length,
+      skipped,
+      errors: skipped
+        ? [`${skipped} duplicate item(s) were skipped (same name, type and folder).`]
+        : [],
+    });
+    setCatalogImportPreview(null);
+    if (fresh[0]?.category) setActiveCatalogueFolder(fresh[0].category);
+    showNotice(`${fresh.length} catalogue item(s) imported${skipped ? ` · ${skipped} duplicate(s) skipped` : ""}.`);
+  }
+
+  function clearCatalogImportPreview() {
+    setCatalogImportPreview(null);
+  }
+
+  function openCatalogueSetup(notice?: string) {
+    setHomeView("settings");
+    setActiveSetupCategory("catalogue");
+    setActiveSetupSubItem(null);
+    closeContextSidebarOnMobile();
+    scrollWorkspaceToTop();
+    if (notice) showNotice(notice);
+  }
+
+  function addCatalogFolder(name?: string) {
+    const trimmed = (name ?? newCatalogFolderName).trim();
+    if (!trimmed) {
+      showNotice("Enter a folder name first (e.g. Radiators).");
+      return;
+    }
+    if (catalogFolders.some((folder) => folder.toLowerCase() === trimmed.toLowerCase())) {
+      setCatalogImportDraft((current) => ({ ...current, folder: catalogFolders.find((folder) => folder.toLowerCase() === trimmed.toLowerCase()) || trimmed }));
+      setActiveCatalogueFolder(catalogFolders.find((folder) => folder.toLowerCase() === trimmed.toLowerCase()) || trimmed);
+      setNewCatalogFolderName("");
+      showNotice(`${trimmed} already exists — selected it.`);
+      return;
+    }
+    markSetupEdited();
+    setCatalogFolders((current) => [...current, trimmed]);
+    setCatalogImportDraft((current) => ({ ...current, folder: trimmed }));
+    setActiveCatalogueFolder(trimmed);
+    setNewCatalogFolderName("");
+    showNotice(`Folder “${trimmed}” added.`);
+  }
+
+  function addCatalogItemFromDraft() {
+    const name = newCatalogItemDraft.name.trim();
+    if (!name) {
+      showNotice("Enter an item name before adding it to the catalogue.");
+      return;
+    }
+    const costRate = parseNumberish(newCatalogItemDraft.costRate) ?? 0;
+    const sellRate =
+      parseNumberish(newCatalogItemDraft.sellRate) ??
+      lineSellFromMarkup(costRate, defaultMarkupForCatalogType(catalogImportDraft.type, normalizedFinanceSettings));
+    const selectedSupplier = suppliers.find((item) => item.id === catalogImportDraft.supplierId);
+    const item: CatalogItem = {
+      id: `catalog-manual-${Date.now()}`,
+      type: catalogImportDraft.type,
+      name,
+      unit: newCatalogItemDraft.unit.trim() || (catalogImportDraft.type === "Labour" ? "hour" : "each"),
+      costRate,
+      sellRate,
+      category: catalogImportDraft.folder,
+      supplierId: selectedSupplier?.id,
+      supplierName: selectedSupplier?.name,
+    };
+    markSetupEdited();
+    setCustomQuoteCatalog((current) => [item, ...current]);
+    setNewCatalogItemDraft({ name: "", unit: "each", costRate: "", sellRate: "" });
+    setActiveCatalogueFolder(item.category || catalogImportDraft.folder);
+    showNotice(`${item.name} added to ${item.category}.`);
   }
 
   function resetBusinessImportFile() {
@@ -26226,13 +26400,17 @@ export default function Dashboard() {
                                   onChange={(event) => setCatalogueSearch(event.target.value)}
                                 />
                               </label>
-                              <button className="simpro-grey-button" type="button" onClick={() => showNotice("Catalogue group setup will live in Settings so every quote uses the same folders.")}>
+                              <button
+                                className="simpro-grey-button"
+                                type="button"
+                                onClick={() => openCatalogueSetup("Create folders and import supplier price lists in Setup → Catalogue.")}
+                              >
                                 CREATE GROUP
                               </button>
                               <button
                                 className="simpro-blue-button"
                                 type="button"
-                                onClick={() => showNotice("New catalogue items will be created in Settings so they can be assigned to a catalogue group before use.")}
+                                onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the quote.")}
                               >
                                 CREATE ITEM
                               </button>
@@ -26244,7 +26422,7 @@ export default function Dashboard() {
                                   <strong>Groups</strong>
                                   <span>Group name</span>
                                 </div>
-                                {quoteCatalogFolders.map((folder) => {
+                                {catalogFolders.map((folder) => {
                                   const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
                                   return (
                                     <button
@@ -26273,7 +26451,11 @@ export default function Dashboard() {
                                   <div className="quote-catalogue-item-row" key={item.id}>
                                     <div>
                                       <strong>{item.name}</strong>
-                                      <span>{item.type} · {item.unit} · Cost {currency(item.costRate)} · Sell {currency(item.sellRate)}</span>
+                                      <span>
+                                        {[item.supplierName, item.type, item.unit, `Cost ${currency(item.costRate)}`, `Sell ${currency(item.sellRate)}`]
+                                          .filter(Boolean)
+                                          .join(" · ")}
+                                      </span>
                                     </div>
                                     <button className="simpro-options-button" type="button" onClick={() => addQuoteLine(selectedQuoteCostCentre.id, item.id)}>
                                       ADD
@@ -29032,13 +29214,17 @@ export default function Dashboard() {
                                   onChange={(event) => setCatalogueSearch(event.target.value)}
                                 />
                               </label>
-                              <button className="simpro-grey-button" type="button" onClick={() => showNotice("Catalogue group setup will live in Settings so every job and quote uses the same folders.")}>
+                              <button
+                                className="simpro-grey-button"
+                                type="button"
+                                onClick={() => openCatalogueSetup("Create folders and import supplier price lists in Setup → Catalogue.")}
+                              >
                                 CREATE GROUP
                               </button>
                               <button
                                 className="simpro-blue-button"
                                 type="button"
-                                onClick={() => showNotice("New catalogue items will be created in Settings so they can be assigned to a catalogue group before use.")}
+                                onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the job.")}
                               >
                                 CREATE ITEM
                               </button>
@@ -29050,7 +29236,7 @@ export default function Dashboard() {
                                   <strong>Groups</strong>
                                   <span>Group name</span>
                                 </div>
-                                {quoteCatalogFolders.map((folder) => {
+                                {catalogFolders.map((folder) => {
                                   const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
                                   return (
                                     <button
@@ -29079,7 +29265,11 @@ export default function Dashboard() {
                                   <div className="quote-catalogue-item-row" key={item.id}>
                                     <div>
                                       <strong>{item.name}</strong>
-                                      <span>{item.type} · {item.unit} · Cost {currency(item.costRate)} · Sell {currency(item.sellRate)}</span>
+                                      <span>
+                                        {[item.supplierName, item.type, item.unit, `Cost ${currency(item.costRate)}`, `Sell ${currency(item.sellRate)}`]
+                                          .filter(Boolean)
+                                          .join(" · ")}
+                                      </span>
                                     </div>
                                     <button className="simpro-options-button" type="button" onClick={() => addEstimateMaterialLine(selectedCostCentre.id, item.id)}>
                                       ADD
@@ -31535,22 +31725,40 @@ export default function Dashboard() {
                         <div>
                           <span className="permission-heading">Catalogue import</span>
                           <h2>Reusable priced items</h2>
-                          <p>Import supplier or office price lists, then search these items inside quote and job cost centres.</p>
+                          <p>
+                            Import a supplier CSV price list into a folder (e.g. Radiators), set the supplier,
+                            then confirm Import. Items then appear in quote and job catalogues.
+                          </p>
                         </div>
-                        <span className="setup-status-label">{customQuoteCatalog.length} imported item(s)</span>
+                        <span className="setup-status-label">{customQuoteCatalog.length} catalogue item(s)</span>
                       </div>
 
                       <div className="setup-form-grid">
                         <label>
-                          Default folder
+                          Folder / group
                           <select
                             value={catalogImportDraft.folder}
                             onChange={(event) => setCatalogImportDraft((current) => ({ ...current, folder: event.target.value }))}
                           >
-                            {quoteCatalogFolders.map((folder) => (
+                            {catalogFolders.map((folder) => (
                               <option key={folder} value={folder}>{folder}</option>
                             ))}
                           </select>
+                        </label>
+                        <label>
+                          Supplier
+                          <select
+                            value={catalogImportDraft.supplierId}
+                            onChange={(event) => setCatalogImportDraft((current) => ({ ...current, supplierId: event.target.value }))}
+                          >
+                            <option value="">No supplier / mixed list</option>
+                            {suppliers.filter((supplier) => !supplier.archived).map((supplier) => (
+                              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                            ))}
+                          </select>
+                          {!suppliers.filter((supplier) => !supplier.archived).length ? (
+                            <small>Add suppliers under People → Suppliers first, then they appear here.</small>
+                          ) : null}
                         </label>
                         <label>
                           Default item type
@@ -31565,53 +31773,186 @@ export default function Dashboard() {
                           </select>
                         </label>
                         <label className="full-field">
-                          Import CSV / TSV / TXT
-                          <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
+                          Add folder
+                          <span className="setup-add-folder">
+                            <input
+                              aria-label="New catalogue folder"
+                              placeholder="e.g. Radiators"
+                              value={newCatalogFolderName}
+                              onChange={(event) => setNewCatalogFolderName(event.target.value)}
+                            />
+                            <button className="secondary-button" type="button" onClick={() => addCatalogFolder()}>
+                              <Plus size={15} />
+                              Create folder
+                            </button>
+                          </span>
                         </label>
+                        <label className="full-field">
+                          Upload supplier price list (CSV / TSV / TXT)
+                          <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
+                          <small>Need columns like Description/Name and Cost/Trade price. Excel .xlsx is not supported yet — save as CSV first.</small>
+                        </label>
+                      </div>
+
+                      {catalogImportPreview ? (
+                        <div className="setup-import-preview">
+                          <div className="documents-toolbar">
+                            <div>
+                              <strong>Ready to import: {catalogImportPreview.fileName}</strong>
+                              <p>
+                                {catalogImportPreview.items.length} item(s) detected
+                                {catalogImportPreview.skippedBlank ? ` · ${catalogImportPreview.skippedBlank} blank row(s) ignored` : ""}
+                                {catalogImportDraft.supplierId
+                                  ? ` · supplier ${suppliers.find((item) => item.id === catalogImportDraft.supplierId)?.name || ""}`
+                                  : ""}
+                                {" · folder "}{catalogImportDraft.folder}
+                              </p>
+                            </div>
+                            <div className="setup-add-folder">
+                              <button className="secondary-button" type="button" onClick={clearCatalogImportPreview}>
+                                Cancel
+                              </button>
+                              <button className="primary-button" type="button" onClick={commitCatalogImport}>
+                                Import {catalogImportPreview.items.length} item{catalogImportPreview.items.length === 1 ? "" : "s"}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="setup-rate-table setup-catalog-table">
+                            <div className="setup-rate-row table-head">
+                              <span>Item</span>
+                              <span>Folder</span>
+                              <span>Supplier</span>
+                              <span>Cost</span>
+                              <span>Sell</span>
+                            </div>
+                            {catalogImportPreview.items.slice(0, 20).map((item) => (
+                              <div className="setup-rate-row" key={item.id}>
+                                <span>{item.name}</span>
+                                <span>{item.category}</span>
+                                <span>{item.supplierName || "—"}</span>
+                                <span>{currency(item.costRate)}</span>
+                                <span>{currency(item.sellRate)}</span>
+                              </div>
+                            ))}
+                            {catalogImportPreview.items.length > 20 ? (
+                              <div className="setup-rate-row">
+                                <span>+{catalogImportPreview.items.length - 20} more will import…</span>
+                                <span /><span /><span /><span />
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {catalogImportResult ? (
+                        <div className={catalogImportResult.errors.length ? "setup-import-result warning" : "setup-import-result"}>
+                          <strong>{catalogImportResult.imported} imported · {catalogImportResult.skipped} skipped</strong>
+                          {catalogImportResult.errors.map((error) => <span key={error}>{error}</span>)}
+                        </div>
+                      ) : null}
+
+                      <div className="setup-form-grid" style={{ marginTop: 18 }}>
+                        <label className="full-field">
+                          <span className="permission-heading">Add one item</span>
+                        </label>
+                        <label>
+                          Name
+                          <input
+                            value={newCatalogItemDraft.name}
+                            placeholder="e.g. Compact K2 600x1000"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, name: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Unit
+                          <input
+                            value={newCatalogItemDraft.unit}
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, unit: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Cost
+                          <input
+                            value={newCatalogItemDraft.costRate}
+                            placeholder="0.00"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, costRate: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Sell
+                          <input
+                            value={newCatalogItemDraft.sellRate}
+                            placeholder="auto from markup"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, sellRate: event.target.value }))}
+                          />
+                        </label>
+                        <div className="full-field">
+                          <button className="primary-button" type="button" onClick={addCatalogItemFromDraft}>
+                            <Plus size={15} />
+                            Add item to {catalogImportDraft.folder}
+                          </button>
+                        </div>
                       </div>
 
                       <div className="setup-rate-table setup-catalog-table">
                         <div className="setup-rate-row table-head">
                           <span>Item</span>
                           <span>Folder</span>
-                          <span>Type</span>
+                          <span>Supplier</span>
                           <span>Cost</span>
                           <span>Sell</span>
                         </div>
-                        {customQuoteCatalog.slice(0, 12).map((item) => (
+                        {customQuoteCatalog.map((item) => (
                           <div className="setup-rate-row" key={item.id}>
                             <input
                               value={item.name}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                markSetupEdited();
                                 setCustomQuoteCatalog((current) =>
                                   current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, name: event.target.value } : catalogItem),
-                                )
-                              }
+                                );
+                              }}
                             />
                             <select
                               value={inferCatalogFolder(item)}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                markSetupEdited();
                                 setCustomQuoteCatalog((current) =>
                                   current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, category: event.target.value } : catalogItem),
-                                )
-                              }
+                                );
+                              }}
                             >
-                              {quoteCatalogFolders.map((folder) => (
+                              {catalogFolders.map((folder) => (
                                 <option key={folder} value={folder}>{folder}</option>
                               ))}
                             </select>
-                            <span>{item.type}</span>
+                            <select
+                              value={item.supplierId || ""}
+                              onChange={(event) => {
+                                const supplier = suppliers.find((entry) => entry.id === event.target.value);
+                                markSetupEdited();
+                                setCustomQuoteCatalog((current) =>
+                                  current.map((catalogItem) =>
+                                    catalogItem.id === item.id
+                                      ? { ...catalogItem, supplierId: supplier?.id, supplierName: supplier?.name }
+                                      : catalogItem,
+                                  ),
+                                );
+                              }}
+                            >
+                              <option value="">No supplier</option>
+                              {suppliers.filter((supplier) => !supplier.archived).map((supplier) => (
+                                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                              ))}
+                            </select>
                             <span>{currency(item.costRate)}</span>
                             <span>{currency(item.sellRate)}</span>
                           </div>
                         ))}
                         {customQuoteCatalog.length === 0 ? (
                           <div className="setup-rate-row">
-                            <span>No imported catalogue items yet.</span>
-                            <span />
-                            <span />
-                            <span />
-                            <span />
+                            <span>No catalogue items yet — upload a CSV or add one above.</span>
+                            <span /><span /><span /><span />
                           </div>
                         ) : null}
                       </div>
@@ -34212,7 +34553,7 @@ export default function Dashboard() {
                           }))
                         }
                       >
-                        {quoteCatalogFolders.map((folder) => (
+                        {catalogFolders.map((folder) => (
                           <option key={folder} value={folder}>{folder}</option>
                         ))}
                       </select>
