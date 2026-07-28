@@ -874,6 +874,11 @@ type InvoicePaymentRecord = {
   reference?: string;
   note?: string;
   actor?: string;
+  source?: "manual" | "xero" | "adjustment";
+  sourcePaymentId?: string;
+  sourceInvoiceId?: string;
+  importedAt?: string;
+  reconciled?: boolean;
 };
 
 type ValuationLine = {
@@ -7177,6 +7182,7 @@ export default function Dashboard() {
     }>;
   } | null>(null);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
+  const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -15318,6 +15324,97 @@ export default function Dashboard() {
       showNotice(error instanceof Error ? error.message : "Unable to export invoice to Xero.");
     } finally {
       setIsExportingInvoiceToXero(false);
+    }
+  }
+
+  async function pullSelectedInvoicePaymentsFromXero() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Convert the valuation to a progress claim before pulling Xero payments.");
+      return;
+    }
+    if (selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled") {
+      showNotice("Draft or cancelled invoices cannot pull Xero payments.");
+      return;
+    }
+    setIsPullingXeroPayments(true);
+    try {
+      const response = await fetch("/api/integrations/xero/payments", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice: {
+            id: selectedInvoice.id,
+            ref: selectedInvoice.ref,
+            chargeTotal: selectedInvoice.chargeTotal,
+            vatRate: selectedInvoice.vatRate,
+            status: selectedInvoice.status,
+            claimType: selectedInvoice.claimType,
+            payments: selectedInvoice.payments || [],
+            paidAmount: selectedInvoice.paidAmount ?? 0,
+          },
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        addedCount?: number;
+        skippedCount?: number;
+        fetchedCount?: number;
+        conflicts?: Array<{ xeroPaymentId: string; reason: string }>;
+        payments?: InvoicePaymentRecord[];
+        paidAmount?: number;
+        paymentStatus?: InvoicePaymentStatus;
+        status?: InvoiceStatus;
+        match?: { invoiceNumber?: string; xeroInvoiceId?: string };
+      } | null;
+      if (!response.ok || !body?.payments) {
+        throw new Error(body?.error || `Xero payment pull failed (HTTP ${response.status})`);
+      }
+
+      markInvoiceEdited();
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === selectedInvoice.id
+            ? {
+                ...invoice,
+                payments: body.payments,
+                paidAmount: body.paidAmount ?? invoice.paidAmount,
+                paymentStatus: body.paymentStatus ?? invoice.paymentStatus,
+                status: body.status ?? invoice.status,
+              }
+            : invoice,
+        ),
+      );
+
+      const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
+      const stillRemaining = Math.max(0, grandTotal - (body.paidAmount ?? 0));
+      setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero payment pull",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref}: pulled ${body.addedCount ?? 0} Xero payment(s), skipped ${body.skippedCount ?? 0}, conflicts ${(body.conflicts || []).length} (Xero ${body.match?.xeroInvoiceId || "invoice"}).`,
+        source: "web",
+        importance: (body.addedCount ?? 0) > 0 ? "high" : "normal",
+      });
+
+      const conflicts = body.conflicts || [];
+      const firstConflict = conflicts[0];
+      const conflictNote =
+        firstConflict
+          ? ` ${conflicts.length} need review (${firstConflict.reason}).`
+          : "";
+      showNotice(
+        `${selectedInvoice.ref}: ${body.addedCount ?? 0} payment(s) imported from Xero` +
+          `${body.skippedCount ? `, ${body.skippedCount} already on ledger` : ""}` +
+          ` · paid to date ${currency(body.paidAmount ?? 0)}.${conflictNote}`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to pull payments from Xero.");
+    } finally {
+      setIsPullingXeroPayments(false);
     }
   }
 
@@ -31888,7 +31985,7 @@ export default function Dashboard() {
                               <div className="ops-table-row" key={payment.id}>
                                 <span>{payment.paidAt}</span>
                                 <strong>{currency(payment.amount)}</strong>
-                                <span>{payment.method}</span>
+                                <span>{payment.source === "xero" ? `${payment.method} · Xero` : payment.method}</span>
                                 <span>{payment.reference || payment.actor || "—"}</span>
                               </div>
                             ))}
@@ -31906,6 +32003,23 @@ export default function Dashboard() {
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={
+                                isPullingXeroPayments ||
+                                !access.canEditInvoice ||
+                                !(xeroConnectionStatus?.configured || xeroConnectionStatus?.hasAccessToken)
+                              }
+                              title={
+                                xeroConnectionStatus?.configured || xeroConnectionStatus?.hasAccessToken
+                                  ? "Import payments already posted against this invoice number in Xero"
+                                  : "Connect Xero (OAuth or static token) before pulling payments"
+                              }
+                              onClick={() => void pullSelectedInvoicePaymentsFromXero()}
+                            >
+                              {isPullingXeroPayments ? "Pulling…" : "Pull payments from Xero"}
+                            </button>
                             <button
                               className="primary-button"
                               type="button"
