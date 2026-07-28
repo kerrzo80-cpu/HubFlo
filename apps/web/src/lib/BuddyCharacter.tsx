@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import type { BuddyMood } from "@/lib/buddy-memory";
 import { buddyAvatarSrc } from "@/lib/buddy-memory";
 
-type BuddyGesture = "none" | "wave" | "wink" | "bounce" | "nod";
+/** Matches Buddy_Wave_Wink_Stop.mp4 (~4s): wave → wink → stop hands. */
+type BuddyGesture = "none" | "wave" | "wink" | "stop" | "bounce" | "nod" | "routine";
 
 type BuddyCharacterProps = {
   mood?: BuddyMood;
@@ -23,8 +24,11 @@ const PARTS = [
   { id: "head", mask: "/brand/buddy-parts/head-mask.png" },
 ] as const;
 
+const ROUTINE_MS = 4000;
+
 /**
- * Yellow/blue Buddy robot with independent parts and interactive gestures.
+ * Yellow/blue Buddy robot with independent parts.
+ * Gesture routine mirrors the Wave → Wink → Stop reference clip.
  */
 export function BuddyCharacter({
   mood = "idle",
@@ -43,17 +47,21 @@ export function BuddyCharacter({
     clearRef.current = setTimeout(() => setGesture("none"), ms);
   };
 
+  const playRoutine = () => playGesture("routine", ROUTINE_MS);
+
   useEffect(() => {
     if (!interactive) return;
     const tick = () => {
       const roll = Math.random();
-      if (roll < 0.35) playGesture("wave", 1400);
-      else if (roll < 0.55) playGesture("wink", 700);
-      else if (roll < 0.7) playGesture("nod", 900);
-      else playGesture("bounce", 1000);
+      // Prefer the reference Wave→Wink→Stop routine most of the time.
+      if (roll < 0.45) playRoutine();
+      else if (roll < 0.65) playGesture("wave", 1400);
+      else if (roll < 0.8) playGesture("wink", 800);
+      else if (roll < 0.9) playGesture("stop", 1200);
+      else playGesture("nod", 900);
     };
-    const first = setTimeout(tick, 2800 + Math.random() * 1800);
-    const id = setInterval(tick, 7000 + Math.random() * 4000);
+    const first = setTimeout(tick, 2400 + Math.random() * 1600);
+    const id = setInterval(tick, 8000 + Math.random() * 4000);
     return () => {
       clearTimeout(first);
       clearInterval(id);
@@ -63,10 +71,10 @@ export function BuddyCharacter({
 
   useEffect(() => {
     if (!interactive) return;
-    if (mood === "alert") playGesture("bounce", 1100);
-    if (mood === "good") playGesture("wave", 1400);
-    if (mood === "guide") playGesture("nod", 1000);
-    if (mood === "thinking") playGesture("wink", 800);
+    if (mood === "alert") playGesture("stop", 1400);
+    if (mood === "good") playRoutine();
+    if (mood === "guide") playGesture("wave", 1400);
+    if (mood === "thinking") playGesture("wink", 900);
   }, [mood, interactive]);
 
   return (
@@ -89,7 +97,7 @@ export function BuddyCharacter({
       onPointerDown={
         interactive
           ? () => {
-              playGesture("wave", 1500);
+              playRoutine();
             }
           : undefined
       }

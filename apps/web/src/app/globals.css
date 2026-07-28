@@ -2678,15 +2678,17 @@ kbd {
 }
 
 .buddy-character .buddy-left-arm {
-  animation: buddy-arm-hip 3.4s ease-in-out infinite;
+  /* Character's left / viewer's right — primary wave hand in the reference clip */
+  animation: buddy-arm-wave-idle 2.6s ease-in-out infinite;
   transform-origin: 62.1% 52%;
-  z-index: 3;
+  z-index: 4;
 }
 
 .buddy-character .buddy-right-arm {
-  animation: buddy-arm-wave-idle 2.6s ease-in-out infinite;
+  /* Character's right / viewer's left — rests on hip while waving */
+  animation: buddy-arm-hip 3.4s ease-in-out infinite;
   transform-origin: 33.6% 39%;
-  z-index: 4;
+  z-index: 3;
 }
 
 .buddy-character .buddy-visor-glow {
@@ -2730,7 +2732,7 @@ kbd {
   animation: buddy-hover-lean 0.9s ease-in-out infinite;
 }
 
-.buddy-character.is-hovered .buddy-right-arm {
+.buddy-character.is-hovered .buddy-left-arm {
   animation: buddy-arm-wave-fast 0.55s ease-in-out infinite;
 }
 
@@ -2740,8 +2742,12 @@ kbd {
 }
 
 /* One-shot gestures */
-.buddy-character.gesture-wave .buddy-right-arm {
+.buddy-character.gesture-wave .buddy-left-arm {
   animation: buddy-arm-wave-fast 0.45s ease-in-out infinite;
+}
+
+.buddy-character.gesture-wave .buddy-right-arm {
+  animation: buddy-arm-hip 0.9s ease-in-out infinite;
 }
 
 .buddy-character.gesture-wave .buddy-head-root {
@@ -2751,6 +2757,44 @@ kbd {
 .buddy-character.gesture-wink .buddy-eye-lid-right {
   animation: buddy-wink 0.7s ease-in-out 1;
   opacity: 1;
+}
+
+.buddy-character.gesture-wink .buddy-left-arm {
+  animation: buddy-arm-wave-fast 0.7s ease-in-out infinite;
+}
+
+.buddy-character.gesture-stop .buddy-left-arm,
+.buddy-character.gesture-stop .buddy-right-arm {
+  animation: buddy-arm-stop 0.85s ease-in-out infinite;
+}
+
+.buddy-character.gesture-stop .buddy-figure {
+  animation: buddy-body-stop 0.85s ease-in-out infinite;
+}
+
+.buddy-character.gesture-stop .buddy-head-root {
+  animation: buddy-head-happy 0.9s ease-in-out infinite;
+}
+
+/* Full Wave → Wink → Stop routine (~4s, matches Buddy_Wave_Wink_Stop.mp4) */
+.buddy-character.gesture-routine .buddy-left-arm {
+  animation: buddy-routine-left-arm 4s ease-in-out 1;
+}
+
+.buddy-character.gesture-routine .buddy-right-arm {
+  animation: buddy-routine-right-arm 4s ease-in-out 1;
+}
+
+.buddy-character.gesture-routine .buddy-eye-lid-right {
+  animation: buddy-routine-wink 4s ease-in-out 1;
+}
+
+.buddy-character.gesture-routine .buddy-figure {
+  animation: buddy-routine-body 4s ease-in-out 1;
+}
+
+.buddy-character.gesture-routine .buddy-head-root {
+  animation: buddy-routine-head 4s ease-in-out 1;
 }
 
 .buddy-character.gesture-bounce .buddy-figure {
@@ -2770,7 +2814,7 @@ kbd {
   animation: buddy-body-alert 1.05s ease-in-out infinite;
 }
 
-.buddy-character.mood-alert .buddy-right-arm {
+.buddy-character.mood-alert .buddy-left-arm {
   animation: buddy-arm-alert 0.85s ease-in-out infinite;
 }
 
@@ -2782,11 +2826,11 @@ kbd {
   animation: buddy-head-think 1.7s ease-in-out infinite;
 }
 
-.buddy-character.mood-thinking .buddy-left-arm {
+.buddy-character.mood-thinking .buddy-right-arm {
   animation: buddy-arm-think 1.9s ease-in-out infinite;
 }
 
-.buddy-character.mood-guide .buddy-right-arm {
+.buddy-character.mood-guide .buddy-left-arm {
   animation: buddy-arm-guide 1.25s ease-in-out infinite;
 }
 
@@ -2798,7 +2842,7 @@ kbd {
   animation: buddy-body-happy 1.9s ease-in-out infinite;
 }
 
-.buddy-character.mood-good .buddy-right-arm {
+.buddy-character.mood-good .buddy-left-arm {
   animation: buddy-arm-wave-fast 0.7s ease-in-out infinite;
 }
 
@@ -2907,6 +2951,57 @@ kbd {
 @keyframes buddy-legs-happy {
   0%, 100% { transform: scaleY(1) translateY(0); }
   50% { transform: scaleY(0.97) translateY(1px); }
+}
+
+@keyframes buddy-arm-stop {
+  0%, 100% { transform: rotate(18deg) translateY(-8px) scale(1.02); }
+  50% { transform: rotate(22deg) translateY(-10px) scale(1.03); }
+}
+
+@keyframes buddy-body-stop {
+  0%, 100% { transform: translateY(-1px) rotate(-1deg); }
+  50% { transform: translateY(-3px) rotate(1.5deg); }
+}
+
+/* 0–35% wave, 35–55% wink hold, 55–85% stop hands, 85–100% settle */
+@keyframes buddy-routine-left-arm {
+  0%, 100% { transform: rotate(-2deg); }
+  8% { transform: rotate(12deg) translateY(-3px); }
+  18% { transform: rotate(-4deg); }
+  28% { transform: rotate(14deg) translateY(-4px); }
+  35% { transform: rotate(8deg) translateY(-2px); }
+  55% { transform: rotate(16deg) translateY(-7px); }
+  70%, 82% { transform: rotate(20deg) translateY(-9px) scale(1.02); }
+  92% { transform: rotate(6deg) translateY(-2px); }
+}
+
+@keyframes buddy-routine-right-arm {
+  0%, 35% { transform: rotate(2deg); }
+  10% { transform: rotate(-4deg); }
+  55% { transform: rotate(14deg) translateY(-6px); }
+  70%, 82% { transform: rotate(20deg) translateY(-9px) scale(1.02); }
+  92%, 100% { transform: rotate(1deg); }
+}
+
+@keyframes buddy-routine-wink {
+  0%, 34%, 58%, 100% { opacity: 0; transform: scaleY(0.1); }
+  38%, 52% { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes buddy-routine-body {
+  0%, 100% { transform: translateY(0) rotate(-0.5deg); }
+  20% { transform: translateY(-2px) rotate(1deg); }
+  45% { transform: translateY(-1px) rotate(-1deg); }
+  70% { transform: translateY(-3px) rotate(1.5deg); }
+  85% { transform: translateY(-2px) rotate(-0.5deg); }
+}
+
+@keyframes buddy-routine-head {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  15% { transform: translateY(-2px) rotate(2deg); }
+  40% { transform: translateY(-1px) rotate(-2deg); }
+  55% { transform: translateY(-2px) rotate(3deg); }
+  75% { transform: translateY(-1px) rotate(1deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
