@@ -208,6 +208,10 @@ Until Brian cuts further, execute in this order:
 - **Timesheet labour variance** — approved timesheets stamp `actualDurationHours` / `labourCostVariance` on the job banner
 - **Dashboard assets-due queue** — overdue/due-soon site assets (30 days) on the ops dashboard
 - **Cost-centre schedule tabs** — quote/job package visits listed with confirmation/planner actions
+- **Stock issue → WIP cost** — Issue-to-job movements add material actuals on Reports WIP / Purchasing
+- **Manual PO supplier payments** — record AP payments on the PO ledger alongside Xero pull
+- **Remittance-after-payment** — checkbox on invoice ledger emails remittance for the payment just recorded
+- **WIP labour hours** — Reports → WIP shows actual/plan labour hours and variance
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client

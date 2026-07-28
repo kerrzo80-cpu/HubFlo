@@ -483,7 +483,17 @@ export function StockOpsPanel({
               </label>
             ) : null}
             {moveDraft.mode === "issue" ? (
-              <label>Job ref<input value={moveDraft.jobRef} onChange={(e) => setMoveDraft((c) => ({ ...c, jobRef: e.target.value }))} placeholder="J-1004" /></label>
+              <label>
+                Job
+                <select value={moveDraft.jobRef} onChange={(e) => setMoveDraft((c) => ({ ...c, jobRef: e.target.value }))}>
+                  <option value="">Select job…</option>
+                  {openJobs.map((job) => (
+                    <option key={job.id} value={job.ref}>
+                      {job.ref} · {job.customer}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ) : null}
             {moveDraft.mode === "stocktake" ? (
               <label>Counted qty<input value={moveDraft.countedQty} onChange={(e) => setMoveDraft((c) => ({ ...c, countedQty: e.target.value }))} /></label>

@@ -7332,6 +7332,8 @@ export default function Dashboard() {
   }>>([]);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
+  const [poSupplierPaymentDraft, setPoSupplierPaymentDraft] = useState({ amount: "", method: "Bank transfer", reference: "" });
+  const [stockIssueCostByJobRef, setStockIssueCostByJobRef] = useState<Record<string, number>>({});
   const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
   const [invoiceCreditAmountDraft, setInvoiceCreditAmountDraft] = useState("");
   const [invoiceCreditReasonDraft, setInvoiceCreditReasonDraft] = useState("");
@@ -7648,6 +7650,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!selectedPurchaseOrder) {
       setPoSupplierInvoiceDraft({ amount: "", reference: "" });
+      setPoSupplierPaymentDraft({ amount: "", method: "Bank transfer", reference: "" });
       return;
     }
     setPoSupplierInvoiceDraft({
@@ -7659,12 +7662,21 @@ export default function Dashboard() {
             : "",
       reference: selectedPurchaseOrder.supplierInvoiceRef || selectedPurchaseOrder.invoiceFileName || "",
     });
+    const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
+    const remaining = Math.max(0, (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0));
+    setPoSupplierPaymentDraft({
+      amount: remaining > 0 ? remaining.toFixed(2) : "",
+      method: "Bank transfer",
+      reference: "",
+    });
   }, [
     selectedPurchaseOrder?.id,
     selectedPurchaseOrder?.supplierInvoiceAmount,
     selectedPurchaseOrder?.supplierInvoiceRef,
     selectedPurchaseOrder?.actualCost,
     selectedPurchaseOrder?.invoiceFileName,
+    selectedPurchaseOrder?.supplierPaidAmount,
+    selectedPurchaseOrder?.supplierPayments,
   ]);
 
   const selectedInvoice = useMemo(
@@ -9851,6 +9863,36 @@ export default function Dashboard() {
     let cancelled = false;
     void (async () => {
       try {
+        const response = await fetch("/api/stock", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as {
+          items?: Array<{ id: string; unitCost?: number }>;
+          movements?: Array<{ itemId: string; quantity: number; reason: string; jobRef?: string }>;
+        } | null;
+        if (cancelled || !response.ok || !body) return;
+        const costByItem = new Map((body.items || []).map((item) => [item.id, item.unitCost || 0]));
+        const byJob: Record<string, number> = {};
+        for (const movement of body.movements || []) {
+          if (movement.reason !== "Issue to job" || !movement.jobRef?.trim()) continue;
+          const ref = movement.jobRef.trim().toLowerCase();
+          const qty = Math.abs(Number(movement.quantity) || 0);
+          const unitCost = costByItem.get(movement.itemId) || 0;
+          byJob[ref] = (byJob[ref] || 0) + qty * unitCost;
+        }
+        setStockIssueCostByJobRef(byJob);
+      } catch {
+        // reports stay usable without stock
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydratedLocalData, requestHeaders, homeView]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+    let cancelled = false;
+    void (async () => {
+      try {
         const response = await fetch("/api/site-assets?due=1&withinDays=30", { headers: requestHeaders });
         const body = await response.json().catch(() => null) as {
           assets?: Array<{
@@ -11083,7 +11125,9 @@ export default function Dashboard() {
           );
           const jobPurchaseRequests = purchaseRequests.filter((request) => request.jobId === job.id && request.status !== "Rejected");
           const pendingMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestPendingCost(request), 0);
-          const actualMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestActualCost(request), 0);
+          const poMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestActualCost(request), 0);
+          const stockMaterialCost = stockIssueCostByJobRef[job.ref.toLowerCase()] || 0;
+          const actualMaterialCost = poMaterialCost + stockMaterialCost;
           const jobTimesheets = jobDeliveryEvents.filter(
             (event) => event.jobId === job.id && event.kind === "timesheet" && event.status === "Approved",
           );
@@ -11139,6 +11183,7 @@ export default function Dashboard() {
       reportDateRange,
       reportEngineerFilter,
       reportStatusFilter,
+      stockIssueCostByJobRef,
     ],
   );
 
@@ -26723,7 +26768,11 @@ export default function Dashboard() {
                     <header><h3>Price tracking</h3></header>
                     <div className="report-mini-stack">
                       <article><span>Supplier RFQs</span><strong>{reportPurchaseRows.filter((row) => row.request.status === "Requested").length}</strong><small>Waiting office or supplier action</small></article>
-                      <article><span>Stock usage</span><strong>Setup</strong><small>Will use stock movements once stock is enabled.</small></article>
+                      <article>
+                        <span>Stock issued to jobs</span>
+                        <strong>{currency(Object.values(stockIssueCostByJobRef).reduce((sum, value) => sum + value, 0))}</strong>
+                        <small>Issue-to-job movements at unit cost</small>
+                      </article>
                       <article><span>Price increases</span><strong>Tracking</strong><small>Compares supplier quote PDFs against catalogue history.</small></article>
                     </div>
                   </section>
@@ -27017,6 +27066,46 @@ export default function Dashboard() {
                               )}
                             </strong>
                           </div>
+                          <label className="accounts-payment-amount">
+                            <span>Pay supplier</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={poSupplierPaymentDraft.amount}
+                              onChange={(event) =>
+                                setPoSupplierPaymentDraft((current) => ({ ...current, amount: event.target.value }))
+                              }
+                              aria-label="Supplier payment amount"
+                            />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Method</span>
+                            <select
+                              value={poSupplierPaymentDraft.method}
+                              onChange={(event) =>
+                                setPoSupplierPaymentDraft((current) => ({ ...current, method: event.target.value }))
+                              }
+                              aria-label="Supplier payment method"
+                            >
+                              <option>Bank transfer</option>
+                              <option>Card</option>
+                              <option>Cheque</option>
+                              <option>Direct debit</option>
+                              <option>Other</option>
+                            </select>
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Payment ref</span>
+                            <input
+                              value={poSupplierPaymentDraft.reference}
+                              onChange={(event) =>
+                                setPoSupplierPaymentDraft((current) => ({ ...current, reference: event.target.value }))
+                              }
+                              placeholder="BACS / remittance"
+                              aria-label="Supplier payment reference"
+                            />
+                          </label>
                         </div>
                         {(selectedPurchaseOrder.supplierPayments || []).length ? (
                           <div className="ops-table" style={{ marginTop: "0.75rem" }}>
@@ -27073,6 +27162,49 @@ export default function Dashboard() {
                               }}
                             >
                               Save supplier invoice
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => {
+                                const remaining = Math.max(
+                                  0,
+                                  (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0),
+                                );
+                                const amount = Number(poSupplierPaymentDraft.amount);
+                                if (!Number.isFinite(amount) || amount <= 0) {
+                                  showNotice("Enter the supplier payment amount before recording it.");
+                                  return;
+                                }
+                                if (amount > remaining + 0.009) {
+                                  showNotice(`Payment cannot exceed the remaining supplier balance of ${currency(remaining)}.`);
+                                  return;
+                                }
+                                const nextPaid = (selectedPurchaseOrder.supplierPaidAmount ?? 0) + amount;
+                                const owed = match.invoiced ?? match.ordered;
+                                const nextStatus =
+                                  nextPaid >= owed - 0.009 ? "Paid" : nextPaid > 0.009 ? "Part paid" : "Unpaid";
+                                const payment = {
+                                  id: `po-pay-${Date.now()}`,
+                                  paidAt: currentOperatingDate,
+                                  amount,
+                                  method: poSupplierPaymentDraft.method.trim() || "Bank transfer",
+                                  reference: poSupplierPaymentDraft.reference.trim() || undefined,
+                                  actor: activeEmployee?.name ?? "NeXa user",
+                                  source: "manual" as const,
+                                };
+                                void patchPurchaseRequest(
+                                  selectedPurchaseOrder.id,
+                                  {
+                                    supplierPaidAmount: nextPaid,
+                                    supplierPaymentStatus: nextStatus,
+                                    supplierPayments: [...(selectedPurchaseOrder.supplierPayments || []), payment],
+                                  },
+                                  `${selectedPurchaseOrder.poNumber || "PO"}: recorded supplier payment ${currency(amount)} · ${nextStatus}.`,
+                                );
+                              }}
+                            >
+                              Record supplier payment
                             </button>
                             <button
                               className="secondary-button"
