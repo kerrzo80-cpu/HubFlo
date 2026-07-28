@@ -249,25 +249,35 @@ async function main() {
   const job = convertRes.json.job || convertRes.json;
   note("info", "Job created from quote", { detail: job.ref || JSON.stringify(convertRes.json).slice(0, 200) });
 
-  // 4) Schedule job
+  // 4) Schedule job — unique day/time to avoid engineer clashes
   const jobId = job.id;
   if (jobId) {
-    const sched = await request(
-      "PATCH",
-      `/api/jobs/${jobId}`,
-      {
-        manager: "Brian Kerr",
-        scheduledDate: surveyDate,
-        scheduledTime: jobScheduleTime,
-        status: "In progress",
-        next: "Engineer scheduled for E2E loop",
-      },
-      cookie,
-    );
-    if (sched.status >= 400) {
-      note("warn", "Job schedule patch failed", { detail: JSON.stringify(sched.json) });
-    } else {
-      note("info", "Job scheduled", { detail: `${surveyDate} ${jobScheduleTime} Brian Kerr` });
+    const scheduleDay = new Date();
+    scheduleDay.setDate(scheduleDay.getDate() + 2 + (Date.now() % 5));
+    const scheduledDate = scheduleDay.toISOString().slice(0, 10);
+    let scheduled = false;
+    for (let attempt = 0; attempt < 6 && !scheduled; attempt += 1) {
+      const hour = 8 + ((Date.now() + attempt * 37) % 9);
+      const minute = String((Date.now() + attempt * 13) % 50).padStart(2, "0");
+      const tryTime = `${String(hour).padStart(2, "0")}:${minute}`;
+      const sched = await request(
+        "PATCH",
+        `/api/jobs/${jobId}`,
+        {
+          manager: "Brian Kerr",
+          scheduledDate,
+          scheduledTime: tryTime,
+          status: "In progress",
+          next: "Engineer scheduled for E2E loop",
+        },
+        cookie,
+      );
+      if (sched.status >= 400) {
+        note("warn", "Job schedule patch failed", { detail: JSON.stringify(sched.json) });
+      } else {
+        note("info", "Job scheduled", { detail: `${scheduledDate} ${tryTime} Brian Kerr` });
+        scheduled = true;
+      }
     }
   }
 
