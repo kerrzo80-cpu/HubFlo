@@ -7741,8 +7741,26 @@ export default function Dashboard() {
   );
 
   const selectedJobTimesheetHours = useMemo(
-    () => selectedJobDeliveryEvents.reduce((total, event) => total + (event.kind === "timesheet" ? event.hours ?? 0 : 0), 0),
+    () =>
+      selectedJobDeliveryEvents.reduce((total, event) => {
+        if (event.kind !== "timesheet" || event.status === "Rejected") return total;
+        return total + (event.hours ?? 0);
+      }, 0),
     [selectedJobDeliveryEvents],
+  );
+
+  const selectedJobApprovedTimesheetHours = useMemo(
+    () =>
+      selectedJobDeliveryEvents.reduce((total, event) => {
+        if (event.kind !== "timesheet" || event.status !== "Approved") return total;
+        return total + (event.hours ?? 0);
+      }, 0),
+    [selectedJobDeliveryEvents],
+  );
+
+  const pendingTimesheetApprovals = useMemo(
+    () => jobDeliveryEvents.filter((event) => event.kind === "timesheet" && (event.status === "Submitted" || !event.status)),
+    [jobDeliveryEvents],
   );
 
   const selectedJobPurchaseRequests = useMemo(
@@ -10703,7 +10721,9 @@ export default function Dashboard() {
           const jobPurchaseRequests = purchaseRequests.filter((request) => request.jobId === job.id && request.status !== "Rejected");
           const pendingMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestPendingCost(request), 0);
           const actualMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestActualCost(request), 0);
-          const jobTimesheets = jobDeliveryEvents.filter((event) => event.jobId === job.id && event.kind === "timesheet");
+          const jobTimesheets = jobDeliveryEvents.filter(
+            (event) => event.jobId === job.id && event.kind === "timesheet" && event.status === "Approved",
+          );
           const workedHours = jobTimesheets.reduce((total, event) => total + (event.hours ?? 0), 0);
           const actualLabourCost = jobTimesheets.reduce((total, event) => {
             if (event.costValue !== undefined) return total + event.costValue;
@@ -16387,11 +16407,79 @@ export default function Dashboard() {
       action: "submitted",
       recordType: "job",
       recordId: selectedJob.id,
-      summary: `${hours} hrs timesheet submitted for ${selectedJob.ref}.`,
+      summary: `${hours} hrs timesheet submitted for ${selectedJob.ref} — awaiting office approval.`,
       source: "timesheet capture",
       importance: "normal",
     });
-    showNotice("Timesheet captured against the job.");
+    showNotice("Timesheet submitted for office approval.");
+  }
+
+  function reviewJobTimesheet(eventId: string, decision: "Approved" | "Rejected") {
+    const event = jobDeliveryEvents.find((row) => row.id === eventId);
+    if (!event || event.kind !== "timesheet") return;
+    if (event.status === "Approved" || event.status === "Rejected") {
+      showNotice(`Timesheet already ${event.status.toLowerCase()}.`);
+      return;
+    }
+    const hours = event.hours ?? 0;
+    const hourlyRate = employeeHourlyRateByName.get(event.actor) ?? Number(fallbackLabourRateSetting.costRate);
+    const costValue = decision === "Approved" ? hours * hourlyRate : event.costValue;
+    setJobDeliveryEvents((current) =>
+      current.map((row) =>
+        row.id === eventId
+          ? {
+              ...row,
+              status: decision,
+              costValue,
+            }
+          : row,
+      ),
+    );
+
+    if (decision === "Approved" && hours > 0) {
+      setJobEstimateCostCentres((current) => {
+        const existing = current[event.jobId] ?? [];
+        const job = jobs.find((row) => row.id === event.jobId);
+        const centres: EstimateCostCentre[] = existing.length
+          ? existing.map((centre) => ({ ...centre, labour: [...centre.labour], materials: [...centre.materials] }))
+          : job
+            ? makeDefaultEstimateCostCentres(job)
+            : [];
+        if (!centres.length) return current;
+        const target = centres[0];
+        if (!target) return current;
+        const labourLine: EstimateLabourLine = {
+          id: `labour-ts-${eventId}`,
+          role: `${event.actor} (approved timesheet)`,
+          hours,
+          costRate: hourlyRate,
+          markupPercent: Number(fallbackLabourRateSetting.markupPercent) || 30,
+          rateSource: "manual",
+        };
+        const nextCentres: EstimateCostCentre[] = [
+          {
+            ...target,
+            labour: [...target.labour.filter((line) => line.id !== labourLine.id), labourLine],
+          },
+          ...centres.slice(1),
+        ];
+        return { ...current, [event.jobId]: nextCentres };
+      });
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: decision === "Approved" ? "timesheet approved" : "timesheet rejected",
+      recordType: "job",
+      recordId: event.jobId,
+      summary:
+        decision === "Approved"
+          ? `${hours} hrs approved on ${event.jobRef} at ${currency(hourlyRate)}/hr (${currency(costValue || 0)} labour cost).`
+          : `${hours} hrs timesheet rejected on ${event.jobRef}.`,
+      source: "timesheet approval",
+      importance: "high",
+    });
+    showNotice(decision === "Approved" ? `Approved ${hours}h on ${event.jobRef}.` : `Rejected timesheet on ${event.jobRef}.`);
   }
 
   function raiseSelectedJobVariation() {
@@ -22226,9 +22314,9 @@ export default function Dashboard() {
               <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-timesheets")}>
                 <Clock3 size={18} />
                 <span>
-                  <strong>{overdueTimesheetJobs.length}</strong>
-                  <b>Timesheets overdue</b>
-                  <small>Jobs missing labour records</small>
+                  <strong>{overdueTimesheetJobs.length + pendingTimesheetApprovals.length}</strong>
+                  <b>Timesheets</b>
+                  <small>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</small>
                 </span>
               </button>
             </div>
@@ -22414,11 +22502,31 @@ export default function Dashboard() {
             <header>
               <div>
                 <h3>Timesheets</h3>
-                <p>{overdueTimesheetJobs.length} overdue</p>
+                <p>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</p>
               </div>
               <Clock3 size={18} />
             </header>
             <div className="ops-queue-list">
+              {pendingTimesheetApprovals.length > 0 ? (
+                pendingTimesheetApprovals.slice(0, 6).map((event) => (
+                  <article className="ops-queue-item" key={event.id}>
+                    <button type="button" onClick={() => openJobDrawer(event.jobId)}>
+                      <strong>{event.jobRef}</strong>
+                      <span>{event.actor}</span>
+                      <small>{(event.hours ?? 0).toFixed(1)}h · {event.summary}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill amber">Submitted</span>
+                      <button className="primary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Approved")}>
+                        Approve
+                      </button>
+                      <button className="secondary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Rejected")}>
+                        Reject
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : null}
               {overdueTimesheetJobs.length > 0 ? (
                 overdueTimesheetJobs.slice(0, 4).map((job) => (
                   <article className="ops-queue-item" key={job.id}>
@@ -22435,9 +22543,10 @@ export default function Dashboard() {
                     </div>
                   </article>
                 ))
-              ) : (
-                <div className="ops-queue-empty">No overdue timesheets.</div>
-              )}
+              ) : null}
+              {!pendingTimesheetApprovals.length && !overdueTimesheetJobs.length ? (
+                <div className="ops-queue-empty">No timesheets waiting.</div>
+              ) : null}
             </div>
           </section>
           );
@@ -28225,7 +28334,8 @@ export default function Dashboard() {
                         </article>
                         <article>
                           <span>Timesheets</span>
-                          <strong>{selectedJobTimesheetHours.toFixed(1)}h</strong>
+                          <strong>{selectedJobApprovedTimesheetHours.toFixed(1)}h approved</strong>
+                          <small>{selectedJobTimesheetHours.toFixed(1)}h submitted</small>
                         </article>
                         <article>
                           <span>Cost-centre POs</span>
@@ -28309,7 +28419,7 @@ export default function Dashboard() {
                         {selectedJobDeliveryEvents.length === 0 ? (
                           <p>No site updates, timesheets, variations or PO requests captured yet.</p>
                         ) : (
-                          selectedJobDeliveryEvents.slice(0, 5).map((event) => (
+                          selectedJobDeliveryEvents.slice(0, 8).map((event) => (
                             <article key={event.id} className="job-delivery-event">
                               <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
                               <div>
@@ -28318,6 +28428,16 @@ export default function Dashboard() {
                                   {event.actor} · {event.source} · {event.createdAt}
                                   {event.status ? ` · ${event.status}` : ""}
                                 </small>
+                                {event.kind === "timesheet" && (event.status === "Submitted" || !event.status) ? (
+                                  <div className="ops-queue-actions" style={{ marginTop: "0.4rem" }}>
+                                    <button className="primary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Approved")}>
+                                      Approve
+                                    </button>
+                                    <button className="secondary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Rejected")}>
+                                      Reject
+                                    </button>
+                                  </div>
+                                ) : null}
                               </div>
                               {event.kind === "timesheet" ? <b>{(event.hours ?? 0).toFixed(1)}h</b> : null}
                               {event.kind === "po" || event.kind === "variation" ? <b>{currency(event.sellValue ?? event.costValue ?? 0)}</b> : null}
