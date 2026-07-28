@@ -27886,16 +27886,6 @@ export default function Dashboard() {
                         <div><dt>Supplier email</dt><dd>{selectedPurchaseOrder.supplierEmail || "To be confirmed"}</dd></div>
                         <div><dt>Created by</dt><dd>{selectedPurchaseOrder.requestedBy}</dd></div>
                         <div>
-                          <dt>Xero bill</dt>
-                          <dd>
-                            {selectedPurchaseOrder.xeroBillId
-                              ? `Linked · ${selectedPurchaseOrder.xeroBillNumber || selectedPurchaseOrder.poNumber}`
-                              : selectedPurchaseOrder.xeroAccountsStatus === "Sent"
-                                ? "CSV sent (no live BillID yet)"
-                                : "Not sent"}
-                          </dd>
-                        </div>
-                        <div>
                           <dt>Supplier payment</dt>
                           <dd>
                             {selectedPurchaseOrder.supplierPaymentStatus || "Unpaid"}
@@ -28050,9 +28040,6 @@ export default function Dashboard() {
                                     ? "."
                                     : ` · invoice ${currency(match.orderedVsInvoiced)} vs order.`)
                                 : "Enter the supplier invoice amount after goods receipt to complete the match."}
-                            {selectedPurchaseOrder.xeroPaymentsCheckedAt
-                              ? ` · Xero payments checked ${selectedPurchaseOrder.xeroPaymentsCheckedAt.slice(0, 16).replace("T", " ")}`
-                              : ""}
                           </small>
                           <div>
                             <button
@@ -35161,30 +35148,16 @@ export default function Dashboard() {
                         <header>
                           <div>
                             <span className="permission-heading">Accounts and payment</span>
-                            <h2>Xero handoff</h2>
+                            <h2>Payments</h2>
                           </div>
-                          <span className={`status-pill ${selectedInvoice.accountsStatus === "Sent" ? "green" : selectedInvoice.accountsStatus === "Queued" ? "amber" : "blue"}`}>
-                            {selectedInvoice.accountsStatus ?? "Not sent"}
+                          <span className={`status-pill ${selectedInvoice.paymentStatus === "Paid" ? "green" : selectedInvoice.paymentStatus === "Part paid" ? "amber" : "blue"}`}>
+                            {selectedInvoice.paymentStatus ?? "Unpaid"}
                           </span>
                         </header>
                         <div className="accounts-handoff-grid">
                           <div><span>Claim type</span><strong>{invoiceClaimTypeLabel(selectedInvoice.claimType, selectedInvoice.claimPercent)}</strong></div>
                           <div><span>Payment status</span><strong>{selectedInvoice.paymentStatus ?? "Unpaid"}</strong></div>
                           <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
-                          <div>
-                            <span>Connector</span>
-                            <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
-                          </div>
-                          <div>
-                            <span>Xero link</span>
-                            <strong>
-                              {selectedInvoice.xeroInvoiceId
-                                ? `Linked · ${selectedInvoice.xeroInvoiceNumber || selectedInvoice.ref}`
-                                : selectedInvoice.accountsStatus === "Sent"
-                                  ? "Sent (no live InvoiceID yet)"
-                                  : "Not linked"}
-                            </strong>
-                          </div>
                           <div>
                             <span>Amount remaining</span>
                             <strong>{currency(Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0)))}</strong>
@@ -35277,7 +35250,7 @@ export default function Dashboard() {
                               <div className="ops-table-row" key={payment.id}>
                                 <span>{payment.paidAt}</span>
                                 <strong>{currency(payment.amount)}</strong>
-                                <span>{payment.source === "xero" ? `${payment.method} · Xero` : payment.method}</span>
+                                <span>{payment.method}</span>
                                 <span>{payment.reference || payment.actor || "—"}</span>
                               </div>
                             ))}
@@ -35285,16 +35258,24 @@ export default function Dashboard() {
                         ) : null}
                         <footer>
                           <small>
-                            {xeroConnectionStatus?.mode === "oauth" && xeroConnectionStatus.configured
-                              ? "Live OAuth push creates the invoice in Xero. CSV pack remains available as fallback."
-                              : xeroConnectionStatus?.mode === "static-token"
-                                ? "Static access token push creates the invoice in Xero when present; otherwise NeXa downloads a CSV import pack."
-                              : "No live Xero token yet — export still works as a Xero CSV import pack and marks this invoice Sent for accounts. Record each payment against the ledger; totals stay append-only until cleared. Connect OAuth from Setup → Integrations when credentials are on Render."}
+                            Record payments on this invoice. Export to accounts from the{" "}
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => {
+                                setHomeView("xero");
+                                setActiveXeroTab("sales");
+                                scrollWorkspaceToTop();
+                              }}
+                            >
+                              Xero
+                            </button>{" "}
+                            module.
                           </small>
                           <div>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
-                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
+                            <button className="primary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
                             {selectedInvoice.claimType !== "credit-note" ? (
                               <button
                                 className="secondary-button"
@@ -35321,43 +35302,6 @@ export default function Dashboard() {
                               onClick={() => void sendSelectedInvoiceRemittanceAdvice()}
                             >
                               {isSendingInvoiceRemittance ? "Sending remittance…" : "Email remittance advice"}
-                            </button>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              disabled={
-                                isPullingXeroPayments ||
-                                !access.canEditInvoice ||
-                                !(xeroConnectionStatus?.configured || xeroConnectionStatus?.hasAccessToken)
-                              }
-                              title={
-                                xeroConnectionStatus?.configured || xeroConnectionStatus?.hasAccessToken
-                                  ? "Import payments already posted against this invoice number in Xero"
-                                  : "Connect Xero (OAuth or static token) before pulling payments"
-                              }
-                              onClick={() => void pullSelectedInvoicePaymentsFromXero()}
-                            >
-                              {isPullingXeroPayments ? "Pulling…" : "Pull payments from Xero"}
-                            </button>
-                            <button
-                              className="primary-button"
-                              type="button"
-                              disabled={isExportingInvoiceToXero || !access.canEditInvoice}
-                              onClick={() => void exportSelectedInvoiceToXero()}
-                            >
-                              {isExportingInvoiceToXero
-                                ? "Exporting…"
-                                : selectedInvoice.claimType === "credit-note"
-                                  ? selectedInvoice.xeroInvoiceId
-                                    ? "Update Xero credit"
-                                    : selectedInvoice.accountsStatus === "Sent"
-                                      ? "Re-export credit to Xero"
-                                      : "Export credit to Xero"
-                                  : selectedInvoice.xeroInvoiceId
-                                    ? "Update Xero invoice"
-                                    : selectedInvoice.accountsStatus === "Sent"
-                                      ? "Re-export to Xero"
-                                      : "Export to Xero"}
                             </button>
                           </div>
                         </footer>
