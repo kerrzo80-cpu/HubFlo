@@ -861,7 +861,7 @@ type LeadDraft = Omit<Lead, "id" | "ref" | "createdAt" | "next"> & {
 
 type RecordDocumentScope = "lead" | "quote" | "job" | "invoice";
 type InvoiceScopeType = "quote" | "job";
-type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "full";
+type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "retention-release" | "full";
 type ValuationStatus = "Draft valuation" | "Submitted" | "Agreed" | "Progress claim";
 type AccountsExportStatus = "Not sent" | "Queued" | "Sent";
 type InvoicePaymentStatus = "Unpaid" | "Part paid" | "Paid";
@@ -895,13 +895,22 @@ type ValuationLine = {
 
 type JobInvoiceDraft = {
   jobId: string;
-  mode: Exclude<InvoiceClaimType, "progress-claim">;
+  mode: Exclude<InvoiceClaimType, "progress-claim" | "retention-release">;
   depositPercent: number;
   retentionPercent: number;
   valuationPeriod: string;
   notes: string;
   valuationLines: ValuationLine[];
 };
+
+function invoiceClaimTypeLabel(claimType?: InvoiceClaimType, claimPercent?: number) {
+  if (claimType === "deposit") return `${claimPercent ?? 0}% deposit`;
+  if (claimType === "valuation") return "Application for payment";
+  if (claimType === "progress-claim") return "Progress claim";
+  if (claimType === "retention-release") return "Retention release";
+  if (claimType === "full") return "Invoice in full";
+  return "Invoice";
+}
 
 type InvoiceLine = {
   id: string;
@@ -943,6 +952,8 @@ type Invoice = {
   valuationLines?: ValuationLine[];
   retentionPercent?: number;
   applicationRef?: string;
+  retentionReleasedAmount?: number;
+  retentionReleaseOfRefs?: string[];
   accountsStatus?: AccountsExportStatus;
   paymentStatus?: InvoicePaymentStatus;
   paidAmount?: number;
@@ -1023,6 +1034,48 @@ function valuationLineTotals(lines: ValuationLine[], retentionPercent: number) {
 
 function valuationNetAmount(value: number, retentionPercent: number) {
   return Math.max(0, value) * (1 - Math.max(0, retentionPercent) / 100);
+}
+
+function progressClaimGrossAmount(invoice: Invoice) {
+  if (invoice.valuationLines?.length) {
+    return invoice.valuationLines.reduce((sum, line) => sum + Math.max(0, line.agreedThisPeriod || line.requestedThisPeriod || 0), 0);
+  }
+  const rate = Math.max(0, Math.min(99.9, invoice.retentionPercent ?? 0)) / 100;
+  if (rate > 0 && rate < 1) return (invoice.chargeTotal || 0) / (1 - rate);
+  return invoice.chargeTotal || 0;
+}
+
+function progressClaimRetainedAmount(invoice: Invoice) {
+  const rate = Math.max(0, invoice.retentionPercent ?? 0) / 100;
+  if (rate <= 0) return 0;
+  return progressClaimGrossAmount(invoice) * rate;
+}
+
+function jobRetentionBalances(jobId: string, invoiceList: Invoice[]) {
+  const claims = invoiceList.filter(
+    (invoice) =>
+      invoice.sourceType === "job" &&
+      invoice.sourceId === jobId &&
+      invoice.status !== "Cancelled" &&
+      invoice.claimType === "progress-claim",
+  );
+  const releases = invoiceList.filter(
+    (invoice) =>
+      invoice.sourceType === "job" &&
+      invoice.sourceId === jobId &&
+      invoice.status !== "Cancelled" &&
+      invoice.claimType === "retention-release",
+  );
+  const retained = claims.reduce((sum, invoice) => sum + progressClaimRetainedAmount(invoice), 0);
+  const released = releases.reduce((sum, invoice) => sum + Math.max(0, invoice.chargeTotal || 0), 0);
+  return {
+    retained,
+    released,
+    available: Math.max(0, retained - released),
+    claimCount: claims.length,
+    releaseCount: releases.length,
+    claimRefs: claims.map((invoice) => invoice.applicationRef || invoice.ref),
+  };
 }
 
 function buildInvoiceRef(settings: FinanceSettings, existing: string[]) {
@@ -7261,6 +7314,7 @@ export default function Dashboard() {
   const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
+  const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -8601,6 +8655,29 @@ export default function Dashboard() {
     const remaining = Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0));
     setInvoicePaymentAmountDraft(remaining > 0 ? remaining.toFixed(2) : "");
   }, [selectedInvoice?.id, selectedInvoice?.paidAmount, selectedInvoiceFinancials.grandTotal]);
+
+  const selectedRetentionBalances = useMemo(() => {
+    if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
+      return { retained: 0, released: 0, available: 0, claimCount: 0, releaseCount: 0, claimRefs: [] as string[] };
+    }
+    return jobRetentionBalances(selectedInvoice.sourceId, invoices);
+  }, [selectedInvoice, invoices]);
+
+  useEffect(() => {
+    if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
+      setRetentionReleaseAmountDraft("");
+      return;
+    }
+    if (selectedInvoice.claimType !== "progress-claim" && selectedInvoice.claimType !== "retention-release") {
+      setRetentionReleaseAmountDraft("");
+      return;
+    }
+    setRetentionReleaseAmountDraft(
+      selectedRetentionBalances.available > 0
+        ? String(Math.round(selectedRetentionBalances.available * 100) / 100)
+        : "",
+    );
+  }, [selectedInvoice?.id, selectedInvoice?.claimType, selectedInvoice?.sourceType, selectedRetentionBalances.available]);
 
   const selectedValuationTotals = useMemo(
     () => valuationLineTotals(selectedInvoice?.valuationLines ?? [], selectedInvoice?.retentionPercent ?? 0),
@@ -14980,7 +15057,8 @@ export default function Dashboard() {
         invoice.sourceType === "job" &&
         invoice.sourceId === job.id &&
         invoice.status !== "Cancelled" &&
-        invoice.claimType !== "valuation",
+        invoice.claimType !== "valuation" &&
+        invoice.claimType !== "retention-release",
       )
       .forEach((invoice) => {
         const lines = invoice.valuationLines || [];
@@ -15266,6 +15344,99 @@ export default function Dashboard() {
     });
     setActiveInvoiceFolderKey("unpaid");
     showNotice(`${applicationRef} approved. Invoice ${nextRef} created and marked unpaid. Xero export is not enabled yet.`);
+  }
+
+  function createRetentionReleaseInvoice() {
+    if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
+      showNotice("Open a progress claim linked to a job before releasing retention.");
+      return;
+    }
+    if (selectedInvoice.claimType !== "progress-claim" && selectedInvoice.claimType !== "retention-release") {
+      showNotice("Retention release is available from an agreed progress claim.");
+      return;
+    }
+    const jobId = selectedInvoice.sourceId;
+    const job = jobs.find((item) => item.id === jobId) ?? null;
+    if (!job) {
+      showNotice("Linked job not found for this progress claim.");
+      return;
+    }
+    const balances = jobRetentionBalances(jobId, invoices);
+    if (balances.available <= 0.009) {
+      showNotice(`${job.ref} has no retention left to release.`);
+      return;
+    }
+    let amount = Number(retentionReleaseAmountDraft);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      amount = balances.available;
+    }
+    if (amount > balances.available + 0.009) {
+      showNotice(`Release cannot exceed available retention of ${currency(balances.available)}.`);
+      return;
+    }
+    amount = Math.min(amount, balances.available);
+
+    const client = clients.find((item) => item.id === job.clientId || item.id === selectedInvoice.clientId) ?? selectedInvoiceClient ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+    const nextRef = buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref));
+    const vatProfile = resolveVatProfile(normalizedFinanceSettings, client, site);
+    const line: InvoiceLine = {
+      id: `retention-release-${Date.now()}`,
+      description: `Retention release · ${job.ref}`,
+      category: "Other",
+      costToUs: 0,
+      chargeToClient: amount,
+      note: `Release of retained value from ${balances.claimRefs.slice(0, 4).join(", ") || "progress claims"}`,
+    };
+    const created: Invoice = {
+      id: `invoice-${Date.now()}`,
+      ref: nextRef,
+      status: "Sent",
+      sourceType: "job",
+      sourceId: job.id,
+      sourceRef: job.ref,
+      sourceName: job.customer,
+      customer: job.customer,
+      issuedDate: currentOperatingDate,
+      dueDate: invoiceDueDateFromSettings(normalizedFinanceSettings),
+      clientId: client?.id || selectedInvoice.clientId,
+      siteId: site?.id || selectedInvoice.siteId,
+      title: `Retention release · ${job.ref}`,
+      lines: [line],
+      costTotal: 0,
+      chargeTotal: amount,
+      vatRate: vatProfile.rate,
+      vatTreatment: vatProfile.treatment,
+      vatNote: vatProfile.note,
+      notes: `Retention release for ${job.ref}. Available was ${currency(balances.available)} before this invoice.`,
+      claimType: "retention-release",
+      retentionPercent: selectedInvoice.retentionPercent,
+      applicationRef: selectedInvoice.applicationRef,
+      retentionReleasedAmount: amount,
+      retentionReleaseOfRefs: balances.claimRefs,
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+      payments: [],
+    };
+
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save retention release invoice to the shared workspace.");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "retention released",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `${created.ref} releases ${currency(amount)} retention on ${job.ref} (${currency(balances.available - amount)} still retained).`,
+      source: "job billing",
+      importance: "high",
+    });
+    setRetentionReleaseAmountDraft("");
+    setActiveInvoiceFolderKey("unpaid");
+    openInvoiceRecord(created.id);
+    showNotice(`${created.ref} created for ${currency(amount)} retention release on ${job.ref}.`);
   }
 
   function amendSelectedValuation() {
@@ -15769,7 +15940,7 @@ export default function Dashboard() {
         document: selectedInvoiceEmailDraft.attachPdf
           ? {
               filename: `${selectedInvoice.ref}.pdf`,
-              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : "Invoice",
+              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "retention-release" ? "Retention release" : "Invoice",
               businessName: businessSettings.tradingName || businessSettings.companyName,
               reference: selectedInvoice.ref,
               recipient: selectedInvoice.customer,
@@ -32549,7 +32720,7 @@ export default function Dashboard() {
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
                   <div>
-                    <span className="employee-record-eyebrow">{selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice"}</span>
+                    <span className="employee-record-eyebrow">{invoiceClaimTypeLabel(selectedInvoice.claimType, selectedInvoice.claimPercent)}</span>
                     <h2>{selectedInvoice.ref}</h2>
                     <p>{selectedInvoice.title}</p>
                   </div>
@@ -32667,9 +32838,11 @@ export default function Dashboard() {
                                 ? "Application for payment"
                                 : selectedInvoice.claimType === "progress-claim"
                                   ? "Agreed progress claim"
-                                  : selectedInvoice.claimType === "deposit"
-                                    ? "Deposit claim"
-                                    : "Job claim"}
+                                  : selectedInvoice.claimType === "retention-release"
+                                    ? "Retention release"
+                                    : selectedInvoice.claimType === "deposit"
+                                      ? "Deposit claim"
+                                      : "Job claim"}
                             </h2>
                             <p>
                               {selectedInvoice.applicationRef ? `${selectedInvoice.applicationRef} · ` : ""}
@@ -32745,6 +32918,59 @@ export default function Dashboard() {
                       </section>
                     ) : null}
 
+                    {selectedInvoice.sourceType === "job" &&
+                    (selectedInvoice.claimType === "progress-claim" || selectedInvoice.claimType === "retention-release") ? (
+                      <section className="commercial-claim-panel">
+                        <header>
+                          <div>
+                            <span className="permission-heading">Retention</span>
+                            <h2>Release retained value</h2>
+                            <p>
+                              {selectedRetentionBalances.claimCount} progress claim
+                              {selectedRetentionBalances.claimCount === 1 ? "" : "s"} ·{" "}
+                              {selectedRetentionBalances.releaseCount} release
+                              {selectedRetentionBalances.releaseCount === 1 ? "" : "s"} to date
+                            </p>
+                          </div>
+                          <span className={`status-pill ${selectedRetentionBalances.available > 0.009 ? "amber" : "green"}`}>
+                            {selectedRetentionBalances.available > 0.009 ? "Retention held" : "Fully released"}
+                          </span>
+                        </header>
+                        <div className="valuation-totals-strip">
+                          <div><span>Retained to date</span><strong>{currency(selectedRetentionBalances.retained)}</strong></div>
+                          <div><span>Released to date</span><strong>{currency(selectedRetentionBalances.released)}</strong></div>
+                          <div><span>Available to release</span><strong>{currency(selectedRetentionBalances.available)}</strong></div>
+                          {selectedInvoice.claimType === "progress-claim" ? (
+                            <div>
+                              <span>This claim retained</span>
+                              <strong>{currency(progressClaimRetainedAmount(selectedInvoice))}</strong>
+                            </div>
+                          ) : null}
+                        </div>
+                        {selectedRetentionBalances.available > 0.009 ? (
+                          <div className="commercial-claim-actions">
+                            <label className="currency-input compact">
+                              <span>£</span>
+                              <input
+                                aria-label="Retention release amount"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                max={selectedRetentionBalances.available}
+                                value={retentionReleaseAmountDraft}
+                                onChange={(event) => setRetentionReleaseAmountDraft(event.target.value)}
+                              />
+                            </label>
+                            <button className="primary-button" type="button" onClick={createRetentionReleaseInvoice}>
+                              Create retention invoice
+                            </button>
+                          </div>
+                        ) : (
+                          <p>No retention left to release on this job.</p>
+                        )}
+                      </section>
+                    ) : null}
+
                     {selectedInvoice.claimType !== "valuation" ? (
                       <section className="accounts-handoff-panel">
                         <header>
@@ -32757,7 +32983,7 @@ export default function Dashboard() {
                           </span>
                         </header>
                         <div className="accounts-handoff-grid">
-                          <div><span>Claim type</span><strong>{selectedInvoice.claimType === "deposit" ? `${selectedInvoice.claimPercent ?? 0}% deposit` : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice in full"}</strong></div>
+                          <div><span>Claim type</span><strong>{invoiceClaimTypeLabel(selectedInvoice.claimType, selectedInvoice.claimPercent)}</strong></div>
                           <div><span>Payment status</span><strong>{selectedInvoice.paymentStatus ?? "Unpaid"}</strong></div>
                           <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
                           <div>
