@@ -4,8 +4,10 @@
   "packageManager": "pnpm@11.5.3",
   "scripts": {
     "dev": "pnpm --filter @hubflo/web dev",
+    "dev:field": "pnpm --filter @hubflo/field dev",
     "dev:local": "./scripts/pnpm.sh --filter @hubflo/web dev",
     "build": "pnpm --filter @hubflo/web build",
+    "build:field": "pnpm --filter @hubflo/field build",
     "build:local": "./scripts/pnpm.sh --filter @hubflo/web build",
     "typecheck": "scripts/typecheck.sh",
     "typecheck:all": "scripts/typecheck.sh",

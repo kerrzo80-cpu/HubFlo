@@ -8,9 +8,9 @@ This file is the shared source of truth for Codex chats working on HubFlo. Updat
 
 ## Key decisions
 
-- Build this inside HubFlo / NeXa, not as a separate disconnected product.
-- Keep the current scheduler/office tools as planning tools.
-- Add a mobile-first engineer module for plumbers, joiners and other field trades.
+- Build the field experience as a standalone app (`apps/field`) that can ship and be tested before live NeXa wiring.
+- Keep office scheduling / Core in HubFlo (`apps/web`); connect the field app via a `NexaFieldClient` adapter when ready.
+- Keep a mobile-first engineer module in Core as the API/source of truth for schedule and time charging.
 - Office schedules people into jobs on NeXa; those assignments appear as the engineer **My Day** schedule (push / notify later).
 - Field job packs include: job description, programme / Gantt for the day, drawings, photos and other engineer-visible docs.
 - **Blake** is the field co-pilot in the engineer app (same Blake as office, field-scoped prompts).
