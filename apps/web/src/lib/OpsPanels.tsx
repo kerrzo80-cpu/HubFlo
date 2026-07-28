@@ -50,6 +50,15 @@ export function StockOpsPanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ sku: "", name: "", unit: "each", minLevel: "0", unitCost: "0", locationId: "", qty: "1" });
+  const [moveDraft, setMoveDraft] = useState({
+    itemId: "",
+    fromLocationId: "",
+    toLocationId: "",
+    qty: "1",
+    jobRef: "",
+    countedQty: "",
+    mode: "transfer" as "transfer" | "issue" | "stocktake",
+  });
 
   async function load() {
     setError("");
@@ -61,6 +70,12 @@ export function StockOpsPanel({
       if (!draft.locationId && body.locations?.[0]?.id) {
         setDraft((current) => ({ ...current, locationId: body.locations[0].id }));
       }
+      setMoveDraft((current) => ({
+        ...current,
+        itemId: current.itemId || body.items?.[0]?.id || "",
+        fromLocationId: current.fromLocationId || body.locations?.[0]?.id || "",
+        toLocationId: current.toLocationId || body.locations?.[1]?.id || body.locations?.[0]?.id || "",
+      }));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Unable to load stock");
     }
@@ -133,13 +148,77 @@ export function StockOpsPanel({
     }
   }
 
+  async function runStockMove() {
+    if (!moveDraft.itemId) {
+      onNotice("Pick a stock item first.");
+      return;
+    }
+    const qty = moveDraft.mode === "stocktake" ? Number(moveDraft.countedQty) : Number(moveDraft.qty);
+    if (!Number.isFinite(qty) || qty < 0 || (moveDraft.mode !== "stocktake" && qty <= 0)) {
+      onNotice(moveDraft.mode === "stocktake" ? "Enter the counted quantity." : "Enter a quantity greater than zero.");
+      return;
+    }
+    if (moveDraft.mode === "issue" && !moveDraft.jobRef.trim()) {
+      onNotice("Enter the job ref before issuing stock.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const movement =
+        moveDraft.mode === "transfer"
+          ? {
+              itemId: moveDraft.itemId,
+              quantity: qty,
+              reason: "Transfer",
+              fromLocationId: moveDraft.fromLocationId,
+              toLocationId: moveDraft.toLocationId,
+            }
+          : moveDraft.mode === "issue"
+            ? {
+                itemId: moveDraft.itemId,
+                quantity: qty,
+                reason: "Issue to job",
+                fromLocationId: moveDraft.fromLocationId,
+                jobRef: moveDraft.jobRef.trim(),
+              }
+            : {
+                itemId: moveDraft.itemId,
+                quantity: qty,
+                reason: "Stocktake",
+                toLocationId: moveDraft.toLocationId || moveDraft.fromLocationId,
+                note: "Stocktake count",
+              };
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "move", movement }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to update stock");
+      setSnapshot(body as StockSnapshot);
+      onNotice(
+        moveDraft.mode === "transfer"
+          ? "Stock transferred."
+          : moveDraft.mode === "issue"
+            ? `Issued to ${moveDraft.jobRef.trim()}.`
+            : "Stocktake count saved.",
+      );
+      setMoveDraft((current) => ({ ...current, qty: "1", countedQty: "", jobRef: current.mode === "issue" ? "" : current.jobRef }));
+    } catch (moveError) {
+      setError(moveError instanceof Error ? moveError.message : "Unable to update stock");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="ops-module-panel">
       <header className="ops-module-header">
         <div>
           <span className="permission-heading">Materials</span>
           <h2><Package size={18} /> Stock &amp; van stock</h2>
-          <p>Warehouse plus Chris / Murray / Raymond / Ryan vans. Receipts, transfers and low-stock alerts.</p>
+          <p>Warehouse plus vans. Receive, transfer, issue to job, stocktake and low-stock alerts.</p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void load()} disabled={busy}>
           <RefreshCw size={15} /> Refresh
@@ -170,6 +249,61 @@ export function StockOpsPanel({
           </button>
         </article>
         <article>
+          <h3>Transfer / issue / stocktake</h3>
+          <div className="ops-form-grid">
+            <label>
+              Action
+              <select
+                value={moveDraft.mode}
+                onChange={(e) => setMoveDraft((c) => ({ ...c, mode: e.target.value as typeof c.mode }))}
+              >
+                <option value="transfer">Transfer warehouse ↔ van</option>
+                <option value="issue">Issue to job</option>
+                <option value="stocktake">Stocktake count</option>
+              </select>
+            </label>
+            <label>
+              Item
+              <select value={moveDraft.itemId} onChange={(e) => setMoveDraft((c) => ({ ...c, itemId: e.target.value }))}>
+                {(snapshot?.items || []).map((item) => (
+                  <option key={item.id} value={item.id}>{item.sku} — {item.name}</option>
+                ))}
+              </select>
+            </label>
+            {moveDraft.mode !== "stocktake" ? (
+              <label>
+                From
+                <select value={moveDraft.fromLocationId} onChange={(e) => setMoveDraft((c) => ({ ...c, fromLocationId: e.target.value }))}>
+                  {(snapshot?.locations || []).map((location) => (
+                    <option key={location.id} value={location.id}>{location.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {moveDraft.mode !== "issue" ? (
+              <label>
+                {moveDraft.mode === "stocktake" ? "Location" : "To"}
+                <select value={moveDraft.toLocationId} onChange={(e) => setMoveDraft((c) => ({ ...c, toLocationId: e.target.value }))}>
+                  {(snapshot?.locations || []).map((location) => (
+                    <option key={location.id} value={location.id}>{location.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {moveDraft.mode === "issue" ? (
+              <label>Job ref<input value={moveDraft.jobRef} onChange={(e) => setMoveDraft((c) => ({ ...c, jobRef: e.target.value }))} placeholder="J-1004" /></label>
+            ) : null}
+            {moveDraft.mode === "stocktake" ? (
+              <label>Counted qty<input value={moveDraft.countedQty} onChange={(e) => setMoveDraft((c) => ({ ...c, countedQty: e.target.value }))} /></label>
+            ) : (
+              <label>Qty<input value={moveDraft.qty} onChange={(e) => setMoveDraft((c) => ({ ...c, qty: e.target.value }))} /></label>
+            )}
+          </div>
+          <button className="primary-button" type="button" disabled={busy || !(snapshot?.items || []).length} onClick={() => void runStockMove()}>
+            {moveDraft.mode === "transfer" ? "Transfer stock" : moveDraft.mode === "issue" ? "Issue to job" : "Save stocktake"}
+          </button>
+        </article>
+        <article>
           <h3>Locations</h3>
           <ul className="ops-simple-list">
             {(snapshot?.locations || []).map((location) => (
@@ -193,6 +327,23 @@ export function StockOpsPanel({
           ) : (
             <p className="muted">No items below minimum.</p>
           )}
+          <h3>Recent movements</h3>
+          <ul className="ops-simple-list">
+            {(snapshot?.movements || []).slice(0, 6).map((movement) => {
+              const item = snapshot?.items.find((row) => row.id === movement.itemId);
+              return (
+                <li key={movement.id}>
+                  <strong>{movement.reason}</strong>
+                  <span>
+                    {item?.sku || "item"} · {movement.quantity}
+                    {movement.jobRef ? ` · ${movement.jobRef}` : ""}
+                    {movement.poNumber ? ` · ${movement.poNumber}` : ""}
+                  </span>
+                </li>
+              );
+            })}
+            {!(snapshot?.movements || []).length ? <li><span className="muted">No movements yet.</span></li> : null}
+          </ul>
         </article>
       </div>
       <div className="ops-table">

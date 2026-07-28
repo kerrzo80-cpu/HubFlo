@@ -865,6 +865,16 @@ type ValuationStatus = "Draft valuation" | "Submitted" | "Agreed" | "Progress cl
 type AccountsExportStatus = "Not sent" | "Queued" | "Sent";
 type InvoicePaymentStatus = "Unpaid" | "Part paid" | "Paid";
 
+type InvoicePaymentRecord = {
+  id: string;
+  paidAt: string;
+  amount: number;
+  method: string;
+  reference?: string;
+  note?: string;
+  actor?: string;
+};
+
 type ValuationLine = {
   id: string;
   costCentreId?: string;
@@ -930,6 +940,7 @@ type Invoice = {
   accountsStatus?: AccountsExportStatus;
   paymentStatus?: InvoicePaymentStatus;
   paidAmount?: number;
+  payments?: InvoicePaymentRecord[];
 };
 
 type InvoiceEmailDraft = {
@@ -7112,6 +7123,8 @@ export default function Dashboard() {
     ["clients", "sites"],
   );
   const [invoicePaymentAmountDraft, setInvoicePaymentAmountDraft] = useState("");
+  const [invoicePaymentMethodDraft, setInvoicePaymentMethodDraft] = useState("Bank transfer");
+  const [invoicePaymentReferenceDraft, setInvoicePaymentReferenceDraft] = useState("");
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
@@ -14907,42 +14920,81 @@ export default function Dashboard() {
   function updateSelectedInvoicePayment(paymentStatus: InvoicePaymentStatus) {
     if (!selectedInvoice) return;
     const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
-    let paidAmount = 0;
-    if (paymentStatus === "Paid") {
-      paidAmount = grandTotal;
-    } else if (paymentStatus === "Part paid") {
-      const typed = Number(invoicePaymentAmountDraft);
-      if (!Number.isFinite(typed) || typed <= 0) {
-        showNotice("Enter the amount paid before marking part paid.");
-        return;
-      }
-      if (typed >= grandTotal) {
-        paidAmount = grandTotal;
-        paymentStatus = "Paid";
-      } else {
-        paidAmount = typed;
-      }
+    if (paymentStatus === "Unpaid") {
+      markInvoiceEdited();
+      setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+        ? {
+            ...invoice,
+            paymentStatus: "Unpaid",
+            paidAmount: 0,
+            payments: [],
+            status: invoice.status === "Paid" || invoice.status === "Partially paid" ? "Sent" : invoice.status,
+          }
+        : invoice,
+      ));
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "payment cleared",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref} payment ledger cleared.`,
+        source: "web",
+        importance: "normal",
+      });
+      showNotice(`${selectedInvoice.ref} marked unpaid.`);
+      return;
     }
+
+    const remaining = Math.max(0, grandTotal - (selectedInvoice.paidAmount ?? 0));
+    let amount = paymentStatus === "Paid" ? remaining : Number(invoicePaymentAmountDraft);
+    if (paymentStatus === "Paid" && remaining <= 0) {
+      showNotice(`${selectedInvoice.ref} is already paid in full.`);
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showNotice("Enter the payment amount before recording it.");
+      return;
+    }
+    if (amount > remaining + 0.009) {
+      showNotice(`Payment cannot exceed the remaining balance of ${currency(remaining)}.`);
+      return;
+    }
+
+    const nextPaid = Math.min(grandTotal, (selectedInvoice.paidAmount ?? 0) + amount);
+    const nextStatus: InvoicePaymentStatus = nextPaid >= grandTotal - 0.009 ? "Paid" : "Part paid";
+    const payment: InvoicePaymentRecord = {
+      id: `pay-${Date.now()}`,
+      paidAt: new Date().toISOString().slice(0, 10),
+      amount,
+      method: invoicePaymentMethodDraft.trim() || "Bank transfer",
+      reference: invoicePaymentReferenceDraft.trim() || undefined,
+      actor: activeEmployee?.name ?? "NeXa user",
+    };
+
     markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
-          paymentStatus,
-          paidAmount,
-          status: paymentStatus === "Paid" ? "Paid" : paymentStatus === "Part paid" ? "Partially paid" : invoice.status === "Paid" || invoice.status === "Partially paid" ? "Sent" : invoice.status,
+          paymentStatus: nextStatus,
+          paidAmount: nextPaid,
+          payments: [...(invoice.payments || []), payment],
+          status: nextStatus === "Paid" ? "Paid" : nextStatus === "Part paid" ? "Partially paid" : invoice.status === "Paid" || invoice.status === "Partially paid" ? "Sent" : invoice.status,
         }
       : invoice,
     ));
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
-      action: "payment updated",
+      action: "payment recorded",
       recordType: "invoice",
       recordId: selectedInvoice.id,
-      summary: `${selectedInvoice.ref} payment set to ${paymentStatus}${paidAmount ? ` · ${currency(paidAmount)}` : ""}.`,
+      summary: `${selectedInvoice.ref} payment ${currency(amount)} via ${payment.method}${payment.reference ? ` · ${payment.reference}` : ""} (${nextStatus}).`,
       source: "web",
-      importance: paymentStatus === "Paid" ? "high" : "normal",
+      importance: nextStatus === "Paid" ? "high" : "normal",
     });
-    showNotice(`${selectedInvoice.ref} marked ${paymentStatus.toLowerCase()}${paidAmount ? ` (${currency(paidAmount)})` : ""}.`);
+    setInvoicePaymentReferenceDraft("");
+    const stillRemaining = Math.max(0, grandTotal - nextPaid);
+    setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
+    showNotice(`${selectedInvoice.ref}: recorded ${currency(amount)} · paid to date ${currency(nextPaid)}.`);
   }
 
   async function exportSelectedInvoiceToXero() {
@@ -31106,17 +31158,50 @@ export default function Dashboard() {
                               aria-label="Payment amount"
                             />
                           </label>
+                          <label className="accounts-payment-amount">
+                            <span>Method</span>
+                            <select value={invoicePaymentMethodDraft} onChange={(event) => setInvoicePaymentMethodDraft(event.target.value)} aria-label="Payment method">
+                              <option>Bank transfer</option>
+                              <option>Card</option>
+                              <option>Cash</option>
+                              <option>Cheque</option>
+                              <option>Direct debit</option>
+                              <option>Other</option>
+                            </select>
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Reference</span>
+                            <input
+                              value={invoicePaymentReferenceDraft}
+                              onChange={(event) => setInvoicePaymentReferenceDraft(event.target.value)}
+                              placeholder="Bank ref / remittance"
+                              aria-label="Payment reference"
+                            />
+                          </label>
                         </div>
+                        {(selectedInvoice.payments || []).length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head"><span>Date</span><span>Amount</span><span>Method</span><span>Reference</span></div>
+                            {(selectedInvoice.payments || []).map((payment) => (
+                              <div className="ops-table-row" key={payment.id}>
+                                <span>{payment.paidAt}</span>
+                                <strong>{currency(payment.amount)}</strong>
+                                <span>{payment.method}</span>
+                                <span>{payment.reference || payment.actor || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                         <footer>
                           <small>
                             {xeroConnectionStatus?.configured
                               ? "Push creates the invoice in Xero when tokens are present; otherwise NeXa downloads a Xero CSV import pack and marks accounts status Sent."
-                              : "No live Xero token yet — export still works as a Xero CSV import pack and marks this invoice Sent for accounts."}
+                              : "No live Xero token yet — export still works as a Xero CSV import pack and marks this invoice Sent for accounts. Record each payment against the ledger; totals stay append-only until cleared."}
                           </small>
                           <div>
-                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Mark unpaid</button>
-                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Mark part paid</button>
-                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Mark paid</button>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
                             <button
                               className="primary-button"
                               type="button"

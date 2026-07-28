@@ -396,6 +396,45 @@ async function main() {
     }
   }
 
+  // Stock transfer + issue to job
+  if (job.ref) {
+    const stockGet = await request("GET", "/api/stock", null, cookie);
+    const items = stockGet.json?.items || [];
+    const locations = stockGet.json?.locations || [];
+    const warehouse = locations.find((l) => l.kind === "Warehouse") || locations[0];
+    const van = locations.find((l) => l.kind === "Van") || locations[1] || warehouse;
+    const item = items[0];
+    if (item && warehouse && van) {
+      const transfer = await request("POST", "/api/stock", {
+        action: "move",
+        movement: {
+          itemId: item.id,
+          quantity: 1,
+          reason: "Transfer",
+          fromLocationId: warehouse.id,
+          toLocationId: van.id,
+        },
+      }, cookie);
+      if (transfer.status >= 400) note("warn", "Stock transfer failed", { detail: JSON.stringify(transfer.json).slice(0, 200) });
+      else note("info", "Stock transferred to van", { detail: `${item.sku} → ${van.name}` });
+
+      const issue = await request("POST", "/api/stock", {
+        action: "move",
+        movement: {
+          itemId: item.id,
+          quantity: 1,
+          reason: "Issue to job",
+          fromLocationId: van.id,
+          jobRef: job.ref,
+        },
+      }, cookie);
+      if (issue.status >= 400) note("issue", "Stock issue to job failed", { detail: JSON.stringify(issue.json).slice(0, 200) });
+      else note("info", "Stock issued to job", { detail: `${item.sku} → ${job.ref}` });
+    } else {
+      note("warn", "Skipped stock transfer/issue — missing item or locations");
+    }
+  }
+
   // Summary counts
   const leads = (await request("GET", "/api/leads", null, cookie)).json;
   const quotes = (await request("GET", "/api/quotes", null, cookie)).json;
