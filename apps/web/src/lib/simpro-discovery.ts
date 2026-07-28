@@ -390,12 +390,3 @@ export async function runSimproDiscovery(actor = "NeXa admin"): Promise<SimproDi
 
   return result;
 }
-
-export function discoveryRequiresDirectSimpro() {
-  try {
-    // Lazy status check without throwing on missing config for GET handlers.
-    return true;
-  } catch {
-    return false;
-  }
-}
