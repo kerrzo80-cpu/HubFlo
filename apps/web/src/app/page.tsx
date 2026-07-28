@@ -28113,18 +28113,6 @@ export default function Dashboard() {
                             >
                               Record supplier payment
                             </button>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              disabled={
-                                isPullingPoBillPayments ||
-                                !(access.canEditInvoice || access.showFinance || access.canApprovePurchase || access.canEditJobs) ||
-                                !(xeroConnectionStatus?.configured || xeroConnectionStatus?.hasAccessToken)
-                              }
-                              onClick={() => void pullPurchaseOrderBillPaymentsFromXero(selectedPurchaseOrder)}
-                            >
-                              {isPullingPoBillPayments ? "Pulling…" : "Pull Xero payments"}
-                            </button>
                           </div>
                         </footer>
                       </section>
@@ -28176,14 +28164,13 @@ export default function Dashboard() {
                       <button
                         className="secondary-button"
                         type="button"
-                        disabled={isExportingPoBillToXero || !(access.canEditInvoice || access.showFinance || access.canEditJobs)}
-                        onClick={() => void exportPurchaseOrderBillToXero(selectedPurchaseOrder)}
+                        onClick={() => {
+                          setHomeView("xero");
+                          setActiveXeroTab("bills");
+                          scrollWorkspaceToTop();
+                        }}
                       >
-                        {isExportingPoBillToXero
-                          ? "Exporting bill…"
-                          : selectedPurchaseOrder.xeroBillId
-                            ? "Update Xero bill"
-                            : "Export bill to Xero"}
+                        Open Xero bills
                       </button>
                       <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
                     </div>
