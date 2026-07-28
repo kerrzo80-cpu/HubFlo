@@ -21698,10 +21698,12 @@ export default function Dashboard() {
                     {buddyMood === "alert"
                       ? "Spotted something that’s not right"
                       : buddyMood === "thinking"
-                        ? "Checking things out"
+                        ? "Working in the background"
                         : buddyMood === "guide"
-                          ? "Happy to walk you through it"
-                          : buddyMemory.habits[0] || "Watching this workspace with you"}
+                          ? "Checking things over"
+                          : buddyMood === "good"
+                            ? "All good!"
+                            : buddyMemory.habits[0] || "Ask Blake anytime"}
                   </small>
                 </div>
               </div>
