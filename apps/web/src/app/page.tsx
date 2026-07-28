@@ -109,7 +109,7 @@ import {
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
-import { SetupConfigPanel, SetupStockLocationsPanel } from "@/lib/SetupExtraPanels";
+import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -620,6 +620,7 @@ type SetupCategory =
   | "workflow-rules"
   | "imports"
   | "catalogue"
+  | "prebuilds"
   | "rates"
   | "stock-setup"
   | "asset-types"
@@ -2715,6 +2716,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
   { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
+  { key: "prebuilds", label: "Pre-builds", detail: "Material + labour kits that expand onto cost centres" },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
   { key: "stock-setup", label: "Stock locations", detail: "Warehouse and van stock locations" },
   { key: "asset-types", label: "Asset types", detail: "Gas, oil, pipework and service intervals" },
@@ -2910,6 +2912,7 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
   },
+  prebuilds: {},
   rates: {
     "Labour rates": {
       summary: "Set the standard labour cost, markup and sell rates used when new quote or job labour lines are added.",
@@ -7070,6 +7073,22 @@ export default function Dashboard() {
   const [businessImportBusy, setBusinessImportBusy] = useState(false);
   const [businessImportResult, setBusinessImportResult] = useState<BusinessImportResult | null>(null);
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
+  const [prebuildKits, setPrebuildKits] = useState<Array<{
+    id: string;
+    name: string;
+    category: string;
+    notes?: string;
+    lines: Array<{
+      id: string;
+      kind: "Material" | "Labour";
+      description: string;
+      quantity: number;
+      unitCost: number;
+      unitSell?: number;
+      unit?: string;
+    }>;
+  }>>([]);
+  const [selectedPrebuildId, setSelectedPrebuildId] = useState("");
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
   const [selectedQuoteMaterialLineIds, setSelectedQuoteMaterialLineIds] = useState<Record<string, string[]>>({});
@@ -17666,6 +17685,108 @@ export default function Dashboard() {
     );
   }
 
+  async function ensurePrebuildKitsLoaded() {
+    if (prebuildKits.length) return prebuildKits;
+    try {
+      const response = await fetch("/api/prebuilds", { headers: requestHeaders });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to load pre-builds");
+      const kits = body.kits || [];
+      setPrebuildKits(kits);
+      if (!selectedPrebuildId && kits[0]?.id) setSelectedPrebuildId(kits[0].id);
+      return kits as typeof prebuildKits;
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to load pre-builds.");
+      return [] as typeof prebuildKits;
+    }
+  }
+
+  async function applySelectedPrebuildToJobCentre(centreId: string) {
+    const kits = await ensurePrebuildKitsLoaded();
+    const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+    if (!kit) {
+      showNotice("Create a pre-build in Setup → Pre-builds first.");
+      return;
+    }
+    const materialMarkup = defaultMaterialMarkupPercent;
+    const labourMarkup = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
+    setJobCentresForSelected((centres) =>
+      centres.map((centre) => {
+        if (centre.id !== centreId) return centre;
+        const materials = [...centre.materials];
+        const labour = [...centre.labour];
+        kit.lines.forEach((line, index) => {
+          if (line.kind === "Labour") {
+            labour.push({
+              id: `labour-pb-${kit.id}-${Date.now()}-${index}`,
+              role: line.description,
+              hours: line.quantity,
+              costRate: line.unitCost,
+              markupPercent: line.unitSell && line.unitCost
+                ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
+                : labourMarkup,
+              rateSource: "manual",
+            });
+          } else {
+            materials.push({
+              id: `material-pb-${kit.id}-${Date.now()}-${index}`,
+              catalogItemId: `prebuild-${kit.id}`,
+              description: line.description,
+              quantity: line.quantity,
+              unitCost: line.unitCost,
+              markupPercent: line.unitSell && line.unitCost
+                ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
+                : materialMarkup,
+              rateSource: "manual",
+            });
+          }
+        });
+        return { ...centre, materials, labour };
+      }),
+    );
+    showNotice(`Applied pre-build “${kit.name}” (${kit.lines.length} lines).`);
+  }
+
+  async function applySelectedPrebuildToQuoteCentre(centreId: string) {
+    if (!selectedQuote) return;
+    const kits = await ensurePrebuildKitsLoaded();
+    const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+    if (!kit) {
+      showNotice("Create a pre-build in Setup → Pre-builds first.");
+      return;
+    }
+    const materialMarkup = defaultMaterialMarkupPercent;
+    const labourMarkup = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) => {
+        if (centre.id !== centreId) return centre;
+        const lines = [...centre.lines];
+        kit.lines.forEach((line, index) => {
+          const markup =
+            line.unitSell && line.unitCost
+              ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
+              : line.kind === "Labour"
+                ? labourMarkup
+                : materialMarkup;
+          const unitSell = line.unitSell ?? roundCurrencyValue(lineSellFromMarkup(line.unitCost, markup));
+          lines.push({
+            id: `quote-pb-${kit.id}-${Date.now()}-${index}`,
+            catalogItemId: line.kind === "Labour" ? "one-off-labour" : `prebuild-${kit.id}`,
+            description: `${line.description}${line.kind === "Labour" ? ` (${line.quantity} hrs)` : ""}`,
+            quantity: line.kind === "Labour" ? 1 : line.quantity,
+            unitCost: line.kind === "Labour" ? line.unitCost * line.quantity : line.unitCost,
+            unitSell: line.kind === "Labour" ? unitSell * line.quantity : unitSell,
+            rateSource: "manual",
+          });
+        });
+        return { ...centre, lines };
+      }),
+    }));
+    showNotice(`Applied pre-build “${kit.name}” to ${selectedQuote.ref}.`);
+  }
+
   function addOneOffEstimateMaterialLine(centreId: string) {
     setJobCentresForSelected((centres) =>
       centres.map((centre) =>
@@ -27387,6 +27508,41 @@ export default function Dashboard() {
                                 CREATE ITEM
                               </button>
                             </div>
+                            <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
+                              <label>
+                                Pre-build
+                                <select
+                                  value={selectedPrebuildId}
+                                  onFocus={() => void ensurePrebuildKitsLoaded()}
+                                  onChange={(event) => setSelectedPrebuildId(event.target.value)}
+                                >
+                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load pre-builds…", category: "" }]).map((kit) => (
+                                    <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={!selectedQuoteCostCentre}
+                                onClick={() => {
+                                  if (!selectedQuoteCostCentre) return;
+                                  void applySelectedPrebuildToQuoteCentre(selectedQuoteCostCentre.id);
+                                }}
+                              >
+                                Apply pre-build to cost centre
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => {
+                                  setHomeView("settings");
+                                  setActiveSetupCategory("prebuilds");
+                                }}
+                              >
+                                Manage pre-builds
+                              </button>
+                            </div>
 
                             <div className="quote-catalogue-layout">
                               <div className="quote-catalogue-groups">
@@ -30219,6 +30375,41 @@ export default function Dashboard() {
                                 onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the job.")}
                               >
                                 CREATE ITEM
+                              </button>
+                            </div>
+                            <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
+                              <label>
+                                Pre-build
+                                <select
+                                  value={selectedPrebuildId}
+                                  onFocus={() => void ensurePrebuildKitsLoaded()}
+                                  onChange={(event) => setSelectedPrebuildId(event.target.value)}
+                                >
+                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load pre-builds…", category: "" }]).map((kit) => (
+                                    <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={!selectedCostCentre}
+                                onClick={() => {
+                                  if (!selectedCostCentre) return;
+                                  void applySelectedPrebuildToJobCentre(selectedCostCentre.id);
+                                }}
+                              >
+                                Apply pre-build to cost centre
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => {
+                                  setHomeView("settings");
+                                  setActiveSetupCategory("prebuilds");
+                                }}
+                              >
+                                Manage pre-builds
                               </button>
                             </div>
 
@@ -33402,6 +33593,9 @@ export default function Dashboard() {
 
                   {activeSetupCategory === "stock-setup" ? (
                     <SetupStockLocationsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
+                  ) : null}
+                  {activeSetupCategory === "prebuilds" ? (
+                    <SetupPrebuildsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
                   ) : null}
                   {activeSetupCategory === "asset-types" ? (
                     <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="assets" />

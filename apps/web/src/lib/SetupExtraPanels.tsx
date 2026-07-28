@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, RefreshCw, Shield, Tags, Warehouse } from "lucide-react";
+import { Plus, RefreshCw, Shield, Tags, Warehouse, Boxes } from "lucide-react";
 
 type RequestHeaders = HeadersInit;
 
@@ -383,6 +383,180 @@ export function SetupConfigPanel({
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+type PrebuildKit = {
+  id: string;
+  name: string;
+  category: string;
+  notes?: string;
+  lines: Array<{
+    id: string;
+    kind: "Material" | "Labour";
+    description: string;
+    quantity: number;
+    unitCost: number;
+    unitSell?: number;
+    unit?: string;
+  }>;
+};
+
+export function SetupPrebuildsPanel({
+  requestHeaders,
+  onNotice,
+}: {
+  requestHeaders: RequestHeaders;
+  onNotice: (message: string) => void;
+}) {
+  const [kits, setKits] = useState<PrebuildKit[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState({
+    name: "",
+    category: "Boiler",
+    notes: "",
+    materialName: "",
+    materialQty: "1",
+    materialCost: "0",
+    labourName: "",
+    labourHours: "1",
+    labourCost: "40",
+  });
+
+  async function load() {
+    setError("");
+    try {
+      const response = await fetch("/api/prebuilds", { headers: requestHeaders });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to load pre-builds");
+      setKits(body.kits || []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load pre-builds");
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function saveKit() {
+    if (!draft.name.trim()) {
+      onNotice("Enter a pre-build name.");
+      return;
+    }
+    const lines = [];
+    if (draft.materialName.trim()) {
+      lines.push({
+        kind: "Material" as const,
+        description: draft.materialName.trim(),
+        quantity: Number(draft.materialQty) || 1,
+        unitCost: Number(draft.materialCost) || 0,
+      });
+    }
+    if (draft.labourName.trim()) {
+      lines.push({
+        kind: "Labour" as const,
+        description: draft.labourName.trim(),
+        quantity: Number(draft.labourHours) || 1,
+        unitCost: Number(draft.labourCost) || 0,
+      });
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch("/api/prebuilds", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsert",
+          name: draft.name.trim(),
+          category: draft.category.trim() || "General",
+          notes: draft.notes.trim(),
+          lines,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to save pre-build");
+      setKits(body.kits || []);
+      setDraft((current) => ({
+        ...current,
+        name: "",
+        notes: "",
+        materialName: "",
+        labourName: "",
+      }));
+      onNotice("Pre-build saved. Use it from quote/job cost centres.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save pre-build");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function archiveKit(id: string) {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/prebuilds", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "archive", id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to archive");
+      setKits(body.kits || []);
+      onNotice("Pre-build archived.");
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Unable to archive");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="ops-module-panel">
+      <header className="ops-module-header">
+        <div>
+          <span className="permission-heading">Catalogue</span>
+          <h2><Boxes size={18} /> Pre-builds</h2>
+          <p>Reusable material + labour kits that expand onto a quote or job cost centre in one click.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => void load()} disabled={busy}>
+          <RefreshCw size={15} /> Refresh
+        </button>
+      </header>
+      {error ? <p className="ops-module-error">{error}</p> : null}
+      <div className="ops-table">
+        <div className="ops-table-head"><span>Pre-build</span><span>Category</span><span>Lines</span><span /><span /></div>
+        {kits.map((kit) => (
+          <div className="ops-table-row" key={kit.id}>
+            <strong>{kit.name}</strong>
+            <span>{kit.category}</span>
+            <span>{kit.lines.length}</span>
+            <span />
+            <button className="secondary-button" type="button" disabled={busy} onClick={() => void archiveKit(kit.id)}>
+              Archive
+            </button>
+          </div>
+        ))}
+        {!kits.length ? <p className="muted">No pre-builds yet.</p> : null}
+      </div>
+      <div className="ops-form-grid">
+        <label>Name<input value={draft.name} onChange={(e) => setDraft((c) => ({ ...c, name: e.target.value }))} placeholder="e.g. Combi boiler install kit" /></label>
+        <label>Category<input value={draft.category} onChange={(e) => setDraft((c) => ({ ...c, category: e.target.value }))} /></label>
+        <label className="full">Notes<input value={draft.notes} onChange={(e) => setDraft((c) => ({ ...c, notes: e.target.value }))} /></label>
+        <label>Material line<input value={draft.materialName} onChange={(e) => setDraft((c) => ({ ...c, materialName: e.target.value }))} placeholder="Optional starter material" /></label>
+        <label>Qty<input value={draft.materialQty} onChange={(e) => setDraft((c) => ({ ...c, materialQty: e.target.value }))} /></label>
+        <label>Material cost<input value={draft.materialCost} onChange={(e) => setDraft((c) => ({ ...c, materialCost: e.target.value }))} /></label>
+        <label>Labour line<input value={draft.labourName} onChange={(e) => setDraft((c) => ({ ...c, labourName: e.target.value }))} placeholder="Optional starter labour" /></label>
+        <label>Hours<input value={draft.labourHours} onChange={(e) => setDraft((c) => ({ ...c, labourHours: e.target.value }))} /></label>
+        <label>Labour £/hr<input value={draft.labourCost} onChange={(e) => setDraft((c) => ({ ...c, labourCost: e.target.value }))} /></label>
+      </div>
+      <button className="primary-button" type="button" disabled={busy} onClick={() => void saveKit()}>
+        <Plus size={15} /> Add pre-build
+      </button>
     </section>
   );
 }
