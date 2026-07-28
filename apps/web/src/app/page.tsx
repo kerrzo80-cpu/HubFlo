@@ -320,6 +320,99 @@ function normalizeClientIdentity(value: string) {
   return value.trim().toLowerCase();
 }
 
+/** simPRO-style site picker tokens (not persisted site IDs). */
+const CLIENT_SITE_BILLING = "__billing__";
+const CLIENT_SITE_NEW = "__new__";
+
+function isSyntheticClientSiteToken(siteId?: string | null) {
+  return siteId === CLIENT_SITE_BILLING || siteId === CLIENT_SITE_NEW;
+}
+
+function addressesMatch(left?: string | null, right?: string | null) {
+  const a = normalizeClientIdentity(left ?? "");
+  const b = normalizeClientIdentity(right ?? "");
+  return Boolean(a) && a === b;
+}
+
+function realSiteIdOrUndefined(siteId?: string | null) {
+  if (!siteId || isSyntheticClientSiteToken(siteId)) return undefined;
+  return siteId;
+}
+
+function defaultSiteSelectionForClient(
+  client: ClientRecord,
+  sites: ClientSite[],
+): { siteId: string; address: string } {
+  const billing = String(client.billingAddress || "").trim();
+  const clientSitesForCustomer = sites.filter((site) => site.clientId === client.id);
+  if (billing) {
+    const matchingSite = clientSitesForCustomer.find((site) => addressesMatch(site.address, billing));
+    if (matchingSite) return { siteId: matchingSite.id, address: matchingSite.address };
+    return { siteId: CLIENT_SITE_BILLING, address: billing };
+  }
+  if (clientSitesForCustomer[0]) {
+    return { siteId: clientSitesForCustomer[0].id, address: clientSitesForCustomer[0].address };
+  }
+  return { siteId: CLIENT_SITE_NEW, address: "" };
+}
+
+function resolveSiteSelectionForClient(
+  client: ClientRecord | undefined,
+  sites: ClientSite[],
+  selection: string,
+): { siteId: string; address: string } {
+  if (!client) return { siteId: "", address: "" };
+  if (selection === CLIENT_SITE_BILLING) {
+    return { siteId: CLIENT_SITE_BILLING, address: String(client.billingAddress || "").trim() };
+  }
+  if (selection === CLIENT_SITE_NEW || !selection) {
+    return { siteId: CLIENT_SITE_NEW, address: "" };
+  }
+  const site = sites.find((item) => item.id === selection && item.clientId === client.id);
+  if (site) return { siteId: site.id, address: site.address };
+  return { siteId: CLIENT_SITE_NEW, address: "" };
+}
+
+function siteSelectionValueForForm(
+  client: ClientRecord | undefined,
+  sites: ClientSite[],
+  siteId: string | undefined,
+  address: string,
+): string {
+  if (!client) return "";
+  if (siteId === CLIENT_SITE_BILLING || siteId === CLIENT_SITE_NEW) return siteId;
+  if (siteId && sites.some((site) => site.id === siteId && site.clientId === client.id)) return siteId;
+  if (addressesMatch(address, client.billingAddress)) return CLIENT_SITE_BILLING;
+  const matched = sites.find(
+    (site) => site.clientId === client.id && addressesMatch(site.address, address),
+  );
+  if (matched) return matched.id;
+  return address.trim() ? CLIENT_SITE_NEW : CLIENT_SITE_NEW;
+}
+
+function reconcileSiteIdForAddress(
+  clientId: string | undefined,
+  clients: ClientRecord[],
+  sites: ClientSite[],
+  currentSiteId: string | undefined,
+  address: string,
+): string | undefined {
+  if (!clientId) return currentSiteId;
+  const client = clients.find((item) => item.id === clientId);
+  if (!client) return currentSiteId;
+  const realId = realSiteIdOrUndefined(currentSiteId);
+  if (realId) {
+    const linked = sites.find((site) => site.id === realId && site.clientId === clientId);
+    if (linked && addressesMatch(linked.address, address)) return linked.id;
+  }
+  if (addressesMatch(address, client.billingAddress)) return CLIENT_SITE_BILLING;
+  const matched = sites.find(
+    (site) => site.clientId === clientId && addressesMatch(site.address, address),
+  );
+  if (matched) return matched.id;
+  return CLIENT_SITE_NEW;
+}
+
 type LeadCustomerMatch = {
   client: ClientRecord;
   matchScore: number;
@@ -486,17 +579,21 @@ function resolveLeadSiteFromDraft(
   client: ClientRecord | undefined,
   sites: ClientSite[],
 ) {
-  if (draft.siteId) {
+  const requestedSiteId = realSiteIdOrUndefined(draft.siteId);
+  if (requestedSiteId) {
     const explicitSite = sites.find((site) =>
-      site.id === draft.siteId && (!client || site.clientId === client.id),
+      site.id === requestedSiteId && (!client || site.clientId === client.id),
     );
-    if (explicitSite) return explicitSite;
+    // Only keep the linked site when the typed address still matches it.
+    if (explicitSite && (!draft.address.trim() || addressesMatch(explicitSite.address, draft.address))) {
+      return explicitSite;
+    }
   }
 
   if (!client) return undefined;
 
   return (
-    sites.find((site) => site.clientId === client.id && normalizeClientIdentity(site.address) === normalizeClientIdentity(draft.address))
+    sites.find((site) => site.clientId === client.id && addressesMatch(site.address, draft.address))
     ?? (draft.address
       ? {
           id: `site-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -12028,8 +12125,12 @@ export default function Dashboard() {
   }) {
     const address = input.address.trim();
     if (!address) return false;
-    // Existing linked site/customer already carries a confirmed address.
-    if (input.siteId || input.clientId) return true;
+    const linkedSiteId = realSiteIdOrUndefined(input.siteId);
+    // Existing linked site already carries a confirmed address.
+    if (linkedSiteId) return true;
+    // Customer address (billing) or existing customer with a filled address is enough.
+    if (input.siteId === CLIENT_SITE_BILLING && address) return true;
+    if (input.clientId && address.length >= 8) return true;
     if (addressSelectedFromPostcode(input.postcodeSearch, address)) return true;
     // Allow a typed UK address when postcode search was started and address includes a postcode.
     const searched = input.postcodeSearch.trim().length >= 3;
@@ -17385,34 +17486,80 @@ export default function Dashboard() {
   async function saveSelectedQuoteLinking(clientId: string, siteId: string) {
     if (!selectedQuote) return;
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.id === siteId);
     if (!client) {
       showNotice("Pick a customer before saving quote details.");
       return;
     }
+    let site = clientSites.find((item) => item.id === siteId && item.clientId === clientId);
+    if (!site && siteId === CLIENT_SITE_BILLING) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          client.billingAddress,
+          client.primaryContact || client.name,
+          selectedQuote.description || "Quote work",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to use the customer address as the site.";
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site && siteId === CLIENT_SITE_NEW) {
+      openClientSiteRecordView(client.id);
+      showNotice("Add the new site on the customer record, then link it here.");
+      return;
+    }
+    if (!site) {
+      showNotice("Pick a site before saving quote details.");
+      return;
+    }
     const updated = await persistQuotePatch(selectedQuote.id, {
       clientId: client.id,
-      siteId: site?.id,
+      siteId: site.id,
       customer: client.name,
     });
-    showNotice(`${updated.ref} linked to ${client.name}${site ? ` / ${site.name}` : ""}.`);
+    showNotice(`${updated.ref} linked to ${client.name} / ${site.name}.`);
   }
 
   async function saveSelectedJobLinking(clientId: string, siteId: string) {
     if (!selectedJob) return;
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.id === siteId);
     if (!client) {
       showNotice("Pick a customer before saving job details.");
       return;
     }
+    let site = clientSites.find((item) => item.id === siteId && item.clientId === clientId);
+    if (!site && siteId === CLIENT_SITE_BILLING) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          client.billingAddress,
+          client.primaryContact || client.name,
+          selectedJob.description || "Job work",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to use the customer address as the site.";
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site && siteId === CLIENT_SITE_NEW) {
+      openClientSiteRecordView(client.id);
+      showNotice("Add the new site on the customer record, then link it here.");
+      return;
+    }
+    if (!site) {
+      showNotice("Pick a site before saving job details.");
+      return;
+    }
     const updated = await persistJobPatch(selectedJob.id, {
       clientId: client.id,
-      siteId: site?.id,
+      siteId: site.id,
       customer: client.name,
-      site: site?.address ?? selectedJob.site,
+      site: site.address,
     });
-    showNotice(`${updated.ref} linked to ${client.name}${site ? ` / ${site.name}` : ""}.`);
+    showNotice(`${updated.ref} linked to ${client.name} / ${site.name}.`);
   }
 
   async function sendSelectedJobConfirmation() {
@@ -22666,16 +22813,16 @@ export default function Dashboard() {
 
   function setLeadExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
-    const address = site?.address ?? client.billingAddress;
+    const selection = defaultSiteSelectionForClient(client, clientSites);
+    const address = selection.address;
     const postcode = postcodeFromAddress(address);
     setLeadPostcodeSearch(postcode);
     setNewLead((current) => ({
       ...current,
       customerMode: "existing",
       clientId,
-      siteId: site?.id ?? "",
+      siteId: selection.siteId,
       customerName: client.name,
       phone: client.phone,
       email: client.email,
@@ -22693,15 +22840,19 @@ export default function Dashboard() {
   }
 
   function setLeadExistingSite(siteId: string) {
-    const site = clientSites.find((item) => item.id === siteId);
-    const postcode = site ? postcodeFromAddress(site.address) : "";
+    const client = clients.find((item) => item.id === newLead.clientId);
+    const selection = resolveSiteSelectionForClient(client, clientSites, siteId);
+    const postcode = selection.address ? postcodeFromAddress(selection.address) : "";
     setNewLead((current) => ({
       ...current,
-      siteId,
-      address: site?.address ?? current.address,
-      addressParts: site ? leadAddressPartsFromAddress(site.address, postcode) : current.addressParts,
+      siteId: selection.siteId,
+      address: selection.address,
+      addressParts: selection.address
+        ? leadAddressPartsFromAddress(selection.address, postcode)
+        : blankLeadAddressParts,
     }));
     if (postcode) setLeadPostcodeSearch(postcode);
+    else if (selection.siteId === CLIENT_SITE_NEW) setLeadPostcodeSearch("");
   }
 
   function clearLeadCustomerMatch() {
@@ -22715,30 +22866,30 @@ export default function Dashboard() {
 
   function setQuoteExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
-    const address = site?.address ?? client.billingAddress;
-    setQuotePostcodeSearch(postcodeFromAddress(address));
+    const selection = defaultSiteSelectionForClient(client, clientSites);
+    setQuotePostcodeSearch(postcodeFromAddress(selection.address));
     setNewQuote((current) => ({
       ...current,
       clientId,
-      siteId: site?.id ?? "",
+      siteId: selection.siteId,
       customer: client.name,
       contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
-      address,
+      address: selection.address,
     }));
   }
 
   function setQuoteExistingSite(siteId: string) {
-    const site = clientSites.find((item) => item.id === siteId);
-    const address = site?.address ?? "";
-    if (address) setQuotePostcodeSearch(postcodeFromAddress(address));
+    const client = clients.find((item) => item.id === newQuote.clientId);
+    const selection = resolveSiteSelectionForClient(client, clientSites, siteId);
+    if (selection.address) setQuotePostcodeSearch(postcodeFromAddress(selection.address));
+    else if (selection.siteId === CLIENT_SITE_NEW) setQuotePostcodeSearch("");
     setNewQuote((current) => ({
       ...current,
-      siteId,
-      address: address || current.address,
+      siteId: selection.siteId,
+      address: selection.address,
     }));
   }
 
@@ -22757,42 +22908,51 @@ export default function Dashboard() {
 
   function setJobExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
-    const address = site?.address ?? client.billingAddress;
-    setJobPostcodeSearch(postcodeFromAddress(address));
+    const selection = defaultSiteSelectionForClient(client, clientSites);
+    setJobPostcodeSearch(postcodeFromAddress(selection.address));
     setNewJob((current) => ({
       ...current,
       clientId,
-      siteId: site?.id ?? "",
+      siteId: selection.siteId,
       customer: client.name,
       contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
-      address,
-      site: address || current.site,
+      address: selection.address,
+      site: selection.address || current.site,
     }));
   }
 
   function setJobExistingSite(siteId: string) {
-    const site = clientSites.find((item) => item.id === siteId);
-    const address = site?.address ?? "";
-    if (address) setJobPostcodeSearch(postcodeFromAddress(address));
+    const client = clients.find((item) => item.id === newJob.clientId);
+    const selection = resolveSiteSelectionForClient(client, clientSites, siteId);
+    if (selection.address) setJobPostcodeSearch(postcodeFromAddress(selection.address));
+    else if (selection.siteId === CLIENT_SITE_NEW) setJobPostcodeSearch("");
     setNewJob((current) => ({
       ...current,
-      siteId,
-      address: address || current.address,
-      site: address || current.site,
+      siteId: selection.siteId,
+      address: selection.address,
+      site: selection.address,
     }));
   }
 
   function selectQuoteAddress(address: string, postcode: string) {
-    setNewQuote((current) => ({ ...current, address }));
+    setNewQuote((current) => ({
+      ...current,
+      address,
+      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+    }));
     setQuotePostcodeSearch(postcode);
   }
 
   function selectJobAddress(address: string, postcode: string) {
-    setNewJob((current) => ({ ...current, address, site: address }));
+    setNewJob((current) => ({
+      ...current,
+      address,
+      site: address,
+      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+    }));
     setJobPostcodeSearch(postcode);
   }
 
@@ -23069,6 +23229,38 @@ export default function Dashboard() {
     return result.site;
   }
 
+  async function resolveOrCreateSiteForClient(
+    clientId: string,
+    address: string,
+    primaryContact: string,
+    serviceLine: string,
+  ) {
+    const trimmed = address.trim();
+    if (!trimmed) throw new Error("Add the site address before continuing.");
+    const existing = clientSites.find(
+      (site) => site.clientId === clientId && addressesMatch(site.address, trimmed),
+    );
+    if (existing) return existing;
+    return createSiteForClient(clientId, {
+      ...blankClientSiteDraft,
+      name: makeSiteName(trimmed),
+      address: trimmed,
+      primaryContact: primaryContact.trim() || "Site contact",
+      serviceLine: serviceLine.trim() || "Site work",
+    });
+  }
+
+  function resolveLinkedSiteAgainstAddress(siteId: string | undefined, address: string, clientId?: string) {
+    const realId = realSiteIdOrUndefined(siteId);
+    if (!realId) return undefined;
+    const site = clientSites.find(
+      (item) => item.id === realId && (!clientId || item.clientId === clientId),
+    );
+    if (!site) return undefined;
+    if (address.trim() && !addressesMatch(site.address, address)) return undefined;
+    return site;
+  }
+
   function recordDocumentStorageKey(recordType: RecordDocumentScope, recordRef: string) {
     return `${recordType}:${recordRef}`;
   }
@@ -23157,11 +23349,10 @@ export default function Dashboard() {
   }
 
   function selectLeadAddress(address: string, postcode: string) {
-    const matchingSite = clientSites.find((site) => site.clientId === newLead.clientId && site.address === address);
     const addressParts = leadAddressPartsFromAddress(address, postcode);
     setNewLead((current) => ({
       ...current,
-      siteId: matchingSite?.id,
+      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
       address,
       addressParts,
     }));
@@ -23187,7 +23378,7 @@ export default function Dashboard() {
       ref: createLeadRef(),
       source: newLead.source,
       clientId: newLead.clientId || undefined,
-      siteId: newLead.siteId || undefined,
+      siteId: realSiteIdOrUndefined(newLead.siteId),
       mainContact: newLead.mainContact ? normaliseLeadContact(newLead.mainContact) : undefined,
       additionalContacts: (newLead.additionalContacts ?? [])
         .map(normaliseLeadContact)
@@ -23704,7 +23895,7 @@ export default function Dashboard() {
 
   async function submitQuote() {
     let client = clients.find((item) => item.id === newQuote.clientId);
-    let site = clientSites.find((item) => item.id === newQuote.siteId);
+    let site = resolveLinkedSiteAgainstAddress(newQuote.siteId, newQuote.address, newQuote.clientId);
     if (!newQuote.customer.trim()) {
       showNotice("Choose or enter the customer before creating the quote.");
       return;
@@ -23737,13 +23928,12 @@ export default function Dashboard() {
     }
     if (client && !site) {
       try {
-        site = await createSiteForClient(client.id, {
-          ...blankClientSiteDraft,
-          name: newQuote.address.split(",")[0]?.trim() || "New site",
-          address: newQuote.address.trim(),
-          primaryContact: newQuote.contactName.trim(),
-          serviceLine: newQuote.description.trim() || "Quote work",
-        });
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          newQuote.address,
+          newQuote.contactName,
+          newQuote.description.trim() || "Quote work",
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to create site for the quote.";
         setSectionError(message);
@@ -23810,7 +24000,7 @@ export default function Dashboard() {
 
   async function createJob() {
     let client = clients.find((item) => item.id === newJob.clientId);
-    let site = clientSites.find((item) => item.id === newJob.siteId);
+    let site = resolveLinkedSiteAgainstAddress(newJob.siteId, newJob.address, newJob.clientId);
     if (!newJob.customer.trim()) {
       showNotice("Choose or enter the customer before creating the job.");
       return;
@@ -23843,13 +24033,12 @@ export default function Dashboard() {
     }
     if (client && !site) {
       try {
-        site = await createSiteForClient(client.id, {
-          ...blankClientSiteDraft,
-          name: newJob.address.split(",")[0]?.trim() || "New site",
-          address: newJob.address.trim(),
-          primaryContact: newJob.contactName.trim(),
-          serviceLine: newJob.description.trim() || "Job work",
-        });
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          newJob.address,
+          newJob.contactName,
+          newJob.description.trim() || "Job work",
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to create site for the job.";
         setSectionError(message);
@@ -28377,8 +28566,38 @@ export default function Dashboard() {
                             </button>
                           ) : null}
                         </div>
+                        {selectedQuoteClient ? (
+                          <label className="full-field">
+                            Linked site
+                            <select
+                              value={siteSelectionValueForForm(
+                                selectedQuoteClient,
+                                clientSites,
+                                selectedQuote.siteId,
+                                selectedQuoteSite?.address ?? selectedQuoteClient.billingAddress,
+                              )}
+                              onChange={(event) => {
+                                void saveSelectedQuoteLinking(selectedQuoteClient.id, event.target.value);
+                              }}
+                            >
+                              {selectedQuoteClient.billingAddress?.trim() ? (
+                                <option value={CLIENT_SITE_BILLING}>
+                                  Customer address — {selectedQuoteClient.billingAddress}
+                                </option>
+                              ) : null}
+                              {clientSites
+                                .filter((site) => site.clientId === selectedQuoteClient.id)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>
+                                    {site.name} - {site.address}
+                                  </option>
+                                ))}
+                              <option value={CLIENT_SITE_NEW}>+ New site address</option>
+                            </select>
+                          </label>
+                        ) : null}
                         <dl>
-                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? (selectedQuoteClient?.billingAddress ? "Customer address" : "Site to confirm")}</dd></div>
                           <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
                         </dl>
                       </section>
@@ -31477,9 +31696,39 @@ export default function Dashboard() {
                             </button>
                           ) : null}
                         </div>
+                        {selectedJobClient ? (
+                          <label className="full-field">
+                            Linked site
+                            <select
+                              value={siteSelectionValueForForm(
+                                selectedJobClient,
+                                clientSites,
+                                selectedJob.siteId,
+                                selectedJobSite?.address ?? selectedJob.site ?? selectedJobClient.billingAddress,
+                              )}
+                              onChange={(event) => {
+                                void saveSelectedJobLinking(selectedJobClient.id, event.target.value);
+                              }}
+                            >
+                              {selectedJobClient.billingAddress?.trim() ? (
+                                <option value={CLIENT_SITE_BILLING}>
+                                  Customer address — {selectedJobClient.billingAddress}
+                                </option>
+                              ) : null}
+                              {clientSites
+                                .filter((site) => site.clientId === selectedJobClient.id)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>
+                                    {site.name} - {site.address}
+                                  </option>
+                                ))}
+                              <option value={CLIENT_SITE_NEW}>+ New site address</option>
+                            </select>
+                          </label>
+                        ) : null}
                         <dl>
-                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? (selectedJobClient?.billingAddress ? "Customer address" : selectedJob.site)}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}</dd></div>
                         </dl>
                       </section>
                       <section className="simpro-summary-block">
@@ -40010,13 +40259,26 @@ export default function Dashboard() {
               {newLead.clientId ? (
                 <label className="full-field">
                   Site
-                  <select value={newLead.siteId ?? ""} onChange={(event) => setLeadExistingSite(event.target.value)}>
-                    {leadClientSites.length === 0 ? <option value="">No sites saved</option> : null}
+                  <select
+                    value={siteSelectionValueForForm(
+                      clients.find((item) => item.id === newLead.clientId),
+                      clientSites,
+                      newLead.siteId,
+                      newLead.address,
+                    )}
+                    onChange={(event) => setLeadExistingSite(event.target.value)}
+                  >
+                    {clients.find((item) => item.id === newLead.clientId)?.billingAddress?.trim() ? (
+                      <option value={CLIENT_SITE_BILLING}>
+                        Customer address — {clients.find((item) => item.id === newLead.clientId)?.billingAddress}
+                      </option>
+                    ) : null}
                     {leadClientSites.map((site) => (
                       <option key={site.id} value={site.id}>
                         {site.name} - {site.address}
                       </option>
                     ))}
+                    <option value={CLIENT_SITE_NEW}>+ New site address</option>
                   </select>
                 </label>
               ) : null}
@@ -40090,6 +40352,7 @@ export default function Dashboard() {
                     setNewLead((current) => ({
                       ...current,
                       address,
+                      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
                       addressParts: leadAddressPartsFromAddress(address, current.addressParts?.postcode ?? leadPostcodeSearch),
                     }));
                   }}
@@ -40213,13 +40476,26 @@ export default function Dashboard() {
               {newQuote.clientId ? (
                 <label className="full-field">
                   Site
-                  <select value={newQuote.siteId} onChange={(event) => setQuoteExistingSite(event.target.value)}>
-                    {quoteClientSites.length === 0 ? <option value="">No sites saved</option> : null}
+                  <select
+                    value={siteSelectionValueForForm(
+                      clients.find((item) => item.id === newQuote.clientId),
+                      clientSites,
+                      newQuote.siteId,
+                      newQuote.address,
+                    )}
+                    onChange={(event) => setQuoteExistingSite(event.target.value)}
+                  >
+                    {clients.find((item) => item.id === newQuote.clientId)?.billingAddress?.trim() ? (
+                      <option value={CLIENT_SITE_BILLING}>
+                        Customer address — {clients.find((item) => item.id === newQuote.clientId)?.billingAddress}
+                      </option>
+                    ) : null}
                     {quoteClientSites.map((site) => (
                       <option key={site.id} value={site.id}>
                         {site.name} - {site.address}
                       </option>
                     ))}
+                    <option value={CLIENT_SITE_NEW}>+ New site address</option>
                   </select>
                 </label>
               ) : null}
@@ -40278,7 +40554,17 @@ export default function Dashboard() {
               </div>
               <label className="full-field">
                 Site address
-                <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
+                <input
+                  value={newQuote.address}
+                  onChange={(event) => {
+                    const address = event.target.value;
+                    setNewQuote((current) => ({
+                      ...current,
+                      address,
+                      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+                    }));
+                  }}
+                />
               </label>
               </div>
               <aside className="simpro-create-map" aria-label="Quote address map preview">
@@ -40386,13 +40672,26 @@ export default function Dashboard() {
               {newJob.clientId ? (
                 <label className="full-field">
                   Site
-                  <select value={newJob.siteId} onChange={(event) => setJobExistingSite(event.target.value)}>
-                    {jobClientSites.length === 0 ? <option value="">No sites saved</option> : null}
+                  <select
+                    value={siteSelectionValueForForm(
+                      clients.find((item) => item.id === newJob.clientId),
+                      clientSites,
+                      newJob.siteId,
+                      newJob.address,
+                    )}
+                    onChange={(event) => setJobExistingSite(event.target.value)}
+                  >
+                    {clients.find((item) => item.id === newJob.clientId)?.billingAddress?.trim() ? (
+                      <option value={CLIENT_SITE_BILLING}>
+                        Customer address — {clients.find((item) => item.id === newJob.clientId)?.billingAddress}
+                      </option>
+                    ) : null}
                     {jobClientSites.map((site) => (
                       <option key={site.id} value={site.id}>
                         {site.name} - {site.address}
                       </option>
                     ))}
+                    <option value={CLIENT_SITE_NEW}>+ New site address</option>
                   </select>
                 </label>
               ) : null}
@@ -40451,7 +40750,18 @@ export default function Dashboard() {
               </div>
               <label className="full-field">
                 Site address
-                <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value, site: event.target.value }))} />
+                <input
+                  value={newJob.address}
+                  onChange={(event) => {
+                    const address = event.target.value;
+                    setNewJob((current) => ({
+                      ...current,
+                      address,
+                      site: address,
+                      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+                    }));
+                  }}
+                />
               </label>
               </div>
               <aside className="simpro-create-map" aria-label="Job address map preview">

@@ -247,18 +247,32 @@ function buildClientFromLead(draft: LeadDraftFromClient, existingClients: Client
   return { newClient, newSite };
 }
 
+function addressesMatch(left?: string | null, right?: string | null) {
+  const a = normalizeClientIdentity(left ?? "");
+  const b = normalizeClientIdentity(right ?? "");
+  return Boolean(a) && a === b;
+}
+
+function isSyntheticClientSiteToken(siteId?: string | null) {
+  return siteId === "__billing__" || siteId === "__new__";
+}
+
 function resolveLeadSite(draft: LeadDraftFromClient, client?: ClientRecord, sites: ClientSite[] = []) {
-  if (draft.siteId) {
+  const requestedSiteId = draft.siteId && !isSyntheticClientSiteToken(draft.siteId) ? draft.siteId : undefined;
+  if (requestedSiteId) {
     const explicitSite = sites.find(
-      (site) => site.id === draft.siteId &&
+      (site) => site.id === requestedSiteId &&
         (!client || site.clientId === client.id),
     );
-    if (explicitSite) return explicitSite;
+    // Prefer the typed site address when it no longer matches the linked site.
+    if (explicitSite && (!draft.address?.trim() || addressesMatch(explicitSite.address, draft.address))) {
+      return explicitSite;
+    }
   }
   if (!client) return undefined;
   return (
     sites.find(
-      (site) => site.clientId === client.id && normalizeClientIdentity(site.address) === normalizeClientIdentity(draft.address),
+      (site) => site.clientId === client.id && addressesMatch(site.address, draft.address),
     ) ??
     (draft.address
       ? {
