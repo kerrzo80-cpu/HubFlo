@@ -25262,7 +25262,7 @@ export default function Dashboard() {
               <header>
                 <div>
                   <h3>Assets due</h3>
-                  <p>{dueSiteAssetRows.length} service dates due or overdue in the next 30 days</p>
+                  <p>{dueSiteAssetRows.length} service or certificate dates due in the next 30 days</p>
                 </div>
                 <AlertTriangle size={18} />
               </header>
@@ -25270,7 +25270,19 @@ export default function Dashboard() {
                 {dueSiteAssetRows.slice(0, 8).map((asset) => {
                   const site = clientSites.find((row) => row.id === asset.siteId);
                   const client = clients.find((row) => row.id === (asset.clientId || site?.clientId));
-                  const overdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < currentOperatingDate);
+                  const serviceOverdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < currentOperatingDate);
+                  const certOverdue = Boolean(asset.certificateExpiresAt && asset.certificateExpiresAt < currentOperatingDate);
+                  const overdue = serviceOverdue || certOverdue;
+                  const bits = [
+                    client?.name,
+                    site?.name || site?.address,
+                    asset.nextServiceDate
+                      ? `${serviceOverdue ? "service overdue " : "service due "}${asset.nextServiceDate}`
+                      : null,
+                    asset.certificateExpiresAt
+                      ? `${certOverdue ? "cert expired " : "cert due "}${asset.certificateExpiresAt}`
+                      : null,
+                  ].filter(Boolean);
                   return (
                     <article className="ops-queue-item" key={asset.id}>
                       <button
@@ -25282,13 +25294,12 @@ export default function Dashboard() {
                       >
                         <strong>{asset.name}</strong>
                         <span>{asset.type}</span>
-                        <small>
-                          {[client?.name, site?.name || site?.address].filter(Boolean).join(" · ") || "Site asset"}
-                          {asset.nextServiceDate ? ` · ${overdue ? "overdue " : "due "}${asset.nextServiceDate}` : ""}
-                        </small>
+                        <small>{bits.join(" · ") || "Site asset"}</small>
                       </button>
                       <div className="ops-queue-actions">
-                        <span className={`status-pill ${overdue ? "red" : "amber"}`}>{overdue ? "Overdue" : "Due soon"}</span>
+                        <span className={`status-pill ${overdue ? "red" : "amber"}`}>
+                          {certOverdue && !serviceOverdue ? "Cert expired" : overdue ? "Overdue" : "Due soon"}
+                        </span>
                       </div>
                     </article>
                   );
