@@ -8,6 +8,7 @@ import {
   ClipboardCheck,
   Clock3,
   FileText,
+  Layers,
   Info,
   MessageCircle,
   PackagePlus,
@@ -17,6 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { EngineerCostCentreOption, EngineerScheduleItem } from "@/lib/engineer-data";
+import { formatDuration } from "@/lib/engineer-data";
 import type {
   EngineerJobWorkflow,
   EngineerWorkflowNote,
@@ -37,7 +39,23 @@ type EngineerJobWorkspaceProps = {
   jobs: EngineerScheduleItem[];
 };
 
-type EngineerTab = "checklist" | "timesheets" | "information" | "po";
+type EngineerTab = "checklist" | "pack" | "timesheets" | "information" | "po";
+
+function minutesFromTime(value: string) {
+  const parts = value.split(":").map(Number);
+  const hours = parts[0] ?? Number.NaN;
+  const minutes = parts[1] ?? Number.NaN;
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return 0;
+  return hours * 60 + minutes;
+}
+
+function programmeWindow(jobs: EngineerScheduleItem[]) {
+  const starts = jobs.map((item) => minutesFromTime(item.start));
+  const ends = jobs.map((item) => minutesFromTime(item.end));
+  const min = Math.min(...starts, 8 * 60);
+  const max = Math.max(...ends, 17 * 60);
+  return { min, max: Math.max(max, min + 60) };
+}
 
 function initialWorkflow(job: EngineerScheduleItem): EngineerJobWorkflow {
   return {
@@ -91,6 +109,7 @@ function statusCopy(status: EngineerJobWorkflow["requirements"][number]["status"
 function hashToTab(hash: string): EngineerTab | null {
   if (hash === "#time-entry" || hash === "#timesheets") return "timesheets";
   if (hash === "#site-evidence" || hash === "#information" || hash === "#photos") return "information";
+  if (hash === "#pack" || hash === "#programme" || hash === "#gantt" || hash === "#drawings") return "pack";
   if (hash === "#po-request") return "po";
   if (hash === "#checklist" || hash === "#stop-go") return "checklist";
   return null;
@@ -130,8 +149,12 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
   );
   const canComplete = missingRequirements.length === 0;
   const latestOfficeReview = workflow.officeReview.slice(0, 5);
+  const drawings = job.attachments.filter((item) => /draw|plan|pdf|spec|gantt|programme/i.test(item.name) || item.type === "PDF");
+  const packPhotos = [...job.photos, ...workflow.photos];
+  const programmeRange = programmeWindow(engineerJobs);
   const tabs: Array<{ id: EngineerTab; label: string; detail: string; icon: ReactNode }> = [
     { id: "checklist", label: "Stop / go", detail: `${missingRequirements.length} missing`, icon: <ClipboardCheck size={16} /> },
+    { id: "pack", label: "Job pack", detail: `${drawings.length + packPhotos.length} files`, icon: <Layers size={16} /> },
     { id: "timesheets", label: "Timesheets", detail: workflow.timeEntries.length ? `${workflow.timeEntries.length} sent` : "Confirm time", icon: <Clock3 size={16} /> },
     { id: "information", label: "Photos / info", detail: `${workflow.photos.length} photos`, icon: <Camera size={16} /> },
     { id: "po", label: "PO request", detail: selectedPoCostCentre?.name ?? "Cost centre", icon: <ShoppingCart size={16} /> },
@@ -174,7 +197,13 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
 
   function selectTab(tab: EngineerTab) {
     setActiveTab(tab);
-    window.history.replaceState(null, "", `#${tab === "timesheets" ? "time-entry" : tab === "information" ? "site-evidence" : tab === "po" ? "po-request" : "stop-go"}`);
+    const hash =
+      tab === "timesheets" ? "time-entry"
+        : tab === "information" ? "site-evidence"
+          : tab === "po" ? "po-request"
+            : tab === "pack" ? "pack"
+              : "stop-go";
+    globalThis.window.history.replaceState(null, "", `#${hash}`);
   }
 
   async function runWorkflowAction(
@@ -402,6 +431,104 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                 <button type="button" onClick={() => void setOutcome("Needs rebooked")} disabled={isSaving}><Clock3 size={17} /> Rebook</button>
                 <button type="button" onClick={() => void setOutcome("Could not access")} disabled={isSaving}><XCircle size={17} /> No access</button>
               </div>
+            </div>
+          </div>
+        ) : null}
+
+        {activeTab === "pack" ? (
+          <div className="engineer-tab-panel" id="pack">
+            <div className="engineer-section-heading compact">
+              <div>
+                <p className="eyebrow">Field job pack</p>
+                <h2>Programme, drawings and site photos</h2>
+              </div>
+              <Layers size={21} />
+            </div>
+            <p className="engineer-muted-copy">
+              What the office pushed with this visit: today&apos;s programme bar, drawings / specs, and photos Blake and the office want you to see on site.
+            </p>
+
+            <div className="engineer-programme-board" aria-label="Today programme">
+              <div className="engineer-programme-legend">
+                <strong>Today&apos;s programme</strong>
+                <span>
+                  {String(Math.floor(programmeRange.min / 60)).padStart(2, "0")}:
+                  {String(programmeRange.min % 60).padStart(2, "0")}
+                  {" – "}
+                  {String(Math.floor(programmeRange.max / 60)).padStart(2, "0")}:
+                  {String(programmeRange.max % 60).padStart(2, "0")}
+                </span>
+              </div>
+              <div className="engineer-programme-track">
+                {engineerJobs.map((item) => {
+                  const start = minutesFromTime(item.start);
+                  const end = minutesFromTime(item.end);
+                  const left = ((start - programmeRange.min) / (programmeRange.max - programmeRange.min)) * 100;
+                  const width = Math.max(8, ((end - start) / (programmeRange.max - programmeRange.min)) * 100);
+                  const active = item.scheduleId === job.scheduleId;
+                  return (
+                    <div
+                      className={active ? "engineer-programme-bar active" : "engineer-programme-bar"}
+                      key={item.scheduleId}
+                      style={{ left: `${left}%`, width: `${width}%` }}
+                      title={`${item.start}-${item.end} ${item.customer}`}
+                    >
+                      <strong>{item.start}</strong>
+                      <span>{item.customer}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="engineer-mini-list">
+                {engineerJobs.map((item) => (
+                  <article key={item.scheduleId}>
+                    <span>{item.start}-{item.end}</span>
+                    <strong>{item.jobRef} · {item.customer}</strong>
+                    <p>{item.description}</p>
+                    <small>{item.costCentre} · {formatDuration(item.durationHours)} booked</small>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="engineer-section-heading compact">
+              <div>
+                <p className="eyebrow">Drawings &amp; docs</p>
+                <h2>Office attachments</h2>
+              </div>
+              <FileText size={21} />
+            </div>
+            <div className="engineer-file-grid">
+              {(drawings.length ? drawings : job.attachments).map((attachment) => (
+                <button className="engineer-file-tile" type="button" key={attachment.id}>
+                  <span>{attachment.type}</span>
+                  <strong>{attachment.name}</strong>
+                  <small>{attachment.uploadedBy} · {attachment.uploadedAt}</small>
+                </button>
+              ))}
+              {!job.attachments.length ? (
+                <p className="engineer-muted-copy">No drawings pushed to this visit yet. Office can attach them on the job pack in Core.</p>
+              ) : null}
+            </div>
+
+            <div className="engineer-section-heading compact">
+              <div>
+                <p className="eyebrow">Photos</p>
+                <h2>Site and office photos</h2>
+              </div>
+              <Camera size={21} />
+            </div>
+            <div className="engineer-file-grid">
+              {packPhotos.map((photo) => (
+                <button className="engineer-file-tile" type="button" key={photo.id}>
+                  <span>{photo.type}</span>
+                  <strong>{photo.name}</strong>
+                  <small>{photo.uploadedBy} · {photo.uploadedAt}</small>
+                </button>
+              ))}
+              {!packPhotos.length ? (
+                <p className="engineer-muted-copy">No photos on this pack yet. Capture them from Photos / info when you are on site.</p>
+              ) : null}
             </div>
           </div>
         ) : null}

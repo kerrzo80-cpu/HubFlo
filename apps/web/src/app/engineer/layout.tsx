@@ -143,6 +143,152 @@ export default function EngineerLayout({ children }: Readonly<{ children: React.
             width: 68px;
           }
         }
+
+        .blake-character {
+          display: inline-flex;
+          line-height: 0;
+          pointer-events: none;
+          user-select: none;
+        }
+
+        .blake-character-stage {
+          aspect-ratio: 1 / 1;
+          display: block;
+          position: relative;
+          width: 100%;
+        }
+
+        .blake-character.size-sm { width: 44px; }
+        .blake-character.size-md { width: 60px; }
+        .blake-character.size-lg { width: 84px; }
+        .blake-character.size-hero { width: 120px; }
+
+        .blake-character .blake-pose {
+          display: block;
+          filter: drop-shadow(0 8px 14px rgba(17, 52, 68, 0.14));
+          height: 100%;
+          object-fit: contain;
+          width: 100%;
+        }
+
+        .blake-time-hero-row {
+          align-items: flex-start;
+          display: flex;
+          gap: 16px;
+        }
+
+        .blake-chat-log {
+          display: grid;
+          gap: 12px;
+          margin-top: 8px;
+        }
+
+        .blake-chat-bubble {
+          align-items: flex-start;
+          background: rgba(255, 255, 255, 0.82);
+          border: 1px solid rgba(88, 172, 213, 0.18);
+          border-radius: 18px;
+          display: flex;
+          gap: 10px;
+          padding: 12px 14px;
+        }
+
+        .blake-chat-bubble.you {
+          background: rgba(40, 126, 168, 0.08);
+          margin-left: 28px;
+        }
+
+        .blake-chat-bubble p {
+          color: #124f70;
+          font-size: 14px;
+          line-height: 1.45;
+          margin: 0;
+        }
+
+        .blake-time-actions,
+        .blake-current-job {
+          display: grid;
+          gap: 10px;
+          margin-top: 14px;
+        }
+
+        .blake-current-job {
+          background: rgba(88, 172, 213, 0.1);
+          border-radius: 16px;
+          padding: 12px 14px;
+        }
+
+        .blake-current-job strong,
+        .blake-current-job span {
+          display: block;
+        }
+
+        .blake-current-job span {
+          color: #4d7b90;
+          font-size: 13px;
+          margin-top: 4px;
+        }
+
+        .engineer-programme-board {
+          display: grid;
+          gap: 12px;
+          margin-bottom: 18px;
+        }
+
+        .engineer-programme-legend {
+          align-items: baseline;
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .engineer-programme-legend span {
+          color: #4d7b90;
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .engineer-programme-track {
+          background:
+            linear-gradient(90deg, rgba(88, 172, 213, 0.08) 0%, rgba(88, 172, 213, 0.18) 50%, rgba(88, 172, 213, 0.08) 100%);
+          border: 1px solid rgba(88, 172, 213, 0.2);
+          border-radius: 18px;
+          height: 74px;
+          overflow: hidden;
+          position: relative;
+        }
+
+        .engineer-programme-bar {
+          background: rgba(255, 255, 255, 0.88);
+          border: 1px solid rgba(40, 126, 168, 0.22);
+          border-radius: 14px;
+          box-shadow: 0 8px 18px rgba(40, 126, 168, 0.12);
+          display: grid;
+          gap: 2px;
+          min-width: 72px;
+          padding: 8px 10px;
+          position: absolute;
+          top: 12px;
+        }
+
+        .engineer-programme-bar.active {
+          background: linear-gradient(135deg, #287ea8 0%, #17698f 100%);
+          color: #fff;
+        }
+
+        .engineer-programme-bar strong,
+        .engineer-programme-bar span {
+          display: block;
+          font-size: 11px;
+          line-height: 1.2;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .engineer-programme-bar span {
+          opacity: 0.85;
+        }
       `}</style>
       <header className="engineer-brand-bar" aria-label="NeXa engineer app">
         <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
