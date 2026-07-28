@@ -15,6 +15,7 @@ const publicAssetPaths = new Set([
   "/icon.png",
   "/manifest-core.json",
   "/manifest-estimator.json",
+  "/manifest-field.json",
   "/manifest-takeoffs.json",
   "/estimator/apple-icon.png",
   "/estimator/icon.png",
