@@ -13720,6 +13720,16 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
+  function openClientSiteRecordView(clientId: string, siteName?: string) {
+    setActiveClientId(clientId);
+    setActiveClientTab("sites");
+    setHomeView("client-record");
+    scrollWorkspaceToTop();
+    if (siteName) {
+      showNotice(`Opened ${siteName} under the customer sites tab.`);
+    }
+  }
+
   function openLeadRecord(leadId: string) {
     setSelectedQuoteId(null);
     setSelectedJobId(null);
@@ -20573,23 +20583,9 @@ export default function Dashboard() {
           </label>
         </div>
 
-        <div className="document-folder-grid">
-          {folders.map((folder) => {
-            const count = exampleFiles.filter((file) => file.folderId === folder.id).length;
-            return (
-              <article className="document-folder-card" key={folder.id}>
-                <FileText size={19} />
-                <div>
-                  <strong>{folder.name}</strong>
-                  <span>{folder.description}</span>
-                </div>
-                <small>
-                  {count} files · {folder.defaultVisibility}
-                </small>
-              </article>
-            );
-          })}
-        </div>
+        <p className="documents-toolbar-note">
+          Files attached here stay with the {recordRef} paper trail. Survey evidence, takeoff files and manual uploads all open from the list below.
+        </p>
 
         <div className="document-file-list">
           <div className="document-file-row table-head">
@@ -23409,137 +23405,35 @@ export default function Dashboard() {
                       <article className="client-info-card">
                         <span className="permission-heading">Quote details</span>
                         <dl>
+                          <div><dt>Client</dt><dd>{selectedQuoteClient?.name ?? selectedQuote.customer}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedQuoteClient?.primaryContact ?? "To confirm"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedQuoteClient?.email ?? "To confirm"}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedQuoteClient?.phone ?? "To confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
                           <div><dt>Owner</dt><dd>{selectedQuote.owner}</dd></div>
                           <div><dt>Status</dt><dd>{selectedQuote.status}</dd></div>
                           <div><dt>Simpro</dt><dd>{selectedQuote.simproStatus ?? "Not sent"}</dd></div>
                         </dl>
-                        <div className="record-inline-editor">
-                          <label>
-                            Customer record
-                            <select
-                              value={selectedQuote.clientId ?? ""}
-                              onChange={(event) => {
-                                void saveSelectedQuoteLinking(event.target.value, "");
-                              }}
-                            >
-                              <option value="">Select customer</option>
-                              {clients.map((client) => (
-                                <option key={client.id} value={client.id}>{client.name}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Site record
-                            <select
-                              value={selectedQuote.siteId ?? ""}
-                              onChange={(event) => {
-                                void saveSelectedQuoteLinking(selectedQuote.clientId ?? "", event.target.value);
-                              }}
-                            >
-                              <option value="">Select site</option>
-                              {clientSites
-                                .filter((site) => !selectedQuote.clientId || site.clientId === selectedQuote.clientId)
-                                .map((site) => (
-                                  <option key={site.id} value={site.id}>{site.name} - {site.address}</option>
-                                ))}
-                            </select>
-                          </label>
+                        <div className="quote-action-stack">
                           {selectedQuoteClient ? (
-                            <>
-                              <label>
-                                Customer name
-                                <input value={quoteClientDraft.name} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, name: event.target.value }))} />
-                              </label>
-                              <label>
-                                Main contact
-                                <input value={quoteClientDraft.primaryContact} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
-                              </label>
-                              <label>
-                                Email
-                                <input value={quoteClientDraft.email} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, email: event.target.value }))} />
-                              </label>
-                              <label>
-                                Phone
-                                <input value={quoteClientDraft.phone} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, phone: event.target.value }))} />
-                              </label>
-                              <label className="full-field">
-                                Billing address
-                                <input value={quoteClientDraft.billingAddress} onChange={(event) => setQuoteClientDraft((current) => ({ ...current, billingAddress: event.target.value }))} />
-                              </label>
-                              <div className="quote-action-stack">
-                                <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedQuoteClient.id)}>
-                                  Open customer card
-                                </button>
-                                <button
-                                  className="secondary-button"
-                                  type="button"
-                                  onClick={() => {
-                                    void persistClientRecordPatch(selectedQuoteClient.id, quoteClientDraft)
-                                      .then(() => showNotice("Customer record updated from quote details."))
-                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update customer."));
-                                  }}
-                                >
-                                  Save customer changes
-                                </button>
-                              </div>
-                            </>
+                            <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedQuoteClient.id)}>
+                              Edit customer
+                            </button>
                           ) : null}
-                          {selectedQuoteSite ? (
-                            <>
-                              <label>
-                                Site name
-                                <input value={quoteSiteDraft.name} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, name: event.target.value }))} />
-                              </label>
-                              <label className="full-field">
-                                Site address
-                                <input value={quoteSiteDraft.address} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, address: event.target.value }))} />
-                              </label>
-                              <label>
-                                Site contact
-                                <input value={quoteSiteDraft.primaryContact} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
-                              </label>
-                              <label className="full-field">
-                                Access notes
-                                <input value={quoteSiteDraft.accessNotes} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, accessNotes: event.target.value }))} />
-                              </label>
-                              <div className="quote-action-stack">
-                                <button
-                                  className="secondary-button"
-                                  type="button"
-                                  onClick={() => {
-                                    void persistSiteRecordPatch(selectedQuoteSite.id, quoteSiteDraft)
-                                      .then((site) => saveSelectedQuoteLinking(selectedQuote.clientId ?? "", site.id))
-                                      .then(() => showNotice("Site updated from quote details."))
-                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update site."));
-                                  }}
-                                >
-                                  Save site changes
-                                </button>
-                              </div>
-                            </>
-                          ) : selectedQuote.clientId ? (
-                            <>
-                              <label>
-                                New site name
-                                <input value={quoteSiteDraft.name} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, name: event.target.value }))} placeholder="New site" />
-                              </label>
-                              <label className="full-field">
-                                New site address
-                                <input value={quoteSiteDraft.address} onChange={(event) => setQuoteSiteDraft((current) => ({ ...current, address: event.target.value }))} placeholder="Site address" />
-                              </label>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => {
-                                  void createSiteForClient(selectedQuote.clientId!, quoteSiteDraft)
-                                    .then((site) => saveSelectedQuoteLinking(selectedQuote.clientId!, site.id))
-                                    .then(() => showNotice("New site created and linked to the customer."))
-                                    .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to create site."));
-                                }}
-                              >
-                                Create site for this customer
-                              </button>
-                            </>
+                          {selectedQuoteClient ? (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => openClientSiteRecordView(selectedQuoteClient.id, selectedQuoteSite?.name)}
+                            >
+                              {selectedQuoteSite ? "Edit site" : "Add site"}
+                            </button>
+                          ) : null}
+                          {!selectedQuoteClient ? (
+                            <button className="secondary-button" type="button" onClick={() => setShowCreateQuote(true)}>
+                              Link customer record
+                            </button>
                           ) : null}
                         </div>
                       </article>
@@ -26510,137 +26404,30 @@ export default function Dashboard() {
                       <article className="client-info-card">
                         <span className="permission-heading">Job summary</span>
                         <dl>
+                          <div><dt>Client</dt><dd>{selectedJobClient?.name ?? selectedJob.customer}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedJobClient?.primaryContact ?? "To confirm"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedJobClient?.email ?? "To confirm"}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedJobClient?.phone ?? "To confirm"}</dd></div>
+                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
                           <div><dt>Status</dt><dd>{selectedJob.status}</dd></div>
                           <div><dt>simPRO</dt><dd>{selectedJob.simproStatus ?? "Not sent"}</dd></div>
                           <div><dt>Next action</dt><dd>{selectedJob.next}</dd></div>
                         </dl>
-                        <div className="record-inline-editor">
-                          <label>
-                            Customer record
-                            <select
-                              value={selectedJob.clientId ?? ""}
-                              onChange={(event) => {
-                                void saveSelectedJobLinking(event.target.value, "");
-                              }}
-                            >
-                              <option value="">Select customer</option>
-                              {clients.map((client) => (
-                                <option key={client.id} value={client.id}>{client.name}</option>
-                              ))}
-                            </select>
-                          </label>
-                          <label>
-                            Site record
-                            <select
-                              value={selectedJob.siteId ?? ""}
-                              onChange={(event) => {
-                                void saveSelectedJobLinking(selectedJob.clientId ?? "", event.target.value);
-                              }}
-                            >
-                              <option value="">Select site</option>
-                              {clientSites
-                                .filter((site) => !selectedJob.clientId || site.clientId === selectedJob.clientId)
-                                .map((site) => (
-                                  <option key={site.id} value={site.id}>{site.name} - {site.address}</option>
-                                ))}
-                            </select>
-                          </label>
+                        <div className="quote-action-stack">
                           {selectedJobClient ? (
-                            <>
-                              <label>
-                                Customer name
-                                <input value={jobClientDraft.name} onChange={(event) => setJobClientDraft((current) => ({ ...current, name: event.target.value }))} />
-                              </label>
-                              <label>
-                                Main contact
-                                <input value={jobClientDraft.primaryContact} onChange={(event) => setJobClientDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
-                              </label>
-                              <label>
-                                Email
-                                <input value={jobClientDraft.email} onChange={(event) => setJobClientDraft((current) => ({ ...current, email: event.target.value }))} />
-                              </label>
-                              <label>
-                                Phone
-                                <input value={jobClientDraft.phone} onChange={(event) => setJobClientDraft((current) => ({ ...current, phone: event.target.value }))} />
-                              </label>
-                              <label className="full-field">
-                                Billing address
-                                <input value={jobClientDraft.billingAddress} onChange={(event) => setJobClientDraft((current) => ({ ...current, billingAddress: event.target.value }))} />
-                              </label>
-                              <div className="quote-action-stack">
-                                <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedJobClient.id)}>
-                                  Open customer card
-                                </button>
-                                <button
-                                  className="secondary-button"
-                                  type="button"
-                                  onClick={() => {
-                                    void persistClientRecordPatch(selectedJobClient.id, jobClientDraft)
-                                      .then(() => showNotice("Customer record updated from job details."))
-                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update customer."));
-                                  }}
-                                >
-                                  Save customer changes
-                                </button>
-                              </div>
-                            </>
+                            <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedJobClient.id)}>
+                              Edit customer
+                            </button>
                           ) : null}
-                          {selectedJobSite ? (
-                            <>
-                              <label>
-                                Site name
-                                <input value={jobSiteDraft.name} onChange={(event) => setJobSiteDraft((current) => ({ ...current, name: event.target.value }))} />
-                              </label>
-                              <label className="full-field">
-                                Site address
-                                <input value={jobSiteDraft.address} onChange={(event) => setJobSiteDraft((current) => ({ ...current, address: event.target.value }))} />
-                              </label>
-                              <label>
-                                Site contact
-                                <input value={jobSiteDraft.primaryContact} onChange={(event) => setJobSiteDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
-                              </label>
-                              <label className="full-field">
-                                Access notes
-                                <input value={jobSiteDraft.accessNotes} onChange={(event) => setJobSiteDraft((current) => ({ ...current, accessNotes: event.target.value }))} />
-                              </label>
-                              <div className="quote-action-stack">
-                                <button
-                                  className="secondary-button"
-                                  type="button"
-                                  onClick={() => {
-                                    void persistSiteRecordPatch(selectedJobSite.id, jobSiteDraft)
-                                      .then((site) => saveSelectedJobLinking(selectedJob.clientId ?? "", site.id))
-                                      .then(() => showNotice("Site updated from job details."))
-                                      .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to update site."));
-                                  }}
-                                >
-                                  Save site changes
-                                </button>
-                              </div>
-                            </>
-                          ) : selectedJob.clientId ? (
-                            <>
-                              <label>
-                                New site name
-                                <input value={jobSiteDraft.name} onChange={(event) => setJobSiteDraft((current) => ({ ...current, name: event.target.value }))} placeholder="New site" />
-                              </label>
-                              <label className="full-field">
-                                New site address
-                                <input value={jobSiteDraft.address} onChange={(event) => setJobSiteDraft((current) => ({ ...current, address: event.target.value }))} placeholder="Site address" />
-                              </label>
-                              <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => {
-                                  void createSiteForClient(selectedJob.clientId!, jobSiteDraft)
-                                    .then((site) => saveSelectedJobLinking(selectedJob.clientId!, site.id))
-                                    .then(() => showNotice("New site created and linked to the customer."))
-                                    .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to create site."));
-                                }}
-                              >
-                                Create site for this customer
-                              </button>
-                            </>
+                          {selectedJobClient ? (
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => openClientSiteRecordView(selectedJobClient.id, selectedJobSite?.name)}
+                            >
+                              {selectedJobSite ? "Edit site" : "Add site"}
+                            </button>
                           ) : null}
                         </div>
                       </article>
