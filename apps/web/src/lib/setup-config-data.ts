@@ -26,7 +26,7 @@ export type SetupTaxCode = {
 
 export type SetupEmailTemplate = {
   id: string;
-  key: "quote" | "invoice" | "invoice-overdue" | "statement" | "po" | "follow-up" | "job-confirmation";
+  key: "quote" | "invoice" | "invoice-overdue" | "statement" | "remittance" | "po" | "follow-up" | "job-confirmation";
   name: string;
   subject: string;
   body: string;
@@ -122,6 +122,13 @@ const defaults: SetupConfigStore = {
       name: "Customer statement",
       subject: "Account statement from {{company}} · {{date}}",
       body: "Hi {{contact}},\n\nPlease find your outstanding account statement as at {{date}}.\n\nTotal outstanding: {{outstanding}}.\n\nKind regards,\n{{company}}",
+    },
+    {
+      id: "em-remittance",
+      key: "remittance",
+      name: "Payment remittance advice",
+      subject: "Remittance advice · {{ref}} · {{paymentAmount}}",
+      body: "Hi {{contact}},\n\nThank you. We have allocated the following payment against invoice {{ref}}.\n\nPayment date: {{paymentDate}}\nAmount received: {{paymentAmount}}\nMethod: {{paymentMethod}}\nReference: {{paymentReference}}\n\nPaid to date: {{paid}}\nOutstanding balance: {{outstanding}}\n\nKind regards,\n{{company}}",
     },
     {
       id: "em-po",

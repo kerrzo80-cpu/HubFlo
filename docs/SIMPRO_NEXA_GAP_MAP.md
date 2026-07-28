@@ -14,7 +14,7 @@ Status legend:
 | Missing | Not built |
 | NeXa ahead | Keep and extend |
 
-Counts from the matrix below: **Strong 1 · Partial 13 · Thin 10 · Missing 9 · NeXa ahead 2**
+Counts from the matrix below: **Strong 1 · Partial 14 · Thin 10 · Missing 8 · NeXa ahead 2**
 
 ---
 
@@ -76,7 +76,7 @@ NeXa is nowhere near closing that operational backlog yet.
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
 | Invoicing | Partial | Credits, recurring; retention release now ships |
-| Payments | Missing | Card/link pay, allocate to invoice |
+| Payments | Partial | Ledger + remittance advice email; card/link pay still missing |
 | Accounting sync | Missing | **Xero** customers/invoices/payments/bills (primary for EWG) |
 | Cash / WIP reporting | Thin | True WIP, margin by job type, scheduled vs actual labour |
 | Customer portal | Thin | Jobs status, invoices, pay, assets |
@@ -197,6 +197,7 @@ Until Brian cuts further, execute in this order:
 - **PO three-way match** — ordered vs received vs supplier invoice amount on the PO record (Matched / Variance / Incomplete)
 - **Xero bill payment pull (AP)** — import ACCPAY payments onto the PO supplier payment ledger by BillID / PO number
 - **Customer statement** — email outstanding invoices from the client record (Setup `statement` template + PDF attachment)
+- **Remittance advice** — email payment confirmation from the invoice ledger (Setup `remittance` template + PDF; latest allocated payment)
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client

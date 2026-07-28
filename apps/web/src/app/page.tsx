@@ -7312,6 +7312,7 @@ export default function Dashboard() {
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
   const [isPullingPoBillPayments, setIsPullingPoBillPayments] = useState(false);
   const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
+  const [isSendingInvoiceRemittance, setIsSendingInvoiceRemittance] = useState(false);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
@@ -15542,6 +15543,147 @@ export default function Dashboard() {
     const stillRemaining = Math.max(0, grandTotal - nextPaid);
     setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
     showNotice(`${selectedInvoice.ref}: recorded ${currency(amount)} · paid to date ${currency(nextPaid)}.`);
+  }
+
+  async function sendSelectedInvoiceRemittanceAdvice(paymentId?: string) {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Remittance advice is for collectible invoices, not valuations.");
+      return;
+    }
+    const payments = selectedInvoice.payments || [];
+    if (!payments.length) {
+      showNotice("Record a payment before sending remittance advice.");
+      return;
+    }
+    const payment = paymentId
+      ? payments.find((item) => item.id === paymentId) ?? payments[payments.length - 1]
+      : payments[payments.length - 1];
+    if (!payment) {
+      showNotice("No payment found to confirm.");
+      return;
+    }
+
+    const to =
+      selectedInvoiceClient?.email?.trim() ||
+      selectedInvoice.sentTo?.trim() ||
+      selectedInvoiceEmailDraft?.to?.trim() ||
+      "";
+    if (!to.includes("@")) {
+      showNotice("Add a customer email before sending remittance advice.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedInvoiceClient?.primaryContact?.split(" ")[0] ||
+      selectedInvoice.customer.split(" ")[0] ||
+      "there";
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    const paidToDate = selectedInvoice.paidAmount ?? 0;
+    const paymentReference = payment.reference?.trim() || "Not supplied";
+
+    let subject = `Remittance advice · ${selectedInvoice.ref} · ${currency(payment.amount)}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `Thank you. We have allocated the following payment against invoice ${selectedInvoice.ref}.\n\n` +
+      `Payment date: ${payment.paidAt}\n` +
+      `Amount received: ${currency(payment.amount)}\n` +
+      `Method: ${payment.method}\n` +
+      `Reference: ${paymentReference}\n\n` +
+      `Paid to date: ${currency(paidToDate)}\n` +
+      `Outstanding balance: ${currency(outstanding)}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "remittance");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedInvoice.ref,
+          paymentAmount: currency(payment.amount),
+          paymentDate: payment.paidAt,
+          paymentMethod: payment.method,
+          paymentReference,
+          paid: currency(paidToDate),
+          outstanding: currency(outstanding),
+          total: currency(selectedInvoiceFinancials.grandTotal),
+          date: currentOperatingDate,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    setIsSendingInvoiceRemittance(true);
+    try {
+      const delivery = await sendThroughLiveOutbox({
+        to,
+        subject,
+        text: bodyText,
+        document: {
+          filename: `${selectedInvoice.ref}-remittance.pdf`,
+          title: "Remittance advice",
+          businessName: companyName,
+          reference: selectedInvoice.ref,
+          recipient: selectedInvoice.customer,
+          subject: `Payment of ${currency(payment.amount)} allocated`,
+          rows: [
+            {
+              description: `Payment received · ${payment.paidAt}`,
+              detail: `${payment.method}${payment.reference ? ` · ${payment.reference}` : ""}`,
+              value: currency(payment.amount),
+            },
+            {
+              description: "Paid to date",
+              detail: selectedInvoice.title,
+              value: currency(paidToDate),
+            },
+            {
+              description: "Outstanding balance",
+              detail: `Invoice total ${currency(selectedInvoiceFinancials.grandTotal)}`,
+              value: currency(outstanding),
+            },
+          ],
+          subtotal: currency(payment.amount),
+          vat: currency(0),
+          total: currency(payment.amount),
+        },
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "remittance sent",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref} remittance for ${currency(payment.amount)} emailed to ${to}.`,
+        source: "outlook draft",
+        importance: "normal",
+      });
+      addCommunicationRecord({
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+        direction: "outbound",
+        channel: "Outlook",
+        subject,
+        body: bodyText,
+        from: delivery.from,
+        to,
+        messageId: delivery.messageId,
+        status: "Sent",
+      });
+      showNotice(`Remittance advice sent to ${to} for ${currency(payment.amount)}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send remittance advice.");
+    } finally {
+      setIsSendingInvoiceRemittance(false);
+    }
   }
 
   async function exportSelectedInvoiceToXero() {
@@ -33061,6 +33203,23 @@ export default function Dashboard() {
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
                             <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={
+                                isSendingInvoiceRemittance ||
+                                !(selectedInvoice.payments || []).length ||
+                                !access.canEditInvoice
+                              }
+                              title={
+                                (selectedInvoice.payments || []).length
+                                  ? "Email remittance advice for the latest allocated payment"
+                                  : "Record a payment first"
+                              }
+                              onClick={() => void sendSelectedInvoiceRemittanceAdvice()}
+                            >
+                              {isSendingInvoiceRemittance ? "Sending remittance…" : "Email remittance advice"}
+                            </button>
                             <button
                               className="secondary-button"
                               type="button"
