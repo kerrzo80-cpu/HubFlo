@@ -1657,7 +1657,7 @@ type QuoteEmailDraft = {
   attachPdf: boolean;
 };
 
-type CommunicationRecordType = "lead" | "quote" | "job" | "invoice";
+type CommunicationRecordType = "lead" | "quote" | "job" | "invoice" | "client";
 type CommunicationDirection = "outbound" | "inbound";
 
 type CommunicationRecord = {
@@ -7258,6 +7258,7 @@ export default function Dashboard() {
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
   const [isPullingPoBillPayments, setIsPullingPoBillPayments] = useState(false);
+  const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
@@ -7319,6 +7320,21 @@ export default function Dashboard() {
     () => clients.find((client) => client.id === activeClientId) ?? clients[0] ?? null,
     [activeClientId, clients],
   );
+
+  const activeClientOutstandingInvoices = useMemo(() => {
+    if (!activeClient) return [];
+    return invoices
+      .filter((invoice) => {
+        if (invoice.claimType === "valuation") return false;
+        if (invoice.status === "Cancelled" || invoice.status === "Draft" || invoice.status === "Paid") return false;
+        const linked =
+          invoice.clientId === activeClient.id ||
+          invoice.customer.trim().toLowerCase() === activeClient.name.trim().toLowerCase();
+        if (!linked) return false;
+        return invoiceOutstandingBalance(invoice) > 0.009;
+      })
+      .sort((left, right) => (left.dueDate < right.dueDate ? -1 : 1));
+  }, [activeClient, invoices]);
 
   const activeClientSites = useMemo(
     () => clientSites.filter((site) => site.clientId === activeClientId),
@@ -21284,6 +21300,112 @@ export default function Dashboard() {
       setJobs((current) => current.map((job) => result.jobs!.find((item) => item.id === job.id) ?? job));
     }
     return result.client;
+  }
+
+  async function sendActiveClientStatement() {
+    if (!activeClient) return;
+    if (!activeClient.email?.trim().includes("@")) {
+      showNotice("Add a customer email before sending a statement.");
+      return;
+    }
+    if (!activeClientOutstandingInvoices.length) {
+      showNotice(`${activeClient.name} has no outstanding invoices to statement.`);
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const asAt = currentOperatingDate;
+    const rows = activeClientOutstandingInvoices.map((invoice) => {
+      const outstanding = invoiceOutstandingBalance(invoice);
+      const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
+      return {
+        invoice,
+        outstanding,
+        daysOverdue,
+        description: `${invoice.ref} · due ${invoice.dueDate}${daysOverdue > 0 ? ` · ${daysOverdue}d overdue` : ""}`,
+        value: currency(outstanding),
+      };
+    });
+    const totalOutstanding = rows.reduce((sum, row) => sum + row.outstanding, 0);
+    const contactName = activeClient.primaryContact?.split(" ")[0] || "there";
+
+    let subject = `Account statement from ${companyName} · ${asAt}`;
+    let bodyText = `Hi ${contactName},\n\nPlease find your outstanding account statement as at ${asAt}.\n\nTotal outstanding: ${currency(totalOutstanding)}.\n\nKind regards,\n${companyName}`;
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "statement");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          date: asAt,
+          outstanding: currency(totalOutstanding),
+          ref: activeClient.accountReference || activeClient.name,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    setIsSendingClientStatement(true);
+    try {
+      const delivery = await sendThroughLiveOutbox({
+        to: activeClient.email.trim(),
+        subject,
+        text: bodyText,
+        document: {
+          filename: `${activeClient.accountReference || activeClient.name}-statement.pdf`,
+          title: "Customer statement",
+          businessName: companyName,
+          reference: `STMT-${asAt}`,
+          recipient: activeClient.name,
+          subject: `Outstanding balance as at ${asAt}`,
+          rows: rows.map((row) => ({
+            description: row.description,
+            detail: row.invoice.title,
+            value: row.value,
+          })),
+          subtotal: currency(totalOutstanding),
+          vat: currency(0),
+          total: currency(totalOutstanding),
+        },
+      });
+
+      const sentAt = delivery.sentAt;
+      await persistClientRecordPatch(activeClient.id, {
+        lastStatementSentAt: sentAt,
+        lastStatementSentTo: activeClient.email.trim(),
+      });
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "statement sent",
+        recordType: "client",
+        recordId: activeClient.id,
+        summary: `${activeClient.name} statement emailed to ${activeClient.email.trim()} · ${rows.length} invoice(s) · ${currency(totalOutstanding)} outstanding.`,
+        source: "outlook draft",
+        importance: "high",
+      });
+      addCommunicationRecord({
+        recordType: "client",
+        recordId: activeClient.id,
+        direction: "outbound",
+        channel: "Outlook",
+        subject,
+        body: bodyText,
+        from: delivery.from,
+        to: activeClient.email.trim(),
+        messageId: delivery.messageId,
+        status: "Sent",
+      });
+      showNotice(`Statement sent to ${activeClient.email.trim()} · ${currency(totalOutstanding)} across ${rows.length} invoice(s).`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send customer statement.");
+    } finally {
+      setIsSendingClientStatement(false);
+    }
   }
 
   async function persistSiteRecordPatch(siteId: string, patch: Partial<ClientSite>) {
@@ -36266,7 +36388,51 @@ export default function Dashboard() {
                           >
                             Save customer
                           </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isSendingClientStatement ||
+                              !emailIntegrationStatus?.lastTestMessageId ||
+                              !activeClientOutstandingInvoices.length
+                            }
+                            title={
+                              !activeClientOutstandingInvoices.length
+                                ? "No outstanding invoices"
+                                : !emailIntegrationStatus?.lastTestMessageId
+                                  ? "Test email integration in Setup first"
+                                  : "Email outstanding invoice statement"
+                            }
+                            onClick={() => void sendActiveClientStatement()}
+                          >
+                            <Mail size={15} />
+                            {isSendingClientStatement
+                              ? "Sending statement…"
+                              : `Email statement (${activeClientOutstandingInvoices.length})`}
+                          </button>
                         </div>
+                        {activeClient.lastStatementSentAt ? (
+                          <small>
+                            Last statement {activeClient.lastStatementSentAt} to {activeClient.lastStatementSentTo || "recipient"}
+                          </small>
+                        ) : null}
+                        {activeClientOutstandingInvoices.length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head"><span>Invoice</span><span>Due</span><span>Outstanding</span><span /></div>
+                            {activeClientOutstandingInvoices.slice(0, 8).map((invoice) => (
+                              <div className="ops-table-row" key={invoice.id}>
+                                <strong>{invoice.ref}</strong>
+                                <span>{invoice.dueDate}</span>
+                                <span>{currency(invoiceOutstandingBalance(invoice))}</span>
+                                <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                                  Open
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted" style={{ marginTop: "0.75rem" }}>No outstanding invoices on this account.</p>
+                        )}
                       </article>
 
                       <article className="client-info-card client-vat-card">

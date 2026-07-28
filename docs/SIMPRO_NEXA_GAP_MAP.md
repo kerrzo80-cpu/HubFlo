@@ -196,6 +196,7 @@ Until Brian cuts further, execute in this order:
 - **Stock preferred supplier** editable on items; reorder uses override → preferred → workspace default
 - **PO three-way match** — ordered vs received vs supplier invoice amount on the PO record (Matched / Variance / Incomplete)
 - **Xero bill payment pull (AP)** — import ACCPAY payments onto the PO supplier payment ledger by BillID / PO number
+- **Customer statement** — email outstanding invoices from the client record (Setup `statement` template + PDF attachment)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts

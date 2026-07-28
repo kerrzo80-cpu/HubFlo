@@ -30,6 +30,8 @@ export type ClientRecord = {
   vatRateOverride?: string;
   archived?: boolean;
   xeroContactId?: string;
+  lastStatementSentAt?: string;
+  lastStatementSentTo?: string;
 };
 
 export type AuditEvent = {

@@ -336,6 +336,7 @@ export function SetupConfigPanel({
               <option value="quote">quote</option>
               <option value="invoice">invoice</option>
               <option value="invoice-overdue">invoice-overdue</option>
+              <option value="statement">statement</option>
               <option value="po">po</option>
               <option value="follow-up">follow-up</option>
               <option value="job-confirmation">job-confirmation</option>

@@ -34,6 +34,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     vatTreatment: pickString(body, "vatTreatment") as never,
     vatRateOverride: pickString(body, "vatRateOverride"),
     xeroContactId: pickString(body, "xeroContactId"),
+    lastStatementSentAt: pickString(body, "lastStatementSentAt"),
+    lastStatementSentTo: pickString(body, "lastStatementSentTo"),
     archived: typeof body.archived === "boolean" ? body.archived : undefined,
   });
 

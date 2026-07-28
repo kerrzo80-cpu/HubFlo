@@ -26,7 +26,7 @@ export type SetupTaxCode = {
 
 export type SetupEmailTemplate = {
   id: string;
-  key: "quote" | "invoice" | "invoice-overdue" | "po" | "follow-up" | "job-confirmation";
+  key: "quote" | "invoice" | "invoice-overdue" | "statement" | "po" | "follow-up" | "job-confirmation";
   name: string;
   subject: string;
   body: string;
@@ -115,6 +115,13 @@ const defaults: SetupConfigStore = {
       name: "Invoice overdue chase",
       subject: "Payment reminder · {{ref}} · {{daysOverdue}} days overdue",
       body: "Hi {{contact}},\n\nOur records show invoice {{ref}} is {{daysOverdue}} days overdue (due {{dueDate}}).\n\nOutstanding balance: {{outstanding}}.\nOriginal total: {{total}}.\nPaid to date: {{paid}}.\n\nPlease arrange payment or let us know if there is a query.\n\nKind regards,\n{{company}}",
+    },
+    {
+      id: "em-statement",
+      key: "statement",
+      name: "Customer statement",
+      subject: "Account statement from {{company}} · {{date}}",
+      body: "Hi {{contact}},\n\nPlease find your outstanding account statement as at {{date}}.\n\nTotal outstanding: {{outstanding}}.\n\nKind regards,\n{{company}}",
     },
     {
       id: "em-po",
