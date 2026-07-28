@@ -2578,12 +2578,17 @@ kbd {
   color: #7a5d08;
 }
 
-/* Polished Buddy person — intact figure with natural idle motion */
+/* Interactive yellow/blue Buddy — masked parts + gestures */
 .buddy-character {
   display: inline-flex;
   line-height: 0;
   pointer-events: none;
   user-select: none;
+}
+
+.buddy-character.is-interactive {
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .buddy-character-stage {
@@ -2594,127 +2599,326 @@ kbd {
 }
 
 .buddy-character.size-sm {
-  width: 48px;
+  width: 44px;
 }
 
 .buddy-character.size-md {
-  width: 68px;
+  width: 60px;
 }
 
 .buddy-character.size-lg {
-  width: 92px;
+  width: 84px;
 }
 
 .buddy-character.size-hero {
-  width: 124px;
+  width: 120px;
 }
 
 .buddy-character .buddy-shadow {
-  animation: buddy-shadow-breathe 3.6s ease-in-out infinite;
-  background: radial-gradient(ellipse at center, rgba(23, 57, 73, 0.28) 0%, rgba(23, 57, 73, 0) 70%);
+  animation: buddy-shadow-breathe 3.2s ease-in-out infinite;
+  background: radial-gradient(ellipse at center, rgba(23, 57, 73, 0.32) 0%, rgba(23, 57, 73, 0) 72%);
   border-radius: 50%;
-  bottom: 2%;
-  height: 8%;
-  left: 28%;
+  bottom: 1%;
+  height: 7%;
+  left: 22%;
   position: absolute;
-  right: 28%;
+  right: 22%;
   z-index: 0;
 }
 
 .buddy-character .buddy-figure {
-  animation: buddy-person-idle 3.8s ease-in-out infinite;
-  filter: drop-shadow(0 12px 18px rgba(17, 52, 68, 0.18));
+  animation: buddy-body-sway 3.6s ease-in-out infinite;
+  filter: drop-shadow(0 10px 16px rgba(17, 52, 68, 0.16));
   inset: 0;
   position: absolute;
-  transform-origin: 50% 94%;
+  transform-origin: 50% 92%;
   z-index: 1;
 }
 
-.buddy-character .buddy-figure-art {
-  display: block;
-  height: 100%;
-  object-fit: contain;
-  width: 100%;
+.buddy-character .buddy-legs-root,
+.buddy-character .buddy-upper,
+.buddy-character .buddy-head-root,
+.buddy-character .buddy-part {
+  inset: 0;
+  position: absolute;
 }
 
-.buddy-character .buddy-eye-lid {
-  background: #c4a38a;
-  border-radius: 999px;
-  height: 2.4%;
-  opacity: 0;
-  position: absolute;
-  top: 21%;
-  transform-origin: center top;
-  width: 5.5%;
+.buddy-character .buddy-legs-root {
+  animation: buddy-legs-shift 3.2s ease-in-out infinite;
+  transform-origin: 50.8% 73.3%;
+  z-index: 1;
+}
+
+.buddy-character .buddy-upper {
+  animation: buddy-breathe 3.2s ease-in-out infinite;
+  transform-origin: 48% 72%;
   z-index: 2;
 }
 
-.buddy-character .buddy-eye-lid-left {
+.buddy-character .buddy-head-root {
+  animation: buddy-head-live 2.8s ease-in-out infinite;
+  transform-origin: 52.3% 41.2%;
+  z-index: 5;
+}
+
+.buddy-character .buddy-part {
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+}
+
+.buddy-character .buddy-part-art {
+  display: block;
+  height: 100%;
+  object-fit: fill;
+  width: 100%;
+}
+
+.buddy-character .buddy-left-arm {
+  animation: buddy-arm-hip 3.4s ease-in-out infinite;
+  transform-origin: 62.1% 52%;
+  z-index: 3;
+}
+
+.buddy-character .buddy-right-arm {
+  animation: buddy-arm-wave-idle 2.6s ease-in-out infinite;
+  transform-origin: 33.6% 39%;
+  z-index: 4;
+}
+
+.buddy-character .buddy-visor-glow {
+  animation: buddy-visor-pulse 3.4s ease-in-out infinite;
+  background: radial-gradient(circle, rgba(80, 220, 255, 0.35) 0%, rgba(80, 220, 255, 0) 70%);
+  border-radius: 50%;
+  height: 14%;
   left: 43%;
-  animation: buddy-eye-blink 5.6s ease-in-out infinite;
+  opacity: 0.55;
+  pointer-events: none;
+  position: absolute;
+  top: 20%;
+  width: 14%;
+  z-index: 5;
+}
+
+.buddy-character .buddy-eye-lid {
+  background: #f2c94c;
+  border-radius: 999px;
+  height: 3.2%;
+  opacity: 0;
+  position: absolute;
+  top: 23.5%;
+  transform-origin: center top;
+  width: 7.5%;
+  z-index: 7;
+}
+
+.buddy-character .buddy-eye-lid-left {
+  left: 41%;
+  animation: buddy-eye-blink 5.4s ease-in-out infinite;
 }
 
 .buddy-character .buddy-eye-lid-right {
-  left: 51.5%;
-  animation: buddy-eye-blink 5.6s ease-in-out 0.1s infinite;
+  left: 52.5%;
+  animation: buddy-eye-blink 5.4s ease-in-out 0.12s infinite;
 }
 
+/* Hover — lean in and speed up wave */
+.buddy-character.is-hovered .buddy-figure {
+  animation: buddy-hover-lean 0.9s ease-in-out infinite;
+}
+
+.buddy-character.is-hovered .buddy-right-arm {
+  animation: buddy-arm-wave-fast 0.55s ease-in-out infinite;
+}
+
+.buddy-character.is-hovered .buddy-visor-glow {
+  opacity: 0.9;
+  transform: scale(1.15);
+}
+
+/* One-shot gestures */
+.buddy-character.gesture-wave .buddy-right-arm {
+  animation: buddy-arm-wave-fast 0.45s ease-in-out infinite;
+}
+
+.buddy-character.gesture-wave .buddy-head-root {
+  animation: buddy-head-happy 0.9s ease-in-out infinite;
+}
+
+.buddy-character.gesture-wink .buddy-eye-lid-right {
+  animation: buddy-wink 0.7s ease-in-out 1;
+  opacity: 1;
+}
+
+.buddy-character.gesture-bounce .buddy-figure {
+  animation: buddy-body-happy 0.85s ease-in-out infinite;
+}
+
+.buddy-character.gesture-bounce .buddy-legs-root {
+  animation: buddy-legs-happy 0.85s ease-in-out infinite;
+}
+
+.buddy-character.gesture-nod .buddy-head-root {
+  animation: buddy-head-guide 0.7s ease-in-out infinite;
+}
+
+/* Mood overrides */
 .buddy-character.mood-alert .buddy-figure {
-  animation: buddy-person-alert 1.1s ease-in-out infinite;
+  animation: buddy-body-alert 1.05s ease-in-out infinite;
 }
 
-.buddy-character.mood-thinking .buddy-figure {
-  animation: buddy-person-think 2s ease-in-out infinite;
+.buddy-character.mood-alert .buddy-right-arm {
+  animation: buddy-arm-alert 0.85s ease-in-out infinite;
 }
 
-.buddy-character.mood-guide .buddy-figure {
-  animation: buddy-person-guide 1.6s ease-in-out infinite;
+.buddy-character.mood-alert .buddy-visor-glow {
+  background: radial-gradient(circle, rgba(255, 140, 70, 0.45) 0%, rgba(255, 140, 70, 0) 70%);
+}
+
+.buddy-character.mood-thinking .buddy-head-root {
+  animation: buddy-head-think 1.7s ease-in-out infinite;
+}
+
+.buddy-character.mood-thinking .buddy-left-arm {
+  animation: buddy-arm-think 1.9s ease-in-out infinite;
+}
+
+.buddy-character.mood-guide .buddy-right-arm {
+  animation: buddy-arm-guide 1.25s ease-in-out infinite;
+}
+
+.buddy-character.mood-guide .buddy-head-root {
+  animation: buddy-head-guide 1.45s ease-in-out infinite;
 }
 
 .buddy-character.mood-good .buddy-figure {
-  animation: buddy-person-happy 1.9s ease-in-out infinite;
+  animation: buddy-body-happy 1.9s ease-in-out infinite;
 }
 
-@keyframes buddy-person-idle {
-  0%, 100% { transform: translateY(0) rotate(-0.6deg) scale(1, 1); }
-  50% { transform: translateY(-3px) rotate(0.6deg) scale(1.01, 1.015); }
+.buddy-character.mood-good .buddy-right-arm {
+  animation: buddy-arm-wave-fast 0.7s ease-in-out infinite;
+}
+
+@keyframes buddy-body-sway {
+  0%, 100% { transform: translateY(0) rotate(-0.7deg); }
+  50% { transform: translateY(-2px) rotate(0.7deg); }
+}
+
+@keyframes buddy-breathe {
+  0%, 100% { transform: translateY(0) scale(1, 1); }
+  50% { transform: translateY(-1.5px) scale(1.01, 1.016); }
+}
+
+@keyframes buddy-legs-shift {
+  0%, 100% { transform: rotate(-0.6deg); }
+  50% { transform: rotate(0.6deg); }
+}
+
+@keyframes buddy-head-live {
+  0%, 100% { transform: translateY(0) rotate(-2deg); }
+  50% { transform: translateY(-1.5px) rotate(2deg); }
+}
+
+@keyframes buddy-arm-wave-idle {
+  0%, 100% { transform: rotate(-3deg); }
+  40% { transform: rotate(8deg) translateY(-2px); }
+  70% { transform: rotate(2deg); }
+}
+
+@keyframes buddy-arm-wave-fast {
+  0%, 100% { transform: rotate(-6deg); }
+  50% { transform: rotate(14deg) translateY(-3px); }
+}
+
+@keyframes buddy-arm-hip {
+  0%, 100% { transform: rotate(1deg); }
+  50% { transform: rotate(-5deg); }
+}
+
+@keyframes buddy-visor-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.75; }
 }
 
 @keyframes buddy-shadow-breathe {
   0%, 100% { opacity: 0.7; transform: scaleX(1); }
-  50% { opacity: 0.4; transform: scaleX(0.88); }
+  50% { opacity: 0.38; transform: scaleX(0.86); }
 }
 
 @keyframes buddy-eye-blink {
-  0%, 84%, 94%, 100% { opacity: 0; transform: scaleY(0.12); }
-  88%, 90% { opacity: 0.9; transform: scaleY(1); }
+  0%, 82%, 93%, 100% { opacity: 0; transform: scaleY(0.1); }
+  86%, 89% { opacity: 0.95; transform: scaleY(1); }
 }
 
-@keyframes buddy-person-alert {
+@keyframes buddy-wink {
+  0%, 100% { opacity: 0; transform: scaleY(0.1); }
+  30%, 70% { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes buddy-hover-lean {
+  0%, 100% { transform: translateY(-2px) rotate(-2deg) scale(1.03); }
+  50% { transform: translateY(-4px) rotate(2deg) scale(1.04); }
+}
+
+@keyframes buddy-body-alert {
   0%, 100% { transform: translateY(0) rotate(-1.5deg); }
   50% { transform: translateY(-2px) rotate(1.5deg); }
 }
 
-@keyframes buddy-person-think {
-  0%, 100% { transform: translateY(0) rotate(-2deg); }
-  50% { transform: translateY(-3px) rotate(1.5deg); }
+@keyframes buddy-arm-alert {
+  0%, 100% { transform: rotate(-2deg); }
+  50% { transform: rotate(12deg) translateY(-2px); }
 }
 
-@keyframes buddy-person-guide {
+@keyframes buddy-head-think {
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50% { transform: translateY(-2px) rotate(3deg); }
+}
+
+@keyframes buddy-arm-think {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-8deg); }
+}
+
+@keyframes buddy-head-guide {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(3px) rotate(2deg); }
+}
+
+@keyframes buddy-arm-guide {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(12deg) translateY(-2px); }
+}
+
+@keyframes buddy-body-happy {
+  0%, 100% { transform: translateY(0) rotate(-0.5deg); }
+  50% { transform: translateY(-4px) rotate(0.8deg); }
+}
+
+@keyframes buddy-head-happy {
   0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-3px) rotate(1deg); }
+  40% { transform: translateY(-3px) rotate(3deg); }
+  65% { transform: translateY(-1px) rotate(-2deg); }
 }
 
-@keyframes buddy-person-happy {
-  0%, 100% { transform: translateY(0) rotate(-0.4deg) scale(1, 1); }
-  40% { transform: translateY(-5px) rotate(0.8deg) scale(1.02, 1.01); }
-  65% { transform: translateY(-1px) rotate(-0.5deg) scale(1, 0.995); }
+@keyframes buddy-legs-happy {
+  0%, 100% { transform: scaleY(1) translateY(0); }
+  50% { transform: scaleY(0.97) translateY(1px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .buddy-character .buddy-shadow,
   .buddy-character .buddy-figure,
-  .buddy-character .buddy-eye-lid {
+  .buddy-character .buddy-legs-root,
+  .buddy-character .buddy-upper,
+  .buddy-character .buddy-head-root,
+  .buddy-character .buddy-left-arm,
+  .buddy-character .buddy-right-arm,
+  .buddy-character .buddy-eye-lid,
+  .buddy-character .buddy-visor-glow {
     animation: none !important;
   }
 }
