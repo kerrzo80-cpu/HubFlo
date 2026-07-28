@@ -3,14 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import {
-  ArrowLeft,
-  Camera,
-  ClipboardCheck,
-  Layers,
-  MapPin,
-  Phone,
-} from "lucide-react";
+import { ArrowLeft, Camera, ClipboardCheck, Layers, MapPin, Phone } from "lucide-react";
 import { ProgrammeBoard } from "@/components/ProgrammeBoard";
 import { useNexaClient } from "@/lib/nexa";
 import { toggleMockRequirement } from "@/lib/nexa/mock-data";
@@ -61,10 +54,9 @@ export default function JobDetailPage() {
   function toggleRequirement(requirementId: string) {
     if (!job) return;
     try {
-      const next = toggleMockRequirement(job.scheduleId, requirementId);
-      setJob(next);
+      setJob(toggleMockRequirement(job.scheduleId, requirementId));
     } catch {
-      // Demo-only toggle; ignore if storage unavailable.
+      // Demo-only toggle.
     }
   }
 
@@ -79,9 +71,9 @@ export default function JobDetailPage() {
 
   if (error) {
     return (
-      <main className="field-content">
-        <Link href="/" className="back-link">
-          <ArrowLeft size={17} /> Back to My Day
+      <main className="field-screen">
+        <Link href={"/"} className="back-link">
+          <ArrowLeft size={17} /> My Day
         </Link>
         <div className="feedback error">{error}</div>
       </main>
@@ -90,139 +82,112 @@ export default function JobDetailPage() {
 
   if (!job) {
     return (
-      <main className="field-content">
-        <p className="muted">Loading job pack…</p>
+      <main className="field-screen">
+        <p className="muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="field-content">
-      <Link href="/" className="back-link">
-        <ArrowLeft size={17} /> Back to My Day
+    <main className="field-screen">
+      <Link href={"/"} className="back-link">
+        <ArrowLeft size={17} /> My Day
       </Link>
 
-      <section className="hero">
+      <header className="field-page-header">
         <p className="eyebrow">
-          {job.jobRef} · {job.trade} · {job.costCentre}
+          {job.start}–{job.end} · {formatDuration(job.durationHours)} · {job.jobRef}
         </p>
         <h1>{job.customer}</h1>
-        <p>{job.description}</p>
-        <div className="meta-row">
-          <span>
-            {job.start}-{job.end}
-          </span>
-          <span>{formatDuration(job.durationHours)} booked</span>
-          <span>{job.status}</span>
-          <span>{drawings.length + photos.length} pack files</span>
-        </div>
-      </section>
+        <p className="field-page-sub">{job.costCentre}</p>
+      </header>
 
-      <section className="contact-card">
-        <p className="eyebrow">Site</p>
-        <h2>{job.address}</h2>
-        <p className="muted">Contact: {job.contactName}</p>
-        <div className="contact-actions">
+      <p className="job-lead">{job.description}</p>
+
+      <div className="site-block">
+        <p>{job.address}</p>
+        <span>{job.contactName}</span>
+        <div className="site-actions">
           <a href={mapsUrl(job.address)} target="_blank" rel="noreferrer">
-            <MapPin size={17} /> Maps
+            <MapPin size={16} /> Maps
           </a>
           <a href={`tel:${job.phone}`}>
-            <Phone size={17} /> Call
+            <Phone size={16} /> Call
           </a>
         </div>
-      </section>
+      </div>
 
-      <section className="panel">
-        <div className="tabs" role="tablist" aria-label="Job pack">
-          <button type="button" className={tab === "pack" ? "active" : undefined} onClick={() => setTab("pack")}>
-            <Layers size={16} /> Pack
-          </button>
-          <button type="button" className={tab === "checklist" ? "active" : undefined} onClick={() => setTab("checklist")}>
-            <ClipboardCheck size={16} /> Checklist
-          </button>
-          <button type="button" className={tab === "photos" ? "active" : undefined} onClick={() => setTab("photos")}>
-            <Camera size={16} /> Photos
-          </button>
-        </div>
+      <div className="tabs" role="tablist" aria-label="Job details">
+        <button type="button" className={tab === "pack" ? "active" : undefined} onClick={() => setTab("pack")}>
+          <Layers size={15} /> Pack
+        </button>
+        <button type="button" className={tab === "checklist" ? "active" : undefined} onClick={() => setTab("checklist")}>
+          <ClipboardCheck size={15} /> Checklist
+        </button>
+        <button type="button" className={tab === "photos" ? "active" : undefined} onClick={() => setTab("photos")}>
+          <Camera size={15} /> Photos
+        </button>
+      </div>
 
-        {tab === "pack" ? (
-          <div className="pack-grid">
-            <ProgrammeBoard jobs={jobs} activeScheduleId={job.scheduleId} />
-            <div className="note-block">
-              <strong>Access</strong>
-              <p>{job.accessNotes}</p>
+      {tab === "pack" ? (
+        <div className="stack">
+          <ProgrammeBoard jobs={jobs} activeScheduleId={job.scheduleId} />
+          <div className="soft-block">
+            <strong>Access</strong>
+            <p>{job.accessNotes}</p>
+          </div>
+          {job.officeNotes.slice(0, 2).map((note) => (
+            <div className="soft-block" key={note}>
+              <strong>Office</strong>
+              <p>{note}</p>
             </div>
-            {job.officeNotes.map((note) => (
-              <div className="note-block" key={note}>
-                <strong>Office note</strong>
-                <p>{note}</p>
+          ))}
+          <h2 className="stack-title">Drawings &amp; docs</h2>
+          <div className="file-list">
+            {(drawings.length ? drawings : job.attachments).map((file) => (
+              <div className="file-row" key={file.id}>
+                <span>{file.type}</span>
+                <strong>{file.name}</strong>
               </div>
             ))}
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Drawings &amp; docs</p>
-                <h2>Office attachments</h2>
-              </div>
-            </div>
-            <div className="file-grid">
-              {(drawings.length ? drawings : job.attachments).map((file) => (
-                <div className="file-tile" key={file.id}>
-                  <span className="eyebrow">{file.type}</span>
-                  <strong>{file.name}</strong>
-                  <small>
-                    {file.uploadedBy} · {file.uploadedAt}
-                  </small>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "checklist" ? (
+        <div className="stack">
+          <p className="muted">Tap to mark supplied.</p>
+          {job.requirements.map((item) => (
+            <button
+              type="button"
+              className={`check-row ${item.status}`}
+              key={item.id}
+              disabled={item.status === "optional"}
+              onClick={() => toggleRequirement(item.id)}
+            >
+              <span>{item.label}</span>
+              <em>{item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional"}</em>
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {tab === "photos" ? (
+        <div className="stack">
+          {photos.length ? (
+            <div className="file-list">
+              {photos.map((photo) => (
+                <div className="file-row" key={photo.id}>
+                  <span>{photo.type}</span>
+                  <strong>{photo.name}</strong>
                 </div>
               ))}
             </div>
-          </div>
-        ) : null}
-
-        {tab === "checklist" ? (
-          <div className="checklist">
-            <p className="muted">
-              Stop / go for this cost centre. Tap an item to mark it supplied (demo only — saved on this device).
-            </p>
-            {job.requirements.map((item) => (
-              <button
-                type="button"
-                className={`checklist-item ${item.status}`}
-                key={item.id}
-                disabled={item.status === "optional"}
-                onClick={() => toggleRequirement(item.id)}
-                style={{ textAlign: "left", width: "100%", cursor: item.status === "optional" ? "default" : "pointer" }}
-              >
-                <div>
-                  <strong>{item.label}</strong>
-                  <span>
-                    {item.status === "missing"
-                      ? "Required · tap to mark supplied"
-                      : item.status === "done"
-                        ? "Evidence supplied · tap to undo"
-                        : "Optional"}
-                  </span>
-                </div>
-                <em>{item.status === "missing" ? "Missing" : item.status === "done" ? "Done" : "Optional"}</em>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {tab === "photos" ? (
-          <div className="file-grid">
-            {photos.map((photo) => (
-              <div className="file-tile" key={photo.id}>
-                <span className="eyebrow">{photo.type}</span>
-                <strong>{photo.name}</strong>
-                <small>
-                  {photo.uploadedBy} · {photo.uploadedAt}
-                </small>
-              </div>
-            ))}
-            {!photos.length ? <p className="muted">No photos on this pack yet.</p> : null}
-          </div>
-        ) : null}
-      </section>
+          ) : (
+            <p className="muted">No photos on this pack yet.</p>
+          )}
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   Clock3,
-  MessageCircle,
   Send,
   TriangleAlert,
 } from "lucide-react";
@@ -172,31 +171,19 @@ export function BlakeTimeCheck() {
   }
 
   return (
-    <div className="blake-time">
-      <section className="hero blake-hero">
-        <div className="blake-hero-row">
-          <BlakeCharacter mood={mood} size="lg" />
-          <div>
-            <p className="eyebrow">Blake · Daily time check</p>
-            <h1>Quick time check</h1>
-            <p>
-              Confirm as booked, or amend if it ran long or short. Those hours charge against the job.
-            </p>
-          </div>
+    <div className="field-screen blake-time">
+      <header className="field-page-header blake-header">
+        <BlakeCharacter mood={mood} size="md" />
+        <div>
+          <p className="eyebrow">Blake</p>
+          <h1>Time check</h1>
+          <p className="field-page-sub">
+            {summary
+              ? `${formatDuration(summary.actualHours)} actual · ${summary.pendingCount} left`
+              : "Confirm or amend each job"}
+          </p>
         </div>
-        {summary ? (
-          <div className="meta-row">
-            <span>{check?.lines.length ?? 0} jobs</span>
-            <span>{formatDuration(summary.scheduledHours)} booked</span>
-            <span>{formatDuration(summary.actualHours)} actual</span>
-            <span>
-              {summary.varianceHours === 0
-                ? "On plan"
-                : `${summary.varianceHours > 0 ? "+" : "−"}${formatDuration(Math.abs(summary.varianceHours))}`}
-            </span>
-          </div>
-        ) : null}
-      </section>
+      </header>
 
       {error ? (
         <div className="feedback error">
@@ -205,125 +192,97 @@ export function BlakeTimeCheck() {
         </div>
       ) : null}
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">With Blake</p>
-            <h2>Review today&apos;s jobs</h2>
-          </div>
-          <MessageCircle size={20} />
-        </div>
-        <div className="chat-log">
-          {chat.map((bubble) => (
-            <article key={bubble.id} className={`chat-bubble ${bubble.role}`}>
-              {bubble.role === "blake" ? <BlakeCharacter mood={mood} size="sm" /> : null}
-              <p>{bubble.text}</p>
-            </article>
-          ))}
-          {busy ? (
-            <article className="chat-bubble blake">
-              <BlakeCharacter mood="thinking" size="sm" />
-              <p>Blake is updating the jobs…</p>
-            </article>
-          ) : null}
-        </div>
+      <div className="chat-log">
+        {chat.map((bubble) => (
+          <article key={bubble.id} className={`chat-bubble ${bubble.role}`}>
+            {bubble.role === "blake" ? <BlakeCharacter mood={mood} size="sm" /> : null}
+            <p>{bubble.text}</p>
+          </article>
+        ))}
+        {busy ? (
+          <article className="chat-bubble blake">
+            <BlakeCharacter mood="thinking" size="sm" />
+            <p>Updating…</p>
+          </article>
+        ) : null}
+      </div>
 
-        {current && check?.status !== "submitted" ? (
-          <div className="blake-actions">
-            <div className="current-job">
-              <strong>{current.customer}</strong>
+      {current && check?.status !== "submitted" ? (
+        <div className="blake-actions">
+          <div className="current-job">
+            <strong>{current.customer}</strong>
+            <span>
+              {current.jobRef} · booked {current.scheduledStart}–{current.scheduledEnd}
+            </span>
+          </div>
+          {!editing ? (
+            <div className="action-row">
+              <button type="button" disabled={busy} onClick={() => void confirmCurrent()}>
+                <CheckCircle2 size={17} /> As scheduled
+              </button>
+              <button type="button" disabled={busy} onClick={() => setEditing(true)}>
+                <Clock3 size={17} /> Amend
+              </button>
+            </div>
+          ) : (
+            <form
+              className="time-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void saveAmendment();
+              }}
+            >
+              <label>
+                Start
+                <input type="time" value={draftStart} onChange={(event) => setDraftStart(event.target.value)} />
+              </label>
+              <label>
+                Finish
+                <input type="time" value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} />
+              </label>
+              <label className="full">
+                Note
+                <textarea
+                  value={draftNote}
+                  onChange={(event) => setDraftNote(event.target.value)}
+                  rows={2}
+                  placeholder="Why the change?"
+                />
+              </label>
+              <button className="full" type="submit" disabled={busy}>
+                <Send size={17} /> Save
+              </button>
+              <button className="full ghost" type="button" disabled={busy} onClick={() => setEditing(false)}>
+                Cancel
+              </button>
+            </form>
+          )}
+        </div>
+      ) : null}
+
+      {!current && check?.status !== "submitted" ? (
+        <div className="action-row">
+          <button type="button" disabled={busy} onClick={() => void submit(false)}>
+            <Send size={17} /> Submit hours
+          </button>
+        </div>
+      ) : null}
+
+      <div className="line-list">
+        {(check?.lines ?? []).map((line) => (
+          <div key={line.scheduleId} className={`line-item ${line.status}`}>
+            <div>
+              <strong>{line.customer}</strong>
               <span>
-                {current.jobRef} · {current.costCentre} · booked {current.scheduledStart}-{current.scheduledEnd}
+                {line.status === "pending"
+                  ? `${line.scheduledStart}–${line.scheduledEnd}`
+                  : `${line.actualStart}–${line.actualEnd} · ${formatDuration(line.actualHours)}`}
               </span>
             </div>
-            {!editing ? (
-              <div className="action-row">
-                <button type="button" disabled={busy} onClick={() => void confirmCurrent()}>
-                  <CheckCircle2 size={17} /> As scheduled
-                </button>
-                <button type="button" disabled={busy} onClick={() => setEditing(true)}>
-                  <Clock3 size={17} /> Amend hours
-                </button>
-                <button type="button" disabled={busy} onClick={() => void submit(true)}>
-                  Confirm rest &amp; submit
-                </button>
-              </div>
-            ) : (
-              <form
-                className="time-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void saveAmendment();
-                }}
-              >
-                <label>
-                  Actual start
-                  <input type="time" value={draftStart} onChange={(event) => setDraftStart(event.target.value)} />
-                </label>
-                <label>
-                  Actual finish
-                  <input type="time" value={draftEnd} onChange={(event) => setDraftEnd(event.target.value)} />
-                </label>
-                <label>
-                  Break mins
-                  <input inputMode="numeric" value={draftBreak} onChange={(event) => setDraftBreak(event.target.value)} />
-                </label>
-                <label className="full">
-                  Why the change?
-                  <textarea
-                    value={draftNote}
-                    onChange={(event) => setDraftNote(event.target.value)}
-                    rows={2}
-                    placeholder="e.g. Extra fault / finished early / waiting on parts"
-                  />
-                </label>
-                <button className="full" type="submit" disabled={busy}>
-                  <Send size={17} /> Save with Blake
-                </button>
-                <button className="full ghost" type="button" disabled={busy} onClick={() => setEditing(false)}>
-                  Cancel
-                </button>
-              </form>
-            )}
+            <em>{line.status === "pending" ? "Next" : line.status === "amended" ? "Amended" : "Done"}</em>
           </div>
-        ) : null}
-
-        {!current && check?.status !== "submitted" ? (
-          <div className="action-row">
-            <button type="button" disabled={busy} onClick={() => void submit(false)}>
-              <Send size={17} /> Submit hours to jobs
-            </button>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Charge against jobs</p>
-            <h2>Today&apos;s lines</h2>
-          </div>
-          <Clock3 size={20} />
-        </div>
-        <div className="line-list">
-          {(check?.lines ?? []).map((line) => (
-            <div key={line.scheduleId} className={`line-item ${line.status}`}>
-              <div>
-                <strong>
-                  {line.customer} · {line.jobRef}
-                </strong>
-                <span>
-                  Booked {line.scheduledStart}-{line.scheduledEnd} ({formatDuration(line.scheduledHours)})
-                  {line.status !== "pending"
-                    ? ` → actual ${line.actualStart}-${line.actualEnd} (${formatDuration(line.actualHours)})`
-                    : " · waiting on Blake"}
-                </span>
-              </div>
-              <em>{line.status === "pending" ? "Pending" : line.status === "amended" ? "Amended" : "Confirmed"}</em>
-            </div>
-          ))}
-        </div>
-      </section>
+        ))}
+      </div>
     </div>
   );
 }

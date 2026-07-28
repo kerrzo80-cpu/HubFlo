@@ -1,90 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { Link2, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
-import { useNexaClient } from "@/lib/nexa";
+import { RotateCcw, Sparkles } from "lucide-react";
 import { resetMockDemo } from "@/lib/nexa/mock-data";
 
-
 export default function SettingsPage() {
-  const client = useNexaClient();
-  const connection = client.getConnection();
-  const [baseUrl, setBaseUrl] = useState("https://nexa-pilot.onrender.com");
-  const [engineerId, setEngineerId] = useState(connection.engineerId);
   const [resetNotice, setResetNotice] = useState("");
 
   function resetDemo() {
     resetMockDemo();
-    setResetNotice("Demo reset. Reload My Day / Blake to start fresh.");
+    setResetNotice("Demo cleared. Open My Day or Blake to start again.");
   }
 
   return (
-    <main className="field-content">
-      <section className="hero">
-        <p className="eyebrow">Connect later</p>
-        <h1>NeXa link</h1>
-        <p>
-          Play on mock data today. When you are ready, point this app at NeXa and the same screens pull live jobs and
-          charge hours back.
-        </p>
-      </section>
+    <main className="field-screen">
+      <header className="field-page-header">
+        <p className="eyebrow">Demo</p>
+        <h1>Connect later</h1>
+        <p className="field-page-sub">Playing on mock jobs for now. NeXa wiring comes next.</p>
+      </header>
 
       <section className="settings-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Play tips</p>
-            <h2>What to try</h2>
+            <p className="eyebrow">Try this</p>
+            <h2>Play tips</h2>
           </div>
-          <Sparkles size={22} />
+          <Sparkles size={20} />
         </div>
-        <ul className="muted" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.55 }}>
-          <li>Open <strong>J-1048</strong> pack — drawings, tenant photo, stop/go.</li>
-          <li>Tap checklist items on any job to mark evidence supplied.</li>
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <li>Open the next job from My Day.</li>
+          <li>Tick a couple of checklist items.</li>
           <li>
-            In <a href={"/time-check"}>Blake time check</a>, amend the cylinder job longer and the callback
-            shorter.
+            Finish with <a href={"/time-check"}>Blake</a> — amend one job longer.
           </li>
-          <li>Submit hours and see variance charged against the day.</li>
         </ul>
-        <button className="primary-btn" type="button" style={{ marginTop: 14, width: "100%" }} onClick={resetDemo}>
-          <RotateCcw size={17} /> Reset demo data
+        <button className="primary-btn" type="button" onClick={resetDemo}>
+          <RotateCcw size={16} /> Reset demo
         </button>
-        {resetNotice ? <p className="muted" style={{ marginTop: 10 }}>{resetNotice}</p> : null}
-      </section>
-
-      <section className="settings-card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Current mode</p>
-            <h2>Standalone demo</h2>
-          </div>
-          <ShieldCheck size={22} />
-        </div>
-        <p>{connection.label}</p>
-        <p className="muted">
-          Blake time checks, checklist ticks and charged hours stay on this device until NeXa is connected.
-        </p>
-      </section>
-
-      <section className="settings-card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Coming next</p>
-            <h2>NeXa connection</h2>
-          </div>
-          <Link2 size={22} />
-        </div>
-        <label>
-          NeXa base URL
-          <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://…" />
-        </label>
-        <label>
-          Engineer ID
-          <input value={engineerId} onChange={(event) => setEngineerId(event.target.value)} />
-        </label>
-        <button className="primary-btn" type="button" style={{ marginTop: 14, width: "100%" }} disabled>
-          Connect to NeXa (next step)
-        </button>
+        {resetNotice ? <p>{resetNotice}</p> : null}
       </section>
     </main>
   );

@@ -16,13 +16,14 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
   return (
     <div className="field-app">
       <header className="field-topbar">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
         <div>
           <strong>NeXa Field</strong>
-          <span>Plumbers &amp; joiners</span>
+          <span>Today&apos;s work</span>
         </div>
       </header>
-      <div className="field-content">{children}</div>
+      {children}
       <nav className="field-tabbar" aria-label="Field app">
         {links.map((link) => {
           const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);

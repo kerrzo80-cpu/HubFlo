@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, Clock3, FileText } from "lucide-react";
 import { JobCard } from "@/components/field/JobCard";
 import { useNexaClient } from "@/lib/field/nexa";
 import { formatDuration, todayLabel } from "@/lib/field/format";
@@ -37,70 +36,34 @@ export default function MyDayPage() {
   }, [client]);
 
   const totalHours = jobs.reduce((sum, job) => sum + job.durationHours, 0);
-  const missing = jobs.reduce(
-    (sum, job) => sum + job.requirements.filter((item) => item.status === "missing").length,
-    0,
-  );
-  const packFiles = jobs.reduce((sum, job) => sum + job.attachments.length + job.photos.length, 0);
   const firstJob = jobs[0];
-  const connection = client.getConnection();
 
   return (
-    <main className="field-content">
-      <section className="hero">
-        <p className="eyebrow">NeXa Field · {engineerName}</p>
-        <h1>My jobs today</h1>
-        <p>
-          Six demo jobs today — open a pack, tick stop/go, then finish with Blake&apos;s time check.
+    <main className="field-screen">
+      <header className="field-page-header">
+        <p className="eyebrow">{engineerName}</p>
+        <h1>{jobs[0] ? todayLabel(jobs[0].date) : "Today"}</h1>
+        <p className="field-page-sub">
+          {jobs.length} jobs · {formatDuration(totalHours)} booked
         </p>
-        <div className="summary-grid">
-          <div>
-            <strong>{jobs.length}</strong>
-            <span>Jobs</span>
-          </div>
-          <div>
-            <strong>{formatDuration(totalHours)}</strong>
-            <span>Booked</span>
-          </div>
-          <div>
-            <strong>{missing}</strong>
-            <span>Required</span>
-          </div>
-          <div>
-            <strong>{packFiles}</strong>
-            <span>Pack files</span>
-          </div>
-        </div>
-      </section>
+      </header>
 
-      <section className="action-strip" aria-label="Daily actions">
-        <Link href={firstJob ? fieldPath(`/jobs/${firstJob.scheduleId}`) : fieldPath("/time-check")}>
-          <FileText size={17} /> Open next job
+      {firstJob ? (
+        <Link href={fieldPath(`/jobs/${firstJob.scheduleId}`)} className="field-next-job">
+          <span>Next up</span>
+          <strong>
+            {firstJob.start} · {firstJob.customer}
+          </strong>
         </Link>
-        <Link href={fieldPath("/time-check")}>
-          <Clock3 size={17} /> Blake time check
-        </Link>
-      </section>
+      ) : null}
 
       {error ? <div className="feedback error">{error}</div> : null}
 
-      <section className="panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Schedule</p>
-            <h2>{jobs[0] ? todayLabel(jobs[0].date) : "Today"}</h2>
-          </div>
-          <CalendarDays size={22} />
-        </div>
-        <p className="muted" style={{ marginTop: 0 }}>
-          {connection.label}
-        </p>
-        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
-          {jobs.map((job) => (
-            <JobCard key={job.scheduleId} job={job} />
-          ))}
-          {!jobs.length && !error ? <p className="muted">No jobs booked for today.</p> : null}
-        </div>
+      <section className="job-list" aria-label="Today's jobs">
+        {jobs.map((job) => (
+          <JobCard key={job.scheduleId} job={job} />
+        ))}
+        {!jobs.length && !error ? <p className="muted">No jobs booked for today.</p> : null}
       </section>
     </main>
   );
