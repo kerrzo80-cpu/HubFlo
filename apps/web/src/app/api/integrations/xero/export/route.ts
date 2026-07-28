@@ -21,6 +21,9 @@ type XeroExportInvoice = {
   chargeTotal: number;
   vatRate: number;
   notes?: string;
+  claimType?: string;
+  creditOfRef?: string;
+  creditOfXeroInvoiceId?: string;
   xeroInvoiceId?: string;
   lines: Array<{
     description: string;
@@ -44,6 +47,7 @@ type XeroExportRecord = {
   xeroInvoiceId?: string;
   xeroInvoiceNumber?: string;
   updatedExisting?: boolean;
+  documentKind?: "invoice" | "credit-note";
 };
 
 type XeroExportStore = {
@@ -52,6 +56,10 @@ type XeroExportStore = {
 
 const STORE = "nexa-xero-exports-v1";
 
+function isCreditNote(invoice: XeroExportInvoice) {
+  return invoice.claimType === "credit-note";
+}
+
 function csvEscape(value: string | number) {
   const text = String(value ?? "");
   if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
@@ -59,6 +67,36 @@ function csvEscape(value: string | number) {
 }
 
 function buildInvoiceCsv(invoice: XeroExportInvoice) {
+  if (isCreditNote(invoice)) {
+    const rows = [
+      [
+        "ContactName",
+        "CreditNoteNumber",
+        "CreditNoteDate",
+        "Description",
+        "Quantity",
+        "UnitAmount",
+        "AccountCode",
+        "TaxType",
+        "Reference",
+        "InvoiceNumber",
+      ],
+      ...invoice.lines.map((line) => [
+        invoice.customer,
+        invoice.ref,
+        invoice.issuedDate,
+        line.description,
+        "1",
+        line.chargeToClient.toFixed(2),
+        "200",
+        invoice.vatRate > 0 ? "OUTPUT2" : "NONE",
+        invoice.notes || "",
+        invoice.creditOfRef || "",
+      ]),
+    ];
+    return rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  }
+
   const rows = [
     ["ContactName", "InvoiceNumber", "InvoiceDate", "DueDate", "Description", "Quantity", "UnitAmount", "AccountCode", "TaxType", "Reference"],
     ...invoice.lines.map((line) => [
@@ -102,6 +140,33 @@ async function findXeroInvoiceIdByNumber(
   );
   if (!match?.InvoiceID) return null;
   return { invoiceId: match.InvoiceID, invoiceNumber: match.InvoiceNumber || invoiceNumber };
+}
+
+async function findXeroCreditNoteIdByNumber(
+  creditNoteNumber: string,
+  accessToken: string,
+  tenantId: string,
+): Promise<{ creditNoteId: string; creditNoteNumber: string } | null> {
+  const where = encodeURIComponent(`CreditNoteNumber=="${creditNoteNumber.replace(/"/g, "")}"`);
+  const response = await fetch(`https://api.xero.com/api.xro/2.0/CreditNotes?where=${where}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      Accept: "application/json",
+    },
+  });
+  if (!response.ok) return null;
+  const body = (await response.json().catch(() => ({}))) as {
+    CreditNotes?: Array<{ CreditNoteID?: string; CreditNoteNumber?: string; Type?: string }>;
+  };
+  const match = (body.CreditNotes || []).find(
+    (row) =>
+      row.Type === "ACCRECCREDIT" &&
+      String(row.CreditNoteNumber || "").trim().toLowerCase() === creditNoteNumber.trim().toLowerCase() &&
+      row.CreditNoteID,
+  );
+  if (!match?.CreditNoteID) return null;
+  return { creditNoteId: match.CreditNoteID, creditNoteNumber: match.CreditNoteNumber || creditNoteNumber };
 }
 
 async function resolveXeroContact(
@@ -162,7 +227,6 @@ async function resolveXeroContact(
     body: JSON.stringify({ Contacts: [createPayload] }),
   });
   if (!create.ok) {
-    // Fall back to name-only contact on the invoice payload.
     return { contactName, created: false, matched: false };
   }
   const createdBody = (await create.json().catch(() => ({}))) as {
@@ -180,7 +244,109 @@ async function resolveXeroContact(
   return { contactName, created: false, matched: false };
 }
 
+async function tryLiveXeroCreditUpsert(invoice: XeroExportInvoice) {
+  const accessToken = await resolveXeroAccessToken();
+  const tenantId = getStoredXeroTenantId();
+  if (!accessToken || !tenantId) {
+    return { ok: false as const, reason: "No Xero OAuth token / static access token + tenant for live API push." };
+  }
+
+  let xeroCreditNoteId = invoice.xeroInvoiceId?.trim() || "";
+  let updatedExisting = Boolean(xeroCreditNoteId);
+  if (!xeroCreditNoteId) {
+    const existing = await findXeroCreditNoteIdByNumber(invoice.ref, accessToken, tenantId).catch(() => null);
+    if (existing?.creditNoteId) {
+      xeroCreditNoteId = existing.creditNoteId;
+      updatedExisting = true;
+    }
+  }
+
+  const contact = await resolveXeroContact(invoice, accessToken, tenantId).catch(() => ({
+    contactId: undefined as string | undefined,
+    contactName: invoice.customer,
+    created: false,
+    matched: false,
+  }));
+
+  const contactPayload: Record<string, unknown> = contact.contactId
+    ? { ContactID: contact.contactId }
+    : { Name: contact.contactName || invoice.customer };
+
+  let allocatedInvoiceId = invoice.creditOfXeroInvoiceId?.trim() || "";
+  if (!allocatedInvoiceId && invoice.creditOfRef?.trim()) {
+    const linked = await findXeroInvoiceIdByNumber(invoice.creditOfRef.trim(), accessToken, tenantId).catch(() => null);
+    allocatedInvoiceId = linked?.invoiceId || "";
+  }
+
+  const creditTotal = invoice.lines.reduce((sum, line) => sum + Math.max(0, line.chargeToClient), 0);
+  const payload: Record<string, unknown> = {
+    Type: "ACCRECCREDIT",
+    Contact: contactPayload,
+    Date: invoice.issuedDate,
+    CreditNoteNumber: invoice.ref,
+    Reference: invoice.creditOfRef
+      ? `Credit against ${invoice.creditOfRef}${invoice.notes ? ` · ${invoice.notes}` : ""}`
+      : invoice.notes || invoice.ref,
+    LineAmountTypes: "Exclusive",
+    LineItems: invoice.lines.map((line) => ({
+      Description: line.description,
+      Quantity: 1,
+      UnitAmount: line.chargeToClient,
+      AccountCode: "200",
+      TaxType: invoice.vatRate > 0 ? "OUTPUT2" : "NONE",
+    })),
+    Status: "AUTHORISED",
+  };
+  if (xeroCreditNoteId) payload.CreditNoteID = xeroCreditNoteId;
+  if (allocatedInvoiceId && creditTotal > 0) {
+    payload.Allocations = [
+      {
+        Invoice: { InvoiceID: allocatedInvoiceId },
+        Amount: Number((creditTotal * (1 + Math.max(0, invoice.vatRate) / 100)).toFixed(2)),
+      },
+    ];
+  }
+
+  const response = await fetch("https://api.xero.com/api.xro/2.0/CreditNotes", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ CreditNotes: [payload] }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    return { ok: false as const, reason: `Xero API ${response.status}: ${text.slice(0, 240)}` };
+  }
+
+  const body = (await response.json().catch(() => ({}))) as {
+    CreditNotes?: Array<{ CreditNoteID?: string; CreditNoteNumber?: string; Contact?: { ContactID?: string } }>;
+  };
+  const returned = body.CreditNotes?.[0];
+  const externalId = returned?.CreditNoteID || xeroCreditNoteId || returned?.CreditNoteNumber || invoice.ref;
+  return {
+    ok: true as const,
+    externalId,
+    xeroInvoiceId: returned?.CreditNoteID || xeroCreditNoteId || "",
+    xeroInvoiceNumber: returned?.CreditNoteNumber || invoice.ref,
+    xeroContactId: returned?.Contact?.ContactID || contact.contactId || "",
+    contactCreated: contact.created,
+    contactMatched: contact.matched,
+    updatedExisting,
+    documentKind: "credit-note" as const,
+    allocated: Boolean(allocatedInvoiceId),
+  };
+}
+
 async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
+  if (isCreditNote(invoice)) {
+    return tryLiveXeroCreditUpsert(invoice);
+  }
+
   const accessToken = await resolveXeroAccessToken();
   const tenantId = getStoredXeroTenantId();
   if (!accessToken || !tenantId) {
@@ -257,6 +423,8 @@ async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
     contactCreated: contact.created,
     contactMatched: contact.matched,
     updatedExisting,
+    documentKind: "invoice" as const,
+    allocated: false,
   };
 }
 
@@ -289,6 +457,7 @@ export async function POST(request: NextRequest) {
   const actor = request.headers.get(employeeHeaderName) || "NeXa";
   const createdAt = new Date().toISOString();
   const store = loadServerStore<XeroExportStore>(STORE, { exports: [] });
+  const credit = isCreditNote(invoice);
 
   const live = await tryLiveXeroUpsert(invoice).catch((error) => ({
     ok: false as const,
@@ -302,6 +471,8 @@ export async function POST(request: NextRequest) {
       : live.contactMatched || live.xeroContactId
         ? " · linked Xero contact"
         : "";
+    const allocationNote = credit && "allocated" in live && live.allocated ? " · allocated to original invoice" : "";
+    const label = credit ? "credit note" : "invoice";
     record = {
       id: `xero-exp-${Date.now()}`,
       invoiceId: invoice.id,
@@ -311,12 +482,13 @@ export async function POST(request: NextRequest) {
       createdAt,
       actor,
       detail: live.updatedExisting
-        ? `Updated existing Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})${contactNote}`
-        : `Created Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})${contactNote}`,
+        ? `Updated existing Xero ${label} ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})${contactNote}${allocationNote}`
+        : `Created Xero ${label} ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})${contactNote}${allocationNote}`,
       externalId: live.externalId,
       xeroInvoiceId: live.xeroInvoiceId || undefined,
       xeroInvoiceNumber: live.xeroInvoiceNumber || invoice.ref,
       updatedExisting: live.updatedExisting,
+      documentKind: credit ? "credit-note" : "invoice",
     };
   } else {
     const csv = buildInvoiceCsv(invoice);
@@ -334,9 +506,10 @@ export async function POST(request: NextRequest) {
       createdAt,
       actor,
       detail: live.reason
-        ? `CSV pack ready for Xero import (${live.reason})`
-        : "CSV pack ready for Xero import.",
+        ? `CSV pack ready for Xero ${credit ? "credit note " : ""}import (${live.reason})`
+        : `CSV pack ready for Xero ${credit ? "credit note " : ""}import.`,
       csvPath: ["xero-exports", fileName].join("/"),
+      documentKind: credit ? "credit-note" : "invoice",
     };
   }
 

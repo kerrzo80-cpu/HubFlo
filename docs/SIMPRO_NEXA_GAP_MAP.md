@@ -202,6 +202,9 @@ Until Brian cuts further, execute in this order:
 - **Job confirmation email** — from job record (Setup `job-confirmation` template + PDF); stores `confirmationSentAt` / `confirmationSentTo` and clears readiness communication check
 - **Catalogue CSV → preferred supplier** — importing catalogue rows with SKU + supplier upserts stock preferred supplier and binds `catalogItemId`
 - **Recurring / PPM polish** — due/overdue + 14-day upcoming queues, generate-all, pause/activate; generated jobs/invoices stamp the plan due date
+- **Xero credit-note export** — ACCRECCREDIT live upsert + CSV pack; allocates to original invoice when Xero InvoiceID/number known
+- **Job confirmation WhatsApp** — confirmation sends email and/or WhatsApp (phone) using Meta connector when configured
+- **Site asset register depth** — edit/archive, install/last/warranty fields, overdue + due-soon filters
 - **Retention release invoice** — from a progress claim: retained / released / available balances + create collectible retention invoice (`claimType: retention-release`, excluded from billed-to-date)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
 - **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client

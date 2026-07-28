@@ -15933,12 +15933,11 @@ export default function Dashboard() {
       showNotice("Convert the valuation to a progress claim before exporting to Xero.");
       return;
     }
-    if (selectedInvoice.claimType === "credit-note") {
-      showNotice("Xero credit-note export is not wired yet. Ledger credit is recorded in NeXa.");
-      return;
-    }
     setIsExportingInvoiceToXero(true);
     try {
+      const creditOfInvoice = selectedInvoice.creditOfInvoiceId
+        ? invoices.find((item) => item.id === selectedInvoice.creditOfInvoiceId) ?? null
+        : null;
       const response = await fetch("/api/integrations/xero/export", {
         method: "POST",
         headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -15955,6 +15954,9 @@ export default function Dashboard() {
             chargeTotal: selectedInvoice.chargeTotal,
             vatRate: selectedInvoice.vatRate,
             notes: selectedInvoice.notes,
+            claimType: selectedInvoice.claimType,
+            creditOfRef: selectedInvoice.creditOfRef || creditOfInvoice?.ref,
+            creditOfXeroInvoiceId: creditOfInvoice?.xeroInvoiceId,
             xeroInvoiceId: selectedInvoice.xeroInvoiceId,
             lines: selectedInvoice.lines.map((line) => ({
               description: line.description,
@@ -16937,9 +16939,12 @@ export default function Dashboard() {
       return;
     }
 
-    const to = selectedJobClient?.email?.trim() || "";
-    if (!to.includes("@")) {
-      showNotice("Add a customer email before sending job confirmation.");
+    const emailTo = selectedJobClient?.email?.trim() || "";
+    const phoneTo = (selectedJobClient?.phone || "").replace(/[^\d+]/g, "").trim();
+    const hasEmail = emailTo.includes("@");
+    const hasPhone = phoneTo.replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) {
+      showNotice("Add a customer email or phone before sending job confirmation.");
       return;
     }
 
@@ -16990,34 +16995,95 @@ export default function Dashboard() {
       // keep defaults
     }
 
-    setIsSendingJobConfirmation(true);
-    try {
-      const delivery = await sendThroughLiveOutbox({
-        to,
-        subject,
-        text: bodyText,
-        document: {
-          filename: `${selectedJob.ref}-confirmation.pdf`,
-          title: "Job confirmation",
-          businessName: companyName,
-          reference: selectedJob.ref,
-          recipient: selectedJob.customer,
-          subject: `Visit booked for ${whenLabel}`,
-          rows: [
-            { description: "Visit date", detail: visitDate, value: visitTime },
-            { description: "Engineer", detail: engineer, value: selectedJob.ref },
-            { description: "Site", detail: siteLabel, value: "" },
-            { description: "Scope", detail: selectedJob.description, value: currency(selectedJob.value) },
-          ],
-          subtotal: currency(selectedJob.value),
-          vat: currency(0),
-          total: currency(selectedJob.value),
-        },
-      });
+    const whatsappMessage =
+      `Hi ${contactName}, job ${selectedJob.ref} is booked for ${whenLabel}. ` +
+      `Engineer: ${engineer}. Site: ${siteLabel}. — ${companyName}`;
 
+    setIsSendingJobConfirmation(true);
+    const channels: string[] = [];
+    try {
+      if (hasEmail) {
+        const delivery = await sendThroughLiveOutbox({
+          to: emailTo,
+          subject,
+          text: bodyText,
+          document: {
+            filename: `${selectedJob.ref}-confirmation.pdf`,
+            title: "Job confirmation",
+            businessName: companyName,
+            reference: selectedJob.ref,
+            recipient: selectedJob.customer,
+            subject: `Visit booked for ${whenLabel}`,
+            rows: [
+              { description: "Visit date", detail: visitDate, value: visitTime },
+              { description: "Engineer", detail: engineer, value: selectedJob.ref },
+              { description: "Site", detail: siteLabel, value: "" },
+              { description: "Scope", detail: selectedJob.description, value: currency(selectedJob.value) },
+            ],
+            subtotal: currency(selectedJob.value),
+            vat: currency(0),
+            total: currency(selectedJob.value),
+          },
+        });
+        channels.push(`email ${emailTo}`);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body: bodyText,
+          from: delivery.from,
+          to: emailTo,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+      }
+
+      if (hasPhone) {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+        } | null;
+        if (waResponse.ok && waBody?.status === "sent") {
+          channels.push(`WhatsApp ${phoneTo}`);
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject: `WhatsApp confirmation · ${selectedJob.ref}`,
+            body: whatsappMessage,
+            from: "NeXa Connect",
+            to: phoneTo,
+            status: "Sent",
+          });
+        } else if (waBody?.status === "not_configured") {
+          channels.push(`WhatsApp preview to ${phoneTo} (connector not configured)`);
+        } else if (hasEmail) {
+          // email already sent; note WhatsApp miss without failing the whole confirmation
+          showNotice(`Email sent; WhatsApp failed${waBody?.error ? `: ${waBody.error}` : ""}.`);
+        } else {
+          throw new Error(waBody?.error || "WhatsApp confirmation failed and no email was available.");
+        }
+      }
+
+      if (!channels.length) {
+        throw new Error("Unable to send confirmation on email or WhatsApp.");
+      }
+
+      const sentTo = channels.join(" · ");
       await persistJobPatch(selectedJob.id, {
-        confirmationSentAt: delivery.sentAt.slice(0, 10),
-        confirmationSentTo: to,
+        confirmationSentAt: currentOperatingDate,
+        confirmationSentTo: sentTo,
       });
 
       addJobDeliveryEvent({
@@ -17025,8 +17091,8 @@ export default function Dashboard() {
         jobRef: selectedJob.ref,
         kind: "whatsapp",
         actor: activeEmployee?.name ?? selectedJob.manager,
-        summary: `Job confirmation emailed to ${to} for ${whenLabel}`,
-        source: "NeXa",
+        summary: `Job confirmation sent via ${sentTo} for ${whenLabel}`,
+        source: hasPhone ? "WhatsApp" : "NeXa",
         status: "Captured",
       });
 
@@ -17035,24 +17101,11 @@ export default function Dashboard() {
         action: "confirmation sent",
         recordType: "job",
         recordId: selectedJob.id,
-        summary: `${selectedJob.ref} confirmation emailed to ${to} · ${whenLabel}.`,
-        source: "outlook draft",
+        summary: `${selectedJob.ref} confirmation sent via ${sentTo} · ${whenLabel}.`,
+        source: hasPhone ? "whatsapp doorway" : "outlook draft",
         importance: "high",
       });
-      addCommunicationRecord({
-        recordType: "job",
-        recordId: selectedJob.id,
-        relatedJobId: selectedJob.id,
-        direction: "outbound",
-        channel: "Outlook",
-        subject,
-        body: bodyText,
-        from: delivery.from,
-        to,
-        messageId: delivery.messageId,
-        status: "Sent",
-      });
-      showNotice(`Job confirmation sent to ${to} for ${whenLabel}.`);
+      showNotice(`Job confirmation sent via ${sentTo} for ${whenLabel}.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to send job confirmation.");
     } finally {
@@ -30386,9 +30439,9 @@ export default function Dashboard() {
                               )
                             }
                             title={
-                              selectedJobClient?.email?.includes("@")
-                                ? "Email the customer a booking confirmation"
-                                : "Customer needs an email address first"
+                              selectedJobClient?.email?.includes("@") || (selectedJobClient?.phone || "").replace(/\D/g, "").length >= 10
+                                ? "Email and/or WhatsApp the customer a booking confirmation"
+                                : "Customer needs an email or phone number first"
                             }
                             onClick={() => void sendSelectedJobConfirmation()}
                           >
@@ -33716,11 +33769,17 @@ export default function Dashboard() {
                             >
                               {isExportingInvoiceToXero
                                 ? "Exporting…"
-                                : selectedInvoice.xeroInvoiceId
-                                  ? "Update Xero invoice"
-                                  : selectedInvoice.accountsStatus === "Sent"
-                                    ? "Re-export to Xero"
-                                    : "Export to Xero"}
+                                : selectedInvoice.claimType === "credit-note"
+                                  ? selectedInvoice.xeroInvoiceId
+                                    ? "Update Xero credit"
+                                    : selectedInvoice.accountsStatus === "Sent"
+                                      ? "Re-export credit to Xero"
+                                      : "Export credit to Xero"
+                                  : selectedInvoice.xeroInvoiceId
+                                    ? "Update Xero invoice"
+                                    : selectedInvoice.accountsStatus === "Sent"
+                                      ? "Re-export to Xero"
+                                      : "Export to Xero"}
                             </button>
                           </div>
                         </footer>

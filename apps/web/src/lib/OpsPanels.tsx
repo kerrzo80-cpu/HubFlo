@@ -42,7 +42,11 @@ type SiteAsset = {
   make?: string;
   model?: string;
   serialNumber?: string;
+  locationNote?: string;
+  installDate?: string;
+  lastServiceDate?: string;
   nextServiceDate?: string;
+  warrantyUntil?: string;
   notes?: string;
 };
 
@@ -628,18 +632,46 @@ export function SiteAssetsPanel({
   siteLabel?: string;
   onNotice: (message: string) => void;
 }) {
-  const [assets, setAssets] = useState<SiteAsset[]>([]);
-  const [assetTypes, setAssetTypes] = useState<string[]>(["Gas appliance", "Oil Boiler", "Pipework", "Cylinder", "Controls", "Other"]);
-  const [error, setError] = useState("");
-  const [draft, setDraft] = useState({
+  const blankDraft = {
+    id: "",
     type: "Gas appliance",
     name: "",
     make: "",
     model: "",
     serialNumber: "",
+    locationNote: "",
+    installDate: "",
+    lastServiceDate: "",
     nextServiceDate: "",
+    warrantyUntil: "",
     notes: "",
-  });
+  };
+  const [assets, setAssets] = useState<SiteAsset[]>([]);
+  const [assetTypes, setAssetTypes] = useState<string[]>(["Gas appliance", "Oil Boiler", "Pipework", "Cylinder", "Controls", "Other"]);
+  const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"all" | "due" | "overdue">("all");
+  const [draft, setDraft] = useState(blankDraft);
+  const today = new Date().toISOString().slice(0, 10);
+
+  const visibleAssets = useMemo(() => {
+    return assets.filter((asset) => {
+      if (filter === "all") return true;
+      if (!asset.nextServiceDate) return false;
+      if (filter === "overdue") return asset.nextServiceDate < today;
+      // due within 30 days
+      const horizon = new Date(`${today}T12:00:00Z`);
+      horizon.setUTCDate(horizon.getUTCDate() + 30);
+      return asset.nextServiceDate >= today && asset.nextServiceDate <= horizon.toISOString().slice(0, 10);
+    });
+  }, [assets, filter, today]);
+
+  const overdueCount = assets.filter((asset) => asset.nextServiceDate && asset.nextServiceDate < today).length;
+  const dueSoonCount = assets.filter((asset) => {
+    if (!asset.nextServiceDate || asset.nextServiceDate < today) return false;
+    const horizon = new Date(`${today}T12:00:00Z`);
+    horizon.setUTCDate(horizon.getUTCDate() + 30);
+    return asset.nextServiceDate <= horizon.toISOString().slice(0, 10);
+  }).length;
 
   async function load() {
     if (!siteId) {
@@ -688,19 +720,63 @@ export function SiteAssetsPanel({
         headers: { ...requestHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "upsert",
+          id: draft.id || undefined,
           siteId,
           clientId,
-          ...draft,
+          type: draft.type,
+          name: draft.name,
+          make: draft.make || undefined,
+          model: draft.model || undefined,
+          serialNumber: draft.serialNumber || undefined,
+          locationNote: draft.locationNote || undefined,
+          installDate: draft.installDate || undefined,
+          lastServiceDate: draft.lastServiceDate || undefined,
+          nextServiceDate: draft.nextServiceDate || undefined,
+          warrantyUntil: draft.warrantyUntil || undefined,
+          notes: draft.notes || undefined,
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "Unable to save asset");
       setAssets(body.assets || []);
-      setDraft((current) => ({ ...current, name: "", make: "", model: "", serialNumber: "", notes: "" }));
-      onNotice("Asset saved to the site register.");
+      setDraft({ ...blankDraft, type: draft.type });
+      onNotice(draft.id ? "Asset updated." : "Asset saved to the site register.");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save asset");
     }
+  }
+
+  async function archiveAsset(asset: SiteAsset) {
+    try {
+      const response = await fetch("/api/site-assets", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "archive", id: asset.id }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to archive asset");
+      await load();
+      onNotice(`${asset.name} archived.`);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Unable to archive asset");
+    }
+  }
+
+  function editAsset(asset: SiteAsset) {
+    setDraft({
+      id: asset.id,
+      type: asset.type,
+      name: asset.name,
+      make: asset.make || "",
+      model: asset.model || "",
+      serialNumber: asset.serialNumber || "",
+      locationNote: asset.locationNote || "",
+      installDate: asset.installDate || "",
+      lastServiceDate: asset.lastServiceDate || "",
+      nextServiceDate: asset.nextServiceDate || "",
+      warrantyUntil: asset.warrantyUntil || "",
+      notes: asset.notes || "",
+    });
   }
 
   if (!siteId) {
@@ -717,7 +793,20 @@ export function SiteAssetsPanel({
       <header className="ops-module-header">
         <div>
           <h2>Customer Assets</h2>
-          <p>{siteLabel || "Site register"} — service history and next due dates.</p>
+          <p>
+            {siteLabel || "Site register"} — {overdueCount} overdue · {dueSoonCount} due in 30 days.
+          </p>
+        </div>
+        <div className="setup-template-actions">
+          <button className={filter === "all" ? "secondary-button active" : "secondary-button"} type="button" onClick={() => setFilter("all")}>
+            All ({assets.length})
+          </button>
+          <button className={filter === "overdue" ? "secondary-button active" : "secondary-button"} type="button" onClick={() => setFilter("overdue")}>
+            Overdue ({overdueCount})
+          </button>
+          <button className={filter === "due" ? "secondary-button active" : "secondary-button"} type="button" onClick={() => setFilter("due")}>
+            Due soon ({dueSoonCount})
+          </button>
         </div>
       </header>
       {error ? <p className="ops-module-error">{error}</p> : null}
@@ -734,22 +823,49 @@ export function SiteAssetsPanel({
         <label>Make<input value={draft.make} onChange={(e) => setDraft((c) => ({ ...c, make: e.target.value }))} /></label>
         <label>Model<input value={draft.model} onChange={(e) => setDraft((c) => ({ ...c, model: e.target.value }))} /></label>
         <label>Serial<input value={draft.serialNumber} onChange={(e) => setDraft((c) => ({ ...c, serialNumber: e.target.value }))} /></label>
+        <label>Location<input value={draft.locationNote} onChange={(e) => setDraft((c) => ({ ...c, locationNote: e.target.value }))} placeholder="Plant room / loft" /></label>
+        <label>Installed<input type="date" value={draft.installDate} onChange={(e) => setDraft((c) => ({ ...c, installDate: e.target.value }))} /></label>
+        <label>Last service<input type="date" value={draft.lastServiceDate} onChange={(e) => setDraft((c) => ({ ...c, lastServiceDate: e.target.value }))} /></label>
         <label>Next service<input type="date" value={draft.nextServiceDate} onChange={(e) => setDraft((c) => ({ ...c, nextServiceDate: e.target.value }))} /></label>
+        <label>Warranty until<input type="date" value={draft.warrantyUntil} onChange={(e) => setDraft((c) => ({ ...c, warrantyUntil: e.target.value }))} /></label>
+        <label className="full">Notes<input value={draft.notes} onChange={(e) => setDraft((c) => ({ ...c, notes: e.target.value }))} /></label>
       </div>
-      <button className="primary-button" type="button" onClick={() => void saveAsset()}>
-        <Plus size={15} /> Add asset
-      </button>
+      <div className="setup-template-actions">
+        <button className="primary-button" type="button" onClick={() => void saveAsset()}>
+          <Plus size={15} /> {draft.id ? "Update asset" : "Add asset"}
+        </button>
+        {draft.id ? (
+          <button className="secondary-button" type="button" onClick={() => setDraft({ ...blankDraft, type: draft.type })}>
+            Cancel edit
+          </button>
+        ) : null}
+      </div>
       <div className="ops-table">
-        <div className="ops-table-head"><span>Type</span><span>Asset</span><span>Make / model</span><span>Next service</span></div>
-        {assets.map((asset) => (
-          <div className="ops-table-row" key={asset.id}>
-            <span>{asset.type}</span>
-            <strong>{asset.name}</strong>
-            <span>{[asset.make, asset.model].filter(Boolean).join(" ") || "—"}</span>
-            <span>{asset.nextServiceDate || "—"}</span>
-          </div>
-        ))}
-        {!assets.length ? <p className="muted">No assets on this site yet.</p> : null}
+        <div className="ops-table-head"><span>Type</span><span>Asset</span><span>Service</span><span>Warranty</span><span /></div>
+        {visibleAssets.map((asset) => {
+          const overdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < today);
+          return (
+            <div className="ops-table-row" key={asset.id}>
+              <span>{asset.type}</span>
+              <strong>
+                {asset.name}
+                <small style={{ display: "block", fontWeight: 400 }}>
+                  {[asset.make, asset.model, asset.serialNumber].filter(Boolean).join(" · ") || asset.locationNote || "—"}
+                </small>
+              </strong>
+              <span className={overdue ? "ops-module-error" : undefined}>
+                {asset.nextServiceDate ? `${overdue ? "Overdue " : ""}${asset.nextServiceDate}` : "—"}
+                {asset.lastServiceDate ? <small style={{ display: "block" }}>Last {asset.lastServiceDate}</small> : null}
+              </span>
+              <span>{asset.warrantyUntil || "—"}</span>
+              <span className="setup-template-actions">
+                <button className="secondary-button" type="button" onClick={() => editAsset(asset)}>Edit</button>
+                <button className="secondary-button" type="button" onClick={() => void archiveAsset(asset)}>Archive</button>
+              </span>
+            </div>
+          );
+        })}
+        {!visibleAssets.length ? <p className="muted">{filter === "all" ? "No assets on this site yet." : "No assets in this filter."}</p> : null}
       </div>
     </section>
   );
