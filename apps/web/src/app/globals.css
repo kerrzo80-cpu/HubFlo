@@ -26792,6 +26792,99 @@ img.markup-document-preview {
   gap: 16px;
 }
 
+.takeoff-blake-hero-row {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+}
+
+.takeoff-blake-review-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.takeoff-blake-review-summary {
+  color: var(--muted);
+  margin: 0;
+}
+
+.takeoff-blake-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.takeoff-blake-review-card {
+  background: #f7fbfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.takeoff-blake-review-card header {
+  display: grid;
+  gap: 2px;
+}
+
+.takeoff-blake-review-card header span,
+.takeoff-blake-review-card small,
+.takeoff-blake-drawing-notes {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.takeoff-blake-review-card ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.takeoff-blake-review-card li {
+  display: grid;
+  gap: 2px;
+}
+
+.takeoff-blake-questions {
+  background: #fff8e9;
+  border-left: 4px solid var(--nexa-brass, #c4a35a);
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.takeoff-blake-questions ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.takeoff-material-desc,
+.takeoff-labour-hours {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.takeoff-material-desc small,
+.takeoff-labour-hours small {
+  color: #2e8c7d;
+  font-size: 11px;
+}
+
+.takeoff-table-row.blake-ancillary,
+.takeoff-table-row.blake-labour {
+  background: #f3fbf8;
+}
+
+.survey-simple-buddy header h2 {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
 .takeoff-boq-hero h2 {
   font-size: 22px;
   margin: 0 0 6px;

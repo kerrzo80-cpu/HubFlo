@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 
 import { roleHeaderName } from "@/lib/access";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
 import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
 import type {
@@ -2208,6 +2210,9 @@ export default function TakeoffPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploadingDocs, setIsUploadingDocs] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isBlakeReviewing, setIsBlakeReviewing] = useState(false);
+  const [blakeBoqDraft, setBlakeBoqDraft] = useState<BlakeBoqReviewDraft | null>(null);
+  const [blakeReviewProvider, setBlakeReviewProvider] = useState<string>("");
   const [isGeneratingSurveyPlan, setIsGeneratingSurveyPlan] = useState(false);
   const [isSurveyDrafting, setIsSurveyDrafting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
@@ -5986,8 +5991,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         setNotice(`${files.length} drawing file${files.length === 1 ? "" : "s"} uploaded and locked into the markup workspace.`);
       } else if ((result.importedBoqLines ?? 0) > 0) {
         setActiveTab("boq");
+        setBlakeBoqDraft(null);
         setNotice(
-          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported into materials.`,
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported. Upload drawings too, then Ask Blake to review bill for clips and hours/metre.`,
         );
       } else {
         const warning = result.parseWarnings?.slice(0, 2).join(" ") ?? "";
@@ -6077,6 +6083,57 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       setError(extractError instanceof Error ? extractError.message : "Unable to run extraction");
     } finally {
       setIsExtracting(false);
+    }
+  }
+
+  async function runBlakeBoqReview(apply = false) {
+    if (!selectedProject) return;
+    const billCount = selectedProject.materialAllowances.filter((line) => !line.parentMaterialId).length;
+    if (!billCount) {
+      setError("Import BOQ Excel lines first, then ask Blake to review each bill item against the drawings.");
+      setActiveTab("intake");
+      return;
+    }
+    const hasDrawing = selectedProject.documents.some((document) =>
+      document.kind === "Drawing" || document.kind === "Marked-up drawing",
+    );
+    if (!hasDrawing && aiStatus?.connected) {
+      setNotice("No drawings on this project yet — Blake will still suggest ancillaries/labour from the bill, then refine when drawings are uploaded.");
+    }
+
+    setIsBlakeReviewing(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/blake-boq-review`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ actor: "Blake", apply }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to run Blake BOQ review");
+      }
+      const result = (await response.json()) as {
+        project: TakeoffProject;
+        draft: BlakeBoqReviewDraft;
+        provider?: string;
+        generated: { billLines: number; ancillaries: number; labour: number; applied: boolean };
+      };
+      setBlakeBoqDraft(result.draft);
+      setBlakeReviewProvider(result.provider || "Pilot");
+      if (result.generated.applied) {
+        replaceProject(result.project);
+      }
+      setActiveTab("boq");
+      setNotice(
+        result.generated.applied
+          ? `Blake applied ${result.generated.ancillaries} ancillary line(s) and ${result.generated.labour} labour line(s) across ${result.generated.billLines} bill item(s).`
+          : `Blake drafted review for ${result.generated.billLines} bill item(s): ${result.generated.ancillaries} ancillar${result.generated.ancillaries === 1 ? "y" : "ies"}, ${result.generated.labour} labour suggestion(s). Review below, then Apply.`,
+      );
+    } catch (blakeError) {
+      setError(blakeError instanceof Error ? blakeError.message : "Unable to run Blake BOQ review");
+    } finally {
+      setIsBlakeReviewing(false);
     }
   }
 
@@ -9085,12 +9142,19 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               {activeTab === "boq" ? (
                 <section className="takeoff-grid takeoff-boq-simple">
                   <article className="takeoff-panel takeoff-boq-hero">
-                    <div>
-                      <h2>Bill of quantities</h2>
-                      <p>
-                        Blake drafts materials and labour from Survey cost centres and AI scan.
-                        Edit lines if needed, then hand off to quote.
-                      </p>
+                    <div className="takeoff-blake-hero-row">
+                      <BuddyCharacter
+                        mood={isBlakeReviewing ? "thinking" : blakeBoqDraft ? "guide" : "idle"}
+                        size="md"
+                        title="Blake"
+                      />
+                      <div>
+                        <h2>Bill of quantities</h2>
+                        <p>
+                          Blake reviews each bill item against your drawings. He does not restate lengths already on the bill
+                          (e.g. 49m gutters) — he works out ancillaries like clips, then labour as hours per metre / Nr.
+                        </p>
+                      </div>
                     </div>
                     <div className="takeoff-boq-hero-metrics">
                       <div>
@@ -9110,24 +9174,38 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <button
                         className="takeoff-primary-button"
                         type="button"
+                        disabled={isBlakeReviewing || !selectedProject.materialAllowances.some((line) => !line.parentMaterialId)}
+                        onClick={() => runBlakeBoqReview(false)}
+                      >
+                        <Sparkles size={15} />
+                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Blake to review bill"}
+                      </button>
+                      <button
+                        className="takeoff-secondary-button"
+                        type="button"
+                        disabled={isBlakeReviewing || !blakeBoqDraft}
+                        onClick={() => runBlakeBoqReview(true)}
+                      >
+                        <CheckCircle2 size={15} />
+                        Apply Blake suggestions
+                      </button>
+                      <button
+                        className="takeoff-small-button"
+                        type="button"
                         disabled={isExtracting || selectedProject.documents.length === 0}
                         onClick={runAiExtraction}
                       >
-                        <Sparkles size={15} />
-                        {isExtracting ? "Scanning…" : "Rebuild with AI"}
+                        <RefreshCw size={15} />
+                        {isExtracting ? "Scanning…" : "Full AI scan"}
                       </button>
                       <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("review")}>
                         <CheckCircle2 size={15} />
                         Review &amp; handoff
                       </button>
-                      <button className="takeoff-small-button" type="button" onClick={() => setActiveTab("markup")}>
-                        <Wrench size={15} />
-                        Open markup
-                      </button>
                     </div>
                     {!selectedProject.materialAllowances.length ? (
                       <p className="takeoff-boq-next-step">
-                        No materials yet. Upload a drawing, place plant on markup (boiler, bath, shower…), accept the package card, or rebuild from Survey.
+                        Upload BOQ Excel + drawings in Intake first. Blake then reviews each bill line for clips, brackets and man-hours.
                       </p>
                     ) : markupNeedsCalibrationNudge(workingServicesMarkup) ? (
                       <div className="takeoff-boq-next-step warn">
@@ -9147,6 +9225,67 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </div>
                     ) : null}
                   </article>
+
+                  {blakeBoqDraft ? (
+                    <article className="takeoff-panel takeoff-blake-review-panel">
+                      <PanelTitle
+                        icon={Sparkles}
+                        title="Blake bill review"
+                        action={`${blakeReviewProvider || "Blake"} · ${blakeBoqDraft.confidence}`}
+                      />
+                      <p className="takeoff-blake-review-summary">{blakeBoqDraft.summary}</p>
+                      <div className="takeoff-blake-review-list">
+                        {blakeBoqDraft.reviews
+                          .filter((review) => review.ancillaries.length || review.labour.length || review.drawingNotes.length)
+                          .slice(0, 40)
+                          .map((review) => (
+                            <div className="takeoff-blake-review-card" key={review.parentMaterialId}>
+                              <header>
+                                <strong>{review.parentDescription}</strong>
+                                <span>
+                                  Bill qty {review.parentQuantity} {review.parentUnit}
+                                  {review.skippedRestate ? " · parent qty not restated" : ""}
+                                </span>
+                              </header>
+                              {review.ancillaries.length ? (
+                                <ul>
+                                  {review.ancillaries.map((item) => (
+                                    <li key={`${review.parentMaterialId}-${item.description}`}>
+                                      <b>Ancillary:</b> {item.description} · {item.quantity} {item.unit}
+                                      <small>{item.rationale}</small>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              {review.labour.length ? (
+                                <ul>
+                                  {review.labour.map((item) => (
+                                    <li key={`${review.parentMaterialId}-${item.role}-${item.hoursPerUnit}`}>
+                                      <b>Labour:</b> {item.role} · {item.hours.toFixed(2)} hrs
+                                      {" "}({item.hoursPerUnit} hrs/{item.unitBasis})
+                                      <small>{item.notes}</small>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              {review.drawingNotes.length ? (
+                                <p className="takeoff-blake-drawing-notes">{review.drawingNotes.join(" ")}</p>
+                              ) : null}
+                            </div>
+                          ))}
+                      </div>
+                      {blakeBoqDraft.questions.length ? (
+                        <div className="takeoff-blake-questions">
+                          <strong>Blake still wants to confirm</strong>
+                          <ul>
+                            {blakeBoqDraft.questions.map((question) => (
+                              <li key={question}>{question}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </article>
+                  ) : null}
 
                   <article className="takeoff-panel">
                     <PanelTitle icon={PackageSearch} title="Materials" action={money(projectTotals.materialSell)}>
@@ -9168,9 +9307,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span />
                       </div>
                       {selectedProject.materialAllowances.map((line) => (
-                        <div className="takeoff-table-row" key={line.id}>
+                        <div className={`takeoff-table-row${line.parentMaterialId ? " blake-ancillary" : ""}`} key={line.id}>
                           <input value={line.section} onChange={(event) => updateMaterial(line.id, { section: event.target.value })} />
-                          <input value={line.description} onChange={(event) => updateMaterial(line.id, { description: event.target.value })} />
+                          <div className="takeoff-material-desc">
+                            <input value={line.description} onChange={(event) => updateMaterial(line.id, { description: event.target.value })} />
+                            {line.blakeNote ? <small>{line.blakeNote}</small> : null}
+                            {line.parentMaterialId ? <small>Blake ancillary</small> : null}
+                          </div>
                           <input type="number" value={line.quantity} onChange={(event) => updateMaterial(line.id, { quantity: numberFromInput(event.target.value) })} />
                           <input value={line.unit} onChange={(event) => updateMaterial(line.id, { unit: event.target.value })} />
                           <input type="number" value={line.unitCost} onChange={(event) => updateMaterial(line.id, { unitCost: numberFromInput(event.target.value) })} />
@@ -9183,7 +9326,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         </div>
                       ))}
                       {!selectedProject.materialAllowances.length ? (
-                        <p className="takeoff-empty-table-note">Materials appear here from Survey AI, markup packages, and pipe takeoff.</p>
+                        <p className="takeoff-empty-table-note">Materials appear here from BOQ import, Blake ancillaries, Survey AI, and markup packages.</p>
                       ) : null}
                     </div>
                   </article>
@@ -9206,10 +9349,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span />
                       </div>
                       {selectedProject.labourAllowances.map((line) => (
-                        <div className="takeoff-table-row" key={line.id}>
+                        <div className={`takeoff-table-row${line.linkedMaterialId ? " blake-labour" : ""}`} key={line.id}>
                           <input value={line.section} onChange={(event) => updateLabour(line.id, { section: event.target.value })} />
                           <input value={line.role} onChange={(event) => updateLabour(line.id, { role: event.target.value })} />
-                          <input type="number" value={line.hours} onChange={(event) => updateLabour(line.id, { hours: numberFromInput(event.target.value) })} />
+                          <div className="takeoff-labour-hours">
+                            <input type="number" value={line.hours} onChange={(event) => updateLabour(line.id, { hours: numberFromInput(event.target.value) })} />
+                            {line.hoursPerUnit != null && line.unitBasis ? (
+                              <small>{line.hoursPerUnit} hrs/{line.unitBasis}</small>
+                            ) : null}
+                          </div>
                           <input type="number" value={line.costRate} onChange={(event) => updateLabour(line.id, { costRate: numberFromInput(event.target.value) })} />
                           <input type="number" value={line.markupPercent} onChange={(event) => updateLabour(line.id, { markupPercent: numberFromInput(event.target.value) })} />
                           <input value={line.notes} onChange={(event) => updateLabour(line.id, { notes: event.target.value })} />
@@ -9218,6 +9366,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </button>
                         </div>
                       ))}
+                      {!selectedProject.labourAllowances.length ? (
+                        <p className="takeoff-empty-table-note">Ask Blake to review the bill to draft hours per metre / Nr against each item.</p>
+                      ) : null}
                     </div>
                   </article>
 

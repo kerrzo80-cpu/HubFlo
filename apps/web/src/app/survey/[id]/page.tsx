@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
-  Bot,
   Camera,
   CheckCircle2,
   ClipboardList,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import type { SurveyAnswer, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
 const requestHeaders: HeadersInit = {
@@ -474,7 +474,10 @@ export default function SimpleSurveyWorkspacePage() {
         {buddyQuestions.length ? (
           <section className="survey-simple-buddy">
             <header>
-              <h2><Bot size={18} /> Blake checks</h2>
+              <h2>
+                <BuddyCharacter mood={openBuddyQuestions.length ? "alert" : "good"} size="sm" title="Blake" />
+                Blake checks
+              </h2>
               <p>
                 {openBuddyQuestions.length
                   ? `Blake needs ${openBuddyQuestions.length} answer${openBuddyQuestions.length === 1 ? "" : "s"} before the RFQ is tight. Answer below, then rebuild.`

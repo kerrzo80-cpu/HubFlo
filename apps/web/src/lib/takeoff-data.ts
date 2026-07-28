@@ -162,6 +162,10 @@ export type TakeoffMaterialAllowance = {
   supplierRequired: boolean;
   preferredSupplier?: string;
   sourceDocumentId?: string;
+  /** Parent bill line when this is a Blake-suggested ancillary (clips, brackets, etc.). */
+  parentMaterialId?: string;
+  /** Why Blake added this line (drawing / rule of thumb). */
+  blakeNote?: string;
 };
 
 export type TakeoffLabourAllowance = {
@@ -172,6 +176,12 @@ export type TakeoffLabourAllowance = {
   costRate: number;
   markupPercent: number;
   notes: string;
+  /** Bill / material line this labour belongs to. */
+  linkedMaterialId?: string;
+  /** e.g. 0.15 hours per metre of gutter. */
+  hoursPerUnit?: number;
+  /** Unit the rate is based on (m, Nr, sum). */
+  unitBasis?: string;
 };
 
 export type TakeoffSupplierRequestItem = {
