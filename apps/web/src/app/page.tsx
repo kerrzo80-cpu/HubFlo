@@ -1865,6 +1865,7 @@ type SimproSyncOperation = {
   nexaRef?: string;
   summary: string;
   detail?: string;
+  candidates?: Array<{ nexaId: string; nexaName: string; nexaRef?: string }>;
 };
 
 type SimproSyncEntity = SimproSyncOperation["entity"];
@@ -7148,6 +7149,7 @@ export default function Dashboard() {
   const [selectedSimproImportEntities, setSelectedSimproImportEntities] = useState<SimproSyncEntity[]>(
     ["clients", "sites"],
   );
+  const [simproConflictLinkChoices, setSimproConflictLinkChoices] = useState<Record<string, string>>({});
   const [invoicePaymentAmountDraft, setInvoicePaymentAmountDraft] = useState("");
   const [invoicePaymentMethodDraft, setInvoicePaymentMethodDraft] = useState("Bank transfer");
   const [invoicePaymentReferenceDraft, setInvoicePaymentReferenceDraft] = useState("");
@@ -11941,6 +11943,39 @@ export default function Dashboard() {
     } finally {
       setIsRunningSimproPreview(false);
       setIsApplyingSimproImport(false);
+    }
+  }
+
+  async function resolveSimproConflict(operation: SimproSyncOperation, action: "link" | "create" | "skip") {
+    try {
+      const response = await fetch("/api/integrations/simpro/sync", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actor: activeEmployee?.name ?? "NeXa user",
+          resolve: {
+            operationId: operation.id,
+            action,
+            nexaId: action === "link" ? (simproConflictLinkChoices[operation.id] || operation.candidates?.[0]?.nexaId) : undefined,
+          },
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        operation?: SimproSyncOperation;
+        status?: SimproSyncStatus;
+        error?: string;
+      } | null;
+      if (!response.ok || !result?.operation) {
+        throw new Error(result?.error || `Conflict resolve returned HTTP ${response.status}`);
+      }
+      if (result.status) setSimproSyncStatus(result.status);
+      if (action === "create" || action === "link") await refreshCoreWorkflowRecords();
+      showNotice(result.operation.summary);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to resolve simPRO conflict.");
     }
   }
 
@@ -34144,12 +34179,46 @@ export default function Dashboard() {
 	                                <span>Action</span>
 	                                <span>Record</span>
 	                                <span>Result</span>
+	                                <span>Resolve</span>
 	                              </div>
-	                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
+	                              {simproSyncStatus.lastRun.operations.slice(0, 12).map((item) => (
 	                                <div className="setup-rate-row" key={item.id}>
 	                                  <strong>{item.action}</strong>
 	                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
 	                                  <span>{item.summary}</span>
+	                                  <span>
+	                                    {item.action === "conflict" ? (
+	                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
+	                                        {item.candidates?.length ? (
+	                                          <select
+	                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
+	                                            onChange={(event) =>
+	                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
+	                                            }
+	                                          >
+	                                            {item.candidates.map((candidate) => (
+	                                              <option key={candidate.nexaId} value={candidate.nexaId}>
+	                                                {candidate.nexaName}
+	                                              </option>
+	                                            ))}
+	                                          </select>
+	                                        ) : null}
+	                                        {item.candidates?.length || item.simproId ? (
+	                                          <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
+	                                            Link
+	                                          </button>
+	                                        ) : null}
+	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
+	                                          Create
+	                                        </button>
+	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
+	                                          Skip
+	                                        </button>
+	                                      </div>
+	                                    ) : (
+	                                      "—"
+	                                    )}
+	                                  </span>
 	                                </div>
 	                              ))}
 	                            </div>
@@ -34616,12 +34685,44 @@ export default function Dashboard() {
                                 <span>Action</span>
                                 <span>Record</span>
                                 <span>Result</span>
+                                <span>Resolve</span>
                               </div>
-                              {simproSyncStatus.lastRun.operations.slice(0, 8).map((item) => (
+                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
                                 <div className="setup-rate-row" key={item.id}>
                                   <strong>{item.action}</strong>
                                   <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
                                   <span>{item.summary}</span>
+                                  <span>
+                                    {item.action === "conflict" ? (
+                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
+                                        {item.candidates?.length ? (
+                                          <select
+                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
+                                            onChange={(event) =>
+                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
+                                            }
+                                          >
+                                            {item.candidates.map((candidate) => (
+                                              <option key={candidate.nexaId} value={candidate.nexaId}>
+                                                {candidate.nexaName}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        ) : null}
+                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
+                                          Link
+                                        </button>
+                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
+                                          Create
+                                        </button>
+                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
+                                          Skip
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </span>
                                 </div>
                               ))}
                             </div>

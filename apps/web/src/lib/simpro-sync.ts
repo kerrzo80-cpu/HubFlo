@@ -18,12 +18,20 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
+import { upsertSimproEntityLink, type SimproLinkEntityType } from "@/lib/simpro-entity-links";
 
 type UnknownRecord = Record<string, unknown>;
 
 export type SimproSyncEntity = "clients" | "sites" | "quotes" | "jobs" | "invoices";
 export type SimproSyncMode = "preview" | "apply";
 export type SimproSyncOperationAction = "create" | "link" | "skip" | "conflict" | "error" | "preview";
+export type SimproConflictResolveAction = "link" | "create" | "skip";
+
+export type SimproSyncCandidate = {
+  nexaId: string;
+  nexaName: string;
+  nexaRef?: string;
+};
 
 export type SimproSyncOperation = {
   id: string;
@@ -35,6 +43,11 @@ export type SimproSyncOperation = {
   nexaRef?: string;
   summary: string;
   detail?: string;
+  candidates?: SimproSyncCandidate[];
+  seed?: {
+    client?: Omit<ClientRecord, "id" | "accountReference" | "status">;
+    site?: Omit<ClientSite, "id">;
+  };
 };
 
 export type SimproSyncRun = {
@@ -253,6 +266,15 @@ function existingLink(entity: SimproSyncEntity, simproId: string) {
   return simproSyncStore.links.find((link) => link.simproType === entity && link.simproId === simproId);
 }
 
+function syncEntityToLinkType(entity: SimproSyncEntity): SimproLinkEntityType | null {
+  if (entity === "clients") return "client";
+  if (entity === "sites") return "site";
+  if (entity === "quotes") return "quote";
+  if (entity === "jobs") return "job";
+  if (entity === "invoices") return "invoice";
+  return null;
+}
+
 function saveLink(link: Omit<SimproSyncLink, "id" | "lastSyncedAt">) {
   const existing = existingLink(link.simproType, link.simproId);
   const next: SimproSyncLink = {
@@ -261,6 +283,24 @@ function saveLink(link: Omit<SimproSyncLink, "id" | "lastSyncedAt">) {
     lastSyncedAt: new Date().toISOString(),
   };
   simproSyncStore.links = [next, ...simproSyncStore.links.filter((item) => item.id !== next.id)];
+
+  const entityType = syncEntityToLinkType(link.nexaType);
+  const companyId = getSimproDirectConfigStatus().companyId;
+  if (entityType && companyId && link.nexaId && link.simproId) {
+    try {
+      upsertSimproEntityLink({
+        companyId,
+        entityType,
+        externalId: link.simproId,
+        nexaId: link.nexaId,
+        nexaRef: link.nexaRef,
+        nexaName: link.nexaName,
+        importedReadOnly: true,
+      });
+    } catch {
+      // Shallow link still saved; durable entity-link is best-effort when company id missing/invalid.
+    }
+  }
   return next;
 }
 
@@ -410,7 +450,16 @@ function processClient(record: UnknownRecord, mode: SimproSyncMode): SimproSyncO
 
   const matches = findClientByNameOrEmail(mapped.name, mapped.email);
   if (matches.length > 1) {
-    return operation("clients", "conflict", `${mapped.name} matches more than one NeXa customer.`, { simproId, simproName: mapped.name });
+    return operation("clients", "conflict", `${mapped.name} matches more than one NeXa customer.`, {
+      simproId,
+      simproName: mapped.name,
+      candidates: matches.map((match) => ({
+        nexaId: match.id,
+        nexaName: match.name,
+        nexaRef: match.accountReference,
+      })),
+      seed: { client: mapped },
+    });
   }
   if (matches.length === 1 && matches[0]) {
     if (mode === "apply") {
@@ -469,12 +518,25 @@ function processSite(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOpe
 
   const clientId = matchingClientIdForRecord(record);
   if (!clientId) {
-    return operation("sites", "conflict", "Site cannot be imported until its customer is linked.", { simproId, simproName: firstString(record, ["Name", "SiteName"]) });
+    return operation("sites", "conflict", "Site cannot be imported until its customer is linked.", {
+      simproId,
+      simproName: firstString(record, ["Name", "SiteName"]),
+      seed: { site: siteFromSimpro(record, "pending-client") },
+    });
   }
   const mapped = siteFromSimpro(record, clientId);
   const matches = findSiteMatch(clientId, mapped);
   if (matches.length > 1) {
-    return operation("sites", "conflict", `${mapped.name} matches more than one NeXa site.`, { simproId, simproName: mapped.name });
+    return operation("sites", "conflict", `${mapped.name} matches more than one NeXa site.`, {
+      simproId,
+      simproName: mapped.name,
+      candidates: matches.map((match) => ({
+        nexaId: match.id,
+        nexaName: match.name,
+        nexaRef: match.name,
+      })),
+      seed: { site: mapped },
+    });
   }
   if (matches.length === 1 && matches[0]) {
     if (mode === "apply") {
@@ -654,6 +716,216 @@ function recomputeTotals(run: SimproSyncRun) {
     conflicts: run.operations.filter((item) => item.action === "conflict").length,
     errors: run.operations.filter((item) => item.action === "error").length,
   };
+}
+
+export function resolveSimproSyncConflict(input: {
+  operationId: string;
+  action: SimproConflictResolveAction;
+  nexaId?: string;
+  actor?: string;
+}): SimproSyncOperation {
+  const run = simproSyncStore.runs[0];
+  if (!run) throw new Error("No simPRO sync run to resolve against. Preview or apply first.");
+  const index = run.operations.findIndex((item) => item.id === input.operationId);
+  if (index < 0) throw new Error("Conflict operation not found in the last sync run.");
+  const current = run.operations[index]!;
+  if (current.action !== "conflict") throw new Error("That sync row is no longer a conflict.");
+
+  const actor = input.actor?.trim() || "NeXa user";
+
+  if (input.action === "skip") {
+    const next: SimproSyncOperation = {
+      ...current,
+      action: "skip",
+      summary: `Skipped ${current.simproName || current.entity} conflict.`,
+      detail: current.summary,
+    };
+    run.operations[index] = next;
+    recomputeTotals(run);
+    persistStore();
+    return clone(next);
+  }
+
+  if (current.entity !== "clients" && current.entity !== "sites") {
+    throw new Error("Only customer and site conflicts can be resolved here.");
+  }
+
+  if (input.action === "link") {
+    const nexaId = input.nexaId?.trim() || current.candidates?.[0]?.nexaId;
+    if (!nexaId) throw new Error("Pick a NeXa record to link this simPRO conflict to.");
+    if (!current.simproId) throw new Error("This conflict has no simPRO ID to link.");
+
+    if (current.entity === "clients") {
+      const client = getClients().find((row) => row.id === nexaId);
+      if (!client) throw new Error("Selected NeXa customer was not found.");
+      saveLink({
+        nexaType: "clients",
+        nexaId: client.id,
+        nexaRef: client.accountReference,
+        nexaName: client.name,
+        simproType: "clients",
+        simproId: current.simproId,
+        simproName: current.simproName || client.name,
+        lastDirection: "simpro-to-nexa",
+      });
+      const next: SimproSyncOperation = {
+        ...current,
+        action: "link",
+        nexaId: client.id,
+        nexaRef: client.accountReference,
+        summary: `Linked ${current.simproName || client.name} to ${client.name}.`,
+      };
+      run.operations[index] = next;
+      recomputeTotals(run);
+      persistStore();
+      appendAuditEvent({
+        actor,
+        action: "linked",
+        recordType: "client",
+        recordId: client.id,
+        summary: `Customer ${client.name} linked to simPRO ${current.simproId}.`,
+        source: "simPRO sync resolve",
+        importance: "normal",
+      });
+      return clone(next);
+    }
+
+    const site = getClientSites().find((row) => row.id === nexaId);
+    if (!site) throw new Error("Selected NeXa site was not found.");
+    saveLink({
+      nexaType: "sites",
+      nexaId: site.id,
+      nexaRef: site.name,
+      nexaName: site.name,
+      simproType: "sites",
+      simproId: current.simproId,
+      simproName: current.simproName || site.name,
+      lastDirection: "simpro-to-nexa",
+    });
+    const next: SimproSyncOperation = {
+      ...current,
+      action: "link",
+      nexaId: site.id,
+      nexaRef: site.name,
+      summary: `Linked ${current.simproName || site.name} to ${site.name}.`,
+    };
+    run.operations[index] = next;
+    recomputeTotals(run);
+    persistStore();
+    appendAuditEvent({
+      actor,
+      action: "linked",
+      recordType: "site",
+      recordId: site.id,
+      summary: `Site ${site.name} linked to simPRO ${current.simproId}.`,
+      source: "simPRO sync resolve",
+      importance: "normal",
+    });
+    return clone(next);
+  }
+
+  // create
+  if (!current.simproId) throw new Error("Cannot create from a conflict without a simPRO ID.");
+  if (current.entity === "clients") {
+    const mapped = current.seed?.client || {
+      name: current.simproName || "simPRO customer",
+      primaryContact: current.simproName || "To confirm",
+      email: "To confirm",
+      phone: "To confirm",
+      billingAddress: "Address to confirm",
+      commercialOwner: "Imported from simPRO",
+      notes: "Created from a resolved simPRO conflict.",
+    };
+    const client = addClientRecord({
+      ...mapped,
+      id: `client-simpro-${current.simproId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+      accountReference: `SIMPRO-${current.simproId}`,
+      status: "Active",
+    });
+    saveLink({
+      nexaType: "clients",
+      nexaId: client.id,
+      nexaRef: client.accountReference,
+      nexaName: client.name,
+      simproType: "clients",
+      simproId: current.simproId,
+      simproName: current.simproName || client.name,
+      lastDirection: "simpro-to-nexa",
+    });
+    const next: SimproSyncOperation = {
+      ...current,
+      action: "create",
+      nexaId: client.id,
+      nexaRef: client.accountReference,
+      summary: `Created NeXa customer ${client.name} from conflict.`,
+    };
+    run.operations[index] = next;
+    recomputeTotals(run);
+    persistStore();
+    appendAuditEvent({
+      actor,
+      action: "created",
+      recordType: "client",
+      recordId: client.id,
+      summary: `Customer ${client.name} created from simPRO conflict ${current.simproId}.`,
+      source: "simPRO sync resolve",
+      importance: "normal",
+    });
+    return clone(next);
+  }
+
+  const clientId = matchingClientIdForRecord({
+    "Customer.ID": current.seed?.site?.clientId,
+    CustomerID: current.seed?.site?.clientId,
+  } as UnknownRecord) || current.seed?.site?.clientId;
+  if (!clientId || clientId === "pending-client") {
+    throw new Error("Link the customer first, then resolve this site conflict.");
+  }
+  const mapped = current.seed?.site
+    ? { ...current.seed.site, clientId }
+    : {
+        clientId,
+        name: current.simproName || "simPRO site",
+        address: "Address to confirm",
+        accessNotes: "Created from a resolved simPRO conflict.",
+        primaryContact: "To confirm",
+        serviceLine: "Imported simPRO site",
+        nextVisit: "To be scheduled",
+      };
+  const site = addClientSiteRecord({
+    ...mapped,
+    id: `site-simpro-${current.simproId.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+  });
+  saveLink({
+    nexaType: "sites",
+    nexaId: site.id,
+    nexaRef: site.name,
+    nexaName: site.name,
+    simproType: "sites",
+    simproId: current.simproId,
+    simproName: current.simproName || site.name,
+    lastDirection: "simpro-to-nexa",
+  });
+  const next: SimproSyncOperation = {
+    ...current,
+    action: "create",
+    nexaId: site.id,
+    nexaRef: site.name,
+    summary: `Created NeXa site ${site.name} from conflict.`,
+  };
+  run.operations[index] = next;
+  recomputeTotals(run);
+  persistStore();
+  appendAuditEvent({
+    actor,
+    action: "created",
+    recordType: "site",
+    recordId: site.id,
+    summary: `Site ${site.name} created from simPRO conflict ${current.simproId}.`,
+    source: "simPRO sync resolve",
+    importance: "normal",
+  });
+  return clone(next);
 }
 
 export function getSimproSyncStatus(): SimproSyncStatus {
