@@ -29,6 +29,7 @@ export type ClientRecord = {
   vatTreatment?: VatTreatment;
   vatRateOverride?: string;
   archived?: boolean;
+  xeroContactId?: string;
 };
 
 export type AuditEvent = {

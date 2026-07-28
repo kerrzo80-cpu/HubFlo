@@ -194,6 +194,7 @@ Until Brian cuts further, execute in this order:
 - **PO → Xero bill (ACCPAY)** export from purchase order record (live upsert or CSV pack); stores `xeroBillId`
 - **Low-stock reorder PO** from Stock panel (shortfall qty, supplier + charge-to job)
 - **Overdue invoice payment chase** — Setup `invoice-overdue` template, Prepare/Send chase (keeps original sentAt), chase count on invoice + dashboard
+- **Xero contact link** on invoice export — match/create ACCREC contact by name, store `xeroContactId` on client
 - simPRO import defaults to **Clients + Sites** with one-click shortcuts
 - Payments: amount field + part-paid / paid / unpaid with audit
 - simPRO sync **conflict resolve** (link / create / skip) with dual-write entity links

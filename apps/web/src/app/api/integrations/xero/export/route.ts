@@ -13,6 +13,9 @@ type XeroExportInvoice = {
   id: string;
   ref: string;
   customer: string;
+  customerEmail?: string;
+  xeroContactId?: string;
+  clientId?: string;
   issuedDate: string;
   dueDate: string;
   chargeTotal: number;
@@ -101,6 +104,82 @@ async function findXeroInvoiceIdByNumber(
   return { invoiceId: match.InvoiceID, invoiceNumber: match.InvoiceNumber || invoiceNumber };
 }
 
+async function resolveXeroContact(
+  invoice: XeroExportInvoice,
+  accessToken: string,
+  tenantId: string,
+): Promise<{ contactId?: string; contactName: string; created: boolean; matched: boolean }> {
+  const contactName = invoice.customer.trim();
+  if (!contactName) return { contactName: "Customer", created: false, matched: false };
+
+  if (invoice.xeroContactId?.trim()) {
+    return {
+      contactId: invoice.xeroContactId.trim(),
+      contactName,
+      created: false,
+      matched: true,
+    };
+  }
+
+  const where = encodeURIComponent(`Name=="${contactName.replace(/"/g, "")}"`);
+  const lookup = await fetch(`https://api.xero.com/api.xro/2.0/Contacts?where=${where}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      Accept: "application/json",
+    },
+  });
+  if (lookup.ok) {
+    const body = (await lookup.json().catch(() => ({}))) as {
+      Contacts?: Array<{ ContactID?: string; Name?: string }>;
+    };
+    const match = (body.Contacts || []).find(
+      (row) =>
+        row.ContactID &&
+        String(row.Name || "").trim().toLowerCase() === contactName.toLowerCase(),
+    );
+    if (match?.ContactID) {
+      return { contactId: match.ContactID, contactName, created: false, matched: true };
+    }
+  }
+
+  const createPayload: Record<string, unknown> = {
+    Name: contactName,
+    IsCustomer: true,
+  };
+  if (invoice.customerEmail?.trim()) {
+    createPayload.EmailAddress = invoice.customerEmail.trim();
+  }
+
+  const create = await fetch("https://api.xero.com/api.xro/2.0/Contacts", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Xero-Tenant-Id": tenantId,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ Contacts: [createPayload] }),
+  });
+  if (!create.ok) {
+    // Fall back to name-only contact on the invoice payload.
+    return { contactName, created: false, matched: false };
+  }
+  const createdBody = (await create.json().catch(() => ({}))) as {
+    Contacts?: Array<{ ContactID?: string; Name?: string }>;
+  };
+  const created = createdBody.Contacts?.[0];
+  if (created?.ContactID) {
+    return {
+      contactId: created.ContactID,
+      contactName: created.Name || contactName,
+      created: true,
+      matched: false,
+    };
+  }
+  return { contactName, created: false, matched: false };
+}
+
 async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
   const accessToken = await resolveXeroAccessToken();
   const tenantId = getStoredXeroTenantId();
@@ -118,9 +197,20 @@ async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
     }
   }
 
+  const contact = await resolveXeroContact(invoice, accessToken, tenantId).catch(() => ({
+    contactId: undefined as string | undefined,
+    contactName: invoice.customer,
+    created: false,
+    matched: false,
+  }));
+
+  const contactPayload: Record<string, unknown> = contact.contactId
+    ? { ContactID: contact.contactId }
+    : { Name: contact.contactName || invoice.customer };
+
   const payload: Record<string, unknown> = {
     Type: "ACCREC",
-    Contact: { Name: invoice.customer },
+    Contact: contactPayload,
     Date: invoice.issuedDate,
     DueDate: invoice.dueDate,
     InvoiceNumber: invoice.ref,
@@ -154,7 +244,7 @@ async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
   }
 
   const body = (await response.json().catch(() => ({}))) as {
-    Invoices?: Array<{ InvoiceID?: string; InvoiceNumber?: string }>;
+    Invoices?: Array<{ InvoiceID?: string; InvoiceNumber?: string; Contact?: { ContactID?: string } }>;
   };
   const returned = body.Invoices?.[0];
   const externalId = returned?.InvoiceID || xeroInvoiceId || returned?.InvoiceNumber || invoice.ref;
@@ -163,6 +253,9 @@ async function tryLiveXeroUpsert(invoice: XeroExportInvoice) {
     externalId,
     xeroInvoiceId: returned?.InvoiceID || xeroInvoiceId || "",
     xeroInvoiceNumber: returned?.InvoiceNumber || invoice.ref,
+    xeroContactId: returned?.Contact?.ContactID || contact.contactId || "",
+    contactCreated: contact.created,
+    contactMatched: contact.matched,
     updatedExisting,
   };
 }
@@ -204,6 +297,11 @@ export async function POST(request: NextRequest) {
 
   let record: XeroExportRecord;
   if (live.ok) {
+    const contactNote = live.contactCreated
+      ? " · created Xero contact"
+      : live.contactMatched || live.xeroContactId
+        ? " · linked Xero contact"
+        : "";
     record = {
       id: `xero-exp-${Date.now()}`,
       invoiceId: invoice.id,
@@ -213,8 +311,8 @@ export async function POST(request: NextRequest) {
       createdAt,
       actor,
       detail: live.updatedExisting
-        ? `Updated existing Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})`
-        : `Created Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})`,
+        ? `Updated existing Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})${contactNote}`
+        : `Created Xero invoice ${live.xeroInvoiceNumber || invoice.ref} (${live.xeroInvoiceId || live.externalId})${contactNote}`,
       externalId: live.externalId,
       xeroInvoiceId: live.xeroInvoiceId || undefined,
       xeroInvoiceNumber: live.xeroInvoiceNumber || invoice.ref,
@@ -252,5 +350,7 @@ export async function POST(request: NextRequest) {
     xeroInvoiceId: live.ok ? live.xeroInvoiceId || null : null,
     xeroInvoiceNumber: live.ok ? live.xeroInvoiceNumber || invoice.ref : null,
     xeroExportedAt: live.ok ? createdAt : null,
+    xeroContactId: live.ok ? live.xeroContactId || null : null,
+    clientId: invoice.clientId || null,
   });
 }

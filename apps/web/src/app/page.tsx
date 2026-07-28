@@ -15302,6 +15302,9 @@ export default function Dashboard() {
             id: selectedInvoice.id,
             ref: selectedInvoice.ref,
             customer: selectedInvoice.customer,
+            customerEmail: selectedInvoiceClient?.email || selectedInvoice.sentTo || undefined,
+            clientId: selectedInvoice.clientId || selectedInvoiceClient?.id,
+            xeroContactId: selectedInvoiceClient?.xeroContactId,
             issuedDate: selectedInvoice.issuedDate,
             dueDate: selectedInvoice.dueDate,
             chargeTotal: selectedInvoice.chargeTotal,
@@ -15325,6 +15328,8 @@ export default function Dashboard() {
         xeroInvoiceId?: string | null;
         xeroInvoiceNumber?: string | null;
         xeroExportedAt?: string | null;
+        xeroContactId?: string | null;
+        clientId?: string | null;
       } | null;
       if (!response.ok || !body?.export) {
         throw new Error(body?.error || `Xero export failed (HTTP ${response.status})`);
@@ -15345,6 +15350,21 @@ export default function Dashboard() {
           }
         : invoice,
       ));
+      if (body.xeroContactId && (body.clientId || selectedInvoiceClient?.id)) {
+        const clientId = body.clientId || selectedInvoiceClient?.id;
+        if (clientId) {
+          setClients((current) =>
+            current.map((client) =>
+              client.id === clientId ? { ...client, xeroContactId: body.xeroContactId || client.xeroContactId } : client,
+            ),
+          );
+          void fetch(`/api/clients/${clientId}`, {
+            method: "PATCH",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ xeroContactId: body.xeroContactId }),
+          }).catch(() => {});
+        }
+      }
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "xero export",

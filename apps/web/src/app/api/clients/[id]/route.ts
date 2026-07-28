@@ -33,6 +33,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     notes: pickString(body, "notes"),
     vatTreatment: pickString(body, "vatTreatment") as never,
     vatRateOverride: pickString(body, "vatRateOverride"),
+    xeroContactId: pickString(body, "xeroContactId"),
     archived: typeof body.archived === "boolean" ? body.archived : undefined,
   });
 
