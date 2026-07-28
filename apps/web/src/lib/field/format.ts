@@ -37,3 +37,41 @@ export function todayLabel(dateIso: string) {
     month: "long",
   });
 }
+
+export function isoDate(value = new Date()) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function addDaysIso(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  return isoDate(date);
+}
+
+export function shiftMonthIso(dateIso: string, deltaMonths: number) {
+  const date = new Date(`${dateIso.slice(0, 7)}-01T12:00:00`);
+  date.setMonth(date.getMonth() + deltaMonths);
+  return `${isoDate(date).slice(0, 7)}-01`;
+}
+
+export function startOfWeekIso(dateIso: string) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  const day = date.getDay(); // 0 Sun … 6 Sat
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + mondayOffset);
+  return isoDate(date);
+}
+
+export function weekdayShort(dateIso: string) {
+  return new Date(`${dateIso}T12:00:00`).toLocaleDateString("en-GB", { weekday: "short" });
+}
+
+export function monthYearLabel(dateIso: string) {
+  return new Date(`${dateIso}T12:00:00`).toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+}

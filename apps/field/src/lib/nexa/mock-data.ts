@@ -3,7 +3,20 @@ import { hoursBetween } from "@/lib/format";
 
 /** Always “today” so My Day feels live when you open the demo. */
 export function demoDate() {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function addDays(dateIso: string, days: number) {
+  const date = new Date(`${dateIso}T12:00:00`);
+  date.setDate(date.getDate() + days);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export const MOCK_ENGINEER = {
@@ -13,9 +26,20 @@ export const MOCK_ENGINEER = {
   phone: "+441224555010",
 };
 
+function stampDate(
+  date: string,
+  jobs: Omit<FieldScheduleItem, "date">[],
+  idSuffix = "",
+): FieldScheduleItem[] {
+  return jobs.map((job) => ({
+    ...job,
+    date,
+    scheduleId: idSuffix ? `${job.scheduleId}${idSuffix}` : job.scheduleId,
+  }));
+}
+
 function withToday(jobs: Omit<FieldScheduleItem, "date">[]): FieldScheduleItem[] {
-  const date = demoDate();
-  return jobs.map((job) => ({ ...job, date }));
+  return stampDate(demoDate(), jobs);
 }
 
 const MOCK_SCHEDULE_BASE: Omit<FieldScheduleItem, "date">[] = [
@@ -257,7 +281,27 @@ const MOCK_SCHEDULE_BASE: Omit<FieldScheduleItem, "date">[] = [
   },
 ];
 
+/** Today's booked day — used by Blake time check. */
 export const MOCK_SCHEDULE: FieldScheduleItem[] = withToday(MOCK_SCHEDULE_BASE);
+
+function buildMockCalendar(): FieldScheduleItem[] {
+  const today = demoDate();
+  const base = MOCK_SCHEDULE_BASE;
+  const pick = (...indexes: number[]) => indexes.map((index) => base[index]).filter(Boolean) as Omit<FieldScheduleItem, "date">[];
+
+  return [
+    ...stampDate(addDays(today, -1), pick(0, 1), "-yday"),
+    ...MOCK_SCHEDULE,
+    ...stampDate(addDays(today, 1), pick(2, 3), "-tmr"),
+    ...stampDate(addDays(today, 2), pick(4), "-d2"),
+    ...stampDate(addDays(today, 4), pick(0, 5), "-d4"),
+  ];
+}
+
+/** Multi-day mock diary relative to “today”. */
+export function getAllMockJobs(): FieldScheduleItem[] {
+  return applyRequirementOverrides(clone(buildMockCalendar()));
+}
 
 const STORAGE_KEY = "nexa-field:time-check:v2";
 const CHARGED_KEY = "nexa-field:charged-hours:v2";
@@ -342,17 +386,22 @@ function applyRequirementOverrides(jobs: FieldScheduleItem[]): FieldScheduleItem
   });
 }
 
-export function getMockSchedule() {
-  return applyRequirementOverrides(clone(MOCK_SCHEDULE));
+export function getMockSchedule(date = demoDate()) {
+  return getAllMockJobs()
+    .filter((job) => job.date === date)
+    .sort((a, b) => a.start.localeCompare(b.start));
+}
+
+export function getMockScheduleDates() {
+  return [...new Set(getAllMockJobs().map((job) => job.date))].sort();
 }
 
 export function getMockJob(scheduleId: string) {
-  return getMockSchedule().find((job) => job.scheduleId === scheduleId) ?? null;
+  return getAllMockJobs().find((job) => job.scheduleId === scheduleId) ?? null;
 }
 
 export function toggleMockRequirement(scheduleId: string, requirementId: string) {
-  const jobs = getMockSchedule();
-  const job = jobs.find((item) => item.scheduleId === scheduleId);
+  const job = getMockJob(scheduleId);
   if (!job) throw new Error("Job not found.");
   const requirements = job.requirements.map((item) => {
     if (item.id !== requirementId) return item;

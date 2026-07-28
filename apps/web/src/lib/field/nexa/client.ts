@@ -2,6 +2,7 @@ import type { NexaFieldClient } from "@/lib/field/types";
 import {
   getMockJob,
   getMockSchedule,
+  getMockScheduleDates,
   getMockTimeCheck,
   MOCK_ENGINEER,
   submitMockTimeCheck,
@@ -19,7 +20,7 @@ export function createMockNexaClient(): NexaFieldClient {
         mode: "mock",
         baseUrl: "",
         engineerId: MOCK_ENGINEER.id,
-        label: "Standalone demo · 6 mock jobs for Chris Lawson",
+        label: "Standalone demo · multi-day diary for Chris Lawson",
       };
     },
     async getEngineer() {
@@ -27,6 +28,12 @@ export function createMockNexaClient(): NexaFieldClient {
     },
     async getTodaySchedule() {
       return getMockSchedule();
+    },
+    async getScheduleForDate(date) {
+      return getMockSchedule(date);
+    },
+    async getScheduleDates() {
+      return getMockScheduleDates();
     },
     async getJob(scheduleId) {
       return getMockJob(scheduleId);
@@ -86,6 +93,14 @@ export function createHttpNexaClient(baseUrl: string, engineerId: string): NexaF
     async getTodaySchedule() {
       // Will map from NeXa engineer schedule once wired.
       return request(`/api/field/schedule?engineerId=${encodeURIComponent(engineerId)}`);
+    },
+    async getScheduleForDate(date) {
+      return request(
+        `/api/field/schedule?engineerId=${encodeURIComponent(engineerId)}&date=${encodeURIComponent(date)}`,
+      );
+    },
+    async getScheduleDates() {
+      return request(`/api/field/schedule-dates?engineerId=${encodeURIComponent(engineerId)}`);
     },
     async getJob(scheduleId) {
       return request(`/api/field/jobs/${encodeURIComponent(scheduleId)}`);

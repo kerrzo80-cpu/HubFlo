@@ -2,53 +2,80 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { DayPicker } from "@/components/field/DayPicker";
 import { JobCard } from "@/components/field/JobCard";
 import { useNexaClient } from "@/lib/field/nexa";
-import { formatDuration, todayLabel } from "@/lib/field/format";
+import { formatDuration, isoDate, todayLabel } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type { FieldScheduleItem } from "@/lib/field/types";
 
 export default function MyDayPage() {
   const client = useNexaClient();
+  const [selectedDate, setSelectedDate] = useState(isoDate);
   const [jobs, setJobs] = useState<FieldScheduleItem[]>([]);
+  const [datesWithJobs, setDatesWithJobs] = useState<string[]>([]);
   const [engineerName, setEngineerName] = useState("Field engineer");
   const [error, setError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
+    async function loadMeta() {
       try {
-        const [schedule, engineer] = await Promise.all([
-          client.getTodaySchedule(),
-          client.getEngineer(),
-        ]);
+        const [engineer, dates] = await Promise.all([client.getEngineer(), client.getScheduleDates()]);
         if (cancelled) return;
-        setJobs(schedule);
         setEngineerName(engineer.name);
+        setDatesWithJobs(dates);
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load schedule.");
       }
     }
-    void load();
+    void loadMeta();
     return () => {
       cancelled = true;
     };
   }, [client]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDay() {
+      try {
+        const schedule = await client.getScheduleForDate(selectedDate);
+        if (cancelled) return;
+        setJobs(schedule);
+        setError("");
+      } catch (loadError) {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load schedule.");
+      }
+    }
+    void loadDay();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, selectedDate]);
+
   const totalHours = jobs.reduce((sum, job) => sum + job.durationHours, 0);
   const firstJob = jobs[0];
+  const isToday = selectedDate === isoDate();
 
   return (
     <main className="field-screen">
       <header className="field-page-header">
         <p className="eyebrow">{engineerName}</p>
-        <h1>{jobs[0] ? todayLabel(jobs[0].date) : "Today"}</h1>
+        <h1>{todayLabel(selectedDate)}</h1>
         <p className="field-page-sub">
-          {jobs.length} jobs · {formatDuration(totalHours)} booked
+          {jobs.length
+            ? `${jobs.length} job${jobs.length === 1 ? "" : "s"} · ${formatDuration(totalHours)} booked`
+            : "No jobs booked"}
         </p>
       </header>
 
-      {firstJob ? (
+      <DayPicker
+        selectedDate={selectedDate}
+        datesWithJobs={datesWithJobs}
+        onSelectDate={setSelectedDate}
+      />
+
+      {firstJob && isToday ? (
         <Link href={fieldPath(`/jobs/${firstJob.scheduleId}`)} className="field-next-job">
           <span>Next up</span>
           <strong>
@@ -59,11 +86,13 @@ export default function MyDayPage() {
 
       {error ? <div className="feedback error">{error}</div> : null}
 
-      <section className="job-list" aria-label="Today's jobs">
+      <section className="job-list" aria-label={`Jobs for ${todayLabel(selectedDate)}`}>
         {jobs.map((job) => (
           <JobCard key={job.scheduleId} job={job} />
         ))}
-        {!jobs.length && !error ? <p className="muted">No jobs booked for today.</p> : null}
+        {!jobs.length && !error ? (
+          <p className="muted field-empty-day">Nothing booked for this day.</p>
+        ) : null}
       </section>
     </main>
   );

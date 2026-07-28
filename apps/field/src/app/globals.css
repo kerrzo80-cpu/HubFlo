@@ -151,6 +151,187 @@ html, body { margin: 0; min-height: 100%; }
   font-size: 14px;
 }
 
+.field-day-picker {
+  display: grid;
+  gap: 12px;
+}
+
+.field-week-nav {
+  align-items: stretch;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+}
+
+.field-day-nav {
+  align-items: center;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  font-size: 22px;
+  line-height: 1;
+  place-items: center;
+}
+
+.field-week-strip {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.field-week-day {
+  align-items: center;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  min-height: 64px;
+  padding: 8px 2px 6px;
+}
+
+.field-week-day.is-today:not(.is-selected) {
+  border-color: color-mix(in srgb, var(--teal) 45%, var(--line));
+}
+
+.field-week-day.is-selected {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: var(--white);
+}
+
+.field-week-dow {
+  color: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.72;
+  text-transform: uppercase;
+}
+
+.field-week-num {
+  font-family: Sora, Inter, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.field-week-dot {
+  background: transparent;
+  border-radius: 999px;
+  height: 5px;
+  margin-top: 2px;
+  width: 5px;
+}
+
+.field-week-dot.has-jobs {
+  background: var(--teal);
+}
+
+.field-week-day.is-selected .field-week-dot.has-jobs {
+  background: var(--white);
+}
+
+.field-day-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.field-day-action {
+  background: transparent;
+  border: 0;
+  color: var(--teal);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 0;
+}
+
+.field-day-action.is-active {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.field-month-panel {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.field-month-nav {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 36px minmax(0, 1fr) 36px;
+}
+
+.field-month-label {
+  font-family: Sora, Inter, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  text-align: center;
+}
+
+.field-month-dows,
+.field-month-grid {
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.field-month-dows span {
+  color: var(--steel);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.field-month-day {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  min-height: 40px;
+  padding: 6px 0;
+}
+
+.field-month-day.is-outside {
+  opacity: 0.35;
+}
+
+.field-month-day.is-today:not(.is-selected) {
+  background: var(--teal-soft);
+}
+
+.field-month-day.is-selected {
+  background: var(--teal);
+  color: var(--white);
+}
+
+.field-month-day.is-selected .field-week-dot.has-jobs {
+  background: var(--white);
+}
+
+.field-empty-day {
+  padding: 18px 16px;
+}
+
+
 .job-lead {
   font-size: 15px;
   line-height: 1.5;

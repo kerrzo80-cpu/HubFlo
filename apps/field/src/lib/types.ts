@@ -109,6 +109,9 @@ export type NexaFieldClient = {
   getConnection(): NexaConnectionConfig;
   getEngineer(): Promise<FieldEngineerProfile>;
   getTodaySchedule(): Promise<FieldScheduleItem[]>;
+  getScheduleForDate(date: string): Promise<FieldScheduleItem[]>;
+  /** ISO dates (YYYY-MM-DD) that have at least one booked job. */
+  getScheduleDates(): Promise<string[]>;
   getJob(scheduleId: string): Promise<FieldScheduleItem | null>;
   getTimeCheck(): Promise<{ check: DailyTimeCheck; summary: TimeCheckSummary }>;
   updateTimeLine(input: UpdateTimeLineInput): Promise<{ check: DailyTimeCheck; summary: TimeCheckSummary }>;
