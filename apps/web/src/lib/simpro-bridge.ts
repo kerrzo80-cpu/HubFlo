@@ -1273,12 +1273,20 @@ function buildSimproOneOff(line: SimproQuoteExportLine) {
 }
 
 async function listSetupCostCenters(direct: ResolvedSimproDirectConfig) {
+  const fromEnv = (process.env.SIMPRO_COST_CENTER_IDS || process.env.SIMPRO_DEFAULT_COST_CENTER_IDS || "")
+    .split(/[,\s]+/)
+    .map((value) => numericId(value))
+    .filter((value): value is number => Boolean(value));
+  if (fromEnv.length) {
+    return fromEnv.map((id) => ({ id, name: `Cost centre ${id}` }));
+  }
+
   const candidates = [
     "/setup/costCenters/?pageSize=250",
     "/setup/accounts/costCenters/?pageSize=250",
     "/costCenters/?pageSize=250",
-    "/quoteCostCenters/?pageSize=50",
-    "/jobCostCenters/?pageSize=50",
+    "/quoteCostCenters/?pageSize=250",
+    "/jobCostCenters/?pageSize=250",
   ];
   const errors: string[] = [];
   const discovered = new Map<number, string>();
@@ -1294,23 +1302,31 @@ async function listSetupCostCenters(direct: ResolvedSimproDirectConfig) {
       const directId = numericId(asIdentifier(record.ID) ?? asIdentifier(record.id));
       const nested = asRecord(record.CostCenter);
       const nestedId = numericId(asIdentifier(nested?.ID) ?? asIdentifier(nested?.id));
-      const id = path.includes("quoteCostCenters") || path.includes("jobCostCenters") ? nestedId : directId ?? nestedId;
+      const fromQuoteOrJobList = path.includes("quoteCostCenters") || path.includes("jobCostCenters");
+      const id = fromQuoteOrJobList ? nestedId : directId ?? nestedId;
       const name =
-        asString(record.Name) ||
-        asString(record.name) ||
+        (!fromQuoteOrJobList ? asString(record.Name) || asString(record.name) : "") ||
         asString(nested?.Name) ||
         asString(nested?.name) ||
+        asString(record.Name) ||
+        asString(record.name) ||
         (id ? `Cost centre ${id}` : "");
       if (id) discovered.set(id, name || `Cost centre ${id}`);
     }
 
     if (discovered.size && (path.includes("setup/") || path === "/costCenters/?pageSize=250")) {
-      return [...discovered.entries()].map(([id, name]) => ({ id, name }));
+      break;
     }
   }
 
   if (discovered.size) {
-    return [...discovered.entries()].map(([id, name]) => ({ id, name }));
+    return [...discovered.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => {
+        const aNum = Number((a.name.match(/\d+/) || [])[0] || a.id);
+        const bNum = Number((b.name.match(/\d+/) || [])[0] || b.id);
+        return aNum - bNum || a.id - b.id;
+      });
   }
 
   const defaultId = numericId(process.env.SIMPRO_DEFAULT_COST_CENTER_ID ?? process.env.SIMPRO_COST_CENTER_ID);
@@ -1319,30 +1335,39 @@ async function listSetupCostCenters(direct: ResolvedSimproDirectConfig) {
   }
 
   throw new Error(
-    `Cannot load Simpro setup cost centres (${errors[0] || "no usable route"}). Set SIMPRO_DEFAULT_COST_CENTER_ID to a Simpro cost centre ID and retry.`,
+    `Cannot load Simpro setup cost centres (${errors[0] || "no usable route"}). Set SIMPRO_COST_CENTER_IDS=1,2,3 (your Simpro setup cost centre IDs) and retry.`,
   );
 }
 
-function resolveSetupCostCenterId(
+function pickSetupCostCenterId(
   setupCentres: Array<{ id: number; name: string }>,
-  preferredName?: string,
+  preferredName: string | undefined,
+  index: number,
+  usedSetupIds: Set<number>,
 ) {
   const preferred = normaliseMatchText(preferredName);
   if (preferred) {
-    const exact = setupCentres.find((item) => normaliseMatchText(item.name) === preferred);
+    const exact = setupCentres.find((item) => !usedSetupIds.has(item.id) && normaliseMatchText(item.name) === preferred);
     if (exact) return exact.id;
     const partial = setupCentres.find((item) => {
+      if (usedSetupIds.has(item.id)) return false;
       const name = normaliseMatchText(item.name);
       return name.includes(preferred) || preferred.includes(name);
     });
     if (partial) return partial.id;
   }
 
+  // Prefer a distinct setup cost centre per NeXa centre so Simpro labels are not all "Cost centre 2".
+  const byIndex = setupCentres[index % setupCentres.length];
+  if (byIndex && !usedSetupIds.has(byIndex.id)) return byIndex.id;
+
+  const unused = setupCentres.find((item) => !usedSetupIds.has(item.id));
+  if (unused) return unused.id;
+
   const defaultId = numericId(process.env.SIMPRO_DEFAULT_COST_CENTER_ID ?? process.env.SIMPRO_COST_CENTER_ID);
   if (defaultId) return defaultId;
 
-  const plumbing = setupCentres.find((item) => /plumb|heating|general|service/i.test(item.name));
-  return plumbing?.id ?? setupCentres[0]?.id;
+  return setupCentres[0]?.id;
 }
 
 function buildSimproSections(
@@ -1355,14 +1380,15 @@ function buildSimproSections(
 
   const usedSetupIds = new Set<number>();
   const buildCostCenter = (centre: SimproQuoteExportCostCentre, index: number) => {
-    let costCenterId = resolveSetupCostCenterId(setupCentres, centre.templateName || centre.name);
-    if (costCenterId && usedSetupIds.has(costCenterId) && setupCentres.length > 1) {
-      const unused = setupCentres.find((item) => !usedSetupIds.has(item.id));
-      if (unused) costCenterId = unused.id;
-    }
+    const costCenterId = pickSetupCostCenterId(
+      setupCentres,
+      centre.templateName || centre.name,
+      index,
+      usedSetupIds,
+    );
     if (!costCenterId) {
       throw new Error(
-        "Cannot send cost centres to Simpro: no setup cost centres were found. Create one in Simpro or set SIMPRO_DEFAULT_COST_CENTER_ID.",
+        "Cannot send cost centres to Simpro: no setup cost centres were found. Create one in Simpro or set SIMPRO_COST_CENTER_IDS.",
       );
     }
     usedSetupIds.add(costCenterId);
@@ -1387,7 +1413,7 @@ function buildSimproSections(
   return usable.map((centre, index) => ({
     Name: centre.name.slice(0, 100),
     DisplayOrder: index + 1,
-    CostCenters: [buildCostCenter(centre, 0)],
+    CostCenters: [buildCostCenter(centre, index)],
   }));
 }
 
@@ -1555,10 +1581,12 @@ async function ensureCostCenterSlotsForCentres(
 
   while (existing.length < usable.length) {
     const centre = usable[existing.length]!;
-    let setupId = resolveSetupCostCenterId(setupCentres, centre.templateName || centre.name);
-    if (setupId && usedSetup.has(setupId) && setupCentres.length > 1) {
-      setupId = setupCentres.find((item) => !usedSetup.has(item.id))?.id ?? setupId;
-    }
+    const setupId = pickSetupCostCenterId(
+      setupCentres,
+      centre.templateName || centre.name,
+      existing.length,
+      usedSetup,
+    );
     if (!setupId) {
       throw new Error("Cannot create extra Simpro cost centres: no setup cost centre ID available.");
     }
@@ -1686,6 +1714,12 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
 
   const ids = await ensureSimproCustomerAndSite(direct, payload);
   const setupCentres = await listSetupCostCenters(direct);
+  const usableCentres = payload.costCentres.filter((centre) => centre.lines.length > 0);
+  if (usableCentres.length > 1 && setupCentres.length < usableCentres.length) {
+    throw new Error(
+      `NeXa has ${usableCentres.length} cost centres but only ${setupCentres.length} Simpro setup cost centre(s) were found (${setupCentres.map((item) => item.name || item.id).join(", ")}). In Render set SIMPRO_COST_CENTER_IDS to your Simpro setup IDs in order, e.g. 1,2,3, then redeploy.`,
+    );
+  }
   const sections = stripSectionItems(
     buildSimproSections(payload.costCentres, setupCentres, defaultQuoteType()) as UnknownRecord[] | undefined,
   );
