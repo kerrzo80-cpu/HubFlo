@@ -14,7 +14,7 @@ Status legend:
 | Missing | Not built |
 | NeXa ahead | Keep and extend |
 
-Counts from the matrix below: **Strong 1 · Partial 17 · Thin 10 · Missing 5 · NeXa ahead 2**
+Counts from the matrix below: **Strong 1 · Partial 20 · Thin 9 · Missing 3 · NeXa ahead 2**
 
 ---
 
@@ -70,17 +70,17 @@ NeXa is nowhere near closing that operational backlog yet.
 | Tasks & alerts | Thin | Assignable tasks, escalation |
 | Digital forms / compliance | Partial | Form builder, Gas Safe certificate packs |
 | Attachments / photos / docs | Partial | Unified media library, customer packs |
-| Asset register | Missing | Site assets, QR, certificates, warranty |
+| Asset register | Partial | Site assets with edit/archive + service due filters; QR/certs still missing |
 | PPM / Maintenance Planner | Partial | Recurring due/overdue + 14-day upcoming queue, generate-all, pause/activate |
 | Inventory / stock | Partial | Locations/vans/transfers/stocktake; catalogue preferred-supplier sync |
 | Plant & equipment | Missing | Plant register, allocation, hire to job |
 | Purchase orders | Partial | Goods receipt, 3-way match, costs to job + accounts |
 | Invoicing | Partial | Recurring; credit notes + retention release now ship |
 | Payments | Partial | Ledger + remittance advice email; card/link pay still missing |
-| Accounting sync | Missing | **Xero** customers/invoices/payments/bills (primary for EWG) |
+| Accounting sync | Partial | Xero invoices/payments/bills + ACCRECCREDIT credit notes; deeper sync still open |
 | Cash / WIP reporting | Thin | True WIP, margin by job type, scheduled vs actual labour |
 | Customer portal | Thin | Jobs status, invoices, pay, assets |
-| SMS / messaging | Thin | SMS booking/ETA; WhatsApp production |
+| SMS / messaging | Partial | Job confirmation WhatsApp + email; ETA SMS still thin |
 | Email / calendar | Thin | M365/Gmail OAuth + calendar sync |
 | Data Feed / inbox | Thin | Mailbox rules: enquiry→lead, invoice→match |
 | Mobile field app | Partial | Offline-first, signatures, forms parity |
