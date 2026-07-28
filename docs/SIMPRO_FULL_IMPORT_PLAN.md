@@ -136,9 +136,9 @@ Later: replace tick with a real queue (BullMQ / pg-boss) once Postgres is live.
 | Phase | Status |
 |-------|--------|
 | A – API discovery | **Done** |
-| B – DB / store foundation | **In progress** (`simpro-entity-links`, `simpro-import-runs`, import/entity-links APIs) |
-| C – Core import service | After B |
-| D – Reliability (pagination, worker, resume) | After C |
+| B – DB / store foundation | **Done** |
+| C – Core import service | **In progress** (header mapper + tick upsert for quotes/jobs) |
+| D – Reliability (pagination, worker, resume) | Tick endpoint started; harden next |
 | E – Admin UI | Parallel with D |
 | F – Related data (notes, attachments…) | After E |
 | G – Incremental sync | After verified full import |

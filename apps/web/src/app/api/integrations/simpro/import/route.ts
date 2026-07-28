@@ -3,13 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getSimproDirectConfigStatus } from "@/lib/simpro-auth";
-import { listSimproEntityLinks, simproEntityLinkStats } from "@/lib/simpro-entity-links";
 import {
   createSimproImportRun,
   getSimproImportRun,
   getSimproImportStatus,
   type SimproImportMode,
 } from "@/lib/simpro-import-runs";
+import { tickSimproImport } from "@/lib/simpro-import-service";
+import { listSimproEntityLinks, simproEntityLinkStats } from "@/lib/simpro-entity-links";
 
 function canManageIntegrations(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -78,14 +79,18 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    // Kick the first page immediately so import starts without waiting for a worker.
+    const firstTick = await tickSimproImport(run.id);
+
     return NextResponse.json(
       {
         ok: true,
-        run,
+        run: firstTick.run ?? run,
+        firstTick,
         note:
           mode === "preview"
-            ? "Preview run queued. Phase C will populate mapped records; Phase B stores runs and entity links only."
-            : "Import run queued. Worker ticks land in Phase D; run/checkpoint store is ready.",
+            ? "Preview started. Call POST /api/integrations/simpro/import/tick to continue pages."
+            : "Import started. Call POST /api/integrations/simpro/import/tick (or cron with NEXA_IMPORT_TICK_SECRET) to continue.",
         linkCount: listSimproEntityLinks().length,
       },
       { status: 201 },
