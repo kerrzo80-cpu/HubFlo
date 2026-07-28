@@ -13608,6 +13608,81 @@ h1 {
   padding: 12px 18px;
 }
 
+.scheduler-unassigned-rail {
+  background: #fff7f4;
+  border: 1px solid #f0c7b8;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+}
+
+.scheduler-unassigned-head {
+  align-items: baseline;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.scheduler-unassigned-head strong {
+  color: #9a3412;
+  font-size: 13px;
+}
+
+.scheduler-unassigned-head span {
+  color: #8a5b48;
+  font-size: 12px;
+}
+
+.scheduler-unassigned-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scheduler-unassigned-list button {
+  background: #fff;
+  border: 1px solid #e8c4b5;
+  border-radius: 5px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  min-width: 140px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.scheduler-unassigned-list button.active,
+.scheduler-unassigned-list button:hover {
+  border-color: #d97757;
+  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.15);
+}
+
+.scheduler-unassigned-list button strong {
+  font-size: 12px;
+}
+
+.scheduler-unassigned-list button span,
+.scheduler-unassigned-list button small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.invoice-ops-panel .invoice-ops-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-bottom: 10px;
+}
+
+@media (max-width: 720px) {
+  .invoice-ops-panel .invoice-ops-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
 .scheduler-job-picker,
 .scheduler-cost-centre-picker {
   color: var(--muted);

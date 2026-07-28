@@ -173,12 +173,20 @@ If Brian overrides Wave 1 pain:
 
 Until Brian cuts further, execute in this order:
 
-1. **Invoice ops pack** — Uninvoiced completed jobs queue + overdue invoice ageing + one-click invoice from completed job
-2. **Dispatch gap** — Unassigned progress jobs queue on schedule
+1. **Invoice ops pack** — Uninvoiced completed jobs queue + overdue invoice ageing + one-click invoice from completed job — **STARTED (Wave 1 UI live)**
+2. **Dispatch gap** — Unassigned progress jobs queue on schedule — **STARTED (Wave 1 UI live)**
 3. **Xero** — Customers + invoices (read/write) stub → real sync
 4. **simPRO bridge** — Customers/sites inbound reconcile (stop dual typing)
 5. **Catalogue / supplier CSV** — Already started; keep usable for radiator/price lists
 6. **Takeoff BOQ Excel** — Already fixed for SMM e-enquiry imports; finish survey→takeoff→quote handoff
+
+### Wave 1 shipped in product (28 Jul 2026)
+
+- Dashboard **Invoice ops** panel: overdue ageing buckets + completed-not-invoiced with one-click Invoice
+- Dashboard **Unassigned jobs** panel + schedule unassigned rail
+- Invoices open on **Overdue** by default; Draft folder added; due column shows days overdue
+- Jobs folder **Ready to invoice** for Completed / Ready to invoice
+- New invoices use Setup payment terms days for due date
 
 ---
 

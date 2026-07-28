@@ -178,6 +178,8 @@ const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 
 const dashboardPanelIds = [
+  "invoiceOps",
+  "unassignedJobs",
   "schedule",
   "notifications",
   "leadFollowups",
@@ -197,6 +199,8 @@ type DashboardLayout = {
 };
 
 const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: DashboardPanelSize }> = {
+  invoiceOps: { label: "Invoice ops", size: "wide" },
+  unassignedJobs: { label: "Unassigned jobs", size: "standard" },
   schedule: { label: "Weekly schedule", size: "wide" },
   notifications: { label: "Action notifications", size: "side" },
   leadFollowups: { label: "Lead follow-ups", size: "standard" },
@@ -1036,9 +1040,7 @@ function makeInvoiceFromQuote(
   settings: FinanceSettings,
 ): Invoice {
   const createdOn = new Date().toISOString().slice(0, 10);
-  const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const dueDate = invoiceDueDateFromSettings(settings, createdOn);
   const lines: InvoiceLine[] = sourceCentres.flatMap((centre) => {
     const totals = quoteCostCentreTotals(centre);
     const centreName = centre.name;
@@ -1133,9 +1135,7 @@ function makeInvoiceFromJobTotals(
   settings: FinanceSettings,
 ): Invoice {
   const createdOn = new Date().toISOString().slice(0, 10);
-  const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const dueDate = invoiceDueDateFromSettings(settings, createdOn);
 
   const billedVariations = variations.filter((variation) => isBillableVariationStatus(variation.status));
   const variationLineTotalCost = sumMoney(billedVariations, "costValue");
@@ -6587,6 +6587,24 @@ function daysSinceDate(value: string, currentDate = currentOperatingDate) {
   return Math.floor((current - start) / 86_400_000);
 }
 
+function invoiceDueDateFromSettings(settings: FinanceSettings, issuedDate = currentOperatingDate) {
+  const termsDays = Math.max(0, Math.round(numericSetting(settings.paymentTermsDays, 14)));
+  return shiftIsoDate(issuedDate, termsDays);
+}
+
+function jobLooksUnassigned(job: Pick<Job, "manager">, schedulePlans: JobScheduleAssignment[] | undefined) {
+  if (schedulePlans && schedulePlans.length > 0) return false;
+  const manager = (job.manager || "").trim();
+  if (!manager) return true;
+  return /^(imported from simpro|engineer tbc|unassigned|tbc|n\/a|none)$/i.test(manager);
+}
+
+function invoiceAgeBand(daysOverdue: number): "0-30" | "31-60" | "60+" {
+  if (daysOverdue <= 30) return "0-30";
+  if (daysOverdue <= 60) return "31-60";
+  return "60+";
+}
+
 function numericSetting(value: string | number, fallback: number) {
   const parsed = Number.parseFloat(String(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : fallback;
@@ -6816,7 +6834,7 @@ export default function Dashboard() {
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("pending");
-  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("valuations");
+  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
   const [reportCustomEndDate, setReportCustomEndDate] = useState(currentOperatingDate);
@@ -7322,7 +7340,7 @@ export default function Dashboard() {
     if (!hasHydratedLocalData || !selectedInvoiceId || selectedInvoice || homeView !== "invoice-record") return;
     setSelectedInvoiceId(null);
     setActiveInvoiceTab("summary");
-    setActiveInvoiceFolderKey("valuations");
+    setActiveInvoiceFolderKey("overdue");
     setHomeView("invoices");
     showNotice("That valuation or invoice is not available in the shared workspace yet. Showing the invoice folders instead.");
   }, [hasHydratedLocalData, homeView, selectedInvoice, selectedInvoiceId]);
@@ -9726,6 +9744,13 @@ export default function Dashboard() {
         ),
       },
       {
+        key: "uninvoiced",
+        label: "Ready to invoice",
+        detail: "Completed work waiting for an invoice",
+        tone: "red",
+        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status)),
+      },
+      {
         key: "review",
         label: "Complete",
         detail: "Completed, reviewed or moved into finance",
@@ -9754,10 +9779,42 @@ export default function Dashboard() {
     const isOverdue = (invoice: Invoice) =>
       invoice.status !== "Paid" &&
       invoice.status !== "Cancelled" &&
+      invoice.status !== "Draft" &&
       /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
       invoice.dueDate < currentOperatingDate;
 
+    const overdueItems = searchFilteredInvoices
+      .filter((invoice) => invoice.claimType !== "valuation" && isOverdue(invoice))
+      .map((invoice) => {
+        const daysOverdue = daysSinceDate(invoice.dueDate) ?? 0;
+        return { invoice, daysOverdue, band: invoiceAgeBand(Math.max(0, daysOverdue)) };
+      })
+      .sort((left, right) => right.daysOverdue - left.daysOverdue);
+
     return [
+      {
+        key: "overdue",
+        label: "Overdue invoices",
+        detail: (() => {
+          const bands: Record<"0-30" | "31-60" | "60+", number> = { "0-30": 0, "31-60": 0, "60+": 0 };
+          overdueItems.forEach((item) => {
+            const band = item.band as "0-30" | "31-60" | "60+";
+            bands[band] += 1;
+          });
+          return overdueItems.length
+            ? `Ageing 0-30: ${bands["0-30"]} · 31-60: ${bands["31-60"]} · 60+: ${bands["60+"]}`
+            : "Needs chasing or finance action";
+        })(),
+        tone: "red",
+        items: overdueItems.map((item) => item.invoice),
+      },
+      {
+        key: "draft",
+        label: "Draft invoices",
+        detail: "Created but not yet sent to the customer",
+        tone: "amber",
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Draft"),
+      },
       {
         key: "valuations",
         label: "Valuations",
@@ -9772,16 +9829,10 @@ export default function Dashboard() {
         tone: "blue",
         items: searchFilteredInvoices.filter((invoice) =>
           invoice.claimType !== "valuation" &&
+          invoice.status !== "Draft" &&
           !isOverdue(invoice) &&
           (invoice.status === "Sent" || invoice.status === "Partially paid"),
         ),
-      },
-      {
-        key: "overdue",
-        label: "Overdue invoices",
-        detail: "Needs chasing or finance action",
-        tone: "red",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && isOverdue(invoice)),
       },
       {
         key: "paid",
@@ -10041,6 +10092,44 @@ export default function Dashboard() {
         return !jobDeliveryEvents.some((event) => event.jobId === job.id && event.kind === "timesheet");
       }),
     [jobDeliveryEvents, jobs],
+  );
+
+  const uninvoicedCompletedJobs = useMemo(
+    () =>
+      jobs
+        .filter((job) => ["Completed", "Ready to invoice"].includes(job.status))
+        .sort((left, right) => (left.due < right.due ? -1 : 1)),
+    [jobs],
+  );
+
+  const unassignedProgressJobs = useMemo(
+    () =>
+      jobs.filter((job) => {
+        if (!["Accepted", "Pending", "Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status)) {
+          return false;
+        }
+        return jobLooksUnassigned(job, jobSchedulePlans[job.id]);
+      }),
+    [jobSchedulePlans, jobs],
+  );
+
+  const overdueInvoiceRows = useMemo(
+    () =>
+      invoices
+        .filter((invoice) =>
+          invoice.claimType !== "valuation" &&
+          invoice.status !== "Paid" &&
+          invoice.status !== "Cancelled" &&
+          invoice.status !== "Draft" &&
+          /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
+          invoice.dueDate < currentOperatingDate,
+        )
+        .map((invoice) => {
+          const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
+          return { invoice, daysOverdue, band: invoiceAgeBand(daysOverdue) };
+        })
+        .sort((left, right) => right.daysOverdue - left.daysOverdue),
+    [invoices],
   );
 
   const officeAlerts = useMemo(
@@ -15030,10 +15119,46 @@ export default function Dashboard() {
     editPurchaseRequest(request);
   }
 
-  function returnToInvoiceDirectory() {
+  function returnToInvoiceDirectory(folderKey = "overdue") {
     setSelectedInvoiceId(null);
     setActiveInvoiceTab("summary");
+    setActiveInvoiceFolderKey(folderKey);
     setHomeView("invoices");
+  }
+
+  function openInvoiceOpsPack(folderKey: "overdue" | "draft" | "unpaid" = "overdue") {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedJobId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setActiveInvoiceFolderKey(folderKey);
+    setHomeView("invoices");
+    scrollWorkspaceToTop();
+  }
+
+  function openUninvoicedJobsPack() {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedJobId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setActiveJobFolderKey("uninvoiced");
+    setHomeView("jobs");
+    scrollWorkspaceToTop();
+  }
+
+  function openUnassignedJobsOnSchedule(job?: Job) {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setHomeView("schedule");
+    if (job) {
+      selectSchedulerJob(job);
+      setSelectedJobId(job.id);
+    }
+    scrollWorkspaceToTop();
   }
 
   function returnFromInvoiceRecord() {
@@ -21364,10 +21489,119 @@ export default function Dashboard() {
       pendingPORequests.length +
       dashboardVariationApprovals.length +
       approvedQuotesAwaitingScheduling.length +
-      overdueTimesheetJobs.length;
+      overdueTimesheetJobs.length +
+      overdueInvoiceRows.length +
+      uninvoicedCompletedJobs.length +
+      unassignedProgressJobs.length;
 
     const renderDashboardPanel = (panelId: DashboardPanelId) => {
       switch (panelId) {
+        case "invoiceOps":
+          return (
+            <section className="ops-queue-panel invoice-ops-panel" id="dashboard-invoice-ops">
+              <header>
+                <div>
+                  <h3>Invoice ops</h3>
+                  <p>
+                    {overdueInvoiceRows.length} overdue · {uninvoicedCompletedJobs.length} ready to invoice
+                  </p>
+                </div>
+                <PoundSterling size={18} />
+              </header>
+              <div className="invoice-ops-summary">
+                <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
+                  <AlertTriangle size={18} />
+                  <span>
+                    <strong>{overdueInvoiceRows.length}</strong>
+                    <b>Overdue invoices</b>
+                    <small>
+                      0-30: {overdueInvoiceRows.filter((row) => row.band === "0-30").length}
+                      {" · "}31-60: {overdueInvoiceRows.filter((row) => row.band === "31-60").length}
+                      {" · "}60+: {overdueInvoiceRows.filter((row) => row.band === "60+").length}
+                    </small>
+                  </span>
+                </button>
+                <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
+                  <FileText size={18} />
+                  <span>
+                    <strong>{uninvoicedCompletedJobs.length}</strong>
+                    <b>Completed, not invoiced</b>
+                    <small>Create or finish the invoice from the job</small>
+                  </span>
+                </button>
+              </div>
+              <div className="ops-queue-list">
+                {uninvoicedCompletedJobs.slice(0, 4).map((job) => (
+                  <article className="ops-queue-item attention" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref} · {job.customer}</strong>
+                      <span>{job.description}</span>
+                      <small>{job.status} · due {job.due}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{job.status}</span>
+                      <button className="primary-button" type="button" onClick={() => openInvoiceForJob(job)}>
+                        Invoice
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {overdueInvoiceRows.slice(0, 4).map(({ invoice, daysOverdue, band }) => (
+                  <article className="ops-queue-item" key={invoice.id}>
+                    <button type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                      <strong>{invoice.ref} · {invoice.customer}</strong>
+                      <span>{invoice.title}</span>
+                      <small>{daysOverdue} day{daysOverdue === 1 ? "" : "s"} overdue · band {band}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{currency(invoice.chargeTotal)}</span>
+                      <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                        Chase
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!uninvoicedCompletedJobs.length && !overdueInvoiceRows.length ? (
+                  <div className="ops-queue-empty">No overdue invoices or completed jobs waiting to bill.</div>
+                ) : null}
+              </div>
+            </section>
+          );
+
+        case "unassignedJobs":
+          return (
+            <section className="ops-queue-panel" id="dashboard-unassigned-jobs">
+              <header>
+                <div>
+                  <h3>Unassigned jobs</h3>
+                  <p>{unassignedProgressJobs.length} live job{unassignedProgressJobs.length === 1 ? "" : "s"} with no technician</p>
+                </div>
+                <Users size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {unassignedProgressJobs.length > 0 ? (
+                  unassignedProgressJobs.slice(0, 6).map((job) => (
+                    <article className="ops-queue-item attention" key={job.id}>
+                      <button type="button" onClick={() => openJobDrawer(job.id)}>
+                        <strong>{job.ref} · {job.customer}</strong>
+                        <span>{job.description}</span>
+                        <small>{job.status} · {job.manager || "No engineer"}</small>
+                      </button>
+                      <div className="ops-queue-actions">
+                        <span className={`status-pill ${job.health}`}>{job.status}</span>
+                        <button className="primary-button" type="button" onClick={() => openUnassignedJobsOnSchedule(job)}>
+                          Assign
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="ops-queue-empty">Every live job has a technician or schedule booking.</div>
+                )}
+              </div>
+            </section>
+          );
+
         case "schedule":
           return (
             <section className="weekly-schedule-panel">
@@ -21424,6 +21658,30 @@ export default function Dashboard() {
             </div>
 
             <div className="notification-stack">
+              <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
+                <PoundSterling size={18} />
+                <span>
+                  <strong>{overdueInvoiceRows.length}</strong>
+                  <b>Overdue invoices</b>
+                  <small>Open ageing pack and chase</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
+                <FileText size={18} />
+                <span>
+                  <strong>{uninvoicedCompletedJobs.length}</strong>
+                  <b>Completed jobs to invoice</b>
+                  <small>Bill completed / ready-to-invoice work</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openUnassignedJobsOnSchedule()}>
+                <Users size={18} />
+                <span>
+                  <strong>{unassignedProgressJobs.length}</strong>
+                  <b>Jobs with no technician</b>
+                  <small>Assign from the schedule board</small>
+                </span>
+              </button>
               <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-po-requests")}>
                 <ClipboardCheck size={18} />
                 <span>
@@ -29792,7 +30050,20 @@ export default function Dashboard() {
                               </span>
                               <strong className="value">{currency(invoice.chargeTotal)}</strong>
                               <span className="next-action quote-workflow-action">
-                                <strong>Due {invoice.dueDate}</strong>
+                                <strong>
+                                  {(() => {
+                                    const daysOverdue = daysSinceDate(invoice.dueDate);
+                                    const isOverdue =
+                                      invoice.status !== "Paid" &&
+                                      invoice.status !== "Cancelled" &&
+                                      invoice.status !== "Draft" &&
+                                      typeof daysOverdue === "number" &&
+                                      daysOverdue > 0;
+                                    return isOverdue
+                                      ? `Overdue ${daysOverdue}d · due ${invoice.dueDate}`
+                                      : `Due ${invoice.dueDate}`;
+                                  })()}
+                                </strong>
                                 <small>{source ? source.next : "No source activity"}</small>
                                 <button
                                   className="secondary-button"
@@ -30823,6 +31094,28 @@ export default function Dashboard() {
               </div>
 
               <section className="scheduler-create-panel" aria-label="Schedule a job">
+                {unassignedProgressJobs.length ? (
+                  <div className="scheduler-unassigned-rail" aria-label="Unassigned progress jobs">
+                    <div className="scheduler-unassigned-head">
+                      <strong>{unassignedProgressJobs.length} unassigned</strong>
+                      <span>Pick a job, then drag onto an engineer</span>
+                    </div>
+                    <div className="scheduler-unassigned-list">
+                      {unassignedProgressJobs.slice(0, 12).map((job) => (
+                        <button
+                          key={job.id}
+                          type="button"
+                          className={schedulerSelectedJobId === job.id ? "active" : ""}
+                          onClick={() => selectSchedulerJob(job)}
+                        >
+                          <strong>{job.ref}</strong>
+                          <span>{job.customer}</span>
+                          <small>{job.status}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="scheduler-job-picker">
                   <span>Search job</span>
                   <div className="scheduler-job-search-control">
