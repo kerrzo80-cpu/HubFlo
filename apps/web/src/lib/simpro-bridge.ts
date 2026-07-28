@@ -1248,40 +1248,134 @@ async function ensureSimproCustomerAndSite(
   return { customerId, siteId };
 }
 
-function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
-  const costCentreLines = payload.costCentres.flatMap((centre) => {
-    const heading = [`Cost centre: ${centre.name}`];
-    if (centre.clientDescription) heading.push(`Client description: ${centre.clientDescription}`);
-    const lines = centre.lines.map((line) =>
-      `- ${line.description}: qty ${line.quantity}, cost £${line.unitCost.toFixed(2)}, sell £${line.unitSell.toFixed(2)}`,
-    );
-    return [...heading, ...lines, ""];
-  });
+function lineLooksLikeLabour(line: SimproQuoteExportLine) {
+  const catalogId = (line.catalogItemId || "").toLowerCase();
+  if (catalogId.startsWith("labour-") || catalogId.startsWith("labor-")) return true;
+  return /\b(labour|labor|engineer hours?|plumber hours?|fitter hours?)\b/i.test(line.description);
+}
 
+function buildSimproOneOff(line: SimproQuoteExportLine) {
+  const isLabour = lineLooksLikeLabour(line);
+  const quantity = Number.isFinite(line.quantity) ? line.quantity : 0;
+  const unitCost = Number.isFinite(line.unitCost) ? line.unitCost : 0;
+  const unitSell = Number.isFinite(line.unitSell) ? line.unitSell : 0;
+  const body: UnknownRecord = {
+    Type: isLabour ? "Labor" : "Material",
+    BillableStatus: "Billable",
+    Description: line.description.slice(0, 250) || (isLabour ? "Labour" : "Material"),
+    EstimatedCost: unitCost,
+    SellPrice: unitSell,
+    Total: { Qty: quantity },
+  };
+  if (isLabour) body.EstimatedTime = quantity;
+  if (unitCost > 0) {
+    body.Markup = Math.round(((unitSell - unitCost) / unitCost) * 10000) / 100;
+  }
+  return body;
+}
+
+async function listSetupCostCenters(direct: ResolvedSimproDirectConfig) {
+  const { response, body } = await simproApiFetch(direct, "/setup/costCenters/?pageSize=250&columns=ID,Name");
+  if (!response.ok) {
+    const record = asRecord(body) ?? {};
+    throw new Error(simproHttpErrorMessage(record, response.status, `${direct.baseUrl}/companies/${direct.companyId}/setup/costCenters/`));
+  }
+  return extractRecords(body)
+    .map((record) => ({
+      id: numericId(asIdentifier(record.ID) ?? asIdentifier(record.id)),
+      name: asString(record.Name) || asString(record.name),
+    }))
+    .filter((item): item is { id: number; name: string } => Boolean(item.id));
+}
+
+function resolveSetupCostCenterId(
+  setupCentres: Array<{ id: number; name: string }>,
+  preferredName?: string,
+) {
+  const preferred = normaliseMatchText(preferredName);
+  if (preferred) {
+    const exact = setupCentres.find((item) => normaliseMatchText(item.name) === preferred);
+    if (exact) return exact.id;
+    const partial = setupCentres.find((item) => {
+      const name = normaliseMatchText(item.name);
+      return name.includes(preferred) || preferred.includes(name);
+    });
+    if (partial) return partial.id;
+  }
+
+  const defaultId = numericId(process.env.SIMPRO_DEFAULT_COST_CENTER_ID ?? process.env.SIMPRO_COST_CENTER_ID);
+  if (defaultId) return defaultId;
+
+  const plumbing = setupCentres.find((item) => /plumb|heating|general|service/i.test(item.name));
+  return plumbing?.id ?? setupCentres[0]?.id;
+}
+
+function buildSimproSections(
+  centres: SimproQuoteExportPayload["costCentres"],
+  setupCentres: Array<{ id: number; name: string }>,
+  quoteType: "Project" | "Service" | "Prepaid",
+) {
+  const usable = centres.filter((centre) => centre.lines.length > 0);
+  if (!usable.length) return undefined;
+
+  const buildCostCenter = (centre: SimproQuoteExportCostCentre, index: number) => {
+    const costCenterId = resolveSetupCostCenterId(setupCentres, centre.templateName || centre.name);
+    if (!costCenterId) {
+      throw new Error(
+        "Cannot send cost centres to Simpro: no setup cost centres were found. Create one in Simpro or set SIMPRO_DEFAULT_COST_CENTER_ID.",
+      );
+    }
+    return {
+      CostCenter: costCenterId,
+      Name: centre.name.slice(0, 100),
+      DisplayOrder: index + 1,
+      Description: centre.clientDescription || centre.engineerDescription || undefined,
+      Items: {
+        OneOffs: centre.lines.map(buildSimproOneOff),
+      },
+    };
+  };
+
+  if (quoteType === "Service") {
+    return [
+      {
+        Name: "",
+        CostCenters: usable.map((centre, index) => buildCostCenter(centre, index)),
+      },
+    ];
+  }
+
+  return usable.map((centre, index) => ({
+    Name: centre.name.slice(0, 100),
+    DisplayOrder: index + 1,
+    CostCenters: [buildCostCenter(centre, 0)],
+  }));
+}
+
+function buildSimproQuoteDescription(payload: SimproQuoteExportPayload) {
   return [
     `Created from NeXa quote ${payload.quote.ref}`,
     payload.quote.description,
-    "",
-    `Customer: ${payload.customer.name}`,
-    payload.site.address ? `Site: ${payload.site.address}` : null,
-    "",
-    `Totals: cost £${payload.totals.cost.toFixed(2)} / sell £${payload.totals.sell.toFixed(2)} / profit £${payload.totals.profit.toFixed(2)}`,
-    "",
-    ...costCentreLines,
+    payload.costCentres.length
+      ? `Cost centres and priced lines are attached as Simpro one-off materials/labour (totals cost £${payload.totals.cost.toFixed(2)} / sell £${payload.totals.sell.toFixed(2)}).`
+      : null,
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
 function buildDirectQuoteBody(
   payload: SimproQuoteExportPayload,
   ids: { customerId: number; siteId: number },
+  sections?: UnknownRecord[],
 ) {
-  return {
+  const body: UnknownRecord = {
     Type: defaultQuoteType(),
     Name: `${payload.quote.ref} - ${payload.quote.description}`.slice(0, 120),
     Description: buildSimproQuoteDescription(payload),
     Customer: ids.customerId,
     Site: ids.siteId,
   };
+  if (sections?.length) body.Sections = sections;
+  return body;
 }
 
 function buildSimproJobDescription(payload: SimproJobExportPayload) {
@@ -1292,43 +1386,142 @@ function buildSimproJobDescription(payload: SimproJobExportPayload) {
         }`,
       )
     : ["- No engineer allocations pushed from NeXa yet"];
-  const costCentreLines = payload.costCentres.flatMap((centre) => {
-    const heading = [`Cost centre: ${centre.name}`];
-    const lines = centre.lines.map((line) =>
-      `- ${line.description}: qty ${line.quantity}, cost £${line.unitCost.toFixed(2)}, sell £${line.unitSell.toFixed(2)}`,
-    );
-    return [...heading, ...lines, ""];
-  });
 
   return [
     `Created from NeXa job ${payload.job.ref}`,
     payload.job.description,
-    "",
-    `Customer: ${payload.customer.name}`,
-    payload.site.address ? `Site: ${payload.site.address}` : null,
     payload.job.sourceQuoteRef ? `Source quote: ${payload.job.sourceQuoteRef}` : null,
-    "",
     `Programme manager: ${payload.job.manager || "To confirm"}`,
     "Schedule pushed from NeXa:",
     ...scheduleLines,
-    "",
-    `Totals: cost £${payload.totals.cost.toFixed(2)} / sell £${payload.totals.sell.toFixed(2)} / profit £${payload.totals.profit.toFixed(2)}`,
-    "",
-    ...costCentreLines,
+    payload.costCentres.length
+      ? `Cost centres and priced lines are attached as Simpro one-off materials/labour (totals cost £${payload.totals.cost.toFixed(2)} / sell £${payload.totals.sell.toFixed(2)}).`
+      : null,
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
 function buildDirectJobBody(
   payload: SimproJobExportPayload,
   ids: { customerId: number; siteId: number },
+  sections?: UnknownRecord[],
 ) {
-  return {
+  const body: UnknownRecord = {
     Type: defaultJobType(),
     Name: `${payload.job.ref} - ${payload.job.description}`.slice(0, 120),
     Description: buildSimproJobDescription(payload),
     Customer: ids.customerId,
     Site: ids.siteId,
   };
+  if (sections?.length) body.Sections = sections;
+  return body;
+}
+
+function stripSectionItems(sections?: UnknownRecord[]) {
+  if (!sections?.length) return undefined;
+  return sections.map((section) => {
+    const costCenters = Array.isArray(section.CostCenters)
+      ? section.CostCenters.map((centre) => {
+          const record = asRecord(centre) ?? {};
+          const { Items: _items, ...rest } = record;
+          return rest;
+        })
+      : [];
+    return { ...section, CostCenters: costCenters };
+  });
+}
+
+async function attachOneOffsToCreatedRecord(
+  direct: ResolvedSimproDirectConfig,
+  entity: "quotes" | "jobs",
+  recordId: string,
+  centres: SimproQuoteExportPayload["costCentres"],
+) {
+  const usable = centres.filter((centre) => centre.lines.length > 0);
+  if (!usable.length) return;
+
+  const { response, body, endpoint } = await simproApiFetch(
+    direct,
+    `/${entity}/${recordId}/sections/?pageSize=50&display=all`,
+  );
+  if (!response.ok) {
+    throw new Error(simproHttpErrorMessage(asRecord(body) ?? {}, response.status, endpoint));
+  }
+
+  const sections = extractRecords(body);
+  const slots: Array<{ sectionId: number; costCenterId: number; name: string }> = [];
+
+  for (const section of sections) {
+    const sectionId = numericId(asIdentifier(section.ID) ?? asIdentifier(section.id));
+    if (!sectionId) continue;
+
+    let costCenters = Array.isArray(section.CostCenters)
+      ? section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+      : [];
+
+    if (!costCenters.length) {
+      const listed = await simproApiFetch(
+        direct,
+        `/${entity}/${recordId}/sections/${sectionId}/costCenters/?pageSize=50&display=all`,
+      );
+      if (listed.response.ok) {
+        costCenters = extractRecords(listed.body);
+      }
+    }
+
+    for (const costCenter of costCenters) {
+      const costCenterId = numericId(asIdentifier(costCenter.ID) ?? asIdentifier(costCenter.id));
+      if (!costCenterId) continue;
+      slots.push({
+        sectionId,
+        costCenterId,
+        name: asString(costCenter.Name) || asString(asRecord(costCenter.CostCenter)?.Name),
+      });
+    }
+  }
+
+  if (!slots.length) {
+    throw new Error(
+      `Simpro ${entity.slice(0, -1)} ${recordId} was created, but no cost centre slots were returned to attach NeXa labour/material lines.`,
+    );
+  }
+
+  const used = new Set<number>();
+  const targets: Array<{ sectionId: number; costCenterId: number; centre: SimproQuoteExportCostCentre }> = [];
+
+  for (const centre of usable) {
+    const centreName = normaliseMatchText(centre.name);
+    let matched = slots.find((slot) => {
+      if (used.has(slot.costCenterId)) return false;
+      const name = normaliseMatchText(slot.name);
+      return Boolean(name) && (name === centreName || name.includes(centreName) || centreName.includes(name));
+    });
+    if (!matched) {
+      matched = slots.find((slot) => !used.has(slot.costCenterId));
+    }
+    if (!matched) {
+      throw new Error(
+        `Simpro ${entity.slice(0, -1)} ${recordId} was created, but no free cost centre slot was available for "${centre.name}".`,
+      );
+    }
+    used.add(matched.costCenterId);
+    targets.push({ sectionId: matched.sectionId, costCenterId: matched.costCenterId, centre });
+  }
+
+  for (const target of targets) {
+    for (const line of target.centre.lines) {
+      const oneOff = buildSimproOneOff(line);
+      const path = `/${entity}/${recordId}/sections/${target.sectionId}/costCenters/${target.costCenterId}/oneOffs/`;
+      const posted = await simproApiFetch(direct, path, {
+        method: "POST",
+        body: JSON.stringify(oneOff),
+      });
+      if (!posted.response.ok) {
+        throw new Error(
+          simproHttpErrorMessage(asRecord(posted.body) ?? {}, posted.response.status, posted.endpoint),
+        );
+      }
+    }
+  }
 }
 
 async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
@@ -1336,7 +1529,12 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
   if (!direct) return null;
 
   const ids = await ensureSimproCustomerAndSite(direct, payload);
+  const setupCentres = await listSetupCostCenters(direct);
+  const sections = buildSimproSections(payload.costCentres, setupCentres, defaultQuoteType()) as UnknownRecord[] | undefined;
   const endpoint = `${direct.baseUrl}/companies/${direct.companyId}/quotes/`;
+
+  // Create quote with cost-centre shell first, then attach one-off lines.
+  // Nested Items are not always persisted on create for Service quotes.
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -1344,9 +1542,8 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
       "Content-Type": "application/json",
       Authorization: `Bearer ${direct.token}`,
     },
-    body: JSON.stringify(buildDirectQuoteBody(payload, ids)),
+    body: JSON.stringify(buildDirectQuoteBody(payload, ids, stripSectionItems(sections))),
   });
-
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
     const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
@@ -1356,10 +1553,11 @@ async function postToDirectSimpro(payload: SimproQuoteExportPayload) {
     throw new Error(message);
   }
 
-  return {
-    endpoint,
-    simproQuoteId: asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.quoteId) ?? asIdentifier(body.simproQuoteId),
-  };
+  const quoteId = asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.quoteId) ?? asIdentifier(body.simproQuoteId);
+  if (!quoteId) throw new Error("Simpro created a quote but did not return an ID.");
+  await attachOneOffsToCreatedRecord(direct, "quotes", quoteId, payload.costCentres);
+
+  return { endpoint, simproQuoteId: quoteId };
 }
 
 async function postToDirectSimproJob(payload: SimproJobExportPayload) {
@@ -1367,20 +1565,46 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
   if (!direct) return null;
 
   const ids = await ensureSimproCustomerAndSite(direct, payload);
+  const setupCentres = await listSetupCostCenters(direct);
+  const sections = buildSimproSections(payload.costCentres, setupCentres, defaultJobType()) as UnknownRecord[] | undefined;
   const hasExistingJob = Boolean(numericId(payload.job.simproJobId));
   const endpoint = hasExistingJob
     ? `${direct.baseUrl}/companies/${direct.companyId}/jobs/${payload.job.simproJobId}/`
     : `${direct.baseUrl}/companies/${direct.companyId}/jobs/`;
+
+  if (hasExistingJob) {
+    const response = await fetch(endpoint, {
+      method: "PATCH",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${direct.token}`,
+      },
+      body: JSON.stringify(buildDirectJobBody(payload, ids)),
+    });
+    const body = await response.json().catch(() => ({})) as UnknownRecord;
+    if (!response.ok) {
+      const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
+      const message = response.status === 401
+        ? `Simpro rejected the access token or company permission (HTTP 401). Check the configured simPRO token or refresh credentials are authorised for company ${direct.companyId}.`
+        : returnedMessage;
+      throw new Error(message);
+    }
+    return {
+      endpoint,
+      simproJobId: asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.jobId) ?? payload.job.simproJobId,
+    };
+  }
+
   const response = await fetch(endpoint, {
-    method: hasExistingJob ? "PATCH" : "POST",
+    method: "POST",
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
       Authorization: `Bearer ${direct.token}`,
     },
-    body: JSON.stringify(buildDirectJobBody(payload, ids)),
+    body: JSON.stringify(buildDirectJobBody(payload, ids, stripSectionItems(sections))),
   });
-
   const body = await response.json().catch(() => ({})) as UnknownRecord;
   if (!response.ok) {
     const returnedMessage = simproHttpErrorMessage(body, response.status, endpoint);
@@ -1390,10 +1614,11 @@ async function postToDirectSimproJob(payload: SimproJobExportPayload) {
     throw new Error(message);
   }
 
-  return {
-    endpoint,
-    simproJobId: asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.jobId) ?? payload.job.simproJobId,
-  };
+  const jobId = asIdentifier(body.ID) ?? asIdentifier(body.id) ?? asIdentifier(body.jobId) ?? asIdentifier(body.simproJobId);
+  if (!jobId) throw new Error("Simpro created a job but did not return an ID.");
+  await attachOneOffsToCreatedRecord(direct, "jobs", jobId, payload.costCentres);
+
+  return { endpoint, simproJobId: jobId };
 }
 
 function saveExportRecord(record: SimproQuoteExportRecord) {
