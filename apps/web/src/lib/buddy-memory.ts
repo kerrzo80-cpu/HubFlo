@@ -34,7 +34,7 @@ export type BuddyMemory = {
 
 const STORAGE_KEY = "hubflo:buddy-memory:v1";
 
-export const buddyAvatarSrc = "/brand/buddy-character.png";
+export const buddyAvatarSrc = "/brand/buddy-mascot.png";
 export const buddyPhotoAvatarSrc = "/brand/buddy-avatar.png";
 
 export function defaultBuddyMemory(): BuddyMemory {
