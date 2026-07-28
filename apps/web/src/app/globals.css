@@ -13070,6 +13070,193 @@ h1 {
   overflow: visible;
 }
 
+/* Simpro-style create: fields left, map right */
+.simpro-create-layout {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  padding: 18px 22px 8px;
+}
+
+.simpro-create-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+}
+
+.simpro-create-fields > .full-field,
+.simpro-create-fields > .lead-match-block,
+.simpro-create-fields > .lead-address-lookup {
+  grid-column: 1 / -1;
+}
+
+.simpro-create-fields label {
+  display: grid;
+  gap: 6px;
+  color: #4d6672;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.simpro-create-fields input,
+.simpro-create-fields select,
+.simpro-create-fields textarea {
+  background: #fff;
+  border: 1px solid #c9dde5;
+  border-radius: 8px;
+  color: #173949;
+  font: inherit;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.simpro-create-map {
+  background: #f4f8fa;
+  border: 1px solid #d5e5eb;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 420px;
+  overflow: hidden;
+  padding: 10px;
+  position: sticky;
+  top: 12px;
+}
+
+.simpro-create-map iframe {
+  border: 0;
+  border-radius: 8px;
+  flex: 1;
+  min-height: 360px;
+  width: 100%;
+}
+
+.simpro-create-map-empty {
+  align-items: center;
+  color: #5d7582;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  text-align: center;
+}
+
+.simpro-create-map-empty strong {
+  color: #173949;
+  font-size: 14px;
+}
+
+.simpro-create-footer {
+  justify-content: flex-end;
+}
+
+.lead-create-page {
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(23, 57, 73, 0.08);
+}
+
+/* Simpro-style record summary blocks */
+.simpro-record-summary {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.simpro-summary-block {
+  background: #fff;
+  border: 1px solid #d6e6ec;
+  border-radius: 10px;
+  display: grid;
+  gap: 10px;
+  padding: 14px 14px 12px;
+}
+
+.simpro-summary-block-head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.simpro-summary-block-head h3 {
+  color: #173949;
+  font-size: 13px;
+  font-weight: 750;
+  margin: 0;
+}
+
+.simpro-summary-block dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.simpro-summary-block dl > div {
+  display: grid;
+  gap: 2px;
+}
+
+.simpro-summary-block dt {
+  color: #6d8490;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.simpro-summary-block dd {
+  color: #173949;
+  font-size: 13px;
+  margin: 0;
+}
+
+.simpro-summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 2px;
+}
+
+.record-text-link {
+  background: none;
+  border: 0;
+  color: #157fa8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0;
+  text-align: left;
+}
+
+.record-text-link:hover {
+  text-decoration: underline;
+}
+
+.record-text-link:disabled {
+  color: #8aa0ab;
+  cursor: default;
+  text-decoration: none;
+}
+
+@media (max-width: 980px) {
+  .simpro-create-layout,
+  .simpro-record-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .simpro-create-map {
+    min-height: 260px;
+    position: static;
+  }
+
+  .simpro-create-map iframe {
+    min-height: 220px;
+  }
+}
+
+
 .lead-form-section-heading {
   align-items: center;
   display: flex;

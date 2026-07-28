@@ -23524,54 +23524,63 @@ export default function Dashboard() {
 
                 {activeQuoteTab === "setup" ? (
                   <section className="quote-record-panel">
-                    <div className="client-overview-grid">
-                      <article className="client-info-card">
-                        <span className="permission-heading">Quote details</span>
+                    <div className="simpro-record-summary">
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Customer</h3>
+                          {selectedQuoteClient ? (
+                            <button className="record-text-link" type="button" onClick={() => openClientRecordView(selectedQuoteClient.id)}>
+                              Edit customer
+                            </button>
+                          ) : (
+                            <button className="record-text-link" type="button" onClick={() => setShowCreateQuote(true)}>
+                              Link customer
+                            </button>
+                          )}
+                        </div>
                         <dl>
-                          <div><dt>Client</dt><dd>{selectedQuoteClient?.name ?? selectedQuote.customer}</dd></div>
+                          <div><dt>Name</dt><dd>{selectedQuoteClient?.name ?? selectedQuote.customer}</dd></div>
                           <div><dt>Contact</dt><dd>{selectedQuoteClient?.primaryContact ?? "To confirm"}</dd></div>
                           <div><dt>Email</dt><dd>{selectedQuoteClient?.email ?? "To confirm"}</dd></div>
                           <div><dt>Phone</dt><dd>{selectedQuoteClient?.phone ?? "To confirm"}</dd></div>
-                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
-                          <div><dt>Owner</dt><dd>{selectedQuote.owner}</dd></div>
-                          <div><dt>Status</dt><dd>{selectedQuote.status}</dd></div>
-                          <div><dt>Simpro</dt><dd>{selectedQuote.simproStatus ?? "Not sent"}</dd></div>
                         </dl>
-                        <div className="quote-action-stack">
-                          {selectedQuoteClient ? (
-                            <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedQuoteClient.id)}>
-                              Edit customer
-                            </button>
-                          ) : null}
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Site</h3>
                           {selectedQuoteClient ? (
                             <button
-                              className="secondary-button"
+                              className="record-text-link"
                               type="button"
                               onClick={() => openClientSiteRecordView(selectedQuoteClient.id, selectedQuoteSite?.name)}
                             >
                               {selectedQuoteSite ? "Edit site" : "Add site"}
                             </button>
                           ) : null}
-                          {!selectedQuoteClient ? (
-                            <button className="secondary-button" type="button" onClick={() => setShowCreateQuote(true)}>
-                              Link customer record
-                            </button>
-                          ) : null}
                         </div>
-                      </article>
-                      <article className="client-info-card">
-                        <span className="permission-heading">Commercial position</span>
-                        <p>Build the quote from cost centres before it becomes a job. Jobs should inherit this structure rather than inventing costs after conversion.</p>
-                        <div className="quote-action-stack">
-                          <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
-                            Build quote costs
+                        <dl>
+                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Quote</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Owner</dt><dd>{selectedQuote.owner}</dd></div>
+                          <div><dt>Status</dt><dd>{selectedQuote.status}</dd></div>
+                          <div><dt>Simpro</dt><dd>{selectedQuote.simproStatus ?? "Not sent"}</dd></div>
+                        </dl>
+                        <div className="simpro-summary-actions">
+                          <button className="record-text-link" type="button" onClick={() => setActiveQuoteTab("cost-build")}>
+                            Build costs
                           </button>
-                          <button className="secondary-button" type="button" onClick={() => setActiveQuoteTab("documents")}>
-                            Attachments / paper trail
+                          <button className="record-text-link" type="button" onClick={() => setActiveQuoteTab("documents")}>
+                            Attachments
                           </button>
                           <button
-                            className="secondary-button"
+                            className="record-text-link"
                             type="button"
                             onClick={sendSelectedQuoteToSimpro}
                             disabled={isSendingQuoteToSimpro}
@@ -23580,7 +23589,7 @@ export default function Dashboard() {
                           </button>
                           {buddyHasOpenChecks ? (
                             <button
-                              className="secondary-button"
+                              className="record-text-link"
                               type="button"
                               onClick={() => {
                                 setNexaAssistantOpen(true);
@@ -23610,17 +23619,8 @@ export default function Dashboard() {
                               Ask Buddy ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
                             </button>
                           ) : null}
-                          <small>
-                            {selectedQuote.simproStatus === "Sent"
-                              ? `Last sent${selectedQuote.simproQuoteId ? ` as ${selectedQuote.simproQuoteId}` : ""}.`
-                              : selectedQuote.simproStatus === "Queued"
-                                ? `Queued in NeXa only. It will not appear in Simpro until ${selectedQuoteSimproExports[0]?.setupRequired ?? "SIMPRO_QUOTE_PUSH_URL"} is configured.`
-                                : simproBridgeStatus.configured
-                                  ? "Live Simpro bridge is configured. Buddy holds readiness and commercial checks for this quote."
-                                  : `Simpro bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} missing.`}
-                          </small>
                         </div>
-                      </article>
+                      </section>
                     </div>
 
                     <section className="simpro-summary-panel quote-combined-summary">
@@ -26523,29 +26523,29 @@ export default function Dashboard() {
 
                 {activeJobTab === "summary" ? (
                   <section className="quote-record-panel">
-                    <div className="client-overview-grid">
-                      <article className="client-info-card">
-                        <span className="permission-heading">Job summary</span>
-                        <dl>
-                          <div><dt>Client</dt><dd>{selectedJobClient?.name ?? selectedJob.customer}</dd></div>
-                          <div><dt>Contact</dt><dd>{selectedJobClient?.primaryContact ?? "To confirm"}</dd></div>
-                          <div><dt>Email</dt><dd>{selectedJobClient?.email ?? "To confirm"}</dd></div>
-                          <div><dt>Phone</dt><dd>{selectedJobClient?.phone ?? "To confirm"}</dd></div>
-                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site}</dd></div>
-                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
-                          <div><dt>Status</dt><dd>{selectedJob.status}</dd></div>
-                          <div><dt>simPRO</dt><dd>{selectedJob.simproStatus ?? "Not sent"}</dd></div>
-                          <div><dt>Next action</dt><dd>{selectedJob.next}</dd></div>
-                        </dl>
-                        <div className="quote-action-stack">
+                    <div className="simpro-record-summary">
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Customer</h3>
                           {selectedJobClient ? (
-                            <button className="secondary-button" type="button" onClick={() => openClientRecordView(selectedJobClient.id)}>
+                            <button className="record-text-link" type="button" onClick={() => openClientRecordView(selectedJobClient.id)}>
                               Edit customer
                             </button>
                           ) : null}
+                        </div>
+                        <dl>
+                          <div><dt>Name</dt><dd>{selectedJobClient?.name ?? selectedJob.customer}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedJobClient?.primaryContact ?? "To confirm"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedJobClient?.email ?? "To confirm"}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedJobClient?.phone ?? "To confirm"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Site</h3>
                           {selectedJobClient ? (
                             <button
-                              className="secondary-button"
+                              className="record-text-link"
                               type="button"
                               onClick={() => openClientSiteRecordView(selectedJobClient.id, selectedJobSite?.name)}
                             >
@@ -26553,48 +26553,46 @@ export default function Dashboard() {
                             </button>
                           ) : null}
                         </div>
-                      </article>
-                      <article className="client-info-card">
-                        <span className="permission-heading">Source quote</span>
-                        {selectedJobSourceQuote ? (
-                          <button className="drawer-link-card" type="button" onClick={() => openQuoteDrawer(selectedJobSourceQuote.id)}>
-                            <FileText size={16} />
-                            <span>
-                              <strong>{selectedJobSourceQuote.ref}</strong>
-                              <small>{selectedJobSourceQuote.status} · {currency(selectedJobSourceQuote.value)}</small>
-                            </span>
-                            <ChevronRight size={16} />
+                        <dl>
+                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? selectedJob.site}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? "Address to confirm"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Job</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Status</dt><dd>{selectedJob.status}</dd></div>
+                          <div><dt>simPRO</dt><dd>{selectedJob.simproStatus ?? "Not sent"}</dd></div>
+                          <div><dt>Next action</dt><dd>{selectedJob.next}</dd></div>
+                          <div>
+                            <dt>Source quote</dt>
+                            <dd>
+                              {selectedJobSourceQuote ? (
+                                <button className="record-text-link" type="button" onClick={() => openQuoteDrawer(selectedJobSourceQuote.id)}>
+                                  {selectedJobSourceQuote.ref} · {selectedJobSourceQuote.status}
+                                </button>
+                              ) : (
+                                "Manual job"
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
+                        <div className="simpro-summary-actions">
+                          <button className="record-text-link" type="button" onClick={() => setActiveJobTab("documents")}>
+                            Attachments
                           </button>
-                        ) : (
-                          <p>Manual job with no source quote.</p>
-                        )}
-                        <div className="quote-action-stack">
                           <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={() => setActiveJobTab("documents")}
-                          >
-                            Attachments / paper trail
-                          </button>
-                          <button
-                            className="secondary-button"
+                            className="record-text-link"
                             type="button"
                             onClick={() => void sendSelectedJobToSimpro()}
                             disabled={isSendingJobToSimpro}
                           >
-                            {isSendingJobToSimpro ? "Sending..." : "Send job to simPRO"}
+                            {isSendingJobToSimpro ? "Sending..." : "Send to simPRO"}
                           </button>
-                          <small>
-                            {selectedJob.simproStatus === "Sent"
-                              ? `Last sent${selectedJob.simproJobId ? ` as ${selectedJob.simproJobId}` : ""}.`
-                              : selectedJob.simproStatus === "Queued"
-                                ? "Queued in NeXa only. It will not appear in simPRO until the live job bridge is fully configured."
-                                : simproBridgeStatus.configured
-                                  ? "Live simPRO bridge is configured. This sends the job, cost centres and current planner allocations downstream."
-                                  : `simPRO bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO job bridge settings missing."}`}
-                          </small>
                         </div>
-                      </article>
+                      </section>
                     </div>
                     <section className="quote-survey-pack-preview job-survey-pack-preview">
                       <div>
@@ -30028,48 +30026,47 @@ export default function Dashboard() {
 
                 <section className="client-record-panel">
                   {activeLeadTab === "details" ? (
-                    <div className="client-overview-grid">
-                      <article className="client-info-card">
-                        <span className="permission-heading">Customer enquiry</span>
+                    <div className="simpro-record-summary">
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Customer</h3>
+                        </div>
                         <dl>
-                          <div>
-                            <dt>Name</dt>
-                            <dd>{selectedLead.customerName}</dd>
-                          </div>
-                          <div>
-                            <dt>Phone</dt>
-                            <dd>{selectedLead.phone || "No phone"}</dd>
-                          </div>
-                          <div>
-                            <dt>Email</dt>
-                            <dd>{selectedLead.email || "No email"}</dd>
-                          </div>
-                          <div>
-                            <dt>Address</dt>
-                            <dd>{selectedLead.address}</dd>
-                          </div>
-                          <div>
-                            <dt>Source</dt>
-                            <dd>{selectedLead.source}</dd>
-                          </div>
-                          <div>
-                            <dt>Created by</dt>
-                            <dd>{selectedLead.createdBy} · {selectedLead.createdAt}</dd>
-                          </div>
+                          <div><dt>Name</dt><dd>{selectedLead.customerName}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedLead.mainContact?.name || selectedLead.customerName}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedLead.phone || "No phone"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedLead.email || "No email"}</dd></div>
                         </dl>
-                      </article>
-
-                      <article className="client-info-card">
-                        <span className="permission-heading">Description of work</span>
-                        <p>{selectedLead.description}</p>
-                        <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
-                          Create quote
-                        </button>
-                      </article>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Site</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Address</dt><dd>{selectedLead.address}</dd></div>
+                          <div><dt>Source</dt><dd>{selectedLead.source}</dd></div>
+                          <div><dt>Created by</dt><dd>{selectedLead.createdBy} · {selectedLead.createdAt}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Lead</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Description</dt><dd>{selectedLead.description}</dd></div>
+                          <div><dt>Status</dt><dd>{selectedLead.status}</dd></div>
+                        </dl>
+                        <div className="simpro-summary-actions">
+                          <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
+                            Create quote
+                          </button>
+                        </div>
+                      </section>
                     </div>
                   ) : null}
 
                   {activeLeadTab === "survey" ? (
+
                     <div className="client-overview-grid">
                       <article className="client-info-card">
                         <span className="permission-heading">Survey appointment</span>
@@ -33835,7 +33832,7 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Leads</span>
-                <h2 id="create-lead-title">Create new lead</h2>
+                <h2 id="create-lead-title">New lead</h2>
               </div>
               <button
                 aria-label="Close create lead"
@@ -33849,10 +33846,11 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-            <div className="form-body two-column-form">
+            <div className="form-body simpro-create-layout">
+              <div className="simpro-create-fields">
               <div className="full-field lead-match-block">
                 <label>
-                  Customer name
+                  Customer
                   <input
                     value={newLead.customerName}
                     onChange={(event) =>
@@ -33864,14 +33862,14 @@ export default function Dashboard() {
                         customerName: event.target.value,
                       }))
                     }
-                    placeholder="Start typing to search existing customers..."
+                    placeholder="Search existing customers..."
                   />
                 </label>
                 {newLead.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Existing customer selected: <strong>{newLead.customerName}</strong>
+                      Selected: <strong>{newLead.customerName}</strong>
                     </span>
                     <button type="button" onClick={clearLeadCustomerMatch}>
                       Clear
@@ -33885,17 +33883,16 @@ export default function Dashboard() {
                         <span>
                           {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
                         </span>
-                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
                 ) : newLead.customerName.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. This will be saved as a new customer lead.</p>
+                  <p className="lead-match-empty">No match — a new customer will be created.</p>
                 ) : null}
               </div>
               {newLead.clientId ? (
                 <label className="full-field">
-                  Existing site
+                  Site
                   <select value={newLead.siteId ?? ""} onChange={(event) => setLeadExistingSite(event.target.value)}>
                     {leadClientSites.length === 0 ? <option value="">No sites saved</option> : null}
                     {leadClientSites.map((site) => (
@@ -33906,6 +33903,34 @@ export default function Dashboard() {
                   </select>
                 </label>
               ) : null}
+              <label className="full-field">
+                Lead name
+                <input
+                  value={newLead.description}
+                  onChange={(event) => setNewLead((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Short name for this lead"
+                />
+              </label>
+              <label>
+                Contact
+                <input
+                  value={newLead.mainContact?.name ?? ""}
+                  onChange={(event) => updateLeadMainContact({ name: event.target.value })}
+                  placeholder="Main contact name"
+                />
+              </label>
+              <label>
+                Phone
+                <input value={newLead.phone} onChange={(event) => updateLeadMainContact({ phone: event.target.value })} />
+              </label>
+              <label>
+                Email
+                <input value={newLead.email} onChange={(event) => updateLeadMainContact({ email: event.target.value })} />
+              </label>
+              <label>
+                Salesperson
+                <input value={newLead.createdBy} onChange={(event) => setNewLead((current) => ({ ...current, createdBy: event.target.value }))} />
+              </label>
               <label>
                 Source
                 <select value={newLead.source} onChange={(event) => setNewLead((current) => ({ ...current, source: event.target.value as LeadSource }))}>
@@ -33914,89 +33939,6 @@ export default function Dashboard() {
                   ))}
                 </select>
               </label>
-              <label>
-                Created by
-                <input value={newLead.createdBy} onChange={(event) => setNewLead((current) => ({ ...current, createdBy: event.target.value }))} />
-              </label>
-              <div className="full-field lead-contact-panel">
-                <div className="lead-form-section-heading">
-                  <div>
-                    <span className="permission-heading">Main contact</span>
-                    <strong>Who should we speak to first?</strong>
-                  </div>
-                </div>
-                <div className="lead-contact-grid">
-                  <label>
-                    Contact name
-                    <input
-                      value={newLead.mainContact?.name ?? ""}
-                      onChange={(event) => updateLeadMainContact({ name: event.target.value })}
-                      placeholder="Name of the main contact"
-                    />
-                  </label>
-                  <label>
-                    Role
-                    <input
-                      value={newLead.mainContact?.role ?? "Main contact"}
-                      onChange={(event) => updateLeadMainContact({ role: event.target.value })}
-                      placeholder="Main contractor, tenant, site manager..."
-                    />
-                  </label>
-                  <label>
-                    Phone
-                    <input value={newLead.phone} onChange={(event) => updateLeadMainContact({ phone: event.target.value })} />
-                  </label>
-                  <label>
-                    Email
-                    <input value={newLead.email} onChange={(event) => updateLeadMainContact({ email: event.target.value })} />
-                  </label>
-                </div>
-              </div>
-              <div className="full-field lead-contact-panel">
-                <div className="lead-form-section-heading">
-                  <div>
-                    <span className="permission-heading">Additional contacts</span>
-                    <strong>Main contractor, site contacts or tenant contacts</strong>
-                  </div>
-                  <button className="secondary-button" type="button" onClick={addLeadAdditionalContact}>
-                    <Plus size={14} />
-                    Add contact
-                  </button>
-                </div>
-                {(newLead.additionalContacts ?? []).length ? (
-                  <div className="lead-additional-contact-list">
-                    {(newLead.additionalContacts ?? []).map((contact) => (
-                      <article className="lead-additional-contact-row" key={contact.id}>
-                        <input
-                          value={contact.name}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { name: event.target.value })}
-                          placeholder="Contact name"
-                        />
-                        <input
-                          value={contact.role}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { role: event.target.value })}
-                          placeholder="Role"
-                        />
-                        <input
-                          value={contact.phone}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { phone: event.target.value })}
-                          placeholder="Phone"
-                        />
-                        <input
-                          value={contact.email}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { email: event.target.value })}
-                          placeholder="Email"
-                        />
-                        <button className="simpro-options-button" type="button" onClick={() => removeLeadAdditionalContact(contact.id)}>
-                          Remove
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="lead-match-empty">Add extra contacts only when this lead has a contractor, tenant, site manager or multiple site contacts.</p>
-                )}
-              </div>
               <label>
                 Status
                 <select value={newLead.status} onChange={(event) => setNewLead((current) => ({ ...current, status: event.target.value as LeadStatus }))}>
@@ -34007,8 +33949,8 @@ export default function Dashboard() {
               </label>
               <div className="full-field lead-address-lookup">
                 <label>
-                  Postcode lookup
-                  <input value={leadPostcodeSearch} onChange={(event) => setLeadPostcodeSearch(event.target.value)} placeholder="Type postcode, e.g. AB15 4EQ" />
+                  Postcode
+                  <input value={leadPostcodeSearch} onChange={(event) => setLeadPostcodeSearch(event.target.value)} placeholder="Type postcode, then pick an address" />
                 </label>
                 {leadAddressMatches.length > 0 ? (
                   <div className="lead-address-results" aria-label="Address matches">
@@ -34019,127 +33961,48 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : leadPostcodeSearch.trim().length >= 3 ? (
-                  <p className="lead-match-empty">No address match in the demo lookup. Type the address manually below.</p>
+                  <p className="lead-match-empty">No address match — enter the site address below.</p>
                 ) : null}
               </div>
-              <div className="full-field lead-address-map-grid">
-                <div className="lead-address-fields">
-                  <label>
-                    Address line 1
-                    <input
-                      value={newLead.addressParts?.line1 ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ line1: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Address line 2
-                    <input
-                      value={newLead.addressParts?.line2 ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ line2: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Town / city
-                    <input
-                      value={newLead.addressParts?.town ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ town: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    County
-                    <input
-                      value={newLead.addressParts?.county ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ county: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Postcode
-                    <input
-                      value={newLead.addressParts?.postcode ?? ""}
-                      onChange={(event) => {
-                        updateLeadAddressParts({ postcode: event.target.value.toUpperCase() });
-                        setLeadPostcodeSearch(event.target.value.toUpperCase());
-                      }}
-                    />
-                  </label>
-                </div>
-                <div className="lead-map-preview" aria-label="Selected address map preview">
-                  {newLead.address ? (
-                    <>
-                      <iframe
-                        title="Lead map preview"
-                        src={leadMapEmbedUrl(newLead.address)}
-                        loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
-                        allowFullScreen
-                      />
-                      <a
-                        href={leadMapSearchUrl(newLead.address)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="lead-map-link"
-                      >
-                        Open in maps
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      <MapPin size={22} />
-                      <strong>Select an address</strong>
-                      <span>Postcode lookup will place the lead here</span>
-                    </>
-                  )}
-                </div>
-              </div>
               <label className="full-field">
-                Description of work
-                <textarea value={newLead.description} onChange={(event) => setNewLead((current) => ({ ...current, description: event.target.value }))} />
+                Site address
+                <input
+                  value={newLead.address}
+                  onChange={(event) => {
+                    const address = event.target.value;
+                    setNewLead((current) => ({
+                      ...current,
+                      address,
+                      addressParts: leadAddressPartsFromAddress(address, current.addressParts?.postcode ?? leadPostcodeSearch),
+                    }));
+                  }}
+                />
               </label>
-              <label>
-                Survey date
-                <input type="date" value={newLead.surveyDate} onChange={(event) => setNewLead((current) => ({ ...current, surveyDate: event.target.value }))} />
-              </label>
-              <label>
-                Survey time
-                <input type="time" value={newLead.surveyTime} onChange={(event) => setNewLead((current) => ({ ...current, surveyTime: event.target.value }))} />
-              </label>
-              <label className="full-field">
-                Assign surveyor
-                <select value={newLead.surveyor} onChange={(event) => setNewLead((current) => ({ ...current, surveyor: event.target.value }))}>
-                  {surveyorOptions.map((surveyor) => (
-                    <option key={surveyor}>{surveyor}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="full-field lead-availability-panel">
-                <span className="permission-heading">Availability on {newLead.surveyDate || "selected date"}</span>
-                <div>
-                  {surveyorOptions.map((surveyor) => {
-                    const availability = availabilityForDate(surveyor, newLead.surveyDate);
-                    const bookedCount = leadSurveyBookings.filter((booking) => booking.surveyor === surveyor && booking.date === newLead.surveyDate).length;
-                    return (
-                      <button
-                        type="button"
-                        key={surveyor}
-                        className={newLead.surveyor === surveyor ? "active" : ""}
-                        onClick={() => setNewLead((current) => ({ ...current, surveyor }))}
-                      >
-                        <strong>{surveyor}</strong>
-                        <span>{availabilityLabel(surveyor, newLead.surveyDate)}</span>
-                        <small>{bookedCount} booked</small>
-                      </button>
-                    );
-                  })}
-                </div>
               </div>
-              {newLeadScheduleWarning ? (
-                <div className="full-field lead-clash-alert">
-                  <AlertTriangle size={16} />
-                  <span>{newLeadScheduleWarning}</span>
-                </div>
-              ) : null}
+              <aside className="simpro-create-map" aria-label="Selected address map preview">
+                {newLead.address ? (
+                  <>
+                    <iframe
+                      title="Lead map preview"
+                      src={leadMapEmbedUrl(newLead.address)}
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                      allowFullScreen
+                    />
+                    <a href={leadMapSearchUrl(newLead.address)} target="_blank" rel="noreferrer" className="lead-map-link">
+                      Open in maps
+                    </a>
+                  </>
+                ) : (
+                  <div className="simpro-create-map-empty">
+                    <MapPin size={22} />
+                    <strong>Site map</strong>
+                    <span>Choose a postcode address to place the site</span>
+                  </div>
+                )}
+              </aside>
             </div>
-            <div className="form-footer">
+            <div className="form-footer simpro-create-footer">
               {leadFormError ? (
                 <p className="lead-form-error" role="alert">
                   {leadFormError}
@@ -34157,8 +34020,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" type="button" onClick={submitLead}>
-                <Bell size={16} />
-                Save lead and notify
+                Save
               </button>
             </div>
           </section>
@@ -34176,7 +34038,7 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Quotes</span>
-                <h2 id="create-quote-title">Create new quote</h2>
+                <h2 id="create-quote-title">New quote</h2>
               </div>
               <button
                 aria-label="Close create quote"
@@ -34188,7 +34050,8 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-            <div className="form-body two-column-form">
+            <div className="form-body simpro-create-layout">
+              <div className="simpro-create-fields">
               <div className="full-field lead-match-block">
                 <label>
                   Customer
@@ -34202,14 +34065,14 @@ export default function Dashboard() {
                         customer: event.target.value,
                       }))
                     }
-                    placeholder="Start typing to search existing customers..."
+                    placeholder="Search existing customers..."
                   />
                 </label>
                 {newQuote.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Existing customer selected: <strong>{newQuote.customer}</strong>
+                      Selected: <strong>{newQuote.customer}</strong>
                     </span>
                     <button type="button" onClick={clearQuoteCustomerMatch}>
                       Clear
@@ -34223,17 +34086,16 @@ export default function Dashboard() {
                         <span>
                           {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
                         </span>
-                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
                 ) : newQuote.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. This quote can save a new customer record.</p>
+                  <p className="lead-match-empty">No match — a new customer can be saved with this quote.</p>
                 ) : null}
               </div>
               {newQuote.clientId ? (
                 <label className="full-field">
-                  Existing site
+                  Site
                   <select value={newQuote.siteId} onChange={(event) => setQuoteExistingSite(event.target.value)}>
                     {quoteClientSites.length === 0 ? <option value="">No sites saved</option> : null}
                     {quoteClientSites.map((site) => (
@@ -34244,40 +34106,46 @@ export default function Dashboard() {
                   </select>
                 </label>
               ) : null}
-              <div className="full-field lead-contact-panel">
-                <div className="lead-form-section-heading">
-                  <div>
-                    <span className="permission-heading">Main contact</span>
-                    <strong>Who should the quote go to?</strong>
-                  </div>
-                </div>
-                <div className="lead-contact-grid">
-                  <label>
-                    Contact name
-                    <input value={newQuote.contactName} onChange={(event) => setNewQuote((current) => ({ ...current, contactName: event.target.value }))} />
-                  </label>
-                  <label>
-                    Phone
-                    <input value={newQuote.phone} onChange={(event) => setNewQuote((current) => ({ ...current, phone: event.target.value }))} />
-                  </label>
-                  <label>
-                    Email
-                    <input value={newQuote.email} onChange={(event) => setNewQuote((current) => ({ ...current, email: event.target.value }))} />
-                  </label>
-                  <label>
-                    Owner
-                    <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
-                      <option>Errol Watson</option>
-                      <option>Brian Kerr</option>
-                      <option>Chris Lawson</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
+              <label className="full-field">
+                Quote name
+                <input
+                  value={newQuote.description}
+                  onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Short name for this quote"
+                />
+              </label>
+              <label>
+                Contact
+                <input value={newQuote.contactName} onChange={(event) => setNewQuote((current) => ({ ...current, contactName: event.target.value }))} />
+              </label>
+              <label>
+                Phone
+                <input value={newQuote.phone} onChange={(event) => setNewQuote((current) => ({ ...current, phone: event.target.value }))} />
+              </label>
+              <label>
+                Email
+                <input value={newQuote.email} onChange={(event) => setNewQuote((current) => ({ ...current, email: event.target.value }))} />
+              </label>
+              <label>
+                Salesperson
+                <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
+                  <option>Errol Watson</option>
+                  <option>Brian Kerr</option>
+                  <option>Chris Lawson</option>
+                </select>
+              </label>
+              <label>
+                Status
+                <select value={newQuote.status} onChange={(event) => setNewQuote((current) => ({ ...current, status: event.target.value as QuoteStatus }))}>
+                  {quoteStatuses.map((status) => (
+                    <option key={status}>{status}</option>
+                  ))}
+                </select>
+              </label>
               <div className="full-field lead-address-lookup">
                 <label>
-                  Postcode lookup
-                  <input value={quotePostcodeSearch} onChange={(event) => setQuotePostcodeSearch(event.target.value)} placeholder="Type postcode, e.g. AB15 4EQ" />
+                  Postcode
+                  <input value={quotePostcodeSearch} onChange={(event) => setQuotePostcodeSearch(event.target.value)} placeholder="Type postcode, then pick an address" />
                 </label>
                 {quoteAddressMatches.length > 0 ? (
                   <div className="lead-address-results" aria-label="Quote address matches">
@@ -34288,62 +34156,32 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : quotePostcodeSearch.trim().length >= 3 ? (
-                  <p className="lead-match-empty">No address match in the demo lookup. Type the address manually below.</p>
+                  <p className="lead-match-empty">No address match — enter the site address below.</p>
                 ) : null}
               </div>
-              <div className="full-field lead-address-map-grid">
-                <div className="lead-address-fields">
-                  <label className="full-field">
-                    Site address
-                    <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
-                  </label>
-                </div>
-                <div className="lead-map-preview" aria-label="Quote address map preview">
-                  {newQuote.address ? (
-                    <>
-                      <iframe title="Quote map preview" src={leadMapEmbedUrl(newQuote.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
-                      <a href={leadMapSearchUrl(newQuote.address)} target="_blank" rel="noreferrer" className="lead-map-link">
-                        Open in maps
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      <MapPin size={22} />
-                      <strong>Select an address</strong>
-                      <span>Postcode lookup will place the quote site here</span>
-                    </>
-                  )}
-                </div>
+              <label className="full-field">
+                Site address
+                <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
+              </label>
               </div>
-              <label>
-                Status
-                <select value={newQuote.status} onChange={(event) => setNewQuote((current) => ({ ...current, status: event.target.value as QuoteStatus }))}>
-                  {quoteStatuses.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="full-field">
-                Description of work
-                <textarea value={newQuote.description} onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))} />
-              </label>
-              <label>
-                Quote value
-                <div className="money-input">
-                  <span>£</span>
-                  <input value={newQuote.value} onChange={(event) => setNewQuote((current) => ({ ...current, value: event.target.value }))} />
-                </div>
-              </label>
-              <label>
-                Due
-                <input value={newQuote.due} onChange={(event) => setNewQuote((current) => ({ ...current, due: event.target.value }))} />
-              </label>
-              <label className="full-field">
-                Next action
-                <input value={newQuote.next} onChange={(event) => setNewQuote((current) => ({ ...current, next: event.target.value }))} />
-              </label>
+              <aside className="simpro-create-map" aria-label="Quote address map preview">
+                {newQuote.address ? (
+                  <>
+                    <iframe title="Quote map preview" src={leadMapEmbedUrl(newQuote.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                    <a href={leadMapSearchUrl(newQuote.address)} target="_blank" rel="noreferrer" className="lead-map-link">
+                      Open in maps
+                    </a>
+                  </>
+                ) : (
+                  <div className="simpro-create-map-empty">
+                    <MapPin size={22} />
+                    <strong>Site map</strong>
+                    <span>Choose a postcode address to place the site</span>
+                  </div>
+                )}
+              </aside>
             </div>
-            <div className="form-footer">
+            <div className="form-footer simpro-create-footer">
               <button
                 className="secondary-button"
                 onClick={() => {
@@ -34354,8 +34192,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" onClick={submitQuote}>
-                <Plus size={16} />
-                Create quote
+                Save
               </button>
             </div>
           </section>
@@ -34373,7 +34210,7 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Jobs</span>
-                <h2 id="create-job-title">Create new job</h2>
+                <h2 id="create-job-title">New job</h2>
               </div>
               <button
                 aria-label="Close create job"
@@ -34385,7 +34222,8 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-            <div className="form-body two-column-form">
+            <div className="form-body simpro-create-layout">
+              <div className="simpro-create-fields">
               <div className="full-field lead-match-block">
                 <label>
                   Customer
@@ -34400,14 +34238,14 @@ export default function Dashboard() {
                         customer: event.target.value,
                       }))
                     }
-                    placeholder="Start typing to search existing customers..."
+                    placeholder="Search existing customers..."
                   />
                 </label>
                 {newJob.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Existing customer selected: <strong>{newJob.customer}</strong>
+                      Selected: <strong>{newJob.customer}</strong>
                     </span>
                     <button type="button" onClick={clearJobCustomerMatch}>
                       Clear
@@ -34421,17 +34259,16 @@ export default function Dashboard() {
                         <span>
                           {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
                         </span>
-                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
                 ) : newJob.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. This job can save a new customer record.</p>
+                  <p className="lead-match-empty">No match — a new customer can be saved with this job.</p>
                 ) : null}
               </div>
               {newJob.clientId ? (
                 <label className="full-field">
-                  Existing site
+                  Site
                   <select value={newJob.siteId} onChange={(event) => setJobExistingSite(event.target.value)}>
                     {jobClientSites.length === 0 ? <option value="">No sites saved</option> : null}
                     {jobClientSites.map((site) => (
@@ -34442,40 +34279,46 @@ export default function Dashboard() {
                   </select>
                 </label>
               ) : null}
-              <div className="full-field lead-contact-panel">
-                <div className="lead-form-section-heading">
-                  <div>
-                    <span className="permission-heading">Main contact</span>
-                    <strong>Who should we speak to about the job?</strong>
-                  </div>
-                </div>
-                <div className="lead-contact-grid">
-                  <label>
-                    Contact name
-                    <input value={newJob.contactName} onChange={(event) => setNewJob((current) => ({ ...current, contactName: event.target.value }))} />
-                  </label>
-                  <label>
-                    Phone
-                    <input value={newJob.phone} onChange={(event) => setNewJob((current) => ({ ...current, phone: event.target.value }))} />
-                  </label>
-                  <label>
-                    Email
-                    <input value={newJob.email} onChange={(event) => setNewJob((current) => ({ ...current, email: event.target.value }))} />
-                  </label>
-                  <label>
-                    Manager
-                    <select value={newJob.manager} onChange={(event) => setNewJob((current) => ({ ...current, manager: event.target.value }))}>
-                      {surveyorOptions.map((manager) => (
-                        <option key={manager}>{manager}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </div>
+              <label className="full-field">
+                Job name
+                <input
+                  value={newJob.description}
+                  onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Short name for this job"
+                />
+              </label>
+              <label>
+                Contact
+                <input value={newJob.contactName} onChange={(event) => setNewJob((current) => ({ ...current, contactName: event.target.value }))} />
+              </label>
+              <label>
+                Phone
+                <input value={newJob.phone} onChange={(event) => setNewJob((current) => ({ ...current, phone: event.target.value }))} />
+              </label>
+              <label>
+                Email
+                <input value={newJob.email} onChange={(event) => setNewJob((current) => ({ ...current, email: event.target.value }))} />
+              </label>
+              <label>
+                Salesperson
+                <select value={newJob.manager} onChange={(event) => setNewJob((current) => ({ ...current, manager: event.target.value }))}>
+                  {surveyorOptions.map((manager) => (
+                    <option key={manager}>{manager}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Status
+                <select value={newJob.status} onChange={(event) => setNewJob((current) => ({ ...current, status: event.target.value }))}>
+                  {jobStatuses.map((status) => (
+                    <option key={status}>{status}</option>
+                  ))}
+                </select>
+              </label>
               <div className="full-field lead-address-lookup">
                 <label>
-                  Postcode lookup
-                  <input value={jobPostcodeSearch} onChange={(event) => setJobPostcodeSearch(event.target.value)} placeholder="Type postcode, e.g. AB15 4EQ" />
+                  Postcode
+                  <input value={jobPostcodeSearch} onChange={(event) => setJobPostcodeSearch(event.target.value)} placeholder="Type postcode, then pick an address" />
                 </label>
                 {jobAddressMatches.length > 0 ? (
                   <div className="lead-address-results" aria-label="Job address matches">
@@ -34486,83 +34329,37 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : jobPostcodeSearch.trim().length >= 3 ? (
-                  <p className="lead-match-empty">No address match in the demo lookup. Type the address manually below.</p>
+                  <p className="lead-match-empty">No address match — enter the site address below.</p>
                 ) : null}
               </div>
-              <div className="full-field lead-address-map-grid">
-                <div className="lead-address-fields">
-                  <label className="full-field">
-                    Site address
-                    <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value, site: event.target.value }))} />
-                  </label>
-                </div>
-                <div className="lead-map-preview" aria-label="Job address map preview">
-                  {newJob.address ? (
-                    <>
-                      <iframe title="Job map preview" src={leadMapEmbedUrl(newJob.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
-                      <a href={leadMapSearchUrl(newJob.address)} target="_blank" rel="noreferrer" className="lead-map-link">
-                        Open in maps
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      <MapPin size={22} />
-                      <strong>Select an address</strong>
-                      <span>Postcode lookup will place the job site here</span>
-                    </>
-                  )}
-                </div>
+              <label className="full-field">
+                Site address
+                <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value, site: event.target.value }))} />
+              </label>
               </div>
-              <label className="full-field">
-                Description of work
-                <textarea value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} />
-              </label>
-              <label>
-                Status
-                <select value={newJob.status} onChange={(event) => setNewJob((current) => ({ ...current, status: event.target.value }))}>
-                  {jobStatuses.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Scheduled date
-                <input
-                  type="date"
-                  value={newJob.scheduledDate}
-                  onChange={(event) => setNewJob((current) => ({ ...current, scheduledDate: event.target.value }))}
-                />
-              </label>
-              <label>
-                Scheduled time
-                <input
-                  type="time"
-                  value={newJob.scheduledTime}
-                  onChange={(event) => setNewJob((current) => ({ ...current, scheduledTime: event.target.value }))}
-                />
-              </label>
-              <label>
-                Job value
-                <div className="money-input">
-                  <span>£</span>
-                  <input value={newJob.value} onChange={(event) => setNewJob((current) => ({ ...current, value: event.target.value }))} />
-                </div>
-              </label>
-              <label>
-                Due
-                <input value={newJob.due} onChange={(event) => setNewJob((current) => ({ ...current, due: event.target.value }))} />
-              </label>
-              <label className="full-field">
-                Next action
-                <input value={newJob.next} onChange={(event) => setNewJob((current) => ({ ...current, next: event.target.value }))} />
-              </label>
+              <aside className="simpro-create-map" aria-label="Job address map preview">
+                {newJob.address ? (
+                  <>
+                    <iframe title="Job map preview" src={leadMapEmbedUrl(newJob.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                    <a href={leadMapSearchUrl(newJob.address)} target="_blank" rel="noreferrer" className="lead-map-link">
+                      Open in maps
+                    </a>
+                  </>
+                ) : (
+                  <div className="simpro-create-map-empty">
+                    <MapPin size={22} />
+                    <strong>Site map</strong>
+                    <span>Choose a postcode address to place the site</span>
+                  </div>
+                )}
+              </aside>
             </div>
             {newJobScheduleWarning ? (
               <p className="warning-message">
                 <AlertTriangle size={15} /> {newJobScheduleWarning}
               </p>
             ) : null}
-            <div className="form-footer">
+            <div className="form-footer simpro-create-footer">
               <button
                 className="secondary-button"
                 onClick={() => {
@@ -34572,9 +34369,8 @@ export default function Dashboard() {
               >
                 Cancel
               </button>
-              <button className="primary-button" disabled={Boolean(newJobScheduleWarning)} onClick={createJob}>
-                <Plus size={16} />
-                Create job
+              <button className="primary-button" onClick={createJob}>
+                Save
               </button>
             </div>
           </section>
