@@ -950,6 +950,10 @@ type Invoice = {
   xeroInvoiceId?: string;
   xeroInvoiceNumber?: string;
   xeroExportedAt?: string;
+  chaseCount?: number;
+  lastChasedAt?: string;
+  lastChasedTo?: string;
+  lastChaseMessageId?: string;
 };
 
 type InvoiceEmailDraft = {
@@ -1215,9 +1219,20 @@ function makeInvoiceFromJobTotals(
   };
 }
 
+function invoiceGrossTotal(invoice: Pick<Invoice, "chargeTotal" | "vatRate">) {
+  return invoice.chargeTotal * (1 + (invoice.vatRate || 0) / 100);
+}
+
+function invoiceOutstandingBalance(invoice: Pick<Invoice, "chargeTotal" | "vatRate" | "paidAmount">) {
+  return Math.max(0, invoiceGrossTotal(invoice) - (invoice.paidAmount ?? 0));
+}
+
 function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
-  const totalDue = currency(invoice.chargeTotal * (1 + invoice.vatRate / 100));
+  const totalDue = currency(invoiceGrossTotal(invoice));
+  const outstanding = currency(invoiceOutstandingBalance(invoice));
+  const paid = currency(invoice.paidAmount ?? 0);
+  const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
   const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
   const vars = {
     ref: invoice.ref,
@@ -1225,10 +1240,14 @@ function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, t
     contact: contactName,
     company: companyName,
     total: totalDue,
+    outstanding,
+    paid,
+    dueDate: invoice.dueDate || invoice.issuedDate || "",
     date: invoice.dueDate || invoice.issuedDate || "",
+    daysOverdue: String(daysOverdue),
   };
   return {
-    to: client?.email ?? "",
+    to: client?.email ?? invoice.sentTo ?? "",
     cc: "",
     subject: template?.subject
       ? fillEmailTemplate(template.subject, vars)
@@ -7187,6 +7206,7 @@ export default function Dashboard() {
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
+  const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
   const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
@@ -9623,6 +9643,12 @@ export default function Dashboard() {
     const next = params.toString();
     window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
   }, [hasHydratedLocalData]);
+
+  useEffect(() => {
+    if (!pendingInvoiceChaseId || !selectedInvoice || selectedInvoice.id !== pendingInvoiceChaseId) return;
+    setPendingInvoiceChaseId(null);
+    void prepareSelectedInvoicePaymentChase();
+  }, [pendingInvoiceChaseId, selectedInvoice?.id]);
 
   useEffect(() => {
     return () => {
@@ -15735,6 +15761,150 @@ export default function Dashboard() {
     setIsSendingLiveEmail(false);
   }
 
+  async function prepareSelectedInvoicePaymentChase() {
+    if (!selectedInvoice) return;
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    if (outstanding <= 0.009) {
+      showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
+      return;
+    }
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const templates = body?.emailTemplates || [];
+      const template =
+        templates.find((row) => row.key === "invoice-overdue") ||
+        templates.find((row) => row.key === "invoice") ||
+        null;
+      const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+      const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
+      setInvoiceEmailDrafts((current) => ({
+        ...current,
+        [selectedInvoice.id]: {
+          ...existing,
+          to: existing.to || next.to || selectedInvoice.sentTo || "",
+          subject: next.subject,
+          body: next.body,
+          attachPdf: true,
+        },
+      }));
+      showNotice(
+        template
+          ? `Loaded “${template.name}” chase wording. Review and send.`
+          : "Chase draft ready. Review and send.",
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to prepare payment chase.");
+    }
+  }
+
+  async function sendSelectedInvoicePaymentChase() {
+    if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Valuations use Submit valuation, not payment chase.");
+      return;
+    }
+    if (selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled") {
+      showNotice("Draft or cancelled invoices cannot be chased.");
+      return;
+    }
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    if (outstanding <= 0.009) {
+      showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
+      return;
+    }
+    if (!selectedInvoiceEmailDraft.to.trim().includes("@")) {
+      showNotice("Add a customer email before sending the payment chase.");
+      return;
+    }
+
+    const daysOverdue = Math.max(0, daysSinceDate(selectedInvoice.dueDate) ?? 0);
+    if (daysOverdue <= 0 && selectedInvoice.dueDate >= currentOperatingDate) {
+      showNotice(`${selectedInvoice.ref} is not overdue yet (due ${selectedInvoice.dueDate}).`);
+      return;
+    }
+
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: selectedInvoiceEmailDraft.to,
+        cc: selectedInvoiceEmailDraft.cc,
+        subject: selectedInvoiceEmailDraft.subject,
+        text: selectedInvoiceEmailDraft.body,
+        document: selectedInvoiceEmailDraft.attachPdf
+          ? {
+              filename: `${selectedInvoice.ref}-payment-chase.pdf`,
+              title: "Invoice payment reminder",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: selectedInvoice.ref,
+              recipient: selectedInvoice.customer,
+              subject: selectedInvoice.title,
+              rows: selectedInvoice.lines.map((line) => ({
+                description: line.description,
+                detail: line.note,
+                value: currency(line.chargeToClient),
+              })),
+              subtotal: currency(selectedInvoice.chargeTotal),
+              vat: currency(selectedInvoiceFinancials.vatAmount),
+              total: currency(selectedInvoiceFinancials.grandTotal),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send payment chase.";
+      setSectionError(message);
+      showNotice(`Payment chase not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return;
+    }
+
+    const chasedAt = delivery.sentAt;
+    const chaseCount = (selectedInvoice.chaseCount ?? 0) + 1;
+    markInvoiceEdited();
+    setInvoices((current) =>
+      current.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              chaseCount,
+              lastChasedAt: chasedAt,
+              lastChasedTo: selectedInvoiceEmailDraft.to.trim(),
+              lastChaseMessageId: delivery.messageId,
+              // Keep original send metadata; chase is a separate reminder trail.
+              status: invoice.status === "Draft" ? "Sent" : invoice.status,
+            }
+          : invoice,
+      ),
+    );
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "payment chase",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} payment chase #${chaseCount} emailed to ${selectedInvoiceEmailDraft.to.trim()} · outstanding ${currency(outstanding)} · ${daysOverdue}d overdue.`,
+      source: "outlook draft",
+      importance: "high",
+    });
+    addCommunicationRecord({
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+      direction: "outbound",
+      channel: "Outlook",
+      subject: selectedInvoiceEmailDraft.subject,
+      body: selectedInvoiceEmailDraft.body,
+      from: delivery.from,
+      to: selectedInvoiceEmailDraft.to.trim(),
+      cc: selectedInvoiceEmailDraft.cc.trim(),
+      messageId: delivery.messageId,
+      status: "Sent",
+    });
+    showNotice(`${selectedInvoice.ref}: payment chase #${chaseCount} sent to ${selectedInvoiceEmailDraft.to.trim()}.`);
+    setIsSendingLiveEmail(false);
+  }
+
   async function submitSelectedValuation() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
     if (selectedInvoice.claimType !== "valuation") {
@@ -15985,19 +16155,22 @@ export default function Dashboard() {
     }));
   }
 
-  async function applySetupEmailTemplate(kind: "quote" | "invoice" | "follow-up") {
+  async function applySetupEmailTemplate(kind: "quote" | "invoice" | "invoice-overdue" | "follow-up") {
     const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
     try {
       const response = await fetch("/api/setup-config", { headers: requestHeaders });
       const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
       if (!response.ok) throw new Error("Unable to load Setup email templates.");
       const templates = body?.emailTemplates || [];
-      const template = templates.find((row) => row.key === kind) || templates.find((row) => row.key === "quote");
+      const template =
+        templates.find((row) => row.key === kind) ||
+        (kind === "invoice-overdue" ? templates.find((row) => row.key === "invoice") : undefined) ||
+        templates.find((row) => row.key === "quote");
       if (!template) {
         showNotice(`No Setup email template found for ${kind}. Add one under Setup → Email templates.`);
         return;
       }
-      if (kind === "invoice") {
+      if (kind === "invoice" || kind === "invoice-overdue") {
         if (!selectedInvoice) return;
         const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
         const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
@@ -22809,11 +22982,21 @@ export default function Dashboard() {
                     <button type="button" onClick={() => openInvoiceRecord(invoice.id)}>
                       <strong>{invoice.ref} · {invoice.customer}</strong>
                       <span>{invoice.title}</span>
-                      <small>{daysOverdue} day{daysOverdue === 1 ? "" : "s"} overdue · band {band}</small>
+                      <small>
+                        {daysOverdue} day{daysOverdue === 1 ? "" : "s"} overdue · band {band}
+                        {invoice.chaseCount ? ` · chased ×${invoice.chaseCount}` : ""}
+                      </small>
                     </button>
                     <div className="ops-queue-actions">
-                      <span className="status-pill red">{currency(invoice.chargeTotal)}</span>
-                      <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                      <span className="status-pill red">{currency(invoiceOutstandingBalance(invoice))}</span>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setPendingInvoiceChaseId(invoice.id);
+                          openInvoiceRecord(invoice.id);
+                        }}
+                      >
                         Chase
                       </button>
                     </div>
@@ -31647,7 +31830,7 @@ export default function Dashboard() {
                                       typeof daysOverdue === "number" &&
                                       daysOverdue > 0;
                                     return isOverdue
-                                      ? `Overdue ${daysOverdue}d · due ${invoice.dueDate}`
+                                      ? `Overdue ${daysOverdue}d · due ${invoice.dueDate}${invoice.chaseCount ? ` · chased ×${invoice.chaseCount}` : ""} · owed ${currency(invoiceOutstandingBalance(invoice))}`
                                       : `Due ${invoice.dueDate}`;
                                   })()}
                                 </strong>
@@ -32261,6 +32444,9 @@ export default function Dashboard() {
                             <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("invoice")}>
                               Apply invoice template
                             </button>
+                            <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("invoice-overdue")}>
+                              Apply chase template
+                            </button>
                             <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
                               {selectedInvoice.status}
                             </span>
@@ -32306,11 +32492,13 @@ export default function Dashboard() {
                         </div>
                         <div className="job-scheduling-actions">
                           <small>
-                            {selectedInvoice.sentAt
-                              ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
-                              : selectedInvoiceSourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full")
-                                ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
-                                : "Not sent yet"}
+                            {selectedInvoice.lastChasedAt
+                              ? `Last chased ${selectedInvoice.lastChasedAt} to ${selectedInvoice.lastChasedTo ?? "recipient"} · chase #${selectedInvoice.chaseCount ?? 0}`
+                              : selectedInvoice.sentAt
+                                ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
+                                : selectedInvoiceSourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full")
+                                  ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
+                                  : "Not sent yet"}
                           </small>
                           {selectedInvoice.claimType === "valuation" ? (
                             <button
@@ -32327,15 +32515,38 @@ export default function Dashboard() {
                                   : "Submit valuation"}
                             </button>
                           ) : (
-                            <button
-                              className="primary-button"
-                              type="button"
-                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
-                              onClick={() => void sendSelectedInvoiceEmail()}
-                            >
-                              <Mail size={15} />
-                              {isSendingLiveEmail ? "Sending..." : "Email invoice"}
-                            </button>
+                            <>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isSendingLiveEmail}
+                                onClick={() => void prepareSelectedInvoicePaymentChase()}
+                              >
+                                Prepare chase
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={
+                                  isSendingLiveEmail ||
+                                  !emailIntegrationStatus?.lastTestMessageId ||
+                                  invoiceOutstandingBalance(selectedInvoice) <= 0.009
+                                }
+                                onClick={() => void sendSelectedInvoicePaymentChase()}
+                              >
+                                <Mail size={15} />
+                                {isSendingLiveEmail ? "Sending..." : "Send payment chase"}
+                              </button>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                                onClick={() => void sendSelectedInvoiceEmail()}
+                              >
+                                <Mail size={15} />
+                                {isSendingLiveEmail ? "Sending..." : "Email invoice"}
+                              </button>
+                            </>
                           )}
                         </div>
                       </section>

@@ -311,7 +311,7 @@ export function SetupConfigPanel({
           <div>
             <span className="permission-heading">Communications</span>
             <h2>Email templates</h2>
-            <p>Default subjects and bodies for quote, invoice, PO, follow-up and job confirmation.</p>
+            <p>Default subjects and bodies for quote, invoice, overdue chase, PO, follow-up and job confirmation.</p>
           </div>
           <button className="secondary-button" type="button" onClick={() => void load()}><RefreshCw size={15} /> Refresh</button>
         </header>
@@ -335,6 +335,7 @@ export function SetupConfigPanel({
             <select value={draft.key || "follow-up"} onChange={(e) => setDraft((c) => ({ ...c, key: e.target.value }))}>
               <option value="quote">quote</option>
               <option value="invoice">invoice</option>
+              <option value="invoice-overdue">invoice-overdue</option>
               <option value="po">po</option>
               <option value="follow-up">follow-up</option>
               <option value="job-confirmation">job-confirmation</option>

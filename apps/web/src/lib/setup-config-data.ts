@@ -26,7 +26,7 @@ export type SetupTaxCode = {
 
 export type SetupEmailTemplate = {
   id: string;
-  key: "quote" | "invoice" | "po" | "follow-up" | "job-confirmation";
+  key: "quote" | "invoice" | "invoice-overdue" | "po" | "follow-up" | "job-confirmation";
   name: string;
   subject: string;
   body: string;
@@ -108,6 +108,13 @@ const defaults: SetupConfigStore = {
       name: "Invoice send",
       subject: "Invoice {{ref}} from {{company}}",
       body: "Hi {{contact}},\n\nPlease find invoice {{ref}}.\nAmount due: {{total}}.\n\nKind regards,\n{{company}}",
+    },
+    {
+      id: "em-invoice-overdue",
+      key: "invoice-overdue",
+      name: "Invoice overdue chase",
+      subject: "Payment reminder · {{ref}} · {{daysOverdue}} days overdue",
+      body: "Hi {{contact}},\n\nOur records show invoice {{ref}} is {{daysOverdue}} days overdue (due {{dueDate}}).\n\nOutstanding balance: {{outstanding}}.\nOriginal total: {{total}}.\nPaid to date: {{paid}}.\n\nPlease arrange payment or let us know if there is a query.\n\nKind regards,\n{{company}}",
     },
     {
       id: "em-po",
@@ -214,11 +221,17 @@ const defaults: SetupConfigStore = {
 
 function readStore(): SetupConfigStore {
   const stored = loadServerStore<SetupConfigStore>(STORE, defaults);
+  const existingTemplates = stored.emailTemplates?.length ? stored.emailTemplates : defaults.emailTemplates;
+  const knownKeys = new Set(existingTemplates.map((row) => row.key));
+  const mergedTemplates = [
+    ...existingTemplates,
+    ...defaults.emailTemplates.filter((row) => !knownKeys.has(row.key)),
+  ];
   return {
     statuses: stored.statuses?.length ? stored.statuses : defaults.statuses,
     lostReasons: stored.lostReasons?.length ? stored.lostReasons : defaults.lostReasons,
     taxCodes: stored.taxCodes?.length ? stored.taxCodes : defaults.taxCodes,
-    emailTemplates: stored.emailTemplates?.length ? stored.emailTemplates : defaults.emailTemplates,
+    emailTemplates: mergedTemplates,
     assetTypes: stored.assetTypes?.length ? stored.assetTypes : defaults.assetTypes,
     securityGroups: stored.securityGroups?.length ? stored.securityGroups : defaults.securityGroups,
   };
