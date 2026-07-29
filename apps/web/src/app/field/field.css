@@ -451,6 +451,34 @@
   max-width: 22rem;
 }
 
+.ask-blake-voice-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  width: min(100%, 280px);
+}
+
+.ask-blake-voice-send {
+  align-items: center;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 160px;
+  padding: 0 18px;
+}
+
+.ask-blake-voice-stage.is-listening .ask-blake-voice-status {
+  color: var(--teal);
+}
+
 .ask-blake {
   display: grid;
   gap: 12px;

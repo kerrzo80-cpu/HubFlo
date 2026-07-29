@@ -50,12 +50,13 @@ export function speechSupported() {
   return Boolean(getSpeechRecognitionConstructor());
 }
 
-export function createSpeechRecognition() {
+export function createSpeechRecognition(options?: { continuous?: boolean }) {
   const Ctor = getSpeechRecognitionConstructor();
   if (!Ctor) return null;
   const recognition = new Ctor();
-  recognition.lang = "en-GB";
-  recognition.continuous = false;
+  // Prefer device language; fall back to UK English for trade wording.
+  recognition.lang = (typeof navigator !== "undefined" && navigator.language) || "en-GB";
+  recognition.continuous = options?.continuous ?? true;
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
   return recognition;
@@ -71,12 +72,41 @@ function getSharedAudio() {
   return window.__blakeVoiceAudio;
 }
 
+export async function ensureMicAccess() {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This phone can’t open the microphone for Ask Blake.");
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+    video: false,
+  });
+  return stream;
+}
+
+export function stopMicStream(stream: MediaStream | null | undefined) {
+  if (!stream) return;
+  for (const track of stream.getTracks()) {
+    try {
+      track.stop();
+    } catch {
+      // ignore
+    }
+  }
+}
+
 /**
  * Must run inside the Start talking tap handler.
  * iOS Safari blocks speech/audio until unlocked by a user gesture.
  */
 export async function unlockBlakeVoice() {
   if (typeof window === "undefined") return;
+
+  // Stop any leftover playback before we open the mic.
+  stopBlakeAudio();
 
   if ("speechSynthesis" in window) {
     try {
@@ -102,16 +132,17 @@ export async function unlockBlakeVoice() {
   const audio = getSharedAudio();
   if (!audio) return;
   try {
-    // Tiny silent wav — unlocks HTMLAudioElement.play() for later Blake replies.
     audio.src =
       "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAAAA==";
     audio.volume = 0.01;
     await audio.play();
     audio.pause();
     audio.currentTime = 0;
+    audio.removeAttribute("src");
+    audio.load();
     audio.volume = 1;
   } catch {
-    // Mic permission / autoplay policy — speak path will still try later.
+    // ignore
   }
 }
 
