@@ -393,22 +393,6 @@
   margin-top: 6px;
 }
 
-.ask-blake-starters {
-  display: grid;
-  gap: 8px;
-}
-
-.ask-blake-starters button {
-  background: var(--white);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  color: var(--ink);
-  cursor: pointer;
-  font-size: 13px;
-  padding: 12px 14px;
-  text-align: left;
-}
-
 .ask-blake-preview {
   position: relative;
   width: fit-content;
