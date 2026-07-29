@@ -47,7 +47,12 @@ export function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor 
 
 export function speechSupported() {
   if (typeof window === "undefined") return false;
-  return Boolean(getSpeechRecognitionConstructor());
+  // Prefer real mic recording (works on iPhone). SpeechRecognition alone is unreliable there.
+  return Boolean(
+    navigator.mediaDevices
+    && typeof navigator.mediaDevices.getUserMedia === "function"
+    && typeof window.MediaRecorder === "function",
+  );
 }
 
 export function createSpeechRecognition(options?: { continuous?: boolean }) {
@@ -60,6 +65,143 @@ export function createSpeechRecognition(options?: { continuous?: boolean }) {
   recognition.interimResults = true;
   recognition.maxAlternatives = 1;
   return recognition;
+}
+
+export function pickRecorderMimeType() {
+  if (typeof window === "undefined" || typeof window.MediaRecorder !== "function") return "";
+  const candidates = [
+    "audio/mp4",
+    "audio/aac",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+    "audio/ogg;codecs=opus",
+  ];
+  return candidates.find((type) => {
+    try {
+      return MediaRecorder.isTypeSupported(type);
+    } catch {
+      return false;
+    }
+  }) ?? "";
+}
+
+export type ActiveVoiceRecorder = {
+  stop: () => Promise<Blob>;
+  mimeType: string;
+};
+
+export function startVoiceRecorder(stream: MediaStream): ActiveVoiceRecorder {
+  const mimeType = pickRecorderMimeType();
+  const recorder = mimeType
+    ? new MediaRecorder(stream, { mimeType })
+    : new MediaRecorder(stream);
+  const chunks: Blob[] = [];
+  recorder.ondataavailable = (event) => {
+    if (event.data && event.data.size > 0) chunks.push(event.data);
+  };
+  try {
+    recorder.start(250);
+  } catch {
+    recorder.start();
+  }
+
+  return {
+    mimeType: recorder.mimeType || mimeType || "audio/webm",
+    stop: () =>
+      new Promise<Blob>((resolve) => {
+        const finish = () => {
+          const type = recorder.mimeType || mimeType || "audio/webm";
+          resolve(new Blob(chunks, { type }));
+        };
+        if (recorder.state === "inactive") {
+          finish();
+          return;
+        }
+        recorder.onstop = finish;
+        try {
+          recorder.requestData?.();
+        } catch {
+          // ignore
+        }
+        try {
+          recorder.stop();
+        } catch {
+          finish();
+        }
+      }),
+  };
+}
+
+export type MicLevelMonitor = {
+  stop: () => void;
+};
+
+/**
+ * Returns 0–1 RMS mic level. Use for “is it hearing me?” feedback and silence detection.
+ */
+export function startMicLevelMonitor(
+  stream: MediaStream,
+  onLevel: (level: number) => void,
+): MicLevelMonitor {
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) {
+    return { stop: () => undefined };
+  }
+
+  const context = new AudioCtx();
+  void context.resume();
+  const source = context.createMediaStreamSource(stream);
+  const analyser = context.createAnalyser();
+  analyser.fftSize = 1024;
+  analyser.smoothingTimeConstant = 0.35;
+  source.connect(analyser);
+  const data = new Uint8Array(analyser.fftSize);
+  let raf = 0;
+  let stopped = false;
+
+  const tick = () => {
+    if (stopped) return;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let index = 0; index < data.length; index += 1) {
+      const sample = ((data[index] ?? 128) - 128) / 128;
+      sum += sample * sample;
+    }
+    onLevel(Math.min(1, Math.sqrt(sum / data.length) * 3.2));
+    raf = window.requestAnimationFrame(tick);
+  };
+  tick();
+
+  return {
+    stop: () => {
+      stopped = true;
+      window.cancelAnimationFrame(raf);
+      try {
+        source.disconnect();
+      } catch {
+        // ignore
+      }
+      void context.close();
+    },
+  };
+}
+
+export async function transcribeBlakeAudio(blob: Blob, transcribePath: string) {
+  const form = new FormData();
+  const type = blob.type || "audio/webm";
+  const extension =
+    type.includes("mp4") || type.includes("m4a") || type.includes("aac") ? "m4a"
+      : type.includes("mpeg") || type.includes("mp3") ? "mp3"
+        : type.includes("wav") ? "wav"
+          : type.includes("ogg") ? "ogg"
+            : "webm";
+  form.append("audio", blob, `blake-voice.${extension}`);
+  const response = await fetch(transcribePath, { method: "POST", body: form });
+  const body = (await response.json().catch(() => ({}))) as { text?: string; error?: string };
+  if (!response.ok || !body.text?.trim()) {
+    throw new Error(body.error ?? "Didn’t catch that — try again.");
+  }
+  return body.text.trim();
 }
 
 function getSharedAudio() {
@@ -313,7 +455,7 @@ export function voiceStatusLabel(state: VoiceSessionState) {
     case "speaking":
       return "Blake is talking";
     case "unsupported":
-      return "Voice needs Safari or Chrome on this phone";
+      return "This phone can’t record for Ask Blake";
     case "error":
       return "Mic issue — tap to try again";
     default:

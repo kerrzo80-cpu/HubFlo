@@ -5,14 +5,18 @@ import { Mic, MicOff, SendHorizontal } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
 import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/field/ask-blake";
 import {
-  createSpeechRecognition,
   ensureMicAccess,
   speakBlakeReply,
   speechSupported,
+  startMicLevelMonitor,
+  startVoiceRecorder,
   stopBlakeAudio,
   stopMicStream,
+  transcribeBlakeAudio,
   unlockBlakeVoice,
   voiceStatusLabel,
+  type ActiveVoiceRecorder,
+  type MicLevelMonitor,
   type VoiceSessionState,
 } from "@/lib/field/ask-blake-voice";
 
@@ -20,15 +24,19 @@ type AskBlakeVoiceProps = {
   job?: AskBlakeJobContext | null;
   apiPath?: string;
   speakPath?: string;
+  transcribePath?: string;
 };
 
-const SILENCE_MS = 1600;
-const MAX_LISTEN_MS = 20000;
+const SPEECH_LEVEL = 0.045;
+const SILENCE_MS = 1400;
+const MAX_LISTEN_MS = 22000;
+const MIN_SPEECH_MS = 450;
 
 export function AskBlakeVoice({
   job = null,
   apiPath = "/api/field/ask-blake",
   speakPath = "/api/field/ask-blake/speak",
+  transcribePath = "/api/field/ask-blake/transcribe",
 }: AskBlakeVoiceProps) {
   const [supported, setSupported] = useState(true);
   const [active, setActive] = useState(false);
@@ -37,13 +45,17 @@ export function AskBlakeVoice({
   const [lastReply, setLastReply] = useState("");
   const [error, setError] = useState("");
   const [hint, setHint] = useState("Tap Start talking, then speak toward the bottom of the phone.");
+  const [level, setLevel] = useState(0);
+  const [hearing, setHearing] = useState(false);
   const historyRef = useRef<AskBlakeMessage[]>([]);
   const activeRef = useRef(false);
   const listeningRef = useRef(false);
-  const transcriptRef = useRef("");
-  const interimRef = useRef("");
+  const finishingRef = useRef(false);
+  const heardSpeechRef = useRef(false);
+  const speechStartedAtRef = useRef(0);
   const micStreamRef = useRef<MediaStream | null>(null);
-  const recognitionRef = useRef<ReturnType<typeof createSpeechRecognition>>(null);
+  const recorderRef = useRef<ActiveVoiceRecorder | null>(null);
+  const levelMonitorRef = useRef<MicLevelMonitor | null>(null);
   const stopSpeakRef = useRef<(() => void) | null>(null);
   const restartTimerRef = useRef<number | null>(null);
   const silenceTimerRef = useRef<number | null>(null);
@@ -77,60 +89,108 @@ export function AskBlakeVoice({
     }
   }
 
-  function stopRecognition() {
-    listeningRef.current = false;
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      try {
-        recognitionRef.current?.abort();
-      } catch {
-        // ignore
-      }
-    }
-    recognitionRef.current = null;
+  function stopLevelMonitor() {
+    levelMonitorRef.current?.stop();
+    levelMonitorRef.current = null;
+    setLevel(0);
+    setHearing(false);
   }
 
   function stopSession(updateState = true) {
     activeRef.current = false;
     setActive(false);
+    finishingRef.current = false;
+    listeningRef.current = false;
     clearTimers();
     stopSpeakRef.current?.();
     stopSpeakRef.current = null;
-    stopRecognition();
+    stopLevelMonitor();
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder) {
+      void recorder.stop().catch(() => undefined);
+    }
     stopMicStream(micStreamRef.current);
     micStreamRef.current = null;
     stopBlakeAudio();
-    transcriptRef.current = "";
-    interimRef.current = "";
     if (updateState) setState(supported ? "idle" : "unsupported");
     setHeard("");
     setHint("Tap Start talking, then speak toward the bottom of the phone.");
   }
 
+  async function ensureOpenMic() {
+    if (micStreamRef.current) {
+      const live = micStreamRef.current.getTracks().some((track) => track.readyState === "live");
+      if (live) return micStreamRef.current;
+      stopMicStream(micStreamRef.current);
+      micStreamRef.current = null;
+    }
+    const stream = await ensureMicAccess();
+    micStreamRef.current = stream;
+    return stream;
+  }
+
   function scheduleSendFromSilence() {
     if (silenceTimerRef.current != null) window.clearTimeout(silenceTimerRef.current);
     silenceTimerRef.current = window.setTimeout(() => {
-      if (!activeRef.current || !listeningRef.current) return;
-      const transcript = transcriptRef.current.trim();
-      if (!transcript) {
+      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
+      if (!heardSpeechRef.current) {
         setHint("Still listening — say the fault out loud.");
         return;
       }
-      finishListeningAndAsk(transcript);
+      const spokenFor = Date.now() - speechStartedAtRef.current;
+      if (spokenFor < MIN_SPEECH_MS) return;
+      void finishListeningAndAsk();
     }, SILENCE_MS);
   }
 
-  function finishListeningAndAsk(transcript: string) {
-    if (!transcript.trim()) return;
-    clearTimers();
+  async function finishListeningAndAsk() {
+    if (!activeRef.current || finishingRef.current || !listeningRef.current) return;
+    finishingRef.current = true;
     listeningRef.current = false;
+    clearTimers();
+    stopLevelMonitor();
+    setState("thinking");
+    setHint("Blake is listening back…");
+
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    let blob: Blob | null = null;
     try {
-      recognitionRef.current?.stop();
+      blob = recorder ? await recorder.stop() : null;
     } catch {
-      // ignore
+      blob = null;
     }
-    void askBlake(transcript.trim());
+
+    if (!blob || blob.size < 200) {
+      setHint("Didn’t catch that — speak closer to the bottom mic, then tap I’m done.");
+      finishingRef.current = false;
+      if (activeRef.current) {
+        restartTimerRef.current = window.setTimeout(() => {
+          void startListeningPass();
+        }, 500);
+      }
+      return;
+    }
+
+    try {
+      const transcript = await transcribeBlakeAudio(blob, transcribePath);
+      setHeard(transcript);
+      finishingRef.current = false;
+      await askBlake(transcript);
+    } catch (transcribeError) {
+      setError(transcribeError instanceof Error ? transcribeError.message : "Didn’t catch that.");
+      finishingRef.current = false;
+      if (activeRef.current) {
+        setHint("Try again — speak clearly, then tap I’m done.");
+        restartTimerRef.current = window.setTimeout(() => {
+          setError("");
+          void startListeningPass();
+        }, 900);
+      } else {
+        setState("error");
+      }
+    }
   }
 
   async function startListeningPass() {
@@ -139,19 +199,28 @@ export function AskBlakeVoice({
     stopSpeakRef.current?.();
     stopSpeakRef.current = null;
     stopBlakeAudio();
-    stopRecognition();
-    transcriptRef.current = "";
-    interimRef.current = "";
+    stopLevelMonitor();
+    if (recorderRef.current) {
+      try {
+        await recorderRef.current.stop();
+      } catch {
+        // ignore
+      }
+      recorderRef.current = null;
+    }
+
+    finishingRef.current = false;
+    heardSpeechRef.current = false;
+    speechStartedAtRef.current = 0;
     setHeard("");
     setHint("Listening now — speak clearly toward the bottom mic.");
     setState("listening");
     setError("");
+    setHearing(false);
 
+    let stream: MediaStream;
     try {
-      // Ask for mic permission first, then release so SpeechRecognition can own the mic.
-      const permissionStream = await ensureMicAccess();
-      stopMicStream(permissionStream);
-      micStreamRef.current = null;
+      stream = await ensureOpenMic();
     } catch {
       setError("Allow microphone access for Ask Blake, then tap Start talking again.");
       setState("error");
@@ -160,103 +229,48 @@ export function AskBlakeVoice({
       return;
     }
 
-    const recognition = createSpeechRecognition({ continuous: true });
-    if (!recognition) {
-      setSupported(false);
-      setState("unsupported");
+    let recorder: ActiveVoiceRecorder;
+    try {
+      recorder = startVoiceRecorder(stream);
+    } catch {
+      setError("This phone blocked audio recording. Try Safari or Chrome, then Start talking again.");
+      setState("error");
       setActive(false);
       activeRef.current = false;
       return;
     }
 
-    recognitionRef.current = recognition;
+    recorderRef.current = recorder;
     listeningRef.current = true;
 
-    recognition.onstart = () => {
-      if (!activeRef.current) return;
-      setState("listening");
-      setHint("Go ahead — Blake is listening.");
-    };
-
-    recognition.onresult = (event) => {
-      if (!activeRef.current || !listeningRef.current) return;
-      let finalChunk = "";
-      let interim = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (!result) continue;
-        const text = result[0]?.transcript ?? "";
-        if (result.isFinal) finalChunk += `${text} `;
-        else interim += text;
-      }
-      if (finalChunk.trim()) {
-        transcriptRef.current = `${transcriptRef.current} ${finalChunk}`.trim();
-      }
-      interimRef.current = interim.trim();
-      const display = (transcriptRef.current || interimRef.current).trim();
-      setHeard(display);
-      if (display) {
-        setHint("Got it — pause when you’ve finished and Blake will answer.");
+    levelMonitorRef.current = startMicLevelMonitor(stream, (nextLevel) => {
+      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
+      setLevel(nextLevel);
+      const isSpeech = nextLevel >= SPEECH_LEVEL;
+      setHearing(isSpeech);
+      if (isSpeech) {
+        if (!heardSpeechRef.current) {
+          heardSpeechRef.current = true;
+          speechStartedAtRef.current = Date.now();
+        }
+        setHint("Hearing you — pause when finished, or tap I’m done.");
+        if (silenceTimerRef.current != null) {
+          window.clearTimeout(silenceTimerRef.current);
+          silenceTimerRef.current = null;
+        }
+      } else if (heardSpeechRef.current) {
         scheduleSendFromSilence();
       }
-    };
-
-    recognition.onerror = (event) => {
-      const code = event.error ?? "error";
-      if (code === "aborted") return;
-      if (code === "no-speech") {
-        setHint("Didn’t catch that — keep talking toward the phone.");
-        if (activeRef.current) {
-          restartTimerRef.current = window.setTimeout(() => {
-            void startListeningPass();
-          }, 400);
-        }
-        return;
-      }
-      if (code === "not-allowed" || code === "service-not-allowed") {
-        setError("Microphone blocked. Allow mic for Safari / Chrome, then try again.");
-        setState("error");
-        setActive(false);
-        activeRef.current = false;
-        return;
-      }
-      setHint("Listening glitch — trying again.");
-      if (activeRef.current) {
-        restartTimerRef.current = window.setTimeout(() => {
-          void startListeningPass();
-        }, 500);
-      }
-    };
-
-    recognition.onend = () => {
-      if (!activeRef.current) return;
-      // If we already moved to thinking/speaking, do nothing.
-      if (!listeningRef.current) return;
-      const transcript = transcriptRef.current.trim();
-      if (transcript) {
-        finishListeningAndAsk(transcript);
-        return;
-      }
-      // iOS often ends recognition unexpectedly — restart while session is live.
-      restartTimerRef.current = window.setTimeout(() => {
-        void startListeningPass();
-      }, 350);
-    };
+    });
 
     maxListenTimerRef.current = window.setTimeout(() => {
-      if (!activeRef.current || !listeningRef.current) return;
-      const transcript = transcriptRef.current.trim();
-      if (transcript) finishListeningAndAsk(transcript);
-      else setHint("Still listening — try speaking a bit louder or closer.");
+      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
+      if (heardSpeechRef.current) {
+        void finishListeningAndAsk();
+        return;
+      }
+      setHint("Still listening — try speaking a bit louder, then tap I’m done.");
     }, MAX_LISTEN_MS);
-
-    try {
-      recognition.start();
-    } catch {
-      restartTimerRef.current = window.setTimeout(() => {
-        void startListeningPass();
-      }, 450);
-    }
   }
 
   async function askBlake(transcript: string) {
@@ -339,26 +353,24 @@ export function AskBlakeVoice({
     setHint("Opening microphone…");
     try {
       await unlockBlakeVoice();
-      const permissionStream = await ensureMicAccess();
-      stopMicStream(permissionStream);
-      micStreamRef.current = null;
+      await ensureOpenMic();
     } catch {
       setError("Allow the microphone for Ask Blake, then tap Start talking again.");
       setState("error");
       setActive(false);
       activeRef.current = false;
+      stopMicStream(micStreamRef.current);
+      micStreamRef.current = null;
       return;
     }
-    // Give iOS a beat to release the unlock audio before recognition starts.
     restartTimerRef.current = window.setTimeout(() => {
       void startListeningPass();
-    }, 350);
+    }, 200);
   }
 
   function sendHeardNow() {
-    const transcript = (transcriptRef.current || heard).trim();
-    if (!transcript || state !== "listening") return;
-    finishListeningAndAsk(transcript);
+    if (state !== "listening" || finishingRef.current) return;
+    void finishListeningAndAsk();
   }
 
   const mood: BlakeMood =
@@ -368,12 +380,23 @@ export function AskBlakeVoice({
           : state === "error" ? "alert"
             : "idle";
 
+  const levelPercent = Math.round(Math.min(1, level) * 100);
+
   return (
     <section className="ask-blake-voice" aria-label="Talk to Blake">
-      <div className={`ask-blake-voice-stage is-${state}`}>
+      <div className={`ask-blake-voice-stage is-${state}${hearing ? " is-hearing" : ""}`}>
         <BlakeCharacter mood={mood} size="hero" />
         <p className="ask-blake-voice-status">{voiceStatusLabel(state)}</p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
+        {state === "listening" ? (
+          <div
+            className={`ask-blake-voice-meter${hearing ? " is-hot" : ""}`}
+            role="status"
+            aria-label={hearing ? "Hearing you" : "Waiting for speech"}
+          >
+            <span style={{ width: `${Math.max(8, levelPercent)}%` }} />
+          </div>
+        ) : null}
         {heard ? <p className="ask-blake-voice-heard">You: {heard}</p> : null}
         {lastReply && state !== "listening" ? (
           <p className="ask-blake-voice-reply">{lastReply}</p>
@@ -394,16 +417,16 @@ export function AskBlakeVoice({
           {active ? <MicOff size={22} /> : <Mic size={22} />}
           <span>{active ? "Stop talking" : "Start talking"}</span>
         </button>
-        {state === "listening" && heard.trim() ? (
+        {state === "listening" ? (
           <button type="button" className="ask-blake-voice-send" onClick={sendHeardNow}>
             <SendHorizontal size={18} />
-            <span>Send that</span>
+            <span>I’m done</span>
           </button>
         ) : null}
       </div>
 
       <p className="ask-blake-voice-hint muted">
-        Speak toward the bottom of the iPhone. If the live text appears, pause — or tap Send that.
+        Speak toward the bottom of the iPhone. Watch the green bar move — that means Blake can hear you. Pause or tap I’m done.
       </p>
     </section>
   );
