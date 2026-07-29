@@ -196,12 +196,34 @@ export async function transcribeBlakeAudio(blob: Blob, transcribePath: string) {
           : type.includes("ogg") ? "ogg"
             : "webm";
   form.append("audio", blob, `blake-voice.${extension}`);
-  const response = await fetch(transcribePath, { method: "POST", body: form });
-  const body = (await response.json().catch(() => ({}))) as { text?: string; error?: string };
-  if (!response.ok || !body.text?.trim()) {
-    throw new Error(body.error ?? "Didn’t catch that — try again.");
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 35_000);
+  try {
+    const response = await fetch(transcribePath, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+    const raw = await response.text();
+    let body: { text?: string; error?: string } = {};
+    try {
+      body = raw ? JSON.parse(raw) as typeof body : {};
+    } catch {
+      throw new Error(raw.trim() || "Didn’t catch that — try again.");
+    }
+    if (!response.ok || !body.text?.trim()) {
+      throw new Error(body.error || raw.trim() || "Didn’t catch that — try again.");
+    }
+    return body.text.trim();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Listening timed out — check signal and try again.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  return body.text.trim();
 }
 
 function getSharedAudio() {

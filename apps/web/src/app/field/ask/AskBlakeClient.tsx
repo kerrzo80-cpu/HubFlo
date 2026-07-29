@@ -55,13 +55,13 @@ export default function AskBlakePage() {
         {mode === "type" ? <BlakeCharacter mood="idle" size="hero" /> : null}
         <div>
           <p className="eyebrow">Ask Blake</p>
-          <h1>{mode === "talk" ? "Talk it through" : "Your smart monitoring buddy"}</h1>
+          <h1>{mode === "talk" ? "Talk it through" : "Type or send photos"}</h1>
           <p className="field-page-sub">
             {job?.jobRef
               ? `${job.jobRef} · ${job.customer ?? "Job"}`
               : mode === "talk"
-                ? "Hands-free on site — Blake listens and answers out loud"
-                : "Friendly, alert, reliable. Spot the issue and talk through the next checks."}
+                ? "Tap Start talking — Blake hears you and answers out loud"
+                : "Describe the fault or attach photos. Big photos are shrunk automatically."}
           </p>
         </div>
       </header>

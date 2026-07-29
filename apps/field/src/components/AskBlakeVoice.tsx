@@ -284,22 +284,36 @@ export function AskBlakeVoice({
     historyRef.current = [...history, { role: "user", text: transcript }];
 
     try {
-      const response = await fetch(apiPath, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: transcript,
-          history,
-          job,
-          mode: "voice",
-        }),
-      });
-      const body = (await response.json().catch(() => ({}))) as {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 40_000);
+      let response: Response;
+      try {
+        response = await fetch(apiPath, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            message: transcript,
+            history,
+            job,
+            mode: "voice",
+          }),
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+      const raw = await response.text();
+      let body: {
         reply?: string;
         error?: string;
-      };
+      } = {};
+      try {
+        body = raw ? JSON.parse(raw) as typeof body : {};
+      } catch {
+        throw new Error(raw.trim() || "Blake couldn’t reply.");
+      }
       if (!response.ok || !body.reply?.trim()) {
-        throw new Error(body.error ?? "Blake couldn’t reply.");
+        throw new Error(body.error || raw.trim() || "Blake couldn’t reply.");
       }
 
       const reply = body.reply.trim();
@@ -328,7 +342,12 @@ export function AskBlakeVoice({
         }
       }
     } catch (askError) {
-      setError(askError instanceof Error ? askError.message : "Blake couldn’t reply.");
+      const aborted = askError instanceof DOMException && askError.name === "AbortError";
+      setError(
+        aborted
+          ? "Blake took too long — check signal and try Start talking again."
+          : askError instanceof Error ? askError.message : "Blake couldn’t reply.",
+      );
       setState("error");
       setActive(false);
       activeRef.current = false;

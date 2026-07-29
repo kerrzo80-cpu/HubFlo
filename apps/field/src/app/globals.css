@@ -995,6 +995,18 @@ html, body { margin: 0; min-height: 100%; }
   margin-top: 6px;
 }
 
+.ask-blake-cancel {
+  background: transparent;
+  border: 0;
+  color: var(--teal);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  margin-top: 6px;
+  padding: 0;
+  text-decoration: underline;
+}
+
 .ask-blake-preview-row {
   align-items: end;
   background: linear-gradient(180deg, transparent, var(--mist) 28%);

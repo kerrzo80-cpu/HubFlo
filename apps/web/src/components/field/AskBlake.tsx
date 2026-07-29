@@ -8,6 +8,7 @@ import {
   type AskBlakeJobContext,
   type AskBlakeMessage,
 } from "@/lib/field/ask-blake";
+import { compressAskBlakePhotos } from "@/lib/field/ask-blake-media";
 
 type AskBlakeChatProps = {
   job?: AskBlakeJobContext | null;
@@ -31,11 +32,16 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const libraryRef = useRef<HTMLInputElement | null>(null);
   const cameraRef = useRef<HTMLInputElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!busy && messages.length <= 1) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, busy]);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+  }, []);
 
   async function onPickImages(fileList: FileList | null) {
     const files = fileList ? Array.from(fileList) : [];
@@ -72,8 +78,13 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       }
     }
 
-    setPhotos((current) => [...current, ...next].slice(0, ASK_BLAKE_MAX_PHOTOS));
-    setError(files.length > remaining ? `Added ${remaining} — max ${ASK_BLAKE_MAX_PHOTOS} photos.` : "");
+    try {
+      const compressed = await compressAskBlakePhotos(next);
+      setPhotos((current) => [...current, ...compressed].slice(0, ASK_BLAKE_MAX_PHOTOS));
+      setError(files.length > remaining ? `Added ${remaining} — max ${ASK_BLAKE_MAX_PHOTOS} photos.` : "");
+    } catch {
+      setError("Could not prepare those photos. Try again or use a smaller image.");
+    }
   }
 
   function readImageAsDataUrl(file: File) {
@@ -91,6 +102,13 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
   function removePhoto(index: number) {
     setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  function cancelBusy() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setBusy(false);
+    setError("Cancelled — try again with fewer / smaller photos, or use Talk.");
   }
 
   async function send(message: string) {
@@ -117,33 +135,56 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     setError("");
     setWarning("");
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const timeoutMs = 40_000;
+    const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
     try {
+      const compressed = await compressAskBlakePhotos(attached);
       const response = await fetch(apiPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           message: userText,
-          imageDataUrls: attached,
+          imageDataUrls: compressed,
           history: nextHistory.slice(-10),
           job,
         }),
       });
-      const body = (await response.json().catch(() => ({}))) as {
+      const raw = await response.text();
+      let body: {
         reply?: string;
         error?: string;
         warning?: string;
         provider?: string;
-      };
-      if (!response.ok) throw new Error(body.error ?? "Ask Blake could not reply.");
+      } = {};
+      try {
+        body = raw ? JSON.parse(raw) as typeof body : {};
+      } catch {
+        if (!response.ok) {
+          throw new Error(raw.trim() || "Ask Blake could not reply.");
+        }
+        throw new Error("Ask Blake returned a bad response.");
+      }
+      if (!response.ok) throw new Error(body.error || raw.trim() || "Ask Blake could not reply.");
       if (!body.reply?.trim()) throw new Error("Ask Blake returned an empty reply.");
       setMessages((current) => [...current, { role: "assistant", text: body.reply!.trim() }]);
       if (body.warning) setWarning(body.warning);
     } catch (sendError) {
-      setError(sendError instanceof Error ? sendError.message : "Ask Blake could not reply.");
+      const aborted = sendError instanceof DOMException && sendError.name === "AbortError";
+      setError(
+        aborted
+          ? "That took too long — usually big photos. Try again with 1 photo, or describe it in Talk."
+          : sendError instanceof Error ? sendError.message : "Ask Blake could not reply.",
+      );
       setMessages((current) => current.slice(0, -1));
       setDraft(trimmed);
       setPhotos(attached);
     } finally {
+      window.clearTimeout(timeoutId);
+      if (abortRef.current === controller) abortRef.current = null;
       setBusy(false);
     }
   }
@@ -188,7 +229,12 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             <span className="ask-blake-avatar">
               <BlakeCharacter mood="thinking" size="sm" />
             </span>
-            <p className="muted">Blake is checking that…</p>
+            <div>
+              <p className="muted">Blake is checking that…</p>
+              <button type="button" className="ask-blake-cancel" onClick={cancelBusy}>
+                Cancel
+              </button>
+            </div>
           </div>
         ) : null}
         <div ref={bottomRef} />

@@ -27,7 +27,9 @@ function getOpenAiConfig() {
 }
 
 async function runOpenAi(input: AskBlakeRequest, apiKey: string, model: string) {
-  const images = normaliseAskBlakeImages(input);
+  const images = normaliseAskBlakeImages(input)
+    .filter((image) => image.length <= 1_200_000)
+    .slice(0, 4);
   const userContent: Array<
     | { type: "input_text"; text: string }
     | { type: "input_image"; image_url: string; detail: "high" }
@@ -37,31 +39,38 @@ async function runOpenAi(input: AskBlakeRequest, apiKey: string, model: string) 
     userContent.push({ type: "input_image", image_url: image, detail: "high" });
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      input: [
-        {
-          role: "developer",
-          content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode) }],
-        },
-        {
-          role: "user",
-          content: userContent,
-        },
-      ],
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35_000);
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "developer",
+            content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode) }],
+          },
+          {
+            role: "user",
+            content: userContent,
+          },
+        ],
+      }),
+    });
 
-  if (!response.ok) throw new Error(`OpenAI returned ${response.status}.`);
-  const output = getOutputText(await response.json());
-  if (!output) throw new Error("OpenAI did not return a reply.");
-  return output;
+    if (!response.ok) throw new Error(`OpenAI returned ${response.status}.`);
+    const output = getOutputText(await response.json());
+    if (!output) throw new Error("OpenAI did not return a reply.");
+    return output;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function POST(request: Request) {
