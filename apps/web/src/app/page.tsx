@@ -12192,226 +12192,143 @@ export default function Dashboard() {
       .slice(0, 12);
   }
 
-  useEffect(() => {
-    const query = leadPostcodeSearch.trim();
-    if (query.length < 2) {
-      setLeadAddressMatches([]);
-      setLeadAddressLookupBusy(false);
-      return;
+  function applyPostcodeMetaToParts(
+    currentParts: LeadAddressParts | undefined,
+    currentAddress: string | undefined,
+    meta: { postcode?: string; town?: string; county?: string },
+  ) {
+    const line1 = currentParts?.line1?.trim() || "";
+    const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(currentAddress || "");
+    if (line1 && !looksLikePlaceholder) {
+      return {
+        ...blankLeadAddressParts,
+        ...currentParts,
+        postcode: meta.postcode || currentParts?.postcode || "",
+      };
     }
+    return {
+      ...blankLeadAddressParts,
+      ...currentParts,
+      line1: looksLikePlaceholder ? "" : line1,
+      town: currentParts?.town?.trim() || meta.town || "",
+      county: currentParts?.county?.trim() || meta.county || "",
+      postcode: meta.postcode || "",
+    };
+  }
+
+  function runPostcodeAddressLookup(options: {
+    query: string;
+    setMatches: (matches: Array<{ postcode: string; address: string }>) => void;
+    setBusy: (busy: boolean) => void;
+    applyMeta: (meta: { postcode?: string; town?: string; county?: string }) => void;
+  }) {
+    const query = options.query.trim();
+    if (query.length < 2) {
+      options.setMatches([]);
+      options.setBusy(false);
+      return () => undefined;
+    }
+
+    // Incomplete postcodes: don't hit the API — keeps the UI off "Looking up…".
+    if (!/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(query)) {
+      options.setMatches(mergePostcodeLookupMatches(query, []));
+      options.setBusy(false);
+      return () => undefined;
+    }
+
     let cancelled = false;
-    setLeadAddressLookupBusy(true);
+    const controller = new AbortController();
+    options.setBusy(true);
+    const hardTimeout = window.setTimeout(() => controller.abort(), 6500);
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
-          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
+          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`, {
+            signal: controller.signal,
+          });
           const payload = (await response.json().catch(() => ({}))) as {
             matches?: Array<{ postcode: string; address: string }>;
             meta?: { postcode?: string; town?: string; county?: string } | null;
           };
           if (cancelled) return;
-          setLeadAddressMatches(mergePostcodeLookupMatches(query, payload.matches));
-          const meta = payload.meta;
-          if (meta?.postcode) {
-            setNewLead((current) => {
-              const line1 = current.addressParts?.line1?.trim() || "";
-              const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(current.address || "");
-              if (line1 && !looksLikePlaceholder) {
-                return {
-                  ...current,
-                  addressParts: {
-                    ...blankLeadAddressParts,
-                    ...current.addressParts,
-                    postcode: meta.postcode || current.addressParts?.postcode || "",
-                  },
-                  address: leadAddressFromParts({
-                    ...blankLeadAddressParts,
-                    ...current.addressParts,
-                    postcode: meta.postcode || current.addressParts?.postcode || "",
-                  }),
-                };
-              }
-              const addressParts = {
-                ...blankLeadAddressParts,
-                ...current.addressParts,
-                line1: looksLikePlaceholder ? "" : line1,
-                town: current.addressParts?.town?.trim() || meta.town || "",
-                county: current.addressParts?.county?.trim() || meta.county || "",
-                postcode: meta.postcode || "",
-              };
-              return {
-                ...current,
-                addressParts,
-                address: leadAddressFromParts(addressParts),
-                siteId: reconcileSiteIdForAddress(
-                  current.clientId,
-                  clients,
-                  clientSites,
-                  current.siteId,
-                  leadAddressFromParts(addressParts),
-                ),
-              };
-            });
-          }
+          options.setMatches(mergePostcodeLookupMatches(query, payload.matches));
+          if (payload.meta?.postcode) options.applyMeta(payload.meta);
         } catch {
-          if (!cancelled) setLeadAddressMatches(mergePostcodeLookupMatches(query, []));
+          if (!cancelled) options.setMatches(mergePostcodeLookupMatches(query, []));
         } finally {
-          if (!cancelled) setLeadAddressLookupBusy(false);
+          window.clearTimeout(hardTimeout);
+          if (!cancelled) options.setBusy(false);
         }
       })();
-    }, 220);
+    }, 280);
+
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      window.clearTimeout(hardTimeout);
+      controller.abort();
+      options.setBusy(false);
     };
+  }
+
+  useEffect(() => {
+    return runPostcodeAddressLookup({
+      query: leadPostcodeSearch,
+      setMatches: setLeadAddressMatches,
+      setBusy: setLeadAddressLookupBusy,
+      applyMeta: (meta) => {
+        setNewLead((current) => {
+          const addressParts = applyPostcodeMetaToParts(current.addressParts, current.address, meta);
+          const address = leadAddressFromParts(addressParts);
+          return {
+            ...current,
+            addressParts,
+            address,
+            siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+          };
+        });
+      },
+    });
   }, [leadPostcodeSearch, clients, clientSites]);
 
   useEffect(() => {
-    const query = quotePostcodeSearch.trim();
-    if (query.length < 2) {
-      setQuoteAddressMatches([]);
-      setQuoteAddressLookupBusy(false);
-      return;
-    }
-    let cancelled = false;
-    setQuoteAddressLookupBusy(true);
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
-          const payload = (await response.json().catch(() => ({}))) as {
-            matches?: Array<{ postcode: string; address: string }>;
-            meta?: { postcode?: string; town?: string; county?: string } | null;
+    return runPostcodeAddressLookup({
+      query: quotePostcodeSearch,
+      setMatches: setQuoteAddressMatches,
+      setBusy: setQuoteAddressLookupBusy,
+      applyMeta: (meta) => {
+        setNewQuote((current) => {
+          const addressParts = applyPostcodeMetaToParts(current.addressParts, current.address, meta);
+          const address = leadAddressFromParts(addressParts);
+          return {
+            ...current,
+            addressParts,
+            address,
+            siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
           };
-          if (cancelled) return;
-          setQuoteAddressMatches(mergePostcodeLookupMatches(query, payload.matches));
-          const meta = payload.meta;
-          if (meta?.postcode) {
-            setNewQuote((current) => {
-              const line1 = current.addressParts?.line1?.trim() || "";
-              const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(current.address || "");
-              if (line1 && !looksLikePlaceholder) {
-                return {
-                  ...current,
-                  addressParts: {
-                    ...blankLeadAddressParts,
-                    ...current.addressParts,
-                    postcode: meta.postcode || current.addressParts?.postcode || "",
-                  },
-                  address: leadAddressFromParts({
-                    ...blankLeadAddressParts,
-                    ...current.addressParts,
-                    postcode: meta.postcode || current.addressParts?.postcode || "",
-                  }),
-                };
-              }
-              const addressParts = {
-                ...blankLeadAddressParts,
-                ...current.addressParts,
-                line1: looksLikePlaceholder ? "" : line1,
-                town: current.addressParts?.town?.trim() || meta.town || "",
-                county: current.addressParts?.county?.trim() || meta.county || "",
-                postcode: meta.postcode || "",
-              };
-              return {
-                ...current,
-                addressParts,
-                address: leadAddressFromParts(addressParts),
-                siteId: reconcileSiteIdForAddress(
-                  current.clientId,
-                  clients,
-                  clientSites,
-                  current.siteId,
-                  leadAddressFromParts(addressParts),
-                ),
-              };
-            });
-          }
-        } catch {
-          if (!cancelled) setQuoteAddressMatches(mergePostcodeLookupMatches(query, []));
-        } finally {
-          if (!cancelled) setQuoteAddressLookupBusy(false);
-        }
-      })();
-    }, 220);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+        });
+      },
+    });
   }, [quotePostcodeSearch, clients, clientSites]);
 
   useEffect(() => {
-    const query = jobPostcodeSearch.trim();
-    if (query.length < 2) {
-      setJobAddressMatches([]);
-      setJobAddressLookupBusy(false);
-      return;
-    }
-    let cancelled = false;
-    setJobAddressLookupBusy(true);
-    const timer = window.setTimeout(() => {
-      void (async () => {
-        try {
-          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
-          const payload = (await response.json().catch(() => ({}))) as {
-            matches?: Array<{ postcode: string; address: string }>;
-            meta?: { postcode?: string; town?: string; county?: string } | null;
+    return runPostcodeAddressLookup({
+      query: jobPostcodeSearch,
+      setMatches: setJobAddressMatches,
+      setBusy: setJobAddressLookupBusy,
+      applyMeta: (meta) => {
+        setNewJob((current) => {
+          const addressParts = applyPostcodeMetaToParts(current.addressParts, current.address, meta);
+          const address = leadAddressFromParts(addressParts);
+          return {
+            ...current,
+            addressParts,
+            address,
+            siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
           };
-          if (cancelled) return;
-          setJobAddressMatches(mergePostcodeLookupMatches(query, payload.matches));
-          const meta = payload.meta;
-          if (meta?.postcode) {
-            setNewJob((current) => {
-              const line1 = current.addressParts?.line1?.trim() || "";
-              const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(current.address || "");
-              if (line1 && !looksLikePlaceholder) {
-                return {
-                  ...current,
-                  addressParts: {
-                    ...blankLeadAddressParts,
-                    ...current.addressParts,
-                    postcode: meta.postcode || current.addressParts?.postcode || "",
-                  },
-                  address: leadAddressFromParts({
-                    ...blankLeadAddressParts,
-                    ...current.addressParts,
-                    postcode: meta.postcode || current.addressParts?.postcode || "",
-                  }),
-                };
-              }
-              const addressParts = {
-                ...blankLeadAddressParts,
-                ...current.addressParts,
-                line1: looksLikePlaceholder ? "" : line1,
-                town: current.addressParts?.town?.trim() || meta.town || "",
-                county: current.addressParts?.county?.trim() || meta.county || "",
-                postcode: meta.postcode || "",
-              };
-              return {
-                ...current,
-                addressParts,
-                address: leadAddressFromParts(addressParts),
-                siteId: reconcileSiteIdForAddress(
-                  current.clientId,
-                  clients,
-                  clientSites,
-                  current.siteId,
-                  leadAddressFromParts(addressParts),
-                ),
-              };
-            });
-          }
-        } catch {
-          if (!cancelled) setJobAddressMatches(mergePostcodeLookupMatches(query, []));
-        } finally {
-          if (!cancelled) setJobAddressLookupBusy(false);
-        }
-      })();
-    }, 220);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
+        });
+      },
+    });
   }, [jobPostcodeSearch, clients, clientSites]);
 
   function addressSelectedFromPostcode(postcodeSearch: string, address: string) {
@@ -40898,7 +40815,11 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : leadPostcodeSearch.trim().length >= 2 && !leadAddressLookupBusy ? (
-                    <p className="lead-match-empty">No street list for this postcode — type the house number and street below.</p>
+                    <p className="lead-match-empty">
+                      {/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(leadPostcodeSearch.trim())
+                        ? "No street list for this postcode — type the house number and street below."
+                        : "Enter the full postcode to list addresses, or type the address below."}
+                    </p>
                   ) : null}
                   <div className="simpro-setup-grid-2">
                     <label>
@@ -41218,7 +41139,11 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : quotePostcodeSearch.trim().length >= 2 && !quoteAddressLookupBusy ? (
-                    <p className="lead-match-empty">No street list for this postcode — type the house number and street below.</p>
+                    <p className="lead-match-empty">
+                      {/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(quotePostcodeSearch.trim())
+                        ? "No street list for this postcode — type the house number and street below."
+                        : "Enter the full postcode to list addresses, or type the address below."}
+                    </p>
                   ) : null}
                   <div className="simpro-setup-grid-2">
                     <label>
@@ -41540,7 +41465,11 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : jobPostcodeSearch.trim().length >= 2 && !jobAddressLookupBusy ? (
-                    <p className="lead-match-empty">No street list for this postcode — type the house number and street below.</p>
+                    <p className="lead-match-empty">
+                      {/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(jobPostcodeSearch.trim())
+                        ? "No street list for this postcode — type the house number and street below."
+                        : "Enter the full postcode to list addresses, or type the address below."}
+                    </p>
                   ) : null}
                   <div className="simpro-setup-grid-2">
                     <label>
