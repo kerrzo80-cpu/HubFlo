@@ -5,13 +5,6 @@ import { Camera, ImagePlus, SendHorizontal, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/BlakeCharacter";
 import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/ask-blake";
 
-const STARTERS = [
-  "No hot water this morning — where do I start?",
-  "Leak under the bath trap — what should I check?",
-  "Boiler lockout — what do I look for?",
-  "Blocked toilet, other fittings OK — next steps?",
-];
-
 type AskBlakeChatProps = {
   job?: AskBlakeJobContext | null;
   apiPath?: string;
@@ -158,16 +151,6 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
         ) : null}
         <div ref={bottomRef} />
       </div>
-
-      {!messages.some((item) => item.role === "user") ? (
-        <div className="ask-blake-starters" aria-label="Suggested questions">
-          {STARTERS.map((starter) => (
-            <button key={starter} type="button" onClick={() => void send(starter)} disabled={busy}>
-              {starter}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
