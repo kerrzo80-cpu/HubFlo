@@ -479,6 +479,32 @@
   color: var(--teal);
 }
 
+.ask-blake-voice-stage.is-hearing .blake-character {
+  transform: scale(1.02);
+  transition: transform 120ms ease-out;
+}
+
+.ask-blake-voice-meter {
+  background: rgba(42, 127, 114, 0.12);
+  border-radius: 999px;
+  height: 10px;
+  overflow: hidden;
+  width: min(100%, 220px);
+}
+
+.ask-blake-voice-meter > span {
+  background: var(--teal);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  min-width: 8%;
+  transition: width 80ms linear;
+}
+
+.ask-blake-voice-meter.is-hot > span {
+  background: #1f8f7d;
+}
+
 .ask-blake {
   display: grid;
   gap: 12px;
