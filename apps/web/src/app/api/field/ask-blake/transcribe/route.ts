@@ -9,7 +9,9 @@ const MAX_BYTES = 8 * 1024 * 1024;
 export async function POST(request: Request) {
   const config = getTakeoffOpenAiConfig();
   if (!config.apiKey) {
-    return NextResponse.json({ error: "OpenAI listening is not connected." }, { status: 503 });
+    return NextResponse.json({
+      error: "OpenAI listening isn’t connected on this pilot. Set OPENAI_API_KEY on Render, or use Type / photos.",
+    }, { status: 503 });
   }
 
   let form: FormData;

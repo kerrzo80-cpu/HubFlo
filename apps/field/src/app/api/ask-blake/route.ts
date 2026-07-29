@@ -11,66 +11,115 @@ import {
 export const runtime = "nodejs";
 
 async function parseJsonRequestBody<T>(request: Request): Promise<T | null> {
-  try {
-    return (await request.json()) as T;
-  } catch {
-    return null;
-  }
+  try { return (await request.json()) as T; } catch { return null; }
 }
 
-function getOpenAiConfig() {
-  const apiKey = process.env.OPENAI_API_KEY?.trim() || "";
+function getTakeoffOpenAiConfig() {
+  const apiKey = process.env.OPENAI_API_KEY?.trim() || process.env.NEXA_OPENAI_API_KEY?.trim() || "";
   const model = process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
+    || process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim()
     || process.env.OPENAI_MODEL?.trim()
-    || "gpt-5.5";
-  return { apiKey, model };
+    || "gpt-4.1-mini";
+  return {
+    connected: Boolean(apiKey),
+    apiKey,
+    model,
+    source: apiKey ? "env" : "none",
+    keyName: "OPENAI_API_KEY or NEXA_OPENAI_API_KEY",
+  };
 }
 
-async function runOpenAi(input: AskBlakeRequest, apiKey: string, model: string) {
+/** Fast models for on-site Field replies — avoid heavy defaults that time out on photos. */
+const FIELD_MODELS = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"] as const;
+
+async function runOpenAi(input: AskBlakeRequest, apiKey: string, preferredModel: string) {
   const images = normaliseAskBlakeImages(input)
-    .filter((image) => image.length <= 1_200_000)
-    .slice(0, 4);
+    .filter((image) => image.length <= 900_000)
+    .slice(0, 3);
   const userContent: Array<
     | { type: "input_text"; text: string }
-    | { type: "input_image"; image_url: string; detail: "high" }
+    | { type: "input_image"; image_url: string; detail: "low" | "auto" | "high" }
   > = [{ type: "input_text", text: buildAskBlakeUserPayload(input) }];
 
   for (const image of images) {
-    userContent.push({ type: "input_image", image_url: image, detail: "high" });
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 35_000);
-  try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model,
-        input: [
-          {
-            role: "developer",
-            content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode) }],
-          },
-          {
-            role: "user",
-            content: userContent,
-          },
-        ],
-      }),
+    userContent.push({
+      type: "input_image",
+      image_url: image,
+      detail: images.length > 1 ? "low" : "auto",
     });
-
-    if (!response.ok) throw new Error(`OpenAI returned ${response.status}.`);
-    const output = getOutputText(await response.json());
-    if (!output) throw new Error("OpenAI did not return a reply.");
-    return output;
-  } finally {
-    clearTimeout(timeout);
   }
+
+  const models = [preferredModel, ...FIELD_MODELS].filter(
+    (model, index, list) => Boolean(model) && list.indexOf(model) === index,
+  );
+
+  let lastError: Error | null = null;
+  for (const model of models) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 28_000);
+    try {
+      const response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          input: [
+            {
+              role: "developer",
+              content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode) }],
+            },
+            {
+              role: "user",
+              content: userContent,
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        lastError = new Error(`OpenAI returned ${response.status} for ${model}.`);
+        if (response.status === 401 || response.status === 403) throw lastError;
+        continue;
+      }
+      const output = getOutputText(await response.json());
+      if (!output) {
+        lastError = new Error("OpenAI did not return a reply.");
+        continue;
+      }
+      return { reply: output, model };
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        lastError = new Error(`OpenAI timed out on ${model}.`);
+        continue;
+      }
+      lastError = error instanceof Error ? error : new Error("OpenAI request failed.");
+      if (lastError.message.includes("401") || lastError.message.includes("403")) throw lastError;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw lastError ?? new Error("OpenAI could not reply.");
+}
+
+export async function GET() {
+  const config = getTakeoffOpenAiConfig();
+  return NextResponse.json({
+    ok: true,
+    connected: config.connected,
+    source: config.source,
+    model: config.model,
+    keyName: config.keyName,
+    talk: {
+      whisper: config.connected,
+      browserSpeech: true,
+      speak: config.connected,
+    },
+  });
 }
 
 export async function POST(request: Request) {
@@ -94,7 +143,7 @@ export async function POST(request: Request) {
     mode,
   };
 
-  const config = getOpenAiConfig();
+  const config = getTakeoffOpenAiConfig();
   if (!config.apiKey) {
     return NextResponse.json({
       reply: buildAskBlakeFallback(input),
@@ -104,8 +153,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const reply = await runOpenAi(input, config.apiKey, config.model);
-    return NextResponse.json({ reply, provider: "OpenAI", model: config.model });
+    const result = await runOpenAi(input, config.apiKey, config.model);
+    return NextResponse.json({ reply: result.reply, provider: "OpenAI", model: result.model });
   } catch (error) {
     return NextResponse.json({
       reply: buildAskBlakeFallback(input),

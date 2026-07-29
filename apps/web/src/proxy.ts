@@ -109,6 +109,18 @@ export function proxy(request: NextRequest) {
     return response;
   }
 
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "NeXa pilot login required. Refresh the page and sign in again." },
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Basic realm="NeXa pilot", charset="UTF-8"',
+        },
+      },
+    );
+  }
+
   return new NextResponse("NeXa pilot login required", {
     status: 401,
     headers: {
