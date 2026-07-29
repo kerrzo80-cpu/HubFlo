@@ -446,10 +446,16 @@
   border-radius: 18px;
   display: grid;
   gap: 8px;
-  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  grid-template-columns: auto minmax(0, 1fr) 40px;
   padding: 10px;
   position: sticky;
   bottom: 72px;
+}
+
+.ask-blake-attach {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 40px 40px;
 }
 
 .ask-blake-composer textarea {
@@ -805,6 +811,28 @@
 .blake-character.size-sm { width: 34px; }
 .blake-character.size-md { width: 48px; }
 .blake-character.size-lg { width: 56px; }
+.blake-character.size-hero { width: 112px; }
+
+.ask-blake-hero {
+  align-items: center;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 4px 0 2px;
+}
+
+.ask-blake-hero .blake-character {
+  filter: drop-shadow(0 10px 18px rgba(36, 49, 59, 0.12));
+}
+
+@media (max-width: 380px) {
+  .ask-blake-hero {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .blake-character.size-hero { width: 96px; }
+}
 
 .blake-pose {
   display: block;
