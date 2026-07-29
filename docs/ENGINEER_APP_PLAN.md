@@ -8,11 +8,15 @@ This file is the shared source of truth for Codex chats working on HubFlo. Updat
 
 ## Key decisions
 
-- Build this inside HubFlo, not as a separate app.
-- Keep the current scheduler/office tools as planning tools.
-- Add a mobile-first engineer module for field use.
+- Build the field experience as a standalone app (`apps/field`) that can ship and be tested before live NeXa wiring.
+- Keep office scheduling / Core in HubFlo (`apps/web`); connect the field app via a `NexaFieldClient` adapter when ready.
+- Keep a mobile-first engineer module in Core as the API/source of truth for schedule and time charging.
+- Office schedules people into jobs on NeXa; those assignments appear as the engineer **My Day** schedule (push / notify later).
+- Field job packs include: job description, programme / Gantt for the day, drawings, photos and other engineer-visible docs.
+- **Blake** is the field co-pilot in the engineer app (same Blake as office, field-scoped prompts).
 - Do not use start/stop timers; engineers will forget them.
-- Use schedule-first daily time confirmation instead.
+- Use schedule-first daily time confirmation instead, led by Blake at end of day.
+- If someone was booked 2 hrs and it took 4 (or only 1), Blake amends the line; **those actual hours are charged against the job**.
 - Use office alerts for exceptions: PO requests, parts needed, rebook required, incomplete jobs, missing time confirmation.
 - Do not write everything back to SimPRO automatically at first. HubFlo should collect clean workflow data and alert the office first; safe SimPRO writes can come later.
 - Engineer workflows must support offline-friendly design before field rollout.
@@ -191,34 +195,37 @@ If required items are missing, block completion with a clear message:
 
 These rules should be configurable by tenant/cost centre, not hard-coded only for EWG.
 
-## Daily Time Check
+## Daily Time Check (Blake)
 
 Do not build start/stop timers as the primary workflow.
 
-Use schedule-first confirmation:
+Use schedule-first confirmation led by Blake:
 
-- HubFlo creates a default daily time check from scheduled jobs.
-- Engineer reviews at the end of the day.
-- Engineer confirms as scheduled or adjusts exceptions.
+- NeXa creates a default daily time check from scheduled jobs.
+- Blake prompts the engineer near end of day (soft 4:00pm, stronger 5:15pm).
+- Blake walks each job: “You were booked 2 hrs — was it 2, or do we amend?”
+- Engineer confirms as scheduled or amends start/finish/break with a short reason.
+- On submit, actual hours are written against each job (labour charge / variance for office).
 - Gaps are detected and assigned.
-
-Prompt timings:
-
-- 4:00pm: soft engineer prompt.
-- 5:15pm: stronger engineer reminder.
-- 9:00am next day: office escalation if still unconfirmed.
+- Next morning 9:00am: office escalation if still unconfirmed.
 
 Engineer wording:
 
-- Use `Quick time check`, not `timesheet`.
+- Prefer `Blake time check` / `Quick time check`, not `timesheet`.
 - Message: `Your scheduled time is ready. Confirm it, or fix anything that changed.`
 
 Engineer actions:
 
-- `Confirm all as scheduled`.
-- Adjust individual jobs.
+- `Confirm all as scheduled` (or confirm rest after reviewing some).
+- Adjust individual jobs with Blake.
 - Assign gaps.
 - Add reason/note for adjustments.
+
+Charging rule:
+
+- Submitted actual hours are the hours charged against the job for margin / Simpro review.
+- Variance vs planned hours is visible to office (over / under).
+- Safe automatic Simpro timesheet write-back comes only after this workflow is reliable.
 
 Gap handling:
 
@@ -250,7 +257,28 @@ Office alert should show:
 
 Behavioural rule:
 
-If engineers ignore the time check, the office has to call them. This creates a practical nudge without relying on traditional timesheets.
+If engineers ignore the Blake time check, the office has to call them. This creates a practical nudge without relying on traditional timesheets.
+
+## Field job pack
+
+Each scheduled visit should expose an engineer-visible pack:
+
+- Job description and access notes.
+- Day programme / simple Gantt of the engineer’s booked visits.
+- Drawings, specs and PDFs marked engineer-visible in Core.
+- Existing site / office photos.
+- Stop/go checklist for the cost centre.
+
+Blake on the job can answer practical questions from that pack later via **Ask Blake** (photo/fault diagnosis, step-by-step checks, tools/parts, escalate when needed). MVP also includes pack visibility + Blake time check.
+
+## Ask Blake
+
+Field AI co-pilot (tab: **Ask Blake**):
+
+- Diagnose common plumbing/heating/joinery issues from a short description and optional site photo.
+- Return likely issue, quick checks, steps, tools/parts, and when to call for help.
+- Optional job-pack context when opened from a scheduled job (`/field/ask?job=…`).
+- Uses OpenAI when connected; otherwise a practical field fallback.
 
 ## Office alert types
 
@@ -285,13 +313,16 @@ Likely entities:
 
 1. Engineer My Day, read-only schedule cards.
 2. Job Detail with maps/phone/customer/address/description.
-3. Request PO button and office approval queue.
-4. Engineer notes and photo upload.
-5. Outcome buttons: complete, needs parts, needs rebooked, could not access.
-6. Office alerts dashboard.
-7. Stop/go checklist rules by cost centre.
-8. Daily Time Check with 4pm, 5:15pm, and 9am flows.
-9. Safe SimPRO write-backs only after workflow data is reliable.
+3. Field job pack: programme / Gantt, drawings, photos.
+4. Request PO button and office approval queue.
+5. Engineer notes and photo upload.
+6. Outcome buttons: complete, needs parts, needs rebooked, could not access.
+7. Office alerts dashboard.
+8. Stop/go checklist rules by cost centre.
+9. Blake Daily Time Check with confirm/amend → hours charged to jobs.
+10. 4pm / 5:15pm / 9am reminder worker.
+11. Safe SimPRO write-backs only after workflow data is reliable.
+12. Native / installed field shell + push notifications when My Day is stable.
 
 ## Integration notes
 
