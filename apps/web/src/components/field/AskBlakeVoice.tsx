@@ -5,7 +5,6 @@ import { Mic, MicOff, SendHorizontal } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
 import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/field/ask-blake";
 import {
-  createSpeechRecognition,
   ensureMicAccess,
   speakBlakeReply,
   speechSupported,
@@ -15,7 +14,6 @@ import {
   stopMicStream,
   transcribeBlakeAudio,
   unlockBlakeVoice,
-  voiceStatusLabel,
   type ActiveVoiceRecorder,
   type MicLevelMonitor,
   type VoiceSessionState,
@@ -26,74 +24,50 @@ type AskBlakeVoiceProps = {
   apiPath?: string;
   speakPath?: string;
   transcribePath?: string;
+  /** When false, Talk can’t hear you on this pilot (Whisper needs OpenAI). */
+  openaiConnected?: boolean | null;
 };
 
-const SPEECH_LEVEL = 0.045;
-const SILENCE_MS = 1500;
-const MAX_LISTEN_MS = 22000;
-const MIN_SPEECH_MS = 450;
+const SPEECH_LEVEL = 0.04;
 
-type SpeechRec = NonNullable<ReturnType<typeof createSpeechRecognition>>;
-
+/**
+ * Push-to-talk only: Start → speak → I’m done → Blake answers once.
+ * Continuous auto-listen loops are too unreliable on iPhone Safari.
+ */
 export function AskBlakeVoice({
   job = null,
   apiPath = "/api/field/ask-blake",
   speakPath = "/api/field/ask-blake/speak",
   transcribePath = "/api/field/ask-blake/transcribe",
+  openaiConnected = null,
 }: AskBlakeVoiceProps) {
   const [supported, setSupported] = useState(true);
-  const [active, setActive] = useState(false);
   const [state, setState] = useState<VoiceSessionState>("idle");
   const [heard, setHeard] = useState("");
   const [lastReply, setLastReply] = useState("");
   const [error, setError] = useState("");
-  const [hint, setHint] = useState("Tap Start talking, then speak toward the bottom of the phone.");
+  const [hint, setHint] = useState("Tap Start talking, say the fault, then tap I’m done.");
   const [level, setLevel] = useState(0);
   const [hearing, setHearing] = useState(false);
+
   const historyRef = useRef<AskBlakeMessage[]>([]);
-  const activeRef = useRef(false);
-  const listeningRef = useRef(false);
-  const finishingRef = useRef(false);
-  const heardSpeechRef = useRef(false);
-  const speechStartedAtRef = useRef(0);
-  const transcriptRef = useRef("");
-  const interimRef = useRef("");
   const micStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<ActiveVoiceRecorder | null>(null);
-  const recognitionRef = useRef<SpeechRec | null>(null);
   const levelMonitorRef = useRef<MicLevelMonitor | null>(null);
   const stopSpeakRef = useRef<(() => void) | null>(null);
-  const restartTimerRef = useRef<number | null>(null);
-  const silenceTimerRef = useRef<number | null>(null);
-  const maxListenTimerRef = useRef<number | null>(null);
+  const recordingRef = useRef(false);
+
+  const talkReady = openaiConnected !== false;
+  const recording = state === "listening";
 
   useEffect(() => {
     setSupported(speechSupported());
     if (!speechSupported()) setState("unsupported");
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.getVoices();
-      window.speechSynthesis.onvoiceschanged = () => window.speechSynthesis.getVoices();
-    }
     return () => {
-      stopSession(false);
+      void hardStop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  function clearTimers() {
-    if (restartTimerRef.current != null) {
-      window.clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-    if (silenceTimerRef.current != null) {
-      window.clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-    if (maxListenTimerRef.current != null) {
-      window.clearTimeout(maxListenTimerRef.current);
-      maxListenTimerRef.current = null;
-    }
-  }
 
   function stopLevelMonitor() {
     levelMonitorRef.current?.stop();
@@ -102,134 +76,73 @@ export function AskBlakeVoice({
     setHearing(false);
   }
 
-  function stopRecognition() {
-    const recognition = recognitionRef.current;
-    recognitionRef.current = null;
-    if (!recognition) return;
-    try {
-      recognition.onresult = null;
-      recognition.onerror = null;
-      recognition.onend = null;
-      recognition.stop();
-    } catch {
+  async function hardStop() {
+    recordingRef.current = false;
+    stopSpeakRef.current?.();
+    stopSpeakRef.current = null;
+    stopLevelMonitor();
+    stopBlakeAudio();
+    const recorder = recorderRef.current;
+    recorderRef.current = null;
+    if (recorder) {
       try {
-        recognition.abort();
+        await recorder.stop();
       } catch {
         // ignore
       }
     }
-  }
-
-  function stopSession(updateState = true) {
-    activeRef.current = false;
-    setActive(false);
-    finishingRef.current = false;
-    listeningRef.current = false;
-    clearTimers();
-    stopSpeakRef.current?.();
-    stopSpeakRef.current = null;
-    stopLevelMonitor();
-    stopRecognition();
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    if (recorder) {
-      void recorder.stop().catch(() => undefined);
-    }
     stopMicStream(micStreamRef.current);
     micStreamRef.current = null;
-    stopBlakeAudio();
-    transcriptRef.current = "";
-    interimRef.current = "";
-    if (updateState) setState(supported ? "idle" : "unsupported");
-    setHeard("");
-    setHint("Tap Start talking, then speak toward the bottom of the phone.");
   }
 
   async function ensureOpenMic() {
-    if (micStreamRef.current) {
-      const live = micStreamRef.current.getTracks().some((track) => track.readyState === "live");
-      if (live) return micStreamRef.current;
-      stopMicStream(micStreamRef.current);
-      micStreamRef.current = null;
+    if (micStreamRef.current?.getTracks().some((track) => track.readyState === "live")) {
+      return micStreamRef.current;
     }
+    stopMicStream(micStreamRef.current);
     const stream = await ensureMicAccess();
     micStreamRef.current = stream;
     return stream;
   }
 
-  function scheduleSendFromSilence() {
-    if (silenceTimerRef.current != null) window.clearTimeout(silenceTimerRef.current);
-    silenceTimerRef.current = window.setTimeout(() => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      const spoken = (transcriptRef.current || interimRef.current).trim();
-      if (!heardSpeechRef.current && !spoken) {
-        setHint("Still listening — say the fault out loud.");
-        return;
-      }
-      const spokenFor = Date.now() - (speechStartedAtRef.current || Date.now());
-      if (heardSpeechRef.current && spokenFor < MIN_SPEECH_MS && !spoken) return;
-      void finishListeningAndAsk();
-    }, SILENCE_MS);
-  }
+  async function startRecording() {
+    if (!supported || !talkReady || recordingRef.current) return;
+    setError("");
+    setLastReply("");
+    setHeard("");
+    setHint("Opening microphone…");
+    setState("listening");
 
-  function startBrowserSpeechCaption() {
-    stopRecognition();
-    const recognition = createSpeechRecognition({ continuous: true });
-    if (!recognition) return;
-    recognitionRef.current = recognition;
-    recognition.onresult = (event) => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      let finalChunk = "";
-      let interim = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index];
-        if (!result) continue;
-        const text = result[0]?.transcript ?? "";
-        if (result.isFinal) finalChunk += `${text} `;
-        else interim += text;
-      }
-      if (finalChunk.trim()) {
-        transcriptRef.current = `${transcriptRef.current} ${finalChunk}`.trim();
-        heardSpeechRef.current = true;
-        if (!speechStartedAtRef.current) speechStartedAtRef.current = Date.now();
-      }
-      interimRef.current = interim.trim();
-      const display = (transcriptRef.current || interimRef.current).trim();
-      if (display) {
-        setHeard(display);
-        setHint("Got that — pause when finished, or tap I’m done.");
-        scheduleSendFromSilence();
-      }
-    };
-    recognition.onerror = () => {
-      // Browser speech is a bonus — Whisper / I’m done still work.
-    };
-    recognition.onend = () => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      try {
-        recognition.start();
-      } catch {
-        // ignore
-      }
-    };
     try {
-      recognition.start();
+      await unlockBlakeVoice();
+      const stream = await ensureOpenMic();
+      const recorder = startVoiceRecorder(stream);
+      recorderRef.current = recorder;
+      recordingRef.current = true;
+      setHint("Speak now — tap I’m done when you’ve finished.");
+      levelMonitorRef.current = startMicLevelMonitor(stream, (nextLevel) => {
+        if (!recordingRef.current) return;
+        setLevel(nextLevel);
+        const hot = nextLevel >= SPEECH_LEVEL;
+        setHearing(hot);
+        if (hot) setHint("Hearing you — keep going, then tap I’m done.");
+      });
     } catch {
-      recognitionRef.current = null;
+      recordingRef.current = false;
+      setError("Allow the microphone for Ask Blake, then try again.");
+      setState("error");
+      stopMicStream(micStreamRef.current);
+      micStreamRef.current = null;
     }
   }
 
-  async function finishListeningAndAsk() {
-    if (!activeRef.current || finishingRef.current || !listeningRef.current) return;
-    finishingRef.current = true;
-    listeningRef.current = false;
-    clearTimers();
+  async function finishAndAsk() {
+    if (!recordingRef.current) return;
+    recordingRef.current = false;
     stopLevelMonitor();
-    stopRecognition();
     setState("thinking");
     setHint("Blake is catching that…");
 
-    const browserText = (transcriptRef.current || interimRef.current || heard).trim();
     const recorder = recorderRef.current;
     recorderRef.current = null;
     let blob: Blob | null = null;
@@ -239,141 +152,30 @@ export function AskBlakeVoice({
       blob = null;
     }
 
-    let transcript = browserText;
-    if (blob && blob.size >= 200) {
-      try {
-        transcript = await transcribeBlakeAudio(blob, transcribePath);
-      } catch (transcribeError) {
-        if (!transcript) {
-          setError(
-            transcribeError instanceof Error
-              ? transcribeError.message
-              : "Didn’t catch that — try again.",
-          );
-          finishingRef.current = false;
-          if (activeRef.current) {
-            setHint("Speak clearly, then tap I’m done.");
-            restartTimerRef.current = window.setTimeout(() => {
-              setError("");
-              void startListeningPass();
-            }, 900);
-          } else {
-            setState("error");
-          }
-          return;
-        }
-      }
+    if (!blob || blob.size < 400) {
+      setError("That clip was too short — tap Start talking and try again.");
+      setState("idle");
+      setHint("Tap Start talking, say the fault, then tap I’m done.");
+      return;
     }
 
-    if (!transcript) {
-      setHint("Didn’t catch that — speak closer to the bottom mic, then tap I’m done.");
-      finishingRef.current = false;
-      if (activeRef.current) {
-        restartTimerRef.current = window.setTimeout(() => {
-          void startListeningPass();
-        }, 500);
-      }
+    let transcript = "";
+    try {
+      transcript = await transcribeBlakeAudio(blob, transcribePath);
+    } catch (transcribeError) {
+      setError(transcribeError instanceof Error ? transcribeError.message : "Didn’t catch that.");
+      setState("error");
+      setHint("Try again, or switch to Type / photos.");
       return;
     }
 
     setHeard(transcript);
-    finishingRef.current = false;
     await askBlake(transcript);
   }
 
-  async function startListeningPass() {
-    if (!activeRef.current) return;
-    clearTimers();
-    stopSpeakRef.current?.();
-    stopSpeakRef.current = null;
-    stopBlakeAudio();
-    stopLevelMonitor();
-    stopRecognition();
-    if (recorderRef.current) {
-      try {
-        await recorderRef.current.stop();
-      } catch {
-        // ignore
-      }
-      recorderRef.current = null;
-    }
-
-    finishingRef.current = false;
-    heardSpeechRef.current = false;
-    speechStartedAtRef.current = 0;
-    transcriptRef.current = "";
-    interimRef.current = "";
-    setHeard("");
-    setHint("Listening now — speak clearly toward the bottom mic.");
-    setState("listening");
-    setError("");
-    setHearing(false);
-
-    let stream: MediaStream;
-    try {
-      stream = await ensureOpenMic();
-    } catch {
-      setError("Allow microphone access for Ask Blake, then tap Start talking again.");
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
-      return;
-    }
-
-    let recorder: ActiveVoiceRecorder;
-    try {
-      recorder = startVoiceRecorder(stream);
-    } catch {
-      setError("This phone blocked audio recording. Try Safari or Chrome, then Start talking again.");
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
-      return;
-    }
-
-    recorderRef.current = recorder;
-    listeningRef.current = true;
-    startBrowserSpeechCaption();
-
-    levelMonitorRef.current = startMicLevelMonitor(stream, (nextLevel) => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      setLevel(nextLevel);
-      const isSpeech = nextLevel >= SPEECH_LEVEL;
-      setHearing(isSpeech);
-      if (isSpeech) {
-        if (!heardSpeechRef.current) {
-          heardSpeechRef.current = true;
-          speechStartedAtRef.current = Date.now();
-        }
-        if (!transcriptRef.current && !interimRef.current) {
-          setHint("Hearing you — pause when finished, or tap I’m done.");
-        }
-        if (silenceTimerRef.current != null) {
-          window.clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = null;
-        }
-      } else if (heardSpeechRef.current || transcriptRef.current || interimRef.current) {
-        scheduleSendFromSilence();
-      }
-    });
-
-    maxListenTimerRef.current = window.setTimeout(() => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      if (heardSpeechRef.current || transcriptRef.current || interimRef.current) {
-        void finishListeningAndAsk();
-        return;
-      }
-      setHint("Still listening — try speaking a bit louder, then tap I’m done.");
-    }, MAX_LISTEN_MS);
-  }
-
   async function askBlake(transcript: string) {
-    if (!activeRef.current) return;
-    listeningRef.current = false;
     setState("thinking");
-    setHeard(transcript);
     setHint("Blake is thinking…");
-
     const history = historyRef.current.slice(-10);
     historyRef.current = [...history, { role: "user", text: transcript }];
 
@@ -396,12 +198,9 @@ export function AskBlakeVoice({
       } finally {
         window.clearTimeout(timeoutId);
       }
+
       const raw = await response.text();
-      let body: {
-        reply?: string;
-        error?: string;
-        warning?: string;
-      } = {};
+      let body: { reply?: string; error?: string; warning?: string } = {};
       try {
         body = raw ? JSON.parse(raw) as typeof body : {};
       } catch {
@@ -415,7 +214,6 @@ export function AskBlakeVoice({
       historyRef.current = [...historyRef.current, { role: "assistant", text: reply }];
       setLastReply(reply);
       if (body.warning) setError(body.warning);
-      if (!activeRef.current) return;
 
       setState("speaking");
       setHint("Blake is talking…");
@@ -423,69 +221,41 @@ export function AskBlakeVoice({
         stopSpeakRef.current = await speakBlakeReply(reply, {
           speakPath,
           onEnd: () => {
-            if (!activeRef.current) return;
-            restartTimerRef.current = window.setTimeout(() => {
-              void startListeningPass();
-            }, 400);
+            setState("idle");
+            setHint("Tap Start talking for another question.");
           },
         });
       } catch {
-        setError("Blake replied on screen — turn silent mode off to hear him next time.");
-        if (activeRef.current) {
-          restartTimerRef.current = window.setTimeout(() => {
-            void startListeningPass();
-          }, 700);
-        }
+        setError("Blake replied on screen — turn silent mode off to hear him.");
+        setState("idle");
+        setHint("Tap Start talking for another question.");
       }
     } catch (askError) {
       const aborted = askError instanceof DOMException && askError.name === "AbortError";
       setError(
         aborted
-          ? "Blake took too long — check signal and try Start talking again."
+          ? "Blake took too long — check signal and try again."
           : askError instanceof Error ? askError.message : "Blake couldn’t reply.",
       );
       setState("error");
-      setActive(false);
-      activeRef.current = false;
+      setHint("Try again, or use Type / photos.");
     }
   }
 
-  async function toggle() {
-    if (!supported) {
-      setState("unsupported");
+  async function onPrimary() {
+    if (recording) {
+      await hardStop();
+      setState("idle");
+      setHint("Stopped. Tap Start talking when you’re ready.");
       return;
     }
-    if (active) {
-      stopSession();
+    if (state === "thinking" || state === "speaking") {
+      await hardStop();
+      setState("idle");
+      setHint("Tap Start talking, say the fault, then tap I’m done.");
       return;
     }
-    setError("");
-    setLastReply("");
-    setHeard("");
-    setActive(true);
-    activeRef.current = true;
-    setState("listening");
-    setHint("Opening microphone…");
-    try {
-      await unlockBlakeVoice();
-      await ensureOpenMic();
-    } catch {
-      setError("Allow the microphone for Ask Blake, then tap Start talking again.");
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
-      stopMicStream(micStreamRef.current);
-      micStreamRef.current = null;
-      return;
-    }
-    restartTimerRef.current = window.setTimeout(() => {
-      void startListeningPass();
-    }, 200);
-  }
-
-  function sendHeardNow() {
-    if (state !== "listening" || finishingRef.current) return;
-    void finishListeningAndAsk();
+    await startRecording();
   }
 
   const mood: BlakeMood =
@@ -496,14 +266,47 @@ export function AskBlakeVoice({
             : "idle";
 
   const levelPercent = Math.round(Math.min(1, level) * 100);
+  const statusLabel =
+    state === "listening" ? "Recording — talk to Blake"
+      : state === "thinking" ? "Blake is thinking…"
+        : state === "speaking" ? "Blake is talking"
+          : state === "unsupported" ? "This phone can’t record for Ask Blake"
+            : state === "error" ? "Try again, or use Type / photos"
+              : "Push to talk";
+
+  if (!supported) {
+    return (
+      <section className="ask-blake-voice" aria-label="Talk to Blake">
+        <div className="ask-blake-voice-stage is-unsupported">
+          <BlakeCharacter mood="alert" size="hero" />
+          <p className="ask-blake-voice-status">Talk isn’t available on this phone</p>
+          <p className="ask-blake-voice-hint muted">Use Type / photos instead — that path is solid.</p>
+        </div>
+      </section>
+    );
+  }
+
+  if (openaiConnected === false) {
+    return (
+      <section className="ask-blake-voice" aria-label="Talk to Blake">
+        <div className="ask-blake-voice-stage is-unsupported">
+          <BlakeCharacter mood="alert" size="hero" />
+          <p className="ask-blake-voice-status">Talk needs OpenAI on this pilot</p>
+          <p className="ask-blake-voice-hint muted">
+            Listening isn’t connected yet. Use <strong>Type / photos</strong> for now — that works without the voice key.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="ask-blake-voice" aria-label="Talk to Blake">
       <div className={`ask-blake-voice-stage is-${state}${hearing ? " is-hearing" : ""}`}>
         <BlakeCharacter mood={mood} size="hero" />
-        <p className="ask-blake-voice-status">{voiceStatusLabel(state)}</p>
+        <p className="ask-blake-voice-status">{statusLabel}</p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
-        {state === "listening" ? (
+        {recording ? (
           <div
             className={`ask-blake-voice-meter${hearing ? " is-hot" : ""}`}
             role="status"
@@ -523,17 +326,27 @@ export function AskBlakeVoice({
       <div className="ask-blake-voice-actions">
         <button
           type="button"
-          className={`ask-blake-voice-btn${active ? " is-live" : ""}`}
+          className={`ask-blake-voice-btn${recording ? " is-live" : ""}`}
           onClick={() => {
-            void toggle();
+            void onPrimary();
           }}
-          disabled={!supported && state === "unsupported"}
+          disabled={state === "thinking"}
         >
-          {active ? <MicOff size={22} /> : <Mic size={22} />}
-          <span>{active ? "Stop talking" : "Start talking"}</span>
+          {recording ? <MicOff size={22} /> : <Mic size={22} />}
+          <span>
+            {recording ? "Cancel"
+              : state === "thinking" ? "Working…"
+                : "Start talking"}
+          </span>
         </button>
-        {state === "listening" ? (
-          <button type="button" className="ask-blake-voice-send" onClick={sendHeardNow}>
+        {recording ? (
+          <button
+            type="button"
+            className="ask-blake-voice-send"
+            onClick={() => {
+              void finishAndAsk();
+            }}
+          >
             <SendHorizontal size={18} />
             <span>I’m done</span>
           </button>
@@ -541,7 +354,7 @@ export function AskBlakeVoice({
       </div>
 
       <p className="ask-blake-voice-hint muted">
-        Speak toward the bottom of the iPhone. Watch the green bar — then pause or tap I’m done.
+        One clip at a time: Start → speak → I’m done. Silent switch off to hear Blake’s reply.
       </p>
     </section>
   );
