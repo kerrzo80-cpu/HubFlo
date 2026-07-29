@@ -71,3 +71,6 @@ services:
         sync: false
       - key: NEXA_ASSISTANT_OPENAI_MODEL
         value: gpt-4.1-mini
+      # Optional UK PAF street lookup (getAddress.io). Without this key NeXa uses OpenStreetMap nearby addresses.
+      - key: GETADDRESS_API_KEY
+        sync: false

@@ -12173,6 +12173,25 @@ export default function Dashboard() {
     return matches;
   }
 
+  function mergePostcodeLookupMatches(
+    query: string,
+    apiMatches: Array<{ postcode: string; address: string }> | undefined,
+  ) {
+    const merged = [...workspaceAddressMatches(query), ...(apiMatches ?? [])];
+    const seen = new Set<string>();
+    return merged
+      .filter((match) => {
+        const address = match.address.trim();
+        const key = address.toLowerCase();
+        if (!key || seen.has(key)) return false;
+        // Never surface invented area placeholders as selectable addresses.
+        if (/^property at\b/i.test(address) || /^area around\b/i.test(address)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 12);
+  }
+
   useEffect(() => {
     const query = leadPostcodeSearch.trim();
     if (query.length < 2) {
@@ -12188,20 +12207,54 @@ export default function Dashboard() {
           const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
           const payload = (await response.json().catch(() => ({}))) as {
             matches?: Array<{ postcode: string; address: string }>;
+            meta?: { postcode?: string; town?: string; county?: string } | null;
           };
           if (cancelled) return;
-          const merged = [...workspaceAddressMatches(query), ...(payload.matches ?? [])];
-          const seen = new Set<string>();
-          setLeadAddressMatches(
-            merged.filter((match) => {
-              const key = match.address.trim().toLowerCase();
-              if (!key || seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            }).slice(0, 12),
-          );
+          setLeadAddressMatches(mergePostcodeLookupMatches(query, payload.matches));
+          const meta = payload.meta;
+          if (meta?.postcode) {
+            setNewLead((current) => {
+              const line1 = current.addressParts?.line1?.trim() || "";
+              const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(current.address || "");
+              if (line1 && !looksLikePlaceholder) {
+                return {
+                  ...current,
+                  addressParts: {
+                    ...blankLeadAddressParts,
+                    ...current.addressParts,
+                    postcode: meta.postcode || current.addressParts?.postcode || "",
+                  },
+                  address: leadAddressFromParts({
+                    ...blankLeadAddressParts,
+                    ...current.addressParts,
+                    postcode: meta.postcode || current.addressParts?.postcode || "",
+                  }),
+                };
+              }
+              const addressParts = {
+                ...blankLeadAddressParts,
+                ...current.addressParts,
+                line1: looksLikePlaceholder ? "" : line1,
+                town: current.addressParts?.town?.trim() || meta.town || "",
+                county: current.addressParts?.county?.trim() || meta.county || "",
+                postcode: meta.postcode || "",
+              };
+              return {
+                ...current,
+                addressParts,
+                address: leadAddressFromParts(addressParts),
+                siteId: reconcileSiteIdForAddress(
+                  current.clientId,
+                  clients,
+                  clientSites,
+                  current.siteId,
+                  leadAddressFromParts(addressParts),
+                ),
+              };
+            });
+          }
         } catch {
-          if (!cancelled) setLeadAddressMatches(workspaceAddressMatches(query).slice(0, 12));
+          if (!cancelled) setLeadAddressMatches(mergePostcodeLookupMatches(query, []));
         } finally {
           if (!cancelled) setLeadAddressLookupBusy(false);
         }
@@ -12228,20 +12281,54 @@ export default function Dashboard() {
           const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
           const payload = (await response.json().catch(() => ({}))) as {
             matches?: Array<{ postcode: string; address: string }>;
+            meta?: { postcode?: string; town?: string; county?: string } | null;
           };
           if (cancelled) return;
-          const merged = [...workspaceAddressMatches(query), ...(payload.matches ?? [])];
-          const seen = new Set<string>();
-          setQuoteAddressMatches(
-            merged.filter((match) => {
-              const key = match.address.trim().toLowerCase();
-              if (!key || seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            }).slice(0, 12),
-          );
+          setQuoteAddressMatches(mergePostcodeLookupMatches(query, payload.matches));
+          const meta = payload.meta;
+          if (meta?.postcode) {
+            setNewQuote((current) => {
+              const line1 = current.addressParts?.line1?.trim() || "";
+              const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(current.address || "");
+              if (line1 && !looksLikePlaceholder) {
+                return {
+                  ...current,
+                  addressParts: {
+                    ...blankLeadAddressParts,
+                    ...current.addressParts,
+                    postcode: meta.postcode || current.addressParts?.postcode || "",
+                  },
+                  address: leadAddressFromParts({
+                    ...blankLeadAddressParts,
+                    ...current.addressParts,
+                    postcode: meta.postcode || current.addressParts?.postcode || "",
+                  }),
+                };
+              }
+              const addressParts = {
+                ...blankLeadAddressParts,
+                ...current.addressParts,
+                line1: looksLikePlaceholder ? "" : line1,
+                town: current.addressParts?.town?.trim() || meta.town || "",
+                county: current.addressParts?.county?.trim() || meta.county || "",
+                postcode: meta.postcode || "",
+              };
+              return {
+                ...current,
+                addressParts,
+                address: leadAddressFromParts(addressParts),
+                siteId: reconcileSiteIdForAddress(
+                  current.clientId,
+                  clients,
+                  clientSites,
+                  current.siteId,
+                  leadAddressFromParts(addressParts),
+                ),
+              };
+            });
+          }
         } catch {
-          if (!cancelled) setQuoteAddressMatches(workspaceAddressMatches(query).slice(0, 12));
+          if (!cancelled) setQuoteAddressMatches(mergePostcodeLookupMatches(query, []));
         } finally {
           if (!cancelled) setQuoteAddressLookupBusy(false);
         }
@@ -12268,20 +12355,54 @@ export default function Dashboard() {
           const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
           const payload = (await response.json().catch(() => ({}))) as {
             matches?: Array<{ postcode: string; address: string }>;
+            meta?: { postcode?: string; town?: string; county?: string } | null;
           };
           if (cancelled) return;
-          const merged = [...workspaceAddressMatches(query), ...(payload.matches ?? [])];
-          const seen = new Set<string>();
-          setJobAddressMatches(
-            merged.filter((match) => {
-              const key = match.address.trim().toLowerCase();
-              if (!key || seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            }).slice(0, 12),
-          );
+          setJobAddressMatches(mergePostcodeLookupMatches(query, payload.matches));
+          const meta = payload.meta;
+          if (meta?.postcode) {
+            setNewJob((current) => {
+              const line1 = current.addressParts?.line1?.trim() || "";
+              const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(current.address || "");
+              if (line1 && !looksLikePlaceholder) {
+                return {
+                  ...current,
+                  addressParts: {
+                    ...blankLeadAddressParts,
+                    ...current.addressParts,
+                    postcode: meta.postcode || current.addressParts?.postcode || "",
+                  },
+                  address: leadAddressFromParts({
+                    ...blankLeadAddressParts,
+                    ...current.addressParts,
+                    postcode: meta.postcode || current.addressParts?.postcode || "",
+                  }),
+                };
+              }
+              const addressParts = {
+                ...blankLeadAddressParts,
+                ...current.addressParts,
+                line1: looksLikePlaceholder ? "" : line1,
+                town: current.addressParts?.town?.trim() || meta.town || "",
+                county: current.addressParts?.county?.trim() || meta.county || "",
+                postcode: meta.postcode || "",
+              };
+              return {
+                ...current,
+                addressParts,
+                address: leadAddressFromParts(addressParts),
+                siteId: reconcileSiteIdForAddress(
+                  current.clientId,
+                  clients,
+                  clientSites,
+                  current.siteId,
+                  leadAddressFromParts(addressParts),
+                ),
+              };
+            });
+          }
         } catch {
-          if (!cancelled) setJobAddressMatches(workspaceAddressMatches(query).slice(0, 12));
+          if (!cancelled) setJobAddressMatches(mergePostcodeLookupMatches(query, []));
         } finally {
           if (!cancelled) setJobAddressLookupBusy(false);
         }
@@ -40777,7 +40898,7 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : leadPostcodeSearch.trim().length >= 2 && !leadAddressLookupBusy ? (
-                    <p className="lead-match-empty">No address list yet — keep typing the postcode, or enter the address below.</p>
+                    <p className="lead-match-empty">No street list for this postcode — type the house number and street below.</p>
                   ) : null}
                   <div className="simpro-setup-grid-2">
                     <label>
@@ -41097,7 +41218,7 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : quotePostcodeSearch.trim().length >= 2 && !quoteAddressLookupBusy ? (
-                    <p className="lead-match-empty">No address list yet — keep typing the postcode, or enter the address below.</p>
+                    <p className="lead-match-empty">No street list for this postcode — type the house number and street below.</p>
                   ) : null}
                   <div className="simpro-setup-grid-2">
                     <label>
@@ -41419,7 +41540,7 @@ export default function Dashboard() {
                       ))}
                     </div>
                   ) : jobPostcodeSearch.trim().length >= 2 && !jobAddressLookupBusy ? (
-                    <p className="lead-match-empty">No address list yet — keep typing the postcode, or enter the address below.</p>
+                    <p className="lead-match-empty">No street list for this postcode — type the house number and street below.</p>
                   ) : null}
                   <div className="simpro-setup-grid-2">
                     <label>
