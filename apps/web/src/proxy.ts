@@ -8,7 +8,7 @@ const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const publicAssetPrefixes = ["/app-icons/", "/brand/"];
-const userAuthPublicPaths = new Set(["/api/auth/login", "/api/health"]);
+const userAuthPublicPaths = new Set(["/api/auth/login", "/api/health", "/api/postcode-lookup"]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
   "/apple-icon.png",

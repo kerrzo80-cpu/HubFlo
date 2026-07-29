@@ -112,13 +112,9 @@ const LOCAL_POSTCODE_DIRECTORY: PostcodeEntry[] = [
   },
 ];
 
-const OVERPASS_ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-];
-
 const FULL_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/i;
-const ROUTE_BUDGET_MS = 4500;
+/** Keep the whole route under 2s so the create form never sits on Looking up… */
+const ROUTE_BUDGET_MS = 2000;
 
 function normalizePostcode(value: string) {
   return value.replace(/\s+/g, "").toUpperCase();
@@ -169,7 +165,7 @@ async function validatePostcode(query: string): Promise<PostcodeMeta | null> {
   try {
     const response = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(normalizePostcode(query))}`, {
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(2500),
+      signal: AbortSignal.timeout(1200),
       next: { revalidate: 3600 },
     });
     if (!response.ok) return null;
@@ -210,7 +206,7 @@ async function getAddressIoMatches(postcode: string): Promise<AddressMatch[]> {
       `https://api.getAddress.io/find/${encodeURIComponent(normalizePostcode(postcode))}?api-key=${encodeURIComponent(apiKey)}&expand=true`,
       {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(1500),
         next: { revalidate: 3600 },
       },
     );
@@ -282,53 +278,47 @@ function formatOsmAddress(tags: Record<string, string>, fallbackPostcode: string
   return { postcode, address, line1, town: town || undefined, county: county || undefined };
 }
 
+/** Single short Overpass attempt — never block the form on slow mirrors. */
 async function overpassNearbyAddresses(meta: PostcodeMeta): Promise<AddressMatch[]> {
-  const radius = 450;
-  const query = `[out:json][timeout:8];
+  const query = `[out:json][timeout:4];
 (
-  nwr["addr:housenumber"](around:${radius},${meta.latitude},${meta.longitude});
-  nwr["addr:street"](around:${radius},${meta.latitude},${meta.longitude});
+  nwr["addr:housenumber"](around:400,${meta.latitude},${meta.longitude});
+  nwr["addr:street"](around:400,${meta.latitude},${meta.longitude});
 );
-out tags center 60;`;
+out tags center 50;`;
 
-  for (const endpoint of OVERPASS_ENDPOINTS) {
-    try {
-      // Avoid Accept: application/json — overpass-api.de can respond 406.
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
-        },
-        body: new URLSearchParams({ data: query }).toString(),
-        signal: AbortSignal.timeout(3200),
-        cache: "no-store",
-      });
-      if (!response.ok) continue;
-      const payload = (await response.json()) as { elements?: OsmElement[] };
-      const exactCompact = normalizePostcode(meta.postcode);
-      const exact: AddressMatch[] = [];
-      const nearby: AddressMatch[] = [];
-      const seen = new Set<string>();
+  try {
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
+      },
+      body: new URLSearchParams({ data: query }).toString(),
+      signal: AbortSignal.timeout(1400),
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const payload = (await response.json()) as { elements?: OsmElement[] };
+    const exactCompact = normalizePostcode(meta.postcode);
+    const exact: AddressMatch[] = [];
+    const nearby: AddressMatch[] = [];
+    const seen = new Set<string>();
 
-      for (const element of payload.elements ?? []) {
-        const match = formatOsmAddress(element.tags ?? {}, meta.postcode, meta.town);
-        if (!match) continue;
-        const key = match.address.trim().toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        if (normalizePostcode(match.postcode) === exactCompact) exact.push(match);
-        else nearby.push(match);
-      }
-
-      const combined = [...exact, ...nearby];
-      if (combined.length > 0) return combined.slice(0, 20);
-    } catch {
-      // try next mirror
+    for (const element of payload.elements ?? []) {
+      const match = formatOsmAddress(element.tags ?? {}, meta.postcode, meta.town);
+      if (!match) continue;
+      const key = match.address.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (normalizePostcode(match.postcode) === exactCompact) exact.push(match);
+      else nearby.push(match);
     }
-  }
 
-  return [];
+    return [...exact, ...nearby].slice(0, 20);
+  } catch {
+    return [];
+  }
 }
 
 async function nominatimFallback(meta: PostcodeMeta): Promise<AddressMatch[]> {
@@ -340,7 +330,7 @@ async function nominatimFallback(meta: PostcodeMeta): Promise<AddressMatch[]> {
           Accept: "application/json",
           "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
         },
-        signal: AbortSignal.timeout(2500),
+        signal: AbortSignal.timeout(1200),
         next: { revalidate: 3600 },
       },
     );
@@ -387,10 +377,9 @@ async function streetMatchesForPostcode(postcode: string): Promise<{ matches: Ad
     return { matches: paid, meta: { ...meta, source: "getAddress.io" } };
   }
 
-  // Prefer a quick reverse-geocode so the UI is never stuck waiting on Overpass.
   const [osm, nominatim] = await Promise.all([
-    withTimeout(overpassNearbyAddresses(meta), 3200, [] as AddressMatch[]),
-    withTimeout(nominatimFallback(meta), 2200, [] as AddressMatch[]),
+    withTimeout(overpassNearbyAddresses(meta), 1500, [] as AddressMatch[]),
+    withTimeout(nominatimFallback(meta), 1200, [] as AddressMatch[]),
   ]);
 
   if (osm.length > 0) {
@@ -457,8 +446,6 @@ export async function GET(request: Request) {
     });
   }
 
-  // Only resolve streets for a complete UK postcode. Partial queries used to
-  // fan out into many Overpass calls and left the UI on "Looking up addresses…".
   if (!isFullPostcode(query)) {
     return NextResponse.json({ matches: [], meta: null, incomplete: true });
   }
@@ -469,12 +456,10 @@ export async function GET(request: Request) {
     { matches: [] as AddressMatch[], meta: null as PostcodeMeta | null },
   );
 
-  // If the budget tripped before meta arrived, still try a cheap validate so
-  // the form can prefill town/postcode and invite manual address entry.
   let meta = resolved.meta;
-  let matches = resolved.matches;
+  const matches = resolved.matches;
   if (!meta) {
-    meta = await withTimeout(validatePostcode(query), 2000, null);
+    meta = await withTimeout(validatePostcode(query), 900, null);
   }
 
   return NextResponse.json({

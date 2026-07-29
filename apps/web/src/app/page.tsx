@@ -7333,6 +7333,9 @@ export default function Dashboard() {
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
   const [openWorkspaceTabs, setOpenWorkspaceTabs] = useState<OpenWorkspaceTab[]>([]);
   const hasHydratedOpenWorkspaceTabs = useRef(false);
+  const clientsRef = useRef(clients);
+  const clientSitesRef = useRef(clientSites);
+  const postcodeLookupGenRef = useRef(0);
   const [selectedQuoteCostCentreId, setSelectedQuoteCostCentreId] = useState<string | null>(null);
   const [selectedCostCentreId, setSelectedCostCentreId] = useState<string | null>(null);
   const [quoteCostCentreNameDraft, setQuoteCostCentreNameDraft] = useState("");
@@ -12173,6 +12176,14 @@ export default function Dashboard() {
     return matches;
   }
 
+  useEffect(() => {
+    clientsRef.current = clients;
+  }, [clients]);
+
+  useEffect(() => {
+    clientSitesRef.current = clientSites;
+  }, [clientSites]);
+
   function mergePostcodeLookupMatches(
     query: string,
     apiMatches: Array<{ postcode: string; address: string }> | undefined,
@@ -12223,6 +12234,8 @@ export default function Dashboard() {
     applyMeta: (meta: { postcode?: string; town?: string; county?: string }) => void;
   }) {
     const query = options.query.trim();
+    const gen = ++postcodeLookupGenRef.current;
+
     if (query.length < 2) {
       options.setMatches([]);
       options.setBusy(false);
@@ -12236,10 +12249,20 @@ export default function Dashboard() {
       return () => undefined;
     }
 
-    let cancelled = false;
     const controller = new AbortController();
     options.setBusy(true);
-    const hardTimeout = window.setTimeout(() => controller.abort(), 6500);
+
+    const finish = (matches?: Array<{ postcode: string; address: string }>) => {
+      if (gen !== postcodeLookupGenRef.current) return;
+      if (matches) options.setMatches(matches);
+      options.setBusy(false);
+    };
+
+    const hardTimeout = window.setTimeout(() => {
+      controller.abort();
+      finish(mergePostcodeLookupMatches(query, []));
+    }, 3000);
+
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -12250,24 +12273,26 @@ export default function Dashboard() {
             matches?: Array<{ postcode: string; address: string }>;
             meta?: { postcode?: string; town?: string; county?: string } | null;
           };
-          if (cancelled) return;
+          if (gen !== postcodeLookupGenRef.current) return;
           options.setMatches(mergePostcodeLookupMatches(query, payload.matches));
           if (payload.meta?.postcode) options.applyMeta(payload.meta);
         } catch {
-          if (!cancelled) options.setMatches(mergePostcodeLookupMatches(query, []));
+          if (gen === postcodeLookupGenRef.current) {
+            options.setMatches(mergePostcodeLookupMatches(query, []));
+          }
         } finally {
           window.clearTimeout(hardTimeout);
-          if (!cancelled) options.setBusy(false);
+          if (gen === postcodeLookupGenRef.current) options.setBusy(false);
         }
       })();
-    }, 280);
+    }, 250);
 
     return () => {
-      cancelled = true;
       window.clearTimeout(timer);
       window.clearTimeout(hardTimeout);
       controller.abort();
-      options.setBusy(false);
+      // Do not clear busy here if a newer lookup owns the spinner.
+      if (gen === postcodeLookupGenRef.current) options.setBusy(false);
     };
   }
 
@@ -12284,12 +12309,19 @@ export default function Dashboard() {
             ...current,
             addressParts,
             address,
-            siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+            siteId: reconcileSiteIdForAddress(
+              current.clientId,
+              clientsRef.current,
+              clientSitesRef.current,
+              current.siteId,
+              address,
+            ),
           };
         });
       },
     });
-  }, [leadPostcodeSearch, clients, clientSites]);
+    // Intentionally only the postcode string — live client polling must not retrigger Looking up…
+  }, [leadPostcodeSearch]);
 
   useEffect(() => {
     return runPostcodeAddressLookup({
@@ -12304,12 +12336,18 @@ export default function Dashboard() {
             ...current,
             addressParts,
             address,
-            siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+            siteId: reconcileSiteIdForAddress(
+              current.clientId,
+              clientsRef.current,
+              clientSitesRef.current,
+              current.siteId,
+              address,
+            ),
           };
         });
       },
     });
-  }, [quotePostcodeSearch, clients, clientSites]);
+  }, [quotePostcodeSearch]);
 
   useEffect(() => {
     return runPostcodeAddressLookup({
@@ -12324,12 +12362,18 @@ export default function Dashboard() {
             ...current,
             addressParts,
             address,
-            siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+            siteId: reconcileSiteIdForAddress(
+              current.clientId,
+              clientsRef.current,
+              clientSitesRef.current,
+              current.siteId,
+              address,
+            ),
           };
         });
       },
     });
-  }, [jobPostcodeSearch, clients, clientSites]);
+  }, [jobPostcodeSearch]);
 
   function addressSelectedFromPostcode(postcodeSearch: string, address: string) {
     const query = postcodeSearch.trim().toLowerCase();
