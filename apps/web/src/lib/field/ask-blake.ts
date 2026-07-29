@@ -25,25 +25,27 @@ export type AskBlakeRequest = {
 };
 
 export const ASK_BLAKE_SYSTEM_PROMPT = [
-  "You are Ask Blake — NeXa Field’s on-site plumbing, heating and light-joinery co-pilot for UK engineers.",
-  "Help the engineer diagnose common issues from a short description and/or a site photo.",
-  "Give practical step-by-step trade guidance, recommend tools/parts, and say clearly when to stop and call Gas Safe, an electrician, the office, or a specialist.",
+  "You are Ask Blake — NeXa Field’s on-site co-pilot for qualified UK plumbers, heating engineers and joiners.",
+  "The user is a tradesperson on the tools. Talk peer-to-peer — never DIY, never patronising.",
+  "Help diagnose faults from a short description and/or a site photo, then give sharp checks and next steps.",
+  "",
+  "Do NOT include:",
+  "- Tool lists or “what you’ll need” sections (they already know their kit)",
+  "- “Call for help if…” / when to call a professional sections",
+  "- Homeowner-style safety lectures, unless there is an immediate life-safety risk (gas, CO, live electrics)",
   "",
   "Response style:",
   "- Answer the engineer’s actual question first.",
   "- Keep it concise for someone standing on site. Plain text and short dash bullets only.",
-  "- Prefer UK practice, fittings and regulations language.",
+  "- Prefer UK trade practice and language.",
   "- Never invent meter readings, gas pressures, part numbers you cannot see, or prices.",
-  "- If a photo is attached, describe only what you can actually see, then give likely causes and checks.",
-  "- Flag safety hazards early (gas smell, CO risk, live electrics, structural, contaminated water).",
-  "- DIY homeowner advice is fine only when asked; default to professional field-engineer guidance.",
+  "- If a photo is attached, say only what you can actually see, then likely causes and checks.",
+  "- Mention parts only if a specific part is the likely fix — not a shopping list of tools.",
   "",
   "Prefer this shape when diagnosing:",
   "1) Likely issue",
   "2) Quick checks",
-  "3) Steps",
-  "4) Tools / parts",
-  "5) Call for help if…",
+  "3) Next steps",
 ].join("\n");
 
 function includesAny(text: string, words: string[]) {
@@ -58,37 +60,34 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
 
   if (includesAny(text, ["gas smell", "smell of gas", "co alarm", "carbon monoxide"])) {
     return [
-      `${jobBit}Treat this as an emergency until proven otherwise.`,
-      "- Do not create sparks or operate switches if you smell gas.",
-      "- Ventilate if safe, isolate at the meter if competent and trained, evacuate as needed.",
-      "- Call the National Gas Emergency Service on 0800 111 999 and notify the office.",
-      "- Ask Blake can guide checks later — safety first now.",
+      `${jobBit}Treat as emergency until proven otherwise.`,
+      "- No sparks / switches if you can smell gas.",
+      "- Ventilate if safe; isolate at meter if you’re competent to do so.",
+      "- National Gas Emergency Service: 0800 111 999. Notify the office.",
     ].join("\n");
   }
 
   if (includesAny(text, ["leak", "dripping", "burst", "flood"])) {
     return [
-      `${jobBit}Likely water leak — isolate before diagnosing.`,
+      `${jobBit}Likely water leak — isolate first.`,
       "Quick checks:",
-      "- Find and close the nearest service valve / stopcock.",
-      "- Note whether it is mains cold, hot, heating, or waste.",
-      "- Check joints, valves, appliance connections and any recent work.",
-      "Tools / parts often needed: adjustable grips, PTFE, olives/compression fittings, buckets, towels, pipe freeze if you cannot isolate.",
-      "Call for help if: structural damage, uncontrolled flow after isolation, or electrics are wet.",
-      input.imageDataUrl ? "Photo received — OpenAI is offline, so this is a general field fallback." : "Attach a photo of the leak source if you want a tighter read next time.",
-    ].join("\n");
+      "- Nearest service valve / stopcock.",
+      "- Mains cold, hot, heating, or waste?",
+      "- Joints, valves, appliance connections, any recent work.",
+      "Next: pin the source, then repair or cap off.",
+      input.imageDataUrl ? "Photo received — OpenAI is offline, so this is a general field fallback." : "",
+    ].filter(Boolean).join("\n");
   }
 
   if (includesAny(text, ["no hot water", "hot water", "boiler", "heating", "radiator", "cylinder"])) {
     return [
       `${jobBit}Likely heating / hot-water fault.`,
       "Quick checks:",
-      "- Power, programmer, room stat and boiler fault code / lockout.",
-      "- System pressure (sealed systems typically ~1.0–1.5 bar cold).",
-      "- Condensate run, gas supply, and any recent Tripping RCD / fuse.",
-      "- For one cold radiator: bleed, lockshield, and check pump/zone valve.",
-      "Tools / parts: pressure gauge awareness, bleed key, multimeter, inhibitor, valves/pump as indicated.",
-      "Call for help if: gas work beyond your competence, or persistent lockout with unknown code.",
+      "- Power, programmer, room stat, boiler fault code / lockout.",
+      "- Sealed system pressure (~1.0–1.5 bar cold).",
+      "- Condensate, gas supply, recent RCD / fuse trip.",
+      "- One cold rad: bleed, lockshield, pump / zone valve.",
+      "Next: work from the fault code / symptom — don’t reset repeatedly without finding the cause.",
     ].join("\n");
   }
 
@@ -96,11 +95,10 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
     return [
       `${jobBit}Likely sanitary / waste issue.`,
       "Quick checks:",
-      "- Is it one fitting or several? That separates local blockage from stack/drain.",
-      "- For toilets: cistern fill, flapper/siphon, and outlet restriction.",
-      "- Protect the area, then rod/auger from the nearest access — do not force chemical fixes into unknown pipework.",
-      "Tools / parts: gloves, auger/rods, wet vac, pan connector, siphon/diaphragm kits.",
-      "Call for help if: shared stack issue, sewage backing up from other properties, or broken soil stack.",
+      "- One fitting or several? Local vs stack / drain.",
+      "- Toilet: fill, siphon / flapper, outlet restriction.",
+      "- Rod / auger from nearest access — don’t force chemicals into unknown pipework.",
+      "Next: clear the restriction, then confirm free flow on flush.",
     ].join("\n");
   }
 
@@ -108,23 +106,17 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
     return [
       `${jobBit}Likely supply / outlet issue.`,
       "Quick checks:",
-      "- Confirm isolation valves are open and filters/aerators are clear.",
-      "- Compare hot vs cold and other outlets to isolate the fault.",
-      "- For showers: check pump (if present), valve cartridges and scaled heads.",
-      "Tools / parts: aerator key, cartridge puller, descaler, flexible hoses, isolating valves.",
-      "Call for help if: no mains water at the stopcock or suspected supply authority fault.",
+      "- Isolation valves open; filters / aerators clear.",
+      "- Hot vs cold and other outlets — isolate the fault.",
+      "- Shower: pump (if fitted), cartridge, scaled head.",
+      "Next: fix the restricted outlet or upstream supply fault.",
     ].join("\n");
   }
 
   return [
-    `${jobBit}Ask Blake is ready — OpenAI is not connected on this pilot, so here is a practical starter.`,
-    "Tell me:",
-    "- What you can see / hear (or attach a photo)",
-    "- Hot, cold, heating, gas, waste, or joinery?",
-    "- What you have already tried",
-    "",
-    "I will reply with likely issue, quick checks, steps, tools/parts, and when to escalate.",
-    "Examples: “combi lockout 212”, “leak under bath trap”, “no hot water after cylinder swap”.",
+    `${jobBit}Ask Blake is ready — OpenAI is not connected on this pilot, so here’s a starter.`,
+    "Tell me what you can see / hear (or attach a photo), the system type, and what you’ve already tried.",
+    "I’ll come back with likely issue, quick checks and next steps — no tool lists.",
   ].join("\n");
 }
 
