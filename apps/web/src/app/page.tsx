@@ -4557,7 +4557,7 @@ const blankRecordSetupOptions: RecordSetupOptions = {
 
 const blankQuote: QuoteDraft = {
   clientId: "",
-  siteId: "",
+  siteId: CLIENT_SITE_NEW,
   customer: "",
   contactName: "",
   phone: "",
@@ -4576,7 +4576,7 @@ const blankQuote: QuoteDraft = {
 
 const blankJob: JobDraft = {
   clientId: "",
-  siteId: "",
+  siteId: CLIENT_SITE_NEW,
   customer: "",
   contactName: "",
   phone: "",
@@ -4635,7 +4635,7 @@ const blankLeadMainContact: LeadContact = {
 const blankLead: LeadDraft = {
   customerMode: "new",
   clientId: undefined,
-  siteId: undefined,
+  siteId: CLIENT_SITE_NEW,
   siteName: "",
   siteContact: "",
   mainContact: blankLeadMainContact,
@@ -7278,6 +7278,12 @@ export default function Dashboard() {
   const [newJob, setNewJob] = useState<JobDraft>(blankJob);
   const [quotePostcodeSearch, setQuotePostcodeSearch] = useState("");
   const [jobPostcodeSearch, setJobPostcodeSearch] = useState("");
+  const [leadAddressMatches, setLeadAddressMatches] = useState<Array<{ postcode: string; address: string }>>([]);
+  const [quoteAddressMatches, setQuoteAddressMatches] = useState<Array<{ postcode: string; address: string }>>([]);
+  const [jobAddressMatches, setJobAddressMatches] = useState<Array<{ postcode: string; address: string }>>([]);
+  const [leadAddressLookupBusy, setLeadAddressLookupBusy] = useState(false);
+  const [quoteAddressLookupBusy, setQuoteAddressLookupBusy] = useState(false);
+  const [jobAddressLookupBusy, setJobAddressLookupBusy] = useState(false);
   const [recordSetupById, setRecordSetupById] = useState<Record<string, RecordSetupOptions>>({});
   const [newClientSiteDraft, setNewClientSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
@@ -12143,40 +12149,162 @@ export default function Dashboard() {
     return buildLeadCustomerMatches(newLead, clients, clientSites);
   }, [clientSites, clients, newLead.clientId, newLead.customerName, newLead.email, newLead.phone, newLead.address]);
 
-  const leadAddressMatches = useMemo(() => {
-    const query = leadPostcodeSearch.trim().toLowerCase();
-    if (query.length < 3) return [];
-    return postcodeDirectory
-      .filter((entry) => entry.postcode.toLowerCase().includes(query))
-      .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
-      .slice(0, 8);
-  }, [leadPostcodeSearch]);
+  function workspaceAddressMatches(query: string) {
+    const q = query.trim().toLowerCase();
+    const compact = q.replace(/\s+/g, "");
+    if (q.length < 2) return [] as Array<{ postcode: string; address: string }>;
+    const matches: Array<{ postcode: string; address: string }> = [];
+    const seen = new Set<string>();
+    const push = (address: string) => {
+      const trimmed = address.trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) return;
+      const postcode = postcodeFromAddress(trimmed);
+      const haystack = `${trimmed} ${postcode}`.toLowerCase().replace(/\s+/g, "");
+      if (!trimmed.toLowerCase().includes(q) && !haystack.includes(compact) && !postcode.toLowerCase().includes(q)) {
+        return;
+      }
+      seen.add(key);
+      matches.push({ postcode: postcode || query.trim().toUpperCase(), address: trimmed });
+    };
+    clients.forEach((client) => push(client.billingAddress));
+    clientSites.forEach((site) => push(site.address));
+    return matches;
+  }
 
-  const quoteAddressMatches = useMemo(() => {
-    const query = quotePostcodeSearch.trim().toLowerCase();
-    if (query.length < 3) return [];
-    return postcodeDirectory
-      .filter((entry) => entry.postcode.toLowerCase().includes(query))
-      .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
-      .slice(0, 8);
-  }, [quotePostcodeSearch]);
+  useEffect(() => {
+    const query = leadPostcodeSearch.trim();
+    if (query.length < 2) {
+      setLeadAddressMatches([]);
+      setLeadAddressLookupBusy(false);
+      return;
+    }
+    let cancelled = false;
+    setLeadAddressLookupBusy(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
+          const payload = (await response.json().catch(() => ({}))) as {
+            matches?: Array<{ postcode: string; address: string }>;
+          };
+          if (cancelled) return;
+          const merged = [...workspaceAddressMatches(query), ...(payload.matches ?? [])];
+          const seen = new Set<string>();
+          setLeadAddressMatches(
+            merged.filter((match) => {
+              const key = match.address.trim().toLowerCase();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            }).slice(0, 12),
+          );
+        } catch {
+          if (!cancelled) setLeadAddressMatches(workspaceAddressMatches(query).slice(0, 12));
+        } finally {
+          if (!cancelled) setLeadAddressLookupBusy(false);
+        }
+      })();
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [leadPostcodeSearch, clients, clientSites]);
 
-  const jobAddressMatches = useMemo(() => {
-    const query = jobPostcodeSearch.trim().toLowerCase();
-    if (query.length < 3) return [];
-    return postcodeDirectory
-      .filter((entry) => entry.postcode.toLowerCase().includes(query))
-      .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
-      .slice(0, 8);
-  }, [jobPostcodeSearch]);
+  useEffect(() => {
+    const query = quotePostcodeSearch.trim();
+    if (query.length < 2) {
+      setQuoteAddressMatches([]);
+      setQuoteAddressLookupBusy(false);
+      return;
+    }
+    let cancelled = false;
+    setQuoteAddressLookupBusy(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
+          const payload = (await response.json().catch(() => ({}))) as {
+            matches?: Array<{ postcode: string; address: string }>;
+          };
+          if (cancelled) return;
+          const merged = [...workspaceAddressMatches(query), ...(payload.matches ?? [])];
+          const seen = new Set<string>();
+          setQuoteAddressMatches(
+            merged.filter((match) => {
+              const key = match.address.trim().toLowerCase();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            }).slice(0, 12),
+          );
+        } catch {
+          if (!cancelled) setQuoteAddressMatches(workspaceAddressMatches(query).slice(0, 12));
+        } finally {
+          if (!cancelled) setQuoteAddressLookupBusy(false);
+        }
+      })();
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [quotePostcodeSearch, clients, clientSites]);
+
+  useEffect(() => {
+    const query = jobPostcodeSearch.trim();
+    if (query.length < 2) {
+      setJobAddressMatches([]);
+      setJobAddressLookupBusy(false);
+      return;
+    }
+    let cancelled = false;
+    setJobAddressLookupBusy(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`);
+          const payload = (await response.json().catch(() => ({}))) as {
+            matches?: Array<{ postcode: string; address: string }>;
+          };
+          if (cancelled) return;
+          const merged = [...workspaceAddressMatches(query), ...(payload.matches ?? [])];
+          const seen = new Set<string>();
+          setJobAddressMatches(
+            merged.filter((match) => {
+              const key = match.address.trim().toLowerCase();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            }).slice(0, 12),
+          );
+        } catch {
+          if (!cancelled) setJobAddressMatches(workspaceAddressMatches(query).slice(0, 12));
+        } finally {
+          if (!cancelled) setJobAddressLookupBusy(false);
+        }
+      })();
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [jobPostcodeSearch, clients, clientSites]);
 
   function addressSelectedFromPostcode(postcodeSearch: string, address: string) {
     const query = postcodeSearch.trim().toLowerCase();
     const target = address.trim().toLowerCase();
-    if (query.length < 3 || !target) return false;
-    return postcodeDirectory.some((entry) =>
-      entry.postcode.toLowerCase().includes(query) &&
-      entry.addresses.some((candidate) => candidate.trim().toLowerCase() === target),
+    if (query.length < 2 || !target) return false;
+    return (
+      leadAddressMatches.some((match) => match.address.trim().toLowerCase() === target) ||
+      quoteAddressMatches.some((match) => match.address.trim().toLowerCase() === target) ||
+      jobAddressMatches.some((match) => match.address.trim().toLowerCase() === target) ||
+      postcodeDirectory.some((entry) =>
+        entry.postcode.toLowerCase().includes(query) &&
+        entry.addresses.some((candidate) => candidate.trim().toLowerCase() === target),
+      )
     );
   }
 
@@ -12189,16 +12317,11 @@ export default function Dashboard() {
     const address = input.address.trim();
     if (!address) return false;
     const linkedSiteId = realSiteIdOrUndefined(input.siteId);
-    // Existing linked site already carries a confirmed address.
     if (linkedSiteId) return true;
-    // Customer address (billing) or existing customer with a filled address is enough.
     if (input.siteId === CLIENT_SITE_BILLING && address) return true;
-    if (input.clientId && address.length >= 8) return true;
     if (addressSelectedFromPostcode(input.postcodeSearch, address)) return true;
-    // Allow a typed UK address when postcode search was started and address includes a postcode.
-    const searched = input.postcodeSearch.trim().length >= 3;
-    const hasPostcode = Boolean(postcodeFromAddress(address));
-    return searched && hasPostcode && address.length >= 10;
+    const hasPostcode = Boolean(postcodeFromAddress(address) || input.postcodeSearch.trim().length >= 5);
+    return hasPostcode && address.length >= 8;
   }
 
   function showNotice(message: string) {
@@ -23015,8 +23138,7 @@ export default function Dashboard() {
       ...current,
       customerMode: "new",
       clientId: undefined,
-      siteId: undefined,
-      siteName: "",
+      siteId: CLIENT_SITE_NEW,
     }));
   }
 
@@ -23061,14 +23183,7 @@ export default function Dashboard() {
     setNewQuote((current) => ({
       ...current,
       clientId: "",
-      siteId: "",
-      siteName: "",
-      customer: "",
-      contactName: "",
-      phone: "",
-      email: "",
-      address: "",
-      addressParts: blankLeadAddressParts,
+      siteId: CLIENT_SITE_NEW,
     }));
   }
 
@@ -23246,15 +23361,7 @@ export default function Dashboard() {
     setNewJob((current) => ({
       ...current,
       clientId: "",
-      siteId: "",
-      siteName: "",
-      customer: "",
-      contactName: "",
-      phone: "",
-      email: "",
-      address: "",
-      site: "",
-      addressParts: blankLeadAddressParts,
+      siteId: CLIENT_SITE_NEW,
     }));
   }
 
@@ -24201,7 +24308,7 @@ export default function Dashboard() {
       clientId: newQuote.clientId,
       siteId: newQuote.siteId,
     })) {
-      showNotice("Search by postcode first, then choose the address from the dropdown before creating the quote.");
+      showNotice("Enter a postcode and choose or type the site address before creating the quote.");
       return;
     }
     if (!client) {
@@ -24309,7 +24416,7 @@ export default function Dashboard() {
       clientId: newJob.clientId,
       siteId: newJob.siteId,
     })) {
-      showNotice("Search by postcode first, then choose the address from the dropdown before creating the job.");
+      showNotice("Enter a postcode and choose or type the site address before creating the job.");
       return;
     }
     if (!client) {
@@ -40573,42 +40680,32 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-                        <div className="form-body simpro-setup-layout">
+                                    <div className="form-body simpro-setup-layout">
               <div className="simpro-setup-form">
-                <div className="simpro-setup-tabs" aria-label="Lead create sections">
-                  <span className="active">Setup</span>
-                  <span>Details</span>
-                </div>
-
-                <div className="simpro-setup-field-with-action">
-                  <label>
-                    <span className="simpro-required">Customer</span>
-                    <input
-                      value={newLead.customerName}
-                      onChange={(event) =>
-                        setNewLead((current) => ({
-                          ...current,
-                          customerMode: "new",
-                          clientId: undefined,
-                          siteId: undefined,
-                          customerName: event.target.value,
-                        }))
-                      }
-                      placeholder="Find customer…"
-                    />
-                  </label>
-                  <button type="button" className="simpro-setup-create-link" onClick={beginNewCustomerOnLead}>
-                    Create New
-                  </button>
-                </div>
+                <label>
+                  <span className="simpro-required">Customer</span>
+                  <input
+                    value={newLead.customerName}
+                    onChange={(event) =>
+                      setNewLead((current) => ({
+                        ...current,
+                        customerMode: "new",
+                        clientId: undefined,
+                        siteId: CLIENT_SITE_NEW,
+                        customerName: event.target.value,
+                      }))
+                    }
+                    placeholder="Type customer name — pick a match or leave as a new customer"
+                  />
+                </label>
                 {newLead.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Selected: <strong>{newLead.customerName}</strong>
+                      Existing customer: <strong>{newLead.customerName}</strong>
                     </span>
                     <button type="button" onClick={clearLeadCustomerMatch}>
-                      Clear
+                      Use as new instead
                     </button>
                   </div>
                 ) : leadCustomerMatches.length > 0 ? (
@@ -40623,12 +40720,12 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : newLead.customerName.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No match — Create New customer will be saved with this lead.</p>
+                  <p className="lead-match-empty">New customer — will be created with this lead.</p>
                 ) : null}
 
-                <div className="simpro-setup-field-with-action">
+                {newLead.clientId ? (
                   <label>
-                    <span className="simpro-required">Site</span>
+                    Saved site
                     <select
                       value={siteSelectionValueForForm(
                         clients.find((item) => item.id === newLead.clientId),
@@ -40638,8 +40735,7 @@ export default function Dashboard() {
                       )}
                       onChange={(event) => setLeadExistingSite(event.target.value)}
                     >
-                      {!newLead.clientId ? <option value={CLIENT_SITE_NEW}>Create new site…</option> : null}
-                      {newLead.clientId && clients.find((item) => item.id === newLead.clientId)?.billingAddress?.trim() ? (
+                      {clients.find((item) => item.id === newLead.clientId)?.billingAddress?.trim() ? (
                         <option value={CLIENT_SITE_BILLING}>
                           Customer address — {clients.find((item) => item.id === newLead.clientId)?.billingAddress}
                         </option>
@@ -40649,84 +40745,76 @@ export default function Dashboard() {
                           {site.name} - {site.address}
                         </option>
                       ))}
-                      <option value={CLIENT_SITE_NEW}>+ New site</option>
+                      <option value={CLIENT_SITE_NEW}>Enter a different address below</option>
                     </select>
                   </label>
-                  <button type="button" className="simpro-setup-create-link" onClick={beginNewSiteOnLead}>
-                    Create New
-                  </button>
-                </div>
-
-                {(newLead.siteId === CLIENT_SITE_NEW || !newLead.clientId) ? (
-                  <div className="simpro-setup-new-site">
-                    <label>
-                      Site name
-                      <input
-                        value={newLead.siteName ?? ""}
-                        onChange={(event) => setNewLead((current) => ({ ...current, siteName: event.target.value }))}
-                        placeholder="Site / property name"
-                      />
-                    </label>
-                    <label>
-                      Postcode lookup
-                      <input value={leadPostcodeSearch} onChange={(event) => setLeadPostcodeSearch(event.target.value)} placeholder="Type postcode, then pick an address" />
-                    </label>
-                    {leadAddressMatches.length > 0 ? (
-                      <div className="lead-address-results" aria-label="Address matches">
-                        {leadAddressMatches.map((match) => (
-                          <button type="button" key={match.address} onClick={() => selectLeadAddress(match.address, match.postcode)}>
-                            {match.address}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="simpro-setup-grid-2">
-                      <label>
-                        Address
-                        <input value={newLead.addressParts?.line1 ?? ""} onChange={(event) => updateLeadAddressParts({ line1: event.target.value })} />
-                      </label>
-                      <label>
-                        Address 2
-                        <input value={newLead.addressParts?.line2 ?? ""} onChange={(event) => updateLeadAddressParts({ line2: event.target.value })} />
-                      </label>
-                      <label>
-                        Town / Suburb
-                        <input value={newLead.addressParts?.town ?? ""} onChange={(event) => updateLeadAddressParts({ town: event.target.value })} />
-                      </label>
-                      <label>
-                        County
-                        <input value={newLead.addressParts?.county ?? ""} onChange={(event) => updateLeadAddressParts({ county: event.target.value })} />
-                      </label>
-                      <label>
-                        Postal code
-                        <input value={newLead.addressParts?.postcode ?? ""} onChange={(event) => updateLeadAddressParts({ postcode: event.target.value })} />
-                      </label>
-                    </div>
-                  </div>
                 ) : null}
+
+                <div className="simpro-setup-new-site">
+                  <label>
+                    Site name
+                    <input
+                      value={newLead.siteName ?? ""}
+                      onChange={(event) => setNewLead((current) => ({ ...current, siteName: event.target.value }))}
+                      placeholder="Site / property name"
+                    />
+                  </label>
+                  <label>
+                    <span className="simpro-required">Postcode</span>
+                    <input
+                      value={leadPostcodeSearch}
+                      onChange={(event) => setLeadPostcodeSearch(event.target.value)}
+                      placeholder="Type postcode to list addresses"
+                    />
+                  </label>
+                  {leadAddressLookupBusy ? <p className="lead-match-empty">Looking up addresses…</p> : null}
+                  {leadAddressMatches.length > 0 ? (
+                    <div className="lead-address-results" aria-label="Address matches">
+                      {leadAddressMatches.map((match) => (
+                        <button type="button" key={match.address} onClick={() => selectLeadAddress(match.address, match.postcode)}>
+                          {match.address}
+                        </button>
+                      ))}
+                    </div>
+                  ) : leadPostcodeSearch.trim().length >= 2 && !leadAddressLookupBusy ? (
+                    <p className="lead-match-empty">No address list yet — keep typing the postcode, or enter the address below.</p>
+                  ) : null}
+                  <div className="simpro-setup-grid-2">
+                    <label>
+                      Address
+                      <input value={newLead.addressParts?.line1 ?? ""} onChange={(event) => updateLeadAddressParts({ line1: event.target.value })} />
+                    </label>
+                    <label>
+                      Address 2
+                      <input value={newLead.addressParts?.line2 ?? ""} onChange={(event) => updateLeadAddressParts({ line2: event.target.value })} />
+                    </label>
+                    <label>
+                      Town / Suburb
+                      <input value={newLead.addressParts?.town ?? ""} onChange={(event) => updateLeadAddressParts({ town: event.target.value })} />
+                    </label>
+                    <label>
+                      County
+                      <input value={newLead.addressParts?.county ?? ""} onChange={(event) => updateLeadAddressParts({ county: event.target.value })} />
+                    </label>
+                    <label>
+                      Postal code
+                      <input value={newLead.addressParts?.postcode ?? ""} onChange={(event) => updateLeadAddressParts({ postcode: event.target.value })} />
+                    </label>
+                  </div>
+                </div>
 
                 <div className="simpro-setup-grid-2">
                   <label>
                     Primary customer contact
-                    <input
-                      value={newLead.mainContact?.name ?? ""}
-                      onChange={(event) => updateLeadMainContact({ name: event.target.value })}
-                    />
+                    <input value={newLead.mainContact?.name ?? ""} onChange={(event) => updateLeadMainContact({ name: event.target.value })} />
                   </label>
                   <label>
                     Site contact
-                    <input
-                      value={newLead.siteContact ?? ""}
-                      onChange={(event) => setNewLead((current) => ({ ...current, siteContact: event.target.value }))}
-                    />
+                    <input value={newLead.siteContact ?? ""} onChange={(event) => setNewLead((current) => ({ ...current, siteContact: event.target.value }))} />
                   </label>
                   <label>
                     Title
-                    <input
-                      value={newLead.description}
-                      onChange={(event) => setNewLead((current) => ({ ...current, description: event.target.value }))}
-                      placeholder="Lead title"
-                    />
+                    <input value={newLead.description} onChange={(event) => setNewLead((current) => ({ ...current, description: event.target.value }))} placeholder="Lead title" />
                   </label>
                   <label>
                     Salesman
@@ -40758,11 +40846,10 @@ export default function Dashboard() {
                   </label>
                 </div>
 
-
                 <div className="simpro-setup-rates" aria-label="Rates and options">
                   <div className="simpro-setup-rates-head">
                     <h4>Rates &amp; options</h4>
-                    <span>Defaults from system settings — change per record like simPRO</span>
+                    <span>Defaults from system settings — change for this record if needed</span>
                   </div>
                   <div className="simpro-setup-rates-grid">
                     <label>
@@ -40796,20 +40883,8 @@ export default function Dashboard() {
                     <label>
                       Labour estimates
                       <div className="simpro-setup-toggle" role="group" aria-label="Labour estimates">
-                        <button
-                          type="button"
-                          className={(newLead.setup ?? blankRecordSetupOptions).labourEstimatesOn ? "" : "active"}
-                          onClick={() => patchLeadSetup({ labourEstimatesOn: false })}
-                        >
-                          Off
-                        </button>
-                        <button
-                          type="button"
-                          className={(newLead.setup ?? blankRecordSetupOptions).labourEstimatesOn ? "active" : ""}
-                          onClick={() => patchLeadSetup({ labourEstimatesOn: true })}
-                        >
-                          On
-                        </button>
+                        <button type="button" className={(newLead.setup ?? blankRecordSetupOptions).labourEstimatesOn ? "" : "active"} onClick={() => patchLeadSetup({ labourEstimatesOn: false })}>Off</button>
+                        <button type="button" className={(newLead.setup ?? blankRecordSetupOptions).labourEstimatesOn ? "active" : ""} onClick={() => patchLeadSetup({ labourEstimatesOn: true })}>On</button>
                       </div>
                     </label>
                     <label>
@@ -40824,21 +40899,11 @@ export default function Dashboard() {
                     </label>
                     <label>
                       Labour markup %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={(newLead.setup ?? blankRecordSetupOptions).labourMarkupPercent}
-                        disabled={(newLead.setup ?? blankRecordSetupOptions).labourMarkupMode === "system"}
-                        onChange={(event) => patchLeadSetup({ labourMarkupPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={(newLead.setup ?? blankRecordSetupOptions).labourMarkupPercent} disabled={(newLead.setup ?? blankRecordSetupOptions).labourMarkupMode === "system"} onChange={(event) => patchLeadSetup({ labourMarkupPercent: event.target.value })} />
                     </label>
                     <label>
                       Labour fit time
-                      <select
-                        value={(newLead.setup ?? blankRecordSetupOptions).labourFitTime}
-                        onChange={(event) => patchLeadSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}
-                      >
+                      <select value={(newLead.setup ?? blankRecordSetupOptions).labourFitTime} onChange={(event) => patchLeadSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}>
                         <option value="Minutes (0.1)">Minutes (0.1)</option>
                         <option value="Hours">Hours</option>
                       </select>
@@ -40853,23 +40918,11 @@ export default function Dashboard() {
                     </label>
                     <label>
                       Default material markup %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={(newLead.setup ?? blankRecordSetupOptions).materialMarkupPercent}
-                        onChange={(event) => patchLeadSetup({ materialMarkupPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={(newLead.setup ?? blankRecordSetupOptions).materialMarkupPercent} onChange={(event) => patchLeadSetup({ materialMarkupPercent: event.target.value })} />
                     </label>
                     <label>
                       Discount %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={(newLead.setup ?? blankRecordSetupOptions).discountPercent}
-                        onChange={(event) => patchLeadSetup({ discountPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={(newLead.setup ?? blankRecordSetupOptions).discountPercent} onChange={(event) => patchLeadSetup({ discountPercent: event.target.value })} />
                     </label>
                     <label>
                       Item tax code
@@ -40883,30 +40936,22 @@ export default function Dashboard() {
                 </div>
 
               </div>
-
               <aside className="simpro-setup-map" aria-label="Site map">
                 {newLead.address ? (
                   <>
-                    <iframe
-                      title="Lead map preview"
-                      src={leadMapEmbedUrl(newLead.address)}
-                      loading="lazy"
-                      referrerPolicy="no-referrer-when-downgrade"
-                      allowFullScreen
-                    />
-                    <a href={leadMapSearchUrl(newLead.address)} target="_blank" rel="noreferrer" className="lead-map-link">
-                      Open in maps
-                    </a>
+                    <iframe title="Lead map preview" src={leadMapEmbedUrl(newLead.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                    <a href={leadMapSearchUrl(newLead.address)} target="_blank" rel="noreferrer" className="lead-map-link">Open in maps</a>
                   </>
                 ) : (
                   <div className="simpro-create-map-empty">
                     <MapPin size={22} />
                     <strong>Site map</strong>
-                    <span>Select or create a site to place it on the map</span>
+                    <span>Pick a postcode address to place the site</span>
                   </div>
                 )}
               </aside>
             </div>
+
 
             <div className="form-footer simpro-create-footer">
               {leadFormError ? (
@@ -40926,7 +40971,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" type="button" onClick={submitLead}>
-                Next
+                Save lead
               </button>
             </div>
           </section>
@@ -40956,41 +41001,31 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-                        <div className="form-body simpro-setup-layout">
+                                    <div className="form-body simpro-setup-layout">
               <div className="simpro-setup-form">
-                <div className="simpro-setup-tabs" aria-label="Quote create sections">
-                  <span className="active">Setup</span>
-                  <span>Sections</span>
-                </div>
-
-                <div className="simpro-setup-field-with-action">
-                  <label>
-                    <span className="simpro-required">Customer</span>
-                    <input
-                      value={newQuote.customer}
-                      onChange={(event) =>
-                        setNewQuote((current) => ({
-                          ...current,
-                          clientId: "",
-                          siteId: "",
-                          customer: event.target.value,
-                        }))
-                      }
-                      placeholder="Find customer…"
-                    />
-                  </label>
-                  <button type="button" className="simpro-setup-create-link" onClick={beginNewCustomerOnQuote}>
-                    Create New
-                  </button>
-                </div>
+                <label>
+                  <span className="simpro-required">Customer</span>
+                  <input
+                    value={newQuote.customer}
+                    onChange={(event) =>
+                      setNewQuote((current) => ({
+                        ...current,
+                        clientId: "",
+                        siteId: CLIENT_SITE_NEW,
+                        customer: event.target.value,
+                      }))
+                    }
+                    placeholder="Type customer name — pick a match or leave as a new customer"
+                  />
+                </label>
                 {newQuote.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Selected: <strong>{newQuote.customer}</strong>
+                      Existing customer: <strong>{newQuote.customer}</strong>
                     </span>
                     <button type="button" onClick={clearQuoteCustomerMatch}>
-                      Clear
+                      Use as new instead
                     </button>
                   </div>
                 ) : quoteCustomerMatches.length > 0 ? (
@@ -41005,12 +41040,12 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : newQuote.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No match — Create New customer will be saved with this quote.</p>
+                  <p className="lead-match-empty">New customer — will be created with this quote.</p>
                 ) : null}
 
-                <div className="simpro-setup-field-with-action">
+                {newQuote.clientId ? (
                   <label>
-                    <span className="simpro-required">Site</span>
+                    Saved site
                     <select
                       value={siteSelectionValueForForm(
                         clients.find((item) => item.id === newQuote.clientId),
@@ -41020,8 +41055,7 @@ export default function Dashboard() {
                       )}
                       onChange={(event) => setQuoteExistingSite(event.target.value)}
                     >
-                      {!newQuote.clientId ? <option value={CLIENT_SITE_NEW}>Create new site…</option> : null}
-                      {newQuote.clientId && clients.find((item) => item.id === newQuote.clientId)?.billingAddress?.trim() ? (
+                      {clients.find((item) => item.id === newQuote.clientId)?.billingAddress?.trim() ? (
                         <option value={CLIENT_SITE_BILLING}>
                           Customer address — {clients.find((item) => item.id === newQuote.clientId)?.billingAddress}
                         </option>
@@ -41031,61 +41065,63 @@ export default function Dashboard() {
                           {site.name} - {site.address}
                         </option>
                       ))}
-                      <option value={CLIENT_SITE_NEW}>+ New site</option>
+                      <option value={CLIENT_SITE_NEW}>Enter a different address below</option>
                     </select>
                   </label>
-                  <button type="button" className="simpro-setup-create-link" onClick={beginNewSiteOnQuote}>
-                    Create New
-                  </button>
-                </div>
-
-                {(newQuote.siteId === CLIENT_SITE_NEW || !newQuote.clientId) ? (
-                  <div className="simpro-setup-new-site">
-                    <label>
-                      Site name
-                      <input
-                        value={newQuote.siteName}
-                        onChange={(event) => setNewQuote((current) => ({ ...current, siteName: event.target.value }))}
-                        placeholder="Site / property name"
-                      />
-                    </label>
-                    <label>
-                      Postcode lookup
-                      <input value={quotePostcodeSearch} onChange={(event) => setQuotePostcodeSearch(event.target.value)} placeholder="Type postcode, then pick an address" />
-                    </label>
-                    {quoteAddressMatches.length > 0 ? (
-                      <div className="lead-address-results" aria-label="Quote address matches">
-                        {quoteAddressMatches.map((match) => (
-                          <button type="button" key={match.address} onClick={() => selectQuoteAddress(match.address, match.postcode)}>
-                            {match.address}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="simpro-setup-grid-2">
-                      <label>
-                        Address
-                        <input value={newQuote.addressParts?.line1 ?? ""} onChange={(event) => updateQuoteAddressParts({ line1: event.target.value })} />
-                      </label>
-                      <label>
-                        Address 2
-                        <input value={newQuote.addressParts?.line2 ?? ""} onChange={(event) => updateQuoteAddressParts({ line2: event.target.value })} />
-                      </label>
-                      <label>
-                        Town / Suburb
-                        <input value={newQuote.addressParts?.town ?? ""} onChange={(event) => updateQuoteAddressParts({ town: event.target.value })} />
-                      </label>
-                      <label>
-                        County
-                        <input value={newQuote.addressParts?.county ?? ""} onChange={(event) => updateQuoteAddressParts({ county: event.target.value })} />
-                      </label>
-                      <label>
-                        Postal code
-                        <input value={newQuote.addressParts?.postcode ?? ""} onChange={(event) => updateQuoteAddressParts({ postcode: event.target.value })} />
-                      </label>
-                    </div>
-                  </div>
                 ) : null}
+
+                <div className="simpro-setup-new-site">
+                  <label>
+                    Site name
+                    <input
+                      value={newQuote.siteName}
+                      onChange={(event) => setNewQuote((current) => ({ ...current, siteName: event.target.value }))}
+                      placeholder="Site / property name"
+                    />
+                  </label>
+                  <label>
+                    <span className="simpro-required">Postcode</span>
+                    <input
+                      value={quotePostcodeSearch}
+                      onChange={(event) => setQuotePostcodeSearch(event.target.value)}
+                      placeholder="Type postcode to list addresses"
+                    />
+                  </label>
+                  {quoteAddressLookupBusy ? <p className="lead-match-empty">Looking up addresses…</p> : null}
+                  {quoteAddressMatches.length > 0 ? (
+                    <div className="lead-address-results" aria-label="Quote address matches">
+                      {quoteAddressMatches.map((match) => (
+                        <button type="button" key={match.address} onClick={() => selectQuoteAddress(match.address, match.postcode)}>
+                          {match.address}
+                        </button>
+                      ))}
+                    </div>
+                  ) : quotePostcodeSearch.trim().length >= 2 && !quoteAddressLookupBusy ? (
+                    <p className="lead-match-empty">No address list yet — keep typing the postcode, or enter the address below.</p>
+                  ) : null}
+                  <div className="simpro-setup-grid-2">
+                    <label>
+                      Address
+                      <input value={newQuote.addressParts?.line1 ?? ""} onChange={(event) => updateQuoteAddressParts({ line1: event.target.value })} />
+                    </label>
+                    <label>
+                      Address 2
+                      <input value={newQuote.addressParts?.line2 ?? ""} onChange={(event) => updateQuoteAddressParts({ line2: event.target.value })} />
+                    </label>
+                    <label>
+                      Town / Suburb
+                      <input value={newQuote.addressParts?.town ?? ""} onChange={(event) => updateQuoteAddressParts({ town: event.target.value })} />
+                    </label>
+                    <label>
+                      County
+                      <input value={newQuote.addressParts?.county ?? ""} onChange={(event) => updateQuoteAddressParts({ county: event.target.value })} />
+                    </label>
+                    <label>
+                      Postal code
+                      <input value={newQuote.addressParts?.postcode ?? ""} onChange={(event) => updateQuoteAddressParts({ postcode: event.target.value })} />
+                    </label>
+                  </div>
+                </div>
 
                 <div className="simpro-setup-grid-2">
                   <label>
@@ -41094,33 +41130,19 @@ export default function Dashboard() {
                   </label>
                   <label>
                     Additional customer contact
-                    <input
-                      value={newQuote.setup.additionalContactName}
-                      onChange={(event) => patchQuoteSetup({ additionalContactName: event.target.value })}
-                    />
+                    <input value={newQuote.setup.additionalContactName} onChange={(event) => patchQuoteSetup({ additionalContactName: event.target.value })} />
                   </label>
                   <label>
                     Site contact
-                    <input
-                      value={newQuote.setup.siteContact}
-                      onChange={(event) => patchQuoteSetup({ siteContact: event.target.value })}
-                    />
+                    <input value={newQuote.setup.siteContact} onChange={(event) => patchQuoteSetup({ siteContact: event.target.value })} />
                   </label>
                   <label>
                     Title
-                    <input
-                      value={newQuote.description}
-                      onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))}
-                      placeholder="Quote title"
-                    />
+                    <input value={newQuote.description} onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))} placeholder="Quote title" />
                   </label>
                   <label>
                     Tags
-                    <input
-                      value={newQuote.setup.tags}
-                      onChange={(event) => patchQuoteSetup({ tags: event.target.value })}
-                      placeholder="Optional tags"
-                    />
+                    <input value={newQuote.setup.tags} onChange={(event) => patchQuoteSetup({ tags: event.target.value })} placeholder="Optional tags" />
                   </label>
                   <label>
                     Salesman
@@ -41152,11 +41174,10 @@ export default function Dashboard() {
                   </label>
                 </div>
 
-
                 <div className="simpro-setup-rates" aria-label="Rates and options">
                   <div className="simpro-setup-rates-head">
                     <h4>Rates &amp; options</h4>
-                    <span>Defaults from system settings — change per record like simPRO</span>
+                    <span>Defaults from system settings — change for this record if needed</span>
                   </div>
                   <div className="simpro-setup-rates-grid">
                     <label>
@@ -41190,20 +41211,8 @@ export default function Dashboard() {
                     <label>
                       Labour estimates
                       <div className="simpro-setup-toggle" role="group" aria-label="Labour estimates">
-                        <button
-                          type="button"
-                          className={newQuote.setup.labourEstimatesOn ? "" : "active"}
-                          onClick={() => patchQuoteSetup({ labourEstimatesOn: false })}
-                        >
-                          Off
-                        </button>
-                        <button
-                          type="button"
-                          className={newQuote.setup.labourEstimatesOn ? "active" : ""}
-                          onClick={() => patchQuoteSetup({ labourEstimatesOn: true })}
-                        >
-                          On
-                        </button>
+                        <button type="button" className={newQuote.setup.labourEstimatesOn ? "" : "active"} onClick={() => patchQuoteSetup({ labourEstimatesOn: false })}>Off</button>
+                        <button type="button" className={newQuote.setup.labourEstimatesOn ? "active" : ""} onClick={() => patchQuoteSetup({ labourEstimatesOn: true })}>On</button>
                       </div>
                     </label>
                     <label>
@@ -41218,21 +41227,11 @@ export default function Dashboard() {
                     </label>
                     <label>
                       Labour markup %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={newQuote.setup.labourMarkupPercent}
-                        disabled={newQuote.setup.labourMarkupMode === "system"}
-                        onChange={(event) => patchQuoteSetup({ labourMarkupPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={newQuote.setup.labourMarkupPercent} disabled={newQuote.setup.labourMarkupMode === "system"} onChange={(event) => patchQuoteSetup({ labourMarkupPercent: event.target.value })} />
                     </label>
                     <label>
                       Labour fit time
-                      <select
-                        value={newQuote.setup.labourFitTime}
-                        onChange={(event) => patchQuoteSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}
-                      >
+                      <select value={newQuote.setup.labourFitTime} onChange={(event) => patchQuoteSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}>
                         <option value="Minutes (0.1)">Minutes (0.1)</option>
                         <option value="Hours">Hours</option>
                       </select>
@@ -41247,23 +41246,11 @@ export default function Dashboard() {
                     </label>
                     <label>
                       Default material markup %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={newQuote.setup.materialMarkupPercent}
-                        onChange={(event) => patchQuoteSetup({ materialMarkupPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={newQuote.setup.materialMarkupPercent} onChange={(event) => patchQuoteSetup({ materialMarkupPercent: event.target.value })} />
                     </label>
                     <label>
                       Discount %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={newQuote.setup.discountPercent}
-                        onChange={(event) => patchQuoteSetup({ discountPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={newQuote.setup.discountPercent} onChange={(event) => patchQuoteSetup({ discountPercent: event.target.value })} />
                     </label>
                     <label>
                       Item tax code
@@ -41277,24 +41264,22 @@ export default function Dashboard() {
                 </div>
 
               </div>
-
               <aside className="simpro-setup-map" aria-label="Site map">
                 {newQuote.address ? (
                   <>
                     <iframe title="Quote map preview" src={leadMapEmbedUrl(newQuote.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
-                    <a href={leadMapSearchUrl(newQuote.address)} target="_blank" rel="noreferrer" className="lead-map-link">
-                      Open in maps
-                    </a>
+                    <a href={leadMapSearchUrl(newQuote.address)} target="_blank" rel="noreferrer" className="lead-map-link">Open in maps</a>
                   </>
                 ) : (
                   <div className="simpro-create-map-empty">
                     <MapPin size={22} />
                     <strong>Site map</strong>
-                    <span>Select or create a site to place it on the map</span>
+                    <span>Pick a postcode address to place the site</span>
                   </div>
                 )}
               </aside>
             </div>
+
 
             <div className="form-footer simpro-create-footer">
               <button
@@ -41307,7 +41292,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" onClick={submitQuote}>
-                Next
+                Save quote
               </button>
             </div>
           </section>
@@ -41337,42 +41322,32 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-                        <div className="form-body simpro-setup-layout">
+                                    <div className="form-body simpro-setup-layout">
               <div className="simpro-setup-form">
-                <div className="simpro-setup-tabs" aria-label="Job create sections">
-                  <span className="active">Setup</span>
-                  <span>Sections</span>
-                </div>
-
-                <div className="simpro-setup-field-with-action">
-                  <label>
-                    <span className="simpro-required">Customer</span>
-                    <input
-                      value={newJob.customer}
-                      onChange={(event) =>
-                        setNewJob((current) => ({
-                          ...current,
-                          clientId: "",
-                          siteId: "",
-                          site: "",
-                          customer: event.target.value,
-                        }))
-                      }
-                      placeholder="Find customer…"
-                    />
-                  </label>
-                  <button type="button" className="simpro-setup-create-link" onClick={beginNewCustomerOnJob}>
-                    Create New
-                  </button>
-                </div>
+                <label>
+                  <span className="simpro-required">Customer</span>
+                  <input
+                    value={newJob.customer}
+                    onChange={(event) =>
+                      setNewJob((current) => ({
+                        ...current,
+                        clientId: "",
+                        siteId: CLIENT_SITE_NEW,
+                        site: "",
+                        customer: event.target.value,
+                      }))
+                    }
+                    placeholder="Type customer name — pick a match or leave as a new customer"
+                  />
+                </label>
                 {newJob.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Selected: <strong>{newJob.customer}</strong>
+                      Existing customer: <strong>{newJob.customer}</strong>
                     </span>
                     <button type="button" onClick={clearJobCustomerMatch}>
-                      Clear
+                      Use as new instead
                     </button>
                   </div>
                 ) : jobCustomerMatches.length > 0 ? (
@@ -41387,12 +41362,12 @@ export default function Dashboard() {
                     ))}
                   </div>
                 ) : newJob.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No match — Create New customer will be saved with this job.</p>
+                  <p className="lead-match-empty">New customer — will be created with this job.</p>
                 ) : null}
 
-                <div className="simpro-setup-field-with-action">
+                {newJob.clientId ? (
                   <label>
-                    <span className="simpro-required">Site</span>
+                    Saved site
                     <select
                       value={siteSelectionValueForForm(
                         clients.find((item) => item.id === newJob.clientId),
@@ -41402,8 +41377,7 @@ export default function Dashboard() {
                       )}
                       onChange={(event) => setJobExistingSite(event.target.value)}
                     >
-                      {!newJob.clientId ? <option value={CLIENT_SITE_NEW}>Create new site…</option> : null}
-                      {newJob.clientId && clients.find((item) => item.id === newJob.clientId)?.billingAddress?.trim() ? (
+                      {clients.find((item) => item.id === newJob.clientId)?.billingAddress?.trim() ? (
                         <option value={CLIENT_SITE_BILLING}>
                           Customer address — {clients.find((item) => item.id === newJob.clientId)?.billingAddress}
                         </option>
@@ -41413,61 +41387,63 @@ export default function Dashboard() {
                           {site.name} - {site.address}
                         </option>
                       ))}
-                      <option value={CLIENT_SITE_NEW}>+ New site</option>
+                      <option value={CLIENT_SITE_NEW}>Enter a different address below</option>
                     </select>
                   </label>
-                  <button type="button" className="simpro-setup-create-link" onClick={beginNewSiteOnJob}>
-                    Create New
-                  </button>
-                </div>
-
-                {(newJob.siteId === CLIENT_SITE_NEW || !newJob.clientId) ? (
-                  <div className="simpro-setup-new-site">
-                    <label>
-                      Site name
-                      <input
-                        value={newJob.siteName}
-                        onChange={(event) => setNewJob((current) => ({ ...current, siteName: event.target.value }))}
-                        placeholder="Site / property name"
-                      />
-                    </label>
-                    <label>
-                      Postcode lookup
-                      <input value={jobPostcodeSearch} onChange={(event) => setJobPostcodeSearch(event.target.value)} placeholder="Type postcode, then pick an address" />
-                    </label>
-                    {jobAddressMatches.length > 0 ? (
-                      <div className="lead-address-results" aria-label="Job address matches">
-                        {jobAddressMatches.map((match) => (
-                          <button type="button" key={match.address} onClick={() => selectJobAddress(match.address, match.postcode)}>
-                            {match.address}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                    <div className="simpro-setup-grid-2">
-                      <label>
-                        Address
-                        <input value={newJob.addressParts?.line1 ?? ""} onChange={(event) => updateJobAddressParts({ line1: event.target.value })} />
-                      </label>
-                      <label>
-                        Address 2
-                        <input value={newJob.addressParts?.line2 ?? ""} onChange={(event) => updateJobAddressParts({ line2: event.target.value })} />
-                      </label>
-                      <label>
-                        Town / Suburb
-                        <input value={newJob.addressParts?.town ?? ""} onChange={(event) => updateJobAddressParts({ town: event.target.value })} />
-                      </label>
-                      <label>
-                        County
-                        <input value={newJob.addressParts?.county ?? ""} onChange={(event) => updateJobAddressParts({ county: event.target.value })} />
-                      </label>
-                      <label>
-                        Postal code
-                        <input value={newJob.addressParts?.postcode ?? ""} onChange={(event) => updateJobAddressParts({ postcode: event.target.value })} />
-                      </label>
-                    </div>
-                  </div>
                 ) : null}
+
+                <div className="simpro-setup-new-site">
+                  <label>
+                    Site name
+                    <input
+                      value={newJob.siteName}
+                      onChange={(event) => setNewJob((current) => ({ ...current, siteName: event.target.value }))}
+                      placeholder="Site / property name"
+                    />
+                  </label>
+                  <label>
+                    <span className="simpro-required">Postcode</span>
+                    <input
+                      value={jobPostcodeSearch}
+                      onChange={(event) => setJobPostcodeSearch(event.target.value)}
+                      placeholder="Type postcode to list addresses"
+                    />
+                  </label>
+                  {jobAddressLookupBusy ? <p className="lead-match-empty">Looking up addresses…</p> : null}
+                  {jobAddressMatches.length > 0 ? (
+                    <div className="lead-address-results" aria-label="Job address matches">
+                      {jobAddressMatches.map((match) => (
+                        <button type="button" key={match.address} onClick={() => selectJobAddress(match.address, match.postcode)}>
+                          {match.address}
+                        </button>
+                      ))}
+                    </div>
+                  ) : jobPostcodeSearch.trim().length >= 2 && !jobAddressLookupBusy ? (
+                    <p className="lead-match-empty">No address list yet — keep typing the postcode, or enter the address below.</p>
+                  ) : null}
+                  <div className="simpro-setup-grid-2">
+                    <label>
+                      Address
+                      <input value={newJob.addressParts?.line1 ?? ""} onChange={(event) => updateJobAddressParts({ line1: event.target.value })} />
+                    </label>
+                    <label>
+                      Address 2
+                      <input value={newJob.addressParts?.line2 ?? ""} onChange={(event) => updateJobAddressParts({ line2: event.target.value })} />
+                    </label>
+                    <label>
+                      Town / Suburb
+                      <input value={newJob.addressParts?.town ?? ""} onChange={(event) => updateJobAddressParts({ town: event.target.value })} />
+                    </label>
+                    <label>
+                      County
+                      <input value={newJob.addressParts?.county ?? ""} onChange={(event) => updateJobAddressParts({ county: event.target.value })} />
+                    </label>
+                    <label>
+                      Postal code
+                      <input value={newJob.addressParts?.postcode ?? ""} onChange={(event) => updateJobAddressParts({ postcode: event.target.value })} />
+                    </label>
+                  </div>
+                </div>
 
                 <div className="simpro-setup-grid-2">
                   <label>
@@ -41476,33 +41452,19 @@ export default function Dashboard() {
                   </label>
                   <label>
                     Additional customer contact
-                    <input
-                      value={newJob.setup.additionalContactName}
-                      onChange={(event) => patchJobSetup({ additionalContactName: event.target.value })}
-                    />
+                    <input value={newJob.setup.additionalContactName} onChange={(event) => patchJobSetup({ additionalContactName: event.target.value })} />
                   </label>
                   <label>
                     Site contact
-                    <input
-                      value={newJob.setup.siteContact}
-                      onChange={(event) => patchJobSetup({ siteContact: event.target.value })}
-                    />
+                    <input value={newJob.setup.siteContact} onChange={(event) => patchJobSetup({ siteContact: event.target.value })} />
                   </label>
                   <label>
                     Title
-                    <input
-                      value={newJob.description}
-                      onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))}
-                      placeholder="Job title"
-                    />
+                    <input value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} placeholder="Job title" />
                   </label>
                   <label>
                     Tags
-                    <input
-                      value={newJob.setup.tags}
-                      onChange={(event) => patchJobSetup({ tags: event.target.value })}
-                      placeholder="Optional tags"
-                    />
+                    <input value={newJob.setup.tags} onChange={(event) => patchJobSetup({ tags: event.target.value })} placeholder="Optional tags" />
                   </label>
                   <label>
                     Project manager
@@ -41534,11 +41496,10 @@ export default function Dashboard() {
                   </label>
                 </div>
 
-
                 <div className="simpro-setup-rates" aria-label="Rates and options">
                   <div className="simpro-setup-rates-head">
                     <h4>Rates &amp; options</h4>
-                    <span>Defaults from system settings — change per record like simPRO</span>
+                    <span>Defaults from system settings — change for this record if needed</span>
                   </div>
                   <div className="simpro-setup-rates-grid">
                     <label>
@@ -41572,20 +41533,8 @@ export default function Dashboard() {
                     <label>
                       Labour estimates
                       <div className="simpro-setup-toggle" role="group" aria-label="Labour estimates">
-                        <button
-                          type="button"
-                          className={newJob.setup.labourEstimatesOn ? "" : "active"}
-                          onClick={() => patchJobSetup({ labourEstimatesOn: false })}
-                        >
-                          Off
-                        </button>
-                        <button
-                          type="button"
-                          className={newJob.setup.labourEstimatesOn ? "active" : ""}
-                          onClick={() => patchJobSetup({ labourEstimatesOn: true })}
-                        >
-                          On
-                        </button>
+                        <button type="button" className={newJob.setup.labourEstimatesOn ? "" : "active"} onClick={() => patchJobSetup({ labourEstimatesOn: false })}>Off</button>
+                        <button type="button" className={newJob.setup.labourEstimatesOn ? "active" : ""} onClick={() => patchJobSetup({ labourEstimatesOn: true })}>On</button>
                       </div>
                     </label>
                     <label>
@@ -41600,21 +41549,11 @@ export default function Dashboard() {
                     </label>
                     <label>
                       Labour markup %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={newJob.setup.labourMarkupPercent}
-                        disabled={newJob.setup.labourMarkupMode === "system"}
-                        onChange={(event) => patchJobSetup({ labourMarkupPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={newJob.setup.labourMarkupPercent} disabled={newJob.setup.labourMarkupMode === "system"} onChange={(event) => patchJobSetup({ labourMarkupPercent: event.target.value })} />
                     </label>
                     <label>
                       Labour fit time
-                      <select
-                        value={newJob.setup.labourFitTime}
-                        onChange={(event) => patchJobSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}
-                      >
+                      <select value={newJob.setup.labourFitTime} onChange={(event) => patchJobSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}>
                         <option value="Minutes (0.1)">Minutes (0.1)</option>
                         <option value="Hours">Hours</option>
                       </select>
@@ -41629,23 +41568,11 @@ export default function Dashboard() {
                     </label>
                     <label>
                       Default material markup %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={newJob.setup.materialMarkupPercent}
-                        onChange={(event) => patchJobSetup({ materialMarkupPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={newJob.setup.materialMarkupPercent} onChange={(event) => patchJobSetup({ materialMarkupPercent: event.target.value })} />
                     </label>
                     <label>
                       Discount %
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={newJob.setup.discountPercent}
-                        onChange={(event) => patchJobSetup({ discountPercent: event.target.value })}
-                      />
+                      <input type="number" min="0" step="0.1" value={newJob.setup.discountPercent} onChange={(event) => patchJobSetup({ discountPercent: event.target.value })} />
                     </label>
                     <label>
                       Item tax code
@@ -41659,24 +41586,22 @@ export default function Dashboard() {
                 </div>
 
               </div>
-
               <aside className="simpro-setup-map" aria-label="Site map">
                 {newJob.address ? (
                   <>
                     <iframe title="Job map preview" src={leadMapEmbedUrl(newJob.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
-                    <a href={leadMapSearchUrl(newJob.address)} target="_blank" rel="noreferrer" className="lead-map-link">
-                      Open in maps
-                    </a>
+                    <a href={leadMapSearchUrl(newJob.address)} target="_blank" rel="noreferrer" className="lead-map-link">Open in maps</a>
                   </>
                 ) : (
                   <div className="simpro-create-map-empty">
                     <MapPin size={22} />
                     <strong>Site map</strong>
-                    <span>Select or create a site to place it on the map</span>
+                    <span>Pick a postcode address to place the site</span>
                   </div>
                 )}
               </aside>
             </div>
+
 
             {newJobScheduleWarning ? (
               <p className="warning-message">
@@ -41694,7 +41619,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" onClick={createJob}>
-                Next
+                Save job
               </button>
             </div>
           </section>
