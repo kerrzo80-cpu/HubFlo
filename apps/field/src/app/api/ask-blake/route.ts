@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
-  ASK_BLAKE_SYSTEM_PROMPT,
+  askBlakeDeveloperPrompt,
   buildAskBlakeFallback,
   buildAskBlakeUserPayload,
   getOutputText,
@@ -48,7 +48,7 @@ async function runOpenAi(input: AskBlakeRequest, apiKey: string, model: string) 
       input: [
         {
           role: "developer",
-          content: [{ type: "input_text", text: ASK_BLAKE_SYSTEM_PROMPT }],
+          content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode) }],
         },
         {
           role: "user",
@@ -74,6 +74,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Ask Blake a question or attach a photo." }, { status: 400 });
   }
 
+  const mode = body.mode === "voice" ? "voice" : "text";
   const input: AskBlakeRequest = {
     message: message || (images.length > 1
       ? "What do you see in these photos, and what should I check next?"
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
     imageDataUrls: images,
     history: Array.isArray(body.history) ? body.history.slice(-12) : [],
     job: body.job ?? null,
+    mode,
   };
 
   const config = getOpenAiConfig();

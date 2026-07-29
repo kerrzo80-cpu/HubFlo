@@ -782,6 +782,114 @@ html, body { margin: 0; min-height: 100%; }
   padding-bottom: 88px;
 }
 
+.ask-blake-page.is-talk {
+  padding-bottom: 110px;
+}
+
+.ask-blake-mode {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+}
+
+.ask-blake-mode button {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: var(--steel);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+  min-height: 40px;
+}
+
+.ask-blake-mode button.active {
+  background: var(--teal-soft);
+  color: var(--teal);
+}
+
+.ask-blake-voice {
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  padding: 8px 0 12px;
+  text-align: center;
+}
+
+.ask-blake-voice-stage {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  max-width: 28rem;
+}
+
+.ask-blake-voice-stage.is-listening .blake-character,
+.ask-blake-voice-stage.is-speaking .blake-character {
+  filter: drop-shadow(0 12px 22px rgba(42, 127, 114, 0.22));
+}
+
+.ask-blake-voice-status {
+  font-family: Sora, Inter, sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ask-blake-voice-heard,
+.ask-blake-voice-reply {
+  color: var(--steel);
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.ask-blake-voice-reply {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  color: var(--ink);
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.ask-blake-voice-btn {
+  align-items: center;
+  background: var(--teal);
+  border: 0;
+  border-radius: 999px;
+  color: var(--white);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 16px;
+  font-weight: 700;
+  gap: 10px;
+  justify-content: center;
+  min-height: 56px;
+  min-width: 220px;
+  padding: 0 22px;
+}
+
+.ask-blake-voice-btn.is-live {
+  background: #b43737;
+}
+
+.ask-blake-voice-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ask-blake-voice-hint {
+  font-size: 13px;
+  margin: 0;
+  max-width: 22rem;
+}
+
+
 .ask-blake {
   display: grid;
   gap: 12px;
