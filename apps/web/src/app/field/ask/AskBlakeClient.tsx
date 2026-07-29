@@ -47,15 +47,15 @@ export default function AskBlakePage() {
 
   return (
     <main className="field-screen ask-blake-page">
-      <header className="field-page-header blake-header">
-        <BlakeCharacter mood="guide" size="md" />
+      <header className="ask-blake-hero">
+        <BlakeCharacter mood="idle" size="hero" />
         <div>
-          <p className="eyebrow">Field co-pilot</p>
-          <h1>Ask Blake</h1>
+          <p className="eyebrow">Ask Blake</p>
+          <h1>Your smart monitoring buddy</h1>
           <p className="field-page-sub">
             {job?.jobRef
-              ? `${job.jobRef} · ${job.customer ?? "Job"}`
-              : "Diagnose faults, steps, tools — and when to escalate"}
+              ? `${job.jobRef} · ${job.customer ?? "Job"} — describe the fault or attach a photo`
+              : "Friendly, alert, reliable. Spot the issue, talk through the fix."}
           </p>
         </div>
       </header>

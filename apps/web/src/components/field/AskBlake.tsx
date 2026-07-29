@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useRef, useState } from "react";
-import { Camera, SendHorizontal, X } from "lucide-react";
+import { Camera, ImagePlus, SendHorizontal, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/field/BlakeCharacter";
 import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/field/ask-blake";
 
@@ -32,7 +32,8 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const libraryRef = useRef<HTMLInputElement | null>(null);
+  const cameraRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -40,21 +41,40 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
   async function onPickImage(file: File | null) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Attach a photo (image file).");
+    const type = (file.type || "").toLowerCase();
+    const name = file.name.toLowerCase();
+    const looksLikeImage =
+      type.startsWith("image/")
+      || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(name)
+      || type === "";
+    if (!looksLikeImage) {
+      setError("Attach a photo from your library, or take one.");
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setError("Keep photos under 8MB for this pilot.");
+    if (file.size > 12 * 1024 * 1024) {
+      setError("Keep photos under 12MB for this pilot.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      setImageDataUrl(result || null);
+    try {
+      const dataUrl = await readImageAsDataUrl(file);
+      setImageDataUrl(dataUrl);
       setError("");
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setError("Could not read that photo. Try another image or take a new one.");
+    }
+  }
+
+  function readImageAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === "string" ? reader.result : "";
+        if (!result) reject(new Error("empty"));
+        else resolve(result);
+      };
+      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+      reader.readAsDataURL(file);
+    });
   }
 
   async function send(message: string) {
@@ -116,7 +136,10 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           >
             {message.role === "assistant" ? (
               <span className="ask-blake-avatar">
-                <BlakeCharacter mood={busy && index === messages.length - 1 ? "thinking" : "guide"} size="sm" />
+                <BlakeCharacter
+                  mood={index === 0 ? "idle" : "good"}
+                  size="sm"
+                />
               </span>
             ) : null}
             <div>
@@ -160,8 +183,20 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       ) : null}
 
       <form className="ask-blake-composer" onSubmit={onSubmit}>
+        {/* No capture attr — lets engineers pick from the photo library. */}
         <input
-          ref={fileRef}
+          ref={libraryRef}
+          type="file"
+          accept="image/*,.heic,.heif"
+          hidden
+          onChange={(event) => {
+            void onPickImage(event.target.files?.[0] ?? null);
+            event.currentTarget.value = "";
+          }}
+        />
+        {/* Separate camera capture for site photos. */}
+        <input
+          ref={cameraRef}
           type="file"
           accept="image/*"
           capture="environment"
@@ -171,15 +206,28 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             event.currentTarget.value = "";
           }}
         />
-        <button
-          type="button"
-          className="ask-blake-icon-btn"
-          aria-label="Attach photo"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy}
-        >
-          <Camera size={18} />
-        </button>
+        <div className="ask-blake-attach">
+          <button
+            type="button"
+            className="ask-blake-icon-btn"
+            aria-label="Upload photo"
+            title="Upload photo"
+            onClick={() => libraryRef.current?.click()}
+            disabled={busy}
+          >
+            <ImagePlus size={18} />
+          </button>
+          <button
+            type="button"
+            className="ask-blake-icon-btn"
+            aria-label="Take photo"
+            title="Take photo"
+            onClick={() => cameraRef.current?.click()}
+            disabled={busy}
+          >
+            <Camera size={18} />
+          </button>
+        </div>
         <textarea
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
