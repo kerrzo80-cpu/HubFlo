@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clock3, Settings2 } from "lucide-react";
+import { CalendarDays, Clock3, MessageCircle, Settings2 } from "lucide-react";
 
 const links = [
   { href: "/", label: "My Day", icon: CalendarDays },
-  { href: "/time-check", label: "Blake", icon: Clock3 },
+  { href: "/ask", label: "Ask Blake", icon: MessageCircle },
+  { href: "/time-check", label: "Hours", icon: Clock3 },
   { href: "/settings", label: "Connect", icon: Settings2 },
 ];
 

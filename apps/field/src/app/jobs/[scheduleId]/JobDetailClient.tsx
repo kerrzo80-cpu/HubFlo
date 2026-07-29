@@ -104,6 +104,10 @@ export default function JobDetailPage() {
 
       <p className="job-lead">{job.description}</p>
 
+      <Link href={`/ask?job=${encodeURIComponent(job.scheduleId)}`} className="field-ask-blake-link">
+        Ask Blake about this job
+      </Link>
+
       <div className="site-block">
         <p>{job.address}</p>
         <span>{job.contactName}</span>

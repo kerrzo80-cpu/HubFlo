@@ -75,7 +75,7 @@ html, body { margin: 0; min-height: 100%; }
   border-radius: 22px;
   bottom: 14px;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   left: 16px;
   padding: 6px;
   position: fixed;
@@ -101,7 +101,7 @@ html, body { margin: 0; min-height: 100%; }
 }
 
 .field-tabbar span {
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .field-screen,
@@ -765,4 +765,156 @@ html, body { margin: 0; min-height: 100%; }
   gap: 6px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.field-ask-blake-link {
+  color: var(--teal);
+  display: inline-block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ask-blake-page {
+  gap: 14px;
+}
+
+.ask-blake {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
+.ask-blake-thread {
+  display: grid;
+  gap: 10px;
+}
+
+.ask-blake-bubble {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: auto minmax(0, 1fr);
+  max-width: 100%;
+}
+
+.ask-blake-bubble.is-user {
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: end;
+}
+
+.ask-blake-bubble p {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin: 0;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+}
+
+.ask-blake-bubble.is-user p {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: var(--white);
+}
+
+.ask-blake-avatar {
+  margin-top: 2px;
+}
+
+.ask-blake-photo-tag {
+  color: var(--steel);
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.ask-blake-starters {
+  display: grid;
+  gap: 8px;
+}
+
+.ask-blake-starters button {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 12px 14px;
+  text-align: left;
+}
+
+.ask-blake-preview {
+  position: relative;
+  width: fit-content;
+}
+
+.ask-blake-preview img {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: block;
+  height: 88px;
+  object-fit: cover;
+  width: 88px;
+}
+
+.ask-blake-preview button {
+  align-items: center;
+  background: var(--ink);
+  border: 0;
+  border-radius: 999px;
+  color: var(--white);
+  cursor: pointer;
+  display: grid;
+  height: 24px;
+  place-items: center;
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  width: 24px;
+}
+
+.ask-blake-composer {
+  align-items: end;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 40px minmax(0, 1fr) 40px;
+  padding: 10px;
+  position: sticky;
+  bottom: 72px;
+}
+
+.ask-blake-composer textarea {
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  outline: none;
+  resize: none;
+  width: 100%;
+}
+
+.ask-blake-icon-btn {
+  align-items: center;
+  background: var(--mist);
+  border: 0;
+  border-radius: 12px;
+  color: var(--ink);
+  cursor: pointer;
+  display: grid;
+  height: 40px;
+  place-items: center;
+  width: 40px;
+}
+
+.ask-blake-icon-btn.is-send {
+  background: var(--teal);
+  color: var(--white);
+}
+
+.ask-blake-icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }

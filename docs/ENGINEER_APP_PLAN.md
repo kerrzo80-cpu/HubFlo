@@ -269,7 +269,16 @@ Each scheduled visit should expose an engineer-visible pack:
 - Existing site / office photos.
 - Stop/go checklist for the cost centre.
 
-Blake on the job can answer practical questions from that pack later; MVP is pack visibility + Blake time check.
+Blake on the job can answer practical questions from that pack later via **Ask Blake** (photo/fault diagnosis, step-by-step checks, tools/parts, escalate when needed). MVP also includes pack visibility + Blake time check.
+
+## Ask Blake
+
+Field AI co-pilot (tab: **Ask Blake**):
+
+- Diagnose common plumbing/heating/joinery issues from a short description and optional site photo.
+- Return likely issue, quick checks, steps, tools/parts, and when to call for help.
+- Optional job-pack context when opened from a scheduled job (`/field/ask?job=…`).
+- Uses OpenAI when connected; otherwise a practical field fallback.
 
 ## Office alert types
 
