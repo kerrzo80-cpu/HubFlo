@@ -16,7 +16,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
       role: "assistant",
       text: job?.jobRef
         ? `Ask me anything about ${job.jobRef}${job.costCentre ? ` · ${job.costCentre}` : ""}. Describe the fault or attach a photo.`
-        : "Ask Blake — describe the fault, or attach a site photo. I’ll give checks, steps, tools/parts, and when to escalate.",
+        : "Ask Blake — describe the fault, or attach a site photo. I’ll give likely cause, checks and next steps.",
     },
   ]);
   const [draft, setDraft] = useState("");

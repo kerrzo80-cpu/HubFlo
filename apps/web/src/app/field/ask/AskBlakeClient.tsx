@@ -55,7 +55,7 @@ export default function AskBlakePage() {
           <p className="field-page-sub">
             {job?.jobRef
               ? `${job.jobRef} · ${job.customer ?? "Job"} — describe the fault or attach a photo`
-              : "Friendly, alert, reliable. Spot the issue, talk through the fix."}
+              : "Friendly, alert, reliable. Spot the issue and talk through the next checks."}
           </p>
         </div>
       </header>
