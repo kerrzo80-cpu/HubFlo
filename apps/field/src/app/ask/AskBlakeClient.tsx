@@ -3,16 +3,12 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AskBlakeChat } from "@/components/AskBlake";
-import { AskBlakeVoice } from "@/components/AskBlakeVoice";
 import { BlakeCharacter } from "@/components/BlakeCharacter";
 import { useNexaClient } from "@/lib/nexa";
 import type { AskBlakeJobContext } from "@/lib/ask-blake";
 
-type AskMode = "talk" | "type";
-
 type AskBlakeStatus = {
   connected?: boolean;
-  model?: string;
   warning?: string;
 };
 
@@ -21,8 +17,6 @@ export default function AskBlakePage() {
   const searchParams = useSearchParams();
   const scheduleId = searchParams.get("job") ?? "";
   const [job, setJob] = useState<AskBlakeJobContext | null>(null);
-  // Type is the reliable default for the pilot; Talk is optional push-to-talk.
-  const [mode, setMode] = useState<AskMode>("type");
   const [status, setStatus] = useState<AskBlakeStatus | null>(null);
 
   useEffect(() => {
@@ -76,10 +70,9 @@ export default function AskBlakePage() {
         }
         setStatus({
           connected: Boolean(body.connected),
-          model: body.model,
           warning: body.connected
             ? undefined
-            : "OpenAI isn’t connected — Type still works with field fallback. Talk needs the voice key.",
+            : "OpenAI isn’t connected on this pilot — Blake will use field fallback answers.",
         });
       } catch {
         if (!cancelled) {
@@ -97,50 +90,23 @@ export default function AskBlakePage() {
   }, []);
 
   return (
-    <main className={`field-screen ask-blake-page${mode === "talk" ? " is-talk" : ""}`}>
+    <main className="field-screen ask-blake-page">
       <header className="ask-blake-hero">
-        {mode === "type" ? <BlakeCharacter mood="idle" size="hero" /> : null}
+        <BlakeCharacter mood="idle" size="hero" />
         <div>
           <p className="eyebrow">Ask Blake</p>
-          <h1>{mode === "talk" ? "Push to talk" : "Type or send photos"}</h1>
+          <h1>Type or send photos</h1>
           <p className="field-page-sub">
             {job?.jobRef
               ? `${job.jobRef} · ${job.customer ?? "Job"}`
-              : mode === "talk"
-                ? "Start → speak the fault → I’m done. Blake answers once."
-                : "Best path on this pilot — describe the fault or attach a photo."}
+              : "Describe the fault or attach a photo — likely cause, checks, next steps."}
           </p>
         </div>
       </header>
 
       {status?.warning ? <div className="feedback">{status.warning}</div> : null}
 
-      <div className="ask-blake-mode" role="tablist" aria-label="Ask Blake mode">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "type"}
-          className={mode === "type" ? "active" : undefined}
-          onClick={() => setMode("type")}
-        >
-          Type / photos
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "talk"}
-          className={mode === "talk" ? "active" : undefined}
-          onClick={() => setMode("talk")}
-        >
-          Talk
-        </button>
-      </div>
-
-      {mode === "talk" ? (
-        <AskBlakeVoice job={job} openaiConnected={status?.connected ?? null} />
-      ) : (
-        <AskBlakeChat job={job} />
-      )}
+      <AskBlakeChat job={job} />
     </main>
   );
 }

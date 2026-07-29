@@ -108,7 +108,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
-    setError("Cancelled — try again with fewer / smaller photos, or use Talk.");
+    setError("Cancelled — try again with fewer / smaller photos.");
   }
 
   async function send(message: string) {

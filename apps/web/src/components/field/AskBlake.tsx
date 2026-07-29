@@ -108,7 +108,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
-    setError("Cancelled — try again with fewer / smaller photos, or use Talk.");
+    setError("Cancelled — try again with fewer / smaller photos.");
   }
 
   async function send(message: string) {
@@ -176,7 +176,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
       const aborted = sendError instanceof DOMException && sendError.name === "AbortError";
       setError(
         aborted
-          ? "That took too long — usually big photos. Try again with 1 photo, or describe it in Talk."
+          ? "That took too long — usually big photos. Try again with 1 photo, or describe it in text."
           : sendError instanceof Error ? sendError.message : "Ask Blake could not reply.",
       );
       setMessages((current) => current.slice(0, -1));
