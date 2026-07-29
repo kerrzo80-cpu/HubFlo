@@ -5,6 +5,7 @@ import {
   buildAskBlakeFallback,
   buildAskBlakeUserPayload,
   getOutputText,
+  normaliseAskBlakeImages,
   type AskBlakeRequest,
 } from "@/lib/field/ask-blake";
 import { parseJsonRequestBody } from "@/lib/http";
@@ -13,13 +14,13 @@ import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 export const runtime = "nodejs";
 
 async function runOpenAi(input: AskBlakeRequest, apiKey: string, model: string) {
-  const image = input.imageDataUrl?.startsWith("data:image/") ? input.imageDataUrl : undefined;
+  const images = normaliseAskBlakeImages(input);
   const userContent: Array<
     | { type: "input_text"; text: string }
     | { type: "input_image"; image_url: string; detail: "high" }
   > = [{ type: "input_text", text: buildAskBlakeUserPayload(input) }];
 
-  if (image) {
+  for (const image of images) {
     userContent.push({ type: "input_image", image_url: image, detail: "high" });
   }
 
@@ -55,13 +56,16 @@ export async function POST(request: Request) {
   if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
 
   const message = body.message?.trim();
-  if (!message && !body.imageDataUrl) {
+  const images = normaliseAskBlakeImages(body);
+  if (!message && !images.length) {
     return NextResponse.json({ error: "Ask Blake a question or attach a photo." }, { status: 400 });
   }
 
   const input: AskBlakeRequest = {
-    message: message || "What do you see in this photo, and what should I check next?",
-    imageDataUrl: body.imageDataUrl,
+    message: message || (images.length > 1
+      ? "What do you see in these photos, and what should I check next?"
+      : "What do you see in this photo, and what should I check next?"),
+    imageDataUrls: images,
     history: Array.isArray(body.history) ? body.history.slice(-12) : [],
     job: body.job ?? null,
   };

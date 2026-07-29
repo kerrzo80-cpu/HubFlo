@@ -395,6 +395,25 @@
   margin-top: 6px;
 }
 
+.ask-blake-preview-row {
+  align-items: end;
+  background: linear-gradient(180deg, transparent, var(--mist) 28%);
+  bottom: calc(156px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  left: 16px;
+  padding: 10px 0 8px;
+  position: fixed;
+  right: 16px;
+  z-index: 27;
+}
+
+.ask-blake-photo-count {
+  font-size: 12px;
+  margin: 0 0 8px;
+}
+
 .ask-blake-preview {
   position: relative;
   width: fit-content;

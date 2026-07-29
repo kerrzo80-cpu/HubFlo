@@ -2,6 +2,7 @@ export type AskBlakeMessage = {
   role: "user" | "assistant";
   text: string;
   hasImage?: boolean;
+  imageCount?: number;
 };
 
 export type AskBlakeJobContext = {
@@ -19,15 +20,28 @@ export type AskBlakeJobContext = {
 
 export type AskBlakeRequest = {
   message: string;
+  /** @deprecated Prefer imageDataUrls — kept for older clients. */
   imageDataUrl?: string;
+  imageDataUrls?: string[];
   history?: AskBlakeMessage[];
   job?: AskBlakeJobContext | null;
 };
 
+export const ASK_BLAKE_MAX_PHOTOS = 6;
+
+export function normaliseAskBlakeImages(input: Pick<AskBlakeRequest, "imageDataUrl" | "imageDataUrls">) {
+  const fromList = Array.isArray(input.imageDataUrls) ? input.imageDataUrls : [];
+  const legacy = input.imageDataUrl ? [input.imageDataUrl] : [];
+  const merged = [...fromList, ...legacy]
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter((item) => item.startsWith("data:image/"));
+  return [...new Set(merged)].slice(0, ASK_BLAKE_MAX_PHOTOS);
+}
+
 export const ASK_BLAKE_SYSTEM_PROMPT = [
   "You are Ask Blake — NeXa Field’s on-site co-pilot for qualified UK plumbers, heating engineers and joiners.",
   "The user is a tradesperson on the tools. Talk peer-to-peer — never DIY, never patronising.",
-  "Help diagnose faults from a short description and/or a site photo, then give sharp checks and next steps.",
+  "Help diagnose faults from a short description and/or site photos, then give sharp checks and next steps.",
   "",
   "Do NOT include:",
   "- Tool lists or “what you’ll need” sections (they already know their kit)",
@@ -39,7 +53,7 @@ export const ASK_BLAKE_SYSTEM_PROMPT = [
   "- Keep it concise for someone standing on site. Plain text and short dash bullets only.",
   "- Prefer UK trade practice and language.",
   "- Never invent meter readings, gas pressures, part numbers you cannot see, or prices.",
-  "- If a photo is attached, say only what you can actually see, then likely causes and checks.",
+  "- If photos are attached, say only what you can actually see across them, then likely causes and checks.",
   "- Mention parts only if a specific part is the likely fix — not a shopping list of tools.",
   "",
   "Prefer this shape when diagnosing:",
@@ -54,6 +68,7 @@ function includesAny(text: string, words: string[]) {
 
 export function buildAskBlakeFallback(input: AskBlakeRequest) {
   const text = input.message.toLowerCase();
+  const photos = normaliseAskBlakeImages(input);
   const jobBit = input.job?.jobRef
     ? `On ${input.job.jobRef}${input.job.costCentre ? ` (${input.job.costCentre})` : ""}: `
     : "";
@@ -75,7 +90,7 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
       "- Mains cold, hot, heating, or waste?",
       "- Joints, valves, appliance connections, any recent work.",
       "Next: pin the source, then repair or cap off.",
-      input.imageDataUrl ? "Photo received — OpenAI is offline, so this is a general field fallback." : "",
+      photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"} received — OpenAI is offline, so this is a general field fallback.` : "",
     ].filter(Boolean).join("\n");
   }
 
@@ -115,7 +130,7 @@ export function buildAskBlakeFallback(input: AskBlakeRequest) {
 
   return [
     `${jobBit}Ask Blake is ready — OpenAI is not connected on this pilot, so here’s a starter.`,
-    "Tell me what you can see / hear (or attach a photo), the system type, and what you’ve already tried.",
+    "Tell me what you can see / hear (or attach photos), the system type, and what you’ve already tried.",
     "I’ll come back with likely issue, quick checks and next steps — no tool lists.",
   ].join("\n");
 }
@@ -140,13 +155,17 @@ export function buildAskBlakeUserPayload(input: AskBlakeRequest) {
       ].join("\n")
     : "No specific job selected — general field question.";
 
+  const photoCount = normaliseAskBlakeImages(input).length;
+
   return [
     jobLines,
     "",
     history ? `Recent Ask Blake chat:\n${history}` : "No prior chat turns.",
     "",
     `Engineer message: ${input.message}`,
-    input.imageDataUrl ? "A site photo is attached." : "No photo attached.",
+    photoCount
+      ? `${photoCount} site photo${photoCount === 1 ? "" : "s"} attached — review all of them.`
+      : "No photo attached.",
   ].join("\n");
 }
 

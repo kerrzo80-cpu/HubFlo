@@ -3,7 +3,11 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Camera, ImagePlus, SendHorizontal, X } from "lucide-react";
 import { BlakeCharacter } from "@/components/BlakeCharacter";
-import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/ask-blake";
+import {
+  ASK_BLAKE_MAX_PHOTOS,
+  type AskBlakeJobContext,
+  type AskBlakeMessage,
+} from "@/lib/ask-blake";
 
 type AskBlakeChatProps = {
   job?: AskBlakeJobContext | null;
@@ -15,12 +19,12 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
     {
       role: "assistant",
       text: job?.jobRef
-        ? `Ask me anything about ${job.jobRef}${job.costCentre ? ` · ${job.costCentre}` : ""}. Describe the fault or attach a photo.`
-        : "Ask Blake — describe the fault, or attach a site photo. I’ll give likely cause, checks and next steps.",
+        ? `Ask me anything about ${job.jobRef}${job.costCentre ? ` · ${job.costCentre}` : ""}. Describe the fault or attach photos.`
+        : "Ask Blake — describe the fault, or attach site photos. I’ll give likely cause, checks and next steps.",
     },
   ]);
   const [draft, setDraft] = useState("");
-  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
@@ -33,29 +37,43 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, busy]);
 
-  async function onPickImage(file: File | null) {
-    if (!file) return;
-    const type = (file.type || "").toLowerCase();
-    const name = file.name.toLowerCase();
-    const looksLikeImage =
-      type.startsWith("image/")
-      || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(name)
-      || type === "";
-    if (!looksLikeImage) {
-      setError("Attach a photo from your library, or take one.");
+  async function onPickImages(fileList: FileList | null) {
+    const files = fileList ? Array.from(fileList) : [];
+    if (!files.length) return;
+
+    const remaining = ASK_BLAKE_MAX_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      setError(`You can attach up to ${ASK_BLAKE_MAX_PHOTOS} photos.`);
       return;
     }
-    if (file.size > 12 * 1024 * 1024) {
-      setError("Keep photos under 12MB for this pilot.");
-      return;
+
+    const selected = files.slice(0, remaining);
+    const next: string[] = [];
+    for (const file of selected) {
+      const type = (file.type || "").toLowerCase();
+      const name = file.name.toLowerCase();
+      const looksLikeImage =
+        type.startsWith("image/")
+        || /\.(jpe?g|png|gif|webp|heic|heif|bmp)$/i.test(name)
+        || type === "";
+      if (!looksLikeImage) {
+        setError("Attach photos from your library, or take them.");
+        return;
+      }
+      if (file.size > 12 * 1024 * 1024) {
+        setError("Keep each photo under 12MB for this pilot.");
+        return;
+      }
+      try {
+        next.push(await readImageAsDataUrl(file));
+      } catch {
+        setError("Could not read one of those photos. Try another image.");
+        return;
+      }
     }
-    try {
-      const dataUrl = await readImageAsDataUrl(file);
-      setImageDataUrl(dataUrl);
-      setError("");
-    } catch {
-      setError("Could not read that photo. Try another image or take a new one.");
-    }
+
+    setPhotos((current) => [...current, ...next].slice(0, ASK_BLAKE_MAX_PHOTOS));
+    setError(files.length > remaining ? `Added ${remaining} — max ${ASK_BLAKE_MAX_PHOTOS} photos.` : "");
   }
 
   function readImageAsDataUrl(file: File) {
@@ -71,15 +89,30 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
     });
   }
 
+  function removePhoto(index: number) {
+    setPhotos((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }
+
   async function send(message: string) {
     const trimmed = message.trim();
-    if ((!trimmed && !imageDataUrl) || busy) return;
+    if ((!trimmed && !photos.length) || busy) return;
 
-    const userText = trimmed || "What do you see in this photo, and what should I check next?";
+    const userText = trimmed || (
+      photos.length > 1
+        ? "What do you see in these photos, and what should I check next?"
+        : "What do you see in this photo, and what should I check next?"
+    );
+    const attached = [...photos];
     const nextHistory = messages.filter((item) => item.role === "user" || item.role === "assistant");
-    const userMessage: AskBlakeMessage = { role: "user", text: userText, hasImage: Boolean(imageDataUrl) };
+    const userMessage: AskBlakeMessage = {
+      role: "user",
+      text: userText,
+      hasImage: attached.length > 0,
+      imageCount: attached.length,
+    };
     setMessages((current) => [...current, userMessage]);
     setDraft("");
+    setPhotos([]);
     setBusy(true);
     setError("");
     setWarning("");
@@ -90,7 +123,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userText,
-          imageDataUrl: imageDataUrl || undefined,
+          imageDataUrls: attached,
           history: nextHistory.slice(-10),
           job,
         }),
@@ -105,11 +138,11 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
       if (!body.reply?.trim()) throw new Error("Ask Blake returned an empty reply.");
       setMessages((current) => [...current, { role: "assistant", text: body.reply!.trim() }]);
       if (body.warning) setWarning(body.warning);
-      setImageDataUrl(null);
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Ask Blake could not reply.");
       setMessages((current) => current.slice(0, -1));
       setDraft(trimmed);
+      setPhotos(attached);
     } finally {
       setBusy(false);
     }
@@ -119,6 +152,8 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
     event.preventDefault();
     void send(draft);
   }
+
+  const canAddMore = photos.length < ASK_BLAKE_MAX_PHOTOS;
 
   return (
     <section className="ask-blake" aria-label="Ask Blake">
@@ -138,7 +173,13 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
             ) : null}
             <div>
               <p>{message.text}</p>
-              {message.hasImage ? <span className="ask-blake-photo-tag">Photo attached</span> : null}
+              {message.hasImage ? (
+                <span className="ask-blake-photo-tag">
+                  {(message.imageCount ?? 1) > 1
+                    ? `${message.imageCount} photos attached`
+                    : "Photo attached"}
+                </span>
+              ) : null}
             </div>
           </div>
         ))}
@@ -156,29 +197,35 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
 
-      {imageDataUrl ? (
-        <div className="ask-blake-preview">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imageDataUrl} alt="Attached site photo" />
-          <button type="button" aria-label="Remove photo" onClick={() => setImageDataUrl(null)}>
-            <X size={16} />
-          </button>
+      {photos.length ? (
+        <div className="ask-blake-preview-row" aria-label="Attached photos">
+          {photos.map((photo, index) => (
+            <div key={`${index}-${photo.slice(-24)}`} className="ask-blake-preview">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photo} alt={`Attached site photo ${index + 1}`} />
+              <button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => removePhoto(index)}>
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+          <p className="ask-blake-photo-count muted">
+            {photos.length}/{ASK_BLAKE_MAX_PHOTOS}
+          </p>
         </div>
       ) : null}
 
       <form className="ask-blake-composer" onSubmit={onSubmit}>
-        {/* No capture attr — lets engineers pick from the photo library. */}
         <input
           ref={libraryRef}
           type="file"
           accept="image/*,.heic,.heif"
+          multiple
           hidden
           onChange={(event) => {
-            void onPickImage(event.target.files?.[0] ?? null);
+            void onPickImages(event.target.files);
             event.currentTarget.value = "";
           }}
         />
-        {/* Separate camera capture for site photos. */}
         <input
           ref={cameraRef}
           type="file"
@@ -186,7 +233,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
           capture="environment"
           hidden
           onChange={(event) => {
-            void onPickImage(event.target.files?.[0] ?? null);
+            void onPickImages(event.target.files);
             event.currentTarget.value = "";
           }}
         />
@@ -194,10 +241,10 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
           <button
             type="button"
             className="ask-blake-icon-btn"
-            aria-label="Upload photo"
-            title="Upload photo"
+            aria-label="Upload photos"
+            title="Upload photos"
             onClick={() => libraryRef.current?.click()}
-            disabled={busy}
+            disabled={busy || !canAddMore}
           >
             <ImagePlus size={18} />
           </button>
@@ -207,7 +254,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
             aria-label="Take photo"
             title="Take photo"
             onClick={() => cameraRef.current?.click()}
-            disabled={busy}
+            disabled={busy || !canAddMore}
           >
             <Camera size={18} />
           </button>
@@ -223,7 +270,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
           type="submit"
           className="ask-blake-icon-btn is-send"
           aria-label="Send"
-          disabled={busy || (!draft.trim() && !imageDataUrl)}
+          disabled={busy || (!draft.trim() && !photos.length)}
         >
           <SendHorizontal size={18} />
         </button>
