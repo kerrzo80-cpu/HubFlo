@@ -21,7 +21,8 @@ export default function AskBlakePage() {
   const searchParams = useSearchParams();
   const scheduleId = searchParams.get("job") ?? "";
   const [job, setJob] = useState<AskBlakeJobContext | null>(null);
-  const [mode, setMode] = useState<AskMode>("talk");
+  // Type is the reliable default for the pilot; Talk is optional push-to-talk.
+  const [mode, setMode] = useState<AskMode>("type");
   const [status, setStatus] = useState<AskBlakeStatus | null>(null);
 
   useEffect(() => {
@@ -78,7 +79,7 @@ export default function AskBlakePage() {
           model: body.model,
           warning: body.connected
             ? undefined
-            : "OpenAI isn’t connected on this pilot — Blake will use field fallback answers.",
+            : "OpenAI isn’t connected — Type still works with field fallback. Talk needs the voice key.",
         });
       } catch {
         if (!cancelled) {
@@ -101,13 +102,13 @@ export default function AskBlakePage() {
         {mode === "type" ? <BlakeCharacter mood="idle" size="hero" /> : null}
         <div>
           <p className="eyebrow">Ask Blake</p>
-          <h1>{mode === "talk" ? "Talk it through" : "Type or send photos"}</h1>
+          <h1>{mode === "talk" ? "Push to talk" : "Type or send photos"}</h1>
           <p className="field-page-sub">
             {job?.jobRef
               ? `${job.jobRef} · ${job.customer ?? "Job"}`
               : mode === "talk"
-                ? "Tap Start talking — Blake hears you and answers out loud"
-                : "Describe the fault or attach photos. Big photos are shrunk automatically."}
+                ? "Start → speak the fault → I’m done. Blake answers once."
+                : "Best path on this pilot — describe the fault or attach a photo."}
           </p>
         </div>
       </header>
@@ -118,24 +119,28 @@ export default function AskBlakePage() {
         <button
           type="button"
           role="tab"
-          aria-selected={mode === "talk"}
-          className={mode === "talk" ? "active" : undefined}
-          onClick={() => setMode("talk")}
-        >
-          Talk
-        </button>
-        <button
-          type="button"
-          role="tab"
           aria-selected={mode === "type"}
           className={mode === "type" ? "active" : undefined}
           onClick={() => setMode("type")}
         >
           Type / photos
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "talk"}
+          className={mode === "talk" ? "active" : undefined}
+          onClick={() => setMode("talk")}
+        >
+          Talk
+        </button>
       </div>
 
-      {mode === "talk" ? <AskBlakeVoice job={job} /> : <AskBlakeChat job={job} />}
+      {mode === "talk" ? (
+        <AskBlakeVoice job={job} openaiConnected={status?.connected ?? null} />
+      ) : (
+        <AskBlakeChat job={job} />
+      )}
     </main>
   );
 }
