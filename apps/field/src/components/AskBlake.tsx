@@ -29,7 +29,8 @@ export function AskBlakeChat({ job = null, apiPath = "/api/ask-blake" }: AskBlak
   const cameraRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (!busy && messages.length <= 1) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [messages, busy]);
 
   async function onPickImage(file: File | null) {
