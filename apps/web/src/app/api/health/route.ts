@@ -10,6 +10,7 @@ export async function GET() {
     deployment: {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
+      talkLab: "/field/talk-lab",
     },
     checkedAt: new Date().toISOString(),
   });

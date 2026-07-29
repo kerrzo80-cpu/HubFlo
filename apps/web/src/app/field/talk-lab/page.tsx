@@ -10,7 +10,7 @@ export default function TalkLabPage() {
           <p className="eyebrow">Sandbox · not in the app yet</p>
           <h1>Talk lab</h1>
           <p className="field-page-sub">
-            Flowing conversation test: listen → Blake answers → listen again. Keep iterating here until it’s solid, then we’ll put it back in Ask Blake.
+            Flowing conversation test outside Ask Blake. Listen → Blake answers out loud → listens again. When this feels solid on iPhone, we’ll add it back into the app.
           </p>
         </div>
       </header>
