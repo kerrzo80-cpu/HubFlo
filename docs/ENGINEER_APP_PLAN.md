@@ -277,6 +277,8 @@ Field AI co-pilot (tab: **Ask Blake**):
 
 - Diagnose common plumbing/heating/joinery issues from a short description and optional site photo.
 - Return likely issue, quick checks and next steps — peer-to-peer for qualified engineers (no tool lists or “call a pro” advice).
+- **Talk mode**: tap Start talking, leave the phone by the job, spoken back-and-forth with Blake (listen → answer out loud → listen again until Stop).
+- Type / photos mode remains for quieter use and photo attachments.
 - Optional job-pack context when opened from a scheduled job (`/field/ask?job=…`).
 - Uses OpenAI when connected; otherwise a practical field fallback.
 

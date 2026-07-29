@@ -25,6 +25,8 @@ export type AskBlakeRequest = {
   imageDataUrls?: string[];
   history?: AskBlakeMessage[];
   job?: AskBlakeJobContext | null;
+  /** Spoken conversation — keep answers short enough to say aloud. */
+  mode?: "text" | "voice";
 };
 
 export const ASK_BLAKE_MAX_PHOTOS = 6;
@@ -61,6 +63,18 @@ export const ASK_BLAKE_SYSTEM_PROMPT = [
   "2) Quick checks",
   "3) Next steps",
 ].join("\n");
+
+export const ASK_BLAKE_VOICE_PROMPT_EXTRA = [
+  "This turn is a spoken conversation on site.",
+  "Reply like you’re talking next to them — short sentences, no long lists.",
+  "Aim for about 20–60 spoken words unless a safety point needs more.",
+  "Ask at most one follow-up question at the end if you need a clearer symptom.",
+].join("\n");
+
+export function askBlakeDeveloperPrompt(mode: AskBlakeRequest["mode"] = "text") {
+  if (mode === "voice") return `${ASK_BLAKE_SYSTEM_PROMPT}\n\n${ASK_BLAKE_VOICE_PROMPT_EXTRA}`;
+  return ASK_BLAKE_SYSTEM_PROMPT;
+}
 
 function includesAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
