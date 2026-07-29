@@ -1132,3 +1132,41 @@ html, body { margin: 0; min-height: 100%; }
 
   .blake-character.size-hero { width: 96px; }
 }
+
+.talk-lab-page .ask-blake-hero .eyebrow {
+  color: #9a6b2f;
+}
+
+.talk-lab-log {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  max-width: 28rem;
+  padding: 12px 14px;
+  text-align: left;
+  width: min(100%, 28rem);
+}
+
+.talk-lab-log-title {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.talk-lab-log ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.talk-lab-log li {
+  color: var(--steel);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
