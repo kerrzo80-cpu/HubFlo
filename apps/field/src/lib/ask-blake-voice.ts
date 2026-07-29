@@ -1,6 +1,10 @@
 "use client";
 
+import { cleanForSpeech } from "@/lib/ask-blake-speech";
+
 export type VoiceSessionState = "idle" | "listening" | "thinking" | "speaking" | "unsupported" | "error";
+
+export { cleanForSpeech };
 
 type SpeechRecognitionResultLike = {
   isFinal: boolean;
@@ -32,6 +36,7 @@ declare global {
   interface Window {
     SpeechRecognition?: SpeechRecognitionConstructor;
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    __blakeVoiceAudio?: HTMLAudioElement;
   }
 }
 
@@ -42,7 +47,7 @@ export function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor 
 
 export function speechSupported() {
   if (typeof window === "undefined") return false;
-  return Boolean(getSpeechRecognitionConstructor()) && "speechSynthesis" in window;
+  return Boolean(getSpeechRecognitionConstructor());
 }
 
 export function createSpeechRecognition() {
@@ -56,25 +61,78 @@ export function createSpeechRecognition() {
   return recognition;
 }
 
-export function speakText(text: string, onEnd?: () => void) {
+function getSharedAudio() {
+  if (typeof window === "undefined") return null;
+  if (!window.__blakeVoiceAudio) {
+    window.__blakeVoiceAudio = new Audio();
+    window.__blakeVoiceAudio.setAttribute("playsinline", "true");
+    window.__blakeVoiceAudio.preload = "auto";
+  }
+  return window.__blakeVoiceAudio;
+}
+
+/**
+ * Must run inside the Start talking tap handler.
+ * iOS Safari blocks speech/audio until unlocked by a user gesture.
+ */
+export async function unlockBlakeVoice() {
+  if (typeof window === "undefined") return;
+
+  if ("speechSynthesis" in window) {
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.getVoices();
+      const unlock = new SpeechSynthesisUtterance(" ");
+      unlock.volume = 0.01;
+      unlock.rate = 2;
+      unlock.lang = "en-GB";
+      window.speechSynthesis.speak(unlock);
+      window.setTimeout(() => {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // ignore
+        }
+      }, 40);
+    } catch {
+      // ignore
+    }
+  }
+
+  const audio = getSharedAudio();
+  if (!audio) return;
+  try {
+    // Tiny silent wav — unlocks HTMLAudioElement.play() for later Blake replies.
+    audio.src =
+      "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAAAAAA==";
+    audio.volume = 0.01;
+    await audio.play();
+    audio.pause();
+    audio.currentTime = 0;
+    audio.volume = 1;
+  } catch {
+    // Mic permission / autoplay policy — speak path will still try later.
+  }
+}
+
+function pickVoice() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  return (
+    voices.find((voice) => /en-GB/i.test(voice.lang) && /male|daniel|arthur|thomas|rishi/i.test(voice.name))
+    ?? voices.find((voice) => /en-GB/i.test(voice.lang))
+    ?? voices.find((voice) => /^en/i.test(voice.lang))
+    ?? null
+  );
+}
+
+function speakWithSynthesis(text: string, onEnd?: () => void) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
     onEnd?.();
     return () => undefined;
   }
 
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(cleanForSpeech(text));
-  utterance.lang = "en-GB";
-  utterance.rate = 1.02;
-  utterance.pitch = 1;
-
-  const voices = window.speechSynthesis.getVoices();
-  const preferred =
-    voices.find((voice) => /en-GB/i.test(voice.lang) && /male|daniel|arthur|thomas/i.test(voice.name))
-    ?? voices.find((voice) => /en-GB/i.test(voice.lang))
-    ?? voices.find((voice) => /^en/i.test(voice.lang));
-  if (preferred) utterance.voice = preferred;
-
+  const spoken = cleanForSpeech(text);
   let finished = false;
   const finish = () => {
     if (finished) return;
@@ -82,23 +140,137 @@ export function speakText(text: string, onEnd?: () => void) {
     onEnd?.();
   };
 
-  utterance.onend = finish;
-  utterance.onerror = finish;
-  window.speechSynthesis.speak(utterance);
+  const speakNow = () => {
+    try {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+    } catch {
+      // ignore
+    }
+
+    const utterance = new SpeechSynthesisUtterance(spoken);
+    utterance.lang = "en-GB";
+    utterance.rate = 1.02;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    const voice = pickVoice();
+    if (voice) utterance.voice = voice;
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    window.speechSynthesis.speak(utterance);
+
+    // iOS sometimes marks speak() as started but never fires onend if audio is muted/blocked.
+    const watchdog = window.setTimeout(() => {
+      if (!finished && !window.speechSynthesis.speaking) finish();
+    }, Math.min(20000, Math.max(4000, spoken.length * 80)));
+
+    const originalFinish = finish;
+    utterance.onend = () => {
+      window.clearTimeout(watchdog);
+      originalFinish();
+    };
+    utterance.onerror = () => {
+      window.clearTimeout(watchdog);
+      originalFinish();
+    };
+  };
+
+  // Voices can be empty on first call on Safari — wait briefly then speak.
+  if (!pickVoice()) {
+    window.setTimeout(speakNow, 150);
+  } else {
+    window.setTimeout(speakNow, 30);
+  }
 
   return () => {
     finished = true;
-    window.speechSynthesis.cancel();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // ignore
+    }
   };
 }
 
-export function cleanForSpeech(text: string) {
-  return text
-    .replace(/^[\s*-]+/gm, "")
-    .replace(/\n{2,}/g, ". ")
-    .replace(/\n/g, ". ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () => void) {
+  const audio = getSharedAudio();
+  if (!audio) throw new Error("No audio element");
+
+  const response = await fetch(speakPath, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: cleanForSpeech(text) }),
+  });
+  if (!response.ok) throw new Error(`Speak failed (${response.status})`);
+  const blob = await response.blob();
+  if (!blob.size) throw new Error("Empty audio");
+
+  const url = URL.createObjectURL(blob);
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    URL.revokeObjectURL(url);
+    onEnd?.();
+  };
+
+  audio.onended = finish;
+  audio.onerror = finish;
+  audio.src = url;
+  audio.volume = 1;
+  await audio.play();
+
+  return () => {
+    finished = true;
+    try {
+      audio.pause();
+      audio.removeAttribute("src");
+      audio.load();
+    } catch {
+      // ignore
+    }
+    URL.revokeObjectURL(url);
+  };
+}
+
+/**
+ * Prefer server TTS (works after unlock on iOS). Fall back to device speechSynthesis.
+ */
+export async function speakBlakeReply(
+  text: string,
+  options?: { speakPath?: string; onEnd?: () => void },
+) {
+  const speakPath = options?.speakPath ?? "/api/field/ask-blake/speak";
+  const onEnd = options?.onEnd;
+
+  try {
+    return await speakWithServerAudio(text, speakPath, onEnd);
+  } catch {
+    return speakWithSynthesis(text, onEnd);
+  }
+}
+
+/** @deprecated Prefer speakBlakeReply */
+export function speakText(text: string, onEnd?: () => void) {
+  return speakWithSynthesis(text, onEnd);
+}
+
+export function stopBlakeAudio() {
+  if (typeof window === "undefined") return;
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    // ignore
+  }
+  const audio = window.__blakeVoiceAudio;
+  if (!audio) return;
+  try {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  } catch {
+    // ignore
+  }
 }
 
 export function voiceStatusLabel(state: VoiceSessionState) {

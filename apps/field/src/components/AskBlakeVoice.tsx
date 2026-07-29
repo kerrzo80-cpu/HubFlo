@@ -6,8 +6,10 @@ import { BlakeCharacter, type BlakeMood } from "@/components/BlakeCharacter";
 import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/ask-blake";
 import {
   createSpeechRecognition,
-  speakText,
+  speakBlakeReply,
   speechSupported,
+  stopBlakeAudio,
+  unlockBlakeVoice,
   voiceStatusLabel,
   type VoiceSessionState,
 } from "@/lib/ask-blake-voice";
@@ -15,9 +17,14 @@ import {
 type AskBlakeVoiceProps = {
   job?: AskBlakeJobContext | null;
   apiPath?: string;
+  speakPath?: string;
 };
 
-export function AskBlakeVoice({ job = null, apiPath = "/api/ask-blake" }: AskBlakeVoiceProps) {
+export function AskBlakeVoice({
+  job = null,
+  apiPath = "/api/ask-blake",
+  speakPath = "/api/ask-blake/speak",
+}: AskBlakeVoiceProps) {
   const [supported, setSupported] = useState(true);
   const [active, setActive] = useState(false);
   const [state, setState] = useState<VoiceSessionState>("idle");
@@ -63,9 +70,7 @@ export function AskBlakeVoice({ job = null, apiPath = "/api/ask-blake" }: AskBla
       // ignore
     }
     recognitionRef.current = null;
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    stopBlakeAudio();
     transcriptRef.current = "";
     if (updateState) setState(supported ? "idle" : "unsupported");
     setHeard("");
@@ -177,10 +182,20 @@ export function AskBlakeVoice({ job = null, apiPath = "/api/ask-blake" }: AskBla
       if (!activeRef.current) return;
 
       setState("speaking");
-      stopSpeakRef.current = speakText(reply, () => {
-        if (!activeRef.current) return;
-        restartTimerRef.current = window.setTimeout(() => listen(), 280);
-      });
+      try {
+        stopSpeakRef.current = await speakBlakeReply(reply, {
+          speakPath,
+          onEnd: () => {
+            if (!activeRef.current) return;
+            restartTimerRef.current = window.setTimeout(() => listen(), 280);
+          },
+        });
+      } catch {
+        setError("Blake replied on screen, but the phone blocked the voice. Check silent mode is off, then try again.");
+        if (activeRef.current) {
+          restartTimerRef.current = window.setTimeout(() => listen(), 600);
+        }
+      }
     } catch (askError) {
       setError(askError instanceof Error ? askError.message : "Blake couldn’t reply.");
       setState("error");
@@ -189,7 +204,7 @@ export function AskBlakeVoice({ job = null, apiPath = "/api/ask-blake" }: AskBla
     }
   }
 
-  function toggle() {
+  async function toggle() {
     if (!supported) {
       setState("unsupported");
       return;
@@ -203,6 +218,8 @@ export function AskBlakeVoice({ job = null, apiPath = "/api/ask-blake" }: AskBla
     setHeard("");
     setActive(true);
     activeRef.current = true;
+    // Unlock audio inside the tap — required for iPhone to speak later.
+    await unlockBlakeVoice();
     listen();
   }
 
