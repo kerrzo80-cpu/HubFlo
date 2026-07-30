@@ -11,10 +11,11 @@ export async function GET() {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
       talkLab: "/field/talk-lab",
-      talkLabBuild: "realtime-v1",
+      talkLabBuild: "realtime-scottish-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       photoCompressBuild: "shrink-v1",
+      blakeAccent: "scottish-v1",
     },
     checkedAt: new Date().toISOString(),
   });
