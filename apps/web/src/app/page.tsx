@@ -110,6 +110,7 @@ import {
 import { numberedReference } from "@/lib/numbering";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
+import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -32489,6 +32490,10 @@ export default function Dashboard() {
                         </div>
                       </section>
                     </div>
+
+                    {selectedJob ? (
+                      <JobFieldLivePanel jobId={selectedJob.id} jobRef={selectedJob.ref} />
+                    ) : null}
                     <section className="quote-survey-pack-preview job-survey-pack-preview">
                       <div>
                         <span>Survey pack handover</span>

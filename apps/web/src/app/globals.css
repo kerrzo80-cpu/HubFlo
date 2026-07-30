@@ -35529,3 +35529,140 @@ body {
   border-color: var(--survey-blue) !important;
   color: #fff !important;
 }
+
+
+/* NeXa Field live evidence on Core job Details */
+.job-field-live-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 14px;
+  margin: 0 0 18px;
+  padding: 16px 18px;
+}
+
+.job-field-live-head {
+  align-items: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.job-field-live-head h2 {
+  font-size: 1.15rem;
+  margin: 2px 0 4px;
+}
+
+.job-field-live-head small {
+  color: var(--steel, #5b6570);
+}
+
+.job-field-live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.job-field-live-stats {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.job-field-live-stats article {
+  background: #f6f8f9;
+  border-radius: 12px;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+}
+
+.job-field-live-stats span {
+  color: var(--steel, #5b6570);
+  font-size: 12px;
+}
+
+.job-field-live-stats strong {
+  font-size: 1.15rem;
+}
+
+.job-field-visit {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+.job-field-visit > header {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.job-field-visit > header strong {
+  display: block;
+}
+
+.job-field-visit > header small,
+.job-field-visit-link {
+  color: var(--steel, #5b6570);
+  font-size: 12px;
+}
+
+.job-field-visit-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.job-field-visit-grid h3 {
+  font-size: 0.92rem;
+  margin: 0 0 8px;
+}
+
+.job-field-visit-grid ul {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.job-field-visit-grid li {
+  background: #f7f9fa;
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.job-field-visit-grid li.is-done {
+  background: rgba(46, 140, 125, 0.08);
+}
+
+.job-field-visit-grid li strong,
+.job-field-visit-grid li small,
+.job-field-visit-grid li em {
+  display: block;
+}
+
+.job-field-visit-grid li small {
+  color: var(--steel, #5b6570);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.job-field-visit-grid li em {
+  font-style: normal;
+  font-weight: 600;
+  margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .job-field-live-stats,
+  .job-field-visit-grid {
+    grid-template-columns: 1fr;
+  }
+}
