@@ -8,6 +8,8 @@ type LabState = "idle" | "connecting" | "live" | "unsupported" | "error";
 
 type AskBlakeTalkLabProps = {
   realtimePath?: string;
+  /** App mode hides the debug log and sandbox wording. */
+  variant?: "lab" | "app";
 };
 
 const FRAME_MS = 4500;
@@ -15,13 +17,14 @@ const FRAME_MAX_EDGE = 960;
 const FRAME_QUALITY = 0.62;
 
 /**
- * Talk Lab — ChatGPT-style hands-free call via OpenAI Realtime WebRTC.
+ * ChatGPT-style hands-free call via OpenAI Realtime WebRTC.
  * Optional live camera frames so Blake can see the job while you talk.
- * Not on Field tabs until this feels solid on site.
  */
 export function AskBlakeTalkLab({
   realtimePath = "/api/ask-blake/realtime-session",
+  variant = "lab",
 }: AskBlakeTalkLabProps) {
+  const isLab = variant === "lab";
   const [supported, setSupported] = useState(true);
   const [state, setState] = useState<LabState>("idle");
   const [cameraOn, setCameraOn] = useState(false);
@@ -57,12 +60,12 @@ export function AskBlakeTalkLab({
       && typeof RTCPeerConnection !== "undefined";
     setSupported(ok);
     if (!ok) setState("unsupported");
-    note(`Talk lab ${buildTag}`);
+    note(isLab ? `Talk lab ${buildTag}` : `Ask Blake live ${buildTag}`);
     return () => {
       void stopCall();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buildTag]);
+  }, [buildTag, isLab]);
 
   function stopTracks(stream: MediaStream | null) {
     if (!stream) return;
@@ -339,14 +342,14 @@ export function AskBlakeTalkLab({
       <div className={`ask-blake-voice-stage is-${state}`}>
         <BlakeCharacter mood={mood} size="hero" />
         <p className="ask-blake-voice-status">
-          {state === "live" ? "Live call — hands-free"
+          {state === "live" ? "Live — hands-free"
             : state === "connecting" ? "Connecting…"
               : state === "unsupported" ? "This phone can’t run live call"
                 : state === "error" ? "Call issue"
-                  : "Hands-free Talk lab"}
+                  : "Talk with Blake"}
         </p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
-        <p className="talk-lab-build muted">Build {buildTag}</p>
+        {isLab ? <p className="talk-lab-build muted">Build {buildTag}</p> : null}
 
         <div className="talk-lab-video-wrap">
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -393,21 +396,23 @@ export function AskBlakeTalkLab({
       </div>
 
       <p className="ask-blake-voice-hint muted">
-        Like ChatGPT voice: speak, pause, Blake answers, keep talking — both hands free. Camera sends live frames while you talk.
+        Speak, pause, Blake answers, keep talking — both hands free. Turn camera on so Blake can see the job.
       </p>
 
-      <div className="talk-lab-log" aria-label="Lab log">
-        <p className="talk-lab-log-title">Lab log</p>
-        {log.length ? (
-          <ul>
-            {log.map((line) => (
-              <li key={line}>{line}</li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted">Events show here while you test.</p>
-        )}
-      </div>
+      {isLab ? (
+        <div className="talk-lab-log" aria-label="Lab log">
+          <p className="talk-lab-log-title">Lab log</p>
+          {log.length ? (
+            <ul>
+              {log.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Events show here while you test.</p>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -3,9 +3,12 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AskBlakeChat } from "@/components/AskBlake";
+import { AskBlakeTalkLab } from "@/components/AskBlakeTalkLab";
 import { BlakeCharacter } from "@/components/BlakeCharacter";
 import { useNexaClient } from "@/lib/nexa";
 import type { AskBlakeJobContext } from "@/lib/ask-blake";
+
+type AskMode = "talk" | "type";
 
 type AskBlakeStatus = {
   connected?: boolean;
@@ -17,6 +20,7 @@ export default function AskBlakePage() {
   const searchParams = useSearchParams();
   const scheduleId = searchParams.get("job") ?? "";
   const [job, setJob] = useState<AskBlakeJobContext | null>(null);
+  const [mode, setMode] = useState<AskMode>("talk");
   const [status, setStatus] = useState<AskBlakeStatus | null>(null);
 
   useEffect(() => {
@@ -72,7 +76,7 @@ export default function AskBlakePage() {
           connected: Boolean(body.connected),
           warning: body.connected
             ? undefined
-            : "OpenAI isn’t connected on this pilot — Blake will use field fallback answers.",
+            : "OpenAI isn’t connected — Talk needs the key; Type can still use field fallback.",
         });
       } catch {
         if (!cancelled) {
@@ -90,23 +94,50 @@ export default function AskBlakePage() {
   }, []);
 
   return (
-    <main className="field-screen ask-blake-page">
+    <main className={`field-screen ask-blake-page${mode === "talk" ? " is-talk" : ""}`}>
       <header className="ask-blake-hero">
-        <BlakeCharacter mood="idle" size="hero" />
+        {mode === "type" ? <BlakeCharacter mood="idle" size="hero" /> : null}
         <div>
           <p className="eyebrow">Ask Blake</p>
-          <h1>Type or send photos</h1>
+          <h1>{mode === "talk" ? "Talk it through" : "Type or send photos"}</h1>
           <p className="field-page-sub">
             {job?.jobRef
               ? `${job.jobRef} · ${job.customer ?? "Job"}`
-              : "Describe the fault or attach a photo — likely cause, checks, next steps."}
+              : mode === "talk"
+                ? "Hands-free call — talk back and forth, optional live camera"
+                : "Describe the fault or attach a photo — likely cause, checks, next steps."}
           </p>
         </div>
       </header>
 
       {status?.warning ? <div className="feedback">{status.warning}</div> : null}
 
-      <AskBlakeChat job={job} />
+      <div className="ask-blake-mode" role="tablist" aria-label="Ask Blake mode">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "talk"}
+          className={mode === "talk" ? "active" : undefined}
+          onClick={() => setMode("talk")}
+        >
+          Talk
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mode === "type"}
+          className={mode === "type" ? "active" : undefined}
+          onClick={() => setMode("type")}
+        >
+          Type / photos
+        </button>
+      </div>
+
+      {mode === "talk" ? (
+        <AskBlakeTalkLab variant="app" />
+      ) : (
+        <AskBlakeChat job={job} />
+      )}
     </main>
   );
 }

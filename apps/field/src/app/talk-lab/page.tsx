@@ -7,19 +7,19 @@ export default function TalkLabPage() {
     <main className="field-screen ask-blake-page is-talk talk-lab-page">
       <header className="ask-blake-hero">
         <div>
-          <p className="eyebrow">Sandbox · not in the app yet</p>
+          <p className="eyebrow">Dev sandbox</p>
           <h1>Talk lab</h1>
           <p className="field-page-sub">
-            ChatGPT-style hands-free call: talk back and forth with both hands free. Optional live camera so Blake can see the job while you speak.
+            Same hands-free engine as Ask Blake → Talk. Extra lab log for debugging.
           </p>
         </div>
       </header>
 
       <div className="feedback">
-        Direct link only — not on Field tabs. Allow mic (and camera if you want video). Silent switch off.
+        Prefer <strong>Ask Blake → Talk</strong> in the app. This page keeps the detailed lab log.
       </div>
 
-      <AskBlakeTalkLab />
+      <AskBlakeTalkLab variant="lab" />
     </main>
   );
 }
