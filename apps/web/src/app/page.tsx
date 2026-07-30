@@ -12200,7 +12200,7 @@ export default function Dashboard() {
         seen.add(key);
         return true;
       })
-      .slice(0, 40);
+      .slice(0, 60);
   }
 
   function applyPostcodeMetaToParts(

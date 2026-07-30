@@ -536,7 +536,7 @@ async function streetMatchesForPostcode(postcode: string): Promise<{ matches: Ad
   };
 }
 
-function dedupeMatches(matches: AddressMatch[], limit = 40): AddressMatch[] {
+function dedupeMatches(matches: AddressMatch[], limit = 60): AddressMatch[] {
   const seen = new Set<string>();
   const output: AddressMatch[] = [];
   for (const match of matches) {

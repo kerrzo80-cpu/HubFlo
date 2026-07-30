@@ -11,6 +11,7 @@ export async function GET() {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
       talkLab: "/field/talk-lab",
+      postcodeLookup: process.env.NEXA_POSTCODE_LOOKUP_VERSION ?? "street-list-v2",
     },
     checkedAt: new Date().toISOString(),
   });

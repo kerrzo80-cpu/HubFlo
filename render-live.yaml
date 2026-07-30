@@ -74,3 +74,5 @@ services:
       # Optional UK PAF street lookup (getAddress.io). Without this key NeXa uses OpenStreetMap nearby addresses.
       - key: GETADDRESS_API_KEY
         sync: false
+      - key: NEXA_POSTCODE_LOOKUP_VERSION
+        value: street-list-v2
