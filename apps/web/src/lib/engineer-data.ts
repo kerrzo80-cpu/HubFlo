@@ -201,6 +201,49 @@ export const engineerSchedule: EngineerScheduleItem[] = [
   },
 ];
 
+function gasCertTrialSchedule(): EngineerScheduleItem[] {
+  const today = new Date().toISOString().slice(0, 10);
+  const jobId = "job-gas-cert-trial";
+  const costCentreId = `${jobId}-boiler-service`;
+  const costCentreName = "Boiler servicing";
+  const requirements = requirementsFromFlowTemplate({
+    jobId,
+    costCentreId,
+    costCentreName,
+    templateName: "Boiler servicing",
+  });
+  return [
+    {
+      scheduleId: "sched-gas-cert-trial",
+      jobId,
+      jobRef: "J-TRIAL-GAS",
+      source: "seed",
+      costCentre: costCentreName,
+      costCentres: [{ id: costCentreId, name: costCentreName, templateName: "Boiler servicing" }],
+      engineerId: "eng-brian",
+      engineerName: "Brian Kerr",
+      date: today,
+      start: "09:00",
+      end: "11:00",
+      durationHours: 2,
+      plannedHours: 2,
+      customer: "Aberbuild (Gas cert trial)",
+      contactName: "Site contact",
+      phone: "+441224000000",
+      address: "14 Hillside Avenue, Harrogate, HG2 7PL",
+      description: "Trial boiler service — engineer stop/go populates the NeXa gas service record.",
+      accessNotes: "Trial job for gas certification stop/go. Safe to complete.",
+      officeNotes: [
+        "Open this job on the engineer app, fill Stop/go, then check Core job cost centre Engineer Flow.",
+      ],
+      status: "Scheduled",
+      attachments: [],
+      photos: [],
+      requirements,
+    },
+  ];
+}
+
 function demoEngineerSchedule() {
   return useDemoSeedData() ? engineerSchedule : [];
 }
@@ -512,6 +555,7 @@ export function getEngineerSchedule(engineerId?: string) {
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [
     ...liveItems,
+    ...gasCertTrialSchedule().filter((item) => !liveJobIds.has(item.jobId)),
     ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId)),
   ].map(withCostCentreOptions);
   return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
