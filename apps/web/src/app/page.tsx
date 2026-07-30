@@ -4136,6 +4136,63 @@ const postcodeDirectory = [
       "14 Hopetoun Crescent, Aberdeen, AB24",
     ],
   },
+  {
+    postcode: "AB12 4TG",
+    addresses: [
+      "1 Hillside Drive, Portlethen, AB12 4TG",
+      "2 Hillside Drive, Portlethen, AB12 4TG",
+      "3 Hillside Drive, Portlethen, AB12 4TG",
+      "4 Hillside Drive, Portlethen, AB12 4TG",
+      "5 Hillside Drive, Portlethen, AB12 4TG",
+      "6 Hillside Drive, Portlethen, AB12 4TG",
+      "7 Hillside Drive, Portlethen, AB12 4TG",
+      "8 Hillside Drive, Portlethen, AB12 4TG",
+      "9 Hillside Drive, Portlethen, AB12 4TG",
+      "10 Hillside Drive, Portlethen, AB12 4TG",
+      "11 Hillside Drive, Portlethen, AB12 4TG",
+      "12 Hillside Drive, Portlethen, AB12 4TG",
+      "14 Hillside Drive, Portlethen, AB12 4TG",
+      "15 Hillside Drive, Portlethen, AB12 4TG",
+      "16 Hillside Drive, Portlethen, AB12 4TG",
+      "17 Hillside Drive, Portlethen, AB12 4TG",
+      "18 Hillside Drive, Portlethen, AB12 4TG",
+      "19 Hillside Drive, Portlethen, AB12 4TG",
+      "20 Hillside Drive, Portlethen, AB12 4TG",
+      "21 Hillside Drive, Portlethen, AB12 4TG",
+      "22 Hillside Drive, Portlethen, AB12 4TG",
+      "23 Hillside Drive, Portlethen, AB12 4TG",
+      "24 Hillside Drive, Portlethen, AB12 4TG",
+      "25 Hillside Drive, Portlethen, AB12 4TG",
+      "26 Hillside Drive, Portlethen, AB12 4TG",
+      "27 Hillside Drive, Portlethen, AB12 4TG",
+      "28 Hillside Drive, Portlethen, AB12 4TG",
+      "29 Hillside Drive, Portlethen, AB12 4TG",
+      "30 Hillside Drive, Portlethen, AB12 4TG",
+      "31 Hillside Drive, Portlethen, AB12 4TG",
+      "32 Hillside Drive, Portlethen, AB12 4TG",
+      "33 Hillside Drive, Portlethen, AB12 4TG",
+      "34 Hillside Drive, Portlethen, AB12 4TG",
+      "35 Hillside Drive, Portlethen, AB12 4TG",
+      "36 Hillside Drive, Portlethen, AB12 4TG",
+      "37 Hillside Drive, Portlethen, AB12 4TG",
+      "38 Hillside Drive, Portlethen, AB12 4TG",
+      "39 Hillside Drive, Portlethen, AB12 4TG",
+      "40 Hillside Drive, Portlethen, AB12 4TG",
+      "41 Hillside Drive, Portlethen, AB12 4TG",
+      "42 Hillside Drive, Portlethen, AB12 4TG",
+      "43 Hillside Drive, Portlethen, AB12 4TG",
+      "44 Hillside Drive, Portlethen, AB12 4TG",
+      "45 Hillside Drive, Portlethen, AB12 4TG",
+      "46 Hillside Drive, Portlethen, AB12 4TG",
+      "47 Hillside Drive, Portlethen, AB12 4TG",
+      "48 Hillside Drive, Portlethen, AB12 4TG",
+      "49 Hillside Drive, Portlethen, AB12 4TG",
+      "50 Hillside Drive, Portlethen, AB12 4TG",
+      "51 Hillside Drive, Portlethen, AB12 4TG",
+      "52 Hillside Drive, Portlethen, AB12 4TG",
+      "54 Hillside Drive, Portlethen, AB12 4TG",
+    ],
+  },
 ];
 
 const quoteCatalogFolders = [
@@ -12188,7 +12245,18 @@ export default function Dashboard() {
     query: string,
     apiMatches: Array<{ postcode: string; address: string }> | undefined,
   ) {
-    const merged = [...workspaceAddressMatches(query), ...(apiMatches ?? [])];
+    const q = query.trim().toLowerCase();
+    const compact = q.replace(/\s+/g, "");
+    const seeded = postcodeDirectory.flatMap((entry) => {
+      const entryCompact = entry.postcode.replace(/\s+/g, "").toLowerCase();
+      const postcodeHit =
+        entry.postcode.toLowerCase().includes(q) ||
+        entryCompact.includes(compact) ||
+        (compact.length >= 5 && entryCompact === compact);
+      if (!postcodeHit) return [];
+      return entry.addresses.map((address) => ({ postcode: entry.postcode, address }));
+    });
+    const merged = [...seeded, ...workspaceAddressMatches(query), ...(apiMatches ?? [])];
     const seen = new Set<string>();
     return merged
       .filter((match) => {
