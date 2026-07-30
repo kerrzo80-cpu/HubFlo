@@ -1,479 +1,364 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, SendHorizontal } from "lucide-react";
+import { Camera, CameraOff, Mic, MicOff } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
-import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/field/ask-blake";
-import { startPcmVoiceSession, type PcmVoiceSession } from "@/lib/field/ask-blake-pcm";
-import {
-  ensureMicAccess,
-  speakBlakeReply,
-  speechSupported,
-  stopBlakeAudio,
-  stopMicStream,
-  transcribeBlakeAudio,
-  unlockAudioContext,
-  unlockBlakeVoice,
-} from "@/lib/field/ask-blake-voice";
 
-type LabState = "idle" | "listening" | "thinking" | "speaking" | "unsupported" | "error";
+type LabState = "idle" | "connecting" | "live" | "unsupported" | "error";
 
 type AskBlakeTalkLabProps = {
-  apiPath?: string;
-  speakPath?: string;
-  transcribePath?: string;
-  job?: AskBlakeJobContext | null;
+  realtimePath?: string;
 };
 
-const SPEECH_LEVEL = 0.01;
-const SILENCE_MS = 1600;
-const MAX_LISTEN_MS = 25000;
-const MIN_SPEECH_MS = 400;
+const FRAME_MS = 4500;
+const FRAME_MAX_EDGE = 960;
+const FRAME_QUALITY = 0.62;
 
 /**
- * Sandbox only — flowing voice conversation for testing outside Ask Blake.
- * Uses PCM→WAV capture (not MediaRecorder) so iPhone Safari can feed Whisper.
+ * Talk Lab — ChatGPT-style hands-free call via OpenAI Realtime WebRTC.
+ * Optional live camera frames so Blake can see the job while you talk.
+ * Not on Field tabs until this feels solid on site.
  */
 export function AskBlakeTalkLab({
-  apiPath = "/api/field/ask-blake",
-  speakPath = "/api/field/ask-blake/speak",
-  transcribePath = "/api/field/ask-blake/transcribe",
-  job = null,
+  realtimePath = "/api/field/ask-blake/realtime-session",
 }: AskBlakeTalkLabProps) {
   const [supported, setSupported] = useState(true);
-  const [openaiOk, setOpenaiOk] = useState<boolean | null>(null);
-  const [active, setActive] = useState(false);
   const [state, setState] = useState<LabState>("idle");
+  const [cameraOn, setCameraOn] = useState(false);
   const [heard, setHeard] = useState("");
-  const [lastReply, setLastReply] = useState("");
+  const [blakeSaid, setBlakeSaid] = useState("");
   const [error, setError] = useState("");
-  const [hint, setHint] = useState("Tap Start conversation when you’re ready.");
-  const [level, setLevel] = useState(0);
-  const [hearing, setHearing] = useState(false);
+  const [hint, setHint] = useState("Tap Start call — talk naturally, no buttons between turns.");
   const [log, setLog] = useState<string[]>([]);
-  const [buildTag] = useState("wav-v1");
+  const [buildTag] = useState("realtime-v1");
 
-  const historyRef = useRef<AskBlakeMessage[]>([]);
-  const activeRef = useRef(false);
-  const listeningRef = useRef(false);
-  const finishingRef = useRef(false);
-  const heardSpeechRef = useRef(false);
-  const speechStartedAtRef = useRef(0);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
+  const dcRef = useRef<RTCDataChannel | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
-  const pcmRef = useRef<PcmVoiceSession | null>(null);
-  const stopSpeakRef = useRef<(() => void) | null>(null);
-  const restartTimerRef = useRef<number | null>(null);
-  const silenceTimerRef = useRef<number | null>(null);
-  const maxListenTimerRef = useRef<number | null>(null);
+  const camStreamRef = useRef<MediaStream | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const frameTimerRef = useRef<number | null>(null);
+  const activeRef = useRef(false);
 
   function note(message: string) {
-    const stamp = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setLog((current) => [`${stamp} · ${message}`, ...current].slice(0, 14));
+    const stamp = new Date().toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    setLog((current) => [`${stamp} · ${message}`, ...current].slice(0, 16));
   }
 
   useEffect(() => {
-    setSupported(speechSupported());
-    if (!speechSupported()) setState("unsupported");
+    const ok = typeof window !== "undefined"
+      && !!navigator.mediaDevices?.getUserMedia
+      && typeof RTCPeerConnection !== "undefined";
+    setSupported(ok);
+    if (!ok) setState("unsupported");
     note(`Talk lab ${buildTag}`);
-    void (async () => {
-      try {
-        const response = await fetch(apiPath, { method: "GET" });
-        const body = (await response.json().catch(() => ({}))) as { connected?: boolean; error?: string };
-        if (!response.ok) {
-          setOpenaiOk(false);
-          note(body.error || "Sign in to the pilot again.");
-          return;
-        }
-        setOpenaiOk(Boolean(body.connected));
-        note(body.connected ? "OpenAI connected — lab ready." : "OpenAI missing — Whisper needs OPENAI_API_KEY.");
-      } catch {
-        setOpenaiOk(false);
-        note("Couldn’t reach Ask Blake status.");
-      }
-    })();
     return () => {
-      stopSession(false);
+      void stopCall();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiPath, buildTag]);
+  }, [buildTag]);
 
-  function clearTimers() {
-    for (const ref of [restartTimerRef, silenceTimerRef, maxListenTimerRef]) {
-      if (ref.current != null) {
-        window.clearTimeout(ref.current);
-        ref.current = null;
-      }
-    }
-  }
-
-  function stopSession(updateState = true) {
-    activeRef.current = false;
-    setActive(false);
-    finishingRef.current = false;
-    listeningRef.current = false;
-    clearTimers();
-    stopSpeakRef.current?.();
-    stopSpeakRef.current = null;
-    const pcm = pcmRef.current;
-    pcmRef.current = null;
-    if (pcm) void pcm.stop().catch(() => undefined);
-    stopMicStream(micStreamRef.current);
-    micStreamRef.current = null;
-    stopBlakeAudio();
-    if (updateState) setState(supported ? "idle" : "unsupported");
-    setHeard("");
-    setLevel(0);
-    setHearing(false);
-    setHint("Tap Start conversation when you’re ready.");
-  }
-
-  async function ensureOpenMic() {
-    if (micStreamRef.current?.getTracks().some((track) => track.readyState === "live")) {
-      return micStreamRef.current;
-    }
-    stopMicStream(micStreamRef.current);
-    const stream = await ensureMicAccess();
-    micStreamRef.current = stream;
-    return stream;
-  }
-
-  function scheduleSendFromSilence() {
-    if (silenceTimerRef.current != null) window.clearTimeout(silenceTimerRef.current);
-    silenceTimerRef.current = window.setTimeout(() => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      if (!heardSpeechRef.current) {
-        setHint("Still listening — keep talking, then tap I’m done.");
-        return;
-      }
-      if (Date.now() - speechStartedAtRef.current < MIN_SPEECH_MS) return;
-      note("Pause detected — sending clip.");
-      void finishListeningAndAsk();
-    }, SILENCE_MS);
-  }
-
-  async function finishListeningAndAsk() {
-    if (!activeRef.current || finishingRef.current || !listeningRef.current) return;
-    finishingRef.current = true;
-    listeningRef.current = false;
-    clearTimers();
-    setState("thinking");
-    setHint("Transcribing…");
-    setHearing(false);
-
-    const pcm = pcmRef.current;
-    pcmRef.current = null;
-    let blob: Blob | null = null;
-    try {
-      blob = pcm ? await pcm.stop() : null;
-    } catch {
-      blob = null;
-    }
-
-    if (!blob || blob.size < 1000) {
-      note(`Clip empty (${blob?.size ?? 0} bytes) — listening again.`);
-      setHint("Didn’t catch audio — speak closer, then tap I’m done.");
-      finishingRef.current = false;
-      if (activeRef.current) {
-        restartTimerRef.current = window.setTimeout(() => {
-          void startListeningPass();
-        }, 500);
-      }
-      return;
-    }
-
-    try {
-      note(`Whisper WAV ${(blob.size / 1024).toFixed(0)}KB…`);
-      const transcript = await transcribeBlakeAudio(blob, transcribePath);
-      setHeard(transcript);
-      note(`Heard: ${transcript.slice(0, 80)}`);
-      finishingRef.current = false;
-      await askBlake(transcript);
-    } catch (transcribeError) {
-      const message = transcribeError instanceof Error ? transcribeError.message : "Didn’t catch that.";
-      setError(message);
-      note(`Whisper failed: ${message}`);
-      finishingRef.current = false;
-      if (activeRef.current) {
-        restartTimerRef.current = window.setTimeout(() => {
-          setError("");
-          void startListeningPass();
-        }, 1200);
-      } else {
-        setState("error");
-      }
-    }
-  }
-
-  async function startListeningPass() {
-    if (!activeRef.current) return;
-    clearTimers();
-    stopSpeakRef.current?.();
-    stopSpeakRef.current = null;
-    stopBlakeAudio();
-    if (pcmRef.current) {
+  function stopTracks(stream: MediaStream | null) {
+    if (!stream) return;
+    for (const track of stream.getTracks()) {
       try {
-        await pcmRef.current.stop();
+        track.stop();
       } catch {
         // ignore
       }
-      pcmRef.current = null;
     }
+  }
 
-    finishingRef.current = false;
-    heardSpeechRef.current = false;
-    speechStartedAtRef.current = 0;
-    setHeard("");
-    setError("");
-    setHearing(false);
-    setLevel(0);
-    setState("listening");
-    setHint("Speak now — then tap I’m done.");
-    note("Listening (PCM/WAV)…");
+  function stopFrameLoop() {
+    if (frameTimerRef.current != null) {
+      window.clearInterval(frameTimerRef.current);
+      frameTimerRef.current = null;
+    }
+  }
 
-    let stream: MediaStream;
+  async function stopCall() {
+    activeRef.current = false;
+    stopFrameLoop();
     try {
-      stream = await ensureOpenMic();
-      const track = stream.getAudioTracks()[0];
-      note(`Mic: ${track?.label || "default"} (${track?.readyState || "?"})`);
-    } catch {
-      setError("Allow microphone access, then start again.");
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
-      note("Mic permission blocked.");
-      return;
-    }
-
-    const context = await unlockAudioContext();
-    if (!context) {
-      setError("This phone blocked Web Audio.");
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
-      note("AudioContext missing.");
-      return;
-    }
-    try {
-      await context.resume();
+      dcRef.current?.close();
     } catch {
       // ignore
     }
-    note(`AudioContext ${context.state} @ ${Math.round(context.sampleRate)}Hz`);
-
-    let peak = 0;
-    let lastPeakLog = 0;
+    dcRef.current = null;
     try {
-      pcmRef.current = startPcmVoiceSession({
-        context,
-        stream,
-        onLevel: (nextLevel) => {
-          if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-          setLevel(nextLevel);
-          if (nextLevel > peak) peak = nextLevel;
-          const now = Date.now();
-          if (now - lastPeakLog > 1000) {
-            lastPeakLog = now;
-            note(`Level ${Math.round(peak * 100)}%`);
-            peak = 0;
-          }
-          const isSpeech = nextLevel >= SPEECH_LEVEL;
-          setHearing(isSpeech);
-          if (isSpeech) {
-            if (!heardSpeechRef.current) {
-              heardSpeechRef.current = true;
-              speechStartedAtRef.current = Date.now();
-              note("Speech detected.");
-            }
-            setHint("Hearing you — tap I’m done when finished.");
-            if (silenceTimerRef.current != null) {
-              window.clearTimeout(silenceTimerRef.current);
-              silenceTimerRef.current = null;
-            }
-          } else if (heardSpeechRef.current) {
-            scheduleSendFromSilence();
-          }
-        },
-      });
+      pcRef.current?.close();
     } catch {
-      setError("Couldn’t start PCM capture on this phone.");
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
-      note("PCM session failed.");
-      return;
+      // ignore
     }
-
-    listeningRef.current = true;
-
-    maxListenTimerRef.current = window.setTimeout(() => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      if (heardSpeechRef.current) {
-        note("Max listen — sending.");
-        void finishListeningAndAsk();
-        return;
-      }
-      setHint("Bar still? Speak closer to the bottom mic, then tap I’m done.");
-      note("No speech level yet — tap I’m done after speaking.");
-    }, MAX_LISTEN_MS);
+    pcRef.current = null;
+    stopTracks(micStreamRef.current);
+    micStreamRef.current = null;
+    stopTracks(camStreamRef.current);
+    camStreamRef.current = null;
+    if (remoteAudioRef.current) {
+      remoteAudioRef.current.srcObject = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraOn(false);
+    setState(supported ? "idle" : "unsupported");
+    setHint("Tap Start call — talk naturally, no buttons between turns.");
   }
 
-  async function askBlake(transcript: string) {
-    if (!activeRef.current) return;
-    setState("thinking");
-    setHint("Blake is thinking…");
-    const history = historyRef.current.slice(-10);
-    historyRef.current = [...history, { role: "user", text: transcript }];
+  function sendEvent(payload: Record<string, unknown>) {
+    const channel = dcRef.current;
+    if (!channel || channel.readyState !== "open") return;
+    channel.send(JSON.stringify(payload));
+  }
 
-    try {
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 40_000);
-      let response: Response;
-      try {
-        response = await fetch(apiPath, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            message: transcript,
-            history,
-            job,
-            mode: "voice",
-          }),
-        });
-      } finally {
-        window.clearTimeout(timeoutId);
-      }
-
-      const raw = await response.text();
-      let body: { reply?: string; error?: string; warning?: string } = {};
-      try {
-        body = raw ? JSON.parse(raw) as typeof body : {};
-      } catch {
-        throw new Error(raw.trim() || "Blake couldn’t reply.");
-      }
-      if (!response.ok || !body.reply?.trim()) {
-        throw new Error(body.error || raw.trim() || "Blake couldn’t reply.");
-      }
-
-      const reply = body.reply.trim();
-      historyRef.current = [...historyRef.current, { role: "assistant", text: reply }];
-      setLastReply(reply);
-      if (body.warning) {
-        setError(body.warning);
-        note(`Warning: ${body.warning}`);
-      }
-      if (!activeRef.current) return;
-
-      setState("speaking");
-      setHint("Blake is talking…");
-      note(`Blake: ${reply.slice(0, 80)}`);
-      try {
-        stopSpeakRef.current = await speakBlakeReply(reply, {
-          speakPath,
-          onEnd: () => {
-            if (!activeRef.current) return;
-            note("Reply finished — listening again.");
-            restartTimerRef.current = window.setTimeout(() => {
-              void startListeningPass();
-            }, 450);
+  function captureAndSendFrame() {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.videoWidth < 16) return;
+    const scale = Math.min(1, FRAME_MAX_EDGE / Math.max(video.videoWidth, video.videoHeight));
+    const width = Math.max(1, Math.round(video.videoWidth * scale));
+    const height = Math.max(1, Math.round(video.videoHeight * scale));
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, width, height);
+    const dataUrl = canvas.toDataURL("image/jpeg", FRAME_QUALITY);
+    sendEvent({
+      type: "conversation.item.create",
+      item: {
+        type: "message",
+        role: "user",
+        content: [
+          {
+            type: "input_image",
+            image_url: dataUrl,
           },
-        });
-      } catch {
-        setError("Reply on screen — silent mode may be blocking audio.");
-        note("Speak failed — looping back to listen.");
-        if (activeRef.current) {
-          restartTimerRef.current = window.setTimeout(() => {
-            void startListeningPass();
-          }, 800);
-        }
+          {
+            type: "input_text",
+            text: "Live site camera frame — use this with what I’m saying.",
+          },
+        ],
+      },
+    });
+    note("Sent live camera frame to Blake.");
+  }
+
+  function startFrameLoop() {
+    stopFrameLoop();
+    captureAndSendFrame();
+    frameTimerRef.current = window.setInterval(() => {
+      if (!activeRef.current) return;
+      captureAndSendFrame();
+    }, FRAME_MS);
+  }
+
+  async function enableCamera() {
+    try {
+      const cam = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      stopTracks(camStreamRef.current);
+      camStreamRef.current = cam;
+      if (videoRef.current) {
+        videoRef.current.srcObject = cam;
+        await videoRef.current.play().catch(() => undefined);
       }
-    } catch (askError) {
-      const aborted = askError instanceof DOMException && askError.name === "AbortError";
-      const message = aborted
-        ? "Ask timed out."
-        : askError instanceof Error ? askError.message : "Blake couldn’t reply.";
-      setError(message);
-      note(`Ask failed: ${message}`);
-      setState("error");
-      setActive(false);
-      activeRef.current = false;
+      setCameraOn(true);
+      note("Camera on — Blake gets live frames while you talk.");
+      if (activeRef.current && dcRef.current?.readyState === "open") {
+        startFrameLoop();
+      }
+    } catch {
+      setError("Camera blocked — allow camera, or keep talking without video.");
+      note("Camera permission blocked.");
+      setCameraOn(false);
     }
   }
 
-  async function toggle() {
-    if (!supported) {
-      setState("unsupported");
-      return;
-    }
-    if (openaiOk === false) {
-      setError("OpenAI isn’t connected — set OPENAI_API_KEY on Render first.");
-      setState("error");
-      note("Blocked: OpenAI key missing.");
-      return;
-    }
-    if (active) {
-      note("Conversation stopped.");
-      stopSession();
-      return;
-    }
+  function disableCamera() {
+    stopFrameLoop();
+    stopTracks(camStreamRef.current);
+    camStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOn(false);
+    note("Camera off.");
+  }
 
+  async function startCall() {
+    if (!supported || activeRef.current) return;
     setError("");
-    setLastReply("");
     setHeard("");
-    setActive(true);
+    setBlakeSaid("");
+    setState("connecting");
+    setHint("Connecting hands-free call…");
+    note("Minting Realtime session…");
     activeRef.current = true;
-    setState("listening");
-    setHint("Opening microphone…");
-    note(`Starting (${buildTag})…`);
+
     try {
-      await unlockBlakeVoice();
-      await unlockAudioContext();
-      await ensureOpenMic();
-    } catch {
-      setError("Allow the microphone, then try again.");
-      setState("error");
-      setActive(false);
+      const tokenResponse = await fetch(realtimePath, { method: "POST" });
+      const tokenBody = (await tokenResponse.json().catch(() => ({}))) as {
+        clientSecret?: string;
+        error?: string;
+        build?: string;
+      };
+      if (!tokenResponse.ok || !tokenBody.clientSecret) {
+        throw new Error(tokenBody.error || "Couldn’t start Realtime session.");
+      }
+      note(`Session ready (${tokenBody.build || "realtime"}).`);
+
+      const pc = new RTCPeerConnection();
+      pcRef.current = pc;
+
+      if (!remoteAudioRef.current) {
+        remoteAudioRef.current = new Audio();
+        remoteAudioRef.current.autoplay = true;
+        remoteAudioRef.current.setAttribute("playsinline", "true");
+      }
+      pc.ontrack = (event) => {
+        if (remoteAudioRef.current) {
+          remoteAudioRef.current.srcObject = event.streams[0] ?? null;
+          void remoteAudioRef.current.play().catch(() => undefined);
+        }
+      };
+
+      const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      micStreamRef.current = mic;
+      for (const track of mic.getAudioTracks()) {
+        pc.addTrack(track, mic);
+      }
+      note("Mic attached.");
+
+      const dc = pc.createDataChannel("oai-events");
+      dcRef.current = dc;
+      dc.addEventListener("open", () => {
+        note("Data channel open — VAD on (hands-free).");
+        setState("live");
+        setHint("Call live — just talk. Blake answers when you pause.");
+        if (cameraOn) startFrameLoop();
+      });
+      dc.addEventListener("message", (event) => {
+        let payload: {
+          type?: string;
+          transcript?: string;
+          delta?: string;
+          error?: { message?: string };
+        } = {};
+        try {
+          payload = JSON.parse(String(event.data)) as typeof payload;
+        } catch {
+          return;
+        }
+        const type = payload.type ?? "";
+        if (type === "conversation.item.input_audio_transcription.completed" && payload.transcript) {
+          setHeard(payload.transcript);
+          note(`You: ${payload.transcript.slice(0, 80)}`);
+        }
+        if (type === "response.audio_transcript.delta" && payload.delta) {
+          setBlakeSaid((current) => `${current}${payload.delta}`);
+        }
+        if (type === "response.audio_transcript.done" || type === "response.done") {
+          // keep last transcript on screen
+        }
+        if (type === "input_audio_buffer.speech_started") {
+          setBlakeSaid("");
+          setHint("Hearing you…");
+        }
+        if (type === "input_audio_buffer.speech_stopped") {
+          setHint("Blake is answering…");
+        }
+        if (type === "error") {
+          const message = payload.error?.message || "Realtime error";
+          setError(message);
+          note(`Error: ${message}`);
+        }
+      });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const sdpResponse = await fetch("https://api.openai.com/v1/realtime/calls", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${tokenBody.clientSecret}`,
+          "Content-Type": "application/sdp",
+        },
+        body: offer.sdp ?? "",
+      });
+      if (!sdpResponse.ok) {
+        throw new Error(`WebRTC handshake failed (${sdpResponse.status}).`);
+      }
+      const answerSdp = await sdpResponse.text();
+      await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
+      note("WebRTC connected.");
+      setState("live");
+      setHint("Call live — just talk. Optional: turn camera on so Blake can see.");
+    } catch (startError) {
+      const message = startError instanceof Error ? startError.message : "Couldn’t start call.";
+      setError(message);
+      note(`Start failed: ${message}`);
       activeRef.current = false;
-      stopMicStream(micStreamRef.current);
-      micStreamRef.current = null;
-      note("Mic unlock failed.");
+      await stopCall();
+      setState("error");
+    }
+  }
+
+  async function toggleCall() {
+    if (state === "live" || state === "connecting") {
+      note("Call ended.");
+      await stopCall();
       return;
     }
-    void startListeningPass();
+    await startCall();
+  }
+
+  async function toggleCamera() {
+    if (cameraOn) {
+      disableCamera();
+      return;
+    }
+    await enableCamera();
   }
 
   const mood: BlakeMood =
-    state === "listening" ? "guide"
-      : state === "thinking" ? "thinking"
-        : state === "speaking" ? "good"
-          : state === "error" || state === "unsupported" ? "alert"
-            : "idle";
-
-  const levelPercent = Math.round(Math.min(1, level) * 100);
+    state === "live" ? "guide"
+      : state === "connecting" ? "thinking"
+        : state === "error" || state === "unsupported" ? "alert"
+          : "idle";
 
   return (
     <section className="ask-blake-voice talk-lab" aria-label="Talk lab">
-      <div className={`ask-blake-voice-stage is-${state}${hearing ? " is-hearing" : ""}`}>
+      <div className={`ask-blake-voice-stage is-${state}`}>
         <BlakeCharacter mood={mood} size="hero" />
         <p className="ask-blake-voice-status">
-          {state === "listening" ? "Listening"
-            : state === "thinking" ? "Thinking…"
-              : state === "speaking" ? "Blake talking"
-                : state === "unsupported" ? "Mic recording unsupported"
-                  : state === "error" ? "Lab issue"
-                    : "Conversation lab"}
+          {state === "live" ? "Live call — hands-free"
+            : state === "connecting" ? "Connecting…"
+              : state === "unsupported" ? "This phone can’t run live call"
+                : state === "error" ? "Call issue"
+                  : "Hands-free Talk lab"}
         </p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
         <p className="talk-lab-build muted">Build {buildTag}</p>
-        {state === "listening" ? (
-          <div className={`ask-blake-voice-meter${hearing ? " is-hot" : ""}`} role="status">
-            <span style={{ width: `${Math.max(8, levelPercent)}%` }} />
-          </div>
-        ) : null}
+
+        <div className="talk-lab-video-wrap">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video ref={videoRef} className="talk-lab-video" playsInline muted autoPlay />
+          <canvas ref={canvasRef} className="talk-lab-canvas" aria-hidden="true" />
+          {!cameraOn ? (
+            <p className="talk-lab-video-placeholder muted">Camera off — turn on so Blake can see the job</p>
+          ) : null}
+        </div>
+
         {heard ? <p className="ask-blake-voice-heard">You: {heard}</p> : null}
-        {lastReply && state !== "listening" ? (
-          <p className="ask-blake-voice-reply">{lastReply}</p>
-        ) : null}
+        {blakeSaid ? <p className="ask-blake-voice-reply">{blakeSaid}</p> : null}
       </div>
 
       {error ? <div className="feedback error">{error}</div> : null}
@@ -481,32 +366,34 @@ export function AskBlakeTalkLab({
       <div className="ask-blake-voice-actions">
         <button
           type="button"
-          className={`ask-blake-voice-btn${active ? " is-live" : ""}`}
+          className={`ask-blake-voice-btn${state === "live" || state === "connecting" ? " is-live" : ""}`}
           onClick={() => {
-            void toggle();
+            void toggleCall();
           }}
-          disabled={!supported || state === "unsupported"}
+          disabled={!supported || state === "unsupported" || state === "connecting"}
         >
-          {active ? <MicOff size={22} /> : <Mic size={22} />}
-          <span>{active ? "Stop conversation" : "Start conversation"}</span>
+          {state === "live" || state === "connecting" ? <MicOff size={22} /> : <Mic size={22} />}
+          <span>
+            {state === "connecting" ? "Connecting…"
+              : state === "live" ? "End call"
+                : "Start call"}
+          </span>
         </button>
-        {state === "listening" ? (
-          <button
-            type="button"
-            className="ask-blake-voice-send is-primary-done"
-            onClick={() => {
-              note("I’m done tapped.");
-              void finishListeningAndAsk();
-            }}
-          >
-            <SendHorizontal size={18} />
-            <span>I’m done — send to Blake</span>
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className={`ask-blake-voice-send${cameraOn ? " is-primary-done" : ""}`}
+          onClick={() => {
+            void toggleCamera();
+          }}
+          disabled={state === "unsupported"}
+        >
+          {cameraOn ? <CameraOff size={18} /> : <Camera size={18} />}
+          <span>{cameraOn ? "Camera off" : "Camera on"}</span>
+        </button>
       </div>
 
       <p className="ask-blake-voice-hint muted">
-        Speak toward the bottom mic. Green bar should move. Then tap <strong>I’m done</strong>.
+        Like ChatGPT voice: speak, pause, Blake answers, keep talking — both hands free. Camera sends live frames while you talk.
       </p>
 
       <div className="talk-lab-log" aria-label="Lab log">
