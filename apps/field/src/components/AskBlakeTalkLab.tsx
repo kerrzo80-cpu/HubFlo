@@ -13,6 +13,7 @@ import {
   stopBlakeAudio,
   stopMicStream,
   transcribeBlakeAudio,
+  unlockAudioContext,
   unlockBlakeVoice,
   type ActiveVoiceRecorder,
   type MicLevelMonitor,
@@ -27,10 +28,10 @@ type AskBlakeTalkLabProps = {
   job?: AskBlakeJobContext | null;
 };
 
-const SPEECH_LEVEL = 0.045;
-const SILENCE_MS = 1400;
-const MAX_LISTEN_MS = 20000;
-const MIN_SPEECH_MS = 500;
+const SPEECH_LEVEL = 0.012;
+const SILENCE_MS = 1600;
+const MAX_LISTEN_MS = 25000;
+const MIN_SPEECH_MS = 400;
 
 /**
  * Sandbox only — flowing voice conversation for testing outside Ask Blake.
@@ -233,12 +234,14 @@ export function AskBlakeTalkLab({
     setError("");
     setHearing(false);
     setState("listening");
-    setHint("Your turn — speak, then pause.");
+    setHint("Speak now — then tap I’m done (green bar should move).");
     note("Listening…");
 
     let stream: MediaStream;
     try {
       stream = await ensureOpenMic();
+      const track = stream.getAudioTracks()[0];
+      note(`Mic: ${track?.label || "default"} (${track?.readyState || "unknown"})`);
     } catch {
       setError("Allow microphone access, then start again.");
       setState("error");
@@ -251,6 +254,7 @@ export function AskBlakeTalkLab({
     let recorder: ActiveVoiceRecorder;
     try {
       recorder = startVoiceRecorder(stream);
+      note(`Recorder: ${recorder.mimeType || "default"}`);
     } catch {
       setError("Recording blocked on this phone.");
       setState("error");
@@ -263,18 +267,27 @@ export function AskBlakeTalkLab({
     recorderRef.current = recorder;
     listeningRef.current = true;
 
+    let peak = 0;
+    let lastPeakLog = 0;
     levelMonitorRef.current = startMicLevelMonitor(stream, (nextLevel) => {
       if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
       setLevel(nextLevel);
+      if (nextLevel > peak) peak = nextLevel;
+      const now = Date.now();
+      if (now - lastPeakLog > 1200) {
+        lastPeakLog = now;
+        note(`Level ${Math.round(peak * 100)}% (peak)`);
+        peak = 0;
+      }
       const isSpeech = nextLevel >= SPEECH_LEVEL;
       setHearing(isSpeech);
       if (isSpeech) {
         if (!heardSpeechRef.current) {
           heardSpeechRef.current = true;
           speechStartedAtRef.current = Date.now();
-          note("Speech detected.");
+          note("Speech detected — keep talking, then I’m done.");
         }
-        setHint("Hearing you — pause when finished.");
+        setHint("Hearing you — tap I’m done when finished.");
         if (silenceTimerRef.current != null) {
           window.clearTimeout(silenceTimerRef.current);
           silenceTimerRef.current = null;
@@ -291,7 +304,8 @@ export function AskBlakeTalkLab({
         void finishListeningAndAsk();
         return;
       }
-      setHint("Still listening — speak a bit louder, or tap I’m done.");
+      setHint("Bar not moving? Speak closer to the bottom mic, then tap I’m done.");
+      note("No speech level yet — tap I’m done after speaking anyway.");
     }, MAX_LISTEN_MS);
   }
 
@@ -386,6 +400,7 @@ export function AskBlakeTalkLab({
     if (openaiOk === false) {
       setError("OpenAI isn’t connected on this pilot — set OPENAI_API_KEY on Render first.");
       setState("error");
+      note("Blocked: OpenAI key missing.");
       return;
     }
     if (active) {
@@ -404,6 +419,7 @@ export function AskBlakeTalkLab({
     note("Starting conversation…");
     try {
       await unlockBlakeVoice();
+      await unlockAudioContext();
       await ensureOpenMic();
     } catch {
       setError("Allow the microphone, then try again.");
@@ -415,9 +431,8 @@ export function AskBlakeTalkLab({
       note("Mic unlock failed.");
       return;
     }
-    restartTimerRef.current = window.setTimeout(() => {
-      void startListeningPass();
-    }, 250);
+    // Start immediately after the tap — iOS can drop the gesture unlock if we wait too long.
+    void startListeningPass();
   }
 
   const mood: BlakeMood =
@@ -470,17 +485,21 @@ export function AskBlakeTalkLab({
         {state === "listening" ? (
           <button
             type="button"
-            className="ask-blake-voice-send"
+            className="ask-blake-voice-send is-primary-done"
             onClick={() => {
               note("I’m done tapped.");
               void finishListeningAndAsk();
             }}
           >
             <SendHorizontal size={18} />
-            <span>I’m done</span>
+            <span>I’m done — send to Blake</span>
           </button>
         ) : null}
       </div>
+
+      <p className="ask-blake-voice-hint muted">
+        Speak toward the bottom of the phone. Watch the green bar, then tap <strong>I’m done</strong>. Blake answers, then listens again.
+      </p>
 
       <div className="talk-lab-log" aria-label="Lab log">
         <p className="talk-lab-log-title">Lab log</p>

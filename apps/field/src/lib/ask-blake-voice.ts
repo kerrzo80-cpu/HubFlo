@@ -100,7 +100,7 @@ export function startVoiceRecorder(stream: MediaStream): ActiveVoiceRecorder {
     if (event.data && event.data.size > 0) chunks.push(event.data);
   };
   try {
-    recorder.start(250);
+    recorder.start(200);
   } catch {
     recorder.start();
   }
@@ -109,7 +109,10 @@ export function startVoiceRecorder(stream: MediaStream): ActiveVoiceRecorder {
     mimeType: recorder.mimeType || mimeType || "audio/webm",
     stop: () =>
       new Promise<Blob>((resolve) => {
+        let settled = false;
         const finish = () => {
+          if (settled) return;
+          settled = true;
           const type = recorder.mimeType || mimeType || "audio/webm";
           resolve(new Blob(chunks, { type }));
         };
@@ -118,16 +121,21 @@ export function startVoiceRecorder(stream: MediaStream): ActiveVoiceRecorder {
           return;
         }
         recorder.onstop = finish;
+        // iOS sometimes needs a beat after requestData before stop flushes the last chunk.
         try {
           recorder.requestData?.();
         } catch {
           // ignore
         }
-        try {
-          recorder.stop();
-        } catch {
-          finish();
-        }
+        window.setTimeout(() => {
+          try {
+            if (recorder.state !== "inactive") recorder.stop();
+            else finish();
+          } catch {
+            finish();
+          }
+        }, 80);
+        window.setTimeout(finish, 1500);
       }),
   };
 }
@@ -148,12 +156,15 @@ export function startMicLevelMonitor(
     return { stop: () => undefined };
   }
 
-  const context = new AudioCtx();
+  const context = sharedAudioContext && sharedAudioContext.state !== "closed"
+    ? sharedAudioContext
+    : new AudioCtx();
+  sharedAudioContext = context;
   void context.resume();
   const source = context.createMediaStreamSource(stream);
   const analyser = context.createAnalyser();
-  analyser.fftSize = 1024;
-  analyser.smoothingTimeConstant = 0.35;
+  analyser.fftSize = 2048;
+  analyser.smoothingTimeConstant = 0.2;
   source.connect(analyser);
   const data = new Uint8Array(analyser.fftSize);
   let raf = 0;
@@ -163,11 +174,15 @@ export function startMicLevelMonitor(
     if (stopped) return;
     analyser.getByteTimeDomainData(data);
     let sum = 0;
+    let peak = 0;
     for (let index = 0; index < data.length; index += 1) {
       const sample = ((data[index] ?? 128) - 128) / 128;
+      const abs = Math.abs(sample);
+      if (abs > peak) peak = abs;
       sum += sample * sample;
     }
-    onLevel(Math.min(1, Math.sqrt(sum / data.length) * 3.2));
+    const rms = Math.sqrt(sum / data.length);
+    onLevel(Math.min(1, Math.max(rms * 4.5, peak * 1.8)));
     raf = window.requestAnimationFrame(tick);
   };
   tick();
@@ -181,7 +196,7 @@ export function startMicLevelMonitor(
       } catch {
         // ignore
       }
-      void context.close();
+      // Keep shared context alive for the session — closing it breaks the next listen pass on iOS.
     },
   };
 }
@@ -240,15 +255,39 @@ export async function ensureMicAccess() {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     throw new Error("This phone can’t open the microphone for Ask Blake.");
   }
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-    video: false,
-  });
-  return stream;
+  // iPhone: keep constraints simple first — fancy AEC settings can yield a silent track.
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch {
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+  }
+}
+
+let sharedAudioContext: AudioContext | null = null;
+
+/** Must run inside a tap handler so iOS unlocks Web Audio for the level meter. */
+export async function unlockAudioContext() {
+  if (typeof window === "undefined") return null;
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return null;
+  if (!sharedAudioContext || sharedAudioContext.state === "closed") {
+    sharedAudioContext = new AudioCtx();
+  }
+  if (sharedAudioContext.state === "suspended") {
+    try {
+      await sharedAudioContext.resume();
+    } catch {
+      // ignore
+    }
+  }
+  return sharedAudioContext;
 }
 
 export function stopMicStream(stream: MediaStream | null | undefined) {
@@ -271,6 +310,7 @@ export async function unlockBlakeVoice() {
 
   // Stop any leftover playback before we open the mic.
   stopBlakeAudio();
+  await unlockAudioContext();
 
   if ("speechSynthesis" in window) {
     try {
