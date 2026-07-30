@@ -10069,20 +10069,31 @@ export default function Dashboard() {
 
     const params = new URLSearchParams(window.location.search);
     const quoteParam = params.get("quote");
-    if (!quoteParam) {
+    const jobParam = params.get("job");
+
+    if (quoteParam) {
+      const targetQuote = quotes.find((quote) => quote.id === quoteParam || quote.ref === quoteParam);
+      if (!targetQuote) return;
+      openQuoteDrawer(targetQuote.id);
+      setQuoteStatusFilter("All quotes");
+      showNotice(`${targetQuote.ref} opened from Blake AI intake.`);
       setHandledInitialRoute(true);
+      window.history.replaceState(null, "", window.location.pathname);
       return;
     }
 
-    const targetQuote = quotes.find((quote) => quote.id === quoteParam || quote.ref === quoteParam);
-    if (!targetQuote) return;
+    if (jobParam) {
+      const targetJob = jobs.find((job) => job.id === jobParam || job.ref === jobParam);
+      if (!targetJob) return;
+      openJobDrawer(targetJob.id);
+      showNotice(`${targetJob.ref} opened from Blake AI intake.`);
+      setHandledInitialRoute(true);
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
 
-    openQuoteDrawer(targetQuote.id);
-    setQuoteStatusFilter("All quotes");
-    showNotice(`${targetQuote.ref} opened from AI Surveyor handoff.`);
     setHandledInitialRoute(true);
-    window.history.replaceState(null, "", window.location.pathname);
-  }, [handledInitialRoute, hasHydratedLocalData, quotes]);
+  }, [handledInitialRoute, hasHydratedLocalData, jobs, quotes]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || typeof window === "undefined") return;
@@ -10102,6 +10113,32 @@ export default function Dashboard() {
       window.history.replaceState(null, "", window.location.pathname);
       return;
     }
+    if (viewParam === "quote-create" && access.canCreateQuote) {
+      setQuotePostcodeSearch("");
+      setNewQuote({
+        ...blankQuote,
+        owner: activeEmployee?.name || blankQuote.owner,
+        setup: makeIntakeSetupOptions(),
+      });
+      setHomeView("quote-create");
+      setShowCreateQuote(true);
+      scrollWorkspaceToTop();
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    if (viewParam === "job-create" && access.canCreateJob) {
+      setJobPostcodeSearch("");
+      setNewJob({
+        ...blankJob,
+        manager: activeEmployee?.name || blankJob.manager,
+        setup: makeIntakeSetupOptions(),
+      });
+      setHomeView("job-create");
+      setShowCreateJob(true);
+      scrollWorkspaceToTop();
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
     const leadParam = params.get("lead");
     if (!leadParam) return;
     const targetLead = leads.find((lead) => lead.id === leadParam || lead.ref === leadParam);
@@ -10109,7 +10146,14 @@ export default function Dashboard() {
     openLeadRecord(targetLead.id);
     showNotice(`${targetLead.ref} opened from AI intake.`);
     window.history.replaceState(null, "", window.location.pathname);
-  }, [access.canCreateLead, activeEmployee?.name, hasHydratedLocalData, leads]);
+  }, [
+    access.canCreateJob,
+    access.canCreateLead,
+    access.canCreateQuote,
+    activeEmployee?.name,
+    hasHydratedLocalData,
+    leads,
+  ]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || typeof window === "undefined") return;
@@ -23146,15 +23190,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    setQuotePostcodeSearch("");
-    setNewQuote({
-      ...blankQuote,
-      owner: activeEmployee?.name || blankQuote.owner,
-      setup: makeIntakeSetupOptions(),
-    });
-    setHomeView("quote-create");
-    setShowCreateQuote(true);
-    scrollWorkspaceToTop();
+    window.location.assign("/ai-intake?mode=quote");
   }
 
   function createJobFromMenu() {
@@ -23164,15 +23200,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    setJobPostcodeSearch("");
-    setNewJob({
-      ...blankJob,
-      manager: activeEmployee?.name || blankJob.manager,
-      setup: makeIntakeSetupOptions(),
-    });
-    setHomeView("job-create");
-    setShowCreateJob(true);
-    scrollWorkspaceToTop();
+    window.location.assign("/ai-intake?mode=job");
   }
 
   function createRef() {
