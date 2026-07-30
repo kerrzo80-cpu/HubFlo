@@ -27035,7 +27035,7 @@ export default function Dashboard() {
             <FileText size={17} />
             <span>NeXa Takeoff</span>
           </a>
-          <a href="/engineer" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
+          <a href="/field" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
             <span>NeXa Field</span>
           </a>
@@ -29115,11 +29115,11 @@ export default function Dashboard() {
                   </div>
                   <ChevronRight size={17} />
                 </a>
-                <a className="addon-product-card" href="/engineer">
+                <a className="addon-product-card" href="/field">
                   <span className="addon-icon"><HardHat size={20} /></span>
                   <div>
                     <strong>NeXa Field</strong>
-                    <p>Engineer packs, stop/go checks, photos, forms, timesheets and variations.</p>
+                    <p>Engineer packs, Ask Blake, photos, hours and job evidence from site.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
                   </div>
                   <ChevronRight size={17} />

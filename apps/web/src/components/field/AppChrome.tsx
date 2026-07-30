@@ -22,7 +22,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
         <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
         <div>
           <strong>NeXa Field</strong>
-          <span>Today&apos;s work</span>
+          <span>Linked to Core</span>
         </div>
       </header>
       {children}

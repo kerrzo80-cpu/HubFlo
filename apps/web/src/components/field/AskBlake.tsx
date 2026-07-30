@@ -8,7 +8,7 @@ import {
   type AskBlakeJobContext,
   type AskBlakeMessage,
 } from "@/lib/field/ask-blake";
-import { compressAskBlakePhotos } from "@/lib/field/ask-blake-media";
+import { compressAskBlakeFiles, compressAskBlakePhotos, ASK_BLAKE_RAW_PHOTO_LIMIT_BYTES } from "@/lib/field/ask-blake-media";
 
 type AskBlakeChatProps = {
   job?: AskBlakeJobContext | null;
@@ -27,6 +27,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
   const [draft, setDraft] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [preparingPhotos, setPreparingPhotos] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -54,7 +55,6 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
     }
 
     const selected = files.slice(0, remaining);
-    const next: string[] = [];
     for (const file of selected) {
       const type = (file.type || "").toLowerCase();
       const name = file.name.toLowerCase();
@@ -66,38 +66,24 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
         setError("Attach photos from your library, or take them.");
         return;
       }
-      if (file.size > 12 * 1024 * 1024) {
-        setError("Keep each photo under 12MB for this pilot.");
-        return;
-      }
-      try {
-        next.push(await readImageAsDataUrl(file));
-      } catch {
-        setError("Could not read one of those photos. Try another image.");
+      if (file.size > ASK_BLAKE_RAW_PHOTO_LIMIT_BYTES) {
+        setError("That photo is too large even to shrink (over 80MB). Try another shot.");
         return;
       }
     }
 
+    setPreparingPhotos(true);
+    setError("");
     try {
-      const compressed = await compressAskBlakePhotos(next);
+      // Shrink 15–50MB phone-camera files down before attaching.
+      const compressed = await compressAskBlakeFiles(selected);
       setPhotos((current) => [...current, ...compressed].slice(0, ASK_BLAKE_MAX_PHOTOS));
       setError(files.length > remaining ? `Added ${remaining} — max ${ASK_BLAKE_MAX_PHOTOS} photos.` : "");
     } catch {
-      setError("Could not prepare those photos. Try again or use a smaller image.");
+      setError("Could not prepare those photos. Try again, or take a new shot.");
+    } finally {
+      setPreparingPhotos(false);
     }
-  }
-
-  function readImageAsDataUrl(file: File) {
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = typeof reader.result === "string" ? reader.result : "";
-        if (!result) reject(new Error("empty"));
-        else resolve(result);
-      };
-      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
-      reader.readAsDataURL(file);
-    });
   }
 
   function removePhoto(index: number) {
@@ -242,6 +228,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
 
       {warning ? <div className="feedback">{warning}</div> : null}
       {error ? <div className="feedback error">{error}</div> : null}
+      {preparingPhotos ? <div className="feedback">Shrinking photo for Blake…</div> : null}
 
       {photos.length ? (
         <div className="ask-blake-preview-row" aria-label="Attached photos">
@@ -290,7 +277,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             aria-label="Upload photos"
             title="Upload photos"
             onClick={() => libraryRef.current?.click()}
-            disabled={busy || !canAddMore}
+            disabled={busy || preparingPhotos || !canAddMore}
           >
             <ImagePlus size={18} />
           </button>
@@ -300,7 +287,7 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
             aria-label="Take photo"
             title="Take photo"
             onClick={() => cameraRef.current?.click()}
-            disabled={busy || !canAddMore}
+            disabled={busy || preparingPhotos || !canAddMore}
           >
             <Camera size={18} />
           </button>
@@ -310,13 +297,13 @@ export function AskBlakeChat({ job = null, apiPath = "/api/field/ask-blake" }: A
           onChange={(event) => setDraft(event.target.value)}
           placeholder={job ? "Ask about this job…" : "Ask Blake…"}
           rows={2}
-          disabled={busy}
+          disabled={busy || preparingPhotos}
         />
         <button
           type="submit"
           className="ask-blake-icon-btn is-send"
           aria-label="Send"
-          disabled={busy || (!draft.trim() && !photos.length)}
+          disabled={busy || preparingPhotos || (!draft.trim() && !photos.length)}
         >
           <SendHorizontal size={18} />
         </button>
