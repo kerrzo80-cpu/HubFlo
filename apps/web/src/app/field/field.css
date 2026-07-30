@@ -517,6 +517,34 @@
   color: #9a6b2f;
 }
 
+.blake-voice-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 4px 0 10px;
+}
+
+.blake-voice-picker button {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+.blake-voice-picker button.is-active {
+  background: var(--teal, #2e8c7d);
+  border-color: transparent;
+  color: #fff;
+}
+
+.blake-voice-picker button:disabled {
+  opacity: 0.55;
+}
+
 .talk-lab-build {
   font-size: 11px;
   margin: 0;
@@ -1022,101 +1050,19 @@
   width: 100%;
 }
 
-.check-row.done,
-.check-card.done {
+.check-row.done {
   background: rgba(42, 127, 114, 0.08);
   border-color: rgba(42, 127, 114, 0.28);
 }
 
-.check-row.missing,
-.check-card.missing {
+.check-row.missing {
   background: var(--white);
 }
 
-.check-row em,
-.check-card-head em {
+.check-row em {
   flex-shrink: 0;
   font-weight: 700;
   margin: 0;
-}
-
-.check-card {
-  background: var(--white);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  display: grid;
-  gap: 12px;
-  padding: 14px 16px;
-}
-
-.check-card-head {
-  align-items: flex-start;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-}
-
-.check-card-head strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.check-card-head span,
-.check-card-head em {
-  color: var(--steel);
-  display: block;
-  font-size: 13px;
-  font-style: normal;
-  margin-top: 4px;
-}
-
-.check-card-capture {
-  display: grid;
-  gap: 8px;
-}
-
-.check-card-capture input[type="text"],
-.check-card-capture input[type="number"],
-.check-card-capture input[type="file"] {
-  background: var(--mist);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  font: inherit;
-  padding: 12px 14px;
-  width: 100%;
-}
-
-.check-card-capture small {
-  color: var(--steel);
-  font-size: 12px;
-}
-
-.check-save {
-  background: var(--ink, #10241f);
-  border: 0;
-  border-radius: 12px;
-  color: #fff;
-  cursor: pointer;
-  font: inherit;
-  font-weight: 700;
-  padding: 12px 14px;
-}
-
-.check-amend {
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--ink, #10241f);
-  cursor: pointer;
-  font: inherit;
-  font-weight: 700;
-  padding: 10px 14px;
-}
-
-.check-save:disabled,
-.check-amend:disabled {
-  opacity: 0.6;
 }
 
 .programme-board {

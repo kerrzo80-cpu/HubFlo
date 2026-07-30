@@ -1,3 +1,5 @@
+import { accentTtsInstructions } from "@/lib/field/ask-blake-voice-accent";
+
 export type AskBlakeMessage = {
   role: "user" | "assistant";
   text: string;
@@ -72,12 +74,10 @@ export const ASK_BLAKE_VOICE_PROMPT_EXTRA = [
   "Ask at most one follow-up question at the end if you need a clearer symptom.",
 ].join("\n");
 
-/** Accent-only instructions for OpenAI spoken output (Realtime / TTS). Keep short. */
-export const ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS = [
-  "Speak with a consistent Scottish accent from Aberdeen / north-east Scotland.",
-  "Male tradesman. Clear on a noisy site. Never American. Never RP ‘BBC’ English.",
-  "Normal UK English vocabulary — Scottish pronunciation, not slang performance.",
-].join(" ");
+import { accentTtsInstructions } from "@/lib/field/ask-blake-voice-accent";
+
+/** @deprecated Prefer accentTtsInstructions("scottish") from ask-blake-voice-accent. */
+export const ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS = accentTtsInstructions("scottish");
 
 export function askBlakeDeveloperPrompt(mode: AskBlakeRequest["mode"] = "text") {
   if (mode === "voice") return `${ASK_BLAKE_SYSTEM_PROMPT}\n\n${ASK_BLAKE_VOICE_PROMPT_EXTRA}`;

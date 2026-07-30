@@ -3,6 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, Mic, MicOff } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
+import {
+  accentGreetingLine,
+  accentLockLine,
+  BLAKE_VOICE_ACCENT_LABELS,
+  BLAKE_VOICE_ACCENTS,
+  readStoredBlakeVoiceAccent,
+  storeBlakeVoiceAccent,
+  type BlakeVoiceAccent,
+} from "@/lib/field/ask-blake-voice-accent";
 
 type LabState = "idle" | "connecting" | "live" | "unsupported" | "error";
 
@@ -28,12 +37,13 @@ export function AskBlakeTalkLab({
   const [supported, setSupported] = useState(true);
   const [state, setState] = useState<LabState>("idle");
   const [cameraOn, setCameraOn] = useState(false);
+  const [accent, setAccent] = useState<BlakeVoiceAccent>("scottish");
   const [heard, setHeard] = useState("");
   const [blakeSaid, setBlakeSaid] = useState("");
   const [error, setError] = useState("");
-  const [hint, setHint] = useState("Tap Start call — talk naturally, no buttons between turns.");
+  const [hint, setHint] = useState("Pick a voice, then Start call — talk naturally.");
   const [log, setLog] = useState<string[]>([]);
-  const [buildTag] = useState("realtime-scottish-v2");
+  const [buildTag] = useState("realtime-voice-picker-v1");
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
@@ -44,6 +54,7 @@ export function AskBlakeTalkLab({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const frameTimerRef = useRef<number | null>(null);
   const activeRef = useRef(false);
+  const accentRef = useRef<BlakeVoiceAccent>(accent);
 
   function note(message: string) {
     const stamp = new Date().toLocaleTimeString("en-GB", {
@@ -53,6 +64,16 @@ export function AskBlakeTalkLab({
     });
     setLog((current) => [`${stamp} · ${message}`, ...current].slice(0, 16));
   }
+
+  useEffect(() => {
+    const stored = readStoredBlakeVoiceAccent();
+    setAccent(stored);
+    accentRef.current = stored;
+  }, []);
+
+  useEffect(() => {
+    accentRef.current = accent;
+  }, [accent]);
 
   useEffect(() => {
     const ok = typeof window !== "undefined"
@@ -66,6 +87,14 @@ export function AskBlakeTalkLab({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buildTag, isLab]);
+
+  function chooseAccent(next: BlakeVoiceAccent) {
+    if (state === "live" || state === "connecting") return;
+    setAccent(next);
+    storeBlakeVoiceAccent(next);
+    setHint(`${BLAKE_VOICE_ACCENT_LABELS[next]} voice selected — Start call to try it.`);
+    note(`Voice set to ${BLAKE_VOICE_ACCENT_LABELS[next]}.`);
+  }
 
   function stopTracks(stream: MediaStream | null) {
     if (!stream) return;
@@ -112,7 +141,7 @@ export function AskBlakeTalkLab({
     }
     setCameraOn(false);
     setState(supported ? "idle" : "unsupported");
-    setHint("Tap Start call — talk naturally, no buttons between turns.");
+    setHint("Pick a voice, then Start call — talk naturally.");
   }
 
   function sendEvent(payload: Record<string, unknown>) {
@@ -203,20 +232,26 @@ export function AskBlakeTalkLab({
     setBlakeSaid("");
     setState("connecting");
     setHint("Connecting hands-free call…");
-    note("Minting Realtime session…");
+    note(`Minting Realtime session (${BLAKE_VOICE_ACCENT_LABELS[accentRef.current]})…`);
     activeRef.current = true;
 
     try {
-      const tokenResponse = await fetch(realtimePath, { method: "POST" });
+      const tokenResponse = await fetch(realtimePath, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accent: accentRef.current }),
+      });
       const tokenBody = (await tokenResponse.json().catch(() => ({}))) as {
         clientSecret?: string;
         error?: string;
         build?: string;
+        accent?: string;
+        voice?: string;
       };
       if (!tokenResponse.ok || !tokenBody.clientSecret) {
         throw new Error(tokenBody.error || "Couldn’t start Realtime session.");
       }
-      note(`Session ready (${tokenBody.build || "realtime"}).`);
+      note(`Session ready (${tokenBody.build || "realtime"} · ${tokenBody.accent || accentRef.current} · ${tokenBody.voice || "voice"}).`);
 
       const pc = new RTCPeerConnection();
       pcRef.current = pc;
@@ -244,27 +279,22 @@ export function AskBlakeTalkLab({
       dcRef.current = dc;
       dc.addEventListener("open", () => {
         note("Data channel open — VAD on (hands-free).");
-        // Re-assert Scottish accent before first audio so it doesn’t drift American.
+        const callAccent = accentRef.current;
         sendEvent({
           type: "session.update",
           session: {
             type: "realtime",
-            instructions: [
-              "VOICE: Clear Scottish accent (Aberdeen / north-east Scotland) on every word.",
-              "Never American. Never slang stuffing. Brief trade answers only.",
-              "You are Ask Blake for UK plumbers on site.",
-            ].join(" "),
+            instructions: accentLockLine(callAccent),
           },
         });
         sendEvent({
           type: "response.create",
           response: {
-            instructions:
-              "In a clear Scottish accent, say a short hello as Blake and ask what’s up on site. One sentence.",
+            instructions: accentGreetingLine(callAccent),
           },
         });
         setState("live");
-        setHint("Call live — just talk. Blake answers when you pause.");
+        setHint(`Call live · ${BLAKE_VOICE_ACCENT_LABELS[callAccent]} — just talk.`);
         if (cameraOn) startFrameLoop();
       });
       dc.addEventListener("message", (event) => {
@@ -322,7 +352,7 @@ export function AskBlakeTalkLab({
       await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
       note("WebRTC connected.");
       setState("live");
-      setHint("Call live — just talk. Optional: turn camera on so Blake can see.");
+      setHint(`Call live · ${BLAKE_VOICE_ACCENT_LABELS[accentRef.current]} — optional camera so Blake can see.`);
     } catch (startError) {
       const message = startError instanceof Error ? startError.message : "Couldn’t start call.";
       setError(message);
@@ -369,6 +399,20 @@ export function AskBlakeTalkLab({
         </p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
         {isLab ? <p className="talk-lab-build muted">Build {buildTag}</p> : null}
+
+        <div className="blake-voice-picker" role="group" aria-label="Blake voice accent">
+          {BLAKE_VOICE_ACCENTS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={accent === option ? "is-active" : undefined}
+              disabled={state === "live" || state === "connecting"}
+              onClick={() => chooseAccent(option)}
+            >
+              {BLAKE_VOICE_ACCENT_LABELS[option]}
+            </button>
+          ))}
+        </div>
 
         <div className="talk-lab-video-wrap">
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
