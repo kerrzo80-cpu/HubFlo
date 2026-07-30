@@ -27474,6 +27474,24 @@ export default function Dashboard() {
                       Open linked job
                     </button>
                   ) : null}
+                  {homeView === "quote-record" && selectedQuote ? (
+                    <a
+                      className="secondary-button"
+                      href={`/survey?quote=${encodeURIComponent(selectedQuote.id)}`}
+                      style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                    >
+                      Build with Surveyor
+                    </a>
+                  ) : null}
+                  {homeView === "job-record" && selectedJob ? (
+                    <a
+                      className="secondary-button"
+                      href={`/survey?job=${encodeURIComponent(selectedJob.id)}`}
+                      style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                    >
+                      Build with Surveyor
+                    </a>
+                  ) : null}
                 </>
               ) : homeView === "leads" ? (
                 <>
@@ -29145,6 +29163,18 @@ export default function Dashboard() {
                 {activeQuoteTab === "setup" ? (
                   <section className="quote-record-panel">
                     <div className="simpro-record-summary">
+                      <section className="simpro-summary-block" style={{ gridColumn: "1 / -1" }}>
+                        <div className="simpro-summary-block-head">
+                          <h3>Build quote from survey</h3>
+                          <a className="record-text-link" href={`/survey?quote=${encodeURIComponent(selectedQuote.id)}`}>
+                            Open Surveyor
+                          </a>
+                        </div>
+                        <p style={{ margin: 0, color: "var(--muted, #5b6570)", lineHeight: 1.45 }}>
+                          Start a NeXa Surveyor pack linked to {selectedQuote.ref}. Customer and site come from this quote —
+                          evidence and cost centres feed back into Core instead of a disconnected draft.
+                        </p>
+                      </section>
                       <section className="simpro-summary-block">
                         <div className="simpro-summary-block-head">
                           <h3>Customer</h3>

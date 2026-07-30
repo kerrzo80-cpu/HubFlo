@@ -15,7 +15,7 @@ import {
   Sparkles,
   Upload,
 } from "lucide-react";
-import type { SurveyAnswer, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
+import type { SurveyAnswer, SurveyJobLink, SurveyLinkType, SurveyPhoto, SurveyPhotoCategory, SurveyRecord } from "@hubflo/domain";
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
@@ -32,6 +32,41 @@ type AiStatus = {
   model?: string;
   source?: string;
   keyName?: string;
+};
+
+type CoreQuote = {
+  id: string;
+  ref: string;
+  customer: string;
+  description: string;
+  clientId?: string;
+  siteId?: string;
+};
+
+type CoreLead = {
+  id: string;
+  ref: string;
+  customerName: string;
+  address: string;
+  description: string;
+  clientId?: string;
+  siteId?: string;
+};
+
+type CoreJob = {
+  id: string;
+  ref: string;
+  customer: string;
+  site: string;
+  description: string;
+  clientId?: string;
+  siteId?: string;
+};
+
+type CoreSite = {
+  id: string;
+  address: string;
+  name: string;
 };
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -80,6 +115,13 @@ export default function SimpleSurveyWorkspacePage() {
   const [generating, setGenerating] = useState(false);
   const [costCentres, setCostCentres] = useState<QuickCostCentre[]>([]);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
+  const [linkType, setLinkType] = useState<SurveyLinkType | "">("");
+  const [linkQuery, setLinkQuery] = useState("");
+  const [quotes, setQuotes] = useState<CoreQuote[]>([]);
+  const [leads, setLeads] = useState<CoreLead[]>([]);
+  const [jobs, setJobs] = useState<CoreJob[]>([]);
+  const [sites, setSites] = useState<CoreSite[]>([]);
+  const [coreLoaded, setCoreLoaded] = useState(false);
   const surveyRef = useRef<SurveyRecord | null>(null);
   const pendingPatchRef = useRef<Partial<SurveyRecord>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -103,13 +145,39 @@ export default function SimpleSurveyWorkspacePage() {
       try {
         const response = await fetch("/api/takeoff-ai/status", { headers: requestHeaders });
         if (!response.ok) return;
-        setAiStatus(await response.json() as AiStatus);
+        setAiStatus((await response.json()) as AiStatus);
       } catch {
         // Status chip is optional; generate still reports the real outcome.
       }
     }
     void loadAiStatus();
   }, []);
+
+  useEffect(() => {
+    async function loadCore() {
+      try {
+        const [quotesRes, leadsRes, jobsRes, sitesRes] = await Promise.all([
+          fetch("/api/quotes", { headers: requestHeaders }),
+          fetch("/api/leads", { headers: requestHeaders }),
+          fetch("/api/jobs", { headers: requestHeaders }),
+          fetch("/api/client-sites", { headers: requestHeaders }),
+        ]);
+        if (quotesRes.ok) setQuotes((await quotesRes.json()) as CoreQuote[]);
+        if (leadsRes.ok) setLeads((await leadsRes.json()) as CoreLead[]);
+        if (jobsRes.ok) setJobs((await jobsRes.json()) as CoreJob[]);
+        if (sitesRes.ok) setSites((await sitesRes.json()) as CoreSite[]);
+      } catch {
+        // Link picker stays optional if Core APIs are unavailable.
+      } finally {
+        setCoreLoaded(true);
+      }
+    }
+    void loadCore();
+  }, []);
+
+  useEffect(() => {
+    if (survey?.jobLink?.type) setLinkType(survey.jobLink.type);
+  }, [survey?.jobLink?.type]);
 
   useEffect(() => {
     async function load() {
@@ -229,6 +297,96 @@ export default function SimpleSurveyWorkspacePage() {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => void flushAutosave(), 700);
   }
+
+  function linkCoreRecord(type: SurveyLinkType, id: string) {
+    const siteAddressFor = (siteId?: string) =>
+      (siteId && sites.find((site) => site.id === siteId)?.address) || "";
+
+    let patch: Partial<SurveyRecord> = {};
+    if (type === "Quote") {
+      const quote = quotes.find((item) => item.id === id);
+      if (!quote) return;
+      const jobLink: SurveyJobLink = { type: "Quote", id: quote.id, reference: quote.ref };
+      patch = {
+        jobLink,
+        customerName: quote.customer || survey?.customerName || "",
+        siteAddress: siteAddressFor(quote.siteId) || survey?.siteAddress || "",
+        customerId: quote.clientId,
+        siteId: quote.siteId,
+        customerRequirements: survey?.customerRequirements?.trim()
+          ? survey.customerRequirements
+          : quote.description || "",
+      };
+    } else if (type === "Lead") {
+      const lead = leads.find((item) => item.id === id);
+      if (!lead) return;
+      const jobLink: SurveyJobLink = { type: "Lead", id: lead.id, reference: lead.ref };
+      patch = {
+        jobLink,
+        customerName: lead.customerName || survey?.customerName || "",
+        siteAddress: lead.address || survey?.siteAddress || "",
+        customerId: lead.clientId,
+        siteId: lead.siteId,
+        customerRequirements: survey?.customerRequirements?.trim()
+          ? survey.customerRequirements
+          : lead.description || "",
+      };
+    } else {
+      const job = jobs.find((item) => item.id === id);
+      if (!job) return;
+      const jobLink: SurveyJobLink = { type: "Job", id: job.id, reference: job.ref };
+      patch = {
+        jobLink,
+        customerName: job.customer || survey?.customerName || "",
+        siteAddress: job.site || survey?.siteAddress || "",
+        customerId: job.clientId,
+        siteId: job.siteId,
+        customerRequirements: survey?.customerRequirements?.trim()
+          ? survey.customerRequirements
+          : job.description || "",
+      };
+    }
+
+    setLinkType(type);
+    setLinkQuery("");
+    queuePatch(patch);
+    setNoticeTone("ok");
+    setNotice(`Linked to Core ${type.toLowerCase()} ${(patch.jobLink as SurveyJobLink).reference}.`);
+  }
+
+  function clearCoreLink() {
+    queuePatch({ jobLink: null as unknown as SurveyJobLink | undefined });
+    setLinkType("");
+    setLinkQuery("");
+    setNoticeTone("ok");
+    setNotice("Core link removed. Survey is no longer connected to a quote/lead/job.");
+  }
+
+  const linkOptions = useMemo(() => {
+    const q = linkQuery.trim().toLowerCase();
+    const type = linkType || survey?.jobLink?.type || "Quote";
+    if (type === "Quote") {
+      return quotes
+        .filter((quote) => !q || `${quote.ref} ${quote.customer} ${quote.description}`.toLowerCase().includes(q))
+        .slice(0, 10);
+    }
+    if (type === "Lead") {
+      return leads
+        .filter((lead) => !q || `${lead.ref} ${lead.customerName} ${lead.address}`.toLowerCase().includes(q))
+        .slice(0, 10);
+    }
+    return jobs
+      .filter((job) => !q || `${job.ref} ${job.customer} ${job.site}`.toLowerCase().includes(q))
+      .slice(0, 10);
+  }, [jobs, leads, linkQuery, linkType, quotes, survey?.jobLink?.type]);
+
+  const coreOpenHref = survey?.jobLink
+    ? survey.jobLink.type === "Quote"
+      ? `/?quote=${encodeURIComponent(survey.jobLink.id)}`
+      : survey.jobLink.type === "Lead"
+        ? `/?lead=${encodeURIComponent(survey.jobLink.id)}`
+        : `/?job=${encodeURIComponent(survey.jobLink.id)}`
+    : null;
 
   async function uploadEvidence(event: ChangeEvent<HTMLInputElement>) {
     const files = event.target.files ? Array.from(event.target.files) : [];
@@ -415,6 +573,119 @@ export default function SimpleSurveyWorkspacePage() {
             <input value={survey.siteAddress} onChange={(event) => queuePatch({ siteAddress: event.target.value })} placeholder="Site address" />
           </label>
         </div>
+
+        <section className="survey-simple-core-link">
+          <header>
+            <div>
+              <strong>Linked Core record</strong>
+              <p>
+                Connect this survey to the quote (or lead/job) in NeXa Core. Customer and site can prefill from that record —
+                you should not re-type them as a disconnected draft.
+              </p>
+            </div>
+            {survey.jobLink && coreOpenHref ? (
+              <a href={coreOpenHref}>
+                Open {survey.jobLink.type} {survey.jobLink.reference}
+              </a>
+            ) : null}
+          </header>
+
+          {survey.jobLink ? (
+            <div className="survey-simple-core-linked">
+              <span>
+                Linked to <b>{survey.jobLink.type}</b> <b>{survey.jobLink.reference}</b>
+              </span>
+              <button type="button" onClick={clearCoreLink}>
+                Unlink
+              </button>
+            </div>
+          ) : (
+            <p className="survey-simple-muted">Not linked yet — pick a Core quote below so Blake builds against the right record.</p>
+          )}
+
+          <div className="survey-simple-link-type-row" role="tablist" aria-label="Core link type">
+            {(["Quote", "Lead", "Job"] as SurveyLinkType[]).map((type) => (
+              <button
+                key={type}
+                type="button"
+                role="tab"
+                aria-selected={(linkType || survey.jobLink?.type || "Quote") === type}
+                className={(linkType || survey.jobLink?.type || "Quote") === type ? "on" : undefined}
+                onClick={() => {
+                  setLinkType(type);
+                  setLinkQuery("");
+                }}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+
+          <label className="survey-simple-search-label">
+            Search {(linkType || survey.jobLink?.type || "Quote").toLowerCase()}s in Core
+            <input
+              value={linkQuery}
+              onChange={(event) => setLinkQuery(event.target.value)}
+              placeholder="Reference or customer name…"
+            />
+          </label>
+
+          <div className="survey-simple-link-matches">
+            {!coreLoaded ? (
+              <p className="survey-simple-empty">
+                <Loader2 className="spin" size={16} /> Loading Core records…
+              </p>
+            ) : null}
+            {coreLoaded && (linkType || survey.jobLink?.type || "Quote") === "Quote"
+              ? (linkOptions as CoreQuote[]).map((quote) => (
+                  <button
+                    key={quote.id}
+                    type="button"
+                    className={survey.jobLink?.id === quote.id ? "on" : undefined}
+                    onClick={() => linkCoreRecord("Quote", quote.id)}
+                  >
+                    <strong>
+                      {quote.ref} · {quote.customer}
+                    </strong>
+                    <small>{quote.description || "No description"}</small>
+                  </button>
+                ))
+              : null}
+            {coreLoaded && (linkType || survey.jobLink?.type || "Quote") === "Lead"
+              ? (linkOptions as CoreLead[]).map((lead) => (
+                  <button
+                    key={lead.id}
+                    type="button"
+                    className={survey.jobLink?.id === lead.id ? "on" : undefined}
+                    onClick={() => linkCoreRecord("Lead", lead.id)}
+                  >
+                    <strong>
+                      {lead.ref} · {lead.customerName}
+                    </strong>
+                    <small>{lead.address || "Site to confirm"}</small>
+                  </button>
+                ))
+              : null}
+            {coreLoaded && (linkType || survey.jobLink?.type || "Quote") === "Job"
+              ? (linkOptions as CoreJob[]).map((job) => (
+                  <button
+                    key={job.id}
+                    type="button"
+                    className={survey.jobLink?.id === job.id ? "on" : undefined}
+                    onClick={() => linkCoreRecord("Job", job.id)}
+                  >
+                    <strong>
+                      {job.ref} · {job.customer}
+                    </strong>
+                    <small>{job.site || "Site to confirm"}</small>
+                  </button>
+                ))
+              : null}
+            {coreLoaded && !linkOptions.length ? (
+              <p className="survey-simple-empty">No matching Core records.</p>
+            ) : null}
+          </div>
+        </section>
 
         <div className="survey-simple-upload">
           <div>

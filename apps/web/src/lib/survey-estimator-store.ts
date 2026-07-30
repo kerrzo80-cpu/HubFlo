@@ -457,6 +457,9 @@ export function updateSurvey(
     createdAt: current.createdAt,
     updatedAt,
   };
+  if (Object.prototype.hasOwnProperty.call(safePatch, "jobLink") && !safePatch.jobLink) {
+    delete updated.jobLink;
+  }
   store.surveys[index] = updated;
   persist();
   return { ok: true, value: clone(updated) };
