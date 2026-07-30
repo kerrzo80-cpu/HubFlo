@@ -1065,6 +1065,166 @@
   margin: 0;
 }
 
+.checklist-intro {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.checklist-stack {
+  gap: 14px;
+}
+
+.check-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.check-card.is-done {
+  background: rgba(46, 140, 125, 0.06);
+  border-color: rgba(46, 140, 125, 0.28);
+}
+
+.check-card.is-editing {
+  border-color: rgba(46, 140, 125, 0.45);
+}
+
+.check-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.check-card-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.check-card-copy h3 {
+  font-family: Sora, Inter, sans-serif;
+  font-size: 0.98rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0;
+}
+
+.check-card-meta {
+  color: var(--steel);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.check-card-value {
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 2px 0 0;
+}
+
+.check-card-status {
+  border-radius: 999px;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 5px 10px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.check-card-status.is-missing {
+  background: rgba(180, 120, 40, 0.12);
+  color: #8a5a12;
+}
+
+.check-card-status.is-done {
+  background: rgba(46, 140, 125, 0.14);
+  color: #1f6b5f;
+}
+
+.check-card-status.is-optional {
+  background: rgba(90, 100, 110, 0.1);
+  color: var(--steel);
+}
+
+.check-card-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.check-amend {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+.check-card-capture {
+  display: grid;
+  gap: 10px;
+}
+
+.check-field {
+  display: grid;
+  gap: 6px;
+}
+
+.check-field > span {
+  color: var(--steel);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.check-field input[type="text"],
+.check-field input[type="number"] {
+  background: #f7f9fa;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 15px;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.check-field input[type="file"] {
+  font-size: 13px;
+  width: 100%;
+}
+
+.check-field small,
+.check-card-hint {
+  color: var(--steel);
+  font-size: 12px;
+  margin: 0;
+}
+
+.check-save {
+  background: var(--teal, #2e8c7d);
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 12px 16px;
+  width: 100%;
+}
+
+.check-save:disabled,
+.check-amend:disabled {
+  opacity: 0.55;
+}
+
 .programme-board {
   display: grid;
   gap: 10px;

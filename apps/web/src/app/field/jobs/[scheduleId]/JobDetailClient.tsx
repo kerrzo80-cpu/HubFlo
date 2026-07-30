@@ -336,8 +336,10 @@ export default function JobDetailPage() {
       ) : null}
 
       {tab === "checklist" ? (
-        <div className="stack">
-          <p className="muted">Enter the reading, note, or photo for each item, then save. Tap Amend on a done item to change it.</p>
+        <div className="stack checklist-stack">
+          <p className="checklist-intro muted">
+            Fill each item, then save. Amend anytime if you need to change a reading or note.
+          </p>
           {error ? <div className="feedback error">{error}</div> : null}
           {notice ? <div className="feedback">{notice}</div> : null}
           {job.requirements.map((item) => {
@@ -345,68 +347,79 @@ export default function JobDetailPage() {
             const draft = draftByRequirement[item.id] || {};
             const summary = doneSummary(item);
             const isEditing = editingId === item.id || item.status === "missing";
+            const statusLabel =
+              item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional";
             return (
-              <div className={`check-card ${item.status}`} key={item.id}>
-                <div className="check-card-head">
-                  <div>
-                    <strong>{item.label}</strong>
-                    <span>
-                      {item.stage ? `${item.stage} · ` : ""}
-                      {evidenceType}
-                      {item.status === "done"
-                        ? summary
-                          ? ` · ${summary}`
-                          : " · Saved"
-                        : item.status === "optional"
-                          ? " · Optional"
-                          : " · Required"}
-                    </span>
+              <article
+                className={`check-card is-${item.status}${isEditing ? " is-editing" : ""}`}
+                key={item.id}
+              >
+                <header className="check-card-head">
+                  <div className="check-card-copy">
+                    <h3>{item.label}</h3>
+                    <p className="check-card-meta">
+                      {[item.stage, evidenceType, item.status === "optional" ? "Optional" : "Required"]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                    {item.status === "done" && summary && !isEditing ? (
+                      <p className="check-card-value">{summary}</p>
+                    ) : null}
                   </div>
-                  <em>{item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional"}</em>
-                </div>
+                  <span className={`check-card-status is-${item.status}`}>{statusLabel}</span>
+                </header>
 
                 {item.status === "done" && !isEditing ? (
-                  <button
-                    type="button"
-                    className="check-amend"
-                    disabled={savingId === item.id}
-                    onClick={() => void reopenRequirement(item.id)}
-                  >
-                    Amend
-                  </button>
+                  <div className="check-card-actions">
+                    <button
+                      type="button"
+                      className="check-amend"
+                      disabled={savingId === item.id}
+                      onClick={() => void reopenRequirement(item.id)}
+                    >
+                      Amend
+                    </button>
+                  </div>
                 ) : null}
 
                 {isEditing && item.status !== "optional" ? (
                   <div className="check-card-capture">
                     {evidenceType === "Text" || evidenceType === "Signature" ? (
-                      <input
-                        type="text"
-                        value={draft.text || ""}
-                        placeholder={evidenceType === "Signature" ? "Signed by…" : "Type the answer…"}
-                        onChange={(event) =>
-                          setDraftByRequirement((current) => ({
-                            ...current,
-                            [item.id]: { ...current[item.id], text: event.target.value },
-                          }))
-                        }
-                      />
+                      <label className="check-field">
+                        <span>{evidenceType === "Signature" ? "Signed by" : "Answer"}</span>
+                        <input
+                          type="text"
+                          value={draft.text || ""}
+                          placeholder={evidenceType === "Signature" ? "Name…" : "Type here…"}
+                          onChange={(event) =>
+                            setDraftByRequirement((current) => ({
+                              ...current,
+                              [item.id]: { ...current[item.id], text: event.target.value },
+                            }))
+                          }
+                        />
+                      </label>
                     ) : null}
                     {evidenceType === "Number" ? (
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={draft.numberValue || ""}
-                        placeholder="Enter reading…"
-                        onChange={(event) =>
-                          setDraftByRequirement((current) => ({
-                            ...current,
-                            [item.id]: { ...current[item.id], numberValue: event.target.value },
-                          }))
-                        }
-                      />
+                      <label className="check-field">
+                        <span>Reading</span>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          value={draft.numberValue || ""}
+                          placeholder="Enter reading…"
+                          onChange={(event) =>
+                            setDraftByRequirement((current) => ({
+                              ...current,
+                              [item.id]: { ...current[item.id], numberValue: event.target.value },
+                            }))
+                          }
+                        />
+                      </label>
                     ) : null}
                     {evidenceType === "Photo" ? (
-                      <>
+                      <label className="check-field">
+                        <span>Photo</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -422,7 +435,10 @@ export default function JobDetailPage() {
                           }}
                         />
                         {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
-                      </>
+                      </label>
+                    ) : null}
+                    {evidenceType === "Checkbox" ? (
+                      <p className="check-card-hint muted">Confirm this check is complete on site.</p>
                     ) : null}
                     <button
                       type="button"
@@ -430,11 +446,15 @@ export default function JobDetailPage() {
                       disabled={savingId === item.id}
                       onClick={() => void saveRequirement(item.id)}
                     >
-                      {evidenceType === "Checkbox" ? "Mark complete" : "Save"}
+                      {savingId === item.id
+                        ? "Saving…"
+                        : evidenceType === "Checkbox"
+                          ? "Mark done"
+                          : "Save"}
                     </button>
                   </div>
                 ) : null}
-              </div>
+              </article>
             );
           })}
         </div>
