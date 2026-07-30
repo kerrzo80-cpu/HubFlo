@@ -72,8 +72,11 @@ services:
         sync: false
       - key: NEXA_ASSISTANT_OPENAI_MODEL
         value: gpt-4.1-mini
-      # Optional UK PAF street lookup (getAddress.io). Without this key NeXa uses OpenStreetMap nearby addresses.
+      # Optional UK PAF street lookup. Ideal Postcodes is preferred; getAddress.io is a fallback.
+      # Without keys NeXa uses Ideal Postcodes sandbox (ak_test) then OpenStreetMap.
+      - key: IDEAL_POSTCODES_API_KEY
+        sync: false
       - key: GETADDRESS_API_KEY
         sync: false
       - key: NEXA_POSTCODE_LOOKUP_VERSION
-        value: street-list-v2
+        value: street-list-v3

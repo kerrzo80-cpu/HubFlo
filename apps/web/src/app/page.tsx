@@ -23180,7 +23180,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    window.location.assign("/ai-intake");
+    window.location.assign("/ai-intake?mode=lead");
   }
 
   function createQuote() {

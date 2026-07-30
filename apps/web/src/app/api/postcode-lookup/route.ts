@@ -170,8 +170,8 @@ const LOCAL_POSTCODE_DIRECTORY: PostcodeEntry[] = [
 ];
 
 const FULL_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/i;
-/** Keep the whole route under ~4.5s — exact postcode OSM lists need a little room. */
-const ROUTE_BUDGET_MS = 4500;
+/** Keep the whole route under ~7s — Ideal Postcodes + OSM fallbacks need room on Render. */
+const ROUTE_BUDGET_MS = 7000;
 
 function normalizePostcode(value: string) {
   return value.replace(/\s+/g, "").toUpperCase();
@@ -185,6 +185,10 @@ function formatPostcode(value: string) {
 
 function isFullPostcode(value: string) {
   return FULL_POSTCODE_RE.test(normalizePostcode(value));
+}
+
+function compactMatches(rows: Array<AddressMatch | null | undefined>): AddressMatch[] {
+  return rows.filter((match): match is AddressMatch => Boolean(match?.address && match.postcode));
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -271,7 +275,7 @@ async function getAddressIoMatches(postcode: string): Promise<AddressMatch[]> {
       `https://api.getAddress.io/find/${encodeURIComponent(normalizePostcode(postcode))}?api-key=${encodeURIComponent(apiKey)}&expand=true`,
       {
         headers: { Accept: "application/json" },
-        signal: AbortSignal.timeout(1500),
+        signal: AbortSignal.timeout(2500),
         next: { revalidate: 3600 },
       },
     );
@@ -286,8 +290,8 @@ async function getAddressIoMatches(postcode: string): Promise<AddressMatch[]> {
       }>;
     };
     const formattedPostcode = formatPostcode(payload.postcode || postcode);
-    return (payload.addresses ?? [])
-      .map((entry) => {
+    return compactMatches(
+      (payload.addresses ?? []).map((entry) => {
         const joined =
           (entry.formatted_address ?? []).map((part) => part.trim()).filter(Boolean).join(", ") ||
           [entry.line_1, entry.town_or_city, entry.county, formattedPostcode]
@@ -301,9 +305,64 @@ async function getAddressIoMatches(postcode: string): Promise<AddressMatch[]> {
           line1: entry.line_1 || undefined,
           town: entry.town_or_city || undefined,
           county: entry.county || undefined,
-        } satisfies AddressMatch;
-      })
-      .filter((match): match is AddressMatch => Boolean(match));
+        };
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** UK PAF street list via Ideal Postcodes (primary internet lookup). */
+async function idealPostcodesMatches(postcode: string): Promise<AddressMatch[]> {
+  const apiKey =
+    process.env.IDEAL_POSTCODES_API_KEY?.trim() ||
+    process.env.IDEALPOSTCODES_API_KEY?.trim() ||
+    // Sandbox key — returns live PAF samples; replace with a real key in Render for production limits.
+    "ak_test";
+
+  try {
+    const response = await fetch(
+      `https://api.ideal-postcodes.co.uk/v1/postcodes/${encodeURIComponent(formatPostcode(postcode))}?api_key=${encodeURIComponent(apiKey)}`,
+      {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(3500),
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) return [];
+    const payload = (await response.json()) as {
+      result?: Array<{
+        postcode?: string;
+        line_1?: string;
+        line_2?: string;
+        line_3?: string;
+        post_town?: string;
+        county?: string;
+        building_number?: string;
+        thoroughfare?: string;
+      }>;
+    };
+    const rows = payload.result ?? [];
+    return compactMatches(
+      rows.map((row) => {
+        const formattedPostcode = formatPostcode(row.postcode || postcode);
+        const line1 =
+          [row.line_1, row.line_2, row.line_3].map((part) => String(part || "").trim()).filter(Boolean).join(", ") ||
+          [row.building_number, row.thoroughfare].map((part) => String(part || "").trim()).filter(Boolean).join(" ");
+        if (!line1) return null;
+        const town = (row.post_town || "").trim();
+        const county = (row.county || "").trim();
+        const address = [line1, town, county, formattedPostcode].filter(Boolean).join(", ");
+        return {
+          postcode: formattedPostcode,
+          address,
+          line1,
+          town: town || undefined,
+          county: county || undefined,
+        };
+      }),
+    );
   } catch {
     return [];
   }
@@ -313,8 +372,34 @@ type OsmElement = {
   tags?: Record<string, string>;
 };
 
-function formatOsmAddress(tags: Record<string, string>, fallbackPostcode: string, fallbackTown: string): AddressMatch | null {
-  const housenumber = (tags["addr:housenumber"] || "").trim();
+function splitHouseNumbers(raw: string): string[] {
+  const value = raw.trim();
+  if (!value) return [];
+  if (!/[,\-\/&]/.test(value) && !/\d+\s+\d+/.test(value)) return [value];
+  // OSM sometimes stores "30,32,34,36" on one node — expand into selectable addresses.
+  const parts = value
+    .split(/[,&]|\/|\s+and\s+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const expanded: string[] = [];
+  for (const part of parts) {
+    const range = part.match(/^(\d+)\s*[-–]\s*(\d+)([A-Za-z]?)$/);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      const suffix = range[3] || "";
+      if (Number.isFinite(start) && Number.isFinite(end) && end >= start && end - start <= 40) {
+        for (let n = start; n <= end; n += 1) expanded.push(`${n}${suffix}`);
+        continue;
+      }
+    }
+    expanded.push(part);
+  }
+  return expanded.length ? expanded : [value];
+}
+
+function formatOsmAddress(tags: Record<string, string>, fallbackPostcode: string, fallbackTown: string): AddressMatch[] {
+  const housenumberRaw = (tags["addr:housenumber"] || "").trim();
   const street = (tags["addr:street"] || "").trim();
   const housename = (tags["addr:housename"] || tags.name || "").trim();
   const unit = (tags["addr:unit"] || "").trim();
@@ -328,19 +413,25 @@ function formatOsmAddress(tags: Record<string, string>, fallbackPostcode: string
     "";
   const county = tags["addr:county"] || "";
 
-  if (!housenumber && !housename && !unit) return null;
+  if (!housenumberRaw && !housename && !unit) return [];
 
-  const lineBits: string[] = [];
-  if (housename && housename.toLowerCase() !== street.toLowerCase()) lineBits.push(housename);
-  if (unit) lineBits.push(/^unit\b/i.test(unit) ? unit : `Unit ${unit}`);
-  if (housenumber && street) lineBits.push(`${housenumber} ${street}`);
-  else if (street) lineBits.push(street);
-  else if (housenumber) lineBits.push(housenumber);
-  if (lineBits.length === 0) return null;
+  const numbers = splitHouseNumbers(housenumberRaw);
+  const targets = numbers.length ? numbers : [""];
 
-  const line1 = lineBits.join(", ");
-  const address = [line1, town, county, postcode].filter(Boolean).join(", ");
-  return { postcode, address, line1, town: town || undefined, county: county || undefined };
+  return compactMatches(
+    targets.map((housenumber) => {
+      const lineBits: string[] = [];
+      if (housename && housename.toLowerCase() !== street.toLowerCase()) lineBits.push(housename);
+      if (unit) lineBits.push(/^unit\b/i.test(unit) ? unit : `Unit ${unit}`);
+      if (housenumber && street) lineBits.push(`${housenumber} ${street}`);
+      else if (street) lineBits.push(street);
+      else if (housenumber) lineBits.push(housenumber);
+      if (lineBits.length === 0) return null;
+      const line1 = lineBits.join(", ");
+      const address = [line1, town, county, postcode].filter(Boolean).join(", ");
+      return { postcode, address, line1, town: town || undefined, county: county || undefined };
+    }),
+  );
 }
 
 /** Race Overpass mirrors in parallel — Render often times out on a single slow mirror. */
@@ -392,13 +483,13 @@ function matchesFromOsmElements(
   const seen = new Set<string>();
 
   for (const element of elements) {
-    const match = formatOsmAddress(element.tags ?? {}, meta.postcode, meta.town);
-    if (!match) continue;
-    const key = match.address.trim().toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (normalizePostcode(match.postcode) === exactCompact) exact.push(match);
-    else nearby.push(match);
+    for (const match of formatOsmAddress(element.tags ?? {}, meta.postcode, meta.town)) {
+      const key = match.address.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (normalizePostcode(match.postcode) === exactCompact) exact.push(match);
+      else nearby.push(match);
+    }
   }
 
   const byHouseNumber = (a: AddressMatch, b: AddressMatch) => {
@@ -488,13 +579,19 @@ async function streetMatchesForPostcode(postcode: string): Promise<{ matches: Ad
   const meta = await validatePostcode(postcode);
   if (!meta) return { matches: [], meta: null };
 
+  // Prefer Ideal Postcodes / getAddress PAF lists — OSM coverage is patchy for many UK streets.
+  const ideal = await idealPostcodesMatches(meta.postcode);
+  if (ideal.length > 0) {
+    return { matches: ideal, meta: { ...meta, source: "ideal-postcodes" } };
+  }
+
   const paid = await getAddressIoMatches(meta.postcode);
   if (paid.length > 0) {
     return { matches: paid, meta: { ...meta, source: "getAddress.io" } };
   }
 
   // Exact postcode OSM list first — this is what returns every house on the street.
-  const osm = await withTimeout(overpassNearbyAddresses(meta), 3000, [] as AddressMatch[]);
+  const osm = await withTimeout(overpassNearbyAddresses(meta), 3500, [] as AddressMatch[]);
   if (osm.length > 0) {
     const townFromStreets = osm.find((match) => match.town?.trim())?.town?.trim();
     return {
@@ -563,12 +660,46 @@ export async function GET(request: Request) {
     return NextResponse.json({ matches: [], meta: null });
   }
 
+  // Full UK postcode: prefer live PAF/OSM so Blake always searches the internet.
+  if (isFullPostcode(query)) {
+    const resolved = await withTimeout(
+      streetMatchesForPostcode(query),
+      ROUTE_BUDGET_MS,
+      { matches: [] as AddressMatch[], meta: null as PostcodeMeta | null },
+    );
+
+    let meta = resolved.meta;
+    let matches = resolved.matches;
+    if (!meta) {
+      meta = await withTimeout(validatePostcode(query), 900, null);
+    }
+    if (matches.length === 0) {
+      matches = localMatches(query);
+      if (matches.length > 0) {
+        meta = {
+          postcode: formatPostcode(matches[0]!.postcode),
+          town: meta?.town || "",
+          county: meta?.county || "",
+          latitude: meta?.latitude || 0,
+          longitude: meta?.longitude || 0,
+          source: "local",
+        };
+      }
+    }
+
+    return NextResponse.json({
+      matches: dedupeMatches(matches),
+      meta,
+    });
+  }
+
   const local = localMatches(query);
   if (local.length > 0) {
+    const first = local[0]!;
     return NextResponse.json({
       matches: dedupeMatches(local),
       meta: {
-        postcode: formatPostcode(local[0].postcode),
+        postcode: formatPostcode(first.postcode),
         town: "",
         county: "",
         latitude: 0,
@@ -578,24 +709,5 @@ export async function GET(request: Request) {
     });
   }
 
-  if (!isFullPostcode(query)) {
-    return NextResponse.json({ matches: [], meta: null, incomplete: true });
-  }
-
-  const resolved = await withTimeout(
-    streetMatchesForPostcode(query),
-    ROUTE_BUDGET_MS,
-    { matches: [] as AddressMatch[], meta: null as PostcodeMeta | null },
-  );
-
-  let meta = resolved.meta;
-  const matches = resolved.matches;
-  if (!meta) {
-    meta = await withTimeout(validatePostcode(query), 900, null);
-  }
-
-  return NextResponse.json({
-    matches: dedupeMatches(matches),
-    meta,
-  });
+  return NextResponse.json({ matches: [], meta: null, incomplete: true });
 }

@@ -8,21 +8,26 @@ import {
   MapPin,
   Send,
   Sparkles,
+  Users,
 } from "lucide-react";
 import {
   firstOpenField,
-  leadJobTypeOptions,
   playbookAnswers,
-  playbooks,
   questionForField,
   type MandatoryField,
-  type PlaybookId,
 } from "../ai-first/data";
 import "../ai-first/ai-first.css";
 
 type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
 type RecordMode = "lead" | "quote" | "job";
-type Phase = "recordType" | "jobType" | "thinking" | "questions" | "book" | "saving" | "done";
+type Phase =
+  | "recordType"
+  | "workType"
+  | "thinking"
+  | "questions"
+  | "book"
+  | "saving"
+  | "done";
 
 type AddressMatch = {
   postcode: string;
@@ -30,6 +35,15 @@ type AddressMatch = {
   line1?: string;
   town?: string;
   county?: string;
+};
+
+type ClientMatch = {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  primaryContact?: string;
+  billingAddress?: string;
 };
 
 type LeadApiResponse = {
@@ -47,6 +61,11 @@ type LeadApiResponse = {
 
 type ClientApiResponse = {
   client?: { id: string; name: string };
+  site?: { id: string; address: string };
+  error?: string;
+};
+
+type SiteApiResponse = {
   site?: { id: string; address: string };
   error?: string;
 };
@@ -78,8 +97,15 @@ const recordModeOptions: Array<{ id: RecordMode; label: string; hint: string }> 
   { id: "job", label: "Job", hint: "Skip lead/quote — create a job" },
 ];
 
-function cloneFields(playbookId: PlaybookId): MandatoryField[] {
-  return playbooks[playbookId].fields.map((field) => ({ ...field }));
+const intakeFields: MandatoryField[] = [
+  { id: "customer", label: "Customer / contractor", status: "missing" },
+  { id: "site_address", label: "Site address", status: "missing" },
+  { id: "phone", label: "Phone number", status: "missing" },
+  { id: "email", label: "Email", status: "missing" },
+];
+
+function cloneIntakeFields(): MandatoryField[] {
+  return intakeFields.map((field) => ({ ...field }));
 }
 
 function fieldValue(fields: MandatoryField[], id: string): string {
@@ -108,13 +134,13 @@ function modeFromSearch(): RecordMode | null {
 
 function blakeOpener(mode: RecordMode | null) {
   if (mode === "quote") {
-    return "Hi — I’m Blake. We’re creating a quote (no lead). What is the work for?";
+    return "Hi — I’m Blake. We’re creating a quote (no lead). In a sentence, what is the work?";
   }
   if (mode === "job") {
-    return "Hi — I’m Blake. We’re creating a job directly. What is the work for?";
+    return "Hi — I’m Blake. We’re creating a job directly. In a sentence, what is the work?";
   }
   if (mode === "lead") {
-    return "Hi — I’m Blake. What is this lead for? Pick the job type and I’ll load the right playbook.";
+    return "Hi — I’m Blake. In a sentence, what is this lead for?";
   }
   return "Hi — I’m Blake. Are we creating a Lead, a Quote, or a Job?";
 }
@@ -128,11 +154,11 @@ function modeLabel(mode: RecordMode | null) {
 function stageCopy(mode: RecordMode | null) {
   if (mode === "quote") {
     return {
-      titleJobType: "What is this quote for?",
+      titleWorkType: "What is the work?",
       titleQuestions: "Quote details",
       titleBook: "Confirm & save quote",
       titleDone: "Quote saved",
-      lede: "Same Blake intake as a lead — customer, site, phone and email — then save straight into a Draft quote.",
+      lede: "Describe the work in your own words, pick the customer (existing or new), then the site address for this job.",
       detailsLabel: "quote details",
       saveLabel: "Save quote into NeXa",
       classicHref: "/?view=quote-create",
@@ -144,11 +170,11 @@ function stageCopy(mode: RecordMode | null) {
   }
   if (mode === "job") {
     return {
-      titleJobType: "What is this job for?",
+      titleWorkType: "What is the work?",
       titleQuestions: "Job details",
       titleBook: "Confirm & save job",
       titleDone: "Job saved",
-      lede: "Same Blake intake as a lead — customer, site, phone and email — then create a job directly (Enquiry).",
+      lede: "Describe the work in your own words, pick the customer (existing or new), then the site address for this job.",
       detailsLabel: "job details",
       saveLabel: "Save job into NeXa",
       classicHref: "/?view=job-create",
@@ -159,11 +185,11 @@ function stageCopy(mode: RecordMode | null) {
     };
   }
   return {
-    titleJobType: "What is this lead for?",
+    titleWorkType: "What is the work?",
     titleQuestions: "Lead details",
     titleBook: "Book surveyor & save lead",
     titleDone: "Lead saved",
-    lede: "Blake starts with the job type, then only lead info — customer, site address, phone and email. Survey detail comes after the site visit.",
+    lede: "Describe the work in your own words, then customer / site / phone / email. Survey detail comes after the visit.",
     detailsLabel: "lead details",
     saveLabel: "Save lead into NeXa",
     classicHref: "/?view=lead-create",
@@ -177,14 +203,20 @@ function stageCopy(mode: RecordMode | null) {
 export function AiIntakeClient() {
   const initialMode = modeFromSearch();
   const [recordMode, setRecordMode] = useState<RecordMode | null>(initialMode);
-  const [phase, setPhase] = useState<Phase>(initialMode ? "jobType" : "recordType");
+  const [phase, setPhase] = useState<Phase>(initialMode ? "workType" : "recordType");
+  const [workType, setWorkType] = useState("");
+  const [workDraft, setWorkDraft] = useState("");
   const [answerDraft, setAnswerDraft] = useState("");
   const [postcodeQuery, setPostcodeQuery] = useState("");
   const [addressMatches, setAddressMatches] = useState<AddressMatch[]>([]);
+  const [addressMeta, setAddressMeta] = useState<{ postcode?: string; town?: string; source?: string } | null>(null);
   const [addressBusy, setAddressBusy] = useState(false);
-  const [playbookId, setPlaybookId] = useState<PlaybookId>("heating");
+  const [addressHint, setAddressHint] = useState("");
+  const [customerMatches, setCustomerMatches] = useState<ClientMatch[]>([]);
+  const [customerBusy, setCustomerBusy] = useState(false);
+  const [selectedClient, setSelectedClient] = useState<ClientMatch | null>(null);
   const [customerName, setCustomerName] = useState("");
-  const [fields, setFields] = useState<MandatoryField[]>(() => cloneFields("heating"));
+  const [fields, setFields] = useState<MandatoryField[]>(() => cloneIntakeFields());
   const [conversation, setConversation] = useState<Array<{ role: "customer" | "ai"; text: string }>>([
     { role: "ai", text: blakeOpener(initialMode) },
   ]);
@@ -199,15 +231,16 @@ export function AiIntakeClient() {
   const [savedRef, setSavedRef] = useState("");
   const [savedKind, setSavedKind] = useState<RecordMode>("lead");
   const lookupGen = useRef(0);
+  const clientGen = useRef(0);
 
   const copy = stageCopy(recordMode);
-  const playbook = playbooks[playbookId];
   const missingCount = fields.filter((field) => field.status !== "answered").length;
   const answeredCount = fields.filter((field) => field.status === "answered").length;
   const progress = Math.round((answeredCount / Math.max(fields.length, 1)) * 100);
   const currentQuestion = firstOpenField(fields);
   const questionNumber = Math.min(answeredCount + 1, fields.length);
   const askingAddress = phase === "questions" && currentQuestion?.id === "site_address";
+  const askingCustomer = phase === "questions" && currentQuestion?.id === "customer";
 
   const siteAddress = fieldValue(fields, "site_address") || "Address to confirm";
   const description = useMemo(() => {
@@ -215,8 +248,9 @@ export function AiIntakeClient() {
       .filter((field) => field.status === "answered" && field.answer)
       .map((field) => `${field.label}: ${field.answer}`)
       .join(" · ");
-    return `${playbook.jobType}${captured ? ` | ${captured}` : ""}`.slice(0, 1800);
-  }, [fields, playbook.jobType]);
+    const work = workType.trim() || "General work";
+    return `${work}${captured ? ` | ${captured}` : ""}`.slice(0, 1800);
+  }, [fields, workType]);
 
   useEffect(() => {
     if (!toast) return;
@@ -229,21 +263,44 @@ export function AiIntakeClient() {
     const query = postcodeQuery.trim();
     if (query.length < 2) {
       setAddressMatches([]);
+      setAddressMeta(null);
+      setAddressHint("");
       return;
     }
     const gen = ++lookupGen.current;
     setAddressBusy(true);
+    setAddressHint("");
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
           const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`, {
             headers: requestHeaders,
           });
-          const body = (await response.json().catch(() => null)) as { matches?: AddressMatch[] } | null;
+          const body = (await response.json().catch(() => null)) as {
+            matches?: AddressMatch[];
+            meta?: { postcode?: string; town?: string; source?: string } | null;
+            incomplete?: boolean;
+          } | null;
           if (gen !== lookupGen.current) return;
-          setAddressMatches(Array.isArray(body?.matches) ? body!.matches! : []);
+          const matches = Array.isArray(body?.matches) ? body!.matches! : [];
+          setAddressMatches(matches);
+          setAddressMeta(body?.meta || null);
+          if (body?.incomplete) {
+            setAddressHint("Keep typing the full postcode (e.g. AB15 4YE) and Blake will list the street.");
+          } else if (matches.length === 0 && body?.meta?.postcode) {
+            setAddressHint(
+              `Postcode ${body.meta.postcode}${body.meta.town ? ` (${body.meta.town})` : ""} is valid — type the house number and street, or try again.`,
+            );
+          } else if (matches.length === 0) {
+            setAddressHint("No addresses found yet — check the postcode or type the full address.");
+          } else {
+            setAddressHint(`Select an address (${matches.length} found).`);
+          }
         } catch {
-          if (gen === lookupGen.current) setAddressMatches([]);
+          if (gen === lookupGen.current) {
+            setAddressMatches([]);
+            setAddressHint("Lookup failed — type the full address manually.");
+          }
         } finally {
           if (gen === lookupGen.current) setAddressBusy(false);
         }
@@ -252,6 +309,34 @@ export function AiIntakeClient() {
     return () => window.clearTimeout(timer);
   }, [askingAddress, postcodeQuery]);
 
+  useEffect(() => {
+    if (!askingCustomer) return;
+    const query = answerDraft.trim();
+    if (query.length < 2) {
+      setCustomerMatches([]);
+      return;
+    }
+    const gen = ++clientGen.current;
+    setCustomerBusy(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/clients?q=${encodeURIComponent(query)}`, {
+            headers: requestHeaders,
+          });
+          const body = (await response.json().catch(() => [])) as ClientMatch[] | { error?: string };
+          if (gen !== clientGen.current) return;
+          setCustomerMatches(Array.isArray(body) ? body.slice(0, 8) : []);
+        } catch {
+          if (gen === clientGen.current) setCustomerMatches([]);
+        } finally {
+          if (gen === clientGen.current) setCustomerBusy(false);
+        }
+      })();
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [askingCustomer, answerDraft]);
+
   function showToast(message: string) {
     setToast(message);
   }
@@ -259,13 +344,18 @@ export function AiIntakeClient() {
   function reset() {
     const mode = modeFromSearch();
     setRecordMode(mode);
-    setPhase(mode ? "jobType" : "recordType");
+    setPhase(mode ? "workType" : "recordType");
+    setWorkType("");
+    setWorkDraft("");
     setAnswerDraft("");
     setPostcodeQuery("");
     setAddressMatches([]);
-    setPlaybookId("heating");
+    setAddressMeta(null);
+    setAddressHint("");
+    setCustomerMatches([]);
+    setSelectedClient(null);
     setCustomerName("");
-    setFields(cloneFields("heating"));
+    setFields(cloneIntakeFields());
     setConversation([{ role: "ai", text: blakeOpener(mode) }]);
     setError("");
     setSavedLead(null);
@@ -278,7 +368,7 @@ export function AiIntakeClient() {
 
   function selectRecordMode(mode: RecordMode) {
     setRecordMode(mode);
-    setPhase("jobType");
+    setPhase("workType");
     setConversation((prev) => [
       ...prev,
       { role: "customer", text: modeLabel(mode) },
@@ -291,72 +381,115 @@ export function AiIntakeClient() {
     }
   }
 
-  function selectJobType(id: PlaybookId) {
-    const option = leadJobTypeOptions.find((item) => item.id === id);
-    const seeded = cloneFields(id);
-    const modeName = modeLabel(recordMode).toLowerCase();
-    setPlaybookId(id);
-    setFields(seeded);
-    setCustomerName("");
+  function submitWorkType(raw?: string) {
+    const value = (raw ?? workDraft).trim();
+    if (!value || phase !== "workType") return;
+    setWorkType(value);
+    setWorkDraft("");
     setPhase("thinking");
     setConversation((prev) => [
       ...prev,
-      { role: "customer", text: option?.label || id },
+      { role: "customer", text: value },
       {
         role: "ai",
-        text: `Got it — ${playbooks[id].jobType}. I’ve loaded the ${playbooks[id].name}. ${
-          recordMode === "lead"
-            ? "Lead stage only needs contact and site details; survey detail comes after the visit."
-            : `We’ll capture contact and site details, then save the ${modeName}.`
-        }`,
+        text: `Got it — “${value}”. Who is the customer or contractor? Search an existing client (e.g. Aberbuild) or type a new name.`,
       },
     ]);
 
     window.setTimeout(() => {
-      const next = firstOpenField(seeded);
-      if (!next) {
-        setPhase("book");
-        return;
-      }
+      const seeded = cloneIntakeFields();
+      setFields(seeded);
+      setSelectedClient(null);
+      setCustomerName("");
       setPhase("questions");
       setConversation((prev) => [
         ...prev,
-        { role: "ai", text: questionForField(next, "New customer") },
+        { role: "ai", text: questionForField(seeded[0]!, "New customer") },
       ]);
       setAnswerDraft("");
-      setPostcodeQuery("");
-      setAddressMatches([]);
-    }, 500);
+    }, 450);
   }
 
-  function applyAnswer(updated: MandatoryField[], value: string) {
+  function continueAfterFields(
+    updated: MandatoryField[],
+    toastMessage: string,
+    linkedClient: ClientMatch | null = selectedClient,
+  ) {
+    const next = firstOpenField(updated);
+    if (!next) {
+      setPhase("book");
+      setConversation((prev) => [...prev, { role: "ai", text: stageCopy(recordMode).completeMessage }]);
+      showToast(toastMessage);
+      return;
+    }
+    const name = updated.find((field) => field.id === "customer")?.answer || customerName || "New customer";
+    window.setTimeout(() => {
+      if (next.id === "site_address" && linkedClient) {
+        setConversation((prev) => [
+          ...prev,
+          {
+            role: "ai",
+            text: `Site address for this ${modeLabel(recordMode).toLowerCase()} — a new site for ${linkedClient.name}, not their office/billing address. Enter the postcode and I’ll list the street.`,
+          },
+        ]);
+        return;
+      }
+      setConversation((prev) => [...prev, { role: "ai", text: questionForField(next, name) }]);
+    }, 220);
+  }
+
+  function applyAnswer(updated: MandatoryField[], value: string, toastMessage = `${modeLabel(recordMode)} details complete`) {
     setFields(updated);
     setAnswerDraft("");
     setPostcodeQuery("");
     setAddressMatches([]);
+    setAddressHint("");
+    setCustomerMatches([]);
     setConversation((prev) => [...prev, { role: "customer", text: value }]);
 
     const customerField = updated.find((field) => field.id === "customer");
     if (customerField?.answer) setCustomerName(customerField.answer);
 
-    const next = firstOpenField(updated);
-    if (!next) {
-      setPhase("book");
-      setConversation((prev) => [
-        ...prev,
-        {
-          role: "ai",
-          text: stageCopy(recordMode).completeMessage,
-        },
-      ]);
-      showToast(`${modeLabel(recordMode)} details complete`);
-      return;
+    continueAfterFields(updated, toastMessage);
+  }
+
+  function markField(updated: MandatoryField[], id: string, answer: string) {
+    return updated.map((field) =>
+      field.id === id ? { ...field, status: "answered" as const, answer } : field,
+    );
+  }
+
+  function selectExistingClient(client: ClientMatch) {
+    if (phase !== "questions" || currentQuestion?.id !== "customer") return;
+    setSelectedClient(client);
+    setCustomerName(client.name);
+
+    let updated = fields.map((field) => {
+      if (field.id === "customer") return { ...field, status: "answered" as const, answer: client.name };
+      if (field.id === "site_address") return { ...field, status: "missing" as const, answer: undefined };
+      return field;
+    });
+
+    if (client.phone?.trim() && client.phone !== "Pending") {
+      updated = markField(updated, "phone", client.phone.trim());
+    }
+    if (client.email?.trim() && !client.email.includes("@example.com")) {
+      updated = markField(updated, "email", client.email.trim());
     }
 
-    const name = customerField?.answer || customerName || "New customer";
-    window.setTimeout(() => {
-      setConversation((prev) => [...prev, { role: "ai", text: questionForField(next, name) }]);
-    }, 220);
+    setFields(updated);
+    setAnswerDraft("");
+    setCustomerMatches([]);
+    setConversation((prev) => [
+      ...prev,
+      { role: "customer", text: client.name },
+      {
+        role: "ai",
+        text: `Using existing client ${client.name}. I’ll keep their contact details where we have them, but we need a new site address for this work — not ${client.name}’s billing address.`,
+      },
+    ]);
+    showToast(`Linked to ${client.name}`);
+    continueAfterFields(updated, `${modeLabel(recordMode)} details complete`, client);
   }
 
   function submitAnswer(raw?: string) {
@@ -364,6 +497,10 @@ export function AiIntakeClient() {
     const current = firstOpenField(fields);
     if (!current || !value || phase !== "questions") return;
     if (current.id === "site_address" && value.length < 5) return;
+
+    if (current.id === "customer") {
+      setSelectedClient(null);
+    }
 
     const updated = fields.map((field) =>
       field.id === current.id ? { ...field, status: "answered" as const, answer: value } : field,
@@ -378,12 +515,12 @@ export function AiIntakeClient() {
   function useDemoAnswer() {
     const current = firstOpenField(fields);
     if (!current) return;
-    const suggested = playbookAnswers[playbookId][current.id] || "Confirmed";
-    submitAnswer(suggested);
+    const demo = playbookAnswers.heating[current.id] || "Confirmed";
+    submitAnswer(demo);
   }
 
   function fillRemaining() {
-    const answers = playbookAnswers[playbookId];
+    const answers = playbookAnswers.heating;
     const updated = fields.map((field) =>
       field.status === "answered"
         ? field
@@ -393,16 +530,34 @@ export function AiIntakeClient() {
     setCustomerName(name);
     setFields(updated);
     setPhase("book");
-    setConversation((prev) => [
-      ...prev,
-      { role: "ai", text: stageCopy(recordMode).fillMessage },
-    ]);
+    setConversation((prev) => [...prev, { role: "ai", text: stageCopy(recordMode).fillMessage }]);
     showToast(`Remaining ${stageCopy(recordMode).detailsLabel} filled`);
   }
 
-  async function ensureClient(name: string, address: string) {
+  async function resolveClientAndSite(name: string, address: string) {
     const phone = fieldValue(fields, "phone");
     const email = fieldValue(fields, "email");
+
+    if (selectedClient?.id) {
+      const siteResponse = await fetch("/api/client-sites", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientId: selectedClient.id,
+          address,
+          name: address.split(",")[0]?.trim() || "New site",
+          primaryContact: selectedClient.primaryContact || name.trim(),
+          serviceLine: workType.trim() || "New work",
+          actor: "Carol",
+        }),
+      });
+      const siteResult = (await siteResponse.json().catch(() => ({}))) as SiteApiResponse;
+      if (!siteResponse.ok || !siteResult.site) {
+        throw new Error(siteResult.error || "Could not create the new site for this client.");
+      }
+      return { client: { id: selectedClient.id, name: selectedClient.name }, site: siteResult.site };
+    }
+
     const response = await fetch("/api/clients", {
       method: "POST",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
@@ -415,7 +570,7 @@ export function AiIntakeClient() {
         primaryContact: name.trim(),
         source: `Blake AI ${modeLabel(recordMode).toLowerCase()} intake`,
         actor: "Carol",
-        serviceLine: playbook.jobType,
+        serviceLine: workType.trim() || "New work",
         status: "Prospect",
       }),
     });
@@ -436,6 +591,7 @@ export function AiIntakeClient() {
       phone: fieldValue(fields, "phone"),
       email: fieldValue(fields, "email"),
       createdBy: "Carol",
+      clientId: selectedClient?.id,
       status: bookSurvey ? "Survey booked" : "Needs scheduling",
       surveyor: bookSurvey ? surveyor : "",
       surveyDate: bookSurvey ? surveyDate : "",
@@ -456,7 +612,9 @@ export function AiIntakeClient() {
         role: "Customer",
         phone: fieldValue(fields, "phone"),
         email: fieldValue(fields, "email"),
-        notes: "Captured via Blake AI intake",
+        notes: selectedClient
+          ? `Existing client ${selectedClient.name}; new site via Blake`
+          : "Captured via Blake AI intake",
       },
     };
 
@@ -489,7 +647,7 @@ export function AiIntakeClient() {
           jobLink: { type: "Lead", id: result.lead.id, reference: result.lead.ref },
           surveyorName: bookSurvey ? surveyor : "",
           surveyDate: bookSurvey ? surveyDate : "",
-          jobType: playbookId === "bathroom" ? "Bathroom" : "Heating",
+          jobType: workType.trim() || "General",
         }),
       });
     } catch {
@@ -507,12 +665,12 @@ export function AiIntakeClient() {
   }
 
   async function saveQuote(name: string, address: string) {
-    const clientResult = await ensureClient(name, address);
+    const clientResult = await resolveClientAndSite(name, address);
     const response = await fetch("/api/quotes", {
       method: "POST",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
-        customer: name.trim(),
+        customer: clientResult.client?.name || name.trim(),
         description,
         status: "Draft",
         owner: "Carol",
@@ -537,12 +695,12 @@ export function AiIntakeClient() {
   }
 
   async function saveJob(name: string, address: string) {
-    const clientResult = await ensureClient(name, address);
+    const clientResult = await resolveClientAndSite(name, address);
     const response = await fetch("/api/jobs", {
       method: "POST",
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
-        customer: name.trim(),
+        customer: clientResult.client?.name || name.trim(),
         site: address,
         description,
         manager: "Carol",
@@ -571,6 +729,10 @@ export function AiIntakeClient() {
     setError("");
     const name = fieldValue(fields, "customer") || customerName;
     const address = fieldValue(fields, "site_address");
+    if (!workType.trim()) {
+      setError("Describe the work before saving.");
+      return;
+    }
     if (!name.trim()) {
       setError("Customer name is required.");
       return;
@@ -608,8 +770,8 @@ export function AiIntakeClient() {
   const pageTitle =
     phase === "recordType"
       ? "Lead, Quote, or Job?"
-      : phase === "jobType" || phase === "thinking"
-        ? copy.titleJobType
+      : phase === "workType" || phase === "thinking"
+        ? copy.titleWorkType
         : phase === "questions"
           ? copy.titleQuestions
           : phase === "book" || phase === "saving"
@@ -694,42 +856,60 @@ export function AiIntakeClient() {
               </div>
             )}
 
-            {(phase === "jobType" || phase === "thinking") && (
+            {(phase === "workType" || phase === "thinking") && (
               <>
-                <div className="ai-job-type-grid">
-                  {leadJobTypeOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className="ai-job-type-card"
+                <div className="ai-question-box">
+                  <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
+                    Free text · no fixed job-type list
+                  </p>
+                  <h3 style={{ marginTop: 0 }}>What is the work?</h3>
+                  <p className="ai-summary">
+                    Type it in your own words — Blake won’t force boiler / bathroom chips. There are too many variants for static options.
+                  </p>
+                  <div className="ai-prompt-shell" style={{ marginTop: 10 }}>
+                    <textarea
+                      value={workDraft}
+                      onChange={(event) => setWorkDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          submitWorkType();
+                        }
+                      }}
+                      placeholder="e.g. Aberbuild need a quote for a new bathroom first fix at a Portlethen site…"
+                      style={{ minHeight: 96 }}
                       disabled={phase === "thinking"}
-                      onClick={() => selectJobType(option.id)}
-                    >
-                      <strong>{option.label}</strong>
-                      <span>{option.hint}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="ai-prompt-actions" style={{ marginTop: 14 }}>
-                  <label className="ai-chip" style={{ cursor: "pointer" }}>
-                    Source
-                    <select
-                      value={source}
-                      onChange={(event) => setSource(event.target.value as LeadSource)}
-                      style={{ border: 0, background: "transparent", font: "inherit", fontWeight: 600 }}
-                    >
-                      {sources.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {recordMode ? (
-                    <span className="ai-chip" style={{ fontWeight: 700 }}>
-                      Creating: {modeLabel(recordMode)}
-                    </span>
-                  ) : null}
+                    />
+                    <div className="ai-prompt-actions">
+                      <label className="ai-chip" style={{ cursor: "pointer" }}>
+                        Source
+                        <select
+                          value={source}
+                          onChange={(event) => setSource(event.target.value as LeadSource)}
+                          style={{ border: 0, background: "transparent", font: "inherit", fontWeight: 600 }}
+                        >
+                          {sources.map((item) => (
+                            <option key={item} value={item}>
+                              {item}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {recordMode ? (
+                        <span className="ai-chip" style={{ fontWeight: 700 }}>
+                          Creating: {modeLabel(recordMode)}
+                        </span>
+                      ) : null}
+                      <button
+                        className="ai-btn ai-btn-primary"
+                        type="button"
+                        disabled={phase === "thinking" || !workDraft.trim()}
+                        onClick={() => submitWorkType()}
+                      >
+                        <Send size={16} /> Continue
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 {phase === "thinking" && (
                   <div className="ai-thinking">
@@ -738,7 +918,7 @@ export function AiIntakeClient() {
                       <span />
                       <span />
                     </div>
-                    Blake is loading the playbook…
+                    Blake is setting up the intake…
                   </div>
                 )}
               </>
@@ -749,11 +929,14 @@ export function AiIntakeClient() {
                 <div className="ai-draft-grid">
                   <div className="ai-stat">
                     <label>Customer</label>
-                    <strong>{fieldValue(fields, "customer") || customerName || "—"}</strong>
+                    <strong>
+                      {fieldValue(fields, "customer") || customerName || "—"}
+                      {selectedClient ? " · existing" : ""}
+                    </strong>
                   </div>
                   <div className="ai-stat">
-                    <label>Job type</label>
-                    <strong>{playbook.jobType}</strong>
+                    <label>Work</label>
+                    <strong>{workType || "—"}</strong>
                   </div>
                   <div className="ai-stat">
                     <label>Creating</label>
@@ -786,7 +969,78 @@ export function AiIntakeClient() {
                       ))}
                     </div>
 
-                    {phase === "questions" && currentQuestion && !askingAddress ? (
+                    {askingCustomer ? (
+                      <div className="ai-question-box">
+                        <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
+                          Question {questionNumber} of {fields.length} · Customer / contractor
+                        </p>
+                        <h3 style={{ marginTop: 0 }}>
+                          <Users size={18} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                          Who is the customer?
+                        </h3>
+                        <p className="ai-summary">
+                          Search an existing client (e.g. Aberbuild) to link them, or type a new name. Site address stays separate.
+                        </p>
+                        <div className="ai-prompt-shell" style={{ marginTop: 10 }}>
+                          <input
+                            value={answerDraft}
+                            onChange={(event) => setAnswerDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" && !event.shiftKey) {
+                                event.preventDefault();
+                                submitAnswer();
+                              }
+                            }}
+                            placeholder="Start typing a client name…"
+                            aria-label="Customer search"
+                            style={{
+                              width: "100%",
+                              border: 0,
+                              background: "transparent",
+                              font: "inherit",
+                              fontSize: "1.15rem",
+                              outline: "none",
+                              padding: "4px 0 10px",
+                            }}
+                          />
+                          {customerBusy ? (
+                            <p className="ai-summary" style={{ margin: "0 0 8px" }}>
+                              Blake is searching clients…
+                            </p>
+                          ) : null}
+                          {customerMatches.length > 0 ? (
+                            <div className="ai-address-matches">
+                              {customerMatches.map((client) => (
+                                <button
+                                  key={client.id}
+                                  type="button"
+                                  className="ai-address-match"
+                                  onClick={() => selectExistingClient(client)}
+                                >
+                                  <strong>{client.name}</strong>
+                                  <span style={{ display: "block", opacity: 0.75, fontSize: "0.9em" }}>
+                                    {[client.primaryContact, client.phone, client.email].filter(Boolean).join(" · ") ||
+                                      "Existing client · new site next"}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="ai-prompt-actions" style={{ marginTop: 10 }}>
+                            <button
+                              className="ai-btn ai-btn-primary"
+                              type="button"
+                              disabled={!answerDraft.trim()}
+                              onClick={() => submitAnswer()}
+                            >
+                              <Send size={16} /> Use as new customer
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {phase === "questions" && currentQuestion && !askingAddress && !askingCustomer ? (
                       <div className="ai-question-box">
                         <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
                           Question {questionNumber} of {fields.length} · {currentQuestion.label}
@@ -828,13 +1082,18 @@ export function AiIntakeClient() {
                       <div className="ai-question-box">
                         <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
                           Question {questionNumber} of {fields.length} · Site address
+                          {selectedClient ? ` · new site for ${selectedClient.name}` : ""}
                         </p>
                         <h3 style={{ marginTop: 0 }}>
                           <MapPin size={18} style={{ marginRight: 8, verticalAlign: "middle" }} />
                           Site address
                         </h3>
                         <p className="ai-summary">
-                          Enter the postcode and Blake will offer matching addresses to select.
+                          Enter the postcode. Blake looks up UK addresses on the internet and offers matches to select
+                          {selectedClient
+                            ? ` — this becomes a new site on ${selectedClient.name}, not their billing address`
+                            : ""}
+                          .
                         </p>
                         <div className="ai-prompt-shell" style={{ marginTop: 10 }}>
                           <input
@@ -854,12 +1113,18 @@ export function AiIntakeClient() {
                           />
                           {addressBusy ? (
                             <p className="ai-summary" style={{ margin: "0 0 8px" }}>
-                              Blake is looking up addresses…
+                              Blake is searching addresses…
+                            </p>
+                          ) : null}
+                          {!addressBusy && addressHint ? (
+                            <p className="ai-summary" style={{ margin: "0 0 8px" }}>
+                              {addressHint}
+                              {addressMeta?.source ? ` · ${addressMeta.source}` : ""}
                             </p>
                           ) : null}
                           {addressMatches.length > 0 ? (
                             <div className="ai-address-matches">
-                              {addressMatches.slice(0, 12).map((match) => (
+                              {addressMatches.slice(0, 40).map((match) => (
                                 <button
                                   key={`${match.postcode}-${match.address}`}
                                   type="button"
@@ -982,10 +1247,19 @@ export function AiIntakeClient() {
                               {recordMode === "quote" ? "Create Draft quote" : "Create Enquiry job"}
                             </h3>
                             <p className="ai-summary" style={{ marginTop: 10 }}>
-                              Blake will create the customer/site if needed, then save the{" "}
-                              {modeLabel(recordMode).toLowerCase()} for{" "}
-                              <strong>{fieldValue(fields, "customer") || customerName}</strong> at{" "}
-                              <strong>{siteAddress}</strong>.
+                              {selectedClient ? (
+                                <>
+                                  Linked to existing client <strong>{selectedClient.name}</strong> with a{" "}
+                                  <strong>new site</strong> at <strong>{siteAddress}</strong>.
+                                </>
+                              ) : (
+                                <>
+                                  Blake will create the customer/site if needed, then save the{" "}
+                                  {modeLabel(recordMode).toLowerCase()} for{" "}
+                                  <strong>{fieldValue(fields, "customer") || customerName}</strong> at{" "}
+                                  <strong>{siteAddress}</strong>.
+                                </>
+                              )}
                             </p>
                           </>
                         )}
@@ -1019,6 +1293,13 @@ export function AiIntakeClient() {
                       <span className="ai-badge ai-badge-draft">{answeredCount}</span>
                     </h3>
                     <ul className="ai-missing-list" style={{ gridTemplateColumns: "1fr" }}>
+                      <li className={workType ? "answered" : "current"}>
+                        <span className="mark">{workType ? "✓" : ""}</span>
+                        <span>
+                          Work
+                          {workType ? <span className="answer">{workType}</span> : null}
+                        </span>
+                      </li>
                       {fields.map((field) => (
                         <li
                           key={field.id}
@@ -1033,6 +1314,7 @@ export function AiIntakeClient() {
                           <span className="mark">{field.status === "answered" ? "✓" : ""}</span>
                           <span>
                             {field.label}
+                            {field.id === "customer" && selectedClient ? " (existing)" : ""}
                             {field.answer ? <span className="answer">{field.answer}</span> : null}
                           </span>
                         </li>
@@ -1044,8 +1326,8 @@ export function AiIntakeClient() {
                       </button>
                     ) : null}
                     <p className="ai-summary" style={{ marginTop: 14 }}>
-                      Survey questions (boiler, cylinder, radiators, photos, etc.) stay for the site visit — not
-                      this intake stage.
+                      Existing contractors keep their own record; each job gets its own site address. Survey detail stays
+                      for the visit.
                     </p>
                   </div>
                 </div>

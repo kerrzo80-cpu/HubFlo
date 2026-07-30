@@ -4,7 +4,7 @@ import { AiIntakeClient } from "./AiIntakeClient";
 export const metadata: Metadata = {
   title: "NeXa · Blake AI Intake",
   description:
-    "Blake creates a NeXa Lead, Quote, or Job from the same job-type and contact intake.",
+    "Blake creates a NeXa Lead, Quote, or Job from free-text work description, existing or new customers, and live UK postcode lookup.",
 };
 
 export default function AiIntakePage() {
