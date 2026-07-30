@@ -522,6 +522,38 @@
   margin: 0;
 }
 
+.talk-lab-video-wrap {
+  background: rgba(20, 28, 32, 0.08);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  min-height: 180px;
+  overflow: hidden;
+  position: relative;
+  width: min(100%, 280px);
+}
+
+.talk-lab-video {
+  display: block;
+  height: auto;
+  max-height: 240px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.talk-lab-canvas {
+  display: none;
+}
+
+.talk-lab-video-placeholder {
+  left: 0;
+  margin: 0;
+  padding: 24px 16px;
+  position: absolute;
+  right: 0;
+  text-align: center;
+  top: 40%;
+}
+
 .talk-lab-log {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line);
