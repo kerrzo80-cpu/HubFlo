@@ -12200,7 +12200,7 @@ export default function Dashboard() {
         seen.add(key);
         return true;
       })
-      .slice(0, 12);
+      .slice(0, 40);
   }
 
   function applyPostcodeMetaToParts(
@@ -12261,7 +12261,7 @@ export default function Dashboard() {
     const hardTimeout = window.setTimeout(() => {
       controller.abort();
       finish(mergePostcodeLookupMatches(query, []));
-    }, 3000);
+    }, 5500);
 
     const timer = window.setTimeout(() => {
       void (async () => {

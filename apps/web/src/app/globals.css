@@ -13614,6 +13614,9 @@ h1 {
   border: 1px solid var(--line);
   display: flex;
   flex-direction: column;
+  max-height: 220px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .lead-match-list button,

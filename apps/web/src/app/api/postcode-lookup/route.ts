@@ -113,8 +113,8 @@ const LOCAL_POSTCODE_DIRECTORY: PostcodeEntry[] = [
 ];
 
 const FULL_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/i;
-/** Keep the whole route under 2s so the create form never sits on Looking up… */
-const ROUTE_BUDGET_MS = 2000;
+/** Keep the whole route under ~4.5s — exact postcode OSM lists need a little room. */
+const ROUTE_BUDGET_MS = 4500;
 
 function normalizePostcode(value: string) {
   return value.replace(/\s+/g, "").toUpperCase();
@@ -278,47 +278,95 @@ function formatOsmAddress(tags: Record<string, string>, fallbackPostcode: string
   return { postcode, address, line1, town: town || undefined, county: county || undefined };
 }
 
-/** Single short Overpass attempt — never block the form on slow mirrors. */
-async function overpassNearbyAddresses(meta: PostcodeMeta): Promise<AddressMatch[]> {
-  const query = `[out:json][timeout:4];
-(
-  nwr["addr:housenumber"](around:400,${meta.latitude},${meta.longitude});
-  nwr["addr:street"](around:400,${meta.latitude},${meta.longitude});
-);
-out tags center 50;`;
+/** Prefer exact postcode query — around() is slow and often returns only the nearest house. */
+async function runOverpassQuery(query: string, timeoutMs: number): Promise<OsmElement[]> {
+  const endpoints = [
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+  ];
 
-  try {
-    const response = await fetch("https://overpass-api.de/api/interpreter", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
-      },
-      body: new URLSearchParams({ data: query }).toString(),
-      signal: AbortSignal.timeout(1400),
-      cache: "no-store",
-    });
-    if (!response.ok) return [];
-    const payload = (await response.json()) as { elements?: OsmElement[] };
-    const exactCompact = normalizePostcode(meta.postcode);
-    const exact: AddressMatch[] = [];
-    const nearby: AddressMatch[] = [];
-    const seen = new Set<string>();
-
-    for (const element of payload.elements ?? []) {
-      const match = formatOsmAddress(element.tags ?? {}, meta.postcode, meta.town);
-      if (!match) continue;
-      const key = match.address.trim().toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (normalizePostcode(match.postcode) === exactCompact) exact.push(match);
-      else nearby.push(match);
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
+        },
+        body: new URLSearchParams({ data: query }).toString(),
+        signal: AbortSignal.timeout(timeoutMs),
+        cache: "no-store",
+      });
+      if (!response.ok) continue;
+      const payload = (await response.json()) as { elements?: OsmElement[] };
+      if ((payload.elements ?? []).length > 0) return payload.elements ?? [];
+    } catch {
+      // try next mirror
     }
-
-    return [...exact, ...nearby].slice(0, 20);
-  } catch {
-    return [];
   }
+  return [];
+}
+
+function houseNumberSortKey(value: string | undefined) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d+)/);
+  if (!match) return Number.MAX_SAFE_INTEGER;
+  return Number(match[1]);
+}
+
+function matchesFromOsmElements(
+  elements: OsmElement[],
+  meta: PostcodeMeta,
+): AddressMatch[] {
+  const exactCompact = normalizePostcode(meta.postcode);
+  const exact: AddressMatch[] = [];
+  const nearby: AddressMatch[] = [];
+  const seen = new Set<string>();
+
+  for (const element of elements) {
+    const match = formatOsmAddress(element.tags ?? {}, meta.postcode, meta.town);
+    if (!match) continue;
+    const key = match.address.trim().toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (normalizePostcode(match.postcode) === exactCompact) exact.push(match);
+    else nearby.push(match);
+  }
+
+  const byHouseNumber = (a: AddressMatch, b: AddressMatch) => {
+    const aNum = houseNumberSortKey(a.line1);
+    const bNum = houseNumberSortKey(b.line1);
+    if (aNum !== bNum) return aNum - bNum;
+    return a.address.localeCompare(b.address);
+  };
+
+  return [...exact.sort(byHouseNumber), ...nearby.sort(byHouseNumber)].slice(0, 60);
+}
+
+async function overpassNearbyAddresses(meta: PostcodeMeta, streetHint = ""): Promise<AddressMatch[]> {
+  // Exact postcode match is fast and returns the full street when OSM has it mapped.
+  const exactQuery = `[out:json][timeout:8];nwr["addr:postcode"="${meta.postcode}"];out tags 120;`;
+  let elements = await runOverpassQuery(exactQuery, 2800);
+
+  if (elements.length < 3 && streetHint) {
+    const escapedStreet = streetHint.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    const streetQuery = `[out:json][timeout:8];
+(
+  nwr["addr:street"="${escapedStreet}"](around:700,${meta.latitude},${meta.longitude});
+  nwr["addr:housenumber"](around:250,${meta.latitude},${meta.longitude});
+);
+out tags center 120;`;
+    const more = await runOverpassQuery(streetQuery, 2200);
+    elements = [...elements, ...more];
+  } else if (elements.length < 3) {
+    const aroundQuery = `[out:json][timeout:6];
+nwr["addr:housenumber"](around:300,${meta.latitude},${meta.longitude});
+out tags center 80;`;
+    const more = await runOverpassQuery(aroundQuery, 1800);
+    elements = [...elements, ...more];
+  }
+
+  return matchesFromOsmElements(elements, meta);
 }
 
 async function nominatimFallback(meta: PostcodeMeta): Promise<AddressMatch[]> {
@@ -377,21 +425,37 @@ async function streetMatchesForPostcode(postcode: string): Promise<{ matches: Ad
     return { matches: paid, meta: { ...meta, source: "getAddress.io" } };
   }
 
-  const [osm, nominatim] = await Promise.all([
-    withTimeout(overpassNearbyAddresses(meta), 1500, [] as AddressMatch[]),
-    withTimeout(nominatimFallback(meta), 1200, [] as AddressMatch[]),
-  ]);
-
+  // Exact postcode OSM list first — this is what returns every house on the street.
+  const osm = await withTimeout(overpassNearbyAddresses(meta), 3000, [] as AddressMatch[]);
   if (osm.length > 0) {
     const townFromStreets = osm.find((match) => match.town?.trim())?.town?.trim();
     return {
       matches: osm,
       meta: {
         ...meta,
-        town: townFromStreets || nominatim.find((match) => match.town?.trim())?.town?.trim() || meta.town,
+        town: townFromStreets || meta.town,
         source: "openstreetmap",
       },
     };
+  }
+
+  // If OSM postcode query was empty, use reverse geocode then retry with street name.
+  const nominatim = await withTimeout(nominatimFallback(meta), 1200, [] as AddressMatch[]);
+  const streetHint =
+    nominatim[0]?.line1?.replace(/^\d+\s+/, "").split(",")[0]?.trim() ||
+    "";
+  if (streetHint) {
+    const byStreet = await withTimeout(overpassNearbyAddresses(meta, streetHint), 2500, [] as AddressMatch[]);
+    if (byStreet.length > 0) {
+      return {
+        matches: byStreet,
+        meta: {
+          ...meta,
+          town: byStreet.find((match) => match.town?.trim())?.town?.trim() || meta.town,
+          source: "openstreetmap",
+        },
+      };
+    }
   }
 
   return {
@@ -404,7 +468,7 @@ async function streetMatchesForPostcode(postcode: string): Promise<{ matches: Ad
   };
 }
 
-function dedupeMatches(matches: AddressMatch[], limit = 12): AddressMatch[] {
+function dedupeMatches(matches: AddressMatch[], limit = 40): AddressMatch[] {
   const seen = new Set<string>();
   const output: AddressMatch[] = [];
   for (const match of matches) {
