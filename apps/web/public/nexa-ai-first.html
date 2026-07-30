@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NeXa · AI-First Prototype</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --slate: #202a36;
+      --slate-soft: #2c3644;
+      --brass: #8e743e;
+      --brass-light: #b8a06a;
+      --porcelain: #e7ecef;
+      --white: #fff;
+      --steel: #5d6673;
+      --line: #d9dee5;
+      --verdigris: #2e8c7d;
+      --bind: #22c55e;
+      --amber: #f6b23c;
+      --risk: #e5484d;
+      --font-display: "Sora", "Source Sans 3", sans-serif;
+      --font-ui: "Source Sans 3", "Sora", sans-serif;
+      --shadow: 0 18px 48px rgba(32, 42, 54, .08);
+      --gradient: linear-gradient(135deg, #b8a06a 0%, #8e743e 55%, #5e4a24 100%);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--slate);
+      font-family: var(--font-ui);
+      background:
+        radial-gradient(ellipse 80% 50% at 10% -10%, rgba(46,140,125,.12), transparent 50%),
+        radial-gradient(ellipse 60% 40% at 90% 0%, rgba(142,116,62,.1), transparent 45%),
+        linear-gradient(180deg, #f4f7f9 0%, var(--porcelain) 42%, #e2e8ec 100%);
+      min-height: 100vh;
+    }
+    .shell { width: min(1180px, calc(100% - 24px)); margin: 0 auto; padding: 18px 0 48px; }
+    .topbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+    .brand { display: flex; gap: 12px; align-items: center; }
+    .mark {
+      width: 42px; height: 42px; border-radius: 12px;
+      background: var(--slate); color: var(--brass-light);
+      display: grid; place-items: center; font-family: var(--font-display); font-weight: 700;
+    }
+    .brand strong { display: block; font-family: var(--font-display); font-size: 1.3rem; letter-spacing: -.02em; }
+    .brand span { color: var(--steel); font-size: .86rem; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border-radius: 999px;
+      border: 1px solid rgba(142,116,62,.35); background: rgba(255,255,255,.72);
+      color: var(--brass); font-family: var(--font-display); font-size: .72rem;
+      font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .pill::before {
+      content: ""; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--verdigris); box-shadow: 0 0 0 4px rgba(46,140,125,.18);
+    }
+    .rail { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 12px; }
+    .rail button {
+      border: 0; background: transparent; color: var(--steel);
+      font: inherit; font-weight: 600; font-size: .84rem;
+      padding: 8px 12px; border-radius: 999px; cursor: pointer; white-space: nowrap;
+    }
+    .rail button.active { background: var(--slate); color: #fff; }
+    .rail button:disabled { opacity: .35; cursor: not-allowed; }
+    .stage {
+      position: relative; border: 1px solid rgba(217,222,229,.9);
+      border-radius: 28px; background: rgba(255,255,255,.9);
+      box-shadow: var(--shadow); overflow: hidden; min-height: 580px;
+    }
+    .stage::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--gradient); }
+    .panel { padding: 24px; animation: fade .35s ease both; }
+    .eyebrow { margin: 0 0 8px; color: var(--brass); font-family: var(--font-display); font-size: .72rem; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 0; font-family: var(--font-display); font-size: clamp(1.6rem, 3.4vw, 2.2rem); letter-spacing: -.03em; line-height: 1.15; }
+    .lede { margin: 10px 0 0; color: var(--steel); font-size: 1.02rem; line-height: 1.5; max-width: 42rem; }
+    .prompt {
+      margin-top: 22px; border: 1px solid var(--line); border-radius: 24px;
+      background: linear-gradient(180deg, #fbfcfd, #f3f6f8); padding: 16px;
+    }
+    textarea {
+      width: 100%; min-height: 110px; border: 0; resize: vertical;
+      background: transparent; font: inherit; font-size: 1.15rem; outline: none; color: var(--slate);
+    }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+    .chip, .btn, .ghost, .danger {
+      appearance: none; border: 1px solid var(--line); background: #fff; color: var(--slate);
+      font: inherit; font-weight: 600; font-size: .92rem; border-radius: 12px;
+      padding: 10px 14px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center;
+    }
+    .btn { border-color: transparent; background: var(--slate); color: #fff; }
+    .btn.primary { background: var(--verdigris); }
+    .btn.brass { background: var(--gradient); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .ghost { background: transparent; }
+    .danger { border-color: rgba(229,72,77,.3); color: var(--risk); background: rgba(229,72,77,.06); }
+    .examples { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .examples button { border: 0; background: transparent; color: var(--verdigris); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+    .card { margin-top: 18px; display: grid; gap: 14px; }
+    .grid3, .grid2, .split { display: grid; gap: 12px; }
+    .grid3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .grid2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .split { grid-template-columns: 1.15fr .85fr; margin-top: 18px; }
+    .stat, .box, .qcard {
+      border: 1px solid var(--line); border-radius: 16px; background: #fbfcfd; padding: 16px;
+    }
+    .stat label, .box h3, .qcard h3 {
+      display: block; margin: 0 0 8px; color: var(--steel); font-size: .78rem;
+      font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .box h3, .qcard h3 {
+      font-family: var(--font-display); font-size: .95rem; text-transform: none; letter-spacing: 0; color: var(--slate);
+      display: flex; justify-content: space-between; gap: 8px; align-items: center;
+    }
+    .stat strong { font-family: var(--font-display); font-size: 1.08rem; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 999px;
+      font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    }
+    .ai { background: rgba(142,116,62,.12); color: var(--brass); border: 1px solid rgba(142,116,62,.28); }
+    .ok { background: rgba(34,197,94,.12); color: #168a45; }
+    .lock { background: rgba(246,178,60,.16); color: #9a6a10; }
+    .live { background: rgba(46,140,125,.12); color: var(--verdigris); }
+    .draft { background: rgba(93,102,115,.1); color: var(--steel); }
+    ul.miss, ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    ul.miss { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    ul.miss li, ul.plain li { display: flex; gap: 8px; align-items: flex-start; font-size: .93rem; padding: 6px 0; border-bottom: 1px dashed rgba(217,222,229,.8); }
+    .markdot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line); flex-shrink: 0; display: grid; place-items: center; font-size: .7rem; margin-top: 1px; }
+    li.done .markdot { border-color: var(--bind); background: rgba(34,197,94,.12); color: #168a45; }
+    li.done .ans { display: block; color: var(--verdigris); font-size: .84rem; margin-top: 2px; }
+    .progress strong { font-family: var(--font-display); font-size: 1.5rem; }
+    .track { height: 10px; border-radius: 999px; background: #e2e7ec; overflow: hidden; margin-top: 8px; }
+    .fill { height: 100%; background: linear-gradient(90deg, var(--verdigris), #3aa894); transition: width .5s ease; }
+    .note { margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: rgba(246,178,60,.12); border: 1px solid rgba(246,178,60,.35); color: #8a5d0c; font-size: .92rem; }
+    .note.ready { background: rgba(34,197,94,.1); border-color: rgba(34,197,94,.35); color: #147a3c; }
+    .chat { display: flex; flex-direction: column; gap: 10px; max-height: 280px; overflow: auto; }
+    .bubble { max-width: 92%; padding: 12px 14px; border-radius: 16px; font-size: .94rem; line-height: 1.45; }
+    .bubble.c { align-self: flex-start; background: #eef2f5; border-bottom-left-radius: 6px; }
+    .bubble.a { align-self: flex-end; background: rgba(46,140,125,.1); border: 1px solid rgba(46,140,125,.2); border-bottom-right-radius: 6px; }
+    .photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .photo {
+      aspect-ratio: 4/3; border-radius: 12px; border: 1px solid var(--line);
+      background: linear-gradient(135deg, rgba(32,42,54,.08), rgba(46,140,125,.18));
+      display: grid; place-items: end start; padding: 10px; font-size: .78rem; font-weight: 600;
+    }
+    .commercial {
+      margin-top: 14px; padding: 18px; border-radius: 18px;
+      background: linear-gradient(135deg, #243140, #1a222c); color: #f4f6f8;
+      display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px;
+    }
+    .commercial label { display: block; color: rgba(244,246,248,.62); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+    .commercial strong { font-family: var(--font-display); font-size: 1.2rem; }
+    .alert { display: grid; grid-template-columns: 8px 1fr; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: #fff; margin-bottom: 8px; }
+    .alert .bar { border-radius: 999px; background: var(--amber); }
+    .alert.info .bar { background: var(--verdigris); }
+    .alert h4 { margin: 0 0 4px; font-family: var(--font-display); font-size: .92rem; }
+    .alert p { margin: 0; color: var(--steel); font-size: .88rem; }
+    .schedule {
+      margin-top: 18px; padding: 20px; border-radius: 20px;
+      border: 1px solid rgba(142,116,62,.28);
+      background: radial-gradient(circle at 90% 10%, rgba(184,160,106,.18), transparent 40%), linear-gradient(180deg,#fff,#f7f5f0);
+    }
+    .gate { display: flex; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfd; margin-top: 8px; font-size: .92rem; }
+    .gate.ready { border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.06); }
+    .invoice { margin-top: 16px; border: 1px solid var(--line); border-radius: 18px; padding: 18px; background: #fff; opacity: .45; }
+    .invoice.on { opacity: 1; }
+    .invoice .line { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
+    .invoice .total { display: flex; justify-content: space-between; margin-top: 12px; font-family: var(--font-display); font-size: 1.2rem; font-weight: 700; }
+    .audit { list-style: none; margin: 18px 0 0; padding: 0; }
+    .audit li { display: grid; grid-template-columns: 64px 88px 1fr; gap: 12px; padding: 14px 0; border-bottom: 1px solid var(--line); font-size: .95rem; }
+    .audit .t { color: var(--steel); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .audit .who { font-family: var(--font-display); font-weight: 700; font-size: .82rem; color: var(--brass); }
+    .audit .who.human { color: var(--verdigris); }
+    .audit .d { color: var(--steel); font-size: .86rem; margin-top: 2px; }
+    .toast {
+      position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      background: var(--slate); color: #fff; padding: 12px 16px; border-radius: 14px;
+      box-shadow: 0 16px 40px rgba(32,42,54,.28); z-index: 20; max-width: min(520px, calc(100% - 24px));
+    }
+    .thinking { margin-top: 14px; color: var(--steel); }
+    .hidden { display: none !important; }
+    @media (max-width: 860px) {
+      .grid3, .grid2, .split, ul.miss, .commercial, .audit li { grid-template-columns: 1fr; }
+      .audit .who { grid-column: 2; }
+      .panel { padding: 18px 14px; }
+    }
+    @keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">X</div>
+        <div>
+          <strong>NeXa</strong>
+          <span>AI-first operating system · clickable prototype</span>
+        </div>
+      </div>
+      <div class="pill">AI First · Human Approved</div>
+    </header>
+
+    <nav class="rail" id="rail"></nav>
+    <main class="stage" id="stage"></main>
+  </div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script>
+    const EXAMPLE = "Mrs Smith from Hillside Avenue wants a complete heating system replacement.";
+    const playbooks = {
+      heating: {
+        name: "Heating System Playbook",
+        jobType: "Heating System Renewal",
+        fields: [
+          ["address","Full address","14 Hillside Avenue, Harrogate"],
+          ["postcode","Postcode","HG2 7PL"],
+          ["phone","Phone number","07700 900214"],
+          ["email","Email","mrs.smith@email.com"],
+          ["property","Property type","Semi-detached house"],
+          ["bedrooms","Number of bedrooms","3 bedrooms"],
+          ["boiler","Existing boiler","15-year Worcester combi"],
+          ["cylinder","Existing cylinder?","No — combi system"],
+          ["radiators","Number of radiators","9 radiators"],
+          ["gas","Gas available?","Yes — meter in kitchen"],
+          ["pipework","Pipework accessible?","Mostly accessible under floors"],
+          ["floors","Floors timber/concrete?","Ground timber, first floor timber"],
+          ["location","Desired boiler location","Utility cupboard (current)"],
+          ["occupied","Property occupied?","Yes — family in residence"],
+          ["timescale","Timescale","Within 6 weeks"],
+          ["photos","Photos","4 site photos attached"],
+        ],
+      },
+      bathroom: {
+        name: "Bathroom Playbook",
+        jobType: "Bathroom Refurbishment",
+        fields: [
+          ["address","Full address","8 Oak Road, Leeds"],
+          ["postcode","Postcode","LS8 2QR"],
+          ["phone","Phone number","07700 900331"],
+          ["suite","Suite preference","Modern white suite with walk-in shower"],
+          ["tiling","Tiling extent","Full height wet walls + floor"],
+          ["extract","Extraction required?","Yes — humidistat fan"],
+          ["wetroom","Wet room conversion?","Partial wet zone"],
+          ["access","Access constraints","First floor · stair carry"],
+          ["timescale","Timescale","Next month"],
+          ["photos","Photos","3 bathroom photos attached"],
+        ],
+      },
+      radiator: {
+        name: "Radiator Playbook",
+        jobType: "Radiator Replacement",
+        fields: [
+          ["address","Full address","22 Mill Lane, York"],
+          ["postcode","Postcode","YO10 4AB"],
+          ["phone","Phone number","07700 900448"],
+          ["count","Number of radiators","3 radiators"],
+          ["sizes","Radiator sizes","600×1000, 600×800, 600×600"],
+          ["valves","TRV upgrade?","Yes — TRV upgrade"],
+          ["system","System type","Sealed system"],
+          ["timescale","Timescale","This fortnight"],
+          ["photos","Photos","2 radiator photos attached"],
+        ],
+      },
+    };
+
+    const quoteSections = [
+      ["Scope of Works", ["Strip out existing Worcester combi","Supply and install A-rated combi","Replace 9 radiators with TRVs","Flush, dose, commission","Gas Safe certification"]],
+      ["Assumptions", ["Existing gas/flue route suitable","No major pipework reroutes","Clear access during 3-day programme"]],
+      ["Exclusions", ["Decoration making-good","Consumer unit upgrades","Asbestos removal if found"]],
+      ["Labour", ["Heating engineer × 3 days — £1,440","Mate × 2 days — £640","Commissioning — £180"]],
+      ["Materials", ["Worcester 8000 Style 35kW — £1,850","9× radiators + TRVs — £1,120","Flush chemicals & sundries — £210"]],
+      ["Cost Centres", ["Boiler plant — £2,180","Radiators — £1,420","Labour — £2,260","Contingency 5% — £293"]],
+      ["Risk notes", ["Floor access may add pipework time","Flue termination to confirm on photos"]],
+      ["Suggested programme", ["Day 1 — strip-out & boiler","Day 2 — radiators & flush","Day 3 — commission & handover"]],
+    ];
+
+    const state = {
+      screen: "intake",
+      prompt: "",
+      lead: "none",
+      playbookId: "heating",
+      customer: "Mrs Smith",
+      answered: false,
+      photos: false,
+      quote: "locked",
+      job: "none",
+      schedule: "none",
+      invoice: "locked",
+      jobComplete: false,
+      audit: [],
+      conversation: [],
+      tick: 0,
+    };
+
+    const screens = [
+      ["intake","Intake",1],
+      ["lead","Lead",2],
+      ["quote","Quote",3],
+      ["job","Job",4],
+      ["scheduler","Schedule",5],
+      ["invoice","Invoice",6],
+      ["audit","Audit",7],
+    ];
+
+    function money(n){ return new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits: n%1?2:0}).format(n); }
+    function toast(msg){
+      const el = document.getElementById("toast");
+      el.textContent = msg; el.classList.remove("hidden");
+      clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.add("hidden"), 2600);
+    }
+    function time(){
+      state.tick += 1;
+      const total = 9*60 + 12 + state.tick;
+      return `${String(Math.floor(total/60)%24).padStart(2,"0")}:${String(total%60).padStart(2,"0")}`;
+    }
+    function audit(actor, action, detail){
+      state.audit.push({ time: time(), actor, action, detail });
+    }
+    function detect(text){
+      const t = text.toLowerCase();
+      if (t.includes("bathroom") || t.includes("suite")) return "bathroom";
+      if (t.includes("radiator") && !t.includes("heating system") && !t.includes("boiler")) return "radiator";
+      return "heating";
+    }
+    function nameFrom(text){
+      const m = text.match(/\b(Mrs|Mr|Ms|Miss)\s+([A-Za-z'-]+)/i);
+      return m ? `${m[1]} ${m[2]}` : "New customer";
+    }
+    function unlocked(id){
+      if (id === "intake" || id === "audit") return true;
+      if (id === "lead") return state.lead !== "none" && state.lead !== "thinking";
+      if (id === "quote") return state.quote !== "locked" || state.answered;
+      if (id === "job" || id === "scheduler") return state.job !== "none";
+      if (id === "invoice") return state.schedule === "approved" || state.jobComplete || state.invoice !== "locked";
+      return false;
+    }
+    function pb(){ return playbooks[state.playbookId]; }
+    function progress(){ return state.answered ? 100 : 0; }
+    function missingCount(){ return state.answered ? 0 : pb().fields.length; }
+
+    function go(id){
+      if (!unlocked(id)) { toast("Complete the previous step to unlock this screen"); return; }
+      if (id === "quote" && state.quote === "locked" && state.answered) state.quote = "draft";
+      if (id === "scheduler" && state.schedule === "none" && state.job !== "none") state.schedule = "suggested";
+      state.screen = id;
+      render();
+    }
+
+    function runIntake(text){
+      const value = (text || state.prompt || "").trim();
+      if (!value) return;
+      state.prompt = value;
+      state.playbookId = detect(value);
+      state.customer = nameFrom(value);
+      state.lead = "thinking";
+      state.answered = false;
+      state.photos = false;
+      state.quote = "locked";
+      state.job = "none";
+      state.schedule = "none";
+      state.invoice = "locked";
+      state.jobComplete = false;
+      state.conversation = [
+        { role:"c", text:value },
+        { role:"a", text:`Understood. I’ll create a draft lead and load the ${pb().name}. I will only ask for missing mandatory questions.` },
+      ];
+      render();
+      setTimeout(() => {
+        state.lead = "draft";
+        audit("AI", "AI created Lead", `${state.customer} · Draft`);
+        audit("AI", `AI loaded ${pb().name}`, pb().jobType);
+        toast("Draft lead created — reviewing missing information");
+        render();
+      }, 900);
+    }
+
+    function completeSurvey(){
+      state.lead = "enriching";
+      render();
+      toast("Collecting mandatory playbook answers…");
+      setTimeout(() => {
+        state.answered = true;
+        state.photos = true;
+        state.lead = "ready";
+        state.quote = "draft";
+        state.conversation.push(
+          { role:"c", text:"Address is 14 Hillside Avenue, HG2 7PL. Combi boiler in the utility, 9 radiators, gas available. Looking to proceed within 6 weeks." },
+          { role:"a", text:`All mandatory ${pb().name} questions are complete. I’m building the quote now.` },
+        );
+        audit("AI", "AI completed mandatory questions", `${pb().fields.length} fields from playbook`);
+        audit("AI", "AI generated Quote", `AI Draft · ${pb().jobType}`);
+        toast("Mandatory information complete — quote drafted");
+        state.screen = "quote";
+        render();
+      }, 700);
+    }
+
+    function renderRail(){
+      document.getElementById("rail").innerHTML = screens.map(([id,label,step]) =>
+        `<button ${unlocked(id)?"":"disabled"} class="${state.screen===id?"active":""}" data-go="${id}"><span style="opacity:.65;margin-right:6px;font-size:.75rem">${step}</span>${label}</button>`
+      ).join("");
+    }
+
+    function fieldsHtml(answered){
+      return `<ul class="miss">${pb().fields.map(([id,label,ans]) =>
+        `<li class="${answered?"done":""}"><span class="markdot">${answered?"✓":""}</span><span>${label}${answered?`<span class="ans">${ans}</span>`:""}</span></li>`
+      ).join("")}</ul>`;
+    }
+
+    function render(){
+      renderRail();
+      const stage = document.getElementById("stage");
+      const s = state.screen;
+
+      if (s === "intake") {
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 1 · AI Intake</p>
+          <div class="row" style="justify-content:space-between">
+            <div>
+              <h1>Tell NeXa what the customer needs…</h1>
+              <p class="lede">No forms. Speak, type, attach a photo, or drop in an email — NeXa creates the lead, loads the playbook, and asks only what is missing.</p>
+            </div>
+            <button class="ghost" id="reset">Reset demo</button>
+          </div>
+          <div class="prompt">
+            <textarea id="prompt" placeholder="${EXAMPLE}">${state.prompt}</textarea>
+            <div class="row">
+              <button class="chip" id="voice">Voice</button>
+              <button class="chip" id="photo">Photo</button>
+              <button class="chip" id="email">Email</button>
+              <button class="btn primary" id="run" ${state.lead==="thinking"?"disabled":""} style="margin-left:auto">Let NeXa handle it</button>
+            </div>
+          </div>
+          <div class="examples">
+            <span style="color:var(--steel);font-size:.9rem">Try an example:</span>
+            <button data-ex="${EXAMPLE}">Heating system for Mrs Smith</button>
+            <button data-ex="Mr Patel on Oak Road needs a full bathroom refurbishment with new suite and tiling.">Bathroom for Mr Patel</button>
+            <button data-ex="Please replace three radiators at 22 Mill Lane for the Thompson family.">Radiators at Mill Lane</button>
+          </div>
+          ${state.lead==="thinking"?`<div class="thinking">Creating draft lead · detecting job type · loading playbook…</div>`:""}
+          ${(state.lead==="draft"||state.lead==="ready"||state.lead==="enriching")?`
+            <div class="card">
+              <div class="row" style="justify-content:space-between">
+                <h2 style="margin:0;font-family:var(--font-display);font-size:1.15rem">Draft Lead</h2>
+                <span class="badge ai">AI Draft</span>
+              </div>
+              <div class="grid3">
+                <div class="stat"><label>Customer</label><strong>${state.customer}</strong></div>
+                <div class="stat"><label>Job Type</label><strong>${pb().jobType}</strong></div>
+                <div class="stat"><label>Status</label><strong><span class="badge draft">Draft</span></strong></div>
+              </div>
+              <div class="box">
+                <h3>Missing Information <span class="badge lock">${missingCount()} outstanding</span></h3>
+                ${fieldsHtml(state.answered)}
+              </div>
+              <div class="row">
+                <button class="ghost" id="ask">Ask Customer</button>
+                <button class="ghost" id="surveyBtn">Book Survey</button>
+                <button class="ghost" id="reqPhotos">Request Photos</button>
+                <button class="btn" id="continue">Continue</button>
+              </div>
+            </div>`:""}
+        </section>`;
+      }
+
+      if (s === "lead") {
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 2 · Lead</p>
+          <div class="row" style="justify-content:space-between">
+            <div><h1>${state.customer}</h1><p class="lede">${pb().jobType} · ${pb().name}</p></div>
+            <span class="badge ai">AI Draft</span>
+          </div>
+          <div class="progress" style="margin-top:18px">
+            <div class="row" style="justify-content:space-between"><strong>${progress()}% Complete</strong>
+              <span class="badge ${state.answered?"ok":"lock"}">${state.answered?"Quote unlocked":"Quote Locked"}</span>
+            </div>
+            <div class="track"><div class="fill" style="width:${progress()}%"></div></div>
+            <div class="note ${state.answered?"ready":""}">${state.answered?"All mandatory playbook questions answered. AI can build the quote.":`Reason: ${missingCount()} mandatory questions outstanding`}</div>
+          </div>
+          <div class="split">
+            <div class="box">
+              <h3>Customer details</h3>
+              <p><strong>${state.customer}</strong><br>${pb().jobType}<br>${pb().name}<br>${state.lead==="ready"?"Ready to quote":"Draft · gathering"}</p>
+              <h3 style="margin-top:16px">AI summary</h3>
+              <p style="color:var(--steel);margin:0;line-height:1.5">${state.customer} requested a ${pb().jobType.toLowerCase()}. NeXa loaded the correct playbook and is collecting only mandatory commercial questions.</p>
+              <h3 style="margin-top:16px">Missing information checklist</h3>
+              ${fieldsHtml(state.answered)}
+            </div>
+            <div style="display:grid;gap:12px">
+              <div class="box"><h3>Conversation history</h3><div class="chat">${state.conversation.map(m=>`<div class="bubble ${m.role}">${m.text}</div>`).join("")}</div></div>
+              <div class="box"><h3>Uploaded photos <span class="badge draft">${state.photos?4:0}</span></h3>
+                ${state.photos?`<div class="photos"><div class="photo">Boiler plate</div><div class="photo">Utility cupboard</div><div class="photo">Flue route</div><div class="photo">Radiator run</div></div>`:`<p style="color:var(--steel);margin:0">No photos yet.</p>`}
+              </div>
+            </div>
+          </div>
+          <div class="row" style="margin-top:16px">
+            <button class="btn primary" id="completeSurvey">Complete Survey</button>
+            <button class="ghost" id="ask2">Request Missing Info</button>
+            <button class="danger" id="reject">Reject Lead</button>
+            ${state.answered?`<button class="btn brass" id="openQuote">Open Quote</button>`:""}
+          </div>
+        </section>`;
+      }
+
+      if (s === "quote") {
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 3 · AI Quote Builder</p>
+          <div class="row" style="justify-content:space-between">
+            <div><h1>${pb().jobType} Quote</h1><p class="lede">Built from playbook answers. Everything is an AI Draft until you approve.</p></div>
+            <div class="row"><span class="badge ai">AI Draft</span>${state.quote==="approved"?`<span class="badge ok">Approved</span>`:""}${state.quote==="sent"?`<span class="badge live">Sent</span>`:""}${state.quote==="accepted"?`<span class="badge ok">Customer accepted</span>`:""}</div>
+          </div>
+          ${!state.answered && state.quote==="locked"
+            ? `<div class="box" style="margin-top:24px;text-align:center">Quote is locked until mandatory playbook questions are complete.<div class="row" style="justify-content:center;margin-top:12px"><button class="btn" data-go="lead">Return to Lead</button></div></div>`
+            : `<div class="grid2" style="margin-top:18px">${quoteSections.map(([title,items])=>`<article class="qcard"><h3>${title}<span class="badge ai">AI Draft</span></h3><ul class="plain">${items.map(i=>`<li>${i}</li>`).join("")}</ul></article>`).join("")}</div>
+              <div class="commercial">
+                <div><label>Net</label><strong>${money(6153)}</strong></div>
+                <div><label>VAT</label><strong>${money(1230.6)}</strong></div>
+                <div><label>Gross</label><strong>${money(7383.6)}</strong></div>
+                <div><label>Margin</label><strong>34%</strong></div>
+              </div>
+              <div class="row" style="margin-top:16px">
+                <button class="ghost" id="editQ">Edit Quote</button>
+                <button class="btn primary" id="approveQ" ${["approved","sent","accepted"].includes(state.quote)?"disabled":""}>Approve Quote</button>
+                <button class="btn" id="sendQ" ${["sent","accepted"].includes(state.quote)?"disabled":""}>Send Quote</button>
+                ${(state.quote==="sent"||state.quote==="accepted")?`<button class="btn brass" id="acceptQ" ${state.quote==="accepted"?"disabled":""}>Simulate Customer Accept</button>`:""}
+                ${state.quote==="accepted"?`<button class="btn primary" id="toJob">Convert to Job</button>`:""}
+              </div>`}
+        </section>`;
+      }
+
+      if (s === "job") {
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 4 · Job</p>
+          <div class="row" style="justify-content:space-between">
+            <div><h1>JOB-2418 · ${state.customer}</h1><p class="lede">AI alerts you — it never changes commercial decisions without approval.</p></div>
+            <span class="badge ${state.jobComplete?"ok":"live"}">${state.jobComplete?"Complete":"Live"}</span>
+          </div>
+          <div class="split">
+            <div class="box">
+              <h3>Timeline & tasks</h3>
+              <ul class="plain">
+                <li class="done"><span class="markdot">✓</span>Quote accepted · job opened</li>
+                <li class="${state.schedule==="approved"?"done":""}"><span class="markdot">${state.schedule==="approved"?"✓":""}</span>${state.schedule==="approved"?"Mon 14 Apr · James Walsh":"Awaiting schedule approval"}</li>
+                <li class="${state.jobComplete?"done":""}"><span class="markdot">${state.jobComplete?"✓":""}</span>3-day heating renewal programme</li>
+                <li class="${state.jobComplete?"done":""}"><span class="markdot">${state.jobComplete?"✓":""}</span>Handover & certificates</li>
+              </ul>
+              <div style="margin-top:12px;padding:12px;border-radius:12px;background:rgba(46,140,125,.08);border:1px solid rgba(46,140,125,.22);font-size:.92rem">
+                <strong>AI assistant:</strong> Watching for missing photos, overruns, delays, variations, materials, programme issues, and invoice risks. Alerts only.
+              </div>
+            </div>
+            <div class="box">
+              <h3>Live project health</h3>
+              ${state.jobComplete
+                ? `<div class="alert info"><div class="bar"></div><div><h4>Job complete</h4><p>All install tasks finished. Invoice gates can now be cleared.</p></div></div>`
+                : `<div class="alert"><div class="bar"></div><div><h4>Missing photos</h4><p>Flue termination photo still outstanding before install day.</p></div></div>
+                   <div class="alert info"><div class="bar"></div><div><h4>Variation opportunity</h4><p>Customer mentioned cold bathroom — towel rail add-on possible.</p></div></div>
+                   <div class="alert"><div class="bar"></div><div><h4>Materials watch</h4><p>TRV pack on 2-day lead time — confirm stock before Friday.</p></div></div>`}
+            </div>
+          </div>
+          <div class="row" style="margin-top:16px">
+            <button class="btn" data-go="scheduler">Open Scheduler</button>
+            <button class="btn primary" id="completeJob" ${state.jobComplete || state.schedule!=="approved"?"disabled":""}>Mark Job Complete</button>
+            ${state.schedule!=="approved"?`<span style="color:var(--steel);font-size:.9rem">Approve the schedule before completing the job.</span>`:""}
+          </div>
+        </section>`;
+      }
+
+      if (s === "scheduler") {
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 5 · Scheduler</p>
+          <div class="row" style="justify-content:space-between">
+            <div><h1>AI schedule suggestion</h1><p class="lede">NeXa proposes the best engineer and slot. Nothing is booked until you approve.</p></div>
+            <span class="badge ai">AI Draft</span>
+          </div>
+          <div class="schedule">
+            <div class="row" style="justify-content:space-between">
+              <div><p class="eyebrow">Best engineer</p><h2 style="margin:0;font-family:var(--font-display);font-size:1.5rem">James Walsh</h2></div>
+              <span class="badge ${state.schedule==="approved"?"ok":"lock"}">${state.schedule==="approved"?"Approved":"Awaiting approval"}</span>
+            </div>
+            <div class="grid3" style="margin-top:14px">
+              <div class="stat"><label>Available slot</label><strong>Mon 14 Apr · 08:00</strong></div>
+              <div class="stat"><label>Travel time</label><strong>18 min</strong></div>
+              <div class="stat"><label>Required duration</label><strong>3 days</strong></div>
+            </div>
+            <p style="margin:14px 0 0;color:#147a3c;font-weight:600">No potential clashes detected on this engineer’s board.</p>
+          </div>
+          <div class="row" style="margin-top:16px">
+            <button class="btn primary" id="approveSched" ${state.schedule==="approved"?"disabled":""}>Approve Schedule</button>
+            <button class="ghost" data-go="job">Back to Job</button>
+          </div>
+        </section>`;
+      }
+
+      if (s === "invoice") {
+        const gates = [
+          ["Job complete", state.jobComplete],
+          ["Required photos uploaded", state.jobComplete],
+          ["Checklists complete", state.jobComplete],
+          ["Variations priced", true],
+          ["Engineer hours approved", state.jobComplete],
+          ["Materials confirmed", state.jobComplete],
+        ];
+        const ready = gates.every(g => g[1]);
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 6 · Invoice</p>
+          <div class="row" style="justify-content:space-between">
+            <div><h1>Invoice readiness</h1><p class="lede">Locked until job complete, photos, checklists, variations, hours, and materials all pass.</p></div>
+            <span class="badge ${ready?"ok":"lock"}">${ready?"Ready":"Locked"}</span>
+          </div>
+          ${gates.map(([label,ok])=>`<div class="gate ${ok?"ready":""}"><span>${label}</span><span class="badge ${ok?"ok":"draft"}">${ok?"Passed":"Pending"}</span></div>`).join("")}
+          <div class="invoice ${ready?"on":""}">
+            <div class="row" style="justify-content:space-between"><h3 style="margin:0;font-family:var(--font-display)">INV-2418 · ${state.customer}</h3><span class="badge ai">AI Draft</span></div>
+            <div class="line"><span>Heating system renewal</span><span>${money(6153)}</span></div>
+            <div class="line"><span>VAT 20%</span><span>${money(1230.6)}</span></div>
+            <div class="total"><span>Total due</span><span>${money(7383.6)}</span></div>
+          </div>
+          <div class="row" style="margin-top:16px">
+            ${!ready?`<button class="btn" data-go="job">Complete job checks</button>`:""}
+            <button class="btn primary" id="approveInv" ${!ready || state.invoice==="approved" || state.invoice==="sent"?"disabled":""}>Approve Invoice</button>
+            <button class="btn" id="sendInv" ${state.invoice!=="approved"?"disabled":""}>Send Invoice</button>
+            ${state.invoice==="sent"?`<span class="badge ok">Invoice sent</span>`:""}
+          </div>
+        </section>`;
+      }
+
+      if (s === "audit") {
+        stage.innerHTML = `<section class="panel">
+          <p class="eyebrow">Screen 7 · AI Audit Log</p>
+          <div class="row" style="justify-content:space-between">
+            <div><h1>Everything is traceable</h1><p class="lede">Every AI action and every human approval is recorded.</p></div>
+            <button class="ghost" id="reset2">Restart prototype</button>
+          </div>
+          ${state.audit.length===0
+            ? `<div class="box" style="margin-top:22px;text-align:center">Run the intake flow to populate the audit trail. Start with Mrs Smith’s heating enquiry.</div>`
+            : `<ul class="audit">${state.audit.map(e=>`<li><span class="t">${e.time}</span><span class="who ${e.actor==="AI"?"":"human"}">${e.actor}</span><div>${e.action}${e.detail?`<div class="d">${e.detail}</div>`:""}</div></li>`).join("")}</ul>`}
+        </section>`;
+      }
+
+      wire();
+    }
+
+    function reset(){
+      Object.assign(state, {
+        screen:"intake", prompt:"", lead:"none", playbookId:"heating", customer:"Mrs Smith",
+        answered:false, photos:false, quote:"locked", job:"none", schedule:"none",
+        invoice:"locked", jobComplete:false, audit:[], conversation:[], tick:0,
+      });
+      render();
+    }
+
+    function wire(){
+      document.querySelectorAll("[data-go]").forEach(el => el.addEventListener("click", () => go(el.getAttribute("data-go"))));
+      document.getElementById("rail").onclick = (e) => {
+        const btn = e.target.closest("button[data-go]");
+        if (btn) go(btn.getAttribute("data-go"));
+      };
+      const prompt = document.getElementById("prompt");
+      if (prompt) prompt.oninput = () => { state.prompt = prompt.value; };
+      const run = document.getElementById("run");
+      if (run) run.onclick = () => runIntake(document.getElementById("prompt").value);
+      document.querySelectorAll("[data-ex]").forEach(btn => btn.onclick = () => runIntake(btn.getAttribute("data-ex")));
+      const voice = document.getElementById("voice");
+      if (voice) voice.onclick = () => { toast("Listening… (prototype simulates voice)"); setTimeout(() => runIntake(EXAMPLE), 700); };
+      const photo = document.getElementById("photo");
+      if (photo) photo.onclick = () => { state.photos = true; audit("Brian","Photo uploaded","site-photo.jpg"); toast("Photo attached"); render(); };
+      const email = document.getElementById("email");
+      if (email) email.onclick = () => { audit("Brian","Email uploaded","enquiry.eml"); toast("Email imported"); runIntake(EXAMPLE); };
+      const cont = document.getElementById("continue");
+      if (cont) cont.onclick = () => { if (state.answered) go("quote"); else go("lead"); };
+      ["ask","ask2","reqPhotos","surveyBtn"].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.onclick = () => {
+          if (id === "reqPhotos") { audit("AI","AI requested photos","Boiler, flue, cupboard, radiators"); toast("Photo request sent to customer"); }
+          else if (id === "surveyBtn") { audit("Brian","Survey booking requested","AI drafted survey brief"); toast("Survey brief ready"); go("lead"); }
+          else { audit("AI","AI asked customer for missing info","Outstanding playbook fields"); toast("Customer request sent (simulated)"); }
+        };
+      });
+      const complete = document.getElementById("completeSurvey");
+      if (complete) complete.onclick = completeSurvey;
+      const openQuote = document.getElementById("openQuote");
+      if (openQuote) openQuote.onclick = () => go("quote");
+      const reject = document.getElementById("reject");
+      if (reject) reject.onclick = () => { audit("Brian","Brian rejected Lead", state.customer); toast("Lead rejected (prototype)"); };
+      const approveQ = document.getElementById("approveQ");
+      if (approveQ) approveQ.onclick = () => { state.quote="approved"; audit("Brian","Brian approved Quote", money(7383.6)); toast("Quote approved — ready to send"); render(); };
+      const sendQ = document.getElementById("sendQ");
+      if (sendQ) sendQ.onclick = () => {
+        if (state.quote !== "approved") { toast("Quote cannot be sent until approved"); return; }
+        state.quote="sent"; audit("Brian","Brian sent Quote","Awaiting customer decision"); toast("Quote sent to Mrs Smith"); render();
+      };
+      const acceptQ = document.getElementById("acceptQ");
+      if (acceptQ) acceptQ.onclick = () => { state.quote="accepted"; audit("Customer","Customer accepted Quote", money(7383.6)); toast("Customer accepted — convert to job when ready"); render(); };
+      const toJob = document.getElementById("toJob");
+      if (toJob) toJob.onclick = () => {
+        state.job="active"; state.schedule="suggested";
+        audit("AI","AI converted to Job","JOB-2418 · Heating System Renewal");
+        audit("AI","AI suggested schedule","James Walsh · Mon 14 Apr");
+        toast("Job created — AI watching project health"); go("job");
+      };
+      const approveSched = document.getElementById("approveSched");
+      if (approveSched) approveSched.onclick = () => { state.schedule="approved"; audit("Brian","Brian approved Schedule","James Walsh · Mon 14 Apr"); toast("Schedule approved — engineer allocated"); render(); };
+      const completeJob = document.getElementById("completeJob");
+      if (completeJob) completeJob.onclick = () => {
+        state.jobComplete = true; state.invoice = "prepared";
+        audit("Brian","Brian marked Job complete","All checklists passed");
+        audit("AI","AI prepared Invoice","Locked until approval");
+        toast("Job complete — invoice prepared by AI"); go("invoice");
+      };
+      const approveInv = document.getElementById("approveInv");
+      if (approveInv) approveInv.onclick = () => { state.invoice="approved"; audit("Brian","Brian approved Invoice", money(7383.6)); toast("Invoice approved — ready to send"); render(); };
+      const sendInv = document.getElementById("sendInv");
+      if (sendInv) sendInv.onclick = () => { state.invoice="sent"; audit("Brian","Brian sent Invoice","INV-2418 issued"); toast("Invoice sent"); render(); };
+      const editQ = document.getElementById("editQ");
+      if (editQ) editQ.onclick = () => toast("Edit opens a controlled review — prototype keeps AI draft intact");
+      const resetBtn = document.getElementById("reset") || document.getElementById("reset2");
+      if (resetBtn) resetBtn.onclick = reset;
+    }
+
+    render();
+  </script>
+</body>
+</html>

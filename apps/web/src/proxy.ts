@@ -7,12 +7,20 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
+const publicPagePrefixes = ["/ai-first"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/"];
-const userAuthPublicPaths = new Set(["/api/auth/login", "/api/health", "/api/postcode-lookup"]);
+const userAuthPublicPaths = new Set([
+  "/api/auth/login",
+  "/api/health",
+  "/api/postcode-lookup",
+  "/ai-first",
+  "/nexa-ai-first.html",
+]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
   "/apple-icon.png",
   "/icon.png",
+  "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
   "/manifest-field.json",
@@ -55,12 +63,21 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/api/health") return NextResponse.next();
-  if (publicAssetPaths.has(pathname) || publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix))) {
+  if (
+    publicAssetPaths.has(pathname) ||
+    publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
+    publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  ) {
     return NextResponse.next();
   }
 
   if (isUserAuthenticationEnabled()) {
-    if (userAuthPublicPaths.has(pathname)) return NextResponse.next();
+    if (
+      userAuthPublicPaths.has(pathname) ||
+      publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+    ) {
+      return NextResponse.next();
+    }
     const user = getAuthUserForSession(request.cookies.get(nexaSessionCookie)?.value);
     if (pathname === "/login") {
       if (!user) return NextResponse.next();
