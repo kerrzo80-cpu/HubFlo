@@ -396,10 +396,10 @@ function reconcileSiteIdForAddress(
   sites: ClientSite[],
   currentSiteId: string | undefined,
   address: string,
-): string | undefined {
-  if (!clientId) return currentSiteId;
+): string {
+  if (!clientId) return currentSiteId || CLIENT_SITE_NEW;
   const client = clients.find((item) => item.id === clientId);
-  if (!client) return currentSiteId;
+  if (!client) return currentSiteId || CLIENT_SITE_NEW;
   const realId = realSiteIdOrUndefined(currentSiteId);
   if (realId) {
     const linked = sites.find((site) => site.id === realId && site.clientId === clientId);
@@ -2264,7 +2264,12 @@ const modules: ModuleItem[] = [
   { label: "Setup", icon: Settings },
 ];
 
-const sideNavigation = [
+const sideNavigation: Array<{
+  label: string;
+  icon: typeof Gauge;
+  active?: boolean;
+  badge?: string | number;
+}> = [
   { label: "Overview", icon: Gauge, active: true },
   { label: "My work", icon: ListChecks },
   { label: "Operations", icon: HardHat },
@@ -29357,16 +29362,23 @@ export default function Dashboard() {
                           <span>Set when this quote was created</span>
                         </div>
                         <dl className="simpro-setup-rates-readonly">
-                          <div><dt>Type</dt><dd>{recordSetupById[selectedQuote.id].quoteType}</dd></div>
-                          <div><dt>Stage</dt><dd>{recordSetupById[selectedQuote.id].stage}</dd></div>
-                          <div><dt>Primary tech</dt><dd>{recordSetupById[selectedQuote.id].primaryTech || "—"}</dd></div>
-                          <div><dt>Labour estimates</dt><dd>{recordSetupById[selectedQuote.id].labourEstimatesOn ? "On" : "Off"}</dd></div>
-                          <div><dt>Labour markup</dt><dd>{recordSetupById[selectedQuote.id].labourMarkupMode === "system" ? "System settings" : `${recordSetupById[selectedQuote.id].labourMarkupPercent}%`}</dd></div>
-                          <div><dt>Material markup</dt><dd>{recordSetupById[selectedQuote.id].materialMarkupPercent}%</dd></div>
-                          <div><dt>Discount</dt><dd>{recordSetupById[selectedQuote.id].discountPercent}%</dd></div>
-                          <div><dt>Labour tax</dt><dd>{recordSetupById[selectedQuote.id].labourTaxCode}</dd></div>
-                          <div><dt>Item tax</dt><dd>{recordSetupById[selectedQuote.id].itemTaxCode}</dd></div>
-                          <div><dt>Site contact</dt><dd>{recordSetupById[selectedQuote.id].siteContact || "—"}</dd></div>
+                          {(() => {
+                            const setup = recordSetupById[selectedQuote.id]!;
+                            return (
+                              <>
+                                <div><dt>Type</dt><dd>{setup.quoteType}</dd></div>
+                                <div><dt>Stage</dt><dd>{setup.stage}</dd></div>
+                                <div><dt>Primary tech</dt><dd>{setup.primaryTech || "—"}</dd></div>
+                                <div><dt>Labour estimates</dt><dd>{setup.labourEstimatesOn ? "On" : "Off"}</dd></div>
+                                <div><dt>Labour markup</dt><dd>{setup.labourMarkupMode === "system" ? "System settings" : `${setup.labourMarkupPercent}%`}</dd></div>
+                                <div><dt>Material markup</dt><dd>{setup.materialMarkupPercent}%</dd></div>
+                                <div><dt>Discount</dt><dd>{setup.discountPercent}%</dd></div>
+                                <div><dt>Labour tax</dt><dd>{setup.labourTaxCode}</dd></div>
+                                <div><dt>Item tax</dt><dd>{setup.itemTaxCode}</dd></div>
+                                <div><dt>Site contact</dt><dd>{setup.siteContact || "—"}</dd></div>
+                              </>
+                            );
+                          })()}
                         </dl>
                       </section>
                     ) : null}

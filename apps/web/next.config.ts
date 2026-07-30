@@ -8,9 +8,8 @@ const nextConfig: NextConfig = {
   transpilePackages: ["@hubflo/domain"],
   async redirects() {
     return [
-      { source: "/engineer", destination: "/field", permanent: false },
-      { source: "/engineer/time-check", destination: "/field/time-check", permanent: false },
-      { source: "/engineer/jobs/:scheduleId", destination: "/field/jobs/:scheduleId", permanent: false },
+      // Keep /engineer app available for Core stop/go + gas service record trial.
+      // Field app stays at /field.
     ];
   },
 };

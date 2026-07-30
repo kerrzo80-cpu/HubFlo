@@ -793,7 +793,10 @@ export function SiteAssetsPanel({
         const types = typeRows.map((row) => row.name).filter(Boolean);
         if (types.length) {
           setAssetTypes(types);
-          setDraft((current) => ({ ...current, type: types.includes(current.type) ? current.type : types[0] }));
+          setDraft((current) => ({
+            ...current,
+            type: types.includes(current.type) ? current.type : (types[0] || current.type),
+          }));
         }
         const certMap: Record<string, boolean> = {};
         for (const row of typeRows) {
