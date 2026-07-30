@@ -9,7 +9,7 @@ import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
-import type { FieldScheduleItem } from "@/lib/field/types";
+import type { FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
 
 type Tab = "pack" | "checklist" | "photos";
 
@@ -31,17 +31,29 @@ export default function JobDetailPage() {
     let cancelled = false;
     async function load() {
       try {
-        const [item, schedule] = await Promise.all([
-          client.getJob(params.scheduleId),
-          client.getTodaySchedule(),
-        ]);
+        const item = await client.getJob(params.scheduleId);
         if (cancelled) return;
         if (!item) {
-          setError("Job not found on today's schedule.");
+          setError("Job not found on the schedule.");
           return;
         }
+        const schedule = await client.getScheduleForDate(item.date);
+        if (cancelled) return;
         setJob(item);
         setJobs(schedule);
+        setError("");
+
+        if (client.getConnection().mode === "nexa") {
+          const response = await fetch(
+            `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/requirements`,
+          );
+          if (response.ok) {
+            const body = (await response.json()) as { requirements?: FieldRequirement[] };
+            if (!cancelled && body.requirements?.length) {
+              setJob({ ...item, requirements: body.requirements });
+            }
+          }
+        }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load job.");
       }
@@ -52,8 +64,37 @@ export default function JobDetailPage() {
     };
   }, [client, params.scheduleId]);
 
-  function toggleRequirement(requirementId: string) {
+  async function toggleRequirement(requirementId: string) {
     if (!job) return;
+    const connection = client.getConnection();
+    if (connection.mode === "nexa") {
+      const requirement = job.requirements.find((item) => item.id === requirementId);
+      if (!requirement || requirement.status === "done" || requirement.status === "optional") return;
+      setJob({
+        ...job,
+        requirements: job.requirements.map((item) =>
+          item.id === requirementId ? { ...item, status: "done" } : item,
+        ),
+      });
+      try {
+        const response = await fetch(
+          `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ requirementId }),
+          },
+        );
+        if (!response.ok) throw new Error("Could not update checklist.");
+        const body = (await response.json()) as { requirements?: FieldRequirement[] };
+        if (body.requirements) {
+          setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
+        }
+      } catch {
+        setJob(job);
+      }
+      return;
+    }
     try {
       setJob(toggleMockRequirement(job.scheduleId, requirementId));
     } catch {
