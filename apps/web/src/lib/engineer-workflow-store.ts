@@ -3,6 +3,9 @@ import { randomUUID } from "node:crypto";
 import { getEngineerScheduleItem, type EngineerAttachment, type EngineerRequirement } from "@/lib/engineer-data";
 import {
   buildGasServiceRecordFromEvidence,
+  clearFlowStepEvidence,
+  hasCapturedFlowEvidence,
+  purgeEmptyFlowStepCompletions,
   syncGasServiceRecordToSiteAsset,
   writeFlowStepEvidenceToHub,
   type EngineerFlowStepEvidenceValue,
@@ -133,6 +136,13 @@ export type EngineerWorkflowAction =
         photoName?: string;
         text?: string;
         numberValue?: string;
+      };
+    }
+  | {
+      action: "reopen_requirement";
+      payload: {
+        requirementId: string;
+        createdBy?: string;
       };
     }
   | {
@@ -327,6 +337,14 @@ function appendCoreJobDeliveryEvent(item: Record<string, unknown>) {
 export function getEngineerJobWorkflow(scheduleId: string) {
   const workflow = syncWorkflowPoRequestsFromCore(normaliseWorkflow(getMutableWorkflow(scheduleId)));
   const job = getEngineerScheduleItem(scheduleId);
+  if (job?.jobId && job.costCentres?.[0]?.id) {
+    purgeEmptyFlowStepCompletions({
+      jobId: job.jobId,
+      costCentreId: job.costCentres[0].id,
+      templateName: job.costCentres[0].templateName || job.costCentre,
+      costCentreName: job.costCentre,
+    });
+  }
   // Prefer live Hub stop/go templates (gas service record fields) over older boolean-only seeds.
   if (job?.requirements?.length && job.requirements.some((item) => item.evidence || item.stepId)) {
     const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
@@ -334,18 +352,16 @@ export function getEngineerJobWorkflow(scheduleId: string) {
       const existing = byId.get(seed.id);
       if (!existing) return seed;
       const value = existing.value || seed.value;
-      const hasCapturedValue = Boolean(
-        value?.text?.trim() || value?.numberValue?.trim() || value?.photoName?.trim(),
-      );
       const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+      const hasCapturedValue = hasCapturedFlowEvidence(evidenceType, value);
       // Ignore earlier Field taps that marked items done with no photo/reading/note.
       const keepDone =
-        seed.status === "done" ||
+        (seed.status === "done" && (evidenceType === "Checkbox" || hasCapturedValue)) ||
         (existing.status === "done" && (evidenceType === "Checkbox" || hasCapturedValue));
       return {
         ...seed,
-        status: keepDone ? ("done" as const) : seed.status,
-        value,
+        status: keepDone ? ("done" as const) : seed.required === false ? ("optional" as const) : ("missing" as const),
+        value: hasCapturedValue ? value : undefined,
       };
     });
     const changed =
@@ -474,7 +490,11 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   const job = getEngineerScheduleItem(scheduleId);
 
   if (input.action === "complete_requirement") {
-    const requirement = workflow.requirements.find((item) => item.id === input.payload.requirementId);
+    // Refresh from live templates first so empty tap-to-done rows reopen.
+    getEngineerJobWorkflow(scheduleId);
+    const requirement = getMutableWorkflow(scheduleId).requirements.find(
+      (item) => item.id === input.payload.requirementId,
+    );
     if (requirement) {
       const evidenceValue: EngineerFlowStepEvidenceValue = {
         ...(requirement.value || {}),
@@ -484,6 +504,11 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         photoName: input.payload.photoName ?? input.payload.evidence?.photoName ?? requirement.value?.photoName,
         capturedAt: new Date().toISOString(),
       };
+      const evidenceType = requirement.evidence || "Checkbox";
+      if (evidenceType !== "Checkbox" && !hasCapturedFlowEvidence(evidenceType, evidenceValue)) {
+        // Do not accept empty completions for photo/text/number/signature steps.
+        return clone(getEngineerJobWorkflow(scheduleId));
+      }
       requirement.status = "done";
       requirement.value = evidenceValue;
 
@@ -534,6 +559,39 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         createdBy,
         createdAt,
       });
+    }
+  }
+
+  if (input.action === "reopen_requirement") {
+    getEngineerJobWorkflow(scheduleId);
+    const liveWorkflow = getMutableWorkflow(scheduleId);
+    const requirement = liveWorkflow.requirements.find((item) => item.id === input.payload.requirementId);
+    if (requirement) {
+      requirement.status = requirement.required === false ? "optional" : "missing";
+      const previousValue = requirement.value;
+      requirement.value = undefined;
+
+      const costCentreId = requirement.costCentreId || job?.costCentres?.find((centre) => centre.name === job.costCentre)?.id || `${job?.jobId || "job"}-cost-centre`;
+      const stepId = requirement.stepId || requirement.id.split(":").pop() || requirement.id;
+      if (job?.jobId && requirement.evidence) {
+        clearFlowStepEvidence({
+          jobId: job.jobId,
+          costCentreId,
+          stepId,
+        });
+      }
+
+      addReviewItem(liveWorkflow, {
+        type: "Checklist",
+        title: `${requirement.label} reopened`,
+        detail: previousValue
+          ? `Engineer reopened “${requirement.label}” to amend evidence.`
+          : `Engineer reopened “${requirement.label}”.`,
+        createdBy,
+        createdAt,
+      });
+      saveStore();
+      return clone(normaliseWorkflow(liveWorkflow));
     }
   }
 

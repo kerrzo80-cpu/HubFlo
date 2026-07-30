@@ -167,6 +167,18 @@ export const DEFAULT_ENGINEER_FLOW_TEMPLATES: EngineerFlowTemplate[] = [
   generalWorksFlowTemplate,
 ];
 
+export function hasCapturedFlowEvidence(
+  evidence: EngineerFlowEvidence,
+  value?: EngineerFlowStepEvidenceValue | null,
+) {
+  if (evidence === "Checkbox") return true;
+  return Boolean(
+    value?.text?.trim() ||
+    value?.numberValue?.trim() ||
+    value?.photoName?.trim(),
+  );
+}
+
 export function flowEvidenceKey(jobId: string, costCentreId: string, stepId: string) {
   return `${jobId}:${costCentreId}:${stepId}`;
 }
@@ -226,23 +238,34 @@ export function requirementsFromFlowTemplate(options: {
   hubState?: HubDetailState;
 }): FlowRequirementSeed[] {
   const hubState = options.hubState ?? getHubDetailState();
+  // Clear empty tap-to-done flags before deriving status.
+  if (!options.hubState) {
+    purgeEmptyFlowStepCompletions({
+      jobId: options.jobId,
+      costCentreId: options.costCentreId,
+      templateName: options.templateName || options.costCentreName,
+      costCentreName: options.costCentreName,
+    });
+  }
+  const freshState = options.hubState ?? getHubDetailState();
   const template = resolveFlowTemplateForCostCentre({
     templateName: options.templateName || options.costCentreName,
     costCentreName: options.costCentreName,
-    hubState,
+    hubState: freshState,
   });
-  const evidenceStore = ((hubState as HubDetailState & { flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue> })
+  const evidenceStore = ((freshState as HubDetailState & { flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue> })
     .flowStepEvidence ?? {}) as Record<string, EngineerFlowStepEvidenceValue>;
-  const completionStore = (hubState.flowStepCompletion ?? {}) as Record<string, boolean>;
+  const completionStore = (freshState.flowStepCompletion ?? {}) as Record<string, boolean>;
 
   return template.steps.map((step) => {
     const key = flowEvidenceKey(options.jobId, options.costCentreId, step.id);
     const value = evidenceStore[key];
+    // Empty Field "tap to done" used to set completion without a photo/reading/note.
+    // Only treat as done when real evidence exists (checkbox may use completion alone).
     const done =
-      Boolean(completionStore[key]) ||
-      Boolean(value?.text?.trim()) ||
-      Boolean(value?.numberValue?.trim()) ||
-      Boolean(value?.photoName?.trim());
+      step.evidence === "Checkbox"
+        ? Boolean(completionStore[key])
+        : hasCapturedFlowEvidence(step.evidence, value);
     return {
       id: `${options.jobId}:${options.costCentreId}:${step.id}`,
       label: step.label,
@@ -253,9 +276,55 @@ export function requirementsFromFlowTemplate(options: {
       required: step.required,
       stage: step.stage,
       formField: step.formField,
-      value,
+      value: hasCapturedFlowEvidence(step.evidence, value) || step.evidence === "Checkbox"
+        ? value
+        : undefined,
     };
   });
+}
+
+/** Drop empty stop/go completions left by earlier tap-to-done Field behaviour. */
+export function purgeEmptyFlowStepCompletions(options: {
+  jobId: string;
+  costCentreId: string;
+  templateName?: string;
+  costCentreName?: string;
+}) {
+  const hubState = getHubDetailState() as HubDetailState & {
+    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+  };
+  const template = resolveFlowTemplateForCostCentre({
+    templateName: options.templateName || options.costCentreName || "Boiler servicing",
+    costCentreName: options.costCentreName || options.templateName || "Boiler servicing",
+    hubState,
+  });
+  const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
+  const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
+  let changed = false;
+
+  for (const step of template.steps) {
+    const key = flowEvidenceKey(options.jobId, options.costCentreId, step.id);
+    if (step.evidence === "Checkbox") continue;
+    if (!hasCapturedFlowEvidence(step.evidence, evidenceStore[key])) {
+      if (completionStore[key]) {
+        delete completionStore[key];
+        changed = true;
+      }
+      if (evidenceStore[key] && !hasCapturedFlowEvidence(step.evidence, evidenceStore[key])) {
+        delete evidenceStore[key];
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    saveHubDetailState({
+      ...hubState,
+      flowStepEvidence: evidenceStore,
+      flowStepCompletion: completionStore,
+    });
+  }
+  return changed;
 }
 
 export function writeFlowStepEvidenceToHub(options: {
@@ -271,17 +340,25 @@ export function writeFlowStepEvidenceToHub(options: {
   };
   const key = flowEvidenceKey(options.jobId, options.costCentreId, options.stepId);
   const capturedAt = new Date().toISOString();
+  const nextValue = {
+    ...(options.value || {}),
+    capturedAt,
+  };
+  const completed = options.evidence === "Checkbox" || hasCapturedFlowEvidence(options.evidence, nextValue);
   const nextEvidence = {
     ...(hubState.flowStepEvidence ?? {}),
-    [key]: {
-      ...(options.value || {}),
-      capturedAt,
-    },
   };
   const nextCompletion = {
     ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>),
-    [key]: true,
   };
+
+  if (completed) {
+    nextEvidence[key] = nextValue;
+    nextCompletion[key] = true;
+  } else {
+    delete nextEvidence[key];
+    delete nextCompletion[key];
+  }
 
   saveHubDetailState({
     ...hubState,
@@ -289,7 +366,31 @@ export function writeFlowStepEvidenceToHub(options: {
     flowStepCompletion: nextCompletion,
   });
 
-  return { key, evidence: nextEvidence[key]! };
+  return { key, evidence: nextEvidence[key] ?? nextValue };
+}
+
+export function clearFlowStepEvidence(options: {
+  jobId: string;
+  costCentreId: string;
+  stepId: string;
+}) {
+  const hubState = getHubDetailState() as HubDetailState & {
+    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+  };
+  const key = flowEvidenceKey(options.jobId, options.costCentreId, options.stepId);
+  const nextEvidence = { ...(hubState.flowStepEvidence ?? {}) };
+  const nextCompletion = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
+  const changed = Boolean(nextEvidence[key] || nextCompletion[key]);
+  delete nextEvidence[key];
+  delete nextCompletion[key];
+  if (changed) {
+    saveHubDetailState({
+      ...hubState,
+      flowStepEvidence: nextEvidence,
+      flowStepCompletion: nextCompletion,
+    });
+  }
+  return changed;
 }
 
 export type GasServiceRecord = {

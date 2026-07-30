@@ -16,6 +16,7 @@ type RequirementBody = {
   numberValue?: string;
   photoName?: string;
   createdBy?: string;
+  reopen?: boolean;
 };
 
 export async function GET(_request: Request, { params }: Params) {
@@ -34,21 +35,29 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "requirementId is required." }, { status: 400 });
   }
 
-  const workflow = applyEngineerWorkflowAction(scheduleId, {
-    action: "complete_requirement",
-    payload: {
-      requirementId: body.requirementId,
-      text: body.text,
-      numberValue: body.numberValue,
-      photoName: body.photoName,
-      createdBy: body.createdBy,
-      evidence: {
-        text: body.text,
-        numberValue: body.numberValue,
-        photoName: body.photoName,
-      },
-    },
-  });
+  const workflow = body.reopen
+    ? applyEngineerWorkflowAction(scheduleId, {
+        action: "reopen_requirement",
+        payload: {
+          requirementId: body.requirementId,
+          createdBy: body.createdBy,
+        },
+      })
+    : applyEngineerWorkflowAction(scheduleId, {
+        action: "complete_requirement",
+        payload: {
+          requirementId: body.requirementId,
+          text: body.text,
+          numberValue: body.numberValue,
+          photoName: body.photoName,
+          createdBy: body.createdBy,
+          evidence: {
+            text: body.text,
+            numberValue: body.numberValue,
+            photoName: body.photoName,
+          },
+        },
+      });
 
   return NextResponse.json({
     scheduleId,

@@ -1103,7 +1103,19 @@
   padding: 12px 14px;
 }
 
-.check-save:disabled {
+.check-amend {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--ink, #10241f);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.check-save:disabled,
+.check-amend:disabled {
   opacity: 0.6;
 }
 

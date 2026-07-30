@@ -39,6 +39,7 @@ export default function JobDetailPage() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [draftByRequirement, setDraftByRequirement] = useState<Record<string, DraftValue>>({});
+  const [editingId, setEditingId] = useState("");
   const [savingId, setSavingId] = useState("");
   const initialTab = (searchParams.get("tab") as Tab | null) ?? "pack";
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -84,10 +85,72 @@ export default function JobDetailPage() {
     };
   }, [client, params.scheduleId]);
 
+  function beginEdit(item: FieldRequirement) {
+    setEditingId(item.id);
+    setDraftByRequirement((current) => ({
+      ...current,
+      [item.id]: {
+        text: item.value?.text || "",
+        numberValue: item.value?.numberValue || "",
+        photoName: item.value?.photoName || "",
+      },
+    }));
+    setError("");
+    setNotice("");
+  }
+
+  async function reopenRequirement(requirementId: string) {
+    if (!job) return;
+    const requirement = job.requirements.find((item) => item.id === requirementId);
+    if (!requirement) return;
+    const connection = client.getConnection();
+    setSavingId(requirementId);
+    setError("");
+    setNotice("");
+
+    if (connection.mode === "nexa") {
+      try {
+        const response = await fetch(
+          `/api/field/jobs/${encodeURIComponent(job.scheduleId)}/requirements`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requirementId,
+              reopen: true,
+              createdBy: job.engineerName,
+            }),
+          },
+        );
+        if (!response.ok) throw new Error("Could not reopen checklist item.");
+        const body = (await response.json()) as { requirements?: FieldRequirement[] };
+        if (body.requirements) {
+          setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
+        }
+        beginEdit({ ...requirement, status: "missing", value: undefined });
+        setNotice("Item reopened — amend and save.");
+      } catch {
+        setError("Could not reopen checklist item.");
+      } finally {
+        setSavingId("");
+      }
+      return;
+    }
+
+    beginEdit(requirement);
+    setJob({
+      ...job,
+      requirements: job.requirements.map((item) =>
+        item.id === requirementId ? { ...item, status: "missing" } : item,
+      ),
+    });
+    setSavingId("");
+  }
+
   async function saveRequirement(requirementId: string) {
     if (!job) return;
     const requirement = job.requirements.find((item) => item.id === requirementId);
-    if (!requirement || requirement.status === "done") return;
+    if (!requirement) return;
 
     const evidenceType = evidenceTypeOf(requirement);
     const draft = draftByRequirement[requirementId] || {};
@@ -152,6 +215,7 @@ export default function JobDetailPage() {
           delete next[requirementId];
           return next;
         });
+        setEditingId("");
         setNotice("Saved to NeXa.");
       } catch {
         setJob(job);
@@ -164,6 +228,7 @@ export default function JobDetailPage() {
 
     try {
       setJob(toggleMockRequirement(job.scheduleId, requirementId));
+      setEditingId("");
       setNotice("Marked complete (demo).");
     } catch {
       // Demo-only toggle.
@@ -272,13 +337,14 @@ export default function JobDetailPage() {
 
       {tab === "checklist" ? (
         <div className="stack">
-          <p className="muted">Enter the reading, note, or photo for each item, then save. Don’t just tick Done.</p>
+          <p className="muted">Enter the reading, note, or photo for each item, then save. Tap Amend on a done item to change it.</p>
           {error ? <div className="feedback error">{error}</div> : null}
           {notice ? <div className="feedback">{notice}</div> : null}
           {job.requirements.map((item) => {
             const evidenceType = evidenceTypeOf(item);
             const draft = draftByRequirement[item.id] || {};
             const summary = doneSummary(item);
+            const isEditing = editingId === item.id || item.status === "missing";
             return (
               <div className={`check-card ${item.status}`} key={item.id}>
                 <div className="check-card-head">
@@ -299,7 +365,18 @@ export default function JobDetailPage() {
                   <em>{item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional"}</em>
                 </div>
 
-                {item.status === "missing" ? (
+                {item.status === "done" && !isEditing ? (
+                  <button
+                    type="button"
+                    className="check-amend"
+                    disabled={savingId === item.id}
+                    onClick={() => void reopenRequirement(item.id)}
+                  >
+                    Amend
+                  </button>
+                ) : null}
+
+                {isEditing && item.status !== "optional" ? (
                   <div className="check-card-capture">
                     {evidenceType === "Text" || evidenceType === "Signature" ? (
                       <input
