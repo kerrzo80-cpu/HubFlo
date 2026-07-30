@@ -127,9 +127,14 @@
     ul.miss, ul.plain { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
     ul.miss { grid-template-columns: repeat(2, minmax(0,1fr)); }
     ul.miss li, ul.plain li { display: flex; gap: 8px; align-items: flex-start; font-size: .93rem; padding: 6px 0; border-bottom: 1px dashed rgba(217,222,229,.8); }
+    ul.miss li.current { background: rgba(46,140,125,.08); border-radius: 10px; padding: 8px 10px; border: 1px solid rgba(46,140,125,.28); border-bottom: 1px solid rgba(46,140,125,.28); }
     .markdot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line); flex-shrink: 0; display: grid; place-items: center; font-size: .7rem; margin-top: 1px; }
     li.done .markdot { border-color: var(--bind); background: rgba(34,197,94,.12); color: #168a45; }
+    li.current .markdot { border-color: var(--verdigris); background: rgba(46,140,125,.12); color: var(--verdigris); }
     li.done .ans { display: block; color: var(--verdigris); font-size: .84rem; margin-top: 2px; }
+    .q-now { border-color: rgba(46,140,125,.35); background: rgba(46,140,125,.04); margin-top: 12px; }
+    .q-now textarea { min-height: 72px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
+    .intake-progress { margin-top: 4px; }
     .progress strong { font-family: var(--font-display); font-size: 1.5rem; }
     .track { height: 10px; border-radius: 999px; background: #e2e7ec; overflow: hidden; margin-top: 8px; }
     .fill { height: 100%; background: linear-gradient(90deg, var(--verdigris), #3aa894); transition: width .5s ease; }
@@ -291,6 +296,7 @@
       jobComplete: false,
       audit: [],
       conversation: [],
+      answers: {},
       tick: 0,
     };
 
@@ -337,8 +343,135 @@
       return false;
     }
     function pb(){ return playbooks[state.playbookId]; }
-    function progress(){ return state.answered ? 100 : 0; }
-    function missingCount(){ return state.answered ? 0 : pb().fields.length; }
+    function mandatoryFields(){ return pb().fields; }
+    function answeredCount(){ return mandatoryFields().filter(([id]) => state.answers[id]).length; }
+    function totalMandatory(){ return mandatoryFields().length; }
+    function missingFields(){ return mandatoryFields().filter(([id]) => !state.answers[id]); }
+    function currentField(){ return missingFields()[0] || null; }
+    function progress(){
+      if (state.answered) return 100;
+      const total = totalMandatory();
+      return total ? Math.round((answeredCount() / total) * 100) : 0;
+    }
+    function missingCount(){ return state.answered ? 0 : missingFields().length; }
+
+    const questionText = {
+      address: "What's the full property address?",
+      postcode: "And the postcode?",
+      phone: "What's the best contact number?",
+      email: "What email should we use?",
+      property: "What type of property is it?",
+      bedrooms: "How many bedrooms?",
+      boiler: "What existing boiler is installed?",
+      cylinder: "Is there a cylinder, or is it a combi system?",
+      radiators: "How many radiators are in the property?",
+      gas: "Is gas available on site?",
+      pipework: "How accessible is the pipework?",
+      floors: "Are the floors timber or concrete?",
+      location: "Where would you like the boiler located?",
+      occupied: "Will the property be occupied during works?",
+      timescale: "What's the preferred timescale?",
+      photos: "Can you attach any site photos?",
+      count: "How many radiators need replacing?",
+      sizes: "What sizes are the radiators?",
+      valves: "Do you want TRV upgrades?",
+      system: "What system type is it?",
+      suite: "Any suite preferences?",
+      tiling: "What tiling scope are you looking for?",
+      extract: "Is extraction required?",
+      wetroom: "Are you considering a wet room?",
+      access: "Any access constraints?",
+    };
+    function questionFor(field){
+      return questionText[field[0]] || `${field[1]}?`;
+    }
+
+    function prefillAnswers(text){
+      const answers = {};
+      const numWords = { one:1, two:2, three:3, four:4, five:5, six:6, seven:7, eight:8, nine:9, ten:10 };
+      let m = text.match(/\b(\d+)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?\s+(?:Avenue|Road|Lane|Street|Drive|Close|Way|Court))(?:,\s*([A-Za-z\s]+))?/i);
+      if (m) {
+        answers.address = m[3] ? `${m[1]} ${m[2]}, ${m[3].trim()}` : `${m[1]} ${m[2]}`;
+      } else {
+        m = text.match(/(?:from|on)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?\s+(?:Avenue|Road|Lane|Street|Drive|Close|Way|Court))/i);
+        if (!m) m = text.match(/\b([A-Za-z]+\s+(?:Avenue|Road|Lane|Street|Drive|Close|Way|Court))\b/i);
+        if (m) answers.address = m[1].trim();
+      }
+      m = text.match(/\b(one|two|three|four|five|six|seven|eight|nine|ten|\d+)\s+radiators?\b/i);
+      if (m) {
+        const n = numWords[m[1].toLowerCase()] || m[1];
+        const val = `${n} radiators`;
+        if (mandatoryFields().some(([id]) => id === "count")) answers.count = val;
+        if (mandatoryFields().some(([id]) => id === "radiators")) answers.radiators = val;
+      }
+      return answers;
+    }
+
+    function askNextQuestion(){
+      const field = currentField();
+      if (!field) return;
+      const last = state.conversation[state.conversation.length - 1];
+      if (last && last.role === "a" && last.fieldId === field[0]) return;
+      state.conversation.push({ role:"a", text: questionFor(field), fieldId: field[0] });
+    }
+
+    function finishIntake(){
+      state.answered = true;
+      state.photos = true;
+      state.lead = "ready";
+      state.quote = "draft";
+      state.conversation.push({
+        role:"a",
+        text:`All mandatory ${pb().name} questions are complete. I'm building the quote now.`,
+      });
+      audit("AI", "AI completed mandatory questions", `${totalMandatory()} fields from playbook`);
+      audit("AI", "AI generated Quote", `AI Draft · ${pb().jobType}`);
+      toast("Mandatory information complete — quote drafted");
+      state.screen = "quote";
+      render();
+    }
+
+    function submitAnswer(value){
+      const field = currentField();
+      const trimmed = (value || "").trim();
+      if (!field || !trimmed) return;
+      const [id, label] = field;
+      state.answers[id] = trimmed;
+      state.conversation.push({ role:"c", text: trimmed });
+      audit("Customer", `Answered ${label}`, trimmed);
+      if (missingCount() === 0) {
+        finishIntake();
+      } else {
+        askNextQuestion();
+        render();
+      }
+    }
+
+    function fillDemoAnswer(){
+      const field = currentField();
+      if (!field) return;
+      submitAnswer(field[2]);
+    }
+
+    function fillRemainingDemo(){
+      const remaining = missingFields();
+      if (!remaining.length) return;
+      state.lead = "enriching";
+      render();
+      toast("Filling remaining demo answers…");
+      setTimeout(() => {
+        remaining.forEach(([id, label, demo]) => {
+          state.answers[id] = demo;
+          state.conversation.push({ role:"c", text: demo });
+          audit("Customer", `Answered ${label}`, demo);
+        });
+        state.conversation.push({
+          role:"a",
+          text:`Thanks — I've captured the remaining mandatory details for the ${pb().name}.`,
+        });
+        finishIntake();
+      }, 500);
+    }
 
     function go(id){
       if (!unlocked(id)) { toast("Complete the previous step to unlock this screen"); return; }
@@ -356,45 +489,38 @@
       state.customer = nameFrom(value);
       state.lead = "thinking";
       state.answered = false;
+      state.answers = {};
       state.photos = false;
       state.quote = "locked";
       state.job = "none";
       state.schedule = "none";
       state.invoice = "locked";
       state.jobComplete = false;
-      state.conversation = [
-        { role:"c", text:value },
-        { role:"a", text:`Understood. I’ll create a draft lead and load the ${pb().name}. I will only ask for missing mandatory questions.` },
-      ];
+      state.conversation = [{ role:"c", text:value }];
       render();
       setTimeout(() => {
         state.lead = "draft";
+        state.answers = prefillAnswers(value);
         audit("AI", "AI created Lead", `${state.customer} · Draft`);
         audit("AI", `AI loaded ${pb().name}`, pb().jobType);
-        toast("Draft lead created — reviewing missing information");
-        render();
+        const prefilled = answeredCount();
+        state.conversation.push({
+          role:"a",
+          text:`Understood. I've created a draft lead for ${state.customer} and loaded the ${pb().name}.${prefilled ? ` I noted ${prefilled} detail${prefilled > 1 ? "s" : ""} from your message.` : ""} I'll ask only what's still missing.`,
+        });
+        if (missingCount() === 0) {
+          toast("All details captured from your message");
+          finishIntake();
+        } else {
+          askNextQuestion();
+          toast("Draft lead created — first question ready");
+          render();
+        }
       }, 900);
     }
 
     function completeSurvey(){
-      state.lead = "enriching";
-      render();
-      toast("Collecting mandatory playbook answers…");
-      setTimeout(() => {
-        state.answered = true;
-        state.photos = true;
-        state.lead = "ready";
-        state.quote = "draft";
-        state.conversation.push(
-          { role:"c", text:"Address is 14 Hillside Avenue, HG2 7PL. Combi boiler in the utility, 9 radiators, gas available. Looking to proceed within 6 weeks." },
-          { role:"a", text:`All mandatory ${pb().name} questions are complete. I’m building the quote now.` },
-        );
-        audit("AI", "AI completed mandatory questions", `${pb().fields.length} fields from playbook`);
-        audit("AI", "AI generated Quote", `AI Draft · ${pb().jobType}`);
-        toast("Mandatory information complete — quote drafted");
-        state.screen = "quote";
-        render();
-      }, 700);
+      fillRemainingDemo();
     }
 
     function renderRail(){
@@ -403,10 +529,13 @@
       ).join("");
     }
 
-    function fieldsHtml(answered){
-      return `<ul class="miss">${pb().fields.map(([id,label,ans]) =>
-        `<li class="${answered?"done":""}"><span class="markdot">${answered?"✓":""}</span><span>${label}${answered?`<span class="ans">${ans}</span>`:""}</span></li>`
-      ).join("")}</ul>`;
+    function fieldsHtml(highlightId){
+      return `<ul class="miss">${pb().fields.map(([id,label,demo]) => {
+        const ans = state.answers[id];
+        const done = !!ans;
+        const current = id === highlightId;
+        return `<li class="${done?"done":""} ${current?"current":""}"><span class="markdot">${done?"✓":""}</span><span>${label}${done?`<span class="ans">${ans}</span>`:""}</span></li>`;
+      }).join("")}</ul>`;
     }
 
     function render(){
@@ -442,24 +571,52 @@
           ${state.lead==="thinking"?`<div class="thinking">Creating draft lead · detecting job type · loading playbook…</div>`:""}
           ${(state.lead==="draft"||state.lead==="ready"||state.lead==="enriching")?`
             <div class="card">
-              <div class="row" style="justify-content:space-between">
-                <h2 style="margin:0;font-family:var(--font-display);font-size:1.15rem">Draft Lead</h2>
+              <div class="row" style="justify-content:space-between;align-items:flex-start">
+                <div>
+                  <h2 style="margin:0;font-family:var(--font-display);font-size:1.15rem">Draft Lead</h2>
+                  <p class="intake-progress" style="margin:6px 0 0;color:var(--steel);font-size:.92rem">
+                    <strong style="color:var(--slate);font-family:var(--font-display)">${answeredCount()} of ${totalMandatory()} mandatory</strong>
+                    ${state.answered ? " · complete" : " · in progress"}
+                  </p>
+                </div>
                 <span class="badge ai">AI Draft</span>
               </div>
               <div class="grid3">
                 <div class="stat"><label>Customer</label><strong>${state.customer}</strong></div>
                 <div class="stat"><label>Job Type</label><strong>${pb().jobType}</strong></div>
-                <div class="stat"><label>Status</label><strong><span class="badge draft">Draft</span></strong></div>
+                <div class="stat"><label>Status</label><strong><span class="badge ${state.answered?"ok":"draft"}">${state.answered?"Ready":"Gathering"}</span></strong></div>
               </div>
-              <div class="box">
-                <h3>Missing Information <span class="badge lock">${missingCount()} outstanding</span></h3>
-                ${fieldsHtml(state.answered)}
+              <div class="progress" style="margin-top:14px">
+                <div class="track"><div class="fill" style="width:${progress()}%"></div></div>
               </div>
-              <div class="row">
+              <div class="split" style="margin-top:16px">
+                <div style="display:grid;gap:12px">
+                  <div class="box">
+                    <h3>Conversation</h3>
+                    <div class="chat" style="max-height:240px">${state.conversation.map(m=>`<div class="bubble ${m.role}">${m.text}</div>`).join("")}</div>
+                  </div>
+                  ${!state.answered && currentField() && state.lead!=="enriching"?`
+                  <div class="box q-now">
+                    <h3>${currentField()[1]} <span class="badge live">Current question</span></h3>
+                    <textarea id="qAnswer" placeholder="Type your answer…"></textarea>
+                    <div class="row">
+                      <button class="ghost" id="demoAns">Use demo answer</button>
+                      <button class="btn primary" id="submitAns">Submit</button>
+                    </div>
+                  </div>`:""}
+                  ${state.lead==="enriching"?`<div class="thinking">Completing remaining mandatory answers…</div>`:""}
+                </div>
+                <div class="box">
+                  <h3>Captured so far <span class="badge ${state.answered?"ok":"lock"}">${answeredCount()}/${totalMandatory()}</span></h3>
+                  ${fieldsHtml(currentField()?.[0])}
+                  ${!state.answered?`<div class="row" style="margin-top:12px"><button class="ghost" id="fillRemaining">Fill remaining (demo)</button></div>`:""}
+                </div>
+              </div>
+              <div class="row" style="margin-top:14px">
                 <button class="ghost" id="ask">Ask Customer</button>
                 <button class="ghost" id="surveyBtn">Book Survey</button>
                 <button class="ghost" id="reqPhotos">Request Photos</button>
-                <button class="btn" id="continue">Continue</button>
+                ${state.answered?`<button class="btn brass" id="continue">Open Quote</button>`:`<button class="btn" id="continue" disabled title="Answer mandatory questions first">Continue</button>`}
               </div>
             </div>`:""}
         </section>`;
@@ -485,8 +642,8 @@
               <p><strong>${state.customer}</strong><br>${pb().jobType}<br>${pb().name}<br>${state.lead==="ready"?"Ready to quote":"Draft · gathering"}</p>
               <h3 style="margin-top:16px">AI summary</h3>
               <p style="color:var(--steel);margin:0;line-height:1.5">${state.customer} requested a ${pb().jobType.toLowerCase()}. NeXa loaded the correct playbook and is collecting only mandatory commercial questions.</p>
-              <h3 style="margin-top:16px">Missing information checklist</h3>
-              ${fieldsHtml(state.answered)}
+              <h3 style="margin-top:16px">Mandatory playbook checklist</h3>
+              ${fieldsHtml()}
             </div>
             <div style="display:grid;gap:12px">
               <div class="box"><h3>Conversation history</h3><div class="chat">${state.conversation.map(m=>`<div class="bubble ${m.role}">${m.text}</div>`).join("")}</div></div>
@@ -644,7 +801,7 @@
     function reset(){
       Object.assign(state, {
         screen:"intake", prompt:"", lead:"none", playbookId:"heating", customer:"Mrs Smith",
-        answered:false, photos:false, quote:"locked", job:"none", schedule:"none",
+        answered:false, answers:{}, photos:false, quote:"locked", job:"none", schedule:"none",
         invoice:"locked", jobComplete:false, audit:[], conversation:[], tick:0,
       });
       render();
@@ -669,6 +826,16 @@
       if (email) email.onclick = () => { audit("Brian","Email uploaded","enquiry.eml"); toast("Email imported"); runIntake(EXAMPLE); };
       const cont = document.getElementById("continue");
       if (cont) cont.onclick = () => { if (state.answered) go("quote"); else go("lead"); };
+      const submitAns = document.getElementById("submitAns");
+      if (submitAns) submitAns.onclick = () => submitAnswer(document.getElementById("qAnswer")?.value);
+      const qAnswer = document.getElementById("qAnswer");
+      if (qAnswer) qAnswer.onkeydown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitAnswer(qAnswer.value); }
+      };
+      const demoAns = document.getElementById("demoAns");
+      if (demoAns) demoAns.onclick = fillDemoAnswer;
+      const fillRemaining = document.getElementById("fillRemaining");
+      if (fillRemaining) fillRemaining.onclick = fillRemainingDemo;
       ["ask","ask2","reqPhotos","surveyBtn"].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;

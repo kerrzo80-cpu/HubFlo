@@ -526,6 +526,34 @@
   color: #168a45;
 }
 
+.ai-missing-list li.current {
+  background: rgba(46, 140, 125, 0.06);
+  border-radius: 10px;
+  padding-left: 8px;
+  padding-right: 8px;
+  border-bottom-color: transparent;
+}
+
+.ai-missing-list li.current .mark {
+  border-color: var(--verdigris);
+  box-shadow: 0 0 0 3px rgba(46, 140, 125, 0.12);
+}
+
+.ai-question-box {
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(46, 140, 125, 0.28);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(46, 140, 125, 0.08), transparent 45%),
+    #fff;
+  animation: af-fade-up 0.35s ease both;
+}
+
+.ai-question-box .ai-prompt-shell {
+  margin-top: 0;
+}
+
 .ai-missing-list li .answer {
   display: block;
   color: var(--verdigris);

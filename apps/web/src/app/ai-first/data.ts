@@ -315,7 +315,97 @@ export function detectPlaybook(prompt: string): PlaybookId {
 export function extractCustomerName(prompt: string): string {
   const match = prompt.match(/\b(Mrs|Mr|Ms|Miss)\s+([A-Za-z'-]+)/i);
   if (match) return `${match[1]} ${match[2]}`;
+  const family = prompt.match(/\b(?:the\s+)?([A-Z][a-z]+)\s+family\b/);
+  if (family) return `the ${family[1]} family`;
   return "New customer";
+}
+
+export function questionForField(field: MandatoryField, customerName: string): string {
+  const who = customerName === "New customer" ? "the customer" : customerName;
+  const prompts: Record<string, string> = {
+    address: `What’s the full address for ${who}?`,
+    postcode: "What’s the postcode?",
+    phone: "What’s the best phone number to use?",
+    email: "Do we have an email address?",
+    property: "What type of property is it?",
+    bedrooms: "How many bedrooms?",
+    boiler: "What’s the existing boiler (make / age if known)?",
+    cylinder: "Is there an existing cylinder?",
+    radiators: "How many radiators are on the system?",
+    gas: "Is gas available on site?",
+    pipework: "Is the pipework reasonably accessible?",
+    floors: "Are the floors timber or concrete?",
+    location: "Where should the new boiler sit?",
+    occupied: "Is the property occupied during the works?",
+    timescale: "What’s the timescale?",
+    photos: "Can we get site photos (boiler, flue, cupboard, radiators)?",
+    suite: "What suite style do they want?",
+    tiling: "How much tiling is required?",
+    extract: "Is extraction required?",
+    wetroom: "Is this a wet room conversion?",
+    access: "Any access constraints?",
+    count: "How many radiators need replacing?",
+    sizes: "What sizes are required?",
+    valves: "Should we upgrade to TRVs?",
+    system: "What system type is it (sealed / open vent)?",
+  };
+  return prompts[field.id] || `${field.label}?`;
+}
+
+/** Prefill anything already stated in the opening message so we never re-ask. */
+export function applyKnownFromPrompt(
+  fields: MandatoryField[],
+  prompt: string,
+  playbookId: PlaybookId,
+): MandatoryField[] {
+  const lower = prompt.toLowerCase();
+  const houseStreet = prompt.match(
+    /\b(\d+[A-Za-z]?\s+[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)*)\b/,
+  );
+  const fromStreet = prompt.match(
+    /\bfrom\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)*)\b/,
+  );
+  const onStreet = prompt.match(
+    /\bon\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)*)\b/,
+  );
+  const radiatorCount = lower.match(/\b(one|two|three|four|five|\d+)\s+radiators?\b/);
+
+  return fields.map((field) => {
+    if (field.id === "address") {
+      if (houseStreet) {
+        return { ...field, status: "answered", answer: houseStreet[1] };
+      }
+      if (fromStreet || onStreet) {
+        const street = (fromStreet || onStreet)?.[1];
+        return {
+          ...field,
+          status: "answered",
+          answer: street ? `${street} (confirm house number)` : field.answer,
+        };
+      }
+    }
+    if (field.id === "count" && playbookId === "radiator" && radiatorCount) {
+      const raw = radiatorCount[1];
+      const map: Record<string, string> = {
+        one: "1",
+        two: "2",
+        three: "3",
+        four: "4",
+        five: "5",
+      };
+      const n = map[raw || ""] || raw;
+      return { ...field, status: "answered", answer: `${n} radiators` };
+    }
+    if (field.id === "radiators" && playbookId === "heating" && radiatorCount) {
+      const raw = radiatorCount[1];
+      return { ...field, status: "answered", answer: `${raw} radiators` };
+    }
+    return field;
+  });
+}
+
+export function firstOpenField(fields: MandatoryField[]): MandatoryField | undefined {
+  return fields.find((field) => field.status !== "answered");
 }
 
 export function formatMoney(value: number): string {

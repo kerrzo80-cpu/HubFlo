@@ -17,16 +17,19 @@ import {
 } from "lucide-react";
 import {
   EXAMPLE_PROMPT,
+  applyKnownFromPrompt,
   commercialSummary,
   conversationSeed,
   detectPlaybook,
   extractCustomerName,
+  firstOpenField,
   formatMoney,
   healthAlertsSeed,
-  playbookAnswers,
   jobTasks,
   navScreens,
+  playbookAnswers,
   playbooks,
+  questionForField,
   quoteSections,
   scheduleSuggestion,
   type AuditEvent,
@@ -58,6 +61,7 @@ function cloneFields(playbookId: PlaybookId): MandatoryField[] {
 export function AiFirstPrototype() {
   const [screen, setScreen] = useState<ScreenId>("intake");
   const [prompt, setPrompt] = useState("");
+  const [answerDraft, setAnswerDraft] = useState("");
   const [listening, setListening] = useState(false);
   const [leadStatus, setLeadStatus] = useState<LeadStatus>("none");
   const [playbookId, setPlaybookId] = useState<PlaybookId>("heating");
@@ -92,6 +96,8 @@ export function AiFirstPrototype() {
   const answeredCount = fields.filter((field) => field.status === "answered").length;
   const progress = Math.round((answeredCount / Math.max(fields.length, 1)) * 100);
   const quoteReady = missingCount === 0 && leadStatus === "ready";
+  const currentQuestion = firstOpenField(fields);
+  const questionNumber = answeredCount + 1;
   const gatesReady = invoiceGates.every((gate) => gate.ready);
 
   const unlockedScreens = useMemo(() => {
@@ -142,6 +148,7 @@ export function AiFirstPrototype() {
   function resetFlow() {
     setScreen("intake");
     setPrompt("");
+    setAnswerDraft("");
     setListening(false);
     setLeadStatus("none");
     setPlaybookId("heating");
@@ -167,36 +174,84 @@ export function AiFirstPrototype() {
     clock.current = { hour: 9, minute: 12, tick: 0 };
   }
 
+  function askNextQuestion(
+    nextFields: MandatoryField[],
+    name: string,
+    bookName: string,
+    priorMessages?: Array<{ role: "customer" | "ai"; text: string }>,
+  ) {
+    const next = firstOpenField(nextFields);
+    if (!next) {
+      setLeadStatus("ready");
+      setPhotosAttached(true);
+      setQuoteStatus("draft");
+      setConversation((prev) => [
+        ...(priorMessages || prev),
+        {
+          role: "ai",
+          text: `That’s everything mandatory from the ${bookName}. I’m building the quote now.`,
+        },
+      ]);
+      pushAudit("AI", "AI completed mandatory questions", `${nextFields.length} fields from playbook`);
+      pushAudit("AI", "AI generated Quote", `AI Draft · ${playbooks[playbookId].jobType}`);
+      showToast("Mandatory information complete — quote drafted");
+      window.setTimeout(() => setScreen("quote"), 700);
+      return;
+    }
+
+    const question = questionForField(next, name);
+    setConversation((prev) => [
+      ...(priorMessages || prev),
+      {
+        role: "ai",
+        text: question,
+      },
+    ]);
+    setAnswerDraft("");
+    pushAudit("AI", "AI asked mandatory question", next.label);
+  }
+
   function runIntake(sourceText: string) {
     const text = sourceText.trim();
     if (!text) return;
 
     const detected = detectPlaybook(text);
     const name = extractCustomerName(text);
+    const seeded = applyKnownFromPrompt(cloneFields(detected), text, detected);
+    const knownLabels = seeded
+      .filter((field) => field.status === "answered")
+      .map((field) => field.label);
+
     setPrompt(text);
+    setAnswerDraft("");
     setPlaybookId(detected);
     setCustomerName(name);
-    setFields(cloneFields(detected));
+    setFields(seeded);
     setLeadStatus("thinking");
     setQuoteStatus("locked");
     setJobStatus("none");
     setScheduleStatus("none");
     setInvoiceStatus("locked");
     setPhotosAttached(false);
-    setConversation([
-      { role: "customer", text },
+
+    const opener = [
+      { role: "customer" as const, text },
       {
-        role: "ai",
-        text: `Understood. I’ll create a draft lead and load the ${playbooks[detected].name}. I will only ask for missing mandatory questions.`,
+        role: "ai" as const,
+        text: knownLabels.length
+          ? `Understood. Draft lead created for ${name} · ${playbooks[detected].jobType}. I’ve loaded the ${playbooks[detected].name} and already captured: ${knownLabels.join(", ")}. I’ll ask only the remaining mandatory questions.`
+          : `Understood. Draft lead created for ${name} · ${playbooks[detected].jobType}. I’ve loaded the ${playbooks[detected].name} — I’ll ask the mandatory questions now, one at a time.`,
       },
-    ]);
+    ];
+    setConversation(opener);
 
     window.setTimeout(() => {
       setLeadStatus("draft");
       pushAudit("AI", "AI created Lead", `${name} · Draft`);
       pushAudit("AI", `AI loaded ${playbooks[detected].name}`, playbooks[detected].jobType);
-      showToast("Draft lead created — reviewing missing information");
-    }, 900);
+      showToast("Playbook loaded — asking mandatory questions");
+      askNextQuestion(seeded, name, playbooks[detected].name, opener);
+    }, 700);
   }
 
   function handleVoice() {
@@ -241,13 +296,21 @@ export function AiFirstPrototype() {
   }
 
   function askCustomer() {
-    const outstanding = fields.filter((field) => field.status !== "answered").slice(0, 4);
-    const labels = outstanding.map((field) => field.label).join(", ");
+    const current = firstOpenField(fields);
+    const labels = current
+      ? current.label
+      : fields
+          .filter((field) => field.status !== "answered")
+          .slice(0, 4)
+          .map((field) => field.label)
+          .join(", ");
     setConversation((prev) => [
       ...prev,
       {
         role: "ai",
-        text: `I’ve messaged the customer for: ${labels || "remaining details"}.`,
+        text: current
+          ? `I’ve messaged the customer: “${questionForField(current, customerName)}”`
+          : `I’ve messaged the customer for: ${labels || "remaining details"}.`,
       },
     ]);
     pushAudit("AI", "AI asked customer for missing info", labels || "remaining details");
@@ -272,16 +335,73 @@ export function AiFirstPrototype() {
     setScreen("lead");
   }
 
+  function submitAnswer(raw?: string) {
+    const value = (raw ?? answerDraft).trim();
+    const current = firstOpenField(fields);
+    if (!current || !value || leadStatus === "enriching") return;
+
+    const updated = fields.map((field) =>
+      field.id === current.id ? { ...field, status: "answered" as const, answer: value } : field,
+    );
+    setFields(updated);
+    setAnswerDraft("");
+    if (current.id === "photos") setPhotosAttached(true);
+
+    const withReply = [
+      ...conversation,
+      { role: "customer" as const, text: value },
+    ];
+    setConversation(withReply);
+    pushAudit("Brian", "Answered mandatory question", `${current.label}: ${value}`);
+
+    const next = firstOpenField(updated);
+    if (!next) {
+      setLeadStatus("ready");
+      setPhotosAttached(true);
+      setQuoteStatus("draft");
+      setConversation([
+        ...withReply,
+        {
+          role: "ai",
+          text: `That’s everything mandatory from the ${playbook.name}. I’m building the quote now.`,
+        },
+      ]);
+      pushAudit("AI", "AI completed mandatory questions", `${updated.length} fields from playbook`);
+      pushAudit("AI", "AI generated Quote", `AI Draft · ${playbook.jobType}`);
+      showToast("Mandatory information complete — quote drafted");
+      window.setTimeout(() => setScreen("quote"), 700);
+      return;
+    }
+
+    window.setTimeout(() => {
+      const question = questionForField(next, customerName);
+      setConversation((prev) => [...prev, { role: "ai", text: question }]);
+      pushAudit("AI", "AI asked mandatory question", next.label);
+    }, 280);
+  }
+
+  function useSuggestedAnswer() {
+    const current = firstOpenField(fields);
+    if (!current) return;
+    const suggested = playbookAnswers[playbookId][current.id] || "Confirmed";
+    setAnswerDraft(suggested);
+    submitAnswer(suggested);
+  }
+
   function completeMissingInfo() {
     setLeadStatus("enriching");
-    showToast("Collecting mandatory playbook answers…");
+    showToast("Filling remaining mandatory answers…");
 
     const answers = playbookAnswers[playbookId];
-    const target = fields.map((field) => ({
-      ...field,
-      status: "answered" as const,
-      answer: answers[field.id] || field.answer || "Confirmed",
-    }));
+    const target = fields.map((field) =>
+      field.status === "answered"
+        ? field
+        : {
+            ...field,
+            status: "answered" as const,
+            answer: answers[field.id] || field.answer || "Confirmed",
+          },
+    );
 
     let index = 0;
     const interval = window.setInterval(() => {
@@ -300,10 +420,6 @@ export function AiFirstPrototype() {
         setConversation((prev) => [
           ...prev,
           {
-            role: "customer",
-            text: "Address is 14 Hillside Avenue, HG2 7PL. Combi boiler in the utility, 9 radiators, gas available. Looking to proceed within 6 weeks.",
-          },
-          {
             role: "ai",
             text: `All mandatory ${playbook.name} questions are complete. I’m building the quote now.`,
           },
@@ -314,12 +430,12 @@ export function AiFirstPrototype() {
         showToast("Mandatory information complete — quote drafted");
         window.setTimeout(() => setScreen("quote"), 700);
       }
-    }, 90);
+    }, 70);
   }
 
   function continueFromIntake() {
     if (leadStatus === "draft" && missingCount > 0) {
-      setScreen("lead");
+      showToast("Answer the mandatory playbook questions first");
       return;
     }
     if (quoteReady || leadStatus === "ready") {
@@ -470,10 +586,17 @@ export function AiFirstPrototype() {
               <p className="ai-first-eyebrow">Screen 1 · AI Intake</p>
               <div className="ai-header-row">
                 <div>
-                  <h1 className="ai-first-title">Tell NeXa what the customer needs…</h1>
+                  <h1 className="ai-first-title">
+                    {leadStatus === "draft" || leadStatus === "enriching"
+                      ? "Mandatory playbook questions"
+                      : leadStatus === "ready"
+                        ? "Intake complete"
+                        : "Tell NeXa what the customer needs…"}
+                  </h1>
                   <p className="ai-first-lede">
-                    No forms. Speak, type, attach a photo, or drop in an email — NeXa creates the lead,
-                    loads the playbook, and asks only what is missing.
+                    {leadStatus === "draft" || leadStatus === "enriching"
+                      ? `NeXa loaded the ${playbook.name}. Answer each mandatory question here — nothing invented, nothing skipped.`
+                      : "No forms. Speak, type, attach a photo, or drop in an email — NeXa creates the lead, loads the playbook, and asks only the mandatory questions."}
                   </p>
                 </div>
                 <button className="ai-btn-ghost" type="button" onClick={resetFlow}>
@@ -482,79 +605,85 @@ export function AiFirstPrototype() {
               </div>
 
               <div className="ai-intake-hero">
-                <div className={`ai-prompt-shell${listening ? " listening" : ""}`}>
-                  <textarea
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    placeholder="Mrs Smith from Hillside Avenue wants a complete heating system replacement."
-                    aria-label="Customer need"
-                  />
-                  <div className="ai-prompt-actions">
-                    <button
-                      className={`ai-chip${listening ? " active" : ""}`}
-                      type="button"
-                      onClick={handleVoice}
-                    >
-                      <Mic size={16} /> Voice
-                    </button>
-                    <button className="ai-chip" type="button" onClick={() => fileRef.current?.click()}>
-                      <Camera size={16} /> Photo
-                    </button>
-                    <button className="ai-chip" type="button" onClick={() => emailRef.current?.click()}>
-                      <Mail size={16} /> Email
-                    </button>
-                    <button
-                      className="ai-btn ai-btn-primary"
-                      type="button"
-                      disabled={!prompt.trim() || leadStatus === "thinking"}
-                      onClick={() => runIntake(prompt)}
-                    >
-                      <Sparkles size={16} /> Let NeXa handle it
-                    </button>
-                  </div>
-                  <input ref={fileRef} type="file" accept="image/*" hidden onChange={handlePhotoUpload} />
-                  <input
-                    ref={emailRef}
-                    type="file"
-                    accept=".eml,.txt,.msg,message/rfc822,text/plain"
-                    hidden
-                    onChange={handleEmailUpload}
-                  />
-                </div>
-
-                <div className="ai-example-row">
-                  <span style={{ color: "var(--steel)", fontSize: "0.9rem" }}>Try an example:</span>
-                  <button type="button" onClick={() => runIntake(EXAMPLE_PROMPT)}>
-                    Heating system for Mrs Smith
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      runIntake("Mr Patel on Oak Road needs a full bathroom refurbishment with new suite and tiling.")
-                    }
-                  >
-                    Bathroom for Mr Patel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      runIntake("Please replace three radiators at 22 Mill Lane for the Thompson family.")
-                    }
-                  >
-                    Radiators at Mill Lane
-                  </button>
-                </div>
-
-                {leadStatus === "thinking" && (
-                  <div className="ai-thinking">
-                    <div className="ai-thinking-dots" aria-hidden>
-                      <span />
-                      <span />
-                      <span />
+                {leadStatus === "none" || leadStatus === "thinking" ? (
+                  <>
+                    <div className={`ai-prompt-shell${listening ? " listening" : ""}`}>
+                      <textarea
+                        value={prompt}
+                        onChange={(event) => setPrompt(event.target.value)}
+                        placeholder="Mrs Smith from Hillside Avenue wants a complete heating system replacement."
+                        aria-label="Customer need"
+                      />
+                      <div className="ai-prompt-actions">
+                        <button
+                          className={`ai-chip${listening ? " active" : ""}`}
+                          type="button"
+                          onClick={handleVoice}
+                        >
+                          <Mic size={16} /> Voice
+                        </button>
+                        <button className="ai-chip" type="button" onClick={() => fileRef.current?.click()}>
+                          <Camera size={16} /> Photo
+                        </button>
+                        <button className="ai-chip" type="button" onClick={() => emailRef.current?.click()}>
+                          <Mail size={16} /> Email
+                        </button>
+                        <button
+                          className="ai-btn ai-btn-primary"
+                          type="button"
+                          disabled={!prompt.trim() || leadStatus === "thinking"}
+                          onClick={() => runIntake(prompt)}
+                        >
+                          <Sparkles size={16} /> Let NeXa handle it
+                        </button>
+                      </div>
+                      <input ref={fileRef} type="file" accept="image/*" hidden onChange={handlePhotoUpload} />
+                      <input
+                        ref={emailRef}
+                        type="file"
+                        accept=".eml,.txt,.msg,message/rfc822,text/plain"
+                        hidden
+                        onChange={handleEmailUpload}
+                      />
                     </div>
-                    Creating draft lead · detecting job type · loading playbook…
-                  </div>
-                )}
+
+                    <div className="ai-example-row">
+                      <span style={{ color: "var(--steel)", fontSize: "0.9rem" }}>Try an example:</span>
+                      <button type="button" onClick={() => runIntake(EXAMPLE_PROMPT)}>
+                        Heating system for Mrs Smith
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runIntake(
+                            "Mr Patel on Oak Road needs a full bathroom refurbishment with new suite and tiling.",
+                          )
+                        }
+                      >
+                        Bathroom for Mr Patel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          runIntake("Please replace three radiators at 22 Mill Lane for the Thompson family.")
+                        }
+                      >
+                        Radiators at Mill Lane
+                      </button>
+                    </div>
+
+                    {leadStatus === "thinking" && (
+                      <div className="ai-thinking">
+                        <div className="ai-thinking-dots" aria-hidden>
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        Creating draft lead · detecting job type · loading playbook…
+                      </div>
+                    )}
+                  </>
+                ) : null}
 
                 {(leadStatus === "draft" || leadStatus === "ready" || leadStatus === "enriching") && (
                   <div className="ai-draft-card">
@@ -577,29 +706,109 @@ export function AiFirstPrototype() {
                         <strong>{playbook.jobType}</strong>
                       </div>
                       <div className="ai-stat">
-                        <label>Status</label>
-                        <strong>
-                          <span className="ai-badge ai-badge-draft">Draft</span>
-                        </strong>
+                        <label>Playbook</label>
+                        <strong>{playbook.name}</strong>
                       </div>
                     </div>
 
-                    <div className="ai-missing">
-                      <h3>
-                        Missing Information
-                        <span className="ai-badge ai-badge-lock">{missingCount} outstanding</span>
-                      </h3>
-                      <ul className="ai-missing-list">
-                        {fields.map((field) => (
-                          <li key={field.id} className={field.status === "answered" ? "answered" : undefined}>
-                            <span className="mark">{field.status === "answered" ? "✓" : ""}</span>
-                            <span>
-                              {field.label}
-                              {field.answer ? <span className="answer">{field.answer}</span> : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                    <div className="ai-progress">
+                      <div className="ai-progress-head">
+                        <strong>
+                          {answeredCount} of {fields.length} mandatory
+                        </strong>
+                        <span className={`ai-badge ${missingCount ? "ai-badge-lock" : "ai-badge-ok"}`}>
+                          {missingCount ? `${missingCount} remaining` : "Complete"}
+                        </span>
+                      </div>
+                      <div className="ai-progress-track">
+                        <div className="ai-progress-fill" style={{ width: `${progress}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="ai-split" style={{ marginTop: 4 }}>
+                      <div className="ai-section">
+                        <h3>Conversation</h3>
+                        <div className="ai-chat">
+                          {conversation.map((message, index) => (
+                            <div key={`${message.role}-${index}`} className={`ai-bubble ${message.role}`}>
+                              {message.text}
+                            </div>
+                          ))}
+                        </div>
+
+                        {currentQuestion && leadStatus === "draft" ? (
+                          <div className="ai-question-box">
+                            <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
+                              Question {questionNumber} of {fields.length} · {currentQuestion.label}
+                            </p>
+                            <h3 style={{ marginTop: 0 }}>{questionForField(currentQuestion, customerName)}</h3>
+                            <div className={`ai-prompt-shell`} style={{ marginTop: 10 }}>
+                              <textarea
+                                value={answerDraft}
+                                onChange={(event) => setAnswerDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === "Enter" && !event.shiftKey) {
+                                    event.preventDefault();
+                                    submitAnswer();
+                                  }
+                                }}
+                                placeholder="Type the answer…"
+                                aria-label="Answer mandatory question"
+                                style={{ minHeight: 72 }}
+                              />
+                              <div className="ai-prompt-actions">
+                                <button className="ai-chip" type="button" onClick={useSuggestedAnswer}>
+                                  Use demo answer
+                                </button>
+                                <button
+                                  className="ai-btn ai-btn-primary"
+                                  type="button"
+                                  disabled={!answerDraft.trim()}
+                                  onClick={() => submitAnswer()}
+                                >
+                                  <Send size={16} /> Submit answer
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {leadStatus === "ready" ? (
+                          <div className="ai-lock-note ready" style={{ marginTop: 14 }}>
+                            All mandatory questions answered. Quote is ready for review.
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="ai-section">
+                        <h3>
+                          Captured so far
+                          <span className="ai-badge ai-badge-draft">{answeredCount}</span>
+                        </h3>
+                        <ul className="ai-missing-list" style={{ gridTemplateColumns: "1fr" }}>
+                          {fields.map((field) => (
+                            <li
+                              key={field.id}
+                              className={
+                                field.status === "answered"
+                                  ? "answered"
+                                  : currentQuestion?.id === field.id
+                                    ? "current"
+                                    : undefined
+                              }
+                            >
+                              <span className="mark">{field.status === "answered" ? "✓" : ""}</span>
+                              <span>
+                                {field.label}
+                                {field.answer ? <span className="answer">{field.answer}</span> : null}
+                                {currentQuestion?.id === field.id && field.status !== "answered" ? (
+                                  <span className="answer">Asking now</span>
+                                ) : null}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     </div>
 
                     <div className="ai-action-row">
@@ -612,9 +821,20 @@ export function AiFirstPrototype() {
                       <button className="ai-btn-ghost" type="button" onClick={requestPhotos}>
                         <ImagePlus size={16} /> Request Photos
                       </button>
-                      <button className="ai-btn" type="button" onClick={continueFromIntake}>
-                        Continue
-                      </button>
+                      {missingCount > 0 ? (
+                        <button
+                          className="ai-btn"
+                          type="button"
+                          disabled={leadStatus === "enriching"}
+                          onClick={completeMissingInfo}
+                        >
+                          Fill remaining (demo)
+                        </button>
+                      ) : (
+                        <button className="ai-btn ai-btn-primary" type="button" onClick={continueFromIntake}>
+                          Continue to Quote
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -734,10 +954,10 @@ export function AiFirstPrototype() {
                 <button
                   className="ai-btn ai-btn-primary"
                   type="button"
-                  disabled={leadStatus === "enriching"}
+                  disabled={leadStatus === "enriching" || leadStatus === "ready"}
                   onClick={completeMissingInfo}
                 >
-                  <ClipboardList size={16} /> Complete Survey
+                  <ClipboardList size={16} /> {missingCount ? "Fill remaining answers" : "Survey complete"}
                 </button>
                 <button className="ai-btn-ghost" type="button" onClick={askCustomer}>
                   Request Missing Info
