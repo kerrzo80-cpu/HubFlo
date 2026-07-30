@@ -22,6 +22,7 @@
   --radius: 18px;
 
   min-height: 100vh;
+  margin: 0;
   color: var(--ink);
   background:
     radial-gradient(ellipse 80% 50% at 10% -10%, rgba(46, 140, 125, 0.12), transparent 50%),
