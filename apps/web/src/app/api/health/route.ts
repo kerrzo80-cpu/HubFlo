@@ -11,6 +11,7 @@ export async function GET() {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
       talkLab: "/field/talk-lab",
+      talkLabBuild: "wav-v1",
     },
     checkedAt: new Date().toISOString(),
   });
