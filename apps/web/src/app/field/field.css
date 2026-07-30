@@ -1212,3 +1212,24 @@
   font-size: 13px;
   font-weight: 700;
 }
+
+.settings-install-steps {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.settings-install-steps li {
+  color: var(--ink);
+}
+
+.settings-install-steps strong {
+  display: inline;
+  font-size: inherit;
+}
+
+.settings-note {
+  font-size: 12px !important;
+  margin: 0;
+}

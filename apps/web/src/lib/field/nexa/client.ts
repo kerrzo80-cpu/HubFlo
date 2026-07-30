@@ -1,4 +1,5 @@
-import type { NexaFieldClient } from "@/lib/field/types";
+import type { NexaFieldClient, UpdateTimeLineInput } from "@/lib/field/types";
+import { normalizeCoreTimeCheck } from "@/lib/field/nexa/from-core";
 import {
   getMockJob,
   getMockSchedule,
@@ -10,8 +11,7 @@ import {
 } from "@/lib/field/nexa/mock-data";
 
 /**
- * Local field client. Swap this for an HTTP client pointing at NeXa
- * when FIELD_NEXA_BASE_URL / connection settings are ready.
+ * Local field client. Used when Field runs standalone without Core APIs.
  */
 export function createMockNexaClient(): NexaFieldClient {
   return {
@@ -51,11 +51,11 @@ export function createMockNexaClient(): NexaFieldClient {
 }
 
 /**
- * Future NeXa HTTP adapter stub.
- * Implement against /api/engineer/* once the field app is ready to connect.
+ * NeXa Core HTTP adapter — same-origin Field APIs backed by Core engineer data.
  */
-export function createHttpNexaClient(baseUrl: string, engineerId: string): NexaFieldClient {
+export function createHttpNexaClient(baseUrl = "", engineerId = ""): NexaFieldClient {
   const root = baseUrl.replace(/\/$/, "");
+  const engineerQuery = engineerId ? `engineerId=${encodeURIComponent(engineerId)}` : "";
 
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const response = await fetch(`${root}${path}`, {
@@ -72,56 +72,66 @@ export function createHttpNexaClient(baseUrl: string, engineerId: string): NexaF
     return body;
   }
 
+  function withEngineer(path: string) {
+    if (!engineerQuery) return path;
+    return path.includes("?") ? `${path}&${engineerQuery}` : `${path}?${engineerQuery}`;
+  }
+
   return {
     getConnection() {
       return {
         mode: "nexa",
-        baseUrl: root,
-        engineerId,
-        label: `Connected to NeXa · ${root}`,
+        baseUrl: root || (typeof window !== "undefined" ? window.location.origin : ""),
+        engineerId: engineerId || "core",
+        label: "Connected to NeXa Core",
       };
     },
     async getEngineer() {
-      // Placeholder until NeXa exposes a field engineer profile endpoint.
-      return {
-        id: engineerId,
-        name: "Field engineer",
-        trade: "Field",
-        phone: "",
-      };
+      return request(withEngineer("/api/field/engineer"));
     },
     async getTodaySchedule() {
-      // Will map from NeXa engineer schedule once wired.
-      return request(`/api/field/schedule?engineerId=${encodeURIComponent(engineerId)}`);
+      const today = new Date().toISOString().slice(0, 10);
+      return request(withEngineer(`/api/field/schedule?date=${encodeURIComponent(today)}`));
     },
     async getScheduleForDate(date) {
-      return request(
-        `/api/field/schedule?engineerId=${encodeURIComponent(engineerId)}&date=${encodeURIComponent(date)}`,
-      );
+      return request(withEngineer(`/api/field/schedule?date=${encodeURIComponent(date)}`));
     },
     async getScheduleDates() {
-      return request(`/api/field/schedule-dates?engineerId=${encodeURIComponent(engineerId)}`);
+      return request(withEngineer("/api/field/schedule-dates"));
     },
     async getJob(scheduleId) {
-      return request(`/api/field/jobs/${encodeURIComponent(scheduleId)}`);
+      try {
+        return await request(`/api/field/jobs/${encodeURIComponent(scheduleId)}`);
+      } catch {
+        return null;
+      }
     },
     async getTimeCheck() {
-      return request(`/api/engineer/time-check?engineerId=${encodeURIComponent(engineerId)}`);
+      const body = await request(withEngineer("/api/engineer/time-check"));
+      return normalizeCoreTimeCheck(body as Parameters<typeof normalizeCoreTimeCheck>[0]);
     },
-    async updateTimeLine(input) {
-      return request("/api/engineer/time-check", {
+    async updateTimeLine(input: UpdateTimeLineInput) {
+      const body = await request("/api/engineer/time-check", {
         method: "POST",
-        body: JSON.stringify({ action: "update_line", payload: { ...input, engineerId } }),
+        body: JSON.stringify({
+          action: "update_line",
+          payload: { ...input, ...(engineerId ? { engineerId } : {}) },
+        }),
       });
+      return normalizeCoreTimeCheck(body as Parameters<typeof normalizeCoreTimeCheck>[0]);
     },
     async submitTimeCheck(confirmRemainingAsScheduled) {
-      return request("/api/engineer/time-check", {
+      const body = await request("/api/engineer/time-check", {
         method: "POST",
         body: JSON.stringify({
           action: "submit",
-          payload: { engineerId, confirmRemainingAsScheduled: Boolean(confirmRemainingAsScheduled) },
+          payload: {
+            ...(engineerId ? { engineerId } : {}),
+            confirmRemainingAsScheduled: Boolean(confirmRemainingAsScheduled),
+          },
         }),
       });
+      return normalizeCoreTimeCheck(body as Parameters<typeof normalizeCoreTimeCheck>[0]);
     },
   };
 }

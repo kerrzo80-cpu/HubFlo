@@ -38,6 +38,13 @@ When ready:
 2. Map live schedule from NeXa engineer assignments.
 3. Reuse `/api/engineer/time-check` so Blake-amended hours charge into Core jobs / Simpro review.
 
+## Phone install (PWA)
+
+On iPhone (Safari): Share → Add to Home Screen.
+On Android (Chrome): menu → Install app / Add to Home screen.
+
+Store-listed native wrappers (Capacitor) can wrap the same `/field` UI later.
+
 ## Not in this app
 
 - Native LiDAR RoomPlan lives in `apps/nexa-field-ios` (survey tooling).
