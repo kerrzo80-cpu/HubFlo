@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { askBlakeDeveloperPrompt } from "@/lib/field/ask-blake";
+import { askBlakeDeveloperPrompt, ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS } from "@/lib/field/ask-blake";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 
 export const runtime = "nodejs";
@@ -21,9 +21,10 @@ export async function POST() {
   const instructions = [
     askBlakeDeveloperPrompt("voice"),
     "",
+    ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS,
     "You are in a live hands-free voice call with a UK plumber/heating engineer on site.",
     "They may also share live camera frames of the job — use what you can see.",
-    "Speak briefly and clearly. One question at a time when you need more detail.",
+    "Speak with your Scottish accent on every reply. Brief and clear. One question at a time when you need more detail.",
     "Do not give DIY homeowner lectures. Peer-to-peer trade talk only.",
   ].join("\n");
 
@@ -89,6 +90,6 @@ export async function POST() {
 
   return NextResponse.json({
     clientSecret: payload.value,
-    build: "realtime-v1",
+    build: "realtime-scottish-v1",
   });
 }

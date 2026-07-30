@@ -354,7 +354,9 @@ function pickVoice() {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
   const voices = window.speechSynthesis.getVoices();
   return (
-    voices.find((voice) => /en-GB/i.test(voice.lang) && /male|daniel|arthur|thomas|rishi/i.test(voice.name))
+    voices.find((voice) => /en-GB-Scotland|en-SCOTLAND|scotland/i.test(`${voice.lang} ${voice.name}`))
+    ?? voices.find((voice) => /fiona|moira|scottish|scots/i.test(voice.name))
+    ?? voices.find((voice) => /en-GB/i.test(voice.lang) && /male|daniel|arthur|thomas|rishi/i.test(voice.name))
     ?? voices.find((voice) => /en-GB/i.test(voice.lang))
     ?? voices.find((voice) => /^en/i.test(voice.lang))
     ?? null
