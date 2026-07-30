@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS } from "@/lib/field/ask-blake";
+import {
+  accentTtsInstructions,
+  normaliseBlakeVoiceAccent,
+  openaiVoiceForAccent,
+  type BlakeVoiceAccent,
+} from "@/lib/field/ask-blake-voice-accent";
 import { cleanForSpeech } from "@/lib/field/ask-blake-speech";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
@@ -9,12 +14,8 @@ export const runtime = "nodejs";
 
 type SpeakBody = {
   text?: string;
+  accent?: BlakeVoiceAccent | string;
 };
-
-const TTS_ACCENT = [
-  ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS,
-  "Accent only — do not add slang. Pronounce every sentence as Scottish English.",
-].join(" ");
 
 export async function POST(request: Request) {
   const body = await parseJsonRequestBody<SpeakBody>(request);
@@ -25,6 +26,10 @@ export async function POST(request: Request) {
   if (!config.apiKey) {
     return NextResponse.json({ error: "OpenAI voice is not connected." }, { status: 503 });
   }
+
+  const accent = normaliseBlakeVoiceAccent(body?.accent);
+  const preferredVoice = openaiVoiceForAccent(accent);
+  const instructions = accentTtsInstructions(accent);
 
   async function synth(model: string, voice: string, withInstructions: boolean) {
     return fetch("https://api.openai.com/v1/audio/speech", {
@@ -38,14 +43,15 @@ export async function POST(request: Request) {
         voice,
         input: text.slice(0, 1800),
         response_format: "mp3",
-        ...(withInstructions ? { instructions: TTS_ACCENT } : {}),
+        ...(withInstructions ? { instructions } : {}),
       }),
     });
   }
 
-  // cedar + instructions tracks accent better than ash for TTS.
-  let response = await synth("gpt-4o-mini-tts", "cedar", true);
-  if (!response.ok) response = await synth("gpt-4o-mini-tts", "ash", true);
+  let response = await synth("gpt-4o-mini-tts", preferredVoice, true);
+  if (!response.ok && preferredVoice !== "ash") {
+    response = await synth("gpt-4o-mini-tts", "ash", true);
+  }
   if (!response.ok) response = await synth("gpt-4o-mini-tts", "ash", false);
   if (!response.ok) response = await synth("tts-1", "onyx", false);
   if (!response.ok) {

@@ -517,6 +517,34 @@
   color: #9a6b2f;
 }
 
+.blake-voice-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 4px 0 10px;
+}
+
+.blake-voice-picker button {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+.blake-voice-picker button.is-active {
+  background: var(--teal, #2e8c7d);
+  border-color: transparent;
+  color: #fff;
+}
+
+.blake-voice-picker button:disabled {
+  opacity: 0.55;
+}
+
 .talk-lab-build {
   font-size: 11px;
   margin: 0;
