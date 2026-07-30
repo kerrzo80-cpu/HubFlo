@@ -475,6 +475,14 @@
   padding: 0 18px;
 }
 
+.ask-blake-voice-send.is-primary-done {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: var(--white);
+  min-height: 52px;
+  min-width: 220px;
+}
+
 .ask-blake-voice-stage.is-listening .ask-blake-voice-status {
   color: var(--teal);
 }
