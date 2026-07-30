@@ -33,7 +33,7 @@ export function AskBlakeTalkLab({
   const [error, setError] = useState("");
   const [hint, setHint] = useState("Tap Start call — talk naturally, no buttons between turns.");
   const [log, setLog] = useState<string[]>([]);
-  const [buildTag] = useState("realtime-v1");
+  const [buildTag] = useState("realtime-scottish-v2");
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const dcRef = useRef<RTCDataChannel | null>(null);
@@ -244,6 +244,25 @@ export function AskBlakeTalkLab({
       dcRef.current = dc;
       dc.addEventListener("open", () => {
         note("Data channel open — VAD on (hands-free).");
+        // Re-assert Scottish accent before first audio so it doesn’t drift American.
+        sendEvent({
+          type: "session.update",
+          session: {
+            type: "realtime",
+            instructions: [
+              "VOICE: Clear Scottish accent (Aberdeen / north-east Scotland) on every word.",
+              "Never American. Never slang stuffing. Brief trade answers only.",
+              "You are Ask Blake for UK plumbers on site.",
+            ].join(" "),
+          },
+        });
+        sendEvent({
+          type: "response.create",
+          response: {
+            instructions:
+              "In a clear Scottish accent, say a short hello as Blake and ask what’s up on site. One sentence.",
+          },
+        });
         setState("live");
         setHint("Call live — just talk. Blake answers when you pause.");
         if (cameraOn) startFrameLoop();

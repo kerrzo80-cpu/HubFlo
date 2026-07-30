@@ -1,9 +1,27 @@
 import { NextResponse } from "next/server";
 
-import { askBlakeDeveloperPrompt, ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS } from "@/lib/field/ask-blake";
+import { ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS } from "@/lib/field/ask-blake";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 
 export const runtime = "nodejs";
+
+/**
+ * Short Realtime prompt — long system dumps make Realtime drop the accent
+ * and fall back to American while still sprinkling Scots words.
+ */
+export const ASK_BLAKE_REALTIME_INSTRUCTIONS = [
+  "VOICE (non-negotiable): Speak every word in a clear Scottish accent — north-east Scotland / Aberdeenshire.",
+  "Do NOT use an American accent. Do NOT use General American vowels or US intonation.",
+  "Sound like a Scottish plumber talking on site: warm, male, plain English — not comedy, not slang stuffing.",
+  "Say normal UK English words with Scottish pronunciation. Avoid forcing ‘aye/wee’ into every sentence.",
+  "",
+  ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS,
+  "",
+  "Role: Ask Blake — on-site co-pilot for UK plumbers / heating engineers / joiners.",
+  "Peer-to-peer. Brief answers (about 20–60 spoken words). One follow-up question max.",
+  "No DIY lectures, no tool shopping lists, no ‘call a professional’ padding.",
+  "If live camera frames arrive, use what you can see with what they’re saying.",
+].join("\n");
 
 /**
  * Mint an ephemeral Realtime client secret for Talk Lab (browser WebRTC).
@@ -18,21 +36,14 @@ export async function POST() {
     );
   }
 
-  const instructions = [
-    askBlakeDeveloperPrompt("voice"),
-    "",
-    ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS,
-    "You are in a live hands-free voice call with a UK plumber/heating engineer on site.",
-    "They may also share live camera frames of the job — use what you can see.",
-    "Speak with your Scottish accent on every reply. Brief and clear. One question at a time when you need more detail.",
-    "Do not give DIY homeowner lectures. Peer-to-peer trade talk only.",
-  ].join("\n");
+  // cedar follows accent instructions more reliably than ash (which defaults American).
+  const voice = "cedar";
 
   const sessionConfig = {
     session: {
       type: "realtime",
       model: "gpt-realtime",
-      instructions,
+      instructions: ASK_BLAKE_REALTIME_INSTRUCTIONS,
       audio: {
         input: {
           turn_detection: {
@@ -42,7 +53,7 @@ export async function POST() {
           },
         },
         output: {
-          voice: "ash",
+          voice,
         },
       },
     },
@@ -79,6 +90,41 @@ export async function POST() {
   }
 
   if (!response.ok || !payload.value) {
+    // cedar may be unavailable on older preview models — retry once with ash + same Scottish instructions.
+    if (voice === "cedar") {
+      const fallbackBody = {
+        session: {
+          ...sessionConfig.session,
+          model: "gpt-realtime",
+          audio: {
+            ...sessionConfig.session.audio,
+            output: { voice: "ash" },
+          },
+        },
+      };
+      const fallback = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(fallbackBody),
+      });
+      const fallbackRaw = await fallback.text();
+      try {
+        payload = fallbackRaw ? JSON.parse(fallbackRaw) as typeof payload : {};
+      } catch {
+        payload = {};
+      }
+      if (fallback.ok && payload.value) {
+        return NextResponse.json({
+          clientSecret: payload.value,
+          build: "realtime-scottish-v2",
+          voice: "ash",
+        });
+      }
+    }
+
     return NextResponse.json(
       {
         error: payload.error?.message
@@ -90,6 +136,7 @@ export async function POST() {
 
   return NextResponse.json({
     clientSecret: payload.value,
-    build: "realtime-scottish-v1",
+    build: "realtime-scottish-v2",
+    voice,
   });
 }
