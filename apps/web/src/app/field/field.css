@@ -517,6 +517,11 @@
   color: #9a6b2f;
 }
 
+.talk-lab-build {
+  font-size: 11px;
+  margin: 0;
+}
+
 .talk-lab-log {
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid var(--line);

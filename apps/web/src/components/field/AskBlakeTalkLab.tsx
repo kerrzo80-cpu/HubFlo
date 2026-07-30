@@ -4,19 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, SendHorizontal } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
 import type { AskBlakeJobContext, AskBlakeMessage } from "@/lib/field/ask-blake";
+import { startPcmVoiceSession, type PcmVoiceSession } from "@/lib/field/ask-blake-pcm";
 import {
   ensureMicAccess,
   speakBlakeReply,
   speechSupported,
-  startMicLevelMonitor,
-  startVoiceRecorder,
   stopBlakeAudio,
   stopMicStream,
   transcribeBlakeAudio,
   unlockAudioContext,
   unlockBlakeVoice,
-  type ActiveVoiceRecorder,
-  type MicLevelMonitor,
 } from "@/lib/field/ask-blake-voice";
 
 type LabState = "idle" | "listening" | "thinking" | "speaking" | "unsupported" | "error";
@@ -28,14 +25,14 @@ type AskBlakeTalkLabProps = {
   job?: AskBlakeJobContext | null;
 };
 
-const SPEECH_LEVEL = 0.012;
+const SPEECH_LEVEL = 0.01;
 const SILENCE_MS = 1600;
 const MAX_LISTEN_MS = 25000;
 const MIN_SPEECH_MS = 400;
 
 /**
  * Sandbox only — flowing voice conversation for testing outside Ask Blake.
- * Not linked from Field tabs until this loop is solid on iPhone.
+ * Uses PCM→WAV capture (not MediaRecorder) so iPhone Safari can feed Whisper.
  */
 export function AskBlakeTalkLab({
   apiPath = "/api/field/ask-blake",
@@ -54,6 +51,7 @@ export function AskBlakeTalkLab({
   const [level, setLevel] = useState(0);
   const [hearing, setHearing] = useState(false);
   const [log, setLog] = useState<string[]>([]);
+  const [buildTag] = useState("wav-v1");
 
   const historyRef = useRef<AskBlakeMessage[]>([]);
   const activeRef = useRef(false);
@@ -62,8 +60,7 @@ export function AskBlakeTalkLab({
   const heardSpeechRef = useRef(false);
   const speechStartedAtRef = useRef(0);
   const micStreamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<ActiveVoiceRecorder | null>(null);
-  const levelMonitorRef = useRef<MicLevelMonitor | null>(null);
+  const pcmRef = useRef<PcmVoiceSession | null>(null);
   const stopSpeakRef = useRef<(() => void) | null>(null);
   const restartTimerRef = useRef<number | null>(null);
   const silenceTimerRef = useRef<number | null>(null);
@@ -71,12 +68,13 @@ export function AskBlakeTalkLab({
 
   function note(message: string) {
     const stamp = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setLog((current) => [`${stamp} · ${message}`, ...current].slice(0, 12));
+    setLog((current) => [`${stamp} · ${message}`, ...current].slice(0, 14));
   }
 
   useEffect(() => {
     setSupported(speechSupported());
     if (!speechSupported()) setState("unsupported");
+    note(`Talk lab ${buildTag}`);
     void (async () => {
       try {
         const response = await fetch(apiPath, { method: "GET" });
@@ -87,7 +85,7 @@ export function AskBlakeTalkLab({
           return;
         }
         setOpenaiOk(Boolean(body.connected));
-        note(body.connected ? "OpenAI connected — lab ready." : "OpenAI missing — Whisper/TTS need the key.");
+        note(body.connected ? "OpenAI connected — lab ready." : "OpenAI missing — Whisper needs OPENAI_API_KEY.");
       } catch {
         setOpenaiOk(false);
         note("Couldn’t reach Ask Blake status.");
@@ -97,7 +95,7 @@ export function AskBlakeTalkLab({
       stopSession(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiPath]);
+  }, [apiPath, buildTag]);
 
   function clearTimers() {
     for (const ref of [restartTimerRef, silenceTimerRef, maxListenTimerRef]) {
@@ -108,13 +106,6 @@ export function AskBlakeTalkLab({
     }
   }
 
-  function stopLevelMonitor() {
-    levelMonitorRef.current?.stop();
-    levelMonitorRef.current = null;
-    setLevel(0);
-    setHearing(false);
-  }
-
   function stopSession(updateState = true) {
     activeRef.current = false;
     setActive(false);
@@ -123,15 +114,16 @@ export function AskBlakeTalkLab({
     clearTimers();
     stopSpeakRef.current?.();
     stopSpeakRef.current = null;
-    stopLevelMonitor();
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    if (recorder) void recorder.stop().catch(() => undefined);
+    const pcm = pcmRef.current;
+    pcmRef.current = null;
+    if (pcm) void pcm.stop().catch(() => undefined);
     stopMicStream(micStreamRef.current);
     micStreamRef.current = null;
     stopBlakeAudio();
     if (updateState) setState(supported ? "idle" : "unsupported");
     setHeard("");
+    setLevel(0);
+    setHearing(false);
     setHint("Tap Start conversation when you’re ready.");
   }
 
@@ -150,7 +142,7 @@ export function AskBlakeTalkLab({
     silenceTimerRef.current = window.setTimeout(() => {
       if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
       if (!heardSpeechRef.current) {
-        setHint("Still listening — keep talking.");
+        setHint("Still listening — keep talking, then tap I’m done.");
         return;
       }
       if (Date.now() - speechStartedAtRef.current < MIN_SPEECH_MS) return;
@@ -164,32 +156,33 @@ export function AskBlakeTalkLab({
     finishingRef.current = true;
     listeningRef.current = false;
     clearTimers();
-    stopLevelMonitor();
     setState("thinking");
     setHint("Transcribing…");
+    setHearing(false);
 
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
+    const pcm = pcmRef.current;
+    pcmRef.current = null;
     let blob: Blob | null = null;
     try {
-      blob = recorder ? await recorder.stop() : null;
+      blob = pcm ? await pcm.stop() : null;
     } catch {
       blob = null;
     }
 
-    if (!blob || blob.size < 400) {
-      note("Clip empty — listening again.");
+    if (!blob || blob.size < 1000) {
+      note(`Clip empty (${blob?.size ?? 0} bytes) — listening again.`);
+      setHint("Didn’t catch audio — speak closer, then tap I’m done.");
       finishingRef.current = false;
       if (activeRef.current) {
         restartTimerRef.current = window.setTimeout(() => {
           void startListeningPass();
-        }, 400);
+        }, 500);
       }
       return;
     }
 
     try {
-      note(`Whisper clip ${(blob.size / 1024).toFixed(0)}KB…`);
+      note(`Whisper WAV ${(blob.size / 1024).toFixed(0)}KB…`);
       const transcript = await transcribeBlakeAudio(blob, transcribePath);
       setHeard(transcript);
       note(`Heard: ${transcript.slice(0, 80)}`);
@@ -204,7 +197,7 @@ export function AskBlakeTalkLab({
         restartTimerRef.current = window.setTimeout(() => {
           setError("");
           void startListeningPass();
-        }, 1000);
+        }, 1200);
       } else {
         setState("error");
       }
@@ -217,14 +210,13 @@ export function AskBlakeTalkLab({
     stopSpeakRef.current?.();
     stopSpeakRef.current = null;
     stopBlakeAudio();
-    stopLevelMonitor();
-    if (recorderRef.current) {
+    if (pcmRef.current) {
       try {
-        await recorderRef.current.stop();
+        await pcmRef.current.stop();
       } catch {
         // ignore
       }
-      recorderRef.current = null;
+      pcmRef.current = null;
     }
 
     finishingRef.current = false;
@@ -233,15 +225,16 @@ export function AskBlakeTalkLab({
     setHeard("");
     setError("");
     setHearing(false);
+    setLevel(0);
     setState("listening");
-    setHint("Speak now — then tap I’m done (green bar should move).");
-    note("Listening…");
+    setHint("Speak now — then tap I’m done.");
+    note("Listening (PCM/WAV)…");
 
     let stream: MediaStream;
     try {
       stream = await ensureOpenMic();
       const track = stream.getAudioTracks()[0];
-      note(`Mic: ${track?.label || "default"} (${track?.readyState || "unknown"})`);
+      note(`Mic: ${track?.label || "default"} (${track?.readyState || "?"})`);
     } catch {
       setError("Allow microphone access, then start again.");
       setState("error");
@@ -251,51 +244,66 @@ export function AskBlakeTalkLab({
       return;
     }
 
-    let recorder: ActiveVoiceRecorder;
-    try {
-      recorder = startVoiceRecorder(stream);
-      note(`Recorder: ${recorder.mimeType || "default"}`);
-    } catch {
-      setError("Recording blocked on this phone.");
+    const context = await unlockAudioContext();
+    if (!context) {
+      setError("This phone blocked Web Audio.");
       setState("error");
       setActive(false);
       activeRef.current = false;
-      note("MediaRecorder failed.");
+      note("AudioContext missing.");
       return;
     }
-
-    recorderRef.current = recorder;
-    listeningRef.current = true;
+    try {
+      await context.resume();
+    } catch {
+      // ignore
+    }
+    note(`AudioContext ${context.state} @ ${Math.round(context.sampleRate)}Hz`);
 
     let peak = 0;
     let lastPeakLog = 0;
-    levelMonitorRef.current = startMicLevelMonitor(stream, (nextLevel) => {
-      if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
-      setLevel(nextLevel);
-      if (nextLevel > peak) peak = nextLevel;
-      const now = Date.now();
-      if (now - lastPeakLog > 1200) {
-        lastPeakLog = now;
-        note(`Level ${Math.round(peak * 100)}% (peak)`);
-        peak = 0;
-      }
-      const isSpeech = nextLevel >= SPEECH_LEVEL;
-      setHearing(isSpeech);
-      if (isSpeech) {
-        if (!heardSpeechRef.current) {
-          heardSpeechRef.current = true;
-          speechStartedAtRef.current = Date.now();
-          note("Speech detected — keep talking, then I’m done.");
-        }
-        setHint("Hearing you — tap I’m done when finished.");
-        if (silenceTimerRef.current != null) {
-          window.clearTimeout(silenceTimerRef.current);
-          silenceTimerRef.current = null;
-        }
-      } else if (heardSpeechRef.current) {
-        scheduleSendFromSilence();
-      }
-    });
+    try {
+      pcmRef.current = startPcmVoiceSession({
+        context,
+        stream,
+        onLevel: (nextLevel) => {
+          if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
+          setLevel(nextLevel);
+          if (nextLevel > peak) peak = nextLevel;
+          const now = Date.now();
+          if (now - lastPeakLog > 1000) {
+            lastPeakLog = now;
+            note(`Level ${Math.round(peak * 100)}%`);
+            peak = 0;
+          }
+          const isSpeech = nextLevel >= SPEECH_LEVEL;
+          setHearing(isSpeech);
+          if (isSpeech) {
+            if (!heardSpeechRef.current) {
+              heardSpeechRef.current = true;
+              speechStartedAtRef.current = Date.now();
+              note("Speech detected.");
+            }
+            setHint("Hearing you — tap I’m done when finished.");
+            if (silenceTimerRef.current != null) {
+              window.clearTimeout(silenceTimerRef.current);
+              silenceTimerRef.current = null;
+            }
+          } else if (heardSpeechRef.current) {
+            scheduleSendFromSilence();
+          }
+        },
+      });
+    } catch {
+      setError("Couldn’t start PCM capture on this phone.");
+      setState("error");
+      setActive(false);
+      activeRef.current = false;
+      note("PCM session failed.");
+      return;
+    }
+
+    listeningRef.current = true;
 
     maxListenTimerRef.current = window.setTimeout(() => {
       if (!activeRef.current || !listeningRef.current || finishingRef.current) return;
@@ -304,8 +312,8 @@ export function AskBlakeTalkLab({
         void finishListeningAndAsk();
         return;
       }
-      setHint("Bar not moving? Speak closer to the bottom mic, then tap I’m done.");
-      note("No speech level yet — tap I’m done after speaking anyway.");
+      setHint("Bar still? Speak closer to the bottom mic, then tap I’m done.");
+      note("No speech level yet — tap I’m done after speaking.");
     }, MAX_LISTEN_MS);
   }
 
@@ -398,7 +406,7 @@ export function AskBlakeTalkLab({
       return;
     }
     if (openaiOk === false) {
-      setError("OpenAI isn’t connected on this pilot — set OPENAI_API_KEY on Render first.");
+      setError("OpenAI isn’t connected — set OPENAI_API_KEY on Render first.");
       setState("error");
       note("Blocked: OpenAI key missing.");
       return;
@@ -416,7 +424,7 @@ export function AskBlakeTalkLab({
     activeRef.current = true;
     setState("listening");
     setHint("Opening microphone…");
-    note("Starting conversation…");
+    note(`Starting (${buildTag})…`);
     try {
       await unlockBlakeVoice();
       await unlockAudioContext();
@@ -431,7 +439,6 @@ export function AskBlakeTalkLab({
       note("Mic unlock failed.");
       return;
     }
-    // Start immediately after the tap — iOS can drop the gesture unlock if we wait too long.
     void startListeningPass();
   }
 
@@ -457,6 +464,7 @@ export function AskBlakeTalkLab({
                     : "Conversation lab"}
         </p>
         <p className="ask-blake-voice-hint muted">{hint}</p>
+        <p className="talk-lab-build muted">Build {buildTag}</p>
         {state === "listening" ? (
           <div className={`ask-blake-voice-meter${hearing ? " is-hot" : ""}`} role="status">
             <span style={{ width: `${Math.max(8, levelPercent)}%` }} />
@@ -498,7 +506,7 @@ export function AskBlakeTalkLab({
       </div>
 
       <p className="ask-blake-voice-hint muted">
-        Speak toward the bottom of the phone. Watch the green bar, then tap <strong>I’m done</strong>. Blake answers, then listens again.
+        Speak toward the bottom mic. Green bar should move. Then tap <strong>I’m done</strong>.
       </p>
 
       <div className="talk-lab-log" aria-label="Lab log">

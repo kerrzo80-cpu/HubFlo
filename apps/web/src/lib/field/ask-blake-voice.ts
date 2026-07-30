@@ -47,11 +47,12 @@ export function getSpeechRecognitionConstructor(): SpeechRecognitionConstructor 
 
 export function speechSupported() {
   if (typeof window === "undefined") return false;
-  // Prefer real mic recording (works on iPhone). SpeechRecognition alone is unreliable there.
+  const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  // PCM/WAV path only needs getUserMedia + AudioContext (MediaRecorder is optional / flaky on iPhone).
   return Boolean(
     navigator.mediaDevices
     && typeof navigator.mediaDevices.getUserMedia === "function"
-    && typeof window.MediaRecorder === "function",
+    && typeof AudioCtx === "function",
   );
 }
 
