@@ -10087,6 +10087,33 @@ export default function Dashboard() {
   useEffect(() => {
     if (!hasHydratedLocalData || typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get("view");
+    if (viewParam === "lead-create" && access.canCreateLead) {
+      setLeadFormError("");
+      setLeadPostcodeSearch("");
+      setNewLead({
+        ...blankLead,
+        setup: makeIntakeSetupOptions(),
+        createdBy: activeEmployee?.name || blankLead.createdBy,
+      });
+      setHomeView("lead-create");
+      setShowCreateLead(true);
+      scrollWorkspaceToTop();
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    const leadParam = params.get("lead");
+    if (!leadParam) return;
+    const targetLead = leads.find((lead) => lead.id === leadParam || lead.ref === leadParam);
+    if (!targetLead) return;
+    openLeadRecord(targetLead.id);
+    showNotice(`${targetLead.ref} opened from AI intake.`);
+    window.history.replaceState(null, "", window.location.pathname);
+  }, [access.canCreateLead, activeEmployee?.name, hasHydratedLocalData, leads]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
     const xeroResult = params.get("xero");
     if (!xeroResult) return;
     const message = params.get("message");
@@ -23109,12 +23136,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    setLeadFormError("");
-    setLeadPostcodeSearch("");
-    setNewLead({ ...blankLead, setup: makeIntakeSetupOptions(), createdBy: activeEmployee?.name || blankLead.createdBy });
-    setHomeView("lead-create");
-    setShowCreateLead(true);
-    scrollWorkspaceToTop();
+    window.location.assign("/ai-intake");
   }
 
   function createQuote() {
@@ -26926,9 +26948,13 @@ export default function Dashboard() {
             <Sparkles size={17} />
             <span>NeXa Surveyor</span>
           </a>
-          <a href="/ai-first" className="context-link" aria-label="NeXa AI First" data-tooltip="NeXa AI First prototype">
+          <a href="/ai-intake" className="context-link" aria-label="NeXa AI Intake" data-tooltip="AI intake — create lead & book survey">
             <Sparkles size={17} />
-            <span>NeXa AI First</span>
+            <span>AI Intake</span>
+          </a>
+          <a href="/ai-first" className="context-link" aria-label="NeXa AI First" data-tooltip="AI-first prototype walkthrough">
+            <Sparkles size={17} />
+            <span>AI First demo</span>
           </a>
           <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />

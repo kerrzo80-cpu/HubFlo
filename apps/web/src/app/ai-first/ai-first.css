@@ -520,6 +520,31 @@
   font-size: 0.7rem;
 }
 
+.ai-flow-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+  animation: af-fade-up 0.55s ease both;
+}
+
+.ai-flow-strip span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--steel);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ai-flow-strip span.on {
+  background: var(--slate);
+  border-color: var(--slate);
+  color: #fff;
+}
+
 .ai-missing-list li.answered .mark {
   border-color: var(--bind);
   background: rgba(34, 197, 94, 0.12);
