@@ -110,6 +110,63 @@ const LOCAL_POSTCODE_DIRECTORY: PostcodeEntry[] = [
       "Unit 6 Enterprise Drive, Westhill, AB32 6TQ",
     ],
   },
+  {
+    postcode: "AB12 4TG",
+    addresses: [
+      "1 Hillside Drive, Portlethen, AB12 4TG",
+      "2 Hillside Drive, Portlethen, AB12 4TG",
+      "3 Hillside Drive, Portlethen, AB12 4TG",
+      "4 Hillside Drive, Portlethen, AB12 4TG",
+      "5 Hillside Drive, Portlethen, AB12 4TG",
+      "6 Hillside Drive, Portlethen, AB12 4TG",
+      "7 Hillside Drive, Portlethen, AB12 4TG",
+      "8 Hillside Drive, Portlethen, AB12 4TG",
+      "9 Hillside Drive, Portlethen, AB12 4TG",
+      "10 Hillside Drive, Portlethen, AB12 4TG",
+      "11 Hillside Drive, Portlethen, AB12 4TG",
+      "12 Hillside Drive, Portlethen, AB12 4TG",
+      "14 Hillside Drive, Portlethen, AB12 4TG",
+      "15 Hillside Drive, Portlethen, AB12 4TG",
+      "16 Hillside Drive, Portlethen, AB12 4TG",
+      "17 Hillside Drive, Portlethen, AB12 4TG",
+      "18 Hillside Drive, Portlethen, AB12 4TG",
+      "19 Hillside Drive, Portlethen, AB12 4TG",
+      "20 Hillside Drive, Portlethen, AB12 4TG",
+      "21 Hillside Drive, Portlethen, AB12 4TG",
+      "22 Hillside Drive, Portlethen, AB12 4TG",
+      "23 Hillside Drive, Portlethen, AB12 4TG",
+      "24 Hillside Drive, Portlethen, AB12 4TG",
+      "25 Hillside Drive, Portlethen, AB12 4TG",
+      "26 Hillside Drive, Portlethen, AB12 4TG",
+      "27 Hillside Drive, Portlethen, AB12 4TG",
+      "28 Hillside Drive, Portlethen, AB12 4TG",
+      "29 Hillside Drive, Portlethen, AB12 4TG",
+      "30 Hillside Drive, Portlethen, AB12 4TG",
+      "31 Hillside Drive, Portlethen, AB12 4TG",
+      "32 Hillside Drive, Portlethen, AB12 4TG",
+      "33 Hillside Drive, Portlethen, AB12 4TG",
+      "34 Hillside Drive, Portlethen, AB12 4TG",
+      "35 Hillside Drive, Portlethen, AB12 4TG",
+      "36 Hillside Drive, Portlethen, AB12 4TG",
+      "37 Hillside Drive, Portlethen, AB12 4TG",
+      "38 Hillside Drive, Portlethen, AB12 4TG",
+      "39 Hillside Drive, Portlethen, AB12 4TG",
+      "40 Hillside Drive, Portlethen, AB12 4TG",
+      "41 Hillside Drive, Portlethen, AB12 4TG",
+      "42 Hillside Drive, Portlethen, AB12 4TG",
+      "43 Hillside Drive, Portlethen, AB12 4TG",
+      "44 Hillside Drive, Portlethen, AB12 4TG",
+      "45 Hillside Drive, Portlethen, AB12 4TG",
+      "46 Hillside Drive, Portlethen, AB12 4TG",
+      "47 Hillside Drive, Portlethen, AB12 4TG",
+      "48 Hillside Drive, Portlethen, AB12 4TG",
+      "49 Hillside Drive, Portlethen, AB12 4TG",
+      "50 Hillside Drive, Portlethen, AB12 4TG",
+      "51 Hillside Drive, Portlethen, AB12 4TG",
+      "52 Hillside Drive, Portlethen, AB12 4TG",
+      "54 Hillside Drive, Portlethen, AB12 4TG",
+    ],
+  },
 ];
 
 const FULL_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\d[A-Z]{2}$/i;
@@ -148,6 +205,14 @@ function localMatches(query: string): AddressMatch[] {
   const q = query.trim().toLowerCase();
   const compact = normalizePostcode(query);
   if (q.length < 2) return [];
+
+  // Exact postcode first so seeded streets (e.g. AB12 4TG) always win over remote single-hit fallbacks.
+  if (isFullPostcode(query)) {
+    const exact = LOCAL_POSTCODE_DIRECTORY.find((entry) => normalizePostcode(entry.postcode) === compact);
+    if (exact) {
+      return exact.addresses.map((address) => ({ postcode: exact.postcode, address }));
+    }
+  }
 
   return LOCAL_POSTCODE_DIRECTORY.flatMap((entry) => {
     const postcodeHit =
@@ -278,33 +343,36 @@ function formatOsmAddress(tags: Record<string, string>, fallbackPostcode: string
   return { postcode, address, line1, town: town || undefined, county: county || undefined };
 }
 
-/** Prefer exact postcode query — around() is slow and often returns only the nearest house. */
+/** Race Overpass mirrors in parallel — Render often times out on a single slow mirror. */
 async function runOverpassQuery(query: string, timeoutMs: number): Promise<OsmElement[]> {
   const endpoints = [
     "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass-api.de/api/interpreter",
   ];
 
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-          "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
-        },
-        body: new URLSearchParams({ data: query }).toString(),
-        signal: AbortSignal.timeout(timeoutMs),
-        cache: "no-store",
-      });
-      if (!response.ok) continue;
-      const payload = (await response.json()) as { elements?: OsmElement[] };
-      if ((payload.elements ?? []).length > 0) return payload.elements ?? [];
-    } catch {
-      // try next mirror
-    }
+  const attempts = endpoints.map(async (endpoint) => {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "User-Agent": "NeXaHubFlo/1.0 (postcode-address-lookup)",
+      },
+      body: new URLSearchParams({ data: query }).toString(),
+      signal: AbortSignal.timeout(timeoutMs),
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`overpass ${response.status}`);
+    const payload = (await response.json()) as { elements?: OsmElement[] };
+    const elements = payload.elements ?? [];
+    if (elements.length === 0) throw new Error("overpass empty");
+    return elements;
+  });
+
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return [];
   }
-  return [];
 }
 
 function houseNumberSortKey(value: string | undefined) {
