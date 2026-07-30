@@ -11,6 +11,11 @@ type SpeakBody = {
   text?: string;
 };
 
+const TTS_ACCENT = [
+  ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS,
+  "Accent only — do not add slang. Pronounce every sentence as Scottish English.",
+].join(" ");
+
 export async function POST(request: Request) {
   const body = await parseJsonRequestBody<SpeakBody>(request);
   const text = cleanForSpeech(body?.text ?? "");
@@ -33,15 +38,14 @@ export async function POST(request: Request) {
         voice,
         input: text.slice(0, 1800),
         response_format: "mp3",
-        ...(withInstructions
-          ? { instructions: ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS }
-          : {}),
+        ...(withInstructions ? { instructions: TTS_ACCENT } : {}),
       }),
     });
   }
 
-  // gpt-4o-mini-tts supports accent instructions; fall back without them if needed.
-  let response = await synth("gpt-4o-mini-tts", "ash", true);
+  // cedar + instructions tracks accent better than ash for TTS.
+  let response = await synth("gpt-4o-mini-tts", "cedar", true);
+  if (!response.ok) response = await synth("gpt-4o-mini-tts", "ash", true);
   if (!response.ok) response = await synth("gpt-4o-mini-tts", "ash", false);
   if (!response.ok) response = await synth("tts-1", "onyx", false);
   if (!response.ok) {
