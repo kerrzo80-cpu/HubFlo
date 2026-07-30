@@ -435,7 +435,18 @@ export function AiFirstPrototype() {
               <span>AI-first operating system · clickable prototype</span>
             </div>
           </div>
-          <div className="ai-first-principle">AI First · Human Approved</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+            <a
+              className="ai-first-principle"
+              href="https://nexa-pilot.onrender.com/ai-first"
+              style={{ textDecoration: "none" }}
+            >
+              AI First · Human Approved
+            </a>
+            <a className="ai-btn-ghost" href="/" style={{ textDecoration: "none" }}>
+              Back to Command Center
+            </a>
+          </div>
         </header>
 
         <nav className="ai-first-rail" aria-label="Prototype screens">

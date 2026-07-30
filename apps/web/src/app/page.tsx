@@ -19957,6 +19957,10 @@ export default function Dashboard() {
             <Sparkles size={17} />
             <span>NeXa Survey</span>
           </a>
+          <a href="/ai-first" className="context-link" aria-label="NeXa AI First" data-tooltip="NeXa AI First prototype">
+            <Sparkles size={17} />
+            <span>NeXa AI First</span>
+          </a>
           <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />
             <span>NeXa Takeoff</span>
