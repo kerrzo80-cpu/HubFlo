@@ -1489,7 +1489,7 @@ type EngineerFlowStepEvidenceValue = {
 
 type EngineerFlowStep = {
   id: string;
-  stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover";
+  stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover" | "Gas certificate";
   label: string;
   evidence: EngineerFlowEvidence;
   required: boolean;
@@ -3302,7 +3302,7 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
 
 const boilerServiceFlowTemplate: EngineerFlowTemplate = {
   id: "boiler-service-flow",
-  name: "Boiler servicing stop/go flow",
+  name: "Boiler servicing stop/go · Gas service record",
   appliesTo: ["Boiler servicing"],
   steps: [
     { id: "service-boiler-photo", stage: "Existing Boiler", label: "Upload photos of boiler and surrounding area", evidence: "Photo", required: true },
@@ -3310,7 +3310,10 @@ const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     { id: "service-make-model", stage: "Existing Boiler", label: "Record boiler make/model", evidence: "Text", required: true },
     { id: "service-serial", stage: "Existing Boiler", label: "Record boiler serial number", evidence: "Text", required: true },
     { id: "service-flue", stage: "Commissioning", label: "Complete flue and ventilation checks", evidence: "Checkbox", required: true },
-    { id: "service-readings", stage: "Commissioning", label: "Enter service readings", evidence: "Number", required: true },
+    { id: "service-co-reading", stage: "Gas certificate", label: "Record CO reading (ppm)", evidence: "Number", required: true },
+    { id: "service-ratio", stage: "Gas certificate", label: "Record combustion ratio / CO₂", evidence: "Number", required: true },
+    { id: "service-defects", stage: "Gas certificate", label: "Defects / remedial notes (or None)", evidence: "Text", required: true },
+    { id: "service-next-due", stage: "Gas certificate", label: "Next service due date (YYYY-MM-DD)", evidence: "Text", required: true },
     { id: "service-customer-signoff", stage: "Handover", label: "Customer sign-off after service", evidence: "Signature", required: true },
   ],
 };
@@ -25600,6 +25603,28 @@ export default function Dashboard() {
     const nextBlockedStep = requiredSteps.find(
       (step) => !isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
     );
+    const isGasServiceFlow = flowTemplate.id === "boiler-service-flow";
+    const gasFields = isGasServiceFlow
+      ? [
+          { label: "Location", key: "service-location", kind: "text" as const },
+          { label: "Make / model", key: "service-make-model", kind: "text" as const },
+          { label: "Serial number", key: "service-serial", kind: "text" as const },
+          { label: "CO reading (ppm)", key: "service-co-reading", kind: "number" as const },
+          { label: "Combustion ratio / CO₂", key: "service-ratio", kind: "number" as const },
+          { label: "Defects", key: "service-defects", kind: "text" as const },
+          { label: "Next service due", key: "service-next-due", kind: "text" as const },
+          { label: "Customer sign-off", key: "service-customer-signoff", kind: "text" as const },
+        ]
+          .map((field) => {
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, field.key)] || {};
+            const value =
+              field.kind === "number"
+                ? evidence.numberValue?.trim()
+                : evidence.text?.trim() || evidence.photoName?.trim();
+            return value ? { label: field.label, value } : null;
+          })
+          .filter((row): row is { label: string; value: string } => Boolean(row))
+      : [];
 
     return (
       <section className="engineer-flow-workspace">
@@ -25608,11 +25633,33 @@ export default function Dashboard() {
             <span className="permission-heading">Engineer app stop/go</span>
             <h2>{flowTemplate.name}</h2>
             {centre ? <small>Assigned from cost centre type: {centre.templateName ?? "General plumbing"}</small> : null}
+            <small style={{ display: "block", marginTop: 4 }}>
+              Engineer fills this on the app — values appear here on the NeXa job form automatically.
+            </small>
           </div>
           <span className={nextBlockedStep ? "flow-status blocked" : "flow-status ready"}>
             {nextBlockedStep ? "Blocked" : "Ready"}
           </span>
         </div>
+
+        {isGasServiceFlow ? (
+          <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
+            <strong>Gas service record</strong>
+            <span>Populated from engineer stop/go</span>
+            {gasFields.length ? (
+              <dl style={{ display: "grid", gap: 8, margin: "12px 0 0", gridTemplateColumns: "160px 1fr" }}>
+                {gasFields.map((row) => (
+                  <div key={row.label} style={{ display: "contents" }}>
+                    <dt style={{ color: "var(--muted, #5b6570)" }}>{row.label}</dt>
+                    <dd style={{ margin: 0, fontWeight: 600 }}>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p>Waiting for the engineer to capture stop/go evidence on the app.</p>
+            )}
+          </div>
+        ) : null}
 
         <div className="flow-progress-panel">
           <strong>

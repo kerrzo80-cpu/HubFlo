@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
 
 import { getEngineerScheduleItem, type EngineerAttachment, type EngineerRequirement } from "@/lib/engineer-data";
+import {
+  buildGasServiceRecordFromEvidence,
+  syncGasServiceRecordToSiteAsset,
+  writeFlowStepEvidenceToHub,
+  type EngineerFlowStepEvidenceValue,
+} from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
-import { createPurchaseRequest, getPurchaseRequests, updateJob } from "@/lib/workflow-data";
+import { createPurchaseRequest, getPurchaseRequests, getJobs, updateJob } from "@/lib/workflow-data";
 
 export type EngineerWorkflowNote = {
   id: string;
@@ -123,6 +129,10 @@ export type EngineerWorkflowAction =
       payload: {
         requirementId: string;
         createdBy?: string;
+        evidence?: EngineerFlowStepEvidenceValue;
+        photoName?: string;
+        text?: string;
+        numberValue?: string;
       };
     }
   | {
@@ -316,6 +326,20 @@ function appendCoreJobDeliveryEvent(item: Record<string, unknown>) {
 
 export function getEngineerJobWorkflow(scheduleId: string) {
   const workflow = syncWorkflowPoRequestsFromCore(normaliseWorkflow(getMutableWorkflow(scheduleId)));
+  const job = getEngineerScheduleItem(scheduleId);
+  // Prefer live Hub stop/go templates (gas service record fields) over older boolean-only seeds.
+  if (job?.requirements?.length && job.requirements.some((item) => item.evidence || item.stepId)) {
+    const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
+    workflow.requirements = job.requirements.map((seed) => {
+      const existing = byId.get(seed.id);
+      if (!existing) return seed;
+      return {
+        ...seed,
+        status: existing.status === "done" || seed.status === "done" ? "done" : seed.status,
+        value: existing.value || seed.value,
+      };
+    });
+  }
   return clone(workflow);
 }
 
@@ -427,11 +451,61 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   if (input.action === "complete_requirement") {
     const requirement = workflow.requirements.find((item) => item.id === input.payload.requirementId);
     if (requirement) {
+      const evidenceValue: EngineerFlowStepEvidenceValue = {
+        ...(requirement.value || {}),
+        ...(input.payload.evidence || {}),
+        text: input.payload.text ?? input.payload.evidence?.text ?? requirement.value?.text,
+        numberValue: input.payload.numberValue ?? input.payload.evidence?.numberValue ?? requirement.value?.numberValue,
+        photoName: input.payload.photoName ?? input.payload.evidence?.photoName ?? requirement.value?.photoName,
+        capturedAt: new Date().toISOString(),
+      };
       requirement.status = "done";
+      requirement.value = evidenceValue;
+
+      const costCentreId = requirement.costCentreId || job?.costCentres?.find((centre) => centre.name === job.costCentre)?.id || `${job?.jobId || "job"}-cost-centre`;
+      const stepId = requirement.stepId || requirement.id.split(":").pop() || requirement.id;
+      if (job?.jobId && requirement.evidence) {
+        writeFlowStepEvidenceToHub({
+          jobId: job.jobId,
+          costCentreId,
+          stepId,
+          evidence: requirement.evidence,
+          value: evidenceValue,
+          actor: createdBy,
+        });
+
+        const gasRecord = buildGasServiceRecordFromEvidence(job.jobId, costCentreId);
+        if (gasRecord?.nextServiceDate) {
+          const coreJob = getJobs().find((item) => item.id === job.jobId);
+          if (coreJob?.siteId) {
+            try {
+              syncGasServiceRecordToSiteAsset({
+                siteId: coreJob.siteId,
+                clientId: coreJob.clientId,
+                record: gasRecord,
+              });
+            } catch {
+              // Site asset sync is best-effort.
+            }
+          }
+        }
+      }
+
+      const evidenceSummary = [
+        evidenceValue.text,
+        evidenceValue.numberValue,
+        evidenceValue.photoName,
+      ]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(" · ");
+
       addReviewItem(workflow, {
         type: "Checklist",
         title: requirement.label,
-        detail: `${requirement.label} supplied by engineer. Office can review before completion sign-off.`,
+        detail: evidenceSummary
+          ? `${requirement.label} captured and written to NeXa Core gas/service form: ${evidenceSummary}`
+          : `${requirement.label} completed — NeXa Core stop/go form updated.`,
         createdBy,
         createdAt,
       });

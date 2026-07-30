@@ -74,12 +74,12 @@ function checklistTitle(costCentre: string) {
 function checklistHelp(costCentre: string) {
   const normalised = costCentre.toLowerCase();
   if (/service/.test(normalised) && /boiler/.test(normalised)) {
-    return "This is the simple stop / go list for a boiler service cost centre. The engineer supplies each required item before completion can be confirmed.";
+    return "Fill each stop/go item — answers populate the Gas service record on this job in NeXa Core. Required items block Complete.";
   }
   if (/replace|replacement|install|boiler change/.test(normalised)) {
-    return "This is the boiler replacement stop / go list. Existing boiler evidence, new boiler details, flue route, commissioning and completion evidence are captured before handover.";
+    return "Boiler replacement stop/go. Evidence writes straight into NeXa Core on the cost centre before handover.";
   }
-  return "This checklist is driven by the cost centre type. Required items block completion until the engineer supplies the evidence.";
+  return "This checklist is driven by the cost centre type. Evidence writes into NeXa Core; required items block completion.";
 }
 
 function statusCopy(status: EngineerJobWorkflow["requirements"][number]["status"]) {
@@ -102,6 +102,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
   const [workflow, setWorkflow] = useState<EngineerJobWorkflow>(() => initialWorkflow(job));
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [draftByRequirement, setDraftByRequirement] = useState<Record<string, { text?: string; numberValue?: string; photoName?: string }>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<EngineerWorkflowNote["visibility"]>("Office review");
@@ -215,11 +216,42 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
   }
 
   async function markRequirementDone(requirementId: string) {
-    await runWorkflowAction(
+    const requirement = workflow.requirements.find((item) => item.id === requirementId);
+    const draft = draftByRequirement[requirementId] || {};
+    const evidenceType = requirement?.evidence || "Checkbox";
+    if (evidenceType === "Text" || evidenceType === "Signature") {
+      if (!draft.text?.trim()) {
+        setError(`Enter a value for “${requirement?.label || "this item"}” before saving.`);
+        return;
+      }
+    }
+    if (evidenceType === "Number" && !draft.numberValue?.trim()) {
+      setError(`Enter a number for “${requirement?.label || "this item"}” before saving.`);
+      return;
+    }
+    if (evidenceType === "Photo" && !draft.photoName?.trim()) {
+      setError(`Add a photo file name for “${requirement?.label || "this item"}” before saving.`);
+      return;
+    }
+
+    const saved = await runWorkflowAction(
       "complete_requirement",
-      { requirementId },
-      "Checklist evidence sent to office review.",
+      {
+        requirementId,
+        text: draft.text,
+        numberValue: draft.numberValue,
+        photoName: draft.photoName,
+        evidence: draft,
+      },
+      "Evidence saved — NeXa Core gas/service form updated.",
     );
+    if (saved) {
+      setDraftByRequirement((current) => {
+        const next = { ...current };
+        delete next[requirementId];
+        return next;
+      });
+    }
   }
 
   async function uploadPhotos(event: ChangeEvent<HTMLInputElement>) {
@@ -362,22 +394,90 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
             </div>
             <p className="engineer-muted-copy">{checklistHelp(job.costCentre)}</p>
             <div className="engineer-requirement-list">
-              {workflow.requirements.map((requirement) => (
-                <div className={`engineer-requirement ${requirement.status}`} key={requirement.id}>
-                  <div>
-                    <span>{requirement.label}</span>
-                    <small>{requirement.status === "missing" ? "Required before completion" : requirement.status === "done" ? "Evidence supplied" : "Optional support evidence"}</small>
+              {workflow.requirements.map((requirement) => {
+                const draft = draftByRequirement[requirement.id] || {};
+                const evidenceType = requirement.evidence || "Checkbox";
+                const doneValue = [
+                  requirement.value?.text,
+                  requirement.value?.numberValue,
+                  requirement.value?.photoName,
+                ]
+                  .map((part) => String(part || "").trim())
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <div className={`engineer-requirement ${requirement.status}`} key={requirement.id}>
+                    <div>
+                      <span>{requirement.label}</span>
+                      <small>
+                        {requirement.stage ? `${requirement.stage} · ` : ""}
+                        {evidenceType}
+                        {requirement.status === "missing"
+                          ? " · Required before completion"
+                          : requirement.status === "done"
+                            ? doneValue
+                              ? ` · ${doneValue}`
+                              : " · Evidence supplied"
+                            : " · Optional"}
+                      </small>
+                      {requirement.status === "missing" && evidenceType !== "Checkbox" ? (
+                        <div className="engineer-requirement-capture" style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                          {evidenceType === "Text" || evidenceType === "Signature" ? (
+                            <input
+                              type="text"
+                              value={draft.text || ""}
+                              placeholder={evidenceType === "Signature" ? "Signed by…" : "Type the answer…"}
+                              onChange={(event) =>
+                                setDraftByRequirement((current) => ({
+                                  ...current,
+                                  [requirement.id]: { ...current[requirement.id], text: event.target.value },
+                                }))
+                              }
+                            />
+                          ) : null}
+                          {evidenceType === "Number" ? (
+                            <input
+                              type="number"
+                              value={draft.numberValue || ""}
+                              placeholder="Enter reading…"
+                              onChange={(event) =>
+                                setDraftByRequirement((current) => ({
+                                  ...current,
+                                  [requirement.id]: { ...current[requirement.id], numberValue: event.target.value },
+                                }))
+                              }
+                            />
+                          ) : null}
+                          {evidenceType === "Photo" ? (
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (!file) return;
+                                setDraftByRequirement((current) => ({
+                                  ...current,
+                                  [requirement.id]: { ...current[requirement.id], photoName: file.name },
+                                }));
+                                event.target.value = "";
+                              }}
+                            />
+                          ) : null}
+                          {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="engineer-requirement-actions">
+                      <strong>{statusCopy(requirement.status)}</strong>
+                      {requirement.status === "missing" ? (
+                        <button type="button" onClick={() => void markRequirementDone(requirement.id)} disabled={isSaving}>
+                          {evidenceType === "Checkbox" ? "Mark complete" : "Save to NeXa"}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="engineer-requirement-actions">
-                    <strong>{statusCopy(requirement.status)}</strong>
-                    {requirement.status === "missing" ? (
-                      <button type="button" onClick={() => void markRequirementDone(requirement.id)} disabled={isSaving}>
-                        Mark supplied
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {missingRequirements.length ? (
               <div className="engineer-stop-message">Cannot mark complete yet. Missing: {missingRequirements.map((item) => item.label).join(", ")}.</div>

@@ -15,6 +15,7 @@ export type HubDetailState = {
   costCentreTypes?: unknown[];
   costCentreFlowAssignmentDrafts?: Record<string, unknown>;
   flowStepCompletion?: Record<string, unknown>;
+  flowStepEvidence?: Record<string, unknown>;
   quoteCostCentres?: Record<string, unknown>;
   quoteSections?: Record<string, unknown>;
   quoteSchedulePlans?: Record<string, unknown>;

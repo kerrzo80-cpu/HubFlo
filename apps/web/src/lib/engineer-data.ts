@@ -1,4 +1,5 @@
 import { getHubDetailState } from "@/lib/hub-detail-store";
+import { requirementsFromFlowTemplate } from "@/lib/engineer-flow";
 import { getJobs, getPurchaseRequests, type Job } from "@/lib/workflow-data";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -17,6 +18,18 @@ export type EngineerRequirement = {
   id: string;
   label: string;
   status: RequirementStatus;
+  evidence?: "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
+  stepId?: string;
+  costCentreId?: string;
+  required?: boolean;
+  stage?: string;
+  formField?: string;
+  value?: {
+    text?: string;
+    numberValue?: string;
+    photoName?: string;
+    capturedAt?: string;
+  };
 };
 
 export type EngineerCostCentreOption = {
@@ -314,31 +327,45 @@ function defaultCostCentreOptionsForJob(jobId: string, jobRef: string, fallbackN
   return [{ id: `${jobId}-cost-centre`, name: fallbackName, templateName: fallbackName }];
 }
 
-function requirementsForCostCentre(job: Job, costCentre: string): EngineerRequirement[] {
+function requirementsForCostCentre(
+  job: Job,
+  costCentre: string,
+  costCentreOption?: EngineerCostCentreOption,
+): EngineerRequirement[] {
+  const centreId = costCentreOption?.id || `${job.id}-cost-centre`;
+  const fromHub = requirementsFromFlowTemplate({
+    jobId: job.id,
+    costCentreId: centreId,
+    costCentreName: costCentre,
+    templateName: costCentreOption?.templateName || costCentre,
+  });
+  if (fromHub.length) return fromHub;
+
+  // Fallback if hub templates unavailable.
   const scope = `${costCentre} ${job.description}`.toLowerCase();
   if (/boiler/.test(scope) && /service/.test(scope)) {
     return [
-      { id: `req-${job.id}-appliance-photo`, label: "Appliance photo", status: "missing" },
-      { id: `req-${job.id}-data-plate`, label: "Data plate / serial number", status: "missing" },
-      { id: `req-${job.id}-flue-analyser`, label: "Flue/analyser evidence", status: "missing" },
-      { id: `req-${job.id}-service-notes`, label: "Service notes / defects", status: "missing" },
+      { id: `req-${job.id}-appliance-photo`, label: "Appliance photo", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-data-plate`, label: "Data plate / serial number", status: "missing", evidence: "Text", required: true },
+      { id: `req-${job.id}-flue-analyser`, label: "Flue/analyser evidence", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-service-notes`, label: "Service notes / defects", status: "missing", evidence: "Text", required: true },
     ];
   }
 
   if (/boiler/.test(scope) && /replace|replacement|install|change/.test(scope)) {
     return [
-      { id: `req-${job.id}-existing-boiler`, label: "Existing boiler photos", status: "missing" },
-      { id: `req-${job.id}-new-boiler`, label: "New boiler data plate / serial number", status: "missing" },
-      { id: `req-${job.id}-flue-photo`, label: "Flue route photo", status: "missing" },
-      { id: `req-${job.id}-commissioning`, label: "Commissioning / benchmark details", status: "missing" },
-      { id: `req-${job.id}-completion`, label: "Completion photos", status: "missing" },
+      { id: `req-${job.id}-existing-boiler`, label: "Existing boiler photos", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-new-boiler`, label: "New boiler data plate / serial number", status: "missing", evidence: "Text", required: true },
+      { id: `req-${job.id}-flue-photo`, label: "Flue route photo", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-commissioning`, label: "Commissioning / benchmark details", status: "missing", evidence: "Text", required: true },
+      { id: `req-${job.id}-completion`, label: "Completion photos", status: "missing", evidence: "Photo", required: true },
     ];
   }
 
   return [
-    { id: `req-${job.id}-arrival`, label: "Arrival / before photo", status: "missing" },
-    { id: `req-${job.id}-work-note`, label: "Engineer work note", status: "missing" },
-    { id: `req-${job.id}-completion`, label: "Completion / issue photo", status: "optional" },
+    { id: `req-${job.id}-arrival`, label: "Arrival / before photo", status: "missing", evidence: "Photo", required: true },
+    { id: `req-${job.id}-work-note`, label: "Engineer work note", status: "missing", evidence: "Text", required: true },
+    { id: `req-${job.id}-completion`, label: "Completion / issue photo", status: "optional", evidence: "Photo", required: false },
   ];
 }
 
@@ -389,7 +416,7 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
       { id: `att-${job.id}-job`, name: `${job.ref} job pack`, type: "PDF", uploadedBy: "Office", uploadedAt: "Core" },
     ],
     photos: [],
-    requirements: requirementsForCostCentre(job, costCentre),
+    requirements: requirementsForCostCentre(job, costCentre, costCentres[0]),
   };
 }
 
@@ -441,7 +468,7 @@ function coreJobPlanToEngineerScheduleItem(job: Job, assignment: CoreJobSchedule
       { id: `att-${job.id}-job`, name: `${job.ref} job pack`, type: "PDF", uploadedBy: "Office", uploadedAt: "Core" },
     ],
     photos: [],
-    requirements: requirementsForCostCentre(job, selectedCostCentre.name),
+    requirements: requirementsForCostCentre(job, selectedCostCentre.name, selectedCostCentre),
   };
 }
 
