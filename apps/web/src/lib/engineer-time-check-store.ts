@@ -5,6 +5,7 @@ import {
   getEngineerSchedule,
   type EngineerScheduleItem,
 } from "@/lib/engineer-data";
+import { withLiveFieldDates } from "@/lib/field/nexa/from-core";
 import { applyEngineerWorkflowAction } from "@/lib/engineer-workflow-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
@@ -137,7 +138,7 @@ function saveStore(store: TimeCheckStore) {
 }
 
 function pickEngineerJobs(date?: string, engineerId?: string) {
-  const jobs = getEngineerSchedule();
+  const jobs = withLiveFieldDates(getEngineerSchedule());
   const targetDate = date || jobs[0]?.date || todayIsoDate();
   const targetEngineer = engineerId || jobs[0]?.engineerId || "eng-default";
   const filtered = jobs.filter((job) => {
