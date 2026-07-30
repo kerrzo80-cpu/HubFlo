@@ -1,7 +1,8 @@
+import { openAiApiKeyEnvName, resolveOpenAiApiKey } from "@/lib/openai-env";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 
 const STORE_NAME = "takeoff-ai-config";
-const DEFAULT_MODEL = "gpt-5.5";
+const DEFAULT_MODEL = "gpt-4.1-mini";
 
 type StoredTakeoffAiConfig = {
   apiKey?: string;
@@ -15,8 +16,10 @@ function readStoredConfig() {
 
 export function getTakeoffOpenAiConfig() {
   const stored = readStoredConfig();
-  const apiKey = process.env.OPENAI_API_KEY?.trim() || stored.apiKey?.trim() || "";
+  const envKey = resolveOpenAiApiKey();
+  const apiKey = envKey || stored.apiKey?.trim() || "";
   const model = process.env.NEXA_TAKEOFF_OPENAI_MODEL?.trim()
+    || process.env.NEXA_ASSISTANT_OPENAI_MODEL?.trim()
     || process.env.OPENAI_MODEL?.trim()
     || stored.model?.trim()
     || DEFAULT_MODEL;
@@ -25,7 +28,8 @@ export function getTakeoffOpenAiConfig() {
     connected: Boolean(apiKey),
     apiKey,
     model,
-    source: process.env.OPENAI_API_KEY?.trim() ? "env" : stored.apiKey?.trim() ? "local" : "none",
+    source: envKey ? "env" : stored.apiKey?.trim() ? "local" : "none",
+    keyName: openAiApiKeyEnvName(),
     updatedAt: stored.updatedAt,
   };
 }

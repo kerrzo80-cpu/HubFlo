@@ -10,6 +10,16 @@ export async function GET() {
     deployment: {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
+      talkLab: "/field/talk-lab",
+      talkLabBuild: "realtime-voice-picker-v1",
+      fieldApp: "/field",
+      fieldCoreLinked: true,
+      photoCompressBuild: "shrink-v1",
+      blakeAccent: "picker-v1",
+      blakePeerEngineer: "v1",
+      fieldHoursBuild: "time-check-v1",
+      checklistUi: "tidy-v1",
+      fieldCoreLive: "v1",
     },
     checkedAt: new Date().toISOString(),
   });

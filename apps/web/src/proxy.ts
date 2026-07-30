@@ -7,7 +7,7 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
-const publicAssetPrefixes = ["/app-icons/"];
+const publicAssetPrefixes = ["/app-icons/", "/brand/"];
 const userAuthPublicPaths = new Set(["/api/auth/login", "/api/health"]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
@@ -15,6 +15,7 @@ const publicAssetPaths = new Set([
   "/icon.png",
   "/manifest-core.json",
   "/manifest-estimator.json",
+  "/manifest-field.json",
   "/manifest-takeoffs.json",
   "/estimator/apple-icon.png",
   "/estimator/icon.png",
@@ -106,6 +107,18 @@ export function proxy(request: NextRequest) {
       secure: request.nextUrl.protocol === "https:",
     });
     return response;
+  }
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "NeXa pilot login required. Refresh the page and sign in again." },
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Basic realm="NeXa pilot", charset="UTF-8"',
+        },
+      },
+    );
   }
 
   return new NextResponse("NeXa pilot login required", {

@@ -28,7 +28,10 @@ export default function EngineerTodayPage() {
       <section className="engineer-hero">
         <p className="eyebrow">Engineer app</p>
         <h1>My jobs today</h1>
-        <p>Open a job, follow the cost-centre checklist, confirm your time, send photos or notes, and request POs against the right cost centre.</p>
+        <p>
+          Schedule from NeXa lands here. Open a job for the description, programme, drawings and photos.
+          Blake helps on site and walks your end-of-day time check so actual hours charge against each job.
+        </p>
         <div className="engineer-summary-grid">
           <div><strong>{jobs.length}</strong><span>Jobs</span></div>
           <div><strong>{formatDuration(totalHours)}</strong><span>Booked</span></div>
@@ -41,7 +44,7 @@ export default function EngineerTodayPage() {
         <Link href={firstJob ? `/engineer/jobs/${firstJob.scheduleId}` : "/engineer/time-check"} className="engineer-primary-action">
           <ClipboardCheck size={17} /> Open next job
         </Link>
-        <Link href="/engineer/time-check" className="engineer-secondary-action"><Clock3 size={17} /> Quick time check</Link>
+        <Link href="/engineer/time-check" className="engineer-secondary-action"><Clock3 size={17} /> Blake time check</Link>
         <Link href="/" className="engineer-secondary-action"><FileText size={17} /> Open Core</Link>
         <a href="tel:+441224000000" className="engineer-secondary-action">Call office</a>
       </section>
@@ -82,6 +85,7 @@ export default function EngineerTodayPage() {
               </Link>
 
               <div className="engineer-job-actions">
+                <Link href={`/engineer/jobs/${job.scheduleId}#pack`}><FileText size={16} /> Pack</Link>
                 <Link href={`/engineer/jobs/${job.scheduleId}#stop-go`}><ClipboardCheck size={16} /> Checklist</Link>
                 <Link href={`/engineer/jobs/${job.scheduleId}#site-evidence`}><Camera size={16} /> Photos</Link>
                 <Link href={`/engineer/jobs/${job.scheduleId}#time-entry`}><Clock3 size={16} /> Time</Link>

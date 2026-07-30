@@ -9,10 +9,12 @@ identity and operational records.
 The initial implementation is a modular monolith:
 
 - `apps/web` is the office application and initial server surface.
+- `apps/field` is the standalone plumber/joiner field app (mock-first, NeXa
+  adapter later).
 - `packages/domain` contains framework-independent business rules.
 - `packages/database` owns the PostgreSQL schema, migrations and tenant policy.
-- A mobile engineer application and background worker will be added as separate
-  applications once the shared contracts are established.
+- A background worker will be added as a separate application once the shared
+  contracts are established.
 
 This gives each interface a clear boundary without creating independent systems
 or duplicated customer and job data.

@@ -16,3 +16,4 @@ coverage
 **/*.xcodeproj/project.xcworkspace/
 **/*.xcodeproj/xcuserdata/
 *.xcuserstate
+*.tsbuildinfo
