@@ -1022,19 +1022,89 @@
   width: 100%;
 }
 
-.check-row.done {
+.check-row.done,
+.check-card.done {
   background: rgba(42, 127, 114, 0.08);
   border-color: rgba(42, 127, 114, 0.28);
 }
 
-.check-row.missing {
+.check-row.missing,
+.check-card.missing {
   background: var(--white);
 }
 
-.check-row em {
+.check-row em,
+.check-card-head em {
   flex-shrink: 0;
   font-weight: 700;
   margin: 0;
+}
+
+.check-card {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.check-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.check-card-head strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.check-card-head span,
+.check-card-head em {
+  color: var(--steel);
+  display: block;
+  font-size: 13px;
+  font-style: normal;
+  margin-top: 4px;
+}
+
+.check-card-capture {
+  display: grid;
+  gap: 8px;
+}
+
+.check-card-capture input[type="text"],
+.check-card-capture input[type="number"],
+.check-card-capture input[type="file"] {
+  background: var(--mist);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.check-card-capture small {
+  color: var(--steel);
+  font-size: 12px;
+}
+
+.check-save {
+  background: var(--ink, #10241f);
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 12px 14px;
+}
+
+.check-save:disabled {
+  opacity: 0.6;
 }
 
 .programme-board {

@@ -13,10 +13,26 @@ export type FieldAttachment = {
   uploadedAt: string;
 };
 
+export type FieldEvidenceType = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
+
+export type FieldRequirementValue = {
+  text?: string;
+  numberValue?: string;
+  photoName?: string;
+  capturedAt?: string;
+};
+
 export type FieldRequirement = {
   id: string;
   label: string;
   status: "done" | "missing" | "optional";
+  evidence?: FieldEvidenceType;
+  stage?: string;
+  required?: boolean;
+  stepId?: string;
+  costCentreId?: string;
+  formField?: string;
+  value?: FieldRequirementValue;
 };
 
 export type FieldScheduleItem = {

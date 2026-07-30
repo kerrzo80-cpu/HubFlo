@@ -9,9 +9,26 @@ import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
-import type { FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
+import type { FieldEvidenceType, FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
 
 type Tab = "pack" | "checklist" | "photos";
+
+type DraftValue = {
+  text?: string;
+  numberValue?: string;
+  photoName?: string;
+};
+
+function evidenceTypeOf(item: FieldRequirement): FieldEvidenceType {
+  return item.evidence || "Checkbox";
+}
+
+function doneSummary(item: FieldRequirement) {
+  const parts = [item.value?.text, item.value?.numberValue, item.value?.photoName]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+  return parts.join(" · ");
+}
 
 export default function JobDetailPage() {
   const params = useParams<{ scheduleId: string }>();
@@ -20,6 +37,9 @@ export default function JobDetailPage() {
   const [job, setJob] = useState<FieldScheduleItem | null>(null);
   const [jobs, setJobs] = useState<FieldScheduleItem[]>([]);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [draftByRequirement, setDraftByRequirement] = useState<Record<string, DraftValue>>({});
+  const [savingId, setSavingId] = useState("");
   const initialTab = (searchParams.get("tab") as Tab | null) ?? "pack";
   const [tab, setTab] = useState<Tab>(initialTab);
 
@@ -64,16 +84,47 @@ export default function JobDetailPage() {
     };
   }, [client, params.scheduleId]);
 
-  async function toggleRequirement(requirementId: string) {
+  async function saveRequirement(requirementId: string) {
     if (!job) return;
+    const requirement = job.requirements.find((item) => item.id === requirementId);
+    if (!requirement || requirement.status === "done") return;
+
+    const evidenceType = evidenceTypeOf(requirement);
+    const draft = draftByRequirement[requirementId] || {};
     const connection = client.getConnection();
+
+    if (evidenceType === "Text" || evidenceType === "Signature") {
+      if (!draft.text?.trim()) {
+        setError(`Enter a value for “${requirement.label}” before saving.`);
+        return;
+      }
+    }
+    if (evidenceType === "Number" && !draft.numberValue?.trim()) {
+      setError(`Enter a number for “${requirement.label}” before saving.`);
+      return;
+    }
+    if (evidenceType === "Photo" && !draft.photoName?.trim()) {
+      setError(`Add a photo for “${requirement.label}” before saving.`);
+      return;
+    }
+
+    setError("");
+    setNotice("");
+    setSavingId(requirementId);
+
     if (connection.mode === "nexa") {
-      const requirement = job.requirements.find((item) => item.id === requirementId);
-      if (!requirement || requirement.status === "done" || requirement.status === "optional") return;
+      const optimisticValue = {
+        text: draft.text,
+        numberValue: draft.numberValue,
+        photoName: draft.photoName,
+        capturedAt: new Date().toISOString(),
+      };
       setJob({
         ...job,
         requirements: job.requirements.map((item) =>
-          item.id === requirementId ? { ...item, status: "done" } : item,
+          item.id === requirementId
+            ? { ...item, status: "done", value: optimisticValue }
+            : item,
         ),
       });
       try {
@@ -82,23 +133,42 @@ export default function JobDetailPage() {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ requirementId }),
+            body: JSON.stringify({
+              requirementId,
+              text: draft.text,
+              numberValue: draft.numberValue,
+              photoName: draft.photoName,
+              createdBy: job.engineerName,
+            }),
           },
         );
-        if (!response.ok) throw new Error("Could not update checklist.");
+        if (!response.ok) throw new Error("Could not save checklist item.");
         const body = (await response.json()) as { requirements?: FieldRequirement[] };
         if (body.requirements) {
           setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
         }
+        setDraftByRequirement((current) => {
+          const next = { ...current };
+          delete next[requirementId];
+          return next;
+        });
+        setNotice("Saved to NeXa.");
       } catch {
         setJob(job);
+        setError("Could not save checklist item.");
+      } finally {
+        setSavingId("");
       }
       return;
     }
+
     try {
       setJob(toggleMockRequirement(job.scheduleId, requirementId));
+      setNotice("Marked complete (demo).");
     } catch {
       // Demo-only toggle.
+    } finally {
+      setSavingId("");
     }
   }
 
@@ -111,7 +181,7 @@ export default function JobDetailPage() {
     [job],
   );
 
-  if (error) {
+  if (error && !job) {
     return (
       <main className="field-screen">
         <Link href={fieldPath("/")} className="back-link">
@@ -202,19 +272,94 @@ export default function JobDetailPage() {
 
       {tab === "checklist" ? (
         <div className="stack">
-          <p className="muted">Tap to mark supplied.</p>
-          {job.requirements.map((item) => (
-            <button
-              type="button"
-              className={`check-row ${item.status}`}
-              key={item.id}
-              disabled={item.status === "optional"}
-              onClick={() => toggleRequirement(item.id)}
-            >
-              <span>{item.label}</span>
-              <em>{item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional"}</em>
-            </button>
-          ))}
+          <p className="muted">Enter the reading, note, or photo for each item, then save. Don’t just tick Done.</p>
+          {error ? <div className="feedback error">{error}</div> : null}
+          {notice ? <div className="feedback">{notice}</div> : null}
+          {job.requirements.map((item) => {
+            const evidenceType = evidenceTypeOf(item);
+            const draft = draftByRequirement[item.id] || {};
+            const summary = doneSummary(item);
+            return (
+              <div className={`check-card ${item.status}`} key={item.id}>
+                <div className="check-card-head">
+                  <div>
+                    <strong>{item.label}</strong>
+                    <span>
+                      {item.stage ? `${item.stage} · ` : ""}
+                      {evidenceType}
+                      {item.status === "done"
+                        ? summary
+                          ? ` · ${summary}`
+                          : " · Saved"
+                        : item.status === "optional"
+                          ? " · Optional"
+                          : " · Required"}
+                    </span>
+                  </div>
+                  <em>{item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional"}</em>
+                </div>
+
+                {item.status === "missing" ? (
+                  <div className="check-card-capture">
+                    {evidenceType === "Text" || evidenceType === "Signature" ? (
+                      <input
+                        type="text"
+                        value={draft.text || ""}
+                        placeholder={evidenceType === "Signature" ? "Signed by…" : "Type the answer…"}
+                        onChange={(event) =>
+                          setDraftByRequirement((current) => ({
+                            ...current,
+                            [item.id]: { ...current[item.id], text: event.target.value },
+                          }))
+                        }
+                      />
+                    ) : null}
+                    {evidenceType === "Number" ? (
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={draft.numberValue || ""}
+                        placeholder="Enter reading…"
+                        onChange={(event) =>
+                          setDraftByRequirement((current) => ({
+                            ...current,
+                            [item.id]: { ...current[item.id], numberValue: event.target.value },
+                          }))
+                        }
+                      />
+                    ) : null}
+                    {evidenceType === "Photo" ? (
+                      <>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            setDraftByRequirement((current) => ({
+                              ...current,
+                              [item.id]: { ...current[item.id], photoName: file.name },
+                            }));
+                            event.target.value = "";
+                          }}
+                        />
+                        {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="check-save"
+                      disabled={savingId === item.id}
+                      onClick={() => void saveRequirement(item.id)}
+                    >
+                      {evidenceType === "Checkbox" ? "Mark complete" : "Save to NeXa"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
 

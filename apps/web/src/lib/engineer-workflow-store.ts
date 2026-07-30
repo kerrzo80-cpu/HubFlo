@@ -330,15 +330,40 @@ export function getEngineerJobWorkflow(scheduleId: string) {
   // Prefer live Hub stop/go templates (gas service record fields) over older boolean-only seeds.
   if (job?.requirements?.length && job.requirements.some((item) => item.evidence || item.stepId)) {
     const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
-    workflow.requirements = job.requirements.map((seed) => {
+    const nextRequirements = job.requirements.map((seed) => {
       const existing = byId.get(seed.id);
       if (!existing) return seed;
+      const value = existing.value || seed.value;
+      const hasCapturedValue = Boolean(
+        value?.text?.trim() || value?.numberValue?.trim() || value?.photoName?.trim(),
+      );
+      const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+      // Ignore earlier Field taps that marked items done with no photo/reading/note.
+      const keepDone =
+        seed.status === "done" ||
+        (existing.status === "done" && (evidenceType === "Checkbox" || hasCapturedValue));
       return {
         ...seed,
-        status: existing.status === "done" || seed.status === "done" ? "done" : seed.status,
-        value: existing.value || seed.value,
+        status: keepDone ? ("done" as const) : seed.status,
+        value,
       };
     });
+    const changed =
+      nextRequirements.length !== workflow.requirements.length ||
+      nextRequirements.some((item, index) => {
+        const previous = workflow.requirements[index];
+        return (
+          !previous ||
+          previous.id !== item.id ||
+          previous.status !== item.status ||
+          previous.evidence !== item.evidence ||
+          Boolean(previous.value?.text) !== Boolean(item.value?.text) ||
+          Boolean(previous.value?.numberValue) !== Boolean(item.value?.numberValue) ||
+          Boolean(previous.value?.photoName) !== Boolean(item.value?.photoName)
+        );
+      });
+    workflow.requirements = nextRequirements;
+    if (changed) saveStore();
   }
   return clone(workflow);
 }
