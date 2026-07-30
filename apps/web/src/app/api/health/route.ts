@@ -14,6 +14,7 @@ export async function GET() {
       talkLabBuild: "realtime-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
+      photoCompressBuild: "shrink-v1",
     },
     checkedAt: new Date().toISOString(),
   });
