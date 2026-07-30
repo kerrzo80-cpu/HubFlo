@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   CalendarDays,
   Check,
-  ClipboardList,
+  MapPin,
   Send,
   Sparkles,
 } from "lucide-react";
 import {
-  EXAMPLE_PROMPT,
-  applyKnownFromPrompt,
-  detectPlaybook,
-  extractCustomerName,
   firstOpenField,
+  leadJobTypeOptions,
   playbookAnswers,
   playbooks,
   questionForField,
@@ -24,7 +21,15 @@ import {
 import "../ai-first/ai-first.css";
 
 type LeadSource = "Phone call" | "Checkatrade" | "Email" | "Website" | "Referral";
-type Phase = "need" | "thinking" | "questions" | "book" | "saving" | "done";
+type Phase = "jobType" | "thinking" | "questions" | "book" | "saving" | "done";
+
+type AddressMatch = {
+  postcode: string;
+  address: string;
+  line1?: string;
+  town?: string;
+  county?: string;
+};
 
 type LeadApiResponse = {
   lead?: {
@@ -60,14 +65,28 @@ function tomorrowIso() {
   return date.toISOString().slice(0, 10);
 }
 
+function splitSiteAddress(value: string) {
+  const postcodeMatch = value.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
+  const postcode = postcodeMatch?.[1]?.toUpperCase().replace(/\s+/, " ") || "";
+  const line1 = postcode ? value.replace(postcodeMatch![0], "").replace(/,\s*$/, "").trim() : value.trim();
+  return { line1, postcode };
+}
+
 export function AiIntakeClient() {
-  const [phase, setPhase] = useState<Phase>("need");
-  const [prompt, setPrompt] = useState("");
+  const [phase, setPhase] = useState<Phase>("jobType");
   const [answerDraft, setAnswerDraft] = useState("");
+  const [postcodeQuery, setPostcodeQuery] = useState("");
+  const [addressMatches, setAddressMatches] = useState<AddressMatch[]>([]);
+  const [addressBusy, setAddressBusy] = useState(false);
   const [playbookId, setPlaybookId] = useState<PlaybookId>("heating");
   const [customerName, setCustomerName] = useState("");
   const [fields, setFields] = useState<MandatoryField[]>(() => cloneFields("heating"));
-  const [conversation, setConversation] = useState<Array<{ role: "customer" | "ai"; text: string }>>([]);
+  const [conversation, setConversation] = useState<Array<{ role: "customer" | "ai"; text: string }>>([
+    {
+      role: "ai",
+      text: "Hi — I’m Blake. What is this lead for? Pick the job type and I’ll load the right playbook.",
+    },
+  ]);
   const [source, setSource] = useState<LeadSource>("Phone call");
   const [surveyor, setSurveyor] = useState(surveyors[0] || "Brian Kerr");
   const [surveyDate, setSurveyDate] = useState(tomorrowIso());
@@ -76,6 +95,7 @@ export function AiIntakeClient() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [savedLead, setSavedLead] = useState<LeadApiResponse["lead"] | null>(null);
+  const lookupGen = useRef(0);
 
   const playbook = playbooks[playbookId];
   const missingCount = fields.filter((field) => field.status !== "answered").length;
@@ -83,23 +103,16 @@ export function AiIntakeClient() {
   const progress = Math.round((answeredCount / Math.max(fields.length, 1)) * 100);
   const currentQuestion = firstOpenField(fields);
   const questionNumber = Math.min(answeredCount + 1, fields.length);
+  const askingAddress = phase === "questions" && currentQuestion?.id === "site_address";
 
-  const address = useMemo(() => {
-    const full = fieldValue(fields, "address");
-    const postcode = fieldValue(fields, "postcode");
-    if (full && postcode && !full.toLowerCase().includes(postcode.toLowerCase())) {
-      return `${full}, ${postcode}`;
-    }
-    return full || postcode || "Address to confirm";
-  }, [fields]);
-
+  const siteAddress = fieldValue(fields, "site_address") || "Address to confirm";
   const description = useMemo(() => {
     const captured = fields
       .filter((field) => field.status === "answered" && field.answer)
       .map((field) => `${field.label}: ${field.answer}`)
       .join(" · ");
-    return `${playbook.jobType}. ${prompt.trim()}${captured ? ` | ${captured}` : ""}`.slice(0, 1800);
-  }, [fields, playbook.jobType, prompt]);
+    return `${playbook.jobType}${captured ? ` | ${captured}` : ""}`.slice(0, 1800);
+  }, [fields, playbook.jobType]);
 
   useEffect(() => {
     if (!toast) return;
@@ -107,18 +120,52 @@ export function AiIntakeClient() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!askingAddress) return;
+    const query = postcodeQuery.trim();
+    if (query.length < 2) {
+      setAddressMatches([]);
+      return;
+    }
+    const gen = ++lookupGen.current;
+    setAddressBusy(true);
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`, {
+            headers: requestHeaders,
+          });
+          const body = (await response.json().catch(() => null)) as { matches?: AddressMatch[] } | null;
+          if (gen !== lookupGen.current) return;
+          setAddressMatches(Array.isArray(body?.matches) ? body!.matches! : []);
+        } catch {
+          if (gen === lookupGen.current) setAddressMatches([]);
+        } finally {
+          if (gen === lookupGen.current) setAddressBusy(false);
+        }
+      })();
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [askingAddress, postcodeQuery]);
+
   function showToast(message: string) {
     setToast(message);
   }
 
   function reset() {
-    setPhase("need");
-    setPrompt("");
+    setPhase("jobType");
     setAnswerDraft("");
+    setPostcodeQuery("");
+    setAddressMatches([]);
     setPlaybookId("heating");
     setCustomerName("");
     setFields(cloneFields("heating"));
-    setConversation([]);
+    setConversation([
+      {
+        role: "ai",
+        text: "Hi — I’m Blake. What is this lead for? Pick the job type and I’ll load the right playbook.",
+      },
+    ]);
     setError("");
     setSavedLead(null);
     setBookSurvey(true);
@@ -126,27 +173,19 @@ export function AiIntakeClient() {
     setSurveyTime("09:30");
   }
 
-  function startIntake(text: string) {
-    const value = text.trim();
-    if (!value) return;
-    const detected = detectPlaybook(value);
-    const name = extractCustomerName(value);
-    const seeded = applyKnownFromPrompt(cloneFields(detected), value, detected);
-    const known = seeded.filter((field) => field.status === "answered").map((field) => field.label);
-
-    setPrompt(value);
-    setPlaybookId(detected);
-    setCustomerName(name);
+  function selectJobType(id: PlaybookId) {
+    const option = leadJobTypeOptions.find((item) => item.id === id);
+    const seeded = cloneFields(id);
+    setPlaybookId(id);
     setFields(seeded);
+    setCustomerName("");
     setPhase("thinking");
-    setError("");
-    setConversation([
-      { role: "customer", text: value },
+    setConversation((prev) => [
+      ...prev,
+      { role: "customer", text: option?.label || id },
       {
         role: "ai",
-        text: known.length
-          ? `Draft lead for ${name} · ${playbooks[detected].jobType}. Loaded ${playbooks[detected].name}. Already captured: ${known.join(", ")}. I’ll ask the remaining mandatory questions.`
-          : `Draft lead for ${name} · ${playbooks[detected].jobType}. Loaded ${playbooks[detected].name}. I’ll ask the mandatory questions now.`,
+        text: `Got it — ${playbooks[id].jobType}. I’ve loaded the ${playbooks[id].name}. Lead stage only needs contact and site details; survey detail comes after the visit.`,
       },
     ]);
 
@@ -154,29 +193,28 @@ export function AiIntakeClient() {
       const next = firstOpenField(seeded);
       if (!next) {
         setPhase("book");
-        setConversation((prev) => [
-          ...prev,
-          { role: "ai", text: "All mandatory details are in. Book the surveyor when ready, then save into NeXa." },
-        ]);
         return;
       }
       setPhase("questions");
-      setConversation((prev) => [...prev, { role: "ai", text: questionForField(next, name) }]);
+      setConversation((prev) => [
+        ...prev,
+        { role: "ai", text: questionForField(next, "New customer") },
+      ]);
       setAnswerDraft("");
-    }, 650);
+      setPostcodeQuery("");
+      setAddressMatches([]);
+    }, 500);
   }
 
-  function submitAnswer(raw?: string) {
-    const value = (raw ?? answerDraft).trim();
-    const current = firstOpenField(fields);
-    if (!current || !value || phase !== "questions") return;
-
-    const updated = fields.map((field) =>
-      field.id === current.id ? { ...field, status: "answered" as const, answer: value } : field,
-    );
+  function applyAnswer(updated: MandatoryField[], value: string) {
     setFields(updated);
     setAnswerDraft("");
+    setPostcodeQuery("");
+    setAddressMatches([]);
     setConversation((prev) => [...prev, { role: "customer", text: value }]);
+
+    const customerField = updated.find((field) => field.id === "customer");
+    if (customerField?.answer) setCustomerName(customerField.answer);
 
     const next = firstOpenField(updated);
     if (!next) {
@@ -185,22 +223,43 @@ export function AiIntakeClient() {
         ...prev,
         {
           role: "ai",
-          text: `That’s everything mandatory from the ${playbook.name}. Book the surveyor, then I’ll save this lead into NeXa.`,
+          text: "Lead details are complete. Book the surveyor and I’ll save this into NeXa Core.",
         },
       ]);
-      showToast("Mandatory questions complete");
+      showToast("Lead details complete");
       return;
     }
 
+    const name = customerField?.answer || customerName || "New customer";
     window.setTimeout(() => {
-      setConversation((prev) => [...prev, { role: "ai", text: questionForField(next, customerName) }]);
+      setConversation((prev) => [...prev, { role: "ai", text: questionForField(next, name) }]);
     }, 220);
+  }
+
+  function submitAnswer(raw?: string) {
+    const value = (raw ?? answerDraft).trim();
+    const current = firstOpenField(fields);
+    if (!current || !value || phase !== "questions") return;
+    if (current.id === "site_address" && value.length < 5) return;
+
+    const updated = fields.map((field) =>
+      field.id === current.id ? { ...field, status: "answered" as const, answer: value } : field,
+    );
+    applyAnswer(updated, value);
+  }
+
+  function selectAddress(match: AddressMatch) {
+    submitAnswer(match.address);
   }
 
   function useDemoAnswer() {
     const current = firstOpenField(fields);
     if (!current) return;
     const suggested = playbookAnswers[playbookId][current.id] || "Confirmed";
+    if (current.id === "site_address") {
+      submitAnswer(suggested);
+      return;
+    }
     submitAnswer(suggested);
   }
 
@@ -211,23 +270,27 @@ export function AiIntakeClient() {
         ? field
         : { ...field, status: "answered" as const, answer: answers[field.id] || "Confirmed" },
     );
+    const name = updated.find((field) => field.id === "customer")?.answer || customerName;
+    setCustomerName(name);
     setFields(updated);
     setPhase("book");
     setConversation((prev) => [
       ...prev,
-      { role: "ai", text: `Remaining mandatory answers filled. Book the surveyor, then save into NeXa.` },
+      { role: "ai", text: "I’ve filled the remaining lead details. Book the surveyor when ready." },
     ]);
-    showToast("Remaining answers filled");
+    showToast("Remaining lead details filled");
   }
 
   async function saveIntoNexa() {
     setError("");
-    if (!customerName.trim()) {
+    const name = fieldValue(fields, "customer") || customerName;
+    const address = fieldValue(fields, "site_address");
+    if (!name.trim()) {
       setError("Customer name is required.");
       return;
     }
     if (!address || address === "Address to confirm") {
-      setError("Full address is required before saving.");
+      setError("Site address is required before saving.");
       return;
     }
     if (bookSurvey && (!surveyor || !surveyDate || !surveyTime)) {
@@ -236,9 +299,10 @@ export function AiIntakeClient() {
     }
 
     setPhase("saving");
+    const parts = splitSiteAddress(address);
     const payload = {
       source,
-      customerName: customerName.trim(),
+      customerName: name.trim(),
       address,
       description,
       phone: fieldValue(fields, "phone"),
@@ -252,19 +316,19 @@ export function AiIntakeClient() {
         ? `Survey booked and notification sent to ${surveyor}.`
         : "Check diary and book survey appointment.",
       addressParts: {
-        line1: fieldValue(fields, "address") || address,
+        line1: parts.line1 || address,
         line2: "",
         town: "",
         county: "",
-        postcode: fieldValue(fields, "postcode"),
+        postcode: parts.postcode,
       },
       mainContact: {
         id: "ai-intake-main",
-        name: customerName.trim(),
+        name: name.trim(),
         role: "Customer",
         phone: fieldValue(fields, "phone"),
         email: fieldValue(fields, "email"),
-        notes: "Captured via AI intake",
+        notes: "Captured via Blake AI intake",
       },
     };
 
@@ -281,7 +345,6 @@ export function AiIntakeClient() {
         return;
       }
 
-      // Best-effort linked survey workspace for the surveyor.
       try {
         await fetch("/api/surveys", {
           method: "POST",
@@ -294,26 +357,23 @@ export function AiIntakeClient() {
             siteId: result.lead.siteId,
             customerRequirements: description,
             primaryContact: {
-              name: customerName.trim(),
+              name: name.trim(),
               phone: fieldValue(fields, "phone"),
               email: fieldValue(fields, "email"),
             },
             jobLink: { type: "Lead", id: result.lead.id, reference: result.lead.ref },
-            surveyorName: bookSurvey ? surveyor : undefined,
-            surveyDate: bookSurvey ? surveyDate : undefined,
-            notes: fields
-              .filter((field) => field.status === "answered")
-              .map((field) => `${field.label}: ${field.answer}`)
-              .join("\n"),
+            surveyorName: bookSurvey ? surveyor : "",
+            surveyDate: bookSurvey ? surveyDate : "",
+            jobType: playbookId === "bathroom" ? "Bathroom" : "Heating",
           }),
         });
       } catch {
-        // Lead is saved; survey workspace is optional.
+        // Lead saved; survey optional.
       }
 
       setSavedLead(result.lead);
       setPhase("done");
-      showToast(`${result.lead.ref} saved into NeXa`);
+      showToast(`${result.lead.ref} saved — Blake handed it to Core`);
       window.setTimeout(() => {
         window.location.assign(`/?lead=${encodeURIComponent(result.lead!.id)}`);
       }, 900);
@@ -331,11 +391,11 @@ export function AiIntakeClient() {
             <img src="/brand/nexa-command-mark.svg" alt="NeXa" />
             <div className="ai-first-brand-copy">
               <strong>NeXa</strong>
-              <span>AI intake · creates a real lead in Core</span>
+              <span>Blake AI intake · creates a real lead in Core</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <div className="ai-first-principle">AI First · Human Approved</div>
+            <div className="ai-first-principle">Blake · Human Approved</div>
             <a className="ai-btn-ghost" href="/" style={{ textDecoration: "none" }}>
               <ArrowLeft size={16} /> Command Center
             </a>
@@ -355,21 +415,21 @@ export function AiIntakeClient() {
 
         <main className="ai-first-stage">
           <section className="ai-first-panel">
-            <p className="ai-first-eyebrow">AI Intake · Live NeXa</p>
+            <p className="ai-first-eyebrow">Blake · Live NeXa intake</p>
             <div className="ai-header-row">
               <div>
                 <h1 className="ai-first-title">
-                  {phase === "need" || phase === "thinking"
-                    ? "Tell NeXa what the customer needs…"
+                  {phase === "jobType" || phase === "thinking"
+                    ? "What is this lead for?"
                     : phase === "questions"
-                      ? "Mandatory playbook questions"
+                      ? "Lead details"
                       : phase === "book" || phase === "saving"
                         ? "Book surveyor & save lead"
                         : "Lead saved"}
                 </h1>
                 <p className="ai-first-lede">
-                  Carol’s path: create the lead here, book the survey, then continue in Core — convert to quote,
-                  build with AI, send, wait for online accept, schedule the job, complete, then ready to invoice.
+                  Blake starts with the job type, then only lead info — customer, site address, phone and email.
+                  Survey detail (boiler, radiators, photos) comes after the site visit.
                 </p>
               </div>
               <button className="ai-btn-ghost" type="button" onClick={reset}>
@@ -377,55 +437,37 @@ export function AiIntakeClient() {
               </button>
             </div>
 
-            {(phase === "need" || phase === "thinking") && (
+            {(phase === "jobType" || phase === "thinking") && (
               <>
-                <div className={`ai-prompt-shell${phase === "thinking" ? " listening" : ""}`}>
-                  <textarea
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    placeholder={EXAMPLE_PROMPT}
-                    aria-label="Customer need"
-                  />
-                  <div className="ai-prompt-actions">
-                    <label className="ai-chip" style={{ cursor: "pointer" }}>
-                      Source
-                      <select
-                        value={source}
-                        onChange={(event) => setSource(event.target.value as LeadSource)}
-                        style={{ border: 0, background: "transparent", font: "inherit", fontWeight: 600 }}
-                      >
-                        {sources.map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                <div className="ai-job-type-grid">
+                  {leadJobTypeOptions.map((option) => (
                     <button
-                      className="ai-btn ai-btn-primary"
+                      key={option.id}
                       type="button"
-                      disabled={!prompt.trim() || phase === "thinking"}
-                      onClick={() => startIntake(prompt)}
+                      className="ai-job-type-card"
+                      disabled={phase === "thinking"}
+                      onClick={() => selectJobType(option.id)}
                     >
-                      <Sparkles size={16} /> Start AI intake
+                      <strong>{option.label}</strong>
+                      <span>{option.hint}</span>
                     </button>
-                  </div>
+                  ))}
                 </div>
-                <div className="ai-example-row">
-                  <span style={{ color: "var(--steel)", fontSize: "0.9rem" }}>Try:</span>
-                  <button type="button" onClick={() => startIntake(EXAMPLE_PROMPT)}>
-                    Heating · Mrs Smith
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      startIntake(
-                        "Mr Patel on Oak Road needs a full bathroom refurbishment with new suite and tiling.",
-                      )
-                    }
-                  >
-                    Bathroom · Mr Patel
-                  </button>
+                <div className="ai-prompt-actions" style={{ marginTop: 14 }}>
+                  <label className="ai-chip" style={{ cursor: "pointer" }}>
+                    Source
+                    <select
+                      value={source}
+                      onChange={(event) => setSource(event.target.value as LeadSource)}
+                      style={{ border: 0, background: "transparent", font: "inherit", fontWeight: 600 }}
+                    >
+                      {sources.map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
                 {phase === "thinking" && (
                   <div className="ai-thinking">
@@ -434,7 +476,7 @@ export function AiIntakeClient() {
                       <span />
                       <span />
                     </div>
-                    Creating draft lead · loading playbook…
+                    Blake is loading the playbook…
                   </div>
                 )}
               </>
@@ -445,14 +487,14 @@ export function AiIntakeClient() {
                 <div className="ai-draft-grid">
                   <div className="ai-stat">
                     <label>Customer</label>
-                    <strong>{customerName}</strong>
+                    <strong>{fieldValue(fields, "customer") || customerName || "—"}</strong>
                   </div>
                   <div className="ai-stat">
                     <label>Job type</label>
                     <strong>{playbook.jobType}</strong>
                   </div>
                   <div className="ai-stat">
-                    <label>Playbook</label>
+                    <label>Blake playbook</label>
                     <strong>{playbook.name}</strong>
                   </div>
                 </div>
@@ -460,7 +502,7 @@ export function AiIntakeClient() {
                 <div className="ai-progress">
                   <div className="ai-progress-head">
                     <strong>
-                      {answeredCount} of {fields.length} mandatory
+                      {answeredCount} of {fields.length} lead details
                     </strong>
                     <span className={`ai-badge ${missingCount ? "ai-badge-lock" : "ai-badge-ok"}`}>
                       {missingCount ? `${missingCount} remaining` : "Complete"}
@@ -473,7 +515,7 @@ export function AiIntakeClient() {
 
                 <div className="ai-split">
                   <div className="ai-section">
-                    <h3>Conversation</h3>
+                    <h3>Blake</h3>
                     <div className="ai-chat">
                       {conversation.map((message, index) => (
                         <div key={`${message.role}-${index}`} className={`ai-bubble ${message.role}`}>
@@ -482,12 +524,14 @@ export function AiIntakeClient() {
                       ))}
                     </div>
 
-                    {phase === "questions" && currentQuestion ? (
+                    {phase === "questions" && currentQuestion && !askingAddress ? (
                       <div className="ai-question-box">
                         <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
                           Question {questionNumber} of {fields.length} · {currentQuestion.label}
                         </p>
-                        <h3 style={{ marginTop: 0 }}>{questionForField(currentQuestion, customerName)}</h3>
+                        <h3 style={{ marginTop: 0 }}>
+                          {questionForField(currentQuestion, customerName || "New customer")}
+                        </h3>
                         <div className="ai-prompt-shell" style={{ marginTop: 10 }}>
                           <textarea
                             value={answerDraft}
@@ -518,6 +562,76 @@ export function AiIntakeClient() {
                       </div>
                     ) : null}
 
+                    {askingAddress ? (
+                      <div className="ai-question-box">
+                        <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
+                          Question {questionNumber} of {fields.length} · Site address
+                        </p>
+                        <h3 style={{ marginTop: 0 }}>
+                          <MapPin size={18} style={{ marginRight: 8, verticalAlign: "middle" }} />
+                          Site address
+                        </h3>
+                        <p className="ai-summary">
+                          Enter the postcode and Blake will offer matching addresses to select.
+                        </p>
+                        <div className="ai-prompt-shell" style={{ marginTop: 10 }}>
+                          <input
+                            value={postcodeQuery}
+                            onChange={(event) => setPostcodeQuery(event.target.value.toUpperCase())}
+                            placeholder="e.g. AB10 1AA or HG2 7PL"
+                            aria-label="Postcode lookup"
+                            style={{
+                              width: "100%",
+                              border: 0,
+                              background: "transparent",
+                              font: "inherit",
+                              fontSize: "1.15rem",
+                              outline: "none",
+                              padding: "4px 0 10px",
+                            }}
+                          />
+                          {addressBusy ? (
+                            <p className="ai-summary" style={{ margin: "0 0 8px" }}>
+                              Blake is looking up addresses…
+                            </p>
+                          ) : null}
+                          {addressMatches.length > 0 ? (
+                            <div className="ai-address-matches">
+                              {addressMatches.slice(0, 12).map((match) => (
+                                <button
+                                  key={`${match.postcode}-${match.address}`}
+                                  type="button"
+                                  className="ai-address-match"
+                                  onClick={() => selectAddress(match)}
+                                >
+                                  {match.address}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="ai-prompt-actions" style={{ marginTop: 10 }}>
+                            <button className="ai-chip" type="button" onClick={useDemoAnswer}>
+                              Use demo address
+                            </button>
+                            <button
+                              className="ai-btn ai-btn-primary"
+                              type="button"
+                              disabled={postcodeQuery.trim().length < 5 && !answerDraft.trim()}
+                              onClick={() => submitAnswer(answerDraft.trim() || postcodeQuery.trim())}
+                            >
+                              <Send size={16} /> Use typed address
+                            </button>
+                          </div>
+                          <textarea
+                            value={answerDraft}
+                            onChange={(event) => setAnswerDraft(event.target.value)}
+                            placeholder="Or type the full address manually…"
+                            style={{ minHeight: 56, marginTop: 8 }}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
                     {(phase === "book" || phase === "saving") && (
                       <div className="ai-question-box" style={{ marginTop: 16 }}>
                         <p className="ai-first-eyebrow" style={{ marginBottom: 6 }}>
@@ -542,7 +656,13 @@ export function AiIntakeClient() {
                               <select
                                 value={surveyor}
                                 onChange={(event) => setSurveyor(event.target.value)}
-                                style={{ width: "100%", border: 0, background: "transparent", font: "inherit", fontWeight: 700 }}
+                                style={{
+                                  width: "100%",
+                                  border: 0,
+                                  background: "transparent",
+                                  font: "inherit",
+                                  fontWeight: 700,
+                                }}
                               >
                                 {surveyors.map((name) => (
                                   <option key={name} value={name}>
@@ -557,7 +677,13 @@ export function AiIntakeClient() {
                                 type="date"
                                 value={surveyDate}
                                 onChange={(event) => setSurveyDate(event.target.value)}
-                                style={{ width: "100%", border: 0, background: "transparent", font: "inherit", fontWeight: 700 }}
+                                style={{
+                                  width: "100%",
+                                  border: 0,
+                                  background: "transparent",
+                                  font: "inherit",
+                                  fontWeight: 700,
+                                }}
                               />
                             </div>
                             <div className="ai-stat">
@@ -566,13 +692,19 @@ export function AiIntakeClient() {
                                 type="time"
                                 value={surveyTime}
                                 onChange={(event) => setSurveyTime(event.target.value)}
-                                style={{ width: "100%", border: 0, background: "transparent", font: "inherit", fontWeight: 700 }}
+                                style={{
+                                  width: "100%",
+                                  border: 0,
+                                  background: "transparent",
+                                  font: "inherit",
+                                  fontWeight: 700,
+                                }}
                               />
                             </div>
                           </div>
                         ) : (
                           <p className="ai-summary" style={{ marginTop: 10 }}>
-                            Lead will save as <strong>Needs scheduling</strong>. Book later from the lead record.
+                            Lead will save as <strong>Needs scheduling</strong>.
                           </p>
                         )}
                         {error ? <p className="ai-lock-note" style={{ marginTop: 12 }}>{error}</p> : null}
@@ -626,9 +758,13 @@ export function AiIntakeClient() {
                     </ul>
                     {phase === "questions" && missingCount > 0 ? (
                       <button className="ai-btn" type="button" style={{ marginTop: 12 }} onClick={fillRemaining}>
-                        <ClipboardList size={16} /> Fill remaining (demo)
+                        <Sparkles size={16} /> Fill remaining (demo)
                       </button>
                     ) : null}
+                    <p className="ai-summary" style={{ marginTop: 14 }}>
+                      Survey questions (boiler, cylinder, radiators, photos, etc.) stay for the site visit — not
+                      lead stage.
+                    </p>
                   </div>
                 </div>
               </div>

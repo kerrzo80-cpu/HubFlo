@@ -7,7 +7,12 @@ export type ScreenId =
   | "invoice"
   | "audit";
 
-export type PlaybookId = "heating" | "bathroom" | "radiator";
+export type PlaybookId =
+  | "heating"
+  | "bathroom"
+  | "radiator"
+  | "boiler_service"
+  | "water_leak";
 
 export type FieldStatus = "known" | "missing" | "answered";
 
@@ -22,10 +27,17 @@ export type Playbook = {
   id: PlaybookId;
   name: string;
   jobType: string;
+  /** Lead-stage only — survey detail is collected later on site. */
   fields: MandatoryField[];
 };
 
-export type AuditActor = "AI" | "Brian" | "Customer" | "System";
+export type LeadJobTypeOption = {
+  id: PlaybookId;
+  label: string;
+  hint: string;
+};
+
+export type AuditActor = "AI" | "Blake" | "Brian" | "Customer" | "System";
 
 export type AuditEvent = {
   id: string;
@@ -63,109 +75,73 @@ export type HealthAlert = {
   detail: string;
 };
 
+/** First intake question — what kind of lead is this? */
+export const leadJobTypeOptions: LeadJobTypeOption[] = [
+  { id: "boiler_service", label: "Boiler service", hint: "Annual service / Gas Safe check" },
+  { id: "water_leak", label: "Water leak", hint: "Burst, drip, or escape of water" },
+  { id: "heating", label: "Heating system", hint: "Full renewal / boiler change" },
+  { id: "radiator", label: "Radiators", hint: "Replace or add radiators" },
+  { id: "bathroom", label: "Bathroom", hint: "Refurb / suite / wet room" },
+];
+
 export const EXAMPLE_PROMPT =
   "Mrs Smith from Hillside Avenue wants a complete heating system replacement.";
 
+/** Lead stage only — no survey/site detail here. */
+const leadFields: MandatoryField[] = [
+  { id: "customer", label: "Customer name", status: "missing" },
+  { id: "site_address", label: "Site address", status: "missing" },
+  { id: "phone", label: "Phone number", status: "missing" },
+  { id: "email", label: "Email", status: "missing" },
+];
+
+function leadPlaybook(id: PlaybookId, name: string, jobType: string): Playbook {
+  return {
+    id,
+    name,
+    jobType,
+    fields: leadFields.map((field) => ({ ...field })),
+  };
+}
+
 export const playbooks: Record<PlaybookId, Playbook> = {
-  heating: {
-    id: "heating",
-    name: "Heating System Playbook",
-    jobType: "Heating System Renewal",
-    fields: [
-      { id: "address", label: "Full address", status: "missing" },
-      { id: "postcode", label: "Postcode", status: "missing" },
-      { id: "phone", label: "Phone number", status: "missing" },
-      { id: "email", label: "Email", status: "missing" },
-      { id: "property", label: "Property type", status: "missing" },
-      { id: "bedrooms", label: "Number of bedrooms", status: "missing" },
-      { id: "boiler", label: "Existing boiler", status: "missing" },
-      { id: "cylinder", label: "Existing cylinder?", status: "missing" },
-      { id: "radiators", label: "Number of radiators", status: "missing" },
-      { id: "gas", label: "Gas available?", status: "missing" },
-      { id: "pipework", label: "Pipework accessible?", status: "missing" },
-      { id: "floors", label: "Floors timber/concrete?", status: "missing" },
-      { id: "location", label: "Desired boiler location", status: "missing" },
-      { id: "occupied", label: "Property occupied?", status: "missing" },
-      { id: "timescale", label: "Timescale", status: "missing" },
-      { id: "photos", label: "Photos", status: "missing" },
-    ],
-  },
-  bathroom: {
-    id: "bathroom",
-    name: "Bathroom Playbook",
-    jobType: "Bathroom Refurbishment",
-    fields: [
-      { id: "address", label: "Full address", status: "missing" },
-      { id: "postcode", label: "Postcode", status: "missing" },
-      { id: "phone", label: "Phone number", status: "missing" },
-      { id: "suite", label: "Suite preference", status: "missing" },
-      { id: "tiling", label: "Tiling extent", status: "missing" },
-      { id: "extract", label: "Extraction required?", status: "missing" },
-      { id: "wetroom", label: "Wet room conversion?", status: "missing" },
-      { id: "access", label: "Access constraints", status: "missing" },
-      { id: "timescale", label: "Timescale", status: "missing" },
-      { id: "photos", label: "Photos", status: "missing" },
-    ],
-  },
-  radiator: {
-    id: "radiator",
-    name: "Radiator Playbook",
-    jobType: "Radiator Replacement",
-    fields: [
-      { id: "address", label: "Full address", status: "missing" },
-      { id: "postcode", label: "Postcode", status: "missing" },
-      { id: "phone", label: "Phone number", status: "missing" },
-      { id: "count", label: "Number of radiators", status: "missing" },
-      { id: "sizes", label: "Radiator sizes", status: "missing" },
-      { id: "valves", label: "TRV upgrade?", status: "missing" },
-      { id: "system", label: "System type", status: "missing" },
-      { id: "timescale", label: "Timescale", status: "missing" },
-      { id: "photos", label: "Photos", status: "missing" },
-    ],
-  },
+  boiler_service: leadPlaybook("boiler_service", "Boiler Service Playbook", "Boiler Service"),
+  water_leak: leadPlaybook("water_leak", "Water Leak Playbook", "Water Leak"),
+  heating: leadPlaybook("heating", "Heating System Playbook", "Heating System Renewal"),
+  bathroom: leadPlaybook("bathroom", "Bathroom Playbook", "Bathroom Refurbishment"),
+  radiator: leadPlaybook("radiator", "Radiator Playbook", "Radiator Replacement"),
 };
 
 export const playbookAnswers: Record<PlaybookId, Record<string, string>> = {
-  heating: {
-    address: "14 Hillside Avenue, Harrogate",
-    postcode: "HG2 7PL",
+  boiler_service: {
+    customer: "Mrs Smith",
+    site_address: "14 Hillside Avenue, Harrogate, HG2 7PL",
     phone: "07700 900214",
     email: "mrs.smith@email.com",
-    property: "Semi-detached house",
-    bedrooms: "3 bedrooms",
-    boiler: "15-year Worcester combi",
-    cylinder: "No — combi system",
-    radiators: "9 radiators",
-    gas: "Yes — meter in kitchen",
-    pipework: "Mostly accessible under floors",
-    floors: "Ground timber, first floor timber",
-    location: "Utility cupboard (current)",
-    occupied: "Yes — family in residence",
-    timescale: "Within 6 weeks",
-    photos: "4 site photos attached",
+  },
+  water_leak: {
+    customer: "Mr Patel",
+    site_address: "8 Oak Road, Leeds, LS8 2QR",
+    phone: "07700 900331",
+    email: "mr.patel@email.com",
+  },
+  heating: {
+    customer: "Mrs Smith",
+    site_address: "14 Hillside Avenue, Harrogate, HG2 7PL",
+    phone: "07700 900214",
+    email: "mrs.smith@email.com",
   },
   bathroom: {
-    address: "8 Oak Road, Leeds",
-    postcode: "LS8 2QR",
+    customer: "Mr Patel",
+    site_address: "8 Oak Road, Leeds, LS8 2QR",
     phone: "07700 900331",
-    suite: "Modern white suite with walk-in shower",
-    tiling: "Full height wet walls + floor",
-    extract: "Yes — humidistat fan",
-    wetroom: "Partial wet zone",
-    access: "First floor · stair carry",
-    timescale: "Next month",
-    photos: "3 bathroom photos attached",
+    email: "mr.patel@email.com",
   },
   radiator: {
-    address: "22 Mill Lane, York",
-    postcode: "YO10 4AB",
+    customer: "Thompson family",
+    site_address: "22 Mill Lane, York, YO10 4AB",
     phone: "07700 900448",
-    count: "3 radiators",
-    sizes: "600×1000, 600×800, 600×600",
-    valves: "Yes — TRV upgrade",
-    system: "Sealed system",
-    timescale: "This fortnight",
-    photos: "2 radiator photos attached",
+    email: "thompson@email.com",
   },
 };
 
@@ -176,7 +152,7 @@ export const conversationSeed = [
   },
   {
     role: "ai" as const,
-    text: "Understood. I’ve created a draft lead and loaded the Heating System Playbook. I need a few mandatory details before I can build a quote.",
+    text: "Understood — I’m Blake. I’ve loaded the Heating System Playbook for this lead.",
   },
 ];
 
@@ -305,10 +281,17 @@ export const healthAlertsSeed: HealthAlert[] = [
 
 export function detectPlaybook(prompt: string): PlaybookId {
   const lower = prompt.toLowerCase();
-  if (lower.includes("bathroom") || lower.includes("suite")) return "bathroom";
-  if (lower.includes("radiator") && !lower.includes("heating system") && !lower.includes("boiler")) {
-    return "radiator";
+  if (lower.includes("leak") || lower.includes("burst") || lower.includes("flood")) return "water_leak";
+  if (
+    lower.includes("boiler service") ||
+    lower.includes("service the boiler") ||
+    (lower.includes("service") && lower.includes("boiler"))
+  ) {
+    return "boiler_service";
   }
+  if (lower.includes("bathroom") || lower.includes("suite")) return "bathroom";
+  if (lower.includes("radiator") && !lower.includes("heating system")) return "radiator";
+  if (lower.includes("heating") || lower.includes("boiler")) return "heating";
   return "heating";
 }
 
@@ -323,31 +306,10 @@ export function extractCustomerName(prompt: string): string {
 export function questionForField(field: MandatoryField, customerName: string): string {
   const who = customerName === "New customer" ? "the customer" : customerName;
   const prompts: Record<string, string> = {
-    address: `What’s the full address for ${who}?`,
-    postcode: "What’s the postcode?",
+    customer: "Who is the customer?",
+    site_address: `What’s the site address for ${who}? Enter the postcode and I’ll offer matching addresses.`,
     phone: "What’s the best phone number to use?",
     email: "Do we have an email address?",
-    property: "What type of property is it?",
-    bedrooms: "How many bedrooms?",
-    boiler: "What’s the existing boiler (make / age if known)?",
-    cylinder: "Is there an existing cylinder?",
-    radiators: "How many radiators are on the system?",
-    gas: "Is gas available on site?",
-    pipework: "Is the pipework reasonably accessible?",
-    floors: "Are the floors timber or concrete?",
-    location: "Where should the new boiler sit?",
-    occupied: "Is the property occupied during the works?",
-    timescale: "What’s the timescale?",
-    photos: "Can we get site photos (boiler, flue, cupboard, radiators)?",
-    suite: "What suite style do they want?",
-    tiling: "How much tiling is required?",
-    extract: "Is extraction required?",
-    wetroom: "Is this a wet room conversion?",
-    access: "Any access constraints?",
-    count: "How many radiators need replacing?",
-    sizes: "What sizes are required?",
-    valves: "Should we upgrade to TRVs?",
-    system: "What system type is it (sealed / open vent)?",
   };
   return prompts[field.id] || `${field.label}?`;
 }
@@ -356,9 +318,9 @@ export function questionForField(field: MandatoryField, customerName: string): s
 export function applyKnownFromPrompt(
   fields: MandatoryField[],
   prompt: string,
-  playbookId: PlaybookId,
+  _playbookId: PlaybookId,
 ): MandatoryField[] {
-  const lower = prompt.toLowerCase();
+  const name = extractCustomerName(prompt);
   const houseStreet = prompt.match(
     /\b(\d+[A-Za-z]?\s+[A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)*)\b/,
   );
@@ -368,12 +330,18 @@ export function applyKnownFromPrompt(
   const onStreet = prompt.match(
     /\bon\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+)*)\b/,
   );
-  const radiatorCount = lower.match(/\b(one|two|three|four|five|\d+)\s+radiators?\b/);
+  const postcode = prompt.match(/\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i);
 
   return fields.map((field) => {
-    if (field.id === "address") {
-      if (houseStreet) {
-        return { ...field, status: "answered", answer: houseStreet[1] };
+    if (field.id === "customer" && name !== "New customer") {
+      return { ...field, status: "answered", answer: name };
+    }
+    if (field.id === "site_address") {
+      if (houseStreet?.[1]) {
+        const line = houseStreet[1];
+        const pc = postcode?.[1]?.toUpperCase();
+        const address = pc ? `${line}, ${pc}` : line;
+        return { ...field, status: "answered", answer: address };
       }
       if (fromStreet || onStreet) {
         const street = (fromStreet || onStreet)?.[1];
@@ -383,22 +351,6 @@ export function applyKnownFromPrompt(
           answer: street ? `${street} (confirm house number)` : field.answer,
         };
       }
-    }
-    if (field.id === "count" && playbookId === "radiator" && radiatorCount) {
-      const raw = radiatorCount[1];
-      const map: Record<string, string> = {
-        one: "1",
-        two: "2",
-        three: "3",
-        four: "4",
-        five: "5",
-      };
-      const n = map[raw || ""] || raw;
-      return { ...field, status: "answered", answer: `${n} radiators` };
-    }
-    if (field.id === "radiators" && playbookId === "heating" && radiatorCount) {
-      const raw = radiatorCount[1];
-      return { ...field, status: "answered", answer: `${raw} radiators` };
     }
     return field;
   });
