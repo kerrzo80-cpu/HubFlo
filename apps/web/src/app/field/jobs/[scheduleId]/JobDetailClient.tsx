@@ -216,7 +216,7 @@ export default function JobDetailPage() {
           return next;
         });
         setEditingId("");
-        setNotice("Saved to NeXa.");
+        setNotice("Saved.");
       } catch {
         setJob(job);
         setError("Could not save checklist item.");
@@ -430,7 +430,7 @@ export default function JobDetailPage() {
                       disabled={savingId === item.id}
                       onClick={() => void saveRequirement(item.id)}
                     >
-                      {evidenceType === "Checkbox" ? "Mark complete" : "Save to NeXa"}
+                      {evidenceType === "Checkbox" ? "Mark complete" : "Save"}
                     </button>
                   </div>
                 ) : null}

@@ -17,6 +17,7 @@ export async function GET() {
       photoCompressBuild: "shrink-v1",
       blakeAccent: "picker-v1",
       blakePeerEngineer: "v1",
+      fieldHoursBuild: "time-check-v1",
     },
     checkedAt: new Date().toISOString(),
   });

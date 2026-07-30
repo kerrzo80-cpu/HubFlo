@@ -107,11 +107,11 @@ export function createHttpNexaClient(baseUrl = "", engineerId = ""): NexaFieldCl
       }
     },
     async getTimeCheck() {
-      const body = await request(withEngineer("/api/engineer/time-check"));
+      const body = await request(withEngineer("/api/field/time-check"));
       return normalizeCoreTimeCheck(body as Parameters<typeof normalizeCoreTimeCheck>[0]);
     },
     async updateTimeLine(input: UpdateTimeLineInput) {
-      const body = await request("/api/engineer/time-check", {
+      const body = await request("/api/field/time-check", {
         method: "POST",
         body: JSON.stringify({
           action: "update_line",
@@ -121,7 +121,7 @@ export function createHttpNexaClient(baseUrl = "", engineerId = ""): NexaFieldCl
       return normalizeCoreTimeCheck(body as Parameters<typeof normalizeCoreTimeCheck>[0]);
     },
     async submitTimeCheck(confirmRemainingAsScheduled) {
-      const body = await request("/api/engineer/time-check", {
+      const body = await request("/api/field/time-check", {
         method: "POST",
         body: JSON.stringify({
           action: "submit",
