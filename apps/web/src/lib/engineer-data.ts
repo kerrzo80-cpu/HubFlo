@@ -234,7 +234,7 @@ function gasCertTrialSchedule(): EngineerScheduleItem[] {
       description: "Trial boiler service — engineer stop/go populates the NeXa gas service record.",
       accessNotes: "Trial job for gas certification stop/go. Safe to complete.",
       officeNotes: [
-        "Open this job on the engineer app, fill Stop/go, then check Core job cost centre Engineer Flow.",
+        "Open this job on Field, fill Stop/go, then open Core: /?job=job-gas-cert-trial&centre=job-gas-cert-trial-boiler-service&tab=engineer-flow",
       ],
       status: "Scheduled",
       attachments: [],
@@ -551,6 +551,14 @@ function liveEngineerSchedule() {
 }
 
 export function getEngineerSchedule(engineerId?: string) {
+  try {
+    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+      ensureGasCertTrialInCore: () => unknown;
+    };
+    ensureGasCertTrialInCore();
+  } catch {
+    // Trial bootstrap is best-effort.
+  }
   const liveItems = liveEngineerSchedule();
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [

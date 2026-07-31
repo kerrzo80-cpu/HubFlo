@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import { ensureGasCertTrialInCore } from "@/lib/gas-cert-trial-core";
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { parseJsonRequestBody } from "@/lib/http";
 
@@ -10,6 +11,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  ensureGasCertTrialInCore();
   return NextResponse.json(getHubDetailState());
 }
 

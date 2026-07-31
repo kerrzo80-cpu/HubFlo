@@ -4442,6 +4442,37 @@ function makeDefaultJobSections(job: Job): JobSection[] {
 }
 
 function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
+  if (job.id === "job-gas-cert-trial") {
+    return [
+      {
+        id: "job-gas-cert-trial-boiler-service",
+        name: "Boiler servicing",
+        templateName: "Boiler servicing",
+        clientDescription: "Annual boiler service and gas safety checks for the Aberbuild trial site.",
+        engineerDescription:
+          "Complete boiler servicing stop/go on the Field app. Readings and photos populate the Core gas service record and certificate preview.",
+        materials: [
+          {
+            id: "job-gas-cert-trial-boiler-service-service-kit",
+            catalogItemId: "material-consumables",
+            description: "Service consumables allowance",
+            quantity: 1,
+            unitCost: 35,
+            markupPercent: 25,
+          },
+        ],
+        labour: [
+          {
+            id: "job-gas-cert-trial-boiler-service-engineer",
+            role: "Gas engineer labour",
+            hours: 2,
+            costRate: 45,
+            markupPercent: 30,
+          },
+        ],
+      },
+    ];
+  }
   const base = Math.max(job.value, 1000);
   const centres: EstimateCostCentre[] = [
     {
@@ -10095,7 +10126,30 @@ export default function Dashboard() {
       const targetJob = jobs.find((job) => job.id === jobParam || job.ref === jobParam);
       if (!targetJob) return;
       openJobDrawer(targetJob.id);
-      showNotice(`${targetJob.ref} opened from Blake AI intake.`);
+      const centreParam = new URLSearchParams(window.location.search).get("centre");
+      const tabParam = new URLSearchParams(window.location.search).get("tab");
+      if (centreParam) {
+        setSelectedCostCentreId(centreParam);
+        const allowedTabs: CostCentreTab[] = [
+          "summary",
+          "info",
+          "parts-labour",
+          "po",
+          "engineer-flow",
+          "schedule",
+          "assets",
+        ];
+        setActiveCostCentreTab(
+          allowedTabs.includes(tabParam as CostCentreTab)
+            ? (tabParam as CostCentreTab)
+            : "engineer-flow",
+        );
+        setActiveJobBuildTab("summary");
+        setHomeView("cost-centre-record");
+        showNotice(`${targetJob.ref} Engineer Flow opened — gas service record / certificate preview.`);
+      } else {
+        showNotice(`${targetJob.ref} opened from Blake AI intake.`);
+      }
       setHandledInitialRoute(true);
       window.history.replaceState(null, "", window.location.pathname);
       return;
@@ -25665,6 +25719,108 @@ export default function Dashboard() {
               <p>Waiting for the engineer to capture stop/go evidence on the app.</p>
             )}
           </div>
+        ) : null}
+
+        {isGasServiceFlow && gasFields.length ? (
+          <article
+            className="gas-cert-preview"
+            style={{
+              background: "#fff",
+              border: "1px solid #d7dde3",
+              borderRadius: 16,
+              marginBottom: 16,
+              overflow: "hidden",
+            }}
+          >
+            <header
+              style={{
+                alignItems: "flex-start",
+                background: "linear-gradient(135deg, #10241f 0%, #1f4d42 100%)",
+                color: "#fff",
+                display: "flex",
+                gap: 16,
+                justifyContent: "space-between",
+                padding: "18px 20px",
+              }}
+            >
+              <div>
+                <span style={{ display: "block", fontSize: 12, letterSpacing: "0.08em", opacity: 0.8, textTransform: "uppercase" }}>
+                  NeXa service certificate preview
+                </span>
+                <h3 style={{ fontSize: "1.25rem", margin: "6px 0 0" }}>Landlord / homeowner gas service record</h3>
+                <small style={{ display: "block", marginTop: 6, opacity: 0.85 }}>
+                  Generated from Field stop/go for {job.ref}. Not a statutory Gas Safe PDF layout yet — this is the live Core certificate view.
+                </small>
+              </div>
+              <strong style={{ fontSize: "0.95rem", whiteSpace: "nowrap" }}>{job.ref}</strong>
+            </header>
+            <div style={{ display: "grid", gap: 14, padding: 20 }}>
+              <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+                <div>
+                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Customer</span>
+                  <strong>{job.customer}</strong>
+                </div>
+                <div>
+                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Site</span>
+                  <strong>{job.site}</strong>
+                </div>
+                <div>
+                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Engineer</span>
+                  <strong>{job.manager || "Field engineer"}</strong>
+                </div>
+                <div>
+                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Cost centre</span>
+                  <strong>{centre?.name || "Boiler servicing"}</strong>
+                </div>
+              </div>
+              <table style={{ borderCollapse: "collapse", width: "100%" }}>
+                <tbody>
+                  {gasFields.map((row) => (
+                    <tr key={row.label} style={{ borderTop: "1px solid #e6ebef" }}>
+                      <th
+                        style={{
+                          color: "#5b6570",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          padding: "10px 8px 10px 0",
+                          textAlign: "left",
+                          width: "40%",
+                        }}
+                      >
+                        {row.label}
+                      </th>
+                      <td style={{ fontWeight: 700, padding: "10px 0" }}>{row.value}</td>
+                    </tr>
+                  ))}
+                  {(() => {
+                    const photoEvidence =
+                      flowStepEvidence[flowCompletionKey(completionRecordId, "service-boiler-photo")] || {};
+                    const photoName = photoEvidence.photoName?.trim();
+                    if (!photoName) return null;
+                    return (
+                      <tr style={{ borderTop: "1px solid #e6ebef" }}>
+                        <th
+                          style={{
+                            color: "#5b6570",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            padding: "10px 8px 10px 0",
+                            textAlign: "left",
+                          }}
+                        >
+                          Appliance photo
+                        </th>
+                        <td style={{ fontWeight: 700, padding: "10px 0" }}>{photoName}</td>
+                      </tr>
+                    );
+                  })()}
+                </tbody>
+              </table>
+              <p style={{ color: "#5b6570", fontSize: 13, margin: 0 }}>
+                Amend values from Field checklist (Amend → Save to NeXa). Core refreshes this certificate from the same stop/go evidence.
+              </p>
+            </div>
+          </article>
         ) : null}
 
         <div className="flow-progress-panel">
