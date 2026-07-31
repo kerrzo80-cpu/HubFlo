@@ -213,8 +213,9 @@ export const engineerSchedule: EngineerScheduleItem[] = [
 
 function gasCertTrialSchedule(): EngineerScheduleItem[] {
   const today = new Date().toISOString().slice(0, 10);
+  // Keep IDs aligned with Core hub evidence keys (gas-cert-trial-core).
   const jobId = "job-gas-cert-trial";
-  const costCentreId = `${jobId}-boiler-service`;
+  const costCentreId = "job-gas-cert-trial-boiler-service";
   const costCentreName = "Boiler servicing";
   const requirements = requirementsFromFlowTemplate({
     jobId,
@@ -230,21 +231,22 @@ function gasCertTrialSchedule(): EngineerScheduleItem[] {
       source: "seed",
       costCentre: costCentreName,
       costCentres: [{ id: costCentreId, name: costCentreName, templateName: "Boiler servicing" }],
-      engineerId: "eng-brian",
-      engineerName: "Brian Kerr",
+      engineerId: "eng-chris",
+      engineerName: "Chris Lawson",
       date: today,
       start: "09:00",
       end: "11:00",
       durationHours: 2,
       plannedHours: 2,
-      customer: "Aberbuild (Gas cert trial)",
-      contactName: "Site contact",
-      phone: "+441224000000",
+      customer: "Chris Lawson Boiler service",
+      contactName: "Chris Lawson",
+      phone: "+441423000000",
       address: "14 Hillside Avenue, Harrogate, HG2 7PL",
-      description: "Trial boiler service — engineer stop/go populates the NeXa gas service record.",
-      accessNotes: "Trial job for gas certification stop/go. Safe to complete.",
+      description:
+        "Chris Lawson Boiler service — stop/go answers populate the Core Landlord Gas Safety Record.",
+      accessNotes: "Chris Lawson Boiler service trial. Safe to complete.",
       officeNotes: [
-        "Open this job on Field, fill Stop/go, then open Core: /?job=job-gas-cert-trial&centre=job-gas-cert-trial-boiler-service&tab=engineer-flow",
+        "Open Field as Chris Lawson, complete Boiler servicing stop/go, then Core: /?job=job-gas-cert-trial&centre=job-gas-cert-trial-boiler-service&tab=engineer-flow",
       ],
       status: "Scheduled",
       attachments: [],
@@ -569,12 +571,14 @@ export function getEngineerSchedule(engineerId?: string) {
   } catch {
     // Trial bootstrap is best-effort.
   }
-  const liveItems = liveEngineerSchedule();
+  const trialJobId = "job-gas-cert-trial";
+  // Prefer the fixed Chris Lawson trial schedule (sched-gas-cert-trial) over any Core planner clones.
+  const liveItems = liveEngineerSchedule().filter((item) => item.jobId !== trialJobId);
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [
+    ...gasCertTrialSchedule(),
     ...liveItems,
-    ...gasCertTrialSchedule().filter((item) => !liveJobIds.has(item.jobId)),
-    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId)),
+    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId) && item.jobId !== trialJobId),
   ].map(withCostCentreOptions);
   return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
 }

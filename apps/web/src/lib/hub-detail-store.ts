@@ -34,6 +34,8 @@ export type HubDetailState = {
   contractors?: unknown[];
   employees?: unknown[];
   simproExports?: unknown[];
+  /** Bumped by gas-cert trial bootstrap to force-clear LGSR evidence once per reset. */
+  gasCertTrialResetToken?: string;
   updatedAt?: string;
 };
 

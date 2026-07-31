@@ -243,6 +243,19 @@ function saveStore() {
   writeServerStore("engineer-workflow-store", store);
 }
 
+/** Clears Field stop/go workflow for trial/schedule ids (in-memory + disk). */
+export function resetEngineerJobWorkflows(scheduleIds: string[]) {
+  let changed = false;
+  for (const key of Object.keys(store.jobs)) {
+    if (scheduleIds.includes(key) || key.includes("gas-cert-trial")) {
+      delete store.jobs[key];
+      changed = true;
+    }
+  }
+  if (changed) saveStore();
+  return changed;
+}
+
 function defaultWorkflow(scheduleId: string): EngineerJobWorkflow {
   const job = getEngineerScheduleItem(scheduleId);
   return {

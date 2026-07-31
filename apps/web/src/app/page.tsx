@@ -4455,9 +4455,9 @@ function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
         id: "job-gas-cert-trial-boiler-service",
         name: "Boiler servicing",
         templateName: "Boiler servicing",
-        clientDescription: "Annual boiler service and gas safety checks for the Aberbuild trial site.",
+        clientDescription: "Annual boiler service and gas safety checks for Chris Lawson Boiler service.",
         engineerDescription:
-          "Complete boiler servicing stop/go on the Field app. Readings and photos populate the Core gas service record and certificate preview.",
+          "Complete boiler servicing stop/go on the Field app. Readings and photos populate the Core Landlord Gas Safety Record.",
         materials: [
           {
             id: "job-gas-cert-trial-boiler-service-service-kit",
