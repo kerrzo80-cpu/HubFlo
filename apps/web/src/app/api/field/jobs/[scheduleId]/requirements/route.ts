@@ -35,32 +35,39 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "requirementId is required." }, { status: 400 });
   }
 
-  const workflow = body.reopen
-    ? applyEngineerWorkflowAction(scheduleId, {
-        action: "reopen_requirement",
-        payload: {
-          requirementId: body.requirementId,
-          createdBy: body.createdBy,
-        },
-      })
-    : applyEngineerWorkflowAction(scheduleId, {
-        action: "complete_requirement",
-        payload: {
-          requirementId: body.requirementId,
-          text: body.text,
-          numberValue: body.numberValue,
-          photoName: body.photoName,
-          createdBy: body.createdBy,
-          evidence: {
+  try {
+    const workflow = body.reopen
+      ? applyEngineerWorkflowAction(scheduleId, {
+          action: "reopen_requirement",
+          payload: {
+            requirementId: body.requirementId,
+            createdBy: body.createdBy,
+          },
+        })
+      : applyEngineerWorkflowAction(scheduleId, {
+          action: "complete_requirement",
+          payload: {
+            requirementId: body.requirementId,
             text: body.text,
             numberValue: body.numberValue,
             photoName: body.photoName,
+            createdBy: body.createdBy,
+            evidence: {
+              text: body.text,
+              numberValue: body.numberValue,
+              photoName: body.photoName,
+            },
           },
-        },
-      });
+        });
 
-  return NextResponse.json({
-    scheduleId,
-    requirements: workflow.requirements ?? [],
-  });
+    return NextResponse.json({
+      scheduleId,
+      requirements: workflow.requirements ?? [],
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not save checklist item." },
+      { status: 400 },
+    );
+  }
 }

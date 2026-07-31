@@ -7,6 +7,7 @@ import {
   hasCapturedFlowEvidence,
   purgeEmptyFlowStepCompletions,
   syncGasServiceRecordToSiteAsset,
+  validateFlowStepEvidence,
   writeFlowStepEvidenceToHub,
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
@@ -508,6 +509,15 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       if (evidenceType !== "Checkbox" && !hasCapturedFlowEvidence(evidenceType, evidenceValue)) {
         // Do not accept empty completions for photo/text/number/signature steps.
         return clone(getEngineerJobWorkflow(scheduleId));
+      }
+      const validationError = validateFlowStepEvidence({
+        label: requirement.label,
+        evidence: evidenceType,
+        validation: requirement.validation,
+        value: evidenceValue,
+      });
+      if (validationError) {
+        throw new Error(validationError);
       }
       requirement.status = "done";
       requirement.value = evidenceValue;

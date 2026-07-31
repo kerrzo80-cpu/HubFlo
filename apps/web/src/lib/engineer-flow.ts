@@ -3,6 +3,23 @@ import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
 
 export type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
 
+export type EngineerFlowStepValidation = {
+  /** Exact digit count, ignoring spaces (e.g. Gas Safe ID = 12). */
+  exactDigits?: number;
+  /** Minimum non-space character length. */
+  minLength?: number;
+  /** Maximum non-space character length. */
+  maxLength?: number;
+  /** Value must match this full-string regex. */
+  pattern?: string;
+  /** Human hint shown under the input. */
+  helpText?: string;
+  /** Input placeholder. */
+  placeholder?: string;
+  /** Prefer numeric keyboard where useful. */
+  inputMode?: "text" | "numeric" | "decimal";
+};
+
 export type EngineerFlowStepEvidenceValue = {
   text?: string;
   numberValue?: string;
@@ -20,6 +37,7 @@ export type FlowRequirementSeed = {
   required: boolean;
   stage: string;
   formField?: string;
+  validation?: EngineerFlowStepValidation;
   value?: EngineerFlowStepEvidenceValue;
 };
 
@@ -31,6 +49,7 @@ export type EngineerFlowStep = {
   required: boolean;
   /** Maps into the NeXa gas service record summary. */
   formField?: string;
+  validation?: EngineerFlowStepValidation;
 };
 
 export type EngineerFlowTemplate = {
@@ -48,39 +67,43 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     {
       id: "service-boiler-photo",
       stage: "Existing Boiler",
-      label: "Upload photos of boiler and surrounding area",
+      label: "Appliance / data plate photo",
       evidence: "Photo",
       required: true,
       formField: "appliancePhoto",
+      validation: { helpText: "Required on the Landlord Gas Safety Record.", placeholder: "Take or choose a photo" },
     },
     {
       id: "service-location",
       stage: "Existing Boiler",
-      label: "Confirm boiler location",
+      label: "Appliance location",
       evidence: "Text",
       required: true,
       formField: "location",
+      validation: { minLength: 2, helpText: "As shown on the LGSR form.", placeholder: "e.g. Kitchen cupboard" },
     },
     {
       id: "service-make-model",
       stage: "Existing Boiler",
-      label: "Record boiler make/model",
+      label: "Make / model",
       evidence: "Text",
       required: true,
       formField: "makeModel",
+      validation: { minLength: 2, helpText: "As shown on the LGSR form.", placeholder: "e.g. Worcester Greenstar 30i" },
     },
     {
       id: "service-serial",
       stage: "Existing Boiler",
-      label: "Record boiler serial number",
+      label: "Serial number",
       evidence: "Text",
       required: true,
       formField: "serialNumber",
+      validation: { minLength: 4, helpText: "From the appliance data plate.", placeholder: "Serial number" },
     },
     {
       id: "service-visual",
       stage: "Commissioning",
-      label: "Confirm visual condition of appliance and flue is satisfactory",
+      label: "Visual condition of appliance & flue satisfactory",
       evidence: "Checkbox",
       required: true,
       formField: "visualConditionOk",
@@ -88,7 +111,7 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     {
       id: "service-flue",
       stage: "Commissioning",
-      label: "Complete flue and ventilation checks",
+      label: "Flue & ventilation satisfactory",
       evidence: "Checkbox",
       required: true,
       formField: "flueVentilationOk",
@@ -96,7 +119,7 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     {
       id: "service-safety-devices",
       stage: "Commissioning",
-      label: "Confirm safety devices are working correctly",
+      label: "Safety devices working correctly",
       evidence: "Checkbox",
       required: true,
       formField: "safetyDevicesOk",
@@ -104,31 +127,44 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     {
       id: "service-operating-pressure",
       stage: "Gas certificate",
-      label: "Record operating pressure / heat input",
+      label: "Operating pressure / heat input",
       evidence: "Text",
       required: true,
       formField: "operatingPressure",
+      validation: { minLength: 2, helpText: "Enter the reading shown on the LGSR.", placeholder: "e.g. 20 mbar" },
     },
     {
       id: "service-co-reading",
       stage: "Gas certificate",
-      label: "Record CO reading (ppm)",
+      label: "CO reading (ppm)",
       evidence: "Number",
       required: true,
       formField: "coReading",
+      validation: {
+        pattern: "^\\d{1,4}(?:\\.\\d+)?$",
+        inputMode: "decimal",
+        helpText: "Numeric CO reading in ppm.",
+        placeholder: "e.g. 18",
+      },
     },
     {
       id: "service-ratio",
       stage: "Gas certificate",
-      label: "Record combustion ratio / CO₂",
+      label: "CO / CO₂ combustion ratio",
       evidence: "Number",
       required: true,
       formField: "combustionRatio",
+      validation: {
+        pattern: "^\\d+(?:\\.\\d+)?$",
+        inputMode: "decimal",
+        helpText: "Combustion ratio from the analyser.",
+        placeholder: "e.g. 0.004",
+      },
     },
     {
       id: "service-safe-to-use",
       stage: "Gas certificate",
-      label: "Confirm appliance is safe to use",
+      label: "Appliance safe to use",
       evidence: "Checkbox",
       required: true,
       formField: "applianceSafeToUse",
@@ -136,34 +172,47 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     {
       id: "service-defects",
       stage: "Gas certificate",
-      label: "Defects / remedial notes (or None)",
+      label: "Defects identified / remedial action",
       evidence: "Text",
       required: true,
       formField: "defects",
+      validation: { minLength: 2, helpText: "Enter None if no defects.", placeholder: "None / describe defects" },
     },
     {
       id: "service-next-due",
       stage: "Gas certificate",
-      label: "Next safety check due date (YYYY-MM-DD)",
+      label: "Next safety check due",
       evidence: "Text",
       required: true,
       formField: "nextServiceDate",
+      validation: {
+        pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+        helpText: "Use YYYY-MM-DD as required on the form.",
+        placeholder: "YYYY-MM-DD",
+      },
     },
     {
       id: "service-gas-safe-id",
       stage: "Handover",
-      label: "Engineer Gas Safe licence / ID card number",
+      label: "Gas Safe licence / ID card no.",
       evidence: "Text",
       required: true,
       formField: "gasSafeLicenceNumber",
+      validation: {
+        exactDigits: 12,
+        inputMode: "numeric",
+        helpText: "Must be exactly 12 digits — cannot save with fewer.",
+        placeholder: "12-digit Gas Safe ID",
+      },
     },
     {
       id: "service-customer-signoff",
       stage: "Handover",
-      label: "Customer / landlord received-by sign-off",
+      label: "Received by (landlord / tenant)",
       evidence: "Signature",
       required: true,
       formField: "customerSignature",
+      validation: { minLength: 2, helpText: "Name of person receiving the record.", placeholder: "Signed by…" },
     },
   ],
 };
@@ -217,6 +266,58 @@ export function hasCapturedFlowEvidence(
     value?.numberValue?.trim() ||
     value?.photoName?.trim(),
   );
+}
+
+export function validateFlowStepEvidence(options: {
+  label: string;
+  evidence: EngineerFlowEvidence;
+  validation?: EngineerFlowStepValidation;
+  value?: EngineerFlowStepEvidenceValue | null;
+}): string | null {
+  const { label, evidence, validation, value } = options;
+  if (evidence === "Checkbox") return null;
+
+  const raw =
+    evidence === "Number"
+      ? value?.numberValue?.trim() || ""
+      : evidence === "Photo"
+        ? value?.photoName?.trim() || ""
+        : value?.text?.trim() || "";
+
+  if (!raw) {
+    if (evidence === "Photo") return `Add a photo for “${label}” before saving.`;
+    if (evidence === "Number") return `Enter a number for “${label}” before saving.`;
+    return `Enter a value for “${label}” before saving.`;
+  }
+
+  if (!validation) return null;
+
+  const compact = raw.replace(/\s+/g, "");
+  if (typeof validation.exactDigits === "number") {
+    const digits = compact.replace(/\D/g, "");
+    if (digits.length !== validation.exactDigits || digits.length !== compact.length) {
+      return `“${label}” must be exactly ${validation.exactDigits} digits (you entered ${digits.length || 0}).`;
+    }
+  }
+  if (typeof validation.minLength === "number" && compact.length < validation.minLength) {
+    return `“${label}” must be at least ${validation.minLength} characters.`;
+  }
+  if (typeof validation.maxLength === "number" && compact.length > validation.maxLength) {
+    return `“${label}” must be no more than ${validation.maxLength} characters.`;
+  }
+  if (validation.pattern) {
+    try {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(raw) && !regex.test(compact)) {
+        return validation.helpText
+          ? `“${label}” is not valid. ${validation.helpText}`
+          : `“${label}” is not in the required format.`;
+      }
+    } catch {
+      // Ignore invalid patterns in config.
+    }
+  }
+  return null;
 }
 
 export function flowEvidenceKey(jobId: string, costCentreId: string, stepId: string) {
@@ -316,6 +417,7 @@ export function requirementsFromFlowTemplate(options: {
       required: step.required,
       stage: step.stage,
       formField: step.formField,
+      validation: step.validation,
       value: hasCapturedFlowEvidence(step.evidence, value) || step.evidence === "Checkbox"
         ? value
         : undefined,

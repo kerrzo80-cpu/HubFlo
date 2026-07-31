@@ -4,6 +4,7 @@ import {
   flowEvidenceKey,
   hasCapturedFlowEvidence,
   purgeEmptyFlowStepCompletions,
+  validateFlowStepEvidence,
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
@@ -37,7 +38,7 @@ const SAMPLE_EVIDENCE: Record<string, EngineerFlowStepEvidenceValue> = {
   "service-safe-to-use": { text: "Appliance safe to use", capturedAt: new Date().toISOString() },
   "service-defects": { text: "None", capturedAt: new Date().toISOString() },
   "service-next-due": { text: "2027-07-31", capturedAt: new Date().toISOString() },
-  "service-gas-safe-id": { text: "123456", capturedAt: new Date().toISOString() },
+  "service-gas-safe-id": { text: "123456789012", capturedAt: new Date().toISOString() },
   "service-customer-signoff": { text: "Site contact", capturedAt: new Date().toISOString() },
 };
 
@@ -173,11 +174,22 @@ function ensureHubCostCentresAndSampleEvidence() {
   for (const step of boilerServiceFlowTemplate.steps) {
     const key = flowEvidenceKey(GAS_CERT_TRIAL.jobId, GAS_CERT_TRIAL.costCentreId, step.id);
     const sample = SAMPLE_EVIDENCE[step.id] || { text: "Complete", capturedAt: new Date().toISOString() };
+    const current = evidenceStore[key];
     const needsSample =
       step.evidence === "Checkbox"
         ? !completionStore[key]
-        : !hasCapturedFlowEvidence(step.evidence, evidenceStore[key]);
-    if (needsSample) {
+        : !hasCapturedFlowEvidence(step.evidence, current);
+    const invalidSample =
+      Boolean(current) &&
+      Boolean(
+        validateFlowStepEvidence({
+          label: step.label,
+          evidence: step.evidence,
+          validation: step.validation,
+          value: current,
+        }),
+      );
+    if (needsSample || invalidSample) {
       evidenceStore[key] = sample;
       completionStore[key] = true;
       changed = true;

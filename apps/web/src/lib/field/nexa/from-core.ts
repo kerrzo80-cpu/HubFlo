@@ -45,6 +45,7 @@ function mapRequirement(item: EngineerScheduleItem["requirements"][number]): Fie
     stepId: item.stepId,
     costCentreId: item.costCentreId,
     formField: item.formField,
+    validation: item.validation,
     value: item.value,
   };
 }

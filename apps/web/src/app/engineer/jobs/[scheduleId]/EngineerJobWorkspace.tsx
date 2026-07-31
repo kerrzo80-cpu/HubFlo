@@ -219,19 +219,55 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
     const requirement = workflow.requirements.find((item) => item.id === requirementId);
     const draft = draftByRequirement[requirementId] || {};
     const evidenceType = requirement?.evidence || "Checkbox";
-    if (evidenceType === "Text" || evidenceType === "Signature") {
-      if (!draft.text?.trim()) {
-        setError(`Enter a value for “${requirement?.label || "this item"}” before saving.`);
+    const validation = requirement?.validation;
+    const raw =
+      evidenceType === "Number"
+        ? draft.numberValue?.trim() || ""
+        : evidenceType === "Photo"
+          ? draft.photoName?.trim() || ""
+          : draft.text?.trim() || "";
+
+    if (evidenceType !== "Checkbox" && !raw) {
+      setError(
+        evidenceType === "Photo"
+          ? `Add a photo for “${requirement?.label || "this item"}” before saving.`
+          : evidenceType === "Number"
+            ? `Enter a number for “${requirement?.label || "this item"}” before saving.`
+            : `Enter a value for “${requirement?.label || "this item"}” before saving.`,
+      );
+      return;
+    }
+
+    if (validation && evidenceType !== "Checkbox") {
+      const compact = raw.replace(/\s+/g, "");
+      if (typeof validation.exactDigits === "number") {
+        const digits = compact.replace(/\D/g, "");
+        if (digits.length !== validation.exactDigits || digits.length !== compact.length) {
+          setError(
+            `“${requirement?.label || "This item"}” must be exactly ${validation.exactDigits} digits (you entered ${digits.length || 0}).`,
+          );
+          return;
+        }
+      }
+      if (typeof validation.minLength === "number" && compact.length < validation.minLength) {
+        setError(`“${requirement?.label || "This item"}” must be at least ${validation.minLength} characters.`);
         return;
       }
-    }
-    if (evidenceType === "Number" && !draft.numberValue?.trim()) {
-      setError(`Enter a number for “${requirement?.label || "this item"}” before saving.`);
-      return;
-    }
-    if (evidenceType === "Photo" && !draft.photoName?.trim()) {
-      setError(`Add a photo file name for “${requirement?.label || "this item"}” before saving.`);
-      return;
+      if (validation.pattern) {
+        try {
+          const regex = new RegExp(validation.pattern);
+          if (!regex.test(raw) && !regex.test(compact)) {
+            setError(
+              validation.helpText
+                ? `“${requirement?.label || "This item"}” is not valid. ${validation.helpText}`
+                : `“${requirement?.label || "This item"}” is not in the required format.`,
+            );
+            return;
+          }
+        } catch {
+          // Ignore bad patterns.
+        }
+      }
     }
 
     const saved = await runWorkflowAction(

@@ -23,6 +23,54 @@ function evidenceTypeOf(item: FieldRequirement): FieldEvidenceType {
   return item.evidence || "Checkbox";
 }
 
+function validateRequirementDraft(item: FieldRequirement, draft: DraftValue): string | null {
+  const evidenceType = evidenceTypeOf(item);
+  if (evidenceType === "Checkbox") return null;
+
+  const raw =
+    evidenceType === "Number"
+      ? draft.numberValue?.trim() || ""
+      : evidenceType === "Photo"
+        ? draft.photoName?.trim() || ""
+        : draft.text?.trim() || "";
+
+  if (!raw) {
+    if (evidenceType === "Photo") return `Add a photo for “${item.label}” before saving.`;
+    if (evidenceType === "Number") return `Enter a number for “${item.label}” before saving.`;
+    return `Enter a value for “${item.label}” before saving.`;
+  }
+
+  const validation = item.validation;
+  if (!validation) return null;
+
+  const compact = raw.replace(/\s+/g, "");
+  if (typeof validation.exactDigits === "number") {
+    const digits = compact.replace(/\D/g, "");
+    if (digits.length !== validation.exactDigits || digits.length !== compact.length) {
+      return `“${item.label}” must be exactly ${validation.exactDigits} digits (you entered ${digits.length || 0}).`;
+    }
+  }
+  if (typeof validation.minLength === "number" && compact.length < validation.minLength) {
+    return `“${item.label}” must be at least ${validation.minLength} characters.`;
+  }
+  if (typeof validation.maxLength === "number" && compact.length > validation.maxLength) {
+    return `“${item.label}” must be no more than ${validation.maxLength} characters.`;
+  }
+  if (validation.pattern) {
+    try {
+      const regex = new RegExp(validation.pattern);
+      if (!regex.test(raw) && !regex.test(compact)) {
+        return validation.helpText
+          ? `“${item.label}” is not valid. ${validation.helpText}`
+          : `“${item.label}” is not in the required format.`;
+      }
+    } catch {
+      // Ignore bad patterns.
+    }
+  }
+  return null;
+}
+
 function doneSummary(item: FieldRequirement) {
   const parts = [item.value?.text, item.value?.numberValue, item.value?.photoName]
     .map((part) => String(part || "").trim())
@@ -155,19 +203,9 @@ export default function JobDetailPage() {
     const evidenceType = evidenceTypeOf(requirement);
     const draft = draftByRequirement[requirementId] || {};
     const connection = client.getConnection();
-
-    if (evidenceType === "Text" || evidenceType === "Signature") {
-      if (!draft.text?.trim()) {
-        setError(`Enter a value for “${requirement.label}” before saving.`);
-        return;
-      }
-    }
-    if (evidenceType === "Number" && !draft.numberValue?.trim()) {
-      setError(`Enter a number for “${requirement.label}” before saving.`);
-      return;
-    }
-    if (evidenceType === "Photo" && !draft.photoName?.trim()) {
-      setError(`Add a photo for “${requirement.label}” before saving.`);
+    const validationError = validateRequirementDraft(requirement, draft);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
@@ -205,7 +243,10 @@ export default function JobDetailPage() {
             }),
           },
         );
-        if (!response.ok) throw new Error("Could not save checklist item.");
+        if (!response.ok) {
+          const failed = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(failed.error || "Could not save checklist item.");
+        }
         const body = (await response.json()) as { requirements?: FieldRequirement[] };
         if (body.requirements) {
           setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
@@ -217,9 +258,9 @@ export default function JobDetailPage() {
         });
         setEditingId("");
         setNotice("Saved.");
-      } catch {
+      } catch (saveError) {
         setJob(job);
-        setError("Could not save checklist item.");
+        setError(saveError instanceof Error ? saveError.message : "Could not save checklist item.");
       } finally {
         setSavingId("");
       }
@@ -338,7 +379,7 @@ export default function JobDetailPage() {
       {tab === "checklist" ? (
         <div className="stack checklist-stack">
           <p className="checklist-intro muted">
-            Fill each item, then save. Amend anytime if you need to change a reading or note.
+            Questions match the Landlord Gas Safety Record. Values must be complete and valid before Save — e.g. a 12-digit Gas Safe ID will not save with only 11.
           </p>
           {error ? <div className="feedback error">{error}</div> : null}
           {notice ? <div className="feedback">{notice}</div> : null}
@@ -349,6 +390,10 @@ export default function JobDetailPage() {
             const isEditing = editingId === item.id || item.status === "missing";
             const statusLabel =
               item.status === "missing" ? "To do" : item.status === "done" ? "Done" : "Optional";
+            const placeholder =
+              item.validation?.placeholder ||
+              (evidenceType === "Signature" ? "Signed by…" : evidenceType === "Number" ? "Enter reading…" : "Type here…");
+            const maxLength = item.validation?.exactDigits || item.validation?.maxLength;
             return (
               <article
                 className={`check-card is-${item.status}${isEditing ? " is-editing" : ""}`}
@@ -389,8 +434,10 @@ export default function JobDetailPage() {
                         <span>{evidenceType === "Signature" ? "Signed by" : "Answer"}</span>
                         <input
                           type="text"
+                          inputMode={item.validation?.inputMode || "text"}
                           value={draft.text || ""}
-                          placeholder={evidenceType === "Signature" ? "Name…" : "Type here…"}
+                          placeholder={placeholder}
+                          maxLength={maxLength}
                           onChange={(event) =>
                             setDraftByRequirement((current) => ({
                               ...current,
@@ -405,9 +452,9 @@ export default function JobDetailPage() {
                         <span>Reading</span>
                         <input
                           type="number"
-                          inputMode="decimal"
+                          inputMode={item.validation?.inputMode || "decimal"}
                           value={draft.numberValue || ""}
-                          placeholder="Enter reading…"
+                          placeholder={placeholder}
                           onChange={(event) =>
                             setDraftByRequirement((current) => ({
                               ...current,
@@ -439,6 +486,9 @@ export default function JobDetailPage() {
                     ) : null}
                     {evidenceType === "Checkbox" ? (
                       <p className="check-card-hint muted">Confirm this check is complete on site.</p>
+                    ) : null}
+                    {item.validation?.helpText ? (
+                      <p className="check-card-hint muted">{item.validation.helpText}</p>
                     ) : null}
                     <button
                       type="button"

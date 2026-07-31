@@ -32,6 +32,15 @@ export type FieldRequirement = {
   stepId?: string;
   costCentreId?: string;
   formField?: string;
+  validation?: {
+    exactDigits?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    helpText?: string;
+    placeholder?: string;
+    inputMode?: "text" | "numeric" | "decimal";
+  };
   value?: FieldRequirementValue;
 };
 
