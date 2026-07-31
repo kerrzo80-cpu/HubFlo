@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { EngineerCostCentreOption, EngineerScheduleItem } from "@/lib/engineer-data";
+import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 import type {
   EngineerJobWorkflow,
   EngineerWorkflowNote,
@@ -239,33 +240,41 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
     }
 
     if (validation && evidenceType !== "Checkbox") {
-      const compact = raw.replace(/\s+/g, "");
-      if (typeof validation.exactDigits === "number") {
-        const digits = compact.replace(/\D/g, "");
-        if (digits.length !== validation.exactDigits || digits.length !== compact.length) {
-          setError(
-            `“${requirement?.label || "This item"}” must be exactly ${validation.exactDigits} digits (you entered ${digits.length || 0}).`,
-          );
+      if (validation.inputKind === "date") {
+        const uk = toUkDateDisplay(raw);
+        if (!/^\d{2}-\d{2}-\d{4}$/.test(uk)) {
+          setError(`“${requirement?.label || "This item"}” must be a valid UK date (DD-MM-YYYY).`);
           return;
         }
-      }
-      if (typeof validation.minLength === "number" && compact.length < validation.minLength) {
-        setError(`“${requirement?.label || "This item"}” must be at least ${validation.minLength} characters.`);
-        return;
-      }
-      if (validation.pattern) {
-        try {
-          const regex = new RegExp(validation.pattern);
-          if (!regex.test(raw) && !regex.test(compact)) {
+      } else {
+        const compact = raw.replace(/\s+/g, "");
+        if (typeof validation.exactDigits === "number") {
+          const digits = compact.replace(/\D/g, "");
+          if (digits.length !== validation.exactDigits || digits.length !== compact.length) {
             setError(
-              validation.helpText
-                ? `“${requirement?.label || "This item"}” is not valid. ${validation.helpText}`
-                : `“${requirement?.label || "This item"}” is not in the required format.`,
+              `“${requirement?.label || "This item"}” must be exactly ${validation.exactDigits} digits (you entered ${digits.length || 0}).`,
             );
             return;
           }
-        } catch {
-          // Ignore bad patterns.
+        }
+        if (typeof validation.minLength === "number" && compact.length < validation.minLength) {
+          setError(`“${requirement?.label || "This item"}” must be at least ${validation.minLength} characters.`);
+          return;
+        }
+        if (validation.pattern) {
+          try {
+            const regex = new RegExp(validation.pattern);
+            if (!regex.test(raw) && !regex.test(compact)) {
+              setError(
+                validation.helpText
+                  ? `“${requirement?.label || "This item"}” is not valid. ${validation.helpText}`
+                  : `“${requirement?.label || "This item"}” is not in the required format.`,
+              );
+              return;
+            }
+          } catch {
+            // Ignore bad patterns.
+          }
         }
       }
     }
@@ -274,7 +283,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
       "complete_requirement",
       {
         requirementId,
-        text: draft.text,
+        text: validation?.inputKind === "date" ? toUkDateDisplay(draft.text || "") : draft.text,
         numberValue: draft.numberValue,
         photoName: draft.photoName,
         evidence: draft,
@@ -458,30 +467,66 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                       </small>
                       {requirement.status === "missing" && evidenceType !== "Checkbox" ? (
                         <div className="engineer-requirement-capture" style={{ marginTop: 10, display: "grid", gap: 8 }}>
-                          {evidenceType === "Text" || evidenceType === "Signature" ? (
+                          {requirement.validation?.inputKind === "date" ? (
+                            <>
+                              <input
+                                type="date"
+                                lang="en-GB"
+                                value={toDateInputValue(draft.text)}
+                                onChange={(event) =>
+                                  setDraftByRequirement((current) => ({
+                                    ...current,
+                                    [requirement.id]: {
+                                      ...current[requirement.id],
+                                      text: event.target.value ? isoDateToUk(event.target.value) : "",
+                                    },
+                                  }))
+                                }
+                              />
+                              {draft.text ? <small>Selected: {toUkDateDisplay(draft.text)}</small> : null}
+                            </>
+                          ) : null}
+                          {(evidenceType === "Text" || evidenceType === "Signature") && requirement.validation?.inputKind !== "date" ? (
                             <input
-                              type="text"
+                              type={requirement.validation?.inputKind === "digits" ? "tel" : "text"}
+                              inputMode={
+                                requirement.validation?.inputKind === "digits"
+                                  ? "numeric"
+                                  : requirement.validation?.inputMode || "text"
+                              }
+                              pattern={requirement.validation?.inputKind === "digits" ? "[0-9]*" : undefined}
                               value={draft.text || ""}
-                              placeholder={evidenceType === "Signature" ? "Signed by…" : "Type the answer…"}
-                              onChange={(event) =>
+                              placeholder={
+                                requirement.validation?.placeholder ||
+                                (evidenceType === "Signature" ? "Signed by…" : "Type the answer…")
+                              }
+                              maxLength={requirement.validation?.exactDigits || requirement.validation?.maxLength}
+                              onChange={(event) => {
+                                const nextValue =
+                                  requirement.validation?.inputKind === "digits"
+                                    ? event.target.value.replace(/\D/g, "")
+                                    : event.target.value;
                                 setDraftByRequirement((current) => ({
                                   ...current,
-                                  [requirement.id]: { ...current[requirement.id], text: event.target.value },
-                                }))
-                              }
+                                  [requirement.id]: { ...current[requirement.id], text: nextValue },
+                                }));
+                              }}
                             />
                           ) : null}
                           {evidenceType === "Number" ? (
                             <input
-                              type="number"
+                              type="text"
+                              inputMode="decimal"
+                              pattern="[0-9]*[.]?[0-9]*"
                               value={draft.numberValue || ""}
-                              placeholder="Enter reading…"
-                              onChange={(event) =>
+                              placeholder={requirement.validation?.placeholder || "Enter reading…"}
+                              onChange={(event) => {
+                                const nextValue = event.target.value.replace(/[^0-9.]/g, "");
                                 setDraftByRequirement((current) => ({
                                   ...current,
-                                  [requirement.id]: { ...current[requirement.id], numberValue: event.target.value },
-                                }))
-                              }
+                                  [requirement.id]: { ...current[requirement.id], numberValue: nextValue },
+                                }));
+                              }}
                             />
                           ) : null}
                           {evidenceType === "Photo" ? (
@@ -499,6 +544,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
                               }}
                             />
                           ) : null}
+                          {requirement.validation?.helpText ? <small>{requirement.validation.helpText}</small> : null}
                           {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
                         </div>
                       ) : null}

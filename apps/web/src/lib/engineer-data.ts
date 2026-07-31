@@ -32,6 +32,7 @@ export type EngineerRequirement = {
     helpText?: string;
     placeholder?: string;
     inputMode?: "text" | "numeric" | "decimal";
+    inputKind?: "text" | "date" | "digits" | "decimal";
   };
   value?: {
     text?: string;

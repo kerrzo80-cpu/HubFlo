@@ -37,7 +37,7 @@ const SAMPLE_EVIDENCE: Record<string, EngineerFlowStepEvidenceValue> = {
   "service-ratio": { numberValue: "0.004", capturedAt: new Date().toISOString() },
   "service-safe-to-use": { text: "Appliance safe to use", capturedAt: new Date().toISOString() },
   "service-defects": { text: "None", capturedAt: new Date().toISOString() },
-  "service-next-due": { text: "2027-07-31", capturedAt: new Date().toISOString() },
+  "service-next-due": { text: "31-07-2027", capturedAt: new Date().toISOString() },
   "service-gas-safe-id": { text: "123456789012", capturedAt: new Date().toISOString() },
   "service-customer-signoff": { text: "Site contact", capturedAt: new Date().toISOString() },
 };

@@ -1,5 +1,6 @@
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
+import { isValidUkOrIsoDate, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
 
 export type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
 
@@ -18,6 +19,8 @@ export type EngineerFlowStepValidation = {
   placeholder?: string;
   /** Prefer numeric keyboard where useful. */
   inputMode?: "text" | "numeric" | "decimal";
+  /** Controls which mobile input UI to show. */
+  inputKind?: "text" | "date" | "digits" | "decimal";
 };
 
 export type EngineerFlowStepEvidenceValue = {
@@ -143,6 +146,7 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
       validation: {
         pattern: "^\\d{1,4}(?:\\.\\d+)?$",
         inputMode: "decimal",
+        inputKind: "decimal",
         helpText: "Numeric CO reading in ppm.",
         placeholder: "e.g. 18",
       },
@@ -157,6 +161,7 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
       validation: {
         pattern: "^\\d+(?:\\.\\d+)?$",
         inputMode: "decimal",
+        inputKind: "decimal",
         helpText: "Combustion ratio from the analyser.",
         placeholder: "e.g. 0.004",
       },
@@ -186,9 +191,10 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
       required: true,
       formField: "nextServiceDate",
       validation: {
-        pattern: "^\\d{4}-\\d{2}-\\d{2}$",
-        helpText: "Use YYYY-MM-DD as required on the form.",
-        placeholder: "YYYY-MM-DD",
+        pattern: "^\\d{2}-\\d{2}-\\d{4}$",
+        inputKind: "date",
+        helpText: "UK date — pick from the calendar (DD-MM-YYYY).",
+        placeholder: "DD-MM-YYYY",
       },
     },
     {
@@ -201,6 +207,7 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
       validation: {
         exactDigits: 12,
         inputMode: "numeric",
+        inputKind: "digits",
         helpText: "Must be exactly 12 digits — cannot save with fewer.",
         placeholder: "12-digit Gas Safe ID",
       },
@@ -291,6 +298,13 @@ export function validateFlowStepEvidence(options: {
   }
 
   if (!validation) return null;
+
+  if (validation.inputKind === "date") {
+    if (!isValidUkOrIsoDate(raw)) {
+      return `“${label}” must be a valid UK date (DD-MM-YYYY).`;
+    }
+    return null;
+  }
 
   const compact = raw.replace(/\s+/g, "");
   if (typeof validation.exactDigits === "number") {
@@ -607,6 +621,8 @@ export function syncGasServiceRecordToSiteAsset(options: {
     null;
 
   const today = new Date().toISOString().slice(0, 10);
+  const nextServiceIso = ukDateToIso(options.record.nextServiceDate || "") || options.record.nextServiceDate;
+  if (!nextServiceIso) return null;
   const makeModel = options.record.makeModel || "";
   const [make, ...modelParts] = makeModel.split(/\s+/);
   const payload = {
@@ -620,9 +636,9 @@ export function syncGasServiceRecordToSiteAsset(options: {
     serialNumber: options.record.serialNumber || match?.serialNumber,
     locationNote: options.record.location || match?.locationNote,
     lastServiceDate: today,
-    nextServiceDate: options.record.nextServiceDate,
+    nextServiceDate: nextServiceIso,
     certificateIssuedAt: today,
-    certificateExpiresAt: options.record.nextServiceDate,
+    certificateExpiresAt: nextServiceIso,
     notes: options.record.defects
       ? `Gas service record · defects: ${options.record.defects}`
       : "Gas service record completed via engineer stop/go.",

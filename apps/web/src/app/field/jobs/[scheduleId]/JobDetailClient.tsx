@@ -10,6 +10,7 @@ import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type { FieldEvidenceType, FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
+import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 
 type Tab = "pack" | "checklist" | "photos";
 
@@ -43,6 +44,14 @@ function validateRequirementDraft(item: FieldRequirement, draft: DraftValue): st
   const validation = item.validation;
   if (!validation) return null;
 
+  if (validation.inputKind === "date") {
+    const uk = toUkDateDisplay(raw);
+    if (!/^\d{2}-\d{2}-\d{4}$/.test(uk)) {
+      return `“${item.label}” must be a valid UK date (DD-MM-YYYY).`;
+    }
+    return null;
+  }
+
   const compact = raw.replace(/\s+/g, "");
   if (typeof validation.exactDigits === "number") {
     const digits = compact.replace(/\D/g, "");
@@ -72,7 +81,11 @@ function validateRequirementDraft(item: FieldRequirement, draft: DraftValue): st
 }
 
 function doneSummary(item: FieldRequirement) {
-  const parts = [item.value?.text, item.value?.numberValue, item.value?.photoName]
+  const parts = [
+    item.validation?.inputKind === "date" ? toUkDateDisplay(item.value?.text) : item.value?.text,
+    item.value?.numberValue,
+    item.value?.photoName,
+  ]
     .map((part) => String(part || "").trim())
     .filter(Boolean);
   return parts.join(" · ");
@@ -138,7 +151,10 @@ export default function JobDetailPage() {
     setDraftByRequirement((current) => ({
       ...current,
       [item.id]: {
-        text: item.value?.text || "",
+        text:
+          item.validation?.inputKind === "date"
+            ? toUkDateDisplay(item.value?.text || "")
+            : item.value?.text || "",
         numberValue: item.value?.numberValue || "",
         photoName: item.value?.photoName || "",
       },
@@ -203,7 +219,14 @@ export default function JobDetailPage() {
     const evidenceType = evidenceTypeOf(requirement);
     const draft = draftByRequirement[requirementId] || {};
     const connection = client.getConnection();
-    const validationError = validateRequirementDraft(requirement, draft);
+    const normalizedDraft = {
+      ...draft,
+      text:
+        requirement.validation?.inputKind === "date" && draft.text
+          ? toUkDateDisplay(draft.text)
+          : draft.text,
+    };
+    const validationError = validateRequirementDraft(requirement, normalizedDraft);
     if (validationError) {
       setError(validationError);
       return;
@@ -215,9 +238,9 @@ export default function JobDetailPage() {
 
     if (connection.mode === "nexa") {
       const optimisticValue = {
-        text: draft.text,
-        numberValue: draft.numberValue,
-        photoName: draft.photoName,
+        text: normalizedDraft.text,
+        numberValue: normalizedDraft.numberValue,
+        photoName: normalizedDraft.photoName,
         capturedAt: new Date().toISOString(),
       };
       setJob({
@@ -236,9 +259,9 @@ export default function JobDetailPage() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               requirementId,
-              text: draft.text,
-              numberValue: draft.numberValue,
-              photoName: draft.photoName,
+              text: normalizedDraft.text,
+              numberValue: normalizedDraft.numberValue,
+              photoName: normalizedDraft.photoName,
               createdBy: job.engineerName,
             }),
           },
@@ -429,21 +452,50 @@ export default function JobDetailPage() {
 
                 {isEditing && item.status !== "optional" ? (
                   <div className="check-card-capture">
-                    {evidenceType === "Text" || evidenceType === "Signature" ? (
+                    {item.validation?.inputKind === "date" ? (
                       <label className="check-field">
-                        <span>{evidenceType === "Signature" ? "Signed by" : "Answer"}</span>
+                        <span>Date (UK)</span>
                         <input
-                          type="text"
-                          inputMode={item.validation?.inputMode || "text"}
-                          value={draft.text || ""}
-                          placeholder={placeholder}
-                          maxLength={maxLength}
+                          type="date"
+                          lang="en-GB"
+                          value={toDateInputValue(draft.text)}
                           onChange={(event) =>
                             setDraftByRequirement((current) => ({
                               ...current,
-                              [item.id]: { ...current[item.id], text: event.target.value },
+                              [item.id]: {
+                                ...current[item.id],
+                                text: event.target.value ? isoDateToUk(event.target.value) : "",
+                              },
                             }))
                           }
+                        />
+                        {draft.text ? <small>Selected: {toUkDateDisplay(draft.text)}</small> : null}
+                      </label>
+                    ) : null}
+                    {(evidenceType === "Text" || evidenceType === "Signature") && item.validation?.inputKind !== "date" ? (
+                      <label className="check-field">
+                        <span>{evidenceType === "Signature" ? "Signed by" : "Answer"}</span>
+                        <input
+                          type={item.validation?.inputKind === "digits" ? "tel" : "text"}
+                          inputMode={
+                            item.validation?.inputKind === "digits"
+                              ? "numeric"
+                              : item.validation?.inputMode || "text"
+                          }
+                          pattern={item.validation?.inputKind === "digits" ? "[0-9]*" : undefined}
+                          value={draft.text || ""}
+                          placeholder={placeholder}
+                          maxLength={maxLength}
+                          onChange={(event) => {
+                            const nextValue =
+                              item.validation?.inputKind === "digits"
+                                ? event.target.value.replace(/\D/g, "")
+                                : event.target.value;
+                            setDraftByRequirement((current) => ({
+                              ...current,
+                              [item.id]: { ...current[item.id], text: nextValue },
+                            }));
+                          }}
                         />
                       </label>
                     ) : null}
@@ -451,16 +503,18 @@ export default function JobDetailPage() {
                       <label className="check-field">
                         <span>Reading</span>
                         <input
-                          type="number"
-                          inputMode={item.validation?.inputMode || "decimal"}
+                          type="text"
+                          inputMode="decimal"
+                          pattern="[0-9]*[.]?[0-9]*"
                           value={draft.numberValue || ""}
                           placeholder={placeholder}
-                          onChange={(event) =>
+                          onChange={(event) => {
+                            const nextValue = event.target.value.replace(/[^0-9.]/g, "");
                             setDraftByRequirement((current) => ({
                               ...current,
-                              [item.id]: { ...current[item.id], numberValue: event.target.value },
-                            }))
-                          }
+                              [item.id]: { ...current[item.id], numberValue: nextValue },
+                            }));
+                          }}
                         />
                       </label>
                     ) : null}

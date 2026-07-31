@@ -40,6 +40,7 @@ export type FieldRequirement = {
     helpText?: string;
     placeholder?: string;
     inputMode?: "text" | "numeric" | "decimal";
+    inputKind?: "text" | "date" | "digits" | "decimal";
   };
   value?: FieldRequirementValue;
 };

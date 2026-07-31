@@ -1,4 +1,5 @@
 import type { GasServiceRecord } from "@/lib/engineer-flow";
+import { toUkDateDisplay } from "@/lib/uk-date";
 
 /** Landlord Gas Safety Record (CP12-style) — NeXa form shaped from simPRO cost-centre gas cert practice. */
 export type GasSafeLgsrField = {
@@ -63,7 +64,7 @@ export function resolveGasSafeFieldValue(
     case "jobRef":
       return context.jobRef;
     case "inspectionDate":
-      return context.inspectionDate || record?.completedAt?.slice(0, 10) || "";
+      return toUkDateDisplay(context.inspectionDate || record?.completedAt?.slice(0, 10) || "");
     case "applianceType":
       return context.applianceType || "Central heating boiler";
     case "flueVentilationOk":
@@ -91,7 +92,7 @@ export function resolveGasSafeFieldValue(
     case "defects":
       return record?.defects || "";
     case "nextServiceDate":
-      return record?.nextServiceDate || "";
+      return toUkDateDisplay(record?.nextServiceDate) || "";
     case "gasSafeLicenceNumber":
       return record?.gasSafeLicenceNumber || "";
     case "customerSignature":

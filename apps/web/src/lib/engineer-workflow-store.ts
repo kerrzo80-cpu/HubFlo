@@ -11,6 +11,7 @@ import {
   writeFlowStepEvidenceToHub,
   type EngineerFlowStepEvidenceValue,
 } from "@/lib/engineer-flow";
+import { toUkDateDisplay } from "@/lib/uk-date";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { createPurchaseRequest, getPurchaseRequests, getJobs, updateJob } from "@/lib/workflow-data";
@@ -518,6 +519,9 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       });
       if (validationError) {
         throw new Error(validationError);
+      }
+      if (requirement.validation?.inputKind === "date" && evidenceValue.text) {
+        evidenceValue.text = toUkDateDisplay(evidenceValue.text);
       }
       requirement.status = "done";
       requirement.value = evidenceValue;
