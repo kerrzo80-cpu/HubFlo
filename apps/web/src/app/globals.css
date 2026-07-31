@@ -12123,6 +12123,113 @@ h1 {
   margin: 4px 0 0;
 }
 
+.gas-safe-lgsr-cert {
+  background: #fff;
+  border: 1px solid #c9d2da;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.gas-safe-lgsr-masthead {
+  align-items: flex-start;
+  background: linear-gradient(135deg, #1b2a4a 0%, #243d6d 55%, #2f5f8f 100%);
+  color: #fff;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.gas-safe-lgsr-kicker {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin: 0;
+  opacity: 0.8;
+  text-transform: uppercase;
+}
+
+.gas-safe-lgsr-masthead h3 {
+  font-size: 1.35rem;
+  margin: 6px 0 8px;
+}
+
+.gas-safe-lgsr-masthead p {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 46rem;
+  opacity: 0.9;
+}
+
+.gas-safe-lgsr-ref {
+  display: grid;
+  gap: 4px;
+  text-align: right;
+}
+
+.gas-safe-lgsr-ref strong {
+  font-size: 1rem;
+}
+
+.gas-safe-lgsr-ref span {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.gas-safe-lgsr-section {
+  border-top: 1px solid #e4ebf0;
+  padding: 14px 20px 8px;
+}
+
+.gas-safe-lgsr-section h4 {
+  color: #1b2a4a;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  margin: 0 0 8px;
+  text-transform: uppercase;
+}
+
+.gas-safe-lgsr-section table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.gas-safe-lgsr-section th,
+.gas-safe-lgsr-section td {
+  border-top: 1px solid #edf1f4;
+  font-size: 13px;
+  padding: 9px 8px 9px 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.gas-safe-lgsr-section th {
+  color: #5b6570;
+  font-weight: 600;
+  width: 42%;
+}
+
+.gas-safe-lgsr-section td {
+  font-weight: 700;
+}
+
+.gas-safe-lgsr-section tr.empty td {
+  color: #9aa5af;
+  font-weight: 500;
+}
+
+.gas-safe-lgsr-footer {
+  background: #f7f9fb;
+  border-top: 1px solid #e4ebf0;
+  color: #5b6570;
+  font-size: 12px;
+  padding: 12px 20px;
+}
+
+.gas-safe-lgsr-footer p {
+  margin: 0;
+}
+
 .engineer-flow-list {
   display: grid;
   gap: 10px;

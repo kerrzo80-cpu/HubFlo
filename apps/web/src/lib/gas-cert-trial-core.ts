@@ -28,11 +28,16 @@ const SAMPLE_EVIDENCE: Record<string, EngineerFlowStepEvidenceValue> = {
   "service-location": { text: "Kitchen cupboard", capturedAt: new Date().toISOString() },
   "service-make-model": { text: "Worcester Greenstar 30i", capturedAt: new Date().toISOString() },
   "service-serial": { text: "WS30i-TRIAL-001", capturedAt: new Date().toISOString() },
+  "service-visual": { text: "Visual condition satisfactory", capturedAt: new Date().toISOString() },
   "service-flue": { text: "Flue and ventilation checks complete", capturedAt: new Date().toISOString() },
+  "service-safety-devices": { text: "Safety devices working correctly", capturedAt: new Date().toISOString() },
+  "service-operating-pressure": { text: "20 mbar", capturedAt: new Date().toISOString() },
   "service-co-reading": { numberValue: "18", capturedAt: new Date().toISOString() },
   "service-ratio": { numberValue: "0.004", capturedAt: new Date().toISOString() },
+  "service-safe-to-use": { text: "Appliance safe to use", capturedAt: new Date().toISOString() },
   "service-defects": { text: "None", capturedAt: new Date().toISOString() },
   "service-next-due": { text: "2027-07-31", capturedAt: new Date().toISOString() },
+  "service-gas-safe-id": { text: "123456", capturedAt: new Date().toISOString() },
   "service-customer-signoff": { text: "Site contact", capturedAt: new Date().toISOString() },
 };
 
@@ -136,15 +141,6 @@ function ensureCoreJob(): Job {
   });
 }
 
-function hasAnyRealGasEvidence(hubState: ReturnType<typeof getHubDetailState>) {
-  const evidenceStore = (hubState.flowStepEvidence ?? {}) as Record<string, EngineerFlowStepEvidenceValue>;
-  return boilerServiceFlowTemplate.steps.some((step) => {
-    if (step.evidence === "Checkbox") return false;
-    const key = flowEvidenceKey(GAS_CERT_TRIAL.jobId, GAS_CERT_TRIAL.costCentreId, step.id);
-    return hasCapturedFlowEvidence(step.evidence, evidenceStore[key]);
-  });
-}
-
 function ensureHubCostCentresAndSampleEvidence() {
   purgeEmptyFlowStepCompletions({
     jobId: GAS_CERT_TRIAL.jobId,
@@ -172,12 +168,16 @@ function ensureHubCostCentresAndSampleEvidence() {
     ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>),
   };
 
-  // Seed a filled trial certificate once, so Core can show the preview immediately.
-  // Do not overwrite real engineer-captured evidence.
-  if (!hasAnyRealGasEvidence({ ...hubState, flowStepEvidence: evidenceStore, flowStepCompletion: completionStore })) {
-    for (const step of boilerServiceFlowTemplate.steps) {
-      const key = flowEvidenceKey(GAS_CERT_TRIAL.jobId, GAS_CERT_TRIAL.costCentreId, step.id);
-      const sample = SAMPLE_EVIDENCE[step.id] || { text: "Complete", capturedAt: new Date().toISOString() };
+  // Seed / top-up trial LGSR fields so Core certificate preview stays complete.
+  // Do not overwrite real engineer-captured values.
+  for (const step of boilerServiceFlowTemplate.steps) {
+    const key = flowEvidenceKey(GAS_CERT_TRIAL.jobId, GAS_CERT_TRIAL.costCentreId, step.id);
+    const sample = SAMPLE_EVIDENCE[step.id] || { text: "Complete", capturedAt: new Date().toISOString() };
+    const needsSample =
+      step.evidence === "Checkbox"
+        ? !completionStore[key]
+        : !hasCapturedFlowEvidence(step.evidence, evidenceStore[key]);
+    if (needsSample) {
       evidenceStore[key] = sample;
       completionStore[key] = true;
       changed = true;

@@ -111,6 +111,8 @@ import { numberedReference } from "@/lib/numbering";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
+import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
+import type { GasServiceRecord } from "@/lib/engineer-flow";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -3308,19 +3310,24 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
 
 const boilerServiceFlowTemplate: EngineerFlowTemplate = {
   id: "boiler-service-flow",
-  name: "Boiler servicing stop/go · Gas service record",
+  name: "Boiler servicing stop/go · Landlord Gas Safety Record",
   appliesTo: ["Boiler servicing"],
   steps: [
     { id: "service-boiler-photo", stage: "Existing Boiler", label: "Upload photos of boiler and surrounding area", evidence: "Photo", required: true },
     { id: "service-location", stage: "Existing Boiler", label: "Confirm boiler location", evidence: "Text", required: true },
     { id: "service-make-model", stage: "Existing Boiler", label: "Record boiler make/model", evidence: "Text", required: true },
     { id: "service-serial", stage: "Existing Boiler", label: "Record boiler serial number", evidence: "Text", required: true },
+    { id: "service-visual", stage: "Commissioning", label: "Confirm visual condition of appliance and flue is satisfactory", evidence: "Checkbox", required: true },
     { id: "service-flue", stage: "Commissioning", label: "Complete flue and ventilation checks", evidence: "Checkbox", required: true },
+    { id: "service-safety-devices", stage: "Commissioning", label: "Confirm safety devices are working correctly", evidence: "Checkbox", required: true },
+    { id: "service-operating-pressure", stage: "Gas certificate", label: "Record operating pressure / heat input", evidence: "Text", required: true },
     { id: "service-co-reading", stage: "Gas certificate", label: "Record CO reading (ppm)", evidence: "Number", required: true },
     { id: "service-ratio", stage: "Gas certificate", label: "Record combustion ratio / CO₂", evidence: "Number", required: true },
+    { id: "service-safe-to-use", stage: "Gas certificate", label: "Confirm appliance is safe to use", evidence: "Checkbox", required: true },
     { id: "service-defects", stage: "Gas certificate", label: "Defects / remedial notes (or None)", evidence: "Text", required: true },
-    { id: "service-next-due", stage: "Gas certificate", label: "Next service due date (YYYY-MM-DD)", evidence: "Text", required: true },
-    { id: "service-customer-signoff", stage: "Handover", label: "Customer sign-off after service", evidence: "Signature", required: true },
+    { id: "service-next-due", stage: "Gas certificate", label: "Next safety check due date (YYYY-MM-DD)", evidence: "Text", required: true },
+    { id: "service-gas-safe-id", stage: "Handover", label: "Engineer Gas Safe licence / ID card number", evidence: "Text", required: true },
+    { id: "service-customer-signoff", stage: "Handover", label: "Customer / landlord received-by sign-off", evidence: "Signature", required: true },
   ],
 };
 
@@ -25664,26 +25671,69 @@ export default function Dashboard() {
       (step) => !isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
     );
     const isGasServiceFlow = flowTemplate.id === "boiler-service-flow";
-    const gasFields = isGasServiceFlow
-      ? [
-          { label: "Location", key: "service-location", kind: "text" as const },
-          { label: "Make / model", key: "service-make-model", kind: "text" as const },
-          { label: "Serial number", key: "service-serial", kind: "text" as const },
-          { label: "CO reading (ppm)", key: "service-co-reading", kind: "number" as const },
-          { label: "Combustion ratio / CO₂", key: "service-ratio", kind: "number" as const },
-          { label: "Defects", key: "service-defects", kind: "text" as const },
-          { label: "Next service due", key: "service-next-due", kind: "text" as const },
-          { label: "Customer sign-off", key: "service-customer-signoff", kind: "text" as const },
-        ]
-          .map((field) => {
-            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, field.key)] || {};
+    const gasRecord: GasServiceRecord | null = isGasServiceFlow
+      ? (() => {
+          const record: GasServiceRecord = { populatedFrom: "core" };
+          let any = false;
+          const booleanFields = new Set([
+            "flueVentilationOk",
+            "visualConditionOk",
+            "safetyDevicesOk",
+            "applianceSafeToUse",
+          ]);
+          const fieldSteps: Array<{ key: string; formField: keyof GasServiceRecord; kind: "text" | "number" | "checkbox" }> = [
+            { key: "service-location", formField: "location", kind: "text" },
+            { key: "service-make-model", formField: "makeModel", kind: "text" },
+            { key: "service-serial", formField: "serialNumber", kind: "text" },
+            { key: "service-boiler-photo", formField: "appliancePhoto", kind: "text" },
+            { key: "service-visual", formField: "visualConditionOk", kind: "checkbox" },
+            { key: "service-flue", formField: "flueVentilationOk", kind: "checkbox" },
+            { key: "service-safety-devices", formField: "safetyDevicesOk", kind: "checkbox" },
+            { key: "service-operating-pressure", formField: "operatingPressure", kind: "text" },
+            { key: "service-co-reading", formField: "coReading", kind: "number" },
+            { key: "service-ratio", formField: "combustionRatio", kind: "number" },
+            { key: "service-safe-to-use", formField: "applianceSafeToUse", kind: "checkbox" },
+            { key: "service-defects", formField: "defects", kind: "text" },
+            { key: "service-next-due", formField: "nextServiceDate", kind: "text" },
+            { key: "service-gas-safe-id", formField: "gasSafeLicenceNumber", kind: "text" },
+            { key: "service-customer-signoff", formField: "customerSignature", kind: "text" },
+          ];
+          for (const step of fieldSteps) {
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, step.key)] || {};
+            if (step.kind === "checkbox") {
+              if (flowStepCompletion[flowCompletionKey(completionRecordId, step.key)] || evidence.text || evidence.capturedAt) {
+                (record as Record<string, string | boolean | undefined>)[step.formField] = true;
+                record.completedAt = evidence.capturedAt || record.completedAt;
+                any = true;
+              }
+              continue;
+            }
             const value =
-              field.kind === "number"
+              step.kind === "number"
                 ? evidence.numberValue?.trim()
                 : evidence.text?.trim() || evidence.photoName?.trim();
-            return value ? { label: field.label, value } : null;
-          })
-          .filter((row): row is { label: string; value: string } => Boolean(row))
+            if (!value) continue;
+            (record as Record<string, string | boolean | undefined>)[step.formField] = value;
+            record.completedAt = evidence.capturedAt || record.completedAt;
+            any = true;
+          }
+          void booleanFields;
+          return any ? record : null;
+        })()
+      : null;
+    const gasFields = gasRecord
+      ? [
+          { label: "Location", value: gasRecord.location },
+          { label: "Make / model", value: gasRecord.makeModel },
+          { label: "Serial number", value: gasRecord.serialNumber },
+          { label: "CO reading (ppm)", value: gasRecord.coReading },
+          { label: "Combustion ratio / CO₂", value: gasRecord.combustionRatio },
+          { label: "Operating pressure", value: gasRecord.operatingPressure },
+          { label: "Defects", value: gasRecord.defects },
+          { label: "Next safety check due", value: gasRecord.nextServiceDate },
+          { label: "Gas Safe ID", value: gasRecord.gasSafeLicenceNumber },
+          { label: "Received by", value: gasRecord.customerSignature },
+        ].filter((row): row is { label: string; value: string } => Boolean(row.value?.trim()))
       : [];
 
     return (
@@ -25694,7 +25744,7 @@ export default function Dashboard() {
             <h2>{flowTemplate.name}</h2>
             {centre ? <small>Assigned from cost centre type: {centre.templateName ?? "General plumbing"}</small> : null}
             <small style={{ display: "block", marginTop: 4 }}>
-              Engineer fills this on the app — values appear here on the NeXa job form automatically.
+              Engineer fills this on the app — values appear here on the NeXa Landlord Gas Safety Record automatically.
             </small>
           </div>
           <span className={nextBlockedStep ? "flow-status blocked" : "flow-status ready"}>
@@ -25705,7 +25755,7 @@ export default function Dashboard() {
         {isGasServiceFlow ? (
           <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
             <strong>Gas service record</strong>
-            <span>Populated from engineer stop/go</span>
+            <span>Populated from engineer stop/go into the Gas Safe / LGSR form below</span>
             {gasFields.length ? (
               <dl style={{ display: "grid", gap: 8, margin: "12px 0 0", gridTemplateColumns: "160px 1fr" }}>
                 {gasFields.map((row) => (
@@ -25721,106 +25771,20 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        {isGasServiceFlow && gasFields.length ? (
-          <article
-            className="gas-cert-preview"
-            style={{
-              background: "#fff",
-              border: "1px solid #d7dde3",
-              borderRadius: 16,
-              marginBottom: 16,
-              overflow: "hidden",
-            }}
-          >
-            <header
-              style={{
-                alignItems: "flex-start",
-                background: "linear-gradient(135deg, #10241f 0%, #1f4d42 100%)",
-                color: "#fff",
-                display: "flex",
-                gap: 16,
-                justifyContent: "space-between",
-                padding: "18px 20px",
+        {isGasServiceFlow ? (
+          <div style={{ marginBottom: 16 }}>
+            <GasSafeLgsrCertificate
+              context={{
+                customer: job.customer,
+                site: job.site,
+                engineer: job.manager || "Field engineer",
+                jobRef: job.ref,
+                inspectionDate: gasRecord?.completedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+                applianceType: "Central heating boiler",
+                record: gasRecord,
               }}
-            >
-              <div>
-                <span style={{ display: "block", fontSize: 12, letterSpacing: "0.08em", opacity: 0.8, textTransform: "uppercase" }}>
-                  NeXa service certificate preview
-                </span>
-                <h3 style={{ fontSize: "1.25rem", margin: "6px 0 0" }}>Landlord / homeowner gas service record</h3>
-                <small style={{ display: "block", marginTop: 6, opacity: 0.85 }}>
-                  Generated from Field stop/go for {job.ref}. Not a statutory Gas Safe PDF layout yet — this is the live Core certificate view.
-                </small>
-              </div>
-              <strong style={{ fontSize: "0.95rem", whiteSpace: "nowrap" }}>{job.ref}</strong>
-            </header>
-            <div style={{ display: "grid", gap: 14, padding: 20 }}>
-              <div style={{ display: "grid", gap: 10, gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-                <div>
-                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Customer</span>
-                  <strong>{job.customer}</strong>
-                </div>
-                <div>
-                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Site</span>
-                  <strong>{job.site}</strong>
-                </div>
-                <div>
-                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Engineer</span>
-                  <strong>{job.manager || "Field engineer"}</strong>
-                </div>
-                <div>
-                  <span style={{ color: "#5b6570", display: "block", fontSize: 12 }}>Cost centre</span>
-                  <strong>{centre?.name || "Boiler servicing"}</strong>
-                </div>
-              </div>
-              <table style={{ borderCollapse: "collapse", width: "100%" }}>
-                <tbody>
-                  {gasFields.map((row) => (
-                    <tr key={row.label} style={{ borderTop: "1px solid #e6ebef" }}>
-                      <th
-                        style={{
-                          color: "#5b6570",
-                          fontSize: 13,
-                          fontWeight: 600,
-                          padding: "10px 8px 10px 0",
-                          textAlign: "left",
-                          width: "40%",
-                        }}
-                      >
-                        {row.label}
-                      </th>
-                      <td style={{ fontWeight: 700, padding: "10px 0" }}>{row.value}</td>
-                    </tr>
-                  ))}
-                  {(() => {
-                    const photoEvidence =
-                      flowStepEvidence[flowCompletionKey(completionRecordId, "service-boiler-photo")] || {};
-                    const photoName = photoEvidence.photoName?.trim();
-                    if (!photoName) return null;
-                    return (
-                      <tr style={{ borderTop: "1px solid #e6ebef" }}>
-                        <th
-                          style={{
-                            color: "#5b6570",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            padding: "10px 8px 10px 0",
-                            textAlign: "left",
-                          }}
-                        >
-                          Appliance photo
-                        </th>
-                        <td style={{ fontWeight: 700, padding: "10px 0" }}>{photoName}</td>
-                      </tr>
-                    );
-                  })()}
-                </tbody>
-              </table>
-              <p style={{ color: "#5b6570", fontSize: 13, margin: 0 }}>
-                Amend values from Field checklist (Amend → Save to NeXa). Core refreshes this certificate from the same stop/go evidence.
-              </p>
-            </div>
-          </article>
+            />
+          </div>
         ) : null}
 
         <div className="flow-progress-panel">

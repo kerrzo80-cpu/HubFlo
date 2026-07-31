@@ -42,7 +42,7 @@ export type EngineerFlowTemplate = {
 
 export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
   id: "boiler-service-flow",
-  name: "Boiler servicing stop/go · Gas service record",
+  name: "Boiler servicing stop/go · Landlord Gas Safety Record",
   appliesTo: ["Boiler servicing", "Boiler service"],
   steps: [
     {
@@ -78,12 +78,36 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
       formField: "serialNumber",
     },
     {
+      id: "service-visual",
+      stage: "Commissioning",
+      label: "Confirm visual condition of appliance and flue is satisfactory",
+      evidence: "Checkbox",
+      required: true,
+      formField: "visualConditionOk",
+    },
+    {
       id: "service-flue",
       stage: "Commissioning",
       label: "Complete flue and ventilation checks",
       evidence: "Checkbox",
       required: true,
       formField: "flueVentilationOk",
+    },
+    {
+      id: "service-safety-devices",
+      stage: "Commissioning",
+      label: "Confirm safety devices are working correctly",
+      evidence: "Checkbox",
+      required: true,
+      formField: "safetyDevicesOk",
+    },
+    {
+      id: "service-operating-pressure",
+      stage: "Gas certificate",
+      label: "Record operating pressure / heat input",
+      evidence: "Text",
+      required: true,
+      formField: "operatingPressure",
     },
     {
       id: "service-co-reading",
@@ -102,6 +126,14 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
       formField: "combustionRatio",
     },
     {
+      id: "service-safe-to-use",
+      stage: "Gas certificate",
+      label: "Confirm appliance is safe to use",
+      evidence: "Checkbox",
+      required: true,
+      formField: "applianceSafeToUse",
+    },
+    {
       id: "service-defects",
       stage: "Gas certificate",
       label: "Defects / remedial notes (or None)",
@@ -112,15 +144,23 @@ export const boilerServiceFlowTemplate: EngineerFlowTemplate = {
     {
       id: "service-next-due",
       stage: "Gas certificate",
-      label: "Next service due date (YYYY-MM-DD)",
+      label: "Next safety check due date (YYYY-MM-DD)",
       evidence: "Text",
       required: true,
       formField: "nextServiceDate",
     },
     {
+      id: "service-gas-safe-id",
+      stage: "Handover",
+      label: "Engineer Gas Safe licence / ID card number",
+      evidence: "Text",
+      required: true,
+      formField: "gasSafeLicenceNumber",
+    },
+    {
       id: "service-customer-signoff",
       stage: "Handover",
-      label: "Customer sign-off after service",
+      label: "Customer / landlord received-by sign-off",
       evidence: "Signature",
       required: true,
       formField: "customerSignature",
@@ -399,11 +439,16 @@ export type GasServiceRecord = {
   serialNumber?: string;
   appliancePhoto?: string;
   flueVentilationOk?: boolean;
+  visualConditionOk?: boolean;
+  safetyDevicesOk?: boolean;
+  operatingPressure?: string;
+  applianceSafeToUse?: boolean;
   coReading?: string;
   combustionRatio?: string;
   defects?: string;
   nextServiceDate?: string;
   customerSignature?: string;
+  gasSafeLicenceNumber?: string;
   completedAt?: string;
   populatedFrom: "engineer-app" | "core";
 };
@@ -423,13 +468,19 @@ export function buildGasServiceRecordFromEvidence(
 
   const record: GasServiceRecord = { populatedFrom: "engineer-app" };
   let any = false;
+  const booleanFields = new Set([
+    "flueVentilationOk",
+    "visualConditionOk",
+    "safetyDevicesOk",
+    "applianceSafeToUse",
+  ]);
   for (const step of template.steps) {
     if (!step.formField) continue;
     const value = evidenceStore[flowEvidenceKey(jobId, costCentreId, step.id)];
     if (!value) continue;
     any = true;
-    if (step.formField === "flueVentilationOk") {
-      record.flueVentilationOk = true;
+    if (booleanFields.has(step.formField)) {
+      (record as Record<string, string | boolean | undefined>)[step.formField] = true;
       record.completedAt = value.capturedAt || record.completedAt;
       continue;
     }
