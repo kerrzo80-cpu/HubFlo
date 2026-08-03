@@ -36740,21 +36740,58 @@ kbd,
 /* ---- Dashboard KPI overview (clean metric cards + charts) ---- */
 .nexa-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
   gap: 16px;
   margin-bottom: 18px;
-}
-
-@media (max-width: 1180px) {
-  .nexa-kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 620px) {
   .nexa-kpi-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Staggered entrance for a premium first impression */
+.nexa-kpi-card {
+  animation: nexa-kpi-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.nexa-kpi-card:nth-child(2) { animation-delay: 0.05s; }
+.nexa-kpi-card:nth-child(3) { animation-delay: 0.1s; }
+.nexa-kpi-card:nth-child(4) { animation-delay: 0.15s; }
+.nexa-kpi-card:nth-child(5) { animation-delay: 0.2s; }
+.nexa-kpi-card:nth-child(6) { animation-delay: 0.25s; }
+.nexa-kpi-card:nth-child(7) { animation-delay: 0.3s; }
+
+@keyframes nexa-kpi-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexa-kpi-card {
+    animation: none;
+  }
+}
+
+.nexa-kpi-ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexa-kpi-ring-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
 }
 
 .nexa-kpi-card {

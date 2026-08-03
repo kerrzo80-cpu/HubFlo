@@ -44,6 +44,8 @@ const HEALTH_COLORS = {
 
 const BAR_PALETTE = ["#006eb8", "#2e8c7d", "#f79009", "#7a5af8", "#f04438", "#12b76a", "#2e90fa"];
 
+const DONE_STATUSES = new Set(["Ready to invoice", "Invoiced", "Completed", "Complete"]);
+
 function asArray(value: unknown): AnyRecord[] {
   return Array.isArray(value) ? (value as AnyRecord[]) : [];
 }
@@ -99,6 +101,44 @@ function Donut({ segments, total }: { segments: Array<{ value: number; color: st
         total
       </text>
     </svg>
+  );
+}
+
+function Ring({ percent, centerLabel, sub }: { percent: number; centerLabel: string; sub: string }) {
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  const shown = useCountUp(Math.round(percent));
+  const dash = (Math.max(0, Math.min(100, shown)) / 100) * circumference;
+  return (
+    <div className="nexa-kpi-ring-wrap">
+      <svg viewBox="0 0 110 110" className="nexa-kpi-donut" role="img" aria-label="Progress ring">
+        <defs>
+          <linearGradient id="nexaRingGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#006eb8" />
+            <stop offset="100%" stopColor="#2e8c7d" />
+          </linearGradient>
+        </defs>
+        <circle cx="55" cy="55" r={radius} fill="none" stroke="#eef1f5" strokeWidth="14" />
+        <circle
+          cx="55"
+          cy="55"
+          r={radius}
+          fill="none"
+          stroke="url(#nexaRingGrad)"
+          strokeWidth="14"
+          strokeLinecap="round"
+          strokeDasharray={`${dash} ${circumference}`}
+          transform="rotate(-90 55 55)"
+        />
+        <text x="55" y="52" textAnchor="middle" className="nexa-kpi-donut-value">
+          {centerLabel}
+        </text>
+        <text x="55" y="68" textAnchor="middle" className="nexa-kpi-donut-label">
+          done
+        </text>
+      </svg>
+      <p className="nexa-kpi-ring-sub">{sub}</p>
+    </div>
   );
 }
 
@@ -199,6 +239,41 @@ export function DashboardOverview() {
     return { jobsValue, wonValue, openValue };
   }, [jobs, quotes]);
 
+  const progress = useMemo(() => {
+    const now = new Date();
+    const mondayOffset = (now.getDay() + 6) % 7;
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(now.getDate() - mondayOffset);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+    const within = jobs.filter((job) => {
+      const raw = str(job, "scheduledDate");
+      if (!raw) return false;
+      const time = new Date(raw).getTime();
+      return Number.isFinite(time) && time >= start.getTime() && time < end.getTime();
+    });
+
+    if (within.length > 0) {
+      const done = within.filter((job) => DONE_STATUSES.has(str(job, "status"))).length;
+      return {
+        title: "This week",
+        badge: `${within.length} booked`,
+        percent: Math.round((done / within.length) * 100),
+        sub: `${done}/${within.length} jobs done`,
+      };
+    }
+
+    // Fall back to overall job completion when nothing is booked this week.
+    const done = jobs.filter((job) => DONE_STATUSES.has(str(job, "status"))).length;
+    return {
+      title: "Completion",
+      badge: "all jobs",
+      percent: jobs.length ? Math.round((done / jobs.length) * 100) : 0,
+      sub: jobs.length ? `${done}/${jobs.length} jobs done` : "No jobs yet",
+    };
+  }, [jobs]);
+
   const healthTotal = health.green + health.amber + health.red;
   const shownJobsValue = useCountUp(value.jobsValue);
 
@@ -234,6 +309,14 @@ export function DashboardOverview() {
             </li>
           </ul>
         </div>
+      </article>
+
+      <article className="nexa-kpi-card">
+        <header>
+          <h3>{progress.title}</h3>
+          <span className="nexa-kpi-sub">{progress.badge}</span>
+        </header>
+        <Ring percent={progress.percent} centerLabel={`${progress.percent}%`} sub={progress.sub} />
       </article>
 
       <article className="nexa-kpi-card">
