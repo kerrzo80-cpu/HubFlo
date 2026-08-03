@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   calculateRoomHeatLoss,
   calculateSystemDesign,
+  compareHeatingOptions,
   heatPumpCatalogue,
+  heatingSystemOptions,
   isDecimalDraft,
   kitExtraOptions,
   kw,
@@ -29,18 +31,19 @@ import {
 } from "@/lib/heat-design";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
-import { ReportFloorPlan } from "./ReportFloorPlan";
+import { DesignReport } from "./DesignReport";
 import "./heat-design.css";
 
-const STORAGE_KEY = "nexa-heat-design-lab-v4";
+const STORAGE_KEY = "nexa-heat-design-lab-v5";
 
-type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "kit" | "forms" | "report";
+type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
 
 function loadProject(): HeatDesignProject {
   if (typeof window === "undefined") return makeDemoProject();
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("nexa-heat-design-lab-v4") ??
       window.localStorage.getItem("nexa-heat-design-lab-v3") ??
       window.localStorage.getItem("nexa-heat-design-lab-v2") ??
       window.localStorage.getItem("nexa-heat-design-lab-v1");
@@ -85,6 +88,15 @@ export default function HeatDesignLabPage() {
   }
 
   const design = useMemo(() => (project ? calculateSystemDesign(project) : null), [project]);
+  const optionResults = useMemo(() => {
+    if (!project || !design) return [];
+    return compareHeatingOptions(
+      project,
+      design.designLoadKw,
+      design.estimatedAnnualHeatKwh,
+      project.reportOptionIds,
+    );
+  }, [project, design]);
 
   function patchProject(patch: Partial<HeatDesignProject>) {
     setProject((current) =>
@@ -192,6 +204,7 @@ export default function HeatDesignLabPage() {
               ["materials", "Materials"],
               ["rooms", "Rooms"],
               ["system", "System"],
+              ["options", "Options"],
               ["kit", "Kit"],
               ["forms", "MCS / DNO"],
               ["report", "Report"],
@@ -717,197 +730,99 @@ export default function HeatDesignLabPage() {
               </>
             ) : null}
 
+            {tab === "options" ? (
+              <>
+                <h2>Heating system options</h2>
+                <p className="hd-lead">
+                  Tick one, two or all systems to compare on the printed report — so the homeowner can see the best fit.
+                </p>
+                <div className="hd-options-actions">
+                  <button
+                    type="button"
+                    className="hd-btn hd-btn-ghost"
+                    onClick={() => patchProject({ reportOptionIds: heatingSystemOptions.map((item) => item.id) })}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="hd-btn hd-btn-ghost"
+                    onClick={() => patchProject({ reportOptionIds: ["opt-ashp", "opt-gas"] })}
+                  >
+                    ASHP + gas
+                  </button>
+                  <button type="button" className="hd-btn hd-btn-primary" onClick={() => setTab("report")}>
+                    View report
+                  </button>
+                </div>
+                <div className="hd-options-grid">
+                  {heatingSystemOptions.map((option) => {
+                    const on = (project.reportOptionIds ?? []).includes(option.id);
+                    const result = optionResults.find((row) => row.option.id === option.id);
+                    return (
+                      <label key={option.id} className={`hd-option-card${on ? " is-on" : ""}${result?.recommended ? " is-best" : ""}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() => {
+                            const current = project.reportOptionIds ?? [];
+                            const next = on ? current.filter((id) => id !== option.id) : [...current, option.id];
+                            patchProject({ reportOptionIds: next.length ? next : [option.id] });
+                          }}
+                        />
+                        <div>
+                          <strong>
+                            {option.label}
+                            {result?.recommended ? <span className="ewg-pill">Best for this home</span> : null}
+                          </strong>
+                          <p>{option.description}</p>
+                          {result ? (
+                            <small>
+                              {money(result.annualCost)}/yr · save {money(result.annualSavingVsCurrent)} · install from{" "}
+                              {money(result.option.installedFrom)}
+                            </small>
+                          ) : (
+                            <small>Install from {money(option.installedFrom)}</small>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                {optionResults[0] ? (
+                  <div className="hd-banner" style={{ marginTop: 14, marginBottom: 0 }}>
+                    Recommended: {optionResults[0].option.label}
+                    {optionResults[0].pump ? ` (${optionResults[0].pump.model})` : ""} —{" "}
+                    {money(optionResults[0].annualCost)}/yr running cost.
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
             {tab === "report" ? (
               <div className="hd-room-head no-print" style={{ marginBottom: 8 }}>
                 <div>
-                  <h2>Design report</h2>
+                  <h2>Heating options report</h2>
                   <p className="hd-lead" style={{ marginBottom: 0 }}>
-                    Populated from this project — print or save as PDF from your browser.
+                    Professional Errol Watson Group report — includes the systems ticked under Options.
                   </p>
                 </div>
-                <button type="button" className="hd-btn hd-btn-primary" onClick={requestPrint}>
-                  Print / PDF
-                </button>
-              </div>
-            ) : null}
-            {/* Always mounted so print never opens a blank page */}
-            <article
-              className={`hd-report${tab === "report" ? "" : " is-print-source"}`}
-              id="hd-print-report"
-              aria-hidden={tab === "report" ? undefined : true}
-            >
-              <header className="hd-report-cover">
-                <p className="hd-report-kicker">Heat Design · lab report</p>
-                <h3>{project.name || "Untitled project"}</h3>
-                <p>
-                  {project.customerName || "Customer TBC"}
-                  <br />
-                  {[project.address, project.postcode].filter(Boolean).join(", ") || "Address TBC"}
-                </p>
-                <p className="hd-report-meta">
-                  {project.propertyType} · {project.buildEra} · {project.occupants} occupants · prepared{" "}
-                  {new Date(project.updatedAt || Date.now()).toLocaleDateString("en-GB")}
-                </p>
-              </header>
-
-              <div className="hd-report-block">
-                <h3>1. Design summary</h3>
-                <div className="hd-report-grid">
-                  <div>
-                    <span>Space heat loss</span>
-                    <strong>{kw(design.totalHeatLossKw)}</strong>
-                  </div>
-                  <div>
-                    <span>Design load (incl. DHW)</span>
-                    <strong>{kw(design.designLoadKw)}</strong>
-                  </div>
-                  <div>
-                    <span>Selected heat pump</span>
-                    <strong>
-                      {selectedPump?.brand} {selectedPump?.model}
-                    </strong>
-                  </div>
-                  <div>
-                    <span>Output @ {project.flowTemperature}°C</span>
-                    <strong>
-                      {kw(design.capacityAtFlowKw)} · {Math.round(design.coveragePercent)}%
-                    </strong>
-                  </div>
-                  <div>
-                    <span>SCOP</span>
-                    <strong>{design.scop.toFixed(1)}</strong>
-                  </div>
-                  <div>
-                    <span>Kit materials (ex VAT)</span>
-                    <strong>{money(design.kitTotal)}</strong>
-                  </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setTab("options")}>
+                    Edit options
+                  </button>
+                  <button type="button" className="hd-btn hd-btn-primary" onClick={requestPrint}>
+                    Print / PDF
+                  </button>
                 </div>
               </div>
-
-              <div className="hd-report-block">
-                <h3>2. Floor plan</h3>
-                <ReportFloorPlan
-                  rooms={project.rooms.filter(
-                    (room) => (room.floorLevel ?? "ground") === (project.activeFloor ?? "ground"),
-                  )}
-                  title={`${(project.activeFloor ?? "ground").replace(/^./, (c) => c.toUpperCase())} floor`}
-                />
-                <p className="hd-report-note">
-                  Thick lines = exterior walls. Blue marks = windows · pink = doors. Drawing updates with the live
-                  floor-plan editor.
-                </p>
-              </div>
-
-              <div className="hd-report-block">
-                <h3>3. Room heat-loss schedule</h3>
-                <table className="hd-report-table">
-                  <thead>
-                    <tr>
-                      <th>Room</th>
-                      <th>Type</th>
-                      <th>Area</th>
-                      <th>Heat loss</th>
-                      <th>Openings</th>
-                      <th>Emitter</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {project.rooms.map((room) => {
-                      const loss = calculateRoomHeatLoss(
-                        { ...room, meanWaterTemperature: String(project.flowTemperature) },
-                        project.designExternalTemp,
-                      );
-                      const rad = pickRadiatorForRoom(
-                        { ...room, meanWaterTemperature: String(project.flowTemperature) },
-                        project.designExternalTemp,
-                      );
-                      const openings = room.openings ?? [];
-                      return (
-                        <tr key={room.id}>
-                          <td>{room.name}</td>
-                          <td>{room.roomType}</td>
-                          <td>{loss.floorArea.toFixed(1)} m²</td>
-                          <td>{wattsLabel(loss.watts)}</td>
-                          <td>
-                            {openings.length ? openings.map((o) => (o.kind === "door" ? "D" : "W")).join(" ") : "—"}
-                          </td>
-                          <td>{rad ? `${rad.range} ${rad.model}` : "Upgrade needed"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="hd-report-block">
-                <h3>4. Proposed system & performance</h3>
-                <ul>
-                  <li>
-                    Design external temperature: {project.designExternalTemp}°C · flow {project.flowTemperature}°C
-                  </li>
-                  <li>
-                    DHW: {project.cylinderLitres} L cylinder · ~{design.dhwDailyKwh.toFixed(1)} kWh/day · peak allowance{" "}
-                    {kw(design.dhwPeakKw)}
-                  </li>
-                  <li>
-                    Estimated annual heat {Math.round(design.estimatedAnnualHeatKwh).toLocaleString("en-GB")} kWh · HP
-                    electricity {Math.round(design.estimatedHpElectricityKwh).toLocaleString("en-GB")} kWh
-                  </li>
-                  <li>
-                    Running cost {money(design.estimatedHpCost)} vs current {project.currentFuel.toLowerCase()}{" "}
-                    {money(design.estimatedCurrentCost)} · indicative saving {money(design.estimatedAnnualSaving)} / yr
-                  </li>
-                  <li>
-                    Indicative CO₂e saving {Math.round(design.co2SavingKg).toLocaleString("en-GB")} kg · sound at
-                    neighbour ≈ {design.soundAssessmentDb} dB ({design.soundOk ? "pass" : "review"})
-                  </li>
-                </ul>
-              </div>
-
-              <div className="hd-report-block">
-                <h3>5. Materials / kit list</h3>
-                <table className="hd-report-table">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th>Category</th>
-                      <th>Qty</th>
-                      <th>Cost</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {design.kit.map((line) => (
-                      <tr key={line.id}>
-                        <td>{line.description}</td>
-                        <td>{line.category}</td>
-                        <td>
-                          {line.qty}
-                          {line.unit ? ` ${line.unit}` : ""}
-                        </td>
-                        <td>{line.unitCost === 0 ? "—" : money(line.qty * line.unitCost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={3}>Total materials (ex VAT)</td>
-                      <td>{money(design.kitTotal)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
-                {!design.materialsComplete ? (
-                  <p className="hd-report-note">Checklist notes: {design.materialsNotes.join(" ")}</p>
-                ) : null}
-              </div>
-
-              <div className="hd-report-block">
-                <h3>6. Notes</h3>
-                <p>
-                  Lab estimate only — not an MCS certificate. Confirm site survey, DNO notification, emitter schedule
-                  and final merchant pricing before install.
-                </p>
-              </div>
-            </article>
+            ) : null}
+            <DesignReport
+              project={project}
+              design={design}
+              options={optionResults}
+              className={tab === "report" ? undefined : "is-print-source"}
+            />
           </section>
 
           <aside className="hd-sticky">

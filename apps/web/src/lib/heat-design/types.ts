@@ -84,6 +84,8 @@ export type HeatDesignProject = {
   selectedWallConstructionIds: string[];
   primaryWallConstructionId: string;
   selectedRadiatorTypeIds: string[];
+  /** Heating system options included in the comparison report */
+  reportOptionIds: string[];
   cylinderLitres: number;
   dailyHotWaterLitres: number;
   outdoorUnitDistanceM: number;

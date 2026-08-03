@@ -331,6 +331,10 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     selectedWallConstructionIds: project.selectedWallConstructionIds ?? ["cav-mw-100-wp"],
     primaryWallConstructionId: project.primaryWallConstructionId ?? "cav-mw-100-wp",
     selectedRadiatorTypeIds: project.selectedRadiatorTypeIds ?? ["rad-k1", "rad-k2", "rad-k3"],
+    reportOptionIds:
+      project.reportOptionIds?.length
+        ? project.reportOptionIds
+        : ["opt-ashp", "opt-gas", "opt-oil"],
     rooms: (project.rooms ?? []).map((room, index) => {
       const exteriorFlags = room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2);
       const polygon =
