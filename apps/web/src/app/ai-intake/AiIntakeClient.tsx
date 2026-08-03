@@ -201,9 +201,11 @@ function stageCopy(mode: RecordMode | null) {
 }
 
 export function AiIntakeClient() {
-  const initialMode = modeFromSearch();
-  const [recordMode, setRecordMode] = useState<RecordMode | null>(initialMode);
-  const [phase, setPhase] = useState<Phase>(initialMode ? "workType" : "recordType");
+  // Server render and first client render must match, so start from mode-agnostic
+  // defaults and apply the URL ?mode after mount (see effect below). Reading
+  // window.location during initial render caused a React hydration mismatch.
+  const [recordMode, setRecordMode] = useState<RecordMode | null>(null);
+  const [phase, setPhase] = useState<Phase>("recordType");
   const [workType, setWorkType] = useState("");
   const [workDraft, setWorkDraft] = useState("");
   const [answerDraft, setAnswerDraft] = useState("");
@@ -218,11 +220,11 @@ export function AiIntakeClient() {
   const [customerName, setCustomerName] = useState("");
   const [fields, setFields] = useState<MandatoryField[]>(() => cloneIntakeFields());
   const [conversation, setConversation] = useState<Array<{ role: "customer" | "ai"; text: string }>>([
-    { role: "ai", text: blakeOpener(initialMode) },
+    { role: "ai", text: blakeOpener(null) },
   ]);
   const [source, setSource] = useState<LeadSource>("Phone call");
   const [surveyor, setSurveyor] = useState(surveyors[0] || "Brian Kerr");
-  const [surveyDate, setSurveyDate] = useState(tomorrowIso());
+  const [surveyDate, setSurveyDate] = useState("");
   const [surveyTime, setSurveyTime] = useState("09:30");
   const [bookSurvey, setBookSurvey] = useState(true);
   const [error, setError] = useState("");
@@ -232,6 +234,19 @@ export function AiIntakeClient() {
   const [savedKind, setSavedKind] = useState<RecordMode>("lead");
   const lookupGen = useRef(0);
   const clientGen = useRef(0);
+
+  // Apply URL ?mode and today-derived defaults only after mount to avoid a
+  // server/client hydration mismatch (window and Date are client-only here).
+  useEffect(() => {
+    const mode = modeFromSearch();
+    if (mode) {
+      setRecordMode(mode);
+      setPhase("workType");
+      setSavedKind(mode);
+      setConversation([{ role: "ai", text: blakeOpener(mode) }]);
+    }
+    setSurveyDate(tomorrowIso());
+  }, []);
 
   const copy = stageCopy(recordMode);
   const missingCount = fields.filter((field) => field.status !== "answered").length;
