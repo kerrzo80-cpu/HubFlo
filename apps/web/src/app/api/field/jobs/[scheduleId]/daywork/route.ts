@@ -72,6 +72,18 @@ export async function POST(request: Request, { params }: Params) {
   const coreJob = getJobs().find((job) => job.id === schedule.jobId);
 
   if (body.action === "save") {
+    // Log immediately so /api/health.lastWrite proves the Field POST reached the server
+    // (even when validation later rejects the payload).
+    recordDayworkWriteAttempt({
+      at: new Date().toISOString(),
+      source: "field-daywork",
+      scheduleId,
+      jobId: schedule.jobId,
+      costCentreId,
+      ok: false,
+      error: "save-received",
+    });
+
     let record = body.record;
     if (!record && body.draft) {
       const validationError = validateDayworkSheetDraft(body.draft);

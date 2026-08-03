@@ -428,6 +428,12 @@ export default function JobDetailPage() {
             {dayworkBusy ? "Opening…" : "Add Daywork Account"}
           </button>
         )}
+        {checklistMode === "daywork" ? (
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            Fill this Daywork sheet, then Save and finish — it syncs to Core Variations → Daywork account (not the
+            boiler checklist).
+          </p>
+        ) : null}
       </div>
 
       <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
@@ -494,8 +500,9 @@ export default function JobDetailPage() {
               onCancel={() => void backToJobChecklist()}
               onSaved={(record) => {
                 setDayworkRecord(record);
-                setNotice("Daywork Account saved — check Core Variations / Engineer Flow.");
-                void backToJobChecklist();
+                setNotice(
+                  "Saved to Core — open this job → Cost centres → Variations → Daywork account (not Boiler servicing).",
+                );
               }}
             />
           ) : (

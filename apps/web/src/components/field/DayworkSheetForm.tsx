@@ -116,6 +116,12 @@ export function DayworkSheetForm({
     setError("");
     setNotice("");
     try {
+      // Prove the browser session can reach Core before writing the sheet.
+      const sessionCheck = await fetch("/api/health", { credentials: "include", cache: "no-store" });
+      if (sessionCheck.status === 401) {
+        throw new Error("Not signed in — open /login on this same site, sign in, then Save and finish again.");
+      }
+
       const record = dayworkRecordFromDraft(draft, saveViaCore ? "core" : "engineer-app");
       const endpoint = scheduleId
         ? `/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`
@@ -123,6 +129,7 @@ export function DayworkSheetForm({
       const response = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
+        cache: "no-store",
         headers: {
           "Content-Type": "application/json",
           ...(requestHeaders || {}),
@@ -134,7 +141,7 @@ export function DayworkSheetForm({
           ...(costCentreId ? { costCentreId } : {}),
         }),
       });
-      const body = (await response.json()) as {
+      const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         record?: DayworkAccountRecord;
         persisted?: boolean;
@@ -142,9 +149,11 @@ export function DayworkSheetForm({
         hasClientName?: boolean;
         hasSignatures?: boolean;
         storeSheetCount?: number;
+        jobId?: string;
+        costCentreId?: string;
       };
       if (response.status === 401) {
-        throw new Error("Not signed in — open /login, sign in, then Save and finish again.");
+        throw new Error("Not signed in — open /login on this same site, sign in, then Save and finish again.");
       }
       if (!response.ok) throw new Error(body.error || "Could not save daywork sheet.");
       if (!body.persisted || !body.hasSignatures) {
@@ -153,10 +162,13 @@ export function DayworkSheetForm({
             "Save did not stick on the live store — try again. If it keeps failing, sign out/in and retry.",
         );
       }
-      const okMessage = `Saved to live store · ${body.materialsCount ?? 0} materials · client ${
+      const okMessage = `Saved to Core · ${body.materialsCount ?? 0} materials · client ${
         body.hasClientName ? "named" : "missing"
-      } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}`;
+      } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}. Open Core → Variations → Daywork account.`;
       setNotice(okMessage);
+      shoutError(
+        `Daywork saved to Core.\n\nMaterials: ${body.materialsCount ?? 0}\nOpen Core → this job → Cost centres → Variations → Daywork account.`,
+      );
       if (body.record) onSaved?.(body.record);
       else onSaved?.(record);
     } catch (saveError) {
@@ -171,7 +183,7 @@ export function DayworkSheetForm({
       <p className="checklist-intro muted">
         {saveViaCore
           ? "Enter the Daywork Account in Core — materials, printed names and both signatures. This writes to the same live store Field uses."
-          : "Fill the Daywork Account — rates and markups are added by the office in Core."}
+          : "This Field sheet saves straight into Core → Variations → Daywork account. Tap Save and finish when both signatures are drawn."}
       </p>
       {error ? (
         <div className="feedback error" ref={errorRef} role="alert">

@@ -8278,6 +8278,7 @@ export default function Dashboard() {
   }, [activeRecordFingerprint, hasHydratedLocalData, hasLoadedHubDetailState]);
 
   // Always pull the latest Field Daywork sheet when opening a Daywork cost centre.
+  // Keep polling briefly so a Field Save and finish appears in Core without a manual refresh.
   useEffect(() => {
     if (!hasLoadedHubDetailState) return;
     if (homeView !== "cost-centre-record") return;
@@ -8287,7 +8288,11 @@ export default function Dashboard() {
       if (!centre || !/daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) return;
     }
     void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
-  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId]);
+    const timer = window.setInterval(() => {
+      void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId, jobEstimateCostCentres]);
 
   const selectedPurchaseOrderJob = useMemo(
     () =>
