@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   dist,
   edgeLengths,
+  edgeParam,
   insertVertexOnEdge,
+  lShapePolygon,
   numberFromInput,
   openingOnEdge,
   polygonBounds,
@@ -15,6 +17,7 @@ import {
   translatePolygon,
   type FloorLevel,
   type HeatDesignRoom,
+  type PlanOpening,
   type PlanPoint,
 } from "@/lib/heat-design";
 
@@ -32,9 +35,12 @@ const SCALE = 90;
 const PAD = 56;
 const SNAP_M = 0.08;
 
+type PlaceTool = "window" | "door" | null;
+
 type DragState =
   | { mode: "move"; roomId: string; origin: PlanPoint[]; grab: PlanPoint }
   | { mode: "vertex"; roomId: string; index: number; polygon: PlanPoint[] }
+  | { mode: "opening"; roomId: string; openingId: string; wallIndex: number }
   | null;
 
 function mm(metres: number) {
@@ -67,6 +73,8 @@ export function FloorPlanCanvas({
   const [drag, setDrag] = useState<DragState>(null);
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
   const [selectedEdge, setSelectedEdge] = useState<number | null>(null);
+  const [placeTool, setPlaceTool] = useState<PlaceTool>(null);
+  const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
 
   const floorRooms = useMemo(
     () => rooms.filter((room) => (room.floorLevel ?? "ground") === activeFloor),
@@ -177,6 +185,18 @@ export function FloorPlanCanvas({
         const room = floorRooms.find((r) => r.id === drag.roomId);
         if (!room) return;
         onPatchRoom(drag.roomId, syncRoomFromPolygon(room, next));
+      } else if (drag?.mode === "opening") {
+        const room = floorRooms.find((r) => r.id === drag.roomId);
+        if (!room) return;
+        const polygon = roomPolygon(room);
+        const a = polygon[drag.wallIndex]!;
+        const b = polygon[(drag.wallIndex + 1) % polygon.length]!;
+        const t = edgeParam(a, b, point);
+        onPatchRoom(drag.roomId, {
+          openings: (room.openings ?? []).map((opening) =>
+            opening.id === drag.openingId ? { ...opening, t, wallIndex: drag.wallIndex } : opening,
+          ),
+        });
       }
     }
 
@@ -242,6 +262,55 @@ export function FloorPlanCanvas({
           ? [wallExterior[0]!, wallExterior[1]!, wallExterior[2]!, wallExterior[3]!]
           : room.exteriorFlags,
     });
+  }
+
+  function placeOpeningOnEdge(room: HeatDesignRoom, edgeIndex: number, point: PlanPoint, kind: "window" | "door") {
+    const polygon = roomPolygon(room);
+    const a = polygon[edgeIndex]!;
+    const b = polygon[(edgeIndex + 1) % polygon.length]!;
+    const t = edgeParam(a, b, point);
+    const opening: PlanOpening = {
+      id: `op-${Date.now()}-${kind}`,
+      wallIndex: edgeIndex,
+      t,
+      kind,
+      widthM: kind === "door" ? 0.9 : 1.2,
+      heightM: kind === "door" ? 2.0 : 1.2,
+    };
+    onPatchRoom(room.id, { openings: [...(room.openings ?? []), opening] });
+    setSelectedOpeningId(opening.id);
+    setPlaceTool(null);
+  }
+
+  function makeLShape(room: HeatDesignRoom) {
+    const box = polygonBounds(roomPolygon(room));
+    const length = Math.max(2.4, box.width || numberFromInput(room.length, 3.2));
+    const width = Math.max(2.4, box.height || numberFromInput(room.width, 2.4));
+    const armLength = Math.min(length * 0.45, Math.max(1.1, length - 1.2));
+    const armWidth = Math.min(width * 0.45, Math.max(1.1, width - 1.2));
+    const polygon = lShapePolygon(box.minX || room.planX, box.minY || room.planY, length, width, armLength, armWidth);
+    // Outer edges exterior; the two inner cut edges internal
+    const wallExterior = [true, true, true, false, true, true];
+    onPatchRoom(
+      room.id,
+      syncRoomFromPolygon(
+        {
+          ...room,
+          wallExterior,
+          roomType: room.roomType === "Living Room" ? "Hall" : room.roomType,
+          name: room.name === "Room 1" || room.roomType === "Living Room" ? "Hall" : room.name,
+        },
+        polygon,
+      ),
+    );
+  }
+
+  function deleteSelectedOpening(room: HeatDesignRoom) {
+    if (!selectedOpeningId) return;
+    onPatchRoom(room.id, {
+      openings: (room.openings ?? []).filter((opening) => opening.id !== selectedOpeningId),
+    });
+    setSelectedOpeningId(null);
   }
 
   return (
@@ -345,15 +414,20 @@ export function FloorPlanCanvas({
                       y1={PAD + p.y * SCALE}
                       x2={PAD + q.x * SCALE}
                       y2={PAD + q.y * SCALE}
-                      stroke="#111"
+                      stroke={isSelected && selectedEdge === i ? "#0ea5e9" : "#111"}
                       strokeWidth={exterior[i] ? 10 : 3}
                       strokeLinecap="square"
-                      style={{ cursor: "pointer" }}
+                      style={{ cursor: placeTool ? "crosshair" : "pointer" }}
                       onPointerDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
                         onSelectRoom(room.id);
                         setSelectedEdge(i);
+                        setSelectedOpeningId(null);
+                        if (placeTool) {
+                          placeOpeningOnEdge(room, i, clientToMetres(event.clientX, event.clientY), placeTool);
+                          return;
+                        }
                         if (event.detail >= 2) toggleEdgeExterior(room, i);
                       }}
                     />
@@ -374,22 +448,47 @@ export function FloorPlanCanvas({
                 </text>
 
                 {(room.openings ?? []).map((opening) => {
-                  const geom = openingOnEdge(polygon, {
-                    ...opening,
-                    wallIndex: opening.wallIndex ?? opening.wall ?? 0,
-                  });
+                  const wallIndex = opening.wallIndex ?? opening.wall ?? 0;
+                  const geom = openingOnEdge(polygon, { ...opening, wallIndex });
+                  const active = opening.id === selectedOpeningId;
                   return (
-                    <line
-                      key={opening.id}
-                      x1={PAD + geom.x1 * SCALE}
-                      y1={PAD + geom.y1 * SCALE}
-                      x2={PAD + geom.x2 * SCALE}
-                      y2={PAD + geom.y2 * SCALE}
-                      stroke={opening.kind === "door" ? "#fb7185" : "#fda4af"}
-                      strokeWidth={8}
-                      strokeLinecap="butt"
-                      style={{ pointerEvents: "none" }}
-                    />
+                    <g key={opening.id}>
+                      <line
+                        x1={PAD + geom.x1 * SCALE}
+                        y1={PAD + geom.y1 * SCALE}
+                        x2={PAD + geom.x2 * SCALE}
+                        y2={PAD + geom.y2 * SCALE}
+                        stroke={opening.kind === "door" ? "#fb7185" : "#38bdf8"}
+                        strokeWidth={active ? 12 : 8}
+                        strokeLinecap="butt"
+                        style={{ cursor: "grab" }}
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSelectRoom(room.id);
+                          setSelectedOpeningId(opening.id);
+                          setSelectedEdge(wallIndex);
+                          setPlaceTool(null);
+                          setDrag({
+                            mode: "opening",
+                            roomId: room.id,
+                            openingId: opening.id,
+                            wallIndex,
+                          });
+                        }}
+                      />
+                      <text
+                        x={PAD + geom.cx * SCALE + geom.nx * 12}
+                        y={PAD + geom.cy * SCALE + geom.ny * 12}
+                        textAnchor="middle"
+                        fill={opening.kind === "door" ? "#9f1239" : "#0369a1"}
+                        fontSize={11}
+                        fontWeight={700}
+                        style={{ pointerEvents: "none" }}
+                      >
+                        {opening.kind === "door" ? "D" : "W"}
+                      </text>
+                    </g>
                   );
                 })}
 
@@ -505,18 +604,39 @@ export function FloorPlanCanvas({
             </label>
             <button
               type="button"
-              title="Push an alcove / bay on the selected wall (or first exterior wall)"
+              className={placeTool === "window" ? "is-active-tool" : ""}
+              title="Then click a wall to place a window"
+              onClick={() => setPlaceTool((current) => (current === "window" ? null : "window"))}
+            >
+              Window
+            </button>
+            <button
+              type="button"
+              className={placeTool === "door" ? "is-active-tool" : ""}
+              title="Then click a wall to place a door"
+              onClick={() => setPlaceTool((current) => (current === "door" ? null : "door"))}
+            >
+              Door
+            </button>
+            {selectedOpeningId ? (
+              <button type="button" className="is-danger" title="Remove selected opening" onClick={() => deleteSelectedOpening(selected)}>
+                Remove opening
+              </button>
+            ) : null}
+            <button
+              type="button"
+              title="Push an alcove / bay on the selected wall"
               onClick={() => {
                 const polygon = roomPolygon(selected);
                 const exterior = roomWallExterior(selected, polygon.length);
-                const edge =
-                  selectedEdge ??
-                  exterior.findIndex(Boolean) ??
-                  0;
+                const edge = selectedEdge ?? exterior.findIndex(Boolean);
                 addAlcoveOnEdge(selected, edge < 0 ? 0 : edge);
               }}
             >
               Alcove / bay
+            </button>
+            <button type="button" title="Turn this room into an L-shape (good for halls)" onClick={() => makeLShape(selected)}>
+              L-shape
             </button>
             <button type="button" title="Delete room" className="is-danger" onClick={() => onDeleteRoom(selected.id)}>
               🗑
@@ -546,13 +666,19 @@ export function FloorPlanCanvas({
         </div>
       </div>
       <p className="hp-canvas-hint">
-        Drag room to move · pink corners move walls · blue dots insert a vertex (alcove) · <strong>Alcove / bay</strong>{" "}
-        pushes a bay on the selected edge · double-click a wall to toggle exterior · heat loss follows the polygon
+        <strong>Windows / doors:</strong> select a room → tap <em>Window</em> or <em>Door</em> → click a wall. Drag the
+        W/D mark to slide it. <strong>L-shaped hall:</strong> select room → <em>L-shape</em>, then drag pink corners to
+        tune. Blue dots insert vertices; <em>Alcove / bay</em> pushes a bay.
       </p>
+      {placeTool ? (
+        <p className="hp-canvas-hint">
+          Placement mode: <strong>{placeTool}</strong> — click any wall on the selected room.
+        </p>
+      ) : null}
       {selected && selectedEdge != null ? (
         <p className="hp-canvas-hint">
           Selected wall {selectedEdge + 1} · {mm(edgeLengths(selectedPoly)[selectedEdge] ?? 0)} ·{" "}
-          {(roomWallExterior(selected, selectedPoly.length)[selectedEdge] ? "exterior" : "internal")}
+          {roomWallExterior(selected, selectedPoly.length)[selectedEdge] ? "exterior" : "internal"}
         </p>
       ) : null}
     </div>

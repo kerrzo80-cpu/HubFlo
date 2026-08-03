@@ -139,6 +139,36 @@ export function bayWindowPolygon(planX: number, planY: number, length: number, w
   ];
 }
 
+/** L-shaped hall / room (clockwise). `arm` is the cut-out size from the bottom-right. */
+export function lShapePolygon(
+  planX: number,
+  planY: number,
+  length: number,
+  width: number,
+  armLength = 1.4,
+  armWidth = 1.4,
+): PlanPoint[] {
+  const cutX = planX + length - armLength;
+  const cutY = planY + width - armWidth;
+  return [
+    { x: planX, y: planY },
+    { x: planX + length, y: planY },
+    { x: planX + length, y: cutY },
+    { x: cutX, y: cutY },
+    { x: cutX, y: planY + width },
+    { x: planX, y: planY + width },
+  ];
+}
+
+/** Project a point onto an edge; returns 0–1 parameter along the edge. */
+export function edgeParam(a: PlanPoint, b: PlanPoint, point: PlanPoint) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+  return Math.min(0.9, Math.max(0.1, t));
+}
+
 export function openingOnEdge(points: PlanPoint[], opening: PlanOpening) {
   const i = opening.wallIndex ?? 0;
   const a = points[i]!;
