@@ -73,15 +73,33 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
       const record = dayworkRecordFromDraft(draft, "engineer-app");
       const response = await fetch(`/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "save", record, createdBy: engineerName }),
       });
-      const body = (await response.json()) as { error?: string; record?: DayworkAccountRecord };
+      const body = (await response.json()) as {
+        error?: string;
+        record?: DayworkAccountRecord;
+        persisted?: boolean;
+        materialsCount?: number;
+        hasClientName?: boolean;
+        hasSignatures?: boolean;
+        storeSheetCount?: number;
+      };
+      if (response.status === 401) {
+        throw new Error("Not signed in — open /login, sign in, then Save and finish again.");
+      }
       if (!response.ok) throw new Error(body.error || "Could not save daywork sheet.");
+      if (!body.persisted || !body.hasSignatures) {
+        throw new Error(
+          body.error ||
+            "Save did not stick on the live store — try again. If it keeps failing, sign out/in and retry.",
+        );
+      }
       setNotice(
-        body.record?.plumberSignature
-          ? "Daywork Account saved — signatures and materials are now in Core Variations."
-          : "Daywork Account saved to Core Variations.",
+        `Saved to live store · ${body.materialsCount ?? 0} materials · client ${
+          body.hasClientName ? "named" : "missing"
+        } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}`,
       );
       if (body.record) onSaved?.(body.record);
       else onSaved?.(record);

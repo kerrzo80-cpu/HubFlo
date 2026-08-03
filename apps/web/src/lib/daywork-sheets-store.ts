@@ -95,7 +95,20 @@ export function writeDayworkSheetSnapshot(snapshot: DayworkSheetSnapshot) {
   hydrateStoreFromDisk();
   const key = dayworkSheetKey(snapshot.jobId, snapshot.costCentreId);
   store[key] = clone(snapshot);
-  writeServerStore("daywork-sheets-store", store);
+  const ok = writeServerStore("daywork-sheets-store", store);
+  if (!ok) {
+    throw new Error("Could not persist Daywork sheet to the server store.");
+  }
+  // Prove the write by re-reading from disk (catches silent SQLite failures).
+  hydrateStoreFromDisk();
+  const verified = store[key];
+  if (
+    !verified ||
+    !String(verified.plumberSignature || "").trim() ||
+    !String(verified.clientSignature || "").trim()
+  ) {
+    throw new Error("Daywork sheet write did not verify — signatures missing after save.");
+  }
   return clone(store[key]);
 }
 

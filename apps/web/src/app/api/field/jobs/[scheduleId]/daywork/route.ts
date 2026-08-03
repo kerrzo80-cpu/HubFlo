@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
+  parseDayworkLineItems,
   validateDayworkSheetDraft,
   type DayworkAccountRecord,
   type DayworkSheetDraft,
@@ -18,6 +19,8 @@ import {
   saveDayworkSheetToHub,
 } from "@/lib/engineer-flow";
 import { activateDayworkWorkflow, clearDayworkWorkflowMode } from "@/lib/engineer-workflow-store";
+import { getDayworkSheetFromStore, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
+import { recordDayworkWriteAttempt } from "@/lib/daywork-write-log";
 import { getJobs } from "@/lib/workflow-data";
 import { toUkDateDisplay } from "@/lib/uk-date";
 
@@ -73,11 +76,25 @@ export async function POST(request: Request, { params }: Params) {
     if (!record && body.draft) {
       const validationError = validateDayworkSheetDraft(body.draft);
       if (validationError) {
+        recordDayworkWriteAttempt({
+          at: new Date().toISOString(),
+          source: "field-daywork",
+          scheduleId,
+          ok: false,
+          error: validationError,
+        });
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
       record = dayworkRecordFromDraft(body.draft, "engineer-app");
     }
     if (!record) {
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        ok: false,
+        error: "Daywork record is required.",
+      });
       return NextResponse.json({ error: "Daywork record is required." }, { status: 400 });
     }
     if (record.weekEnding) {
@@ -86,28 +103,99 @@ export async function POST(request: Request, { params }: Params) {
     const draftCheck = dayworkDraftFromRecord(record);
     const validationError = validateDayworkSheetDraft(draftCheck);
     if (validationError) {
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        ok: false,
+        error: validationError,
+        materialsCount: parseDayworkLineItems(record.materialsJson).length,
+        hasClientName: Boolean(record.clientSignerName?.trim()),
+        hasSignatures: Boolean(record.plumberSignature?.trim() && record.clientSignature?.trim()),
+      });
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    saveDayworkSheetToHub({
+    try {
+      saveDayworkSheetToHub({
+        jobId: schedule.jobId,
+        jobRef: coreJob?.ref || schedule.jobRef,
+        costCentreId,
+        engineerName: body.createdBy || schedule.engineerName,
+        record,
+      });
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : "Could not save Daywork sheet.";
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        ok: false,
+        error: message,
+        materialsCount: parseDayworkLineItems(record.materialsJson).length,
+        hasClientName: Boolean(record.clientSignerName?.trim()),
+        hasSignatures: Boolean(record.plumberSignature?.trim() && record.clientSignature?.trim()),
+      });
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
+    const verified =
+      getDayworkSheetFromStore(schedule.jobId, costCentreId) ||
+      listDayworkSheetsFromStore(schedule.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+      null;
+    const materialsCount = parseDayworkLineItems(verified?.materialsJson || record.materialsJson).length;
+    const hasSignatures = Boolean(
+      String(verified?.plumberSignature || "").trim() && String(verified?.clientSignature || "").trim(),
+    );
+    const hasClientName = Boolean(String(verified?.clientSignerName || record.clientSignerName || "").trim());
+
+    if (!verified || !hasSignatures) {
+      const error = "Daywork save did not persist signatures to the live store.";
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        ok: false,
+        error,
+        materialsCount,
+        hasClientName,
+        hasSignatures,
+      });
+      return NextResponse.json({ error, persisted: false }, { status: 500 });
+    }
+
+    recordDayworkWriteAttempt({
+      at: new Date().toISOString(),
+      source: "field-daywork",
+      scheduleId,
       jobId: schedule.jobId,
-      jobRef: coreJob?.ref || schedule.jobRef,
       costCentreId,
-      engineerName: body.createdBy || schedule.engineerName,
-      record,
+      ok: true,
+      materialsCount,
+      hasClientName,
+      hasSignatures,
     });
+
     const requirements = dayworkRequirements(schedule.jobId, costCentreId);
     activateDayworkWorkflow(scheduleId, costCentreId, requirements);
-    const savedSheet =
-      listDayworkSheetsForJob(schedule.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
-      buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId);
 
     return NextResponse.json({
       scheduleId,
       jobId: schedule.jobId,
       costCentreId,
       checklistMode: "daywork",
-      record: savedSheet,
+      record: verified,
+      persisted: true,
+      materialsCount,
+      hasClientName,
+      hasSignatures,
+      storeSheetCount: listDayworkSheetsFromStore().length,
       requirements,
     });
   }

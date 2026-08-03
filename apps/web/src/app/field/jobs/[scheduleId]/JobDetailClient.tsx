@@ -176,6 +176,7 @@ export default function JobDetailPage() {
     try {
       const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "activate" }),
       });
@@ -215,6 +216,7 @@ export default function JobDetailPage() {
     try {
       const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "clear" }),
       });

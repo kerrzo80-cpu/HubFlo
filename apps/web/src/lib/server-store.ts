@@ -119,8 +119,9 @@ export function loadServerStore<T>(name: string, fallback: T): T {
   }
 }
 
-export function writeServerStore<T>(name: string, value: T) {
+export function writeServerStore<T>(name: string, value: T): boolean {
   const database = getSqliteStore();
+  const payload = JSON.stringify(value, null, 2);
   if (database) {
     try {
       database
@@ -131,8 +132,8 @@ export function writeServerStore<T>(name: string, value: T) {
             value = excluded.value,
             updated_at = excluded.updated_at
         `)
-        .run(name, JSON.stringify(value, null, 2), new Date().toISOString());
-      return;
+        .run(name, payload, new Date().toISOString());
+      return true;
     } catch {
       // Fall through to JSON when the configured SQLite store is unavailable.
     }
@@ -141,9 +142,10 @@ export function writeServerStore<T>(name: string, value: T) {
   try {
     ensureStoreDirectory();
     const file = getStoreFilePath(name);
-    writeFileSync(file, JSON.stringify(value, null, 2), "utf8");
+    writeFileSync(file, payload, "utf8");
+    return true;
   } catch {
-    // Keep writes best-effort in sandboxed environments.
+    return false;
   }
 }
 
