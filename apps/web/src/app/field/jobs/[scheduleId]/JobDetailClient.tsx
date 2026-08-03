@@ -109,10 +109,30 @@ export default function JobDetailPage() {
   const [checklistMode, setChecklistMode] = useState<"job" | "daywork">("job");
   const [dayworkBusy, setDayworkBusy] = useState(false);
   const [dayworkRecord, setDayworkRecord] = useState<DayworkAccountRecord | null>(null);
+  const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (cancelled) return;
+        if (response.status === 401) {
+          setSessionError("Not signed in — Daywork Save will not reach Core. Open /login, sign in, then come back.");
+          return;
+        }
+        setSessionError("");
+      })
+      .catch(() => {
+        if (!cancelled) setSessionError("Could not verify sign-in — Save may fail until you refresh.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.scheduleId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -422,6 +442,15 @@ export default function JobDetailPage() {
 
       <p className="job-lead">{job.description}</p>
 
+      {sessionError ? (
+        <div className="feedback error" role="alert">
+          {sessionError}{" "}
+          <a href="/login" style={{ color: "inherit", fontWeight: 700 }}>
+            Sign in
+          </a>
+        </div>
+      ) : null}
+
       <div className="field-daywork-actions">
         {checklistMode === "daywork" ? null : (
           <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
@@ -430,10 +459,15 @@ export default function JobDetailPage() {
         )}
         {checklistMode === "daywork" ? (
           <p className="muted" style={{ margin: "8px 0 0" }}>
-            Fill this Daywork sheet, then Save and finish — it syncs to Core Variations → Daywork account (not the
-            boiler checklist).
+            You are on the Daywork sheet — Save and finish sends materials, names and signatures to Core → Variations →
+            Daywork account.
           </p>
-        ) : null}
+        ) : (
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            The normal Checklist only updates the gas / job stop-go. Daywork materials and signatures need{" "}
+            <strong>Add Daywork Account</strong> then <strong>Save and finish</strong>.
+          </p>
+        )}
       </div>
 
       <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
@@ -508,8 +542,9 @@ export default function JobDetailPage() {
           ) : (
             <>
               <p className="checklist-intro muted">
-                Stop/go checklist for this cost centre. Values save to Core — open Daywork Account for reactive
-                variation sheets.
+                This checklist is for the job stop/go only (e.g. boiler / gas). It does <strong>not</strong> fill the
+                Daywork Account. Tap <strong>Add Daywork Account</strong> above for materials, hours and dual
+                sign-off that appear in Core Variations.
               </p>
               {error ? <div className="feedback error">{error}</div> : null}
               {notice ? <div className="feedback">{notice}</div> : null}

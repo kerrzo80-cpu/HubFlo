@@ -116,8 +116,8 @@ export function DayworkSheetForm({
     setError("");
     setNotice("");
     try {
-      // Prove the browser session can reach Core before writing the sheet.
-      const sessionCheck = await fetch("/api/health", { credentials: "include", cache: "no-store" });
+      // /api/health is public — it never proves the session. Use /api/auth/me.
+      const sessionCheck = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (sessionCheck.status === 401) {
         throw new Error("Not signed in — open /login on this same site, sign in, then Save and finish again.");
       }

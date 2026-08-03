@@ -11297,6 +11297,41 @@ export default function Dashboard() {
     [jobs],
   );
 
+  /** Field-signed Daywork sheets waiting for office pricing / review in Core. */
+  const dashboardDayworkReviews = useMemo(() => {
+    const byJob = new Map<string, { jobId: string; jobRef: string; status: string; summary: string }>();
+    for (const event of jobDeliveryEvents) {
+      if (event.formType !== "daywork") continue;
+      const job = jobs.find((item) => item.id === event.jobId);
+      if (!job) continue;
+      const status = event.status || "Office review";
+      byJob.set(event.jobId, {
+        jobId: event.jobId,
+        jobRef: job.ref,
+        status,
+        summary: event.summary || event.description || "Daywork Account from Field",
+      });
+    }
+    for (const sheet of Object.values(dayworkSheets)) {
+      if (!sheet?.jobId) continue;
+      const signed = Boolean(
+        String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim(),
+      );
+      if (!signed) continue;
+      const job = jobs.find((item) => item.id === sheet.jobId);
+      if (!job) continue;
+      if (!byJob.has(sheet.jobId)) {
+        byJob.set(sheet.jobId, {
+          jobId: sheet.jobId,
+          jobRef: job.ref,
+          status: "Office review",
+          summary: sheet.description || "Signed Daywork Account from Field",
+        });
+      }
+    }
+    return Array.from(byJob.values());
+  }, [dayworkSheets, jobDeliveryEvents, jobs]);
+
   const overdueLeadQuoteFollowUps = useMemo(
     () =>
       leads
@@ -26410,7 +26445,7 @@ export default function Dashboard() {
             <span>
               {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature
                 ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
-                : "No signed sheet on the server yet — enter it below in Core (or on Field) and Save and finish"}
+                : "No signed sheet on the server yet — on Field tap Add Daywork Account (not the boiler checklist), fill materials + both signatures, then Save and finish. Or enter the sheet below in Core."}
             </span>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
               {centre ? (
@@ -26801,6 +26836,7 @@ export default function Dashboard() {
       quoteResponseFollowUps.length +
       pendingPORequests.length +
       dashboardVariationApprovals.length +
+      dashboardDayworkReviews.length +
       approvedQuotesAwaitingScheduling.length +
       overdueTimesheetJobs.length +
       overdueInvoiceRows.length +
@@ -27022,6 +27058,18 @@ export default function Dashboard() {
                   <small>Review before work proceeds</small>
                 </span>
               </button>
+              <button
+                className="notification-card amber"
+                type="button"
+                onClick={() => openDashboardQueue("dashboard-daywork")}
+              >
+                <ClipboardCheck size={18} />
+                <span>
+                  <strong>{dashboardDayworkReviews.length}</strong>
+                  <b>Daywork sheets from Field</b>
+                  <small>Price labour / materials in Variations → Daywork account</small>
+                </span>
+              </button>
               <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-lead-followups")}>
                 <AlertTriangle size={18} />
                 <span>
@@ -27070,6 +27118,33 @@ export default function Dashboard() {
                   <small>Booked date before today, still open</small>
                 </span>
               </button>
+            </div>
+            <div id="dashboard-daywork" className="ops-queue-list" style={{ marginTop: 12 }}>
+              <strong style={{ display: "block", marginBottom: 8 }}>Daywork from Field</strong>
+              {dashboardDayworkReviews.length > 0 ? (
+                dashboardDayworkReviews.slice(0, 6).map((item) => (
+                  <article className="ops-queue-item" key={item.jobId}>
+                    <button type="button" onClick={() => openDayworkAccountRecord(item.jobId)}>
+                      <strong>{item.jobRef}</strong>
+                      <span>{item.summary}</span>
+                      <small>{item.status} · open Daywork account</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => openDayworkAccountRecord(item.jobId)}
+                      >
+                        Open Daywork
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">
+                  No Field Daywork sheets on the server yet. On Field: Add Daywork Account → Save and finish.
+                </div>
+              )}
             </div>
           </aside>
           );
