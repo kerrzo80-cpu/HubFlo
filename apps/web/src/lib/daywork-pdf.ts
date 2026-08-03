@@ -13,6 +13,7 @@ import {
   type DayworkAccountRecord,
   type DayworkLineItem,
 } from "@/lib/daywork-account-form";
+import { toUkDateTimeDisplay } from "@/lib/uk-date";
 
 const ink = rgb(0.08, 0.12, 0.16);
 const muted = rgb(0.35, 0.4, 0.45);
@@ -305,7 +306,20 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
     font: regular,
     color: muted,
   });
-  y -= 16;
+  y -= 14;
+  const signedAt = toUkDateTimeDisplay(record?.completedAt || "");
+  if (signedAt) {
+    page.drawText(`Signed at: ${signedAt}`, {
+      x: margin,
+      y,
+      size: 10,
+      font: bold,
+      color: ink,
+    });
+    y -= 16;
+  } else {
+    y -= 2;
+  }
 
   async function drawSignerBox(title: string, name?: string, signature?: string) {
     ensureSpace(110);

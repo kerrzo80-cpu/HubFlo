@@ -46,7 +46,7 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "daywork-ux-pdf-v1",
+      fieldCoreLive: "daywork-signed-at-v1",
     },
     daywork: {
       sheetCount: dayworkSheetCount,

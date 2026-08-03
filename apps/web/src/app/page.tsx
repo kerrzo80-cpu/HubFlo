@@ -117,6 +117,7 @@ import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { SignatureImage } from "@/components/SignaturePad";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
 import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
+import { toUkDateTimeDisplay } from "@/lib/uk-date";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -11297,11 +11298,18 @@ export default function Dashboard() {
     [jobs],
   );
 
-  /** Field-signed Daywork sheets waiting for office pricing / review in Core. */
+  /** Field-signed Daywork sheets waiting for office pricing / review in Core. Newest first. */
   const dashboardDayworkReviews = useMemo(() => {
     const byKey = new Map<
       string,
-      { jobId: string; jobRef: string; costCentreId: string; status: string; summary: string }
+      {
+        jobId: string;
+        jobRef: string;
+        costCentreId: string;
+        status: string;
+        summary: string;
+        signedAt: string;
+      }
     >();
     for (const event of jobDeliveryEvents) {
       if (event.formType !== "daywork") continue;
@@ -11309,12 +11317,19 @@ export default function Dashboard() {
       if (!job) continue;
       const costCentreId = event.costCentreId || `${event.jobId}-daywork-account`;
       const key = `${event.jobId}:${costCentreId}`;
+      const sheet = dayworkSheets[key] || Object.values(dayworkSheets).find((item) => item?.jobId === event.jobId && item.costCentreId === costCentreId);
+      const signedAt =
+        sheet?.completedAt ||
+        sheet?.updatedAt ||
+        event.createdAt ||
+        "";
       byKey.set(key, {
         jobId: event.jobId,
         jobRef: job.ref,
         costCentreId,
         status: event.status || "Office review",
         summary: event.summary || event.description || "Daywork Account from Field",
+        signedAt,
       });
     }
     for (const sheet of Object.values(dayworkSheets)) {
@@ -11327,17 +11342,26 @@ export default function Dashboard() {
       if (!job) continue;
       const costCentreId = sheet.costCentreId || `${sheet.jobId}-daywork-account`;
       const key = `${sheet.jobId}:${costCentreId}`;
-      if (!byKey.has(key)) {
+      const signedAt = sheet.completedAt || sheet.updatedAt || "";
+      const existing = byKey.get(key);
+      if (!existing) {
         byKey.set(key, {
           jobId: sheet.jobId,
           jobRef: job.ref,
           costCentreId,
           status: "Office review",
           summary: sheet.description || "Signed Daywork Account from Field",
+          signedAt,
         });
+      } else if (signedAt && (!existing.signedAt || Date.parse(signedAt) > Date.parse(existing.signedAt))) {
+        byKey.set(key, { ...existing, signedAt, summary: sheet.description || existing.summary });
       }
     }
-    return Array.from(byKey.values());
+    return Array.from(byKey.values()).sort((left, right) => {
+      const leftAt = Date.parse(left.signedAt || "") || 0;
+      const rightAt = Date.parse(right.signedAt || "") || 0;
+      return rightAt - leftAt;
+    });
   }, [dayworkSheets, jobDeliveryEvents, jobs]);
 
   const overdueLeadQuoteFollowUps = useMemo(
@@ -11449,6 +11473,164 @@ export default function Dashboard() {
         .sort((left, right) => right.daysOverdue - left.daysOverdue),
     [invoices],
   );
+
+  /** Action notification cards — active queues first, then newest activity. */
+  const actionNotificationCards = useMemo(() => {
+    const cards: Array<{
+      id: string;
+      tone: "red" | "amber" | "green";
+      count: number;
+      title: string;
+      detail: string;
+      mostRecentAt: number;
+      order: number;
+      Icon: ComponentType<{ size?: number }>;
+    }> = [
+      {
+        id: "overdue-invoices",
+        tone: "red",
+        count: overdueInvoiceRows.length,
+        title: "Overdue invoices",
+        detail: "Open ageing pack and chase",
+        mostRecentAt: 0,
+        order: 0,
+        Icon: PoundSterling,
+      },
+      {
+        id: "daywork",
+        tone: "amber",
+        count: dashboardDayworkReviews.length,
+        title: "Daywork sheets from Field",
+        detail: dashboardDayworkReviews[0]?.signedAt
+          ? `Latest signed ${toUkDateTimeDisplay(dashboardDayworkReviews[0].signedAt)}`
+          : "Opens Variations → Daywork account",
+        mostRecentAt: Date.parse(dashboardDayworkReviews[0]?.signedAt || "") || 0,
+        order: 1,
+        Icon: ClipboardCheck,
+      },
+      {
+        id: "uninvoiced",
+        tone: "amber",
+        count: uninvoicedCompletedJobs.length,
+        title: "Completed jobs to invoice",
+        detail: "Bill completed / ready-to-invoice work",
+        mostRecentAt: 0,
+        order: 2,
+        Icon: FileText,
+      },
+      {
+        id: "unassigned",
+        tone: "red",
+        count: unassignedProgressJobs.length,
+        title: "Jobs with no technician",
+        detail: "Assign from the schedule board",
+        mostRecentAt: 0,
+        order: 3,
+        Icon: Users,
+      },
+      {
+        id: "po",
+        tone: "amber",
+        count: pendingPORequests.length,
+        title: "PO requests",
+        detail: "Supplier and materials approvals",
+        mostRecentAt: 0,
+        order: 4,
+        Icon: ClipboardCheck,
+      },
+      {
+        id: "variations",
+        tone: "amber",
+        count: dashboardVariationApprovals.length,
+        title: "Variations awaiting approval",
+        detail: "Review before work proceeds",
+        mostRecentAt: 0,
+        order: 5,
+        Icon: AlertTriangle,
+      },
+      {
+        id: "lead-followups",
+        tone: "red",
+        count: overdueLeadQuoteFollowUps.length,
+        title: "Survey leads overdue for quote",
+        detail: "3 days past survey with no quote",
+        mostRecentAt: 0,
+        order: 6,
+        Icon: AlertTriangle,
+      },
+      {
+        id: "quote-followups",
+        tone: "amber",
+        count: quoteResponseFollowUps.length,
+        title: "Quotes needing follow-up",
+        detail: "No customer response recorded",
+        mostRecentAt: 0,
+        order: 7,
+        Icon: Mail,
+      },
+      {
+        id: "approved-quotes",
+        tone: "green",
+        count: approvedQuotesAwaitingScheduling.length,
+        title: "Quotes approved awaiting scheduling",
+        detail: "Ready to become booked work",
+        mostRecentAt: 0,
+        order: 8,
+        Icon: Check,
+      },
+      {
+        id: "timesheets",
+        tone: "red",
+        count: overdueTimesheetJobs.length + pendingTimesheetApprovals.length,
+        title: "Timesheets",
+        detail: `${pendingTimesheetApprovals.length} awaiting approval · ${overdueTimesheetJobs.length} overdue`,
+        mostRecentAt: 0,
+        order: 9,
+        Icon: Clock3,
+      },
+      {
+        id: "assets",
+        tone: "amber",
+        count: dueSiteAssetRows.length,
+        title: "Assets due / overdue",
+        detail: "Service dates in the next 30 days",
+        mostRecentAt: 0,
+        order: 10,
+        Icon: AlertTriangle,
+      },
+      {
+        id: "overdue-jobs",
+        tone: "red",
+        count: overdueScheduledJobs.length,
+        title: "Overdue scheduled jobs",
+        detail: "Booked date before today, still open",
+        mostRecentAt: 0,
+        order: 11,
+        Icon: Clock3,
+      },
+    ];
+    return cards.sort((left, right) => {
+      const leftActive = left.count > 0 ? 1 : 0;
+      const rightActive = right.count > 0 ? 1 : 0;
+      if (leftActive !== rightActive) return rightActive - leftActive;
+      if (left.mostRecentAt !== right.mostRecentAt) return right.mostRecentAt - left.mostRecentAt;
+      return left.order - right.order;
+    });
+  }, [
+    approvedQuotesAwaitingScheduling.length,
+    dashboardDayworkReviews,
+    dashboardVariationApprovals.length,
+    dueSiteAssetRows.length,
+    overdueInvoiceRows.length,
+    overdueLeadQuoteFollowUps.length,
+    overdueScheduledJobs.length,
+    overdueTimesheetJobs.length,
+    pendingPORequests.length,
+    pendingTimesheetApprovals.length,
+    quoteResponseFollowUps.length,
+    unassignedProgressJobs.length,
+    uninvoicedCompletedJobs.length,
+  ]);
 
   const xeroSalesToExport = useMemo(
     () =>
@@ -27038,113 +27220,40 @@ export default function Dashboard() {
             </div>
 
             <div className="notification-stack">
-              <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
-                <PoundSterling size={18} />
-                <span>
-                  <strong>{overdueInvoiceRows.length}</strong>
-                  <b>Overdue invoices</b>
-                  <small>Open ageing pack and chase</small>
-                </span>
-              </button>
-              <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
-                <FileText size={18} />
-                <span>
-                  <strong>{uninvoicedCompletedJobs.length}</strong>
-                  <b>Completed jobs to invoice</b>
-                  <small>Bill completed / ready-to-invoice work</small>
-                </span>
-              </button>
-              <button className="notification-card red" type="button" onClick={() => openUnassignedJobsOnSchedule()}>
-                <Users size={18} />
-                <span>
-                  <strong>{unassignedProgressJobs.length}</strong>
-                  <b>Jobs with no technician</b>
-                  <small>Assign from the schedule board</small>
-                </span>
-              </button>
-              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-po-requests")}>
-                <ClipboardCheck size={18} />
-                <span>
-                  <strong>{pendingPORequests.length}</strong>
-                  <b>PO requests</b>
-                  <small>Supplier and materials approvals</small>
-                </span>
-              </button>
-              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-variations")}>
-                <AlertTriangle size={18} />
-                <span>
-                  <strong>{dashboardVariationApprovals.length}</strong>
-                  <b>Variations awaiting approval</b>
-                  <small>Review before work proceeds</small>
-                </span>
-              </button>
-              <button
-                className="notification-card amber"
-                type="button"
-                onClick={() => {
-                  const first = dashboardDayworkReviews[0];
-                  if (first) {
-                    openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
-                    return;
-                  }
-                  showNotice("No Daywork sheets from Field yet.");
-                }}
-              >
-                <ClipboardCheck size={18} />
-                <span>
-                  <strong>{dashboardDayworkReviews.length}</strong>
-                  <b>Daywork sheets from Field</b>
-                  <small>Opens Variations → Daywork account</small>
-                </span>
-              </button>
-              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-lead-followups")}>
-                <AlertTriangle size={18} />
-                <span>
-                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
-                  <b>Survey leads overdue for quote</b>
-                  <small>3 days past survey with no quote</small>
-                </span>
-              </button>
-              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-quote-followups")}>
-                <Mail size={18} />
-                <span>
-                  <strong>{quoteResponseFollowUps.length}</strong>
-                  <b>Quotes needing follow-up</b>
-                  <small>No customer response recorded</small>
-                </span>
-              </button>
-              <button className="notification-card green" type="button" onClick={() => openDashboardQueue("dashboard-approved-quotes")}>
-                <Check size={18} />
-                <span>
-                  <strong>{approvedQuotesAwaitingScheduling.length}</strong>
-                  <b>Quotes approved awaiting scheduling</b>
-                  <small>Ready to become booked work</small>
-                </span>
-              </button>
-              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-timesheets")}>
-                <Clock3 size={18} />
-                <span>
-                  <strong>{overdueTimesheetJobs.length + pendingTimesheetApprovals.length}</strong>
-                  <b>Timesheets</b>
-                  <small>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</small>
-                </span>
-              </button>
-              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-asset-due")}>
-                <AlertTriangle size={18} />
-                <span>
-                  <strong>{dueSiteAssetRows.length}</strong>
-                  <b>Assets due / overdue</b>
-                  <small>Service dates in the next 30 days</small>
-                </span>
-              </button>
-              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-overdue-jobs")}>
-                <Clock3 size={18} />
-                <span>
-                  <strong>{overdueScheduledJobs.length}</strong>
-                  <b>Overdue scheduled jobs</b>
-                  <small>Booked date before today, still open</small>
-                </span>
-              </button>
+              {actionNotificationCards.map((card) => {
+                const Icon = card.Icon;
+                return (
+                  <button
+                    key={card.id}
+                    className={`notification-card ${card.tone}`}
+                    type="button"
+                    onClick={() => {
+                      if (card.id === "overdue-invoices") openInvoiceOpsPack("overdue");
+                      else if (card.id === "daywork") {
+                        const first = dashboardDayworkReviews[0];
+                        if (first) openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
+                        else showNotice("No Daywork sheets from Field yet.");
+                      } else if (card.id === "uninvoiced") openUninvoicedJobsPack();
+                      else if (card.id === "unassigned") openUnassignedJobsOnSchedule();
+                      else if (card.id === "po") openDashboardQueue("dashboard-po-requests");
+                      else if (card.id === "variations") openDashboardQueue("dashboard-variations");
+                      else if (card.id === "lead-followups") openDashboardQueue("dashboard-lead-followups");
+                      else if (card.id === "quote-followups") openDashboardQueue("dashboard-quote-followups");
+                      else if (card.id === "approved-quotes") openDashboardQueue("dashboard-approved-quotes");
+                      else if (card.id === "timesheets") openDashboardQueue("dashboard-timesheets");
+                      else if (card.id === "assets") openDashboardQueue("dashboard-asset-due");
+                      else if (card.id === "overdue-jobs") openDashboardQueue("dashboard-overdue-jobs");
+                    }}
+                  >
+                    <Icon size={18} />
+                    <span>
+                      <strong>{card.count}</strong>
+                      <b>{card.title}</b>
+                      <small>{card.detail}</small>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
             <div id="dashboard-daywork" className="ops-queue-list" style={{ marginTop: 12 }}>
               <strong style={{ display: "block", marginBottom: 8 }}>Daywork from Field</strong>
@@ -27157,7 +27266,10 @@ export default function Dashboard() {
                     >
                       <strong>{item.jobRef}</strong>
                       <span>{item.summary}</span>
-                      <small>{item.status} · open Daywork account</small>
+                      <small>
+                        {item.status}
+                        {item.signedAt ? ` · signed ${toUkDateTimeDisplay(item.signedAt)}` : ""} · open Daywork account
+                      </small>
                     </button>
                     <div className="ops-queue-actions">
                       <button

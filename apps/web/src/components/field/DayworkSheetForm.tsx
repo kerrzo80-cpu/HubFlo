@@ -15,7 +15,7 @@ import {
   type DayworkLineItem,
   type DayworkSheetDraft,
 } from "@/lib/daywork-account-form";
-import { isoDateToUk, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
+import { isoDateToUk, toUkDateDisplay, toUkDateTimeDisplay, ukDateToIso } from "@/lib/uk-date";
 
 type Props = {
   /** Field schedule id — saves via /api/field/jobs/.../daywork */
@@ -390,6 +390,11 @@ export function DayworkSheetForm({
       <section className="daywork-signoff-block">
         <strong>Sign-off</strong>
         <p className="muted">Draw the signature and type the printed name — names are needed because signatures can be hard to read.</p>
+        {initialRecord?.completedAt && initialRecord?.plumberSignature && initialRecord?.clientSignature ? (
+          <p className="feedback">
+            Previously signed {toUkDateTimeDisplay(initialRecord.completedAt)}. Saving again updates the signed time.
+          </p>
+        ) : null}
         <label className="daywork-field">
           <span>Plumber / contractor printed name</span>
           <input

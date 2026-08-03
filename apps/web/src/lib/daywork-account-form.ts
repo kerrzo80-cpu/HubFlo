@@ -1,4 +1,4 @@
-import { toUkDateDisplay } from "@/lib/uk-date";
+import { toUkDateDisplay, toUkDateTimeDisplay } from "@/lib/uk-date";
 
 export const DAYWORK_TRADE_OPTIONS = ["Plumber", "Joiner", "Apprentice"] as const;
 export type DayworkTrade = (typeof DAYWORK_TRADE_OPTIONS)[number];
@@ -315,6 +315,7 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
     {
       section: "Sign-off",
       rows: [
+        row("signedAt", "Signed at", toUkDateTimeDisplay(record?.completedAt || "")),
         row("plumberName", "Plumber / contractor name", record?.plumberSignerName || ""),
         row("plumber", "Plumber / contractor signature", record?.plumberSignature || ""),
         row("clientName", "Client / Clerk of Works name", record?.clientSignerName || ""),
