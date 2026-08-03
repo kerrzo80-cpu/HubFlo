@@ -9,7 +9,7 @@ import { getJobs } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
 
-type Params = { params: Promise<{ jobId: string }> };
+type Params = { params: Promise<{ id: string }> };
 
 type Body = {
   costCentreId?: string;
@@ -26,7 +26,7 @@ export async function POST(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { jobId } = await params;
+  const { id: jobId } = await params;
   const body = (await parseJsonRequestBody<Body>(request)) || {};
   const costCentreId = body.costCentreId?.trim() || `${jobId}-daywork-account`;
   const job = getJobs().find((item) => item.id === jobId);

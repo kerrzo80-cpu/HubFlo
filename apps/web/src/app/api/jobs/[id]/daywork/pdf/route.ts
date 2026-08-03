@@ -7,7 +7,7 @@ import { getJobs } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
 
-type Params = { params: Promise<{ jobId: string }> };
+type Params = { params: Promise<{ id: string }> };
 
 /** Generate Daywork Account PDF(s) for a job — used when submitting valuations. */
 export async function GET(request: Request, { params }: Params) {
@@ -16,7 +16,7 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { jobId } = await params;
+  const { id: jobId } = await params;
   const job = getJobs().find((item) => item.id === jobId);
   if (!job) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
