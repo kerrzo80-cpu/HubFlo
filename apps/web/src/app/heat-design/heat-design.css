@@ -1069,3 +1069,15 @@
     break-inside: avoid;
   }
 }
+
+.hd-btn-danger {
+  background: #fff5f2;
+  border-color: #f0c9bc;
+  color: #9a3412;
+}
+
+.hd-btn-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}

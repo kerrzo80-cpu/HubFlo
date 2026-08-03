@@ -363,6 +363,29 @@ export function FloorPlanCanvas({
           >
             Alcove / bay
           </button>
+          <button
+            type="button"
+            className="hd-btn hd-btn-danger"
+            disabled={!selected || !selectedOpeningId}
+            title={selectedOpeningId ? "Remove the selected window or door" : "Select a window or door mark first"}
+            onClick={() => selected && deleteSelectedOpening(selected)}
+          >
+            Remove opening
+          </button>
+          <button
+            type="button"
+            className="hd-btn hd-btn-danger"
+            disabled={!selected}
+            title="Remove the selected room"
+            onClick={() => {
+              if (!selected) return;
+              setSelectedOpeningId(null);
+              setSelectedEdge(null);
+              onDeleteRoom(selected.id);
+            }}
+          >
+            Remove room
+          </button>
         </div>
       </div>
       <div className="hp-canvas-wrap">
@@ -657,8 +680,17 @@ export function FloorPlanCanvas({
                 Remove opening
               </button>
             ) : null}
-            <button type="button" title="Delete room" className="is-danger" onClick={() => onDeleteRoom(selected.id)}>
-              🗑
+            <button
+              type="button"
+              className="is-danger"
+              title="Remove room"
+              onClick={() => {
+                setSelectedOpeningId(null);
+                setSelectedEdge(null);
+                onDeleteRoom(selected.id);
+              }}
+            >
+              Remove room
             </button>
           </div>
         ) : null}
@@ -686,8 +718,8 @@ export function FloorPlanCanvas({
       </div>
       <p className="hp-canvas-hint">
         <strong>Windows / doors:</strong> select a room → tap <em>Window</em> or <em>Door</em> → click a wall. Drag the
-        W/D mark to slide it. <strong>L-shaped hall:</strong> select room → <em>L-shape</em>, then drag pink corners to
-        tune. Blue dots insert vertices; <em>Alcove / bay</em> pushes a bay.
+        W/D mark to slide it · click a mark then <em>Remove opening</em>. <strong>Rooms:</strong>{" "}
+        <em>Remove room</em> deletes the selected room. <strong>L-shape / Alcove</strong> reshape walls.
       </p>
       {placeTool ? (
         <p className="hp-canvas-hint">
