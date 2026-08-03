@@ -67,7 +67,11 @@ export default function HeatDesignLabPage() {
 
   useEffect(() => {
     if (!project) return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
+    } catch {
+      setNotice("Couldn't save this design locally — your browser storage may be full or blocked.");
+    }
   }, [project]);
 
   useEffect(() => {
