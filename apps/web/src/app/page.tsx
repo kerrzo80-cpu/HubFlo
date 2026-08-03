@@ -27619,6 +27619,7 @@ export default function Dashboard() {
           </button>
           <button className="header-icon sign-out-button" aria-label="Sign out" title="Sign out" onClick={signOutEmployee}>
             <LogOut size={18} />
+            <span className="sign-out-label">Sign out</span>
           </button>
         </div>
       </header>

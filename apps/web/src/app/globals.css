@@ -3280,6 +3280,16 @@ kbd {
 
 .sign-out-button {
   margin-left: 2px;
+  width: auto;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.sign-out-label {
+  white-space: nowrap;
 }
 
 .employee-login-shell {
