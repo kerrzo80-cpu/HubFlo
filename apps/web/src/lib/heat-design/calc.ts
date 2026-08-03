@@ -347,6 +347,8 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
         : ["opt-ashp", "opt-gas", "opt-oil"],
     chosenSystemId: project.chosenSystemId,
     emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    linkedJobId: project.linkedJobId,
+    linkedJobRef: project.linkedJobRef,
     heatingLayout: project.heatingLayout
       ? {
           ...project.heatingLayout,

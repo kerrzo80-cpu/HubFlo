@@ -154,6 +154,9 @@ export type HeatDesignProject = {
   heatingLayout?: HeatingSystemLayout | null;
   /** Preferred emitters when designing on plan */
   emitterMode: HeatingEmitterMode;
+  /** Linked Core job (standalone design attached to a job) */
+  linkedJobId?: string;
+  linkedJobRef?: string;
   cylinderLitres: number;
   dailyHotWaterLitres: number;
   outdoorUnitDistanceM: number;

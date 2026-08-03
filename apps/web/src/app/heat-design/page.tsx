@@ -40,7 +40,7 @@ import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
 import "./heat-design.css";
 
-const STORAGE_KEY = "nexa-heat-design-lab-v7";
+const STORAGE_KEY = "nexa-heat-design-lab-v8";
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
 
@@ -49,6 +49,7 @@ function loadProject(): HeatDesignProject {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("nexa-heat-design-lab-v7") ??
       window.localStorage.getItem("nexa-heat-design-lab-v6") ??
       window.localStorage.getItem("nexa-heat-design-lab-v5") ??
       window.localStorage.getItem("nexa-heat-design-lab-v4") ??
@@ -69,9 +70,9 @@ export default function HeatDesignLabPage() {
   const [notice, setNotice] = useState("");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
-  const [quotePushBusy, setQuotePushBusy] = useState(false);
-  const [quoteOptions, setQuoteOptions] = useState<Array<{ id: string; ref: string; customer: string }>>([]);
-  const [selectedQuoteId, setSelectedQuoteId] = useState("");
+  const [jobLinkBusy, setJobLinkBusy] = useState(false);
+  const [jobOptions, setJobOptions] = useState<Array<{ id: string; ref: string; customer: string; site: string }>>([]);
+  const [selectedJobId, setSelectedJobId] = useState("");
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -87,19 +88,31 @@ export default function HeatDesignLabPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/quotes")
+    fetch("/api/jobs")
       .then((res) => (res.ok ? res.json() : []))
-      .then((rows: Array<{ id: string; ref: string; customer: string }>) => {
+      .then((rows: Array<{ id: string; ref: string; customer: string; site: string }>) => {
         if (cancelled || !Array.isArray(rows)) return;
-        setQuoteOptions(rows.map((row) => ({ id: row.id, ref: row.ref, customer: row.customer })));
+        setJobOptions(
+          rows.map((row) => ({
+            id: row.id,
+            ref: row.ref,
+            customer: row.customer,
+            site: row.site,
+          })),
+        );
       })
       .catch(() => {
-        /* public lab may be logged out — push will prompt sign-in */
+        /* public lab may be logged out — link will prompt sign-in */
       });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!project?.linkedJobId) return;
+    setSelectedJobId(project.linkedJobId);
+  }, [project?.linkedJobId]);
 
   useEffect(() => {
     if (!pendingPrint || tab !== "report") return;
@@ -215,19 +228,21 @@ export default function HeatDesignLabPage() {
     );
   }
 
-  async function pushKitToQuote() {
+  async function linkKitToJob() {
     if (!project || !design) return;
-    setQuotePushBusy(true);
+    setJobLinkBusy(true);
     try {
       const option = heatingSystemOptions.find((item) => item.id === project.chosenSystemId);
-      const res = await fetch("/api/heat-design/push-to-quote", {
+      const createNew = !selectedJobId;
+      const res = await fetch("/api/heat-design/link-job", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          quoteId: selectedQuoteId || undefined,
+          jobId: selectedJobId || undefined,
+          createNew,
           customerName: project.customerName,
+          siteAddress: [project.address, project.postcode].filter(Boolean).join(", "),
           projectName: project.name,
-          address: [project.address, project.postcode].filter(Boolean).join(", "),
           chosenSystemLabel: option?.label,
           flowTemperature: project.flowTemperature,
           emitterMode: project.emitterMode,
@@ -236,23 +251,34 @@ export default function HeatDesignLabPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setNotice(data.error || "Could not push materials — sign in with quote access.");
+        setNotice(data.error || "Could not link to job — sign in with job access.");
         return;
       }
-      setNotice(
-        `Pushed ${data.lineCount} material lines into quote ${data.quote?.ref || ""}. Convert that quote to a job and the materials follow.`,
-      );
-      if (data.quote?.id) {
-        setSelectedQuoteId(data.quote.id);
-        setQuoteOptions((current) => {
-          if (current.some((row) => row.id === data.quote.id)) return current;
-          return [{ id: data.quote.id, ref: data.quote.ref, customer: data.quote.customer }, ...current];
+      patchProject({ linkedJobId: data.job?.id, linkedJobRef: data.job?.ref });
+      setSelectedJobId(data.job?.id || "");
+      if (data.job?.id) {
+        setJobOptions((current) => {
+          if (current.some((row) => row.id === data.job.id)) return current;
+          return [
+            {
+              id: data.job.id,
+              ref: data.job.ref,
+              customer: data.job.customer,
+              site: data.job.site,
+            },
+            ...current,
+          ];
         });
       }
+      setNotice(
+        data.created
+          ? `Created job ${data.job?.ref} and pushed ${data.lineCount} materials into Heating design. Open Core → Jobs.`
+          : `Linked to job ${data.job?.ref} with ${data.lineCount} materials in Heating design cost centre.`,
+      );
     } catch {
-      setNotice("Could not reach quote API — check you are signed in.");
+      setNotice("Could not reach jobs API — check you are signed in.");
     } finally {
-      setQuotePushBusy(false);
+      setJobLinkBusy(false);
     }
   }
 
@@ -301,11 +327,11 @@ export default function HeatDesignLabPage() {
       <div className="hd-shell">
         <header className="hd-topbar">
           <div className="hd-brand">
-            <div className="hd-brand-kicker">Lab · not in NeXa menus yet</div>
+            <div className="hd-brand-kicker">Standalone · link to Core jobs</div>
             <h1>Heat Design</h1>
             <p>
-              Floor plan, room heat loss, heat-pump sizing, kit list, sound check and MCS-style paperwork — finish the
-              engine here before we wire it into NeXa.
+              Floor plan, heat loss, system design and materials — standalone tool. Link the kit to an existing Core job
+              or create a new one when you are ready.
             </p>
           </div>
           <div className="hd-top-actions">
@@ -857,36 +883,60 @@ export default function HeatDesignLabPage() {
                 <h2>Kit / materials list</h2>
                 <p className="hd-lead">
                   Built for{" "}
-                  <strong>{chosenOption?.label || "the design system"}</strong> at {project.flowTemperature}°C flow —
-                  pipework, plant, emitters and extras. Push into a quote; converting that quote carries materials into
-                  the job.
+                  <strong>{chosenOption?.label || "the design system"}</strong> at {project.flowTemperature}°C flow.
+                  Heat Design stays standalone — link materials into a Core job below.
                 </p>
                 <div className={`hd-banner${design.materialsComplete ? "" : " warn"}`} style={{ marginBottom: 12 }}>
                   {design.materialsComplete
-                    ? "Materials checklist complete for this lab project."
+                    ? "Materials checklist complete for this design."
                     : `Still needed: ${design.materialsNotes.join(" ")}`}
                 </div>
-                <div className="hd-quote-push">
-                  <label className="hd-field">
-                    Quote (optional)
-                    <select value={selectedQuoteId} onChange={(event) => setSelectedQuoteId(event.target.value)}>
-                      <option value="">Create new draft quote</option>
-                      {quoteOptions.map((quote) => (
-                        <option key={quote.id} value={quote.id}>
-                          {quote.ref} — {quote.customer}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button
-                    type="button"
-                    className="hd-btn hd-btn-primary"
-                    disabled={quotePushBusy || !design.kit.length || !project.chosenSystemId}
-                    onClick={() => void pushKitToQuote()}
-                  >
-                    {quotePushBusy ? "Pushing…" : "Push materials to quote"}
-                  </button>
+
+                <div className="hd-job-link-panel">
+                  <strong>Link to Core job</strong>
+                  <p>
+                    Pick an existing job or create a new one. Materials land in a <em>Heating design</em> cost centre on
+                    that job.
+                  </p>
+                  {project.linkedJobRef ? (
+                    <div className="hd-banner" style={{ marginBottom: 10 }}>
+                      Linked to <strong>{project.linkedJobRef}</strong>
+                      {project.linkedJobId ? (
+                        <>
+                          {" "}
+                          · open in Core → Jobs
+                        </>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="hd-quote-push">
+                    <label className="hd-field">
+                      Job
+                      <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)}>
+                        <option value="">Create new job</option>
+                        {jobOptions.map((job) => (
+                          <option key={job.id} value={job.id}>
+                            {job.ref} — {job.customer}
+                            {job.site ? ` · ${job.site}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="hd-btn hd-btn-primary"
+                      disabled={jobLinkBusy || !design.kit.length || !project.chosenSystemId}
+                      onClick={() => void linkKitToJob()}
+                    >
+                      {jobLinkBusy
+                        ? "Linking…"
+                        : selectedJobId
+                          ? "Link materials to job"
+                          : "Create job + push materials"}
+                    </button>
+                  </div>
                 </div>
+
                 {!project.chosenSystemId ? (
                   <p className="hd-lead">Design a system on plan first so the kit matches gas / ASHP / oil etc.</p>
                 ) : null}
@@ -1139,7 +1189,11 @@ export default function HeatDesignLabPage() {
           <aside className="hd-sticky">
             <section className="hd-panel">
               <h2>Design snapshot</h2>
-              <p className="hd-lead">Live totals for this lab project.</p>
+              <p className="hd-lead">
+                {project.linkedJobRef
+                  ? `Linked to Core job ${project.linkedJobRef}.`
+                  : "Standalone design — link to a job from Kit when ready."}
+              </p>
               <div className="hd-stat-grid">
                 <div className="hd-stat">
                   <span>Space heat loss</span>
@@ -1150,23 +1204,24 @@ export default function HeatDesignLabPage() {
                   <strong>{kw(design.designLoadKw)}</strong>
                 </div>
                 <div className="hd-stat">
-                  <span>Pump @ {project.flowTemperature}°C</span>
-                  <strong>{kw(design.capacityAtFlowKw)}</strong>
+                  <span>Flow</span>
+                  <strong>{project.flowTemperature}°C</strong>
                 </div>
                 <div className="hd-stat">
-                  <span>SCOP</span>
-                  <strong>{design.scop.toFixed(1)}</strong>
-                </div>
-                <div className="hd-stat warm">
-                  <span>Est. annual saving</span>
-                  <strong>{money(design.estimatedAnnualSaving)}</strong>
+                  <span>System</span>
+                  <strong>{chosenOption?.shortLabel || "—"}</strong>
                 </div>
                 <div className="hd-stat warm">
                   <span>Kit materials</span>
                   <strong>{money(design.kitTotal)}</strong>
                 </div>
+                <div className="hd-stat warm">
+                  <span>Core job</span>
+                  <strong>{project.linkedJobRef || "Not linked"}</strong>
+                </div>
               </div>
-              {design.coveragePercent < 95 ? (
+              {chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid" ? (
+                design.coveragePercent < 95 ? (
                 <div className="hd-banner warn" style={{ marginTop: 14, marginBottom: 0 }}>
                   Pump covers {Math.round(design.coveragePercent)}% — pick a larger unit.
                 </div>
@@ -1174,14 +1229,24 @@ export default function HeatDesignLabPage() {
                 <div className="hd-banner" style={{ marginTop: 14, marginBottom: 0 }}>
                   Coverage {Math.round(design.coveragePercent)}% · {selectedPump?.model}
                 </div>
+              )
+              ) : project.chosenSystemId ? (
+                <div className="hd-banner" style={{ marginTop: 14, marginBottom: 0 }}>
+                  {chosenOption?.label} @ {project.flowTemperature}°C flow
+                </div>
+              ) : (
+                <div className="hd-banner warn" style={{ marginTop: 14, marginBottom: 0 }}>
+                  Choose a system and Design on plan to build the kit.
+                </div>
               )}
             </section>
           </aside>
         </div>
 
         <p className="hd-lab-note">
-          <strong>Lab only.</strong> Open at <code>/heat-design</code>. When you are happy, we will attach it to NeXa
-          lead → survey → quote.
+          <strong>Standalone.</strong> Open at <code>/heat-design</code>. Link materials to Core via{" "}
+          <strong>Kit → Job</strong> (existing job or create new). Materials appear on the job under{" "}
+          <em>Heating design</em>.
         </p>
       </div>
     </main>

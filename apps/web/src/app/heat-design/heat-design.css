@@ -1587,6 +1587,26 @@
   margin-bottom: 0.85rem;
 }
 
+.hd-job-link-panel {
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.9rem;
+  background: #fff;
+}
+
+.hd-job-link-panel > strong {
+  display: block;
+  color: var(--hd-accent-deep);
+  margin-bottom: 0.25rem;
+}
+
+.hd-job-link-panel > p {
+  margin: 0 0 0.75rem;
+  color: var(--hd-muted);
+  font-size: 0.9rem;
+}
+
 @media (max-width: 700px) {
   .hd-quote-push {
     grid-template-columns: 1fr;

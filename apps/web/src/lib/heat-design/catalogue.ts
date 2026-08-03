@@ -294,6 +294,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
     chosenSystemId: undefined,
     heatingLayout: null,
     emitterMode: "radiators",
+    linkedJobId: undefined,
+    linkedJobRef: undefined,
     cylinderLitres: 210,
     dailyHotWaterLitres: 150,
     outdoorUnitDistanceM: 3,
