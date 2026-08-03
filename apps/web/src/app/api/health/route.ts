@@ -25,8 +25,8 @@ export async function GET() {
     app: "nexa",
     store: getServerStoreBackend(),
     deployment: {
-      branch: process.env.RENDER_GIT_BRANCH ?? "local",
-      commit: process.env.RENDER_GIT_COMMIT ?? "local",
+      branch: process.env.RENDER_GIT_BRANCH || "local",
+      commit: process.env.RENDER_GIT_COMMIT || "local",
       talkLab: "/field/talk-lab",
       talkLabBuild: "realtime-voice-picker-v1",
       heatDesign: "/heat-design",
