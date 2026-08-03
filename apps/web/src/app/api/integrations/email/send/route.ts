@@ -27,6 +27,12 @@ type SendEmailBody = {
     vat?: string;
     total?: string;
   };
+  /** Extra PDFs (e.g. signed Daywork Account sheets) as base64. */
+  extraAttachments?: Array<{
+    filename?: string;
+    contentBase64?: string;
+    contentType?: string;
+  }>;
 };
 
 function cleanText(value: unknown, fallback = "") {
@@ -110,19 +116,34 @@ export async function POST(request: Request) {
   }
 
   try {
-    const attachment = body.document
-      ? [{
-          filename: cleanText(body.document.filename, "nexa-document.pdf"),
-          content: await createDocumentPdf(body.document),
-          contentType: "application/pdf",
-        }]
-      : undefined;
+    const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
+    if (body.document) {
+      attachments.push({
+        filename: cleanText(body.document.filename, "nexa-document.pdf"),
+        content: await createDocumentPdf(body.document),
+        contentType: "application/pdf",
+      });
+    }
+    for (const extra of body.extraAttachments ?? []) {
+      const filename = cleanText(extra.filename, "attachment.pdf");
+      const contentBase64 = cleanText(extra.contentBase64);
+      if (!contentBase64) continue;
+      try {
+        attachments.push({
+          filename,
+          content: Buffer.from(contentBase64, "base64"),
+          contentType: cleanText(extra.contentType, "application/pdf"),
+        });
+      } catch {
+        // Skip malformed attachments.
+      }
+    }
     const delivery = await sendEmailMessage({
       to: body.to,
       cc: body.cc,
       subject: body.subject,
       text: body.text,
-      attachments: attachment,
+      attachments: attachments.length ? attachments : undefined,
     });
     return NextResponse.json({ ok: true, delivery });
   } catch (error) {

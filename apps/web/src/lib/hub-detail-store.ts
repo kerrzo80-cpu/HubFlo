@@ -27,6 +27,8 @@ export type HubDetailState = {
   jobReviews?: Record<string, unknown>;
   jobDeliveryEvents?: unknown[];
   jobVariationSections?: Record<string, unknown>;
+  /** Durable Field Daywork Account snapshots keyed by `${jobId}:${costCentreId}`. */
+  dayworkSheets?: Record<string, unknown>;
   communications?: unknown[];
   invoices?: unknown[];
   suppliers?: unknown[];

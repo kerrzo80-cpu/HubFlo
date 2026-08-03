@@ -113,6 +113,7 @@ import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from 
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
+import { SignatureImage } from "@/components/SignaturePad";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
 import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
 
@@ -1562,7 +1563,14 @@ type JobDeliveryEvent = {
   formType?: string;
   plumberSignature?: string;
   clientSignature?: string;
+  plumberSignerName?: string;
+  clientSignerName?: string;
   weekEnding?: string;
+  labourTrade?: string;
+  labourDaysJson?: string;
+  labourRate?: string;
+  materialsCost?: string;
+  plantCost?: string;
 };
 
 type JobDeliveryDraft = {
@@ -2052,6 +2060,7 @@ type HubDetailStatePayload = {
   jobReviews?: Record<string, JobReviewState>;
   jobDeliveryEvents?: JobDeliveryEvent[];
   jobVariationSections?: Record<string, JobVariationSection[]>;
+  dayworkSheets?: Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>;
   communications?: CommunicationRecord[];
   invoices?: Invoice[];
   suppliers?: SupplierDirectoryRecord[];
@@ -3365,7 +3374,9 @@ const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
     { id: "daywork-labour-days", stage: "Daywork", label: "Labour hours by day", evidence: "Text", required: true },
     { id: "daywork-materials", stage: "Daywork", label: "Materials", evidence: "Text", required: false },
     { id: "daywork-plant", stage: "Daywork", label: "Plant", evidence: "Text", required: false },
+    { id: "daywork-plumber-name", stage: "Handover", label: "Plumber / contractor printed name", evidence: "Text", required: true },
     { id: "daywork-plumber-sign", stage: "Handover", label: "Plumber / contractor signature", evidence: "Signature", required: true },
+    { id: "daywork-client-name", stage: "Handover", label: "Client / Clerk of Works printed name", evidence: "Text", required: true },
     { id: "daywork-client-sign", stage: "Handover", label: "Client / Clerk of Works signature", evidence: "Signature", required: true },
   ],
 };
@@ -5156,6 +5167,8 @@ function buildDayworkRecordFromFlowEvidence(
     "daywork-plant": "plantJson",
     "daywork-plumber-sign": "plumberSignature",
     "daywork-client-sign": "clientSignature",
+    "daywork-plumber-name": "plumberSignerName",
+    "daywork-client-name": "clientSignerName",
   };
   for (const [stepId, field] of Object.entries(fieldMap)) {
     const value = evidence[`${jobId}:${costCentreId}:${stepId}`];
@@ -5163,6 +5176,18 @@ function buildDayworkRecordFromFlowEvidence(
     if (!text) continue;
     (record as Record<string, string | undefined>)[field] = text;
     record.completedAt = value?.capturedAt || record.completedAt;
+    any = true;
+  }
+  for (const [stepId, field] of [
+    ["daywork-labour-rate", "labourRate"],
+    ["daywork-materials-cost", "materialsCost"],
+    ["daywork-plant-cost", "plantCost"],
+    ["daywork-markup-percent", "markupPercent"],
+  ] as const) {
+    const value = evidence[`${jobId}:${costCentreId}:${stepId}`];
+    const text = value?.text?.trim() || value?.numberValue?.trim();
+    if (!text) continue;
+    record[field] = text;
     any = true;
   }
   if (record.labourDaysJson) {
@@ -5177,6 +5202,7 @@ function synthesiseDayworkDeliveryEventsFromEvidence(options: {
   flowStepEvidence: Record<string, EngineerFlowStepEvidenceValue>;
   jobCostCentres: EstimateCostCentre[];
   existingEvents: JobDeliveryEvent[];
+  dayworkSheets?: Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>;
 }): JobDeliveryEvent[] {
   const centreIds = new Set<string>();
   for (const centre of options.jobCostCentres) {
@@ -5185,6 +5211,9 @@ function synthesiseDayworkDeliveryEventsFromEvidence(options: {
     }
   }
   centreIds.add(`${options.jobId}-daywork-account`);
+  for (const sheet of Object.values(options.dayworkSheets || {})) {
+    if (sheet.jobId === options.jobId && sheet.costCentreId) centreIds.add(sheet.costCentreId);
+  }
   for (const key of Object.keys(options.flowStepEvidence)) {
     if (!key.startsWith(`${options.jobId}:`) || !key.includes(":daywork-")) continue;
     const withoutJob = key.slice(options.jobId.length + 1);
@@ -5198,7 +5227,8 @@ function synthesiseDayworkDeliveryEventsFromEvidence(options: {
   for (const costCentreId of centreIds) {
     const eventId = `daywork-${options.jobId}-${costCentreId}`;
     if (options.existingEvents.some((event) => event.id === eventId)) continue;
-    const record = buildDayworkRecordFromFlowEvidence(options.flowStepEvidence, options.jobId, costCentreId);
+    const sheet = options.dayworkSheets?.[`${options.jobId}:${costCentreId}`];
+    const record = sheet || buildDayworkRecordFromFlowEvidence(options.flowStepEvidence, options.jobId, costCentreId);
     if (!record) continue;
     const bothSigned = Boolean(record.plumberSignature?.trim() && record.clientSignature?.trim());
     if (!bothSigned && !record.description?.trim()) continue;
@@ -5209,22 +5239,45 @@ function synthesiseDayworkDeliveryEventsFromEvidence(options: {
       jobId: options.jobId,
       jobRef: options.jobRef,
       kind: "variation",
-      actor: record.labourName?.trim() || "Field",
+      actor: record.labourName?.trim() || record.plumberSignerName?.trim() || "Field",
       summary: record.description?.trim() || `Daywork account${record.voReference ? ` · ${record.voReference}` : ""}`,
-      createdAt: record.completedAt || new Date().toISOString(),
+      createdAt: record.completedAt || sheet?.updatedAt || new Date().toISOString(),
       hours: labourHours || undefined,
+      materials: [
+        record.materialsJson
+          ? (() => {
+              try {
+                const items = JSON.parse(record.materialsJson) as Array<{ description?: string; qty?: string }>;
+                if (!Array.isArray(items)) return "";
+                return items
+                  .map((item) => `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}`)
+                  .filter(Boolean)
+                  .join("; ");
+              } catch {
+                return "";
+              }
+            })()
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || undefined,
       costValue: Math.round(totals.total * 100) / 100 || 0,
       sellValue: Math.round(totals.total * 100) / 100 || 0,
       reason: "Daywork account",
       requiresClientApproval: true,
       clientApprovalStatus: bothSigned ? "Viewed" : "Not sent",
-      status: bothSigned ? "Office review" : "Draft",
+      status: bothSigned ? (totals.total > 0 ? "Priced" : "Office review") : "Draft",
       source: "Engineer app",
       costCentreId,
       formType: "daywork",
       plumberSignature: record.plumberSignature,
       clientSignature: record.clientSignature,
+      plumberSignerName: record.plumberSignerName,
+      clientSignerName: record.clientSignerName,
       weekEnding: record.weekEnding,
+      labourRate: record.labourRate,
+      materialsCost: record.materialsCost,
+      plantCost: record.plantCost,
     });
   }
   return synthesised;
@@ -7674,6 +7727,10 @@ export default function Dashboard() {
   const schedulerDragDraftRef = useRef<SchedulerDragDraft | null>(null);
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
+  const [dayworkSheets, setDayworkSheets] = useState<
+    Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>
+  >({});
+  const [savingDayworkOfficeCosts, setSavingDayworkOfficeCosts] = useState(false);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
   const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
@@ -9024,7 +9081,7 @@ export default function Dashboard() {
 
   const selectedJobVariations = useMemo(
     () => (selectedJob ? buildVariationsForJob(selectedJob) : []),
-    [flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob],
+    [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob],
   );
 
   const selectedJobBillableVariations = useMemo(
@@ -9807,6 +9864,7 @@ export default function Dashboard() {
           }
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
+          if (hubState.dayworkSheets) setDayworkSheets(hubState.dayworkSheets);
           if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current && hubState.jobVariationSections) {
             setJobVariationSections(hubState.jobVariationSections);
           }
@@ -9919,6 +9977,7 @@ export default function Dashboard() {
       jobReviews: jobReviewApprovals,
       jobDeliveryEvents,
       jobVariationSections,
+      dayworkSheets,
       communications: communicationRecords,
       invoices,
       suppliers,
@@ -10228,6 +10287,7 @@ export default function Dashboard() {
     jobReviewApprovals,
     jobDeliveryEvents,
     jobVariationSections,
+    dayworkSheets,
     communicationRecords,
     manualRecordDocuments,
     openWorkspaceTabs,
@@ -13040,6 +13100,11 @@ export default function Dashboard() {
       vat: string;
       total: string;
     };
+    extraAttachments?: Array<{
+      filename: string;
+      contentBase64: string;
+      contentType?: string;
+    }>;
   }) {
     const response = await fetch("/api/integrations/email/send", {
       method: "POST",
@@ -16072,6 +16137,7 @@ export default function Dashboard() {
       flowStepEvidence,
       jobCostCentres: jobEstimateCostCentres[job.id] ?? [],
       existingEvents: jobDeliveryEvents,
+      dayworkSheets,
     });
     const capturedVariations = [...jobDeliveryEvents, ...synthesisedDaywork]
       .filter((event) => event.jobId === job.id && event.kind === "variation")
@@ -17843,6 +17909,24 @@ export default function Dashboard() {
     setIsSendingLiveEmail(true);
     let delivery: LiveEmailDelivery;
     try {
+      let dayworkAttachments: Array<{ filename: string; contentBase64: string; contentType?: string }> = [];
+      if (selectedInvoice.sourceType === "job" && selectedInvoice.sourceId) {
+        try {
+          const dayworkResponse = await fetch(
+            `/api/jobs/${encodeURIComponent(selectedInvoice.sourceId)}/daywork/pdf`,
+            { headers: requestHeaders },
+          );
+          if (dayworkResponse.ok) {
+            const dayworkPayload = (await dayworkResponse.json()) as {
+              attachments?: Array<{ filename: string; contentBase64: string; contentType?: string }>;
+            };
+            dayworkAttachments = dayworkPayload.attachments ?? [];
+          }
+        } catch {
+          // Daywork PDF attach is best-effort.
+        }
+      }
+
       delivery = await sendThroughLiveOutbox({
         to: selectedInvoiceEmailDraft.to,
         cc: selectedInvoiceEmailDraft.cc,
@@ -17866,6 +17950,7 @@ export default function Dashboard() {
               total: currency(selectedInvoiceFinancials.grandTotal),
             }
           : undefined,
+        extraAttachments: dayworkAttachments,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to submit the application for payment.";
@@ -17926,7 +18011,9 @@ export default function Dashboard() {
       });
     }
 
-    showNotice("Application for payment submitted. Add the agreed values when the contractor replies.");
+    showNotice(
+      "Application for payment submitted. Signed Daywork Account PDF(s) attached when available. Add the agreed values when the contractor replies.",
+    );
     setIsSendingLiveEmail(false);
   }
 
@@ -25972,8 +26059,9 @@ export default function Dashboard() {
       : null;
     const dayworkRecord: DayworkAccountRecord | null = isDayworkFlow
       ? (() => {
-          const record: DayworkAccountRecord = { populatedFrom: "core" };
-          let any = false;
+          const sheet = dayworkSheets[`${job.id}:${centre?.id || `${job.id}-daywork-account`}`];
+          const record: DayworkAccountRecord = { populatedFrom: "core", ...(sheet || {}) };
+          let any = Boolean(sheet);
           const fieldMap: Record<string, keyof DayworkAccountRecord> = {
             "daywork-description": "description",
             "daywork-week-ending": "weekEnding",
@@ -25986,8 +26074,12 @@ export default function Dashboard() {
             "daywork-plant": "plantJson",
             "daywork-labour-rate": "labourRate",
             "daywork-markup-percent": "markupPercent",
+            "daywork-materials-cost": "materialsCost",
+            "daywork-plant-cost": "plantCost",
             "daywork-plumber-sign": "plumberSignature",
             "daywork-client-sign": "clientSignature",
+            "daywork-plumber-name": "plumberSignerName",
+            "daywork-client-name": "clientSignerName",
           };
           for (const step of dayworkAccountFlowTemplate.steps) {
             const field = fieldMap[step.id];
@@ -26005,6 +26097,8 @@ export default function Dashboard() {
           for (const [stepId, field] of [
             ["daywork-labour-rate", "labourRate"],
             ["daywork-markup-percent", "markupPercent"],
+            ["daywork-materials-cost", "materialsCost"],
+            ["daywork-plant-cost", "plantCost"],
           ] as const) {
             const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, stepId)] || {};
             const value = evidence.numberValue?.trim() || evidence.text?.trim();
@@ -26111,6 +26205,71 @@ export default function Dashboard() {
                 contract: job.site,
                 record: dayworkRecord,
               }}
+              savingOfficeCosts={savingDayworkOfficeCosts}
+              onSaveOfficeCosts={async (costs) => {
+                if (!centre) return;
+                setSavingDayworkOfficeCosts(true);
+                try {
+                  const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/daywork/price`, {
+                    method: "POST",
+                    headers: { ...requestHeaders, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      costCentreId: centre.id,
+                      labourRate: costs.labourRate,
+                      materialsCost: costs.materialsCost,
+                      plantCost: costs.plantCost,
+                      markupPercent: costs.markupPercent,
+                    }),
+                  });
+                  const body = (await response.json().catch(() => null)) as {
+                    error?: string;
+                    record?: DayworkAccountRecord & {
+                      jobId: string;
+                      jobRef: string;
+                      costCentreId: string;
+                      updatedAt: string;
+                    };
+                    event?: JobDeliveryEvent;
+                  } | null;
+                  if (!response.ok) throw new Error(body?.error || "Could not save office costs.");
+                  if (body?.record) {
+                    setDayworkSheets((current) => ({
+                      ...current,
+                      [`${job.id}:${centre.id}`]: body.record!,
+                    }));
+                  }
+                  if (body?.event) {
+                    setJobDeliveryEvents((current) => {
+                      const next = current.filter((event) => event.id !== body.event!.id);
+                      return [body.event as JobDeliveryEvent, ...next];
+                    });
+                  }
+                  const capturedAt = new Date().toISOString();
+                  setFlowStepEvidence((current) => {
+                    const next = { ...current };
+                    for (const [stepId, value] of [
+                      ["daywork-labour-rate", costs.labourRate],
+                      ["daywork-materials-cost", costs.materialsCost],
+                      ["daywork-plant-cost", costs.plantCost],
+                      ["daywork-markup-percent", costs.markupPercent],
+                    ] as const) {
+                      const key = flowCompletionKey(`${job.id}:${centre.id}`, stepId);
+                      const text = value.trim();
+                      if (!text) {
+                        delete next[key];
+                        continue;
+                      }
+                      next[key] = { text, numberValue: text, capturedAt };
+                    }
+                    return next;
+                  });
+                  showNotice("Daywork office costs saved — ready for valuations.");
+                } catch (error) {
+                  showNotice(error instanceof Error ? error.message : "Could not save office costs.");
+                } finally {
+                  setSavingDayworkOfficeCosts(false);
+                }
+              }}
             />
           </div>
         ) : null}
@@ -26151,16 +26310,42 @@ export default function Dashboard() {
                         {checked ? " · Captured" : ""}
                       </small>
                     </div>
-                    {step.evidence === "Text" || step.evidence === "Signature" ? (
+                    {step.evidence === "Signature" ? (
+                      <div className="engineer-flow-evidence-row daywork-signature-evidence">
+                        {evidence.text?.startsWith("data:image/") ? (
+                          <SignatureImage value={evidence.text} alt={step.label} />
+                        ) : (
+                          <input
+                            type="text"
+                            value={evidence.text || ""}
+                            placeholder="Signed by…"
+                            onChange={(event) =>
+                              updateFlowStepEvidence(completionRecordId, step, { text: event.target.value })
+                            }
+                            aria-label={`${step.label} signature`}
+                          />
+                        )}
+                        {evidence.text?.trim() ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.evidence === "Text" ? (
                       <div className="engineer-flow-evidence-row">
                         <input
                           type="text"
                           value={evidence.text || ""}
-                          placeholder={step.evidence === "Signature" ? "Signed by…" : "Enter note / reading…"}
+                          placeholder="Enter note / reading…"
                           onChange={(event) =>
                             updateFlowStepEvidence(completionRecordId, step, { text: event.target.value })
                           }
-                          aria-label={`${step.label} ${step.evidence.toLowerCase()}`}
+                          aria-label={`${step.label} text`}
                         />
                         {evidence.text?.trim() ? (
                           <button
@@ -33847,8 +34032,8 @@ export default function Dashboard() {
                           <div className="daywork-core-finder">
                             <strong>Daywork Account</strong>
                             <p>
-                              Field sheets land here as a variation cost centre named Daywork account. Open Engineer
-                              Flow to see the filled form and signatures.
+                              Field sheets show labour hours and materials used here. Office adds labour rate and
+                              materials / plant costs, then a signed Daywork PDF attaches when you submit the valuation.
                             </p>
                             <button
                               className="simpro-blue-button"
@@ -34157,17 +34342,38 @@ export default function Dashboard() {
                                 <div className="variation-money">
                                   <div>
                                     <span>Cost</span>
-                                    <strong>{currency(variation.costValue)}</strong>
+                                    <strong>
+                                      {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") &&
+                                      !variation.costValue
+                                        ? "Awaiting office rate"
+                                        : currency(variation.costValue)}
+                                    </strong>
                                   </div>
                                   <div>
                                     <span>Charge</span>
-                                    <strong>{currency(variation.sellValue)}</strong>
+                                    <strong>
+                                      {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") &&
+                                      !variation.sellValue
+                                        ? "Awaiting office rate"
+                                        : currency(variation.sellValue)}
+                                    </strong>
                                   </div>
                                   <div>
                                     <span>Profit</span>
-                                    <strong>{currency(variation.sellValue - variation.costValue)}</strong>
+                                    <strong>
+                                      {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") &&
+                                      !variation.sellValue
+                                        ? "—"
+                                        : currency(variation.sellValue - variation.costValue)}
+                                    </strong>
                                   </div>
                                 </div>
+                                {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") ? (
+                                  <p className="daywork-variation-hint">
+                                    Hours and materials from Field. Open the Daywork form to add labour rate and materials
+                                    cost before valuation.
+                                  </p>
+                                ) : null}
                                 <div className="variation-approval-panel">
                                   <div>
                                     <span>Variation quote</span>
@@ -36829,6 +37035,12 @@ export default function Dashboard() {
                             />
                             Attach generated invoice PDF
                           </label>
+                          {selectedInvoice.claimType === "valuation" ? (
+                            <p className="daywork-variation-hint">
+                              Submitting a valuation also attaches any signed Daywork Account PDF(s) for this job
+                              (printed names + signatures).
+                            </p>
+                          ) : null}
                         </div>
                         <div className="job-scheduling-actions">
                           <small>

@@ -23,7 +23,7 @@ export type DayworkLineItem = {
   qty: string;
 };
 
-/** Client-safe Daywork Account record (Field + Core form). Rates / % filled in Core by office. */
+/** Client-safe Daywork Account record (Field + Core form). Rates / costs filled in Core by office. */
 export type DayworkAccountRecord = {
   description?: string;
   weekEnding?: string;
@@ -40,12 +40,30 @@ export type DayworkAccountRecord = {
   plantJson?: string;
   /** Office-only fields (Core). */
   labourRate?: string;
+  /** Office materials cost (£) for the sheet. */
+  materialsCost?: string;
+  /** Office plant cost (£) for the sheet. */
+  plantCost?: string;
   markupPercent?: string;
   plumberSignature?: string;
   clientSignature?: string;
+  /** Printed names next to drawn signatures (required — signatures may be illegible). */
+  plumberSignerName?: string;
+  clientSignerName?: string;
   completedAt?: string;
   populatedFrom: "engineer-app" | "core";
 };
+
+export type DayworkSheetSnapshot = DayworkAccountRecord & {
+  jobId: string;
+  jobRef: string;
+  costCentreId: string;
+  updatedAt: string;
+};
+
+export function dayworkSheetKey(jobId: string, costCentreId: string) {
+  return `${jobId}:${costCentreId}`;
+}
 
 export function parseDayworkLabourDays(value?: string): DayworkLabourDay[] {
   if (!value?.trim()) return [];
@@ -120,23 +138,28 @@ function parseMoney(value?: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Field captures hours/qty only; Core office can later apply rate / markup %. */
+/** Field captures hours/qty; Core office applies labour rate + materials/plant £. */
 export function dayworkAccountTotals(record: DayworkAccountRecord | null | undefined) {
   const labourHours = totalDayworkLabourHours(record);
   const labourRate = parseMoney(record?.labourRate);
   const labourCost = labourHours * labourRate;
+  const materials = parseMoney(record?.materialsCost);
+  const plant = parseMoney(record?.plantCost);
   const markupPercent = parseMoney(record?.markupPercent);
+  const materialsWithMarkup = materials * (1 + markupPercent / 100);
+  const plantWithMarkup = plant * (1 + markupPercent / 100);
+  const total = labourCost + materialsWithMarkup + plantWithMarkup;
   return {
     labourHours,
     labourCost,
     expenses: 0,
-    materials: 0,
-    plant: 0,
+    materials,
+    plant,
     markupPercent,
-    materialsWithMarkup: 0,
-    plantWithMarkup: 0,
+    materialsWithMarkup,
+    plantWithMarkup,
     expensesWithMarkup: 0,
-    total: labourCost,
+    total,
   };
 }
 
@@ -210,30 +233,41 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
         row("labourTrade", "Trade", record?.labourTrade || ""),
         row("labourDays", "Hours by day", formatLabourDays(record)),
         row("labourHours", "Total hrs", totals.labourHours ? String(totals.labourHours) : ""),
-        row("labourRate", "Rate (office)", record?.labourRate ? money(Number(record.labourRate)) : "Set in Core"),
+        row("labourRate", "Rate £/hr (office)", record?.labourRate ? money(Number(record.labourRate)) : "Set in Core"),
       ],
     },
     {
       section: "Materials",
-      rows: [row("materials", "Materials", formatLineItems(record?.materialsJson))],
+      rows: [
+        row("materials", "Materials used", formatLineItems(record?.materialsJson)),
+        row("materialsCost", "Materials cost (office)", record?.materialsCost ? money(parseMoney(record.materialsCost)) : "Set in Core"),
+      ],
     },
     {
       section: "Plant",
-      rows: [row("plant", "Plant", formatLineItems(record?.plantJson))],
+      rows: [
+        row("plant", "Plant used", formatLineItems(record?.plantJson)),
+        row("plantCost", "Plant cost (office)", record?.plantCost ? money(parseMoney(record.plantCost)) : "Set in Core"),
+      ],
     },
     {
       section: "Summary",
       rows: [
         row("sumLabourHrs", "Labour hours", totals.labourHours ? String(totals.labourHours) : ""),
-        row("sumLabour", "Labour cost (office rate)", money(totals.labourCost) || "Pending office rate"),
+        row("sumLabour", "Labour cost", money(totals.labourCost) || "Pending office rate"),
+        row("sumMaterials", "Materials cost", money(totals.materialsWithMarkup) || "Pending office cost"),
+        row("sumPlant", "Plant cost", money(totals.plantWithMarkup) || "Pending office cost"),
         row("markup", "Add % (office)", totals.markupPercent ? `${totals.markupPercent}%` : "Set in Core"),
+        row("sumTotal", "Sheet total", money(totals.total) || "Pending office pricing"),
       ],
     },
     {
       section: "Sign-off",
       rows: [
-        row("plumber", "Signature of contractor (plumber)", record?.plumberSignature || ""),
-        row("client", "Signature of Clerk of Works / client", record?.clientSignature || ""),
+        row("plumberName", "Plumber / contractor name", record?.plumberSignerName || ""),
+        row("plumber", "Plumber / contractor signature", record?.plumberSignature || ""),
+        row("clientName", "Client / Clerk of Works name", record?.clientSignerName || ""),
+        row("client", "Client / Clerk of Works signature", record?.clientSignature || ""),
       ],
     },
   ];
@@ -251,6 +285,8 @@ export type DayworkSheetDraft = {
   plant: DayworkLineItem[];
   plumberSignature: string;
   clientSignature: string;
+  plumberSignerName: string;
+  clientSignerName: string;
 };
 
 export function emptyDayworkSheetDraft(defaults?: Partial<DayworkSheetDraft>): DayworkSheetDraft {
@@ -265,6 +301,8 @@ export function emptyDayworkSheetDraft(defaults?: Partial<DayworkSheetDraft>): D
     plant: [{ description: "", qty: "" }],
     plumberSignature: "",
     clientSignature: "",
+    plumberSignerName: "",
+    clientSignerName: "",
     ...defaults,
   };
 }
@@ -287,6 +325,8 @@ export function dayworkDraftFromRecord(
     plant: plant.length ? plant : [{ description: "", qty: "" }],
     plumberSignature: record?.plumberSignature || "",
     clientSignature: record?.clientSignature || "",
+    plumberSignerName: record?.plumberSignerName || defaults?.plumberSignerName || record?.labourName || "",
+    clientSignerName: record?.clientSignerName || defaults?.clientSignerName || "",
   });
 }
 
@@ -316,6 +356,8 @@ export function dayworkRecordFromDraft(
     plantJson,
     plumberSignature: draft.plumberSignature.trim(),
     clientSignature: draft.clientSignature.trim(),
+    plumberSignerName: draft.plumberSignerName.trim(),
+    clientSignerName: draft.clientSignerName.trim(),
     completedAt: new Date().toISOString(),
     populatedFrom,
   };
@@ -334,6 +376,12 @@ export function validateDayworkSheetDraft(draft: DayworkSheetDraft): string | nu
     const hours = Number(String(row.hours).replace(/[^0-9.]/g, ""));
     if (!Number.isFinite(hours) || hours <= 0) return `Enter hours for ${row.day}.`;
   }
+  if (draft.plumberSignerName.trim().length < 2) {
+    return "Enter the plumber / contractor printed name (signatures can be hard to read).";
+  }
+  if (draft.clientSignerName.trim().length < 2) {
+    return "Enter the client / Clerk of Works printed name.";
+  }
   if (!draft.plumberSignature.trim() || (draft.plumberSignature.trim().length < 2 && !draft.plumberSignature.startsWith("data:image/"))) {
     return "Plumber signature is required — draw it on the pad.";
   }
@@ -341,4 +389,12 @@ export function validateDayworkSheetDraft(draft: DayworkSheetDraft): string | nu
     return "Client signature is required — draw it on the pad.";
   }
   return null;
+}
+
+export function summariseDayworkMaterials(record: DayworkAccountRecord | null | undefined) {
+  return formatLineItems(record?.materialsJson);
+}
+
+export function summariseDayworkPlant(record: DayworkAccountRecord | null | undefined) {
+  return formatLineItems(record?.plantJson);
 }

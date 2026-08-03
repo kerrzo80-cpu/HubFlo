@@ -13,6 +13,7 @@ import {
   DAYWORK_COST_CENTRE_NAME,
   DAYWORK_COST_CENTRE_TEMPLATE,
   ensureDayworkVariationCostCentre,
+  listDayworkSheetsForJob,
   requirementsFromFlowTemplate,
   saveDayworkSheetToHub,
 } from "@/lib/engineer-flow";
@@ -97,13 +98,16 @@ export async function POST(request: Request, { params }: Params) {
     });
     const requirements = dayworkRequirements(schedule.jobId, costCentreId);
     activateDayworkWorkflow(scheduleId, costCentreId, requirements);
+    const savedSheet =
+      listDayworkSheetsForJob(schedule.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+      buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId);
 
     return NextResponse.json({
       scheduleId,
       jobId: schedule.jobId,
       costCentreId,
       checklistMode: "daywork",
-      record: buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId),
+      record: savedSheet,
       requirements,
     });
   }
@@ -133,6 +137,9 @@ export async function GET(_request: Request, { params }: Params) {
 
   const costCentreId = ensureDayworkVariationCostCentre(schedule.jobId);
   const requirements = dayworkRequirements(schedule.jobId, costCentreId);
+  const savedSheet =
+    listDayworkSheetsForJob(schedule.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+    buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId);
 
   return NextResponse.json({
     scheduleId,
@@ -140,7 +147,7 @@ export async function GET(_request: Request, { params }: Params) {
     costCentreId,
     costCentreName: DAYWORK_COST_CENTRE_NAME,
     templateName: DAYWORK_COST_CENTRE_TEMPLATE,
-    record: buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId),
+    record: savedSheet,
     requirements,
   });
 }

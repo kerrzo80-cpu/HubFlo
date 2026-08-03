@@ -320,17 +320,44 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
         </button>
       </section>
 
-      <SignaturePad
-        label="Plumber / contractor signature"
-        value={draft.plumberSignature}
-        onChange={(dataUrl) => setDraft((current) => ({ ...current, plumberSignature: dataUrl }))}
-      />
-
-      <SignaturePad
-        label="Client / Clerk of Works signature"
-        value={draft.clientSignature}
-        onChange={(dataUrl) => setDraft((current) => ({ ...current, clientSignature: dataUrl }))}
-      />
+      <section className="daywork-signoff-block">
+        <strong>Sign-off</strong>
+        <p className="muted">Draw the signature and type the printed name — names are needed because signatures can be hard to read.</p>
+        <label className="daywork-field">
+          <span>Plumber / contractor printed name</span>
+          <input
+            type="text"
+            value={draft.plumberSignerName}
+            placeholder="Full name"
+            onChange={(event) =>
+              setDraft((current) => ({
+                ...current,
+                plumberSignerName: event.target.value,
+                labourName: current.labourName || event.target.value,
+              }))
+            }
+          />
+        </label>
+        <SignaturePad
+          label="Plumber / contractor signature"
+          value={draft.plumberSignature}
+          onChange={(dataUrl) => setDraft((current) => ({ ...current, plumberSignature: dataUrl }))}
+        />
+        <label className="daywork-field">
+          <span>Client / Clerk of Works printed name</span>
+          <input
+            type="text"
+            value={draft.clientSignerName}
+            placeholder="Full name"
+            onChange={(event) => setDraft((current) => ({ ...current, clientSignerName: event.target.value }))}
+          />
+        </label>
+        <SignaturePad
+          label="Client / Clerk of Works signature"
+          value={draft.clientSignature}
+          onChange={(dataUrl) => setDraft((current) => ({ ...current, clientSignature: dataUrl }))}
+        />
+      </section>
 
       <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
         {saving ? "Saving…" : "Save Daywork Account"}

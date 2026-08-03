@@ -2,9 +2,11 @@ import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/li
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
 import {
   dayworkAccountTotals,
+  dayworkSheetKey,
   parseDayworkLineItems,
   totalDayworkLabourHours,
   type DayworkAccountRecord,
+  type DayworkSheetSnapshot,
 } from "@/lib/daywork-account-form";
 import { isValidUkOrIsoDate, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
 
@@ -350,6 +352,15 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       validation: { helpText: "Multiple plant items with quantities.", placeholder: "JSON plant" },
     },
     {
+      id: "daywork-plumber-name",
+      stage: "Handover",
+      label: "Plumber / contractor printed name",
+      evidence: "Text",
+      required: true,
+      formField: "plumberSignerName",
+      validation: { minLength: 2, helpText: "Printed name — signatures can be hard to read.", placeholder: "Full name…" },
+    },
+    {
       id: "daywork-plumber-sign",
       stage: "Handover",
       label: "Plumber / contractor signature",
@@ -357,6 +368,15 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       required: true,
       formField: "plumberSignature",
       validation: { minLength: 2, helpText: "Operative signing the Daywork Account.", placeholder: "Signed by plumber…" },
+    },
+    {
+      id: "daywork-client-name",
+      stage: "Handover",
+      label: "Client / Clerk of Works printed name",
+      evidence: "Text",
+      required: true,
+      formField: "clientSignerName",
+      validation: { minLength: 2, helpText: "Printed name of the person signing off.", placeholder: "Full name…" },
     },
     {
       id: "daywork-client-sign",
@@ -798,6 +818,8 @@ export function buildDayworkAccountRecordFromEvidence(
     ["daywork-labour-rate", "labourRate"],
     ["daywork-markup-percent", "markupPercent"],
     ["daywork-labour-hours", "labourHours"],
+    ["daywork-materials-cost", "materialsCost"],
+    ["daywork-plant-cost", "plantCost"],
   ] as const) {
     const value = evidenceStore[flowEvidenceKey(jobId, costCentreId, stepId)];
     const text = value?.text?.trim() || value?.numberValue?.trim();
@@ -821,6 +843,7 @@ export function saveDayworkSheetToHub(options: {
 }) {
   const hubState = getHubDetailState() as HubDetailState & {
     flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
   };
   const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
   const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
@@ -848,13 +871,35 @@ export function saveDayworkSheetToHub(options: {
     completionStore[hoursKey] = true;
   }
 
+  // Preserve any office pricing already set in Core when Field re-saves the sheet.
+  const sheetKey = dayworkSheetKey(options.jobId, options.costCentreId);
+  const previousSheet = hubState.dayworkSheets?.[sheetKey];
+  const snapshot: DayworkSheetSnapshot = {
+    ...options.record,
+    labourRate: options.record.labourRate || previousSheet?.labourRate,
+    materialsCost: options.record.materialsCost || previousSheet?.materialsCost,
+    plantCost: options.record.plantCost || previousSheet?.plantCost,
+    markupPercent: options.record.markupPercent || previousSheet?.markupPercent,
+    jobId: options.jobId,
+    jobRef: options.jobRef,
+    costCentreId: options.costCentreId,
+    updatedAt: capturedAt,
+  };
+
   saveHubDetailState({
     ...hubState,
     flowStepEvidence: evidenceStore,
     flowStepCompletion: completionStore,
+    dayworkSheets: {
+      ...(hubState.dayworkSheets ?? {}),
+      [sheetKey]: snapshot,
+    },
   });
 
-  return syncDayworkAccountToJobVariation(options);
+  return syncDayworkAccountToJobVariation({
+    ...options,
+    record: snapshot,
+  });
 }
 
 export const DAYWORK_COST_CENTRE_NAME = "Daywork account";
@@ -962,21 +1007,26 @@ export function syncDayworkAccountToJobVariation(options: {
         : new Date().toISOString(),
     hours: labourHours || undefined,
     materials: combinedMaterials || undefined,
-    // Cost/sell left for office rates in Core — Field only captures hours/qty.
+    // Cost/sell filled once office sets labour rate + materials/plant costs in Core.
     costValue: Math.round(totals.total * 100) / 100 || 0,
     sellValue: Math.round(totals.total * 100) / 100 || 0,
     reason: "Daywork account",
     requiresClientApproval: true,
     clientApprovalStatus: bothSigned ? "Viewed" : "Not sent",
-    status: bothSigned ? "Office review" : "Draft",
+    status: bothSigned ? (totals.total > 0 ? "Priced" : "Office review") : "Draft",
     source: "Engineer app",
     costCentreId: options.costCentreId,
     formType: "daywork",
     plumberSignature: options.record.plumberSignature,
     clientSignature: options.record.clientSignature,
+    plumberSignerName: options.record.plumberSignerName,
+    clientSignerName: options.record.clientSignerName,
     weekEnding: options.record.weekEnding,
     labourTrade: options.record.labourTrade,
     labourDaysJson: options.record.labourDaysJson,
+    labourRate: options.record.labourRate,
+    materialsCost: options.record.materialsCost,
+    plantCost: options.record.plantCost,
   };
 
   if (existingIndex >= 0) {
@@ -1043,11 +1093,13 @@ function collectDayworkJobCentrePairs(hubState: HubDetailState): Array<{ jobId: 
 }
 
 /**
- * Rebuild Daywork variation cards from saved Field/Core evidence.
+ * Rebuild Daywork variation cards from durable sheet snapshots + flow evidence.
  * Protects against stale Core PUTs wiping jobDeliveryEvents.
  */
 export function reconcileDayworkVariationsFromEvidence() {
-  const hubState = getHubDetailState();
+  const hubState = getHubDetailState() as HubDetailState & {
+    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+  };
   const events = Array.isArray(hubState.jobDeliveryEvents)
     ? (hubState.jobDeliveryEvents as Array<Record<string, unknown>>)
     : [];
@@ -1059,8 +1111,30 @@ export function reconcileDayworkVariationsFromEvidence() {
   }
 
   const rebuilt: Array<Record<string, unknown>> = [];
+  const seen = new Set<string>();
+
+  for (const sheet of Object.values(hubState.dayworkSheets ?? {})) {
+    if (!sheet?.jobId || !sheet?.costCentreId) continue;
+    try {
+      ensureDayworkVariationCostCentre(sheet.jobId);
+    } catch {
+      // Best-effort.
+    }
+    // Re-write evidence from durable snapshot so Core forms stay populated.
+    restoreDayworkEvidenceFromSnapshot(sheet);
+    const event = syncDayworkAccountToJobVariation({
+      jobId: sheet.jobId,
+      jobRef: sheet.jobRef || jobRefById.get(sheet.jobId) || sheet.jobId,
+      costCentreId: sheet.costCentreId,
+      engineerName: sheet.labourName || sheet.plumberSignerName || "Field",
+      record: sheet,
+    });
+    if (event) rebuilt.push(event);
+    seen.add(`${sheet.jobId}::${sheet.costCentreId}`);
+  }
+
   for (const { jobId, costCentreId } of collectDayworkJobCentrePairs(hubState)) {
-    // Ensure the variation cost centre still exists when only evidence survived.
+    if (seen.has(`${jobId}::${costCentreId}`)) continue;
     try {
       ensureDayworkVariationCostCentre(jobId);
     } catch {
@@ -1072,10 +1146,138 @@ export function reconcileDayworkVariationsFromEvidence() {
       jobId,
       jobRef: jobRefById.get(jobId) || jobId,
       costCentreId,
-      engineerName: record.labourName || "Field",
+      engineerName: record.labourName || record.plumberSignerName || "Field",
       record,
     });
     if (event) rebuilt.push(event);
   }
   return rebuilt;
+}
+
+function restoreDayworkEvidenceFromSnapshot(sheet: DayworkSheetSnapshot) {
+  const hubState = getHubDetailState() as HubDetailState & {
+    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+  };
+  const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
+  const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
+  const capturedAt = sheet.updatedAt || sheet.completedAt || new Date().toISOString();
+  let changed = false;
+
+  for (const step of dayworkAccountFlowTemplate.steps) {
+    if (!step.formField) continue;
+    const key = flowEvidenceKey(sheet.jobId, sheet.costCentreId, step.id);
+    const raw = (sheet as Record<string, string | undefined>)[step.formField];
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (!text) continue;
+    const existing = evidenceStore[key];
+    if (existing?.text?.trim() === text) continue;
+    evidenceStore[key] = { text, capturedAt };
+    completionStore[key] = true;
+    changed = true;
+  }
+
+  for (const [stepId, field] of [
+    ["daywork-labour-rate", "labourRate"],
+    ["daywork-materials-cost", "materialsCost"],
+    ["daywork-plant-cost", "plantCost"],
+    ["daywork-markup-percent", "markupPercent"],
+    ["daywork-labour-hours", "labourHours"],
+  ] as const) {
+    const raw = sheet[field];
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (!text) continue;
+    const key = flowEvidenceKey(sheet.jobId, sheet.costCentreId, stepId);
+    if (evidenceStore[key]?.text?.trim() === text || evidenceStore[key]?.numberValue?.trim() === text) continue;
+    evidenceStore[key] = { text, numberValue: text, capturedAt };
+    completionStore[key] = true;
+    changed = true;
+  }
+
+  if (!changed) return;
+  saveHubDetailState({
+    ...hubState,
+    flowStepEvidence: evidenceStore,
+    flowStepCompletion: completionStore,
+  });
+}
+
+/** Office pricing for a Daywork sheet — labour rate + materials/plant £. */
+export function saveDayworkOfficePricing(options: {
+  jobId: string;
+  jobRef: string;
+  costCentreId: string;
+  labourRate?: string;
+  materialsCost?: string;
+  plantCost?: string;
+  markupPercent?: string;
+}) {
+  const hubState = getHubDetailState() as HubDetailState & {
+    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+  };
+  const sheetKey = dayworkSheetKey(options.jobId, options.costCentreId);
+  const existingSheet = hubState.dayworkSheets?.[sheetKey];
+  const fromEvidence = buildDayworkAccountRecordFromEvidence(options.jobId, options.costCentreId, hubState);
+  const base: DayworkAccountRecord = {
+    populatedFrom: "core",
+    ...(fromEvidence || {}),
+    ...(existingSheet || {}),
+    labourRate: options.labourRate?.trim() ?? existingSheet?.labourRate ?? fromEvidence?.labourRate,
+    materialsCost: options.materialsCost?.trim() ?? existingSheet?.materialsCost ?? fromEvidence?.materialsCost,
+    plantCost: options.plantCost?.trim() ?? existingSheet?.plantCost ?? fromEvidence?.plantCost,
+    markupPercent: options.markupPercent?.trim() ?? existingSheet?.markupPercent ?? fromEvidence?.markupPercent,
+  };
+
+  const capturedAt = new Date().toISOString();
+  const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
+  const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
+  for (const [stepId, value] of [
+    ["daywork-labour-rate", base.labourRate],
+    ["daywork-materials-cost", base.materialsCost],
+    ["daywork-plant-cost", base.plantCost],
+    ["daywork-markup-percent", base.markupPercent],
+  ] as const) {
+    const key = flowEvidenceKey(options.jobId, options.costCentreId, stepId);
+    const text = String(value || "").trim();
+    if (!text) {
+      delete evidenceStore[key];
+      delete completionStore[key];
+      continue;
+    }
+    evidenceStore[key] = { text, numberValue: text, capturedAt };
+    completionStore[key] = true;
+  }
+
+  const snapshot: DayworkSheetSnapshot = {
+    ...base,
+    jobId: options.jobId,
+    jobRef: options.jobRef || existingSheet?.jobRef || options.jobId,
+    costCentreId: options.costCentreId,
+    updatedAt: capturedAt,
+  };
+
+  saveHubDetailState({
+    ...hubState,
+    flowStepEvidence: evidenceStore,
+    flowStepCompletion: completionStore,
+    dayworkSheets: {
+      ...(hubState.dayworkSheets ?? {}),
+      [sheetKey]: snapshot,
+    },
+  });
+
+  return syncDayworkAccountToJobVariation({
+    jobId: options.jobId,
+    jobRef: snapshot.jobRef,
+    costCentreId: options.costCentreId,
+    engineerName: snapshot.labourName || snapshot.plumberSignerName || "Field",
+    record: snapshot,
+  });
+}
+
+export function listDayworkSheetsForJob(jobId: string): DayworkSheetSnapshot[] {
+  const hubState = getHubDetailState() as HubDetailState & {
+    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+  };
+  return Object.values(hubState.dayworkSheets ?? {}).filter((sheet) => sheet.jobId === jobId);
 }
