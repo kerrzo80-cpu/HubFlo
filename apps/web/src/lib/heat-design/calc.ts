@@ -1,4 +1,5 @@
 import {
+  buildKitLines,
   ceilingTypes,
   floorTypes,
   glazingTypes,
@@ -50,14 +51,7 @@ export function exteriorWallAreaForRoom(room: HeatDesignRoom) {
   return Math.max(0, exteriorLength * height);
 }
 
-/**
- * Room heat loss — fabric + simplified ventilation (BS EN 12831–style sketch).
- * Design external temp defaults to −3°C (Scotland / northern England band).
- */
-export function calculateRoomHeatLoss(
-  room: HeatDesignRoom,
-  designExternalTemp = -3,
-): RoomHeatLossResult {
+export function calculateRoomHeatLoss(room: HeatDesignRoom, designExternalTemp = -3): RoomHeatLossResult {
   const roomType = selectedOption(roomTypes, room.roomType);
   const wallType = selectedOption(wallTypes, room.wallType);
   const glazingType = selectedOption(glazingTypes, room.glazingType);
@@ -78,9 +72,10 @@ export function calculateRoomHeatLoss(
 
   const wallLoss = opaqueWallArea * (wallType?.uValue ?? 1.47) * externalDelta;
   const glazingLoss = glazingArea * (glazingType?.uValue ?? 2.9) * externalDelta;
-  const floorLoss = floorArea * (floorType?.uValue ?? 0.82) * Math.max(0, targetTemp - (floorType?.adjacentTemp ?? designExternalTemp));
-  const ceilingLoss = floorArea * (ceilingType?.uValue ?? 0.71) * Math.max(0, targetTemp - (ceilingType?.adjacentTemp ?? designExternalTemp));
-  // 0.33 W/m³·K × air changes × volume × ΔT
+  const floorLoss =
+    floorArea * (floorType?.uValue ?? 0.82) * Math.max(0, targetTemp - (floorType?.adjacentTemp ?? designExternalTemp));
+  const ceilingLoss =
+    floorArea * (ceilingType?.uValue ?? 0.71) * Math.max(0, targetTemp - (ceilingType?.adjacentTemp ?? designExternalTemp));
   const airChanges = roomType?.airChanges ?? 0.5;
   const ventilationLoss = 0.33 * airChanges * volume * externalDelta;
 
@@ -162,16 +157,30 @@ export function suggestHeatPump(designLoadKw: number, flowTemp: number): HeatPum
   return ranked[0]?.pump ?? heatPumpCatalogue[heatPumpCatalogue.length - 1]!;
 }
 
+/** Simplified outdoor sound fall-off for planning-style check. */
+export function assessSoundDb(soundPowerDb: number, distanceM: number) {
+  const distance = Math.max(1, distanceM);
+  return Math.round(soundPowerDb - 20 * Math.log10(distance) - 8);
+}
+
 export function calculateSystemDesign(project: HeatDesignProject): SystemDesignResult {
   const roomResults = project.rooms.map((room) => ({
     room,
-    loss: calculateRoomHeatLoss({ ...room, meanWaterTemperature: String(project.flowTemperature) }, project.designExternalTemp),
+    loss: calculateRoomHeatLoss(
+      { ...room, meanWaterTemperature: String(project.flowTemperature) },
+      project.designExternalTemp,
+    ),
   }));
   const totalHeatLossW = roomResults.reduce((sum, row) => sum + row.loss.watts, 0);
   const totalHeatLossKw = totalHeatLossW / 1000;
-  // Rough DHW diversity allowance — refine later with cylinder/occupancy calc.
-  const dhwAllowanceKw = Math.min(3, 0.5 + project.occupants * 0.35);
-  const designLoadKw = totalHeatLossKw + dhwAllowanceKw * 0.15; // peak heating + small DHW coincidence
+
+  const dailyHotWaterLitres = project.dailyHotWaterLitres || Math.max(80, project.occupants * 50);
+  const cylinderLitres = project.cylinderLitres || 210;
+  // Energy to raise cylinder 40K (approx) — 1.16 Wh/L·K
+  const dhwDailyKwh = (dailyHotWaterLitres * 40 * 1.16) / 1000;
+  const dhwPeakKw = Math.min(6, cylinderLitres / 70);
+
+  const designLoadKw = totalHeatLossKw + dhwPeakKw * 0.2;
 
   const selectedPump =
     heatPumpCatalogue.find((pump) => pump.id === project.selectedHeatPumpId) ??
@@ -181,7 +190,7 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   const scop = scopAtFlow(selectedPump, project.flowTemperature);
   const coveragePercent = designLoadKw > 0 ? Math.min(200, (capacityAtFlowKw / designLoadKw) * 100) : 0;
 
-  const estimatedAnnualHeatKwh = Math.max(project.currentAnnualKwh * 0.85, totalHeatLossKw * 1800);
+  const estimatedAnnualHeatKwh = Math.max(project.currentAnnualKwh * 0.85, totalHeatLossKw * 1800) + dhwDailyKwh * 365;
   const estimatedHpElectricityKwh = scop > 0 ? estimatedAnnualHeatKwh / scop : 0;
   const estimatedHpCost = estimatedHpElectricityKwh * project.electricityUnitRate;
   const fuelRate =
@@ -205,17 +214,31 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
       project.designExternalTemp,
     );
     if (!rad || rad.outputWatts < row.loss.radiatorOutputAtDeltaT50) emitterUpgradeCount += 1;
-    else if (!row.room.selectedRadiatorId) {
-      // Counts rooms that need a larger emitter than a typical existing K1 might provide
+    else {
       const k1Like = radiatorCatalogue.find((item) => item.model.startsWith("K1"));
       if (k1Like && row.loss.radiatorOutputAtDeltaT50 > k1Like.outputWatts) emitterUpgradeCount += 1;
     }
   }
 
+  const soundAssessmentDb = assessSoundDb(
+    selectedPump.soundPowerDb,
+    project.nearestNeighbourDistanceM || project.outdoorUnitDistanceM || 3,
+  );
+
+  const kit = buildKitLines({
+    pump: selectedPump,
+    cylinderLitres,
+    flowTemperature: project.flowTemperature,
+    emitterUpgradeCount,
+    extras: project.kitExtras ?? [],
+  });
+  const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
+
   return {
     totalHeatLossW,
     totalHeatLossKw,
-    dhwAllowanceKw,
+    dhwPeakKw,
+    dhwDailyKwh,
     designLoadKw,
     selectedPump,
     capacityAtFlowKw,
@@ -228,7 +251,10 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     estimatedAnnualSaving,
     co2SavingKg,
     emitterUpgradeCount,
-    soundOk: selectedPump.soundPowerDb <= 60,
+    soundOk: soundAssessmentDb <= 42,
+    soundAssessmentDb,
+    kit,
+    kitTotal,
   };
 }
 
@@ -242,4 +268,21 @@ export function kw(value: number, digits = 1) {
 
 export function wattsLabel(value: number) {
   return `${Math.round(value).toLocaleString("en-GB")} W`;
+}
+
+/** Migrate older localStorage projects missing plan / kit fields. */
+export function normaliseProject(project: HeatDesignProject): HeatDesignProject {
+  return {
+    ...project,
+    cylinderLitres: project.cylinderLitres || 210,
+    dailyHotWaterLitres: project.dailyHotWaterLitres || Math.max(80, (project.occupants || 3) * 50),
+    outdoorUnitDistanceM: project.outdoorUnitDistanceM || 3,
+    nearestNeighbourDistanceM: project.nearestNeighbourDistanceM || 8,
+    kitExtras: project.kitExtras ?? [],
+    rooms: (project.rooms ?? []).map((room, index) => ({
+      ...room,
+      planX: typeof room.planX === "number" ? room.planX : (index % 3) * 4.5,
+      planY: typeof room.planY === "number" ? room.planY : Math.floor(index / 3) * 4,
+    })),
+  };
 }

@@ -1,4 +1,4 @@
-import type { HeatDesignRoom, HeatPumpOption } from "./types";
+import type { HeatDesignRoom, HeatPumpOption, KitLine } from "./types";
 
 export const roomTypes = [
   { id: "Bathroom", targetTemp: 22, airChanges: 1.5 },
@@ -62,7 +62,6 @@ export type RadiatorCatalogueItem = (typeof radiatorCatalogue)[number];
 
 export const radiatorRanges = ["Any range", ...Array.from(new Set(radiatorCatalogue.map((r) => r.range)))];
 
-/** Demo ASHP catalogue — replace with real Midsummer/manufacturer data later. */
 export const heatPumpCatalogue: HeatPumpOption[] = [
   {
     id: "ashp-5kw",
@@ -131,10 +130,25 @@ export const heatPumpCatalogue: HeatPumpOption[] = [
   },
 ];
 
+export const kitExtraOptions: Array<{ id: string; label: string; unitCost: number; category: string }> = [
+  { id: "ufh-manifold", label: "UFH manifold + mixing set", unitCost: 420, category: "Emitters" },
+  { id: "smart-controls", label: "Smart zoning controls pack", unitCost: 380, category: "Controls" },
+  { id: "pv-diverter", label: "PV diverter for cylinder", unitCost: 290, category: "Electrical" },
+  { id: "snow-stand", label: "Raised snow / flood stand", unitCost: 185, category: "Outdoor" },
+];
+
 export const propertyTypes = ["Detached", "Semi-detached", "Terraced", "Bungalow", "Flat"];
 export const buildEras = ["Pre-1919", "1919–1944", "1945–1964", "1965–1990", "1991–2002", "2003–present"];
 
+const ROOM_COLORS = ["#0f7a5a", "#c45c26", "#2f5d8c", "#7a4f9a", "#8a6d1d", "#1f6f6a", "#9a3b4a", "#4a6b2f"];
+
+export function roomColor(index: number) {
+  return ROOM_COLORS[index % ROOM_COLORS.length];
+}
+
 export function makeBlankRoom(index: number): HeatDesignRoom {
+  const col = index % 3;
+  const row = Math.floor(index / 3);
   return {
     id: `hd-room-${Date.now()}-${index}`,
     name: `Room ${index + 1}`,
@@ -150,6 +164,8 @@ export function makeBlankRoom(index: number): HeatDesignRoom {
     ceilingType: "Insulated roof space",
     meanWaterTemperature: "45",
     preferredRange: "Any range",
+    planX: col * 4.5,
+    planY: row * 4,
   };
 }
 
@@ -163,6 +179,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       width: "3.8",
       exteriorWalls: 2,
       windowArea: "3.6",
+      planX: 0,
+      planY: 0,
     },
     {
       ...makeBlankRoom(1),
@@ -173,6 +191,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       exteriorWalls: 2,
       windowArea: "1.8",
       floorType: "Solid concrete floor",
+      planX: 5.4,
+      planY: 0,
     },
     {
       ...makeBlankRoom(2),
@@ -182,7 +202,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       width: "1.8",
       exteriorWalls: 1,
       windowArea: "0.6",
-      glazingType: "Wood/PVCu Double Glazed",
+      planX: 5.4,
+      planY: 3.4,
     },
     {
       ...makeBlankRoom(3),
@@ -194,6 +215,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       windowArea: "1.6",
       floorType: "Heated room",
       ceilingType: "Insulated roof space",
+      planX: 0,
+      planY: 4.0,
     },
     {
       ...makeBlankRoom(4),
@@ -204,6 +227,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       exteriorWalls: 2,
       windowArea: "1.4",
       floorType: "Heated room",
+      planX: 4.2,
+      planY: 5.4,
     },
     {
       ...makeBlankRoom(5),
@@ -214,6 +239,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       exteriorWalls: 1,
       windowArea: "0.5",
       floorType: "Heated room",
+      planX: 7.8,
+      planY: 5.4,
     },
   ];
 
@@ -234,6 +261,104 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
     flowTemperature: 45,
     selectedHeatPumpId: "",
     rooms,
+    cylinderLitres: 210,
+    dailyHotWaterLitres: 150,
+    outdoorUnitDistanceM: 3,
+    nearestNeighbourDistanceM: 8,
+    kitExtras: [],
     updatedAt: new Date().toISOString(),
   };
+}
+
+export function buildKitLines(input: {
+  pump: HeatPumpOption;
+  cylinderLitres: number;
+  flowTemperature: number;
+  emitterUpgradeCount: number;
+  extras: string[];
+}): KitLine[] {
+  const lines: KitLine[] = [
+    {
+      id: "kit-ashp",
+      category: "Heat pump",
+      description: `${input.pump.brand} ${input.pump.model}`,
+      qty: 1,
+      unitCost: Math.round(input.pump.typicalInstalledFrom * 0.55),
+      required: true,
+    },
+    {
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L heat-pump ready cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 1450 : input.cylinderLitres >= 200 ? 1180 : 980,
+      required: true,
+    },
+    {
+      id: "kit-buffer",
+      category: "Hydraulics",
+      description: input.flowTemperature <= 40 ? "50 L buffer / volumiser" : "Optional volumiser tee set",
+      qty: 1,
+      unitCost: input.flowTemperature <= 40 ? 320 : 95,
+      required: true,
+    },
+    {
+      id: "kit-filter",
+      category: "Hydraulics",
+      description: "Magnetic filter + inhibitor pack",
+      qty: 1,
+      unitCost: 145,
+      required: true,
+    },
+    {
+      id: "kit-pipe",
+      category: "Pipework",
+      description: "Primary / secondary pipework & insulation allowance",
+      qty: 1,
+      unitCost: 480,
+      required: true,
+    },
+    {
+      id: "kit-electrics",
+      category: "Electrical",
+      description: "Isolator, cable, outdoor supply allowance",
+      qty: 1,
+      unitCost: 390,
+      required: true,
+    },
+    {
+      id: "kit-controls",
+      category: "Controls",
+      description: "Weather compensation + room thermostat pack",
+      qty: 1,
+      unitCost: 260,
+      required: true,
+    },
+  ];
+
+  if (input.emitterUpgradeCount > 0) {
+    lines.push({
+      id: "kit-rads",
+      category: "Emitters",
+      description: `Radiator upgrades (allowance × ${input.emitterUpgradeCount})`,
+      qty: input.emitterUpgradeCount,
+      unitCost: 220,
+      required: true,
+    });
+  }
+
+  for (const extraId of input.extras) {
+    const extra = kitExtraOptions.find((item) => item.id === extraId);
+    if (!extra) continue;
+    lines.push({
+      id: `kit-extra-${extra.id}`,
+      category: extra.category,
+      description: extra.label,
+      qty: 1,
+      unitCost: extra.unitCost,
+      required: false,
+    });
+  }
+
+  return lines;
 }

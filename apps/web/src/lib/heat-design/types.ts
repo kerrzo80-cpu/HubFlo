@@ -16,6 +16,9 @@ export type HeatDesignRoom = {
   meanWaterTemperature: string;
   preferredRange: string;
   selectedRadiatorId?: string;
+  /** Floor-plan canvas position (metres from origin). */
+  planX: number;
+  planY: number;
 };
 
 export type HeatDesignProject = {
@@ -35,6 +38,12 @@ export type HeatDesignProject = {
   flowTemperature: number;
   selectedHeatPumpId: string;
   rooms: HeatDesignRoom[];
+  /** Cylinder size litres — drives DHW calc */
+  cylinderLitres: number;
+  dailyHotWaterLitres: number;
+  outdoorUnitDistanceM: number;
+  nearestNeighbourDistanceM: number;
+  kitExtras: string[];
   updatedAt: string;
 };
 
@@ -57,7 +66,6 @@ export type HeatPumpOption = {
   id: string;
   brand: string;
   model: string;
-  /** Nominal capacity at 7°C outdoor / stated flow temp (kW) */
   capacityKwAt35: number;
   capacityKwAt45: number;
   capacityKwAt55: number;
@@ -68,10 +76,20 @@ export type HeatPumpOption = {
   typicalInstalledFrom: number;
 };
 
+export type KitLine = {
+  id: string;
+  category: string;
+  description: string;
+  qty: number;
+  unitCost: number;
+  required: boolean;
+};
+
 export type SystemDesignResult = {
   totalHeatLossW: number;
   totalHeatLossKw: number;
-  dhwAllowanceKw: number;
+  dhwPeakKw: number;
+  dhwDailyKwh: number;
   designLoadKw: number;
   selectedPump: HeatPumpOption | null;
   capacityAtFlowKw: number;
@@ -85,4 +103,7 @@ export type SystemDesignResult = {
   co2SavingKg: number;
   emitterUpgradeCount: number;
   soundOk: boolean;
+  soundAssessmentDb: number;
+  kit: KitLine[];
+  kitTotal: number;
 };
