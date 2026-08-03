@@ -1,4 +1,4 @@
-import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import type { DayworkSheetSnapshot } from "@/lib/daywork-account-form";
 import { dayworkSheetKey } from "@/lib/daywork-account-form";
 
@@ -75,11 +75,24 @@ function mergeSheets(serverValue: unknown, clientValue: unknown): DayworkSheetsS
   return merged;
 }
 
+/** Re-read SQLite/disk into the module cache so multi-worker Field saves are visible to Core. */
+function hydrateStoreFromDisk() {
+  const disk = readServerStoreSnapshot("daywork-sheets-store");
+  if (!disk || typeof disk !== "object" || Array.isArray(disk)) return;
+  const merged = mergeSheets(store, disk);
+  Object.keys(store).forEach((key) => {
+    delete store[key];
+  });
+  Object.assign(store, merged);
+}
+
 export function readDayworkSheetsStore(): DayworkSheetsStore {
+  hydrateStoreFromDisk();
   return clone(store);
 }
 
 export function writeDayworkSheetSnapshot(snapshot: DayworkSheetSnapshot) {
+  hydrateStoreFromDisk();
   const key = dayworkSheetKey(snapshot.jobId, snapshot.costCentreId);
   store[key] = clone(snapshot);
   writeServerStore("daywork-sheets-store", store);
@@ -87,6 +100,7 @@ export function writeDayworkSheetSnapshot(snapshot: DayworkSheetSnapshot) {
 }
 
 export function mergeDayworkSheetsIntoStore(incoming: unknown) {
+  hydrateStoreFromDisk();
   const merged = mergeSheets(store, incoming);
   Object.keys(store).forEach((key) => {
     delete store[key];
@@ -97,12 +111,37 @@ export function mergeDayworkSheetsIntoStore(incoming: unknown) {
 }
 
 export function listDayworkSheetsFromStore(jobId?: string): DayworkSheetSnapshot[] {
-  const sheets = Object.values(store);
-  if (!jobId) return clone(sheets);
-  return clone(sheets.filter((sheet) => sheet.jobId === jobId));
+  const sheets = Object.values(readDayworkSheetsStore());
+  if (!jobId) return sheets;
+  return sheets.filter((sheet) => sheet.jobId === jobId);
 }
 
 export function getDayworkSheetFromStore(jobId: string, costCentreId: string): DayworkSheetSnapshot | null {
+  hydrateStoreFromDisk();
   const sheet = store[dayworkSheetKey(jobId, costCentreId)];
   return sheet ? clone(sheet) : null;
+}
+
+/** Prefer exact cost-centre match; otherwise any sheet for the job (newest signed first). */
+export function findDayworkSheetForJob(
+  sheets: Record<string, DayworkSheetSnapshot> | undefined | null,
+  jobId: string,
+  costCentreId?: string,
+): DayworkSheetSnapshot | null {
+  if (!sheets || typeof sheets !== "object") return null;
+  if (costCentreId) {
+    const exact = sheets[dayworkSheetKey(jobId, costCentreId)];
+    if (exact) return exact;
+  }
+  const matches = Object.values(sheets).filter((sheet) => sheet?.jobId === jobId);
+  if (!matches.length) return null;
+  matches.sort((a, b) => {
+    const aSigned = Boolean(String(a.plumberSignature || "").trim() && String(a.clientSignature || "").trim());
+    const bSigned = Boolean(String(b.plumberSignature || "").trim() && String(b.clientSignature || "").trim());
+    if (aSigned !== bSigned) return aSigned ? -1 : 1;
+    const aAt = Date.parse(String(a.updatedAt || a.completedAt || "")) || 0;
+    const bAt = Date.parse(String(b.updatedAt || b.completedAt || "")) || 0;
+    return bAt - aAt;
+  });
+  return matches[0] || null;
 }

@@ -7961,8 +7961,19 @@ export default function Dashboard() {
     [activeEngineerFlowTemplateId, engineerFlowLibrary],
   );
 
-  function engineerFlowTemplateForCostCentre(centre?: Pick<EstimateCostCentre, "templateName"> | null) {
+  function engineerFlowTemplateForCostCentre(
+    centre?: Pick<EstimateCostCentre, "templateName" | "name" | "id"> | null,
+  ) {
     const templateName = centre?.templateName ?? "General plumbing";
+    // Always force the Daywork Account flow for daywork centres — hub assignment drafts
+    // can still point at a stale general / boiler template.
+    if (
+      /daywork/i.test(templateName) ||
+      /daywork/i.test(String(centre?.name || "")) ||
+      /daywork/i.test(String(centre?.id || ""))
+    ) {
+      return dayworkAccountFlowTemplate;
+    }
     const assignedFlowId = costCentreFlowAssignmentDrafts[templateName];
     return (
       engineerFlowLibrary.find((template) => template.id === assignedFlowId) ??
@@ -18056,11 +18067,11 @@ export default function Dashboard() {
       } else if (body.record) {
         setDayworkSheets((current) => ({
           ...current,
-          [`${jobId}:${costCentreId}`]: {
+          [`${jobId}:${body.sheet?.costCentreId || costCentreId}`]: {
             ...body.record!,
             jobId,
             jobRef: jobs.find((item) => item.id === jobId)?.ref || jobId,
-            costCentreId,
+            costCentreId: body.sheet?.costCentreId || costCentreId,
             updatedAt: body.record!.completedAt || new Date().toISOString(),
           },
         }));
@@ -18069,7 +18080,16 @@ export default function Dashboard() {
         setFlowStepEvidence((current) => ({ ...current, ...body.flowStepEvidence }));
       }
       if (body.jobDeliveryEvents) setJobDeliveryEvents(body.jobDeliveryEvents);
-      return Boolean(body.sheet || body.record);
+      const found = body.sheet || body.record;
+      return Boolean(
+        found &&
+          (found.plumberSignature ||
+            found.clientSignature ||
+            found.clientSignerName ||
+            found.materialsJson ||
+            found.description ||
+            found.labourDaysJson),
+      );
     } catch {
       return false;
     }
@@ -26140,7 +26160,13 @@ export default function Dashboard() {
       : null;
     const dayworkRecord: DayworkAccountRecord | null = isDayworkFlow
       ? (() => {
-          const sheet = dayworkSheets[`${job.id}:${centre?.id || `${job.id}-daywork-account`}`];
+          const preferredKey = `${job.id}:${centre?.id || `${job.id}-daywork-account`}`;
+          const sheet =
+            dayworkSheets[preferredKey] ||
+            Object.values(dayworkSheets).find((candidate) => candidate?.jobId === job.id) ||
+            Object.values(dayworkSheets).find(
+              (candidate) => String(candidate?.costCentreId || "") === String(centre?.id || ""),
+            );
           const record: DayworkAccountRecord = { populatedFrom: "core", ...(sheet || {}) };
           let any = Boolean(sheet);
           const fieldMap: Record<string, keyof DayworkAccountRecord> = {
@@ -26165,6 +26191,8 @@ export default function Dashboard() {
           for (const step of dayworkAccountFlowTemplate.steps) {
             const field = fieldMap[step.id];
             if (!field) continue;
+            // Prefer durable Field sheet values — evidence can lag after hub races.
+            if (String((record as Record<string, string | undefined>)[field] || "").trim()) continue;
             const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, step.id)] || {};
             const value =
               step.evidence === "Number"
@@ -26181,6 +26209,7 @@ export default function Dashboard() {
             ["daywork-materials-cost", "materialsCost"],
             ["daywork-plant-cost", "plantCost"],
           ] as const) {
+            if (String(record[field] || "").trim()) continue;
             const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, stepId)] || {};
             const value = evidence.numberValue?.trim() || evidence.text?.trim();
             if (!value) continue;

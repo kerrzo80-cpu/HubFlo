@@ -1,4 +1,4 @@
-import { loadServerStore, writeServerStore } from "@/lib/server-store";
+import { loadServerStore, readServerStoreSnapshot, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 import {
   mergeDayworkSheets,
@@ -107,10 +107,36 @@ function mergeCentresPreserveDaywork(currentValue: unknown, nextValue: unknown) 
 }
 
 /**
+ * Pull Field daywork sheets / evidence / events from SQLite before mutating memory.
+ * Prevents a Core worker with a stale module cache from wiping another worker’s Field save.
+ */
+function rehydrateDayworkFieldsFromDisk() {
+  const diskHub = readServerStoreSnapshot("hub-detail-store") as HubDetailState | null;
+  if (!diskHub || typeof diskHub !== "object") return;
+  hubDetailState.dayworkSheets = mergeDayworkSheets(
+    diskHub.dayworkSheets,
+    hubDetailState.dayworkSheets,
+  ) as Record<string, unknown>;
+  hubDetailState.flowStepEvidence = mergeFlowStepEvidence(
+    diskHub.flowStepEvidence,
+    hubDetailState.flowStepEvidence,
+  );
+  hubDetailState.jobDeliveryEvents = mergeJobDeliveryEvents(
+    diskHub.jobDeliveryEvents,
+    hubDetailState.jobDeliveryEvents,
+  );
+  hubDetailState.jobCostCentres = mergeCentresPreserveDaywork(
+    diskHub.jobCostCentres,
+    hubDetailState.jobCostCentres,
+  );
+}
+
+/**
  * Persist hub detail state without letting a concurrent Core save wipe
  * Field daywork sheets / evidence / events written moments earlier.
  */
 export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
+  rehydrateDayworkFieldsFromDisk();
   const liveSheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
   const updated: HubDetailState = {
     ...nextState,
@@ -138,6 +164,7 @@ export function saveHubDetailState(nextState: HubDetailState): HubDetailState {
 
 export function getHubDetailState(): HubDetailState {
   // Always surface dedicated daywork sheets, even if a prior hub write dropped them.
+  rehydrateDayworkFieldsFromDisk();
   const sheets = mergeDayworkSheets(readDayworkSheetsStore(), hubDetailState.dayworkSheets);
   return clone({
     ...hubDetailState,

@@ -8,7 +8,8 @@ import {
   reconcileDayworkVariationsFromEvidence,
 } from "@/lib/engineer-flow";
 import { getHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
-import { dayworkSheetKey, type DayworkSheetSnapshot } from "@/lib/daywork-account-form";
+import { type DayworkSheetSnapshot } from "@/lib/daywork-account-form";
+import { findDayworkSheetForJob } from "@/lib/daywork-sheets-store";
 import { getJobs } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
@@ -43,10 +44,13 @@ export async function GET(request: Request, { params }: Params) {
     jobDeliveryEvents?: unknown[];
   };
   const sheet =
-    hubState.dayworkSheets?.[dayworkSheetKey(jobId, costCentreId)] ||
+    findDayworkSheetForJob(hubState.dayworkSheets, jobId, costCentreId) ||
     listDayworkSheetsForJob(jobId).find((item) => item.costCentreId === costCentreId) ||
+    listDayworkSheetsForJob(jobId)[0] ||
     null;
-  const record = sheet || buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
+  const record =
+    sheet ||
+    buildDayworkAccountRecordFromEvidence(jobId, sheet?.costCentreId || costCentreId);
 
   return NextResponse.json({
     ok: true,
