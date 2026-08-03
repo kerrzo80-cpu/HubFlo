@@ -882,3 +882,9 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+
+.hp-room-toolbar button.is-active-tool {
+  background: #ecfeff;
+  color: #0e7490;
+  box-shadow: inset 0 0 0 1px #67e8f9;
+}
