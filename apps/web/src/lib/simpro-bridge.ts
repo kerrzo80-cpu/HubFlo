@@ -1025,7 +1025,7 @@ function resolveKnownCustomerId(customer: SimproQuoteExportPayload["customer"]) 
     numericId(customer.id) ||
     numericId(findSimproLinkForNexa("clients", customer.id)?.simproId) ||
     extractEmbeddedSimproId(customer.id, customer.accountReference) ||
-    numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID ?? process.env.SIMPRO_CUSTOMER_ID)
+    numericId(process.env.SIMPRO_DEFAULT_CUSTOMER_ID || process.env.SIMPRO_CUSTOMER_ID)
   );
 }
 
@@ -1034,7 +1034,7 @@ function resolveKnownSiteId(site: SimproQuoteExportPayload["site"]) {
     numericId(site.id) ||
     numericId(findSimproLinkForNexa("sites", site.id)?.simproId) ||
     extractEmbeddedSimproId(site.id) ||
-    numericId(process.env.SIMPRO_DEFAULT_SITE_ID ?? process.env.SIMPRO_SITE_ID)
+    numericId(process.env.SIMPRO_DEFAULT_SITE_ID || process.env.SIMPRO_SITE_ID)
   );
 }
 
@@ -1351,7 +1351,7 @@ async function listSetupCostCenters(direct: ResolvedSimproDirectConfig) {
       });
   }
 
-  const defaultId = numericId(process.env.SIMPRO_DEFAULT_COST_CENTER_ID ?? process.env.SIMPRO_COST_CENTER_ID);
+  const defaultId = numericId(process.env.SIMPRO_DEFAULT_COST_CENTER_ID || process.env.SIMPRO_COST_CENTER_ID);
   if (defaultId) {
     return [{ id: defaultId, name: "Default cost centre" }];
   }

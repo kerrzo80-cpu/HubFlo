@@ -10,6 +10,7 @@ import {
   type TimeCheckGapReason,
 } from "@/lib/engineer-time-check-store";
 import { parseJsonRequestBody } from "@/lib/http";
+import { resolveFieldEngineerId } from "@/lib/field/field-scope";
 
 export const runtime = "nodejs";
 
@@ -68,7 +69,7 @@ function withSummary(check: ReturnType<typeof getOrCreateDailyTimeCheck>) {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const date = url.searchParams.get("date") ?? undefined;
-  const engineerId = url.searchParams.get("engineerId") ?? undefined;
+  const engineerId = resolveFieldEngineerId(request.headers, url.searchParams.get("engineerId") ?? undefined);
   return NextResponse.json(withSummary(getOrCreateDailyTimeCheck({ date, engineerId })));
 }
 
@@ -76,6 +77,15 @@ export async function POST(request: Request) {
   const body = await parseJsonRequestBody<TimeCheckAction>(request);
   if (!body?.action) {
     return NextResponse.json({ error: "Choose a time check action." }, { status: 400 });
+  }
+
+  // Always scope reads and writes to the authenticated engineer; never trust a
+  // client-supplied engineerId for non-supervisors.
+  const scopedEngineerId = resolveFieldEngineerId(request.headers, body.payload?.engineerId);
+  if (body.payload) {
+    body.payload.engineerId = scopedEngineerId;
+  } else if (body.action === "prompt" || body.action === "submit") {
+    body.payload = { engineerId: scopedEngineerId };
   }
 
   try {
