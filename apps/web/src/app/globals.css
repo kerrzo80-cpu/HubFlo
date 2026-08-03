@@ -3,24 +3,31 @@
   --charcoal-900: #252326;
   --charcoal-800: #333034;
   --charcoal-700: #474348;
-  --ink: #20262b;
-  --muted: #667680;
-  --subtle: #89959c;
-  --line: #d9e1e5;
-  --line-soft: #e9eef0;
-  --canvas: #f3f6f7;
+  --ink: #101828;
+  --muted: #667085;
+  --subtle: #98a2b3;
+  --line: #eaecf0;
+  --line-soft: #f2f4f7;
+  --canvas: #f7f8fa;
   --surface: #ffffff;
-  --blue: #58acd5;
-  --blue-dark: #287ea8;
-  --blue-deep: #17698f;
-  --blue-soft: #eaf6fb;
+  --blue: #3b9fd6;
+  --blue-dark: #1f7fb0;
+  --blue-deep: #14618c;
+  --blue-soft: #eef7fc;
   --green: #278459;
   --green-soft: #e8f5ee;
   --amber: #b36a16;
   --amber-soft: #fff4df;
   --red: #b43a3a;
   --red-soft: #fff0ef;
-  --shadow: 0 8px 28px rgba(27, 38, 45, 0.07);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -14px rgba(16, 24, 40, 0.16);
+  /* Modern minimalist accent + radii */
+  --nexa-accent: #006eb8;
+  --nexa-accent-2: #2e8c7d;
+  --nexa-grad: linear-gradient(135deg, #006eb8 0%, #2e8c7d 100%);
+  --radius-lg: 18px;
+  --radius: 13px;
+  --radius-sm: 10px;
 }
 
 /* Takeoffs plan renderer and route key. */
@@ -393,53 +400,99 @@
 
 .nexa-secure-login {
   align-items: center;
-  background: #eef7fa;
-  color: #17212b;
+  color: var(--ink);
   display: flex;
   min-height: 100vh;
   padding: 24px;
+  background:
+    radial-gradient(60% 55% at 12% 8%, rgba(0, 110, 184, 0.14), transparent 60%),
+    radial-gradient(55% 55% at 92% 96%, rgba(46, 140, 125, 0.16), transparent 60%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f6 100%);
 }
 
 .nexa-secure-login > section {
-  background: #fff;
-  border: 1px solid #d5e3e9;
-  border-radius: 8px;
-  box-shadow: 0 18px 55px rgba(23, 69, 88, 0.12);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 24px;
+  box-shadow: 0 30px 70px -30px rgba(16, 40, 64, 0.4);
   display: grid;
   gap: 26px;
   margin: auto;
-  max-width: 460px;
-  padding: 30px;
+  max-width: 430px;
+  padding: 40px 38px;
   width: 100%;
 }
 
 .nexa-secure-login-brand {
   align-items: center;
-  border-bottom: 1px solid #e5edf1;
   display: flex;
-  gap: 16px;
-  padding-bottom: 20px;
+  gap: 14px;
 }
 
-.nexa-secure-login-brand img { height: 54px; object-fit: contain; width: 150px; }
-.nexa-secure-login-brand span { border-left: 1px solid #d5e3e9; display: grid; gap: 2px; padding-left: 16px; }
-.nexa-secure-login-brand strong { font-size: 20px; }
-.nexa-secure-login-brand small { color: #667680; font-size: 11px; }
-.nexa-secure-login-heading { align-items: flex-start; display: flex; gap: 12px; }
-.nexa-secure-login-heading > span { align-items: center; background: #e7f5f2; border-radius: 6px; color: #237567; display: flex; height: 36px; justify-content: center; width: 36px; }
-.nexa-secure-login-heading h1 { font-size: 25px; margin: 0 0 5px; }
-.nexa-secure-login-heading p { color: #667680; line-height: 1.5; margin: 0; }
-.nexa-secure-login form { display: grid; gap: 16px; }
-.nexa-secure-login label { color: #44545e; display: grid; font-size: 12px; font-weight: 700; gap: 7px; }
-.nexa-secure-login input { border: 1px solid #bfcfd7; border-radius: 6px; color: #17212b; font: inherit; min-height: 44px; padding: 0 12px; }
-.nexa-secure-login input:focus { border-color: #2e8c7d; box-shadow: 0 0 0 3px rgba(46, 140, 125, 0.12); outline: 0; }
-.nexa-secure-login button { align-items: center; background: #087eac; border: 1px solid #087eac; border-radius: 6px; color: #fff; display: flex; font: inherit; font-weight: 700; gap: 8px; justify-content: center; min-height: 44px; }
-.nexa-secure-login-error { background: #fff0f1; border: 1px solid #efc7ca; border-radius: 6px; color: #a53036; font-size: 12px; margin: 0; padding: 10px 12px; }
+.nexa-secure-login-brand img { height: 44px; object-fit: contain; width: 124px; }
+.nexa-secure-login-brand span { display: grid; gap: 1px; padding-left: 14px; border-left: 1px solid var(--line); }
+.nexa-secure-login-brand strong { font-size: 19px; letter-spacing: -0.01em; }
+.nexa-secure-login-brand small { color: var(--muted); font-size: 11px; letter-spacing: 0.02em; }
+.nexa-secure-login-heading { display: grid; gap: 10px; }
+.nexa-secure-login-heading > span {
+  align-items: center;
+  background: var(--nexa-grad);
+  border-radius: 14px;
+  color: #fff;
+  display: flex;
+  height: 46px;
+  justify-content: center;
+  width: 46px;
+  box-shadow: 0 10px 22px -10px rgba(0, 110, 184, 0.75);
+}
+.nexa-secure-login-heading h1 { font-size: 30px; margin: 6px 0 4px; letter-spacing: -0.02em; }
+.nexa-secure-login-heading p { color: var(--muted); line-height: 1.55; margin: 0; }
+.nexa-secure-login form { display: grid; gap: 15px; }
+.nexa-secure-login label { color: #344054; display: grid; font-size: 12px; font-weight: 650; gap: 7px; }
+.nexa-secure-login input {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfd;
+  color: var(--ink);
+  font: inherit;
+  min-height: 48px;
+  padding: 0 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.nexa-secure-login input:focus {
+  background: #fff;
+  border-color: var(--nexa-accent);
+  box-shadow: 0 0 0 4px rgba(0, 110, 184, 0.12);
+  outline: 0;
+}
+.nexa-secure-login button {
+  align-items: center;
+  background: var(--nexa-grad);
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 50px;
+  margin-top: 4px;
+  box-shadow: 0 16px 30px -14px rgba(0, 110, 184, 0.8);
+  transition: transform 0.12s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+.nexa-secure-login button:hover { transform: translateY(-1px); filter: brightness(1.03); }
+.nexa-secure-login button:active { transform: translateY(0); }
+.nexa-secure-login button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+.nexa-secure-login-error { background: var(--red-soft); border: 1px solid #efc7ca; border-radius: 12px; color: #a53036; font-size: 12px; margin: 0; padding: 11px 13px; }
 
 @media (max-width: 520px) {
   .nexa-secure-login { align-items: stretch; padding: 0; }
-  .nexa-secure-login > section { border: 0; border-radius: 0; box-shadow: none; max-width: none; min-height: 100vh; padding: 28px 22px; }
-  .nexa-secure-login-brand img { width: 130px; }
+  .nexa-secure-login > section { border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; background: #fff; max-width: none; min-height: 100vh; padding: 34px 24px; }
+  .nexa-secure-login-brand img { width: 120px; }
 }
 
 .estimator-modal-backdrop { align-items: center; background: rgb(11 32 43 / 54%); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 100; }
@@ -3132,20 +3185,21 @@ kbd {
 
 .create-button {
   align-items: center;
-  background: #fff;
-  border: 1px solid rgba(29, 92, 121, 0.22);
-  border-radius: 4px;
-  color: var(--blue-deep);
+  background: var(--nexa-grad);
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
   display: flex;
-  font-weight: 750;
+  font-weight: 700;
   gap: 7px;
   height: 38px;
-  margin-left: 6px;
-  padding: 0 13px;
+  margin-left: 8px;
+  padding: 0 15px;
+  box-shadow: 0 10px 22px -12px rgba(0, 110, 184, 0.8);
 }
 
 .create-button:hover {
-  background: #edf8fc;
+  filter: brightness(1.04);
 }
 
 .role-switch {
@@ -3251,9 +3305,9 @@ kbd {
 
 .account-avatar {
   align-items: center;
-  background: #fff;
+  background: var(--nexa-grad);
   border-radius: 50%;
-  color: var(--blue-deep);
+  color: #fff;
   display: flex;
   font-size: 10px;
   font-weight: 800;
@@ -3699,16 +3753,18 @@ a,
 }
 
 .module-bar {
-  align-items: stretch;
-  background: #fff;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(160%) blur(12px);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 2px 8px rgba(25, 35, 40, 0.04);
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
   display: flex;
   flex-wrap: nowrap;
-  gap: 0;
+  gap: 3px;
   height: 49px;
   overflow: visible;
-  padding: 0 12px;
+  padding: 0 14px;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -3798,14 +3854,15 @@ a,
 
 .module-link {
   align-items: center;
-  border-bottom: 3px solid transparent;
-  color: #536169;
+  border-radius: 10px;
+  color: var(--muted);
   display: flex;
   flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 650;
-  gap: 6px;
-  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -3832,13 +3889,14 @@ a,
 }
 
 .module-link:hover {
-  background: #f7f9fa;
+  background: var(--line-soft);
   color: var(--ink);
 }
 
 .module-link.active {
-  border-bottom-color: var(--blue);
-  color: var(--blue-deep);
+  background: var(--blue-soft);
+  color: var(--nexa-accent);
+  font-weight: 700;
 }
 
 .module-submenu {
@@ -4919,9 +4977,11 @@ h1 {
 }
 
 .primary-button {
-  background: var(--blue-deep);
-  border: 1px solid var(--blue-deep);
+  background: var(--nexa-grad);
+  border: 0;
+  border-radius: 10px;
   color: #fff;
+  box-shadow: 0 10px 22px -12px rgba(0, 110, 184, 0.75);
 }
 
 .secondary-button,
