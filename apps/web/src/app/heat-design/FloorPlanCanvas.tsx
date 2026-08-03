@@ -522,11 +522,23 @@ export function FloorPlanCanvas({
 
                 <text
                   x={PAD + centroid.x * SCALE}
-                  y={PAD + centroid.y * SCALE}
+                  y={PAD + centroid.y * SCALE - 9}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="#334155"
+                  fontSize={13}
+                  fontWeight={700}
+                  style={{ pointerEvents: "none" }}
+                >
+                  {room.name?.trim() || room.roomType}
+                </text>
+                <text
+                  x={PAD + centroid.x * SCALE}
+                  y={PAD + centroid.y * SCALE + 9}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="#8a8a8a"
-                  fontSize={13}
+                  fontSize={12}
                   fontWeight={600}
                   style={{ pointerEvents: "none" }}
                 >
