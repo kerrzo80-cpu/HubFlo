@@ -29,6 +29,7 @@ type FloorPlanCanvasProps = {
   onPatchRoom: (roomId: string, patch: Partial<HeatDesignRoom>) => void;
   onDeleteRoom: (roomId: string) => void;
   onChangeFloor: (floor: FloorLevel) => void;
+  onAddRoom?: () => void;
 };
 
 const SCALE = 90;
@@ -68,6 +69,7 @@ export function FloorPlanCanvas({
   onPatchRoom,
   onDeleteRoom,
   onChangeFloor,
+  onAddRoom,
 }: FloorPlanCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
@@ -315,6 +317,54 @@ export function FloorPlanCanvas({
 
   return (
     <div className="hp-canvas-shell">
+      <div className="hp-plan-bar">
+        <div className="hp-plan-bar-left">
+          <strong>Floor plan</strong>
+          <span>
+            {floorRooms.length} room{floorRooms.length === 1 ? "" : "s"} on {activeFloor}
+          </span>
+        </div>
+        <div className="hp-plan-bar-actions">
+          {onAddRoom ? (
+            <button type="button" className="hd-btn hd-btn-primary" onClick={onAddRoom}>
+              Add room
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className={`hd-btn hd-btn-ghost${placeTool === "window" ? " is-on" : ""}`}
+            disabled={!selected}
+            onClick={() => setPlaceTool((current) => (current === "window" ? null : "window"))}
+          >
+            Window
+          </button>
+          <button
+            type="button"
+            className={`hd-btn hd-btn-ghost${placeTool === "door" ? " is-on" : ""}`}
+            disabled={!selected}
+            onClick={() => setPlaceTool((current) => (current === "door" ? null : "door"))}
+          >
+            Door
+          </button>
+          <button type="button" className="hd-btn hd-btn-ghost" disabled={!selected} onClick={() => selected && makeLShape(selected)}>
+            L-shape
+          </button>
+          <button
+            type="button"
+            className="hd-btn hd-btn-ghost"
+            disabled={!selected}
+            onClick={() => {
+              if (!selected) return;
+              const polygon = roomPolygon(selected);
+              const exterior = roomWallExterior(selected, polygon.length);
+              const edge = selectedEdge ?? exterior.findIndex(Boolean);
+              addAlcoveOnEdge(selected, edge < 0 ? 0 : edge);
+            }}
+          >
+            Alcove / bay
+          </button>
+        </div>
+      </div>
       <div className="hp-canvas-wrap">
         <svg
           ref={svgRef}
@@ -602,42 +652,11 @@ export function FloorPlanCanvas({
                 ))}
               </select>
             </label>
-            <button
-              type="button"
-              className={placeTool === "window" ? "is-active-tool" : ""}
-              title="Then click a wall to place a window"
-              onClick={() => setPlaceTool((current) => (current === "window" ? null : "window"))}
-            >
-              Window
-            </button>
-            <button
-              type="button"
-              className={placeTool === "door" ? "is-active-tool" : ""}
-              title="Then click a wall to place a door"
-              onClick={() => setPlaceTool((current) => (current === "door" ? null : "door"))}
-            >
-              Door
-            </button>
             {selectedOpeningId ? (
               <button type="button" className="is-danger" title="Remove selected opening" onClick={() => deleteSelectedOpening(selected)}>
                 Remove opening
               </button>
             ) : null}
-            <button
-              type="button"
-              title="Push an alcove / bay on the selected wall"
-              onClick={() => {
-                const polygon = roomPolygon(selected);
-                const exterior = roomWallExterior(selected, polygon.length);
-                const edge = selectedEdge ?? exterior.findIndex(Boolean);
-                addAlcoveOnEdge(selected, edge < 0 ? 0 : edge);
-              }}
-            >
-              Alcove / bay
-            </button>
-            <button type="button" title="Turn this room into an L-shape (good for halls)" onClick={() => makeLShape(selected)}>
-              L-shape
-            </button>
             <button type="button" title="Delete room" className="is-danger" onClick={() => onDeleteRoom(selected.id)}>
               🗑
             </button>
