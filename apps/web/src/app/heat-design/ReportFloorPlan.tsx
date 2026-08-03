@@ -2,17 +2,28 @@
 
 import {
   openingOnEdge,
+  pipeStroke,
+  plantFill,
   polygonBounds,
   roomPolygon,
   roomWallExterior,
   type HeatDesignRoom,
+  type HeatingSystemLayout,
 } from "@/lib/heat-design";
 
 const SCALE = 28;
 const PAD = 16;
 
 /** Compact SVG floor plan for the printable report. */
-export function ReportFloorPlan({ rooms, title }: { rooms: HeatDesignRoom[]; title?: string }) {
+export function ReportFloorPlan({
+  rooms,
+  title,
+  layout,
+}: {
+  rooms: HeatDesignRoom[];
+  title?: string;
+  layout?: HeatingSystemLayout | null;
+}) {
   let minX = 0;
   let minY = 0;
   let maxX = 8;
@@ -23,6 +34,25 @@ export function ReportFloorPlan({ rooms, title }: { rooms: HeatDesignRoom[]; tit
     minY = Math.min(minY, box.minY);
     maxX = Math.max(maxX, box.maxX);
     maxY = Math.max(maxY, box.maxY);
+  }
+  const floor = rooms[0]?.floorLevel ?? "ground";
+  const plants = (layout?.plants ?? []).filter((plant) => (plant.floorLevel ?? "ground") === floor);
+  const pipes = (layout?.pipes ?? []).filter((pipe) => (pipe.floorLevel ?? "ground") === floor);
+  for (const plant of plants) {
+    const halfW = (plant.widthM ?? 0.5) / 2;
+    const halfD = (plant.depthM ?? 0.35) / 2;
+    minX = Math.min(minX, plant.x - halfW);
+    minY = Math.min(minY, plant.y - halfD);
+    maxX = Math.max(maxX, plant.x + halfW);
+    maxY = Math.max(maxY, plant.y + halfD);
+  }
+  for (const pipe of pipes) {
+    for (const p of pipe.points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
   }
   const width = Math.max(320, (maxX - minX) * SCALE + PAD * 2);
   const height = Math.max(220, (maxY - minY) * SCALE + PAD * 2);
@@ -92,7 +122,64 @@ export function ReportFloorPlan({ rooms, title }: { rooms: HeatDesignRoom[]; tit
             </g>
           );
         })}
+
+        {pipes.map((pipe) => {
+          const style = pipeStroke(pipe.kind);
+          const points = pipe.points
+            .map((p) => `${PAD + (p.x + ox) * SCALE},${PAD + (p.y + oy) * SCALE}`)
+            .join(" ");
+          return (
+            <polyline
+              key={pipe.id}
+              points={points}
+              fill="none"
+              stroke={style.stroke}
+              strokeWidth={Math.max(1.5, style.width * 0.55)}
+              strokeDasharray={style.dash}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity={0.9}
+            />
+          );
+        })}
+
+        {plants.map((plant) => {
+          const w = (plant.widthM ?? 0.5) * SCALE;
+          const d = (plant.depthM ?? 0.35) * SCALE;
+          const cx = PAD + (plant.x + ox) * SCALE;
+          const cy = PAD + (plant.y + oy) * SCALE;
+          return (
+            <g key={plant.id}>
+              <rect
+                x={cx - w / 2}
+                y={cy - d / 2}
+                width={w}
+                height={d}
+                rx={2}
+                fill={plantFill(plant.kind)}
+                stroke="#fff"
+                strokeWidth={1}
+              />
+              <text
+                x={cx}
+                y={cy - d / 2 - 4}
+                textAnchor="middle"
+                fontSize={8}
+                fontWeight={700}
+                fill="#0f172a"
+              >
+                {plant.label}
+              </text>
+            </g>
+          );
+        })}
       </svg>
+      {layout ? (
+        <p className="hd-report-plan-key">
+          Layout overlay: plant positions + pipework for the chosen system (dragged on the floor plan). Flow red ·
+          return blue · primary teal.
+        </p>
+      ) : null}
     </div>
   );
 }

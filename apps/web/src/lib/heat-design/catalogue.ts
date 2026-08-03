@@ -291,6 +291,8 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
     primaryWallConstructionId: "cav-mw-100-wp",
     selectedRadiatorTypeIds: ["rad-k1", "rad-k2", "rad-k3"],
     reportOptionIds: ["opt-ashp", "opt-gas", "opt-oil"],
+    chosenSystemId: undefined,
+    heatingLayout: null,
     cylinderLitres: 210,
     dailyHotWaterLitres: 150,
     outdoorUnitDistanceM: 3,

@@ -16,6 +16,7 @@ import {
   normaliseProject,
   pickRadiatorForRoom,
   recommendedRadiatorsForRoom,
+  seedHeatingLayout,
   suggestHeatPump,
   wattsLabel,
   buildEras,
@@ -28,13 +29,14 @@ import {
   wallTypes,
   type HeatDesignProject,
   type HeatDesignRoom,
+  type HeatingSystemLayout,
 } from "@/lib/heat-design";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
 import "./heat-design.css";
 
-const STORAGE_KEY = "nexa-heat-design-lab-v5";
+const STORAGE_KEY = "nexa-heat-design-lab-v6";
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
 
@@ -43,6 +45,7 @@ function loadProject(): HeatDesignProject {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("nexa-heat-design-lab-v5") ??
       window.localStorage.getItem("nexa-heat-design-lab-v4") ??
       window.localStorage.getItem("nexa-heat-design-lab-v3") ??
       window.localStorage.getItem("nexa-heat-design-lab-v2") ??
@@ -60,6 +63,7 @@ export default function HeatDesignLabPage() {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [pendingPrint, setPendingPrint] = useState(false);
+  const [layoutMode, setLayoutMode] = useState(false);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -139,6 +143,7 @@ export default function HeatDesignLabPage() {
       const next = makeDemoProject();
       setProject(next);
       setSelectedRoomId(next.rooms[0]?.id ?? null);
+      setLayoutMode(false);
       setTab("plan");
       setNotice("Loaded demo project — Portlethen semi.");
     });
@@ -150,6 +155,30 @@ export default function HeatDesignLabPage() {
     patchProject({ selectedHeatPumpId: suggested.id });
     setNotice(`Selected ${suggested.model} for ${kw(design.designLoadKw)} design load at ${project.flowTemperature}°C flow.`);
     setTab("system");
+  }
+
+  function designSystemOnPlan(optionId: string) {
+    if (!project) return;
+    const layout = seedHeatingLayout(project, optionId);
+    const option = heatingSystemOptions.find((item) => item.id === optionId);
+    patchProject({ chosenSystemId: optionId, heatingLayout: layout });
+    setLayoutMode(true);
+    setTab("plan");
+    setNotice(
+      `Laid out ${option?.label ?? "system"} on the floor plan — drag plant and pipe bends to suit, then print the report.`,
+    );
+  }
+
+  function regenerateLayout() {
+    if (!project?.chosenSystemId) return;
+    const layout = seedHeatingLayout(project, project.chosenSystemId);
+    patchProject({ heatingLayout: layout });
+    setLayoutMode(true);
+    setNotice("Re-seeded heating layout from the chosen system.");
+  }
+
+  function patchLayout(layout: HeatingSystemLayout) {
+    patchProject({ heatingLayout: layout });
   }
 
   if (!project || !design) {
@@ -165,6 +194,10 @@ export default function HeatDesignLabPage() {
   const selectedPump =
     heatPumpCatalogue.find((pump) => pump.id === project.selectedHeatPumpId) ?? design.selectedPump;
   const selectedRoom = project.rooms.find((room) => room.id === selectedRoomId) ?? null;
+  const chosenOption =
+    heatingSystemOptions.find((item) => item.id === project.chosenSystemId) ??
+    optionResults.find((row) => row.recommended)?.option ??
+    null;
 
   return (
     <main className="hd-lab">
@@ -348,6 +381,9 @@ export default function HeatDesignLabPage() {
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
                   Move walls and corners like HeatPunk — push an alcove or bay, then heat loss follows the real shape.
+                  {project.heatingLayout
+                    ? " Heating layout mode overlays pipework and plant — drag to suit."
+                    : " Pick a system under Options → Design on plan to overlay pipework."}
                 </p>
                 <FloorPlanCanvas
                   rooms={project.rooms}
@@ -358,6 +394,12 @@ export default function HeatDesignLabPage() {
                   onDeleteRoom={removeRoom}
                   onChangeFloor={(floor) => patchProject({ activeFloor: floor })}
                   onAddRoom={addRoom}
+                  heatingLayout={project.heatingLayout}
+                  layoutMode={layoutMode}
+                  onLayoutModeChange={setLayoutMode}
+                  onPatchLayout={patchLayout}
+                  onRegenerateLayout={project.chosenSystemId ? regenerateLayout : undefined}
+                  layoutSystemLabel={chosenOption?.label}
                 />
               </>
             ) : null}
@@ -734,7 +776,8 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Heating system options</h2>
                 <p className="hd-lead">
-                  Tick one, two or all systems to compare on the printed report — so the homeowner can see the best fit.
+                  Tick systems to compare on the report. Then choose one and press <strong>Design on plan</strong> to
+                  overlay boiler / outdoor unit, cylinder and pipework — drag anything to suit.
                 </p>
                 <div className="hd-options-actions">
                   <button
@@ -759,33 +802,47 @@ export default function HeatDesignLabPage() {
                   {heatingSystemOptions.map((option) => {
                     const on = (project.reportOptionIds ?? []).includes(option.id);
                     const result = optionResults.find((row) => row.option.id === option.id);
+                    const chosen = project.chosenSystemId === option.id;
                     return (
-                      <label key={option.id} className={`hd-option-card${on ? " is-on" : ""}${result?.recommended ? " is-best" : ""}`}>
-                        <input
-                          type="checkbox"
-                          checked={on}
-                          onChange={() => {
-                            const current = project.reportOptionIds ?? [];
-                            const next = on ? current.filter((id) => id !== option.id) : [...current, option.id];
-                            patchProject({ reportOptionIds: next.length ? next : [option.id] });
-                          }}
-                        />
-                        <div>
-                          <strong>
-                            {option.label}
-                            {result?.recommended ? <span className="ewg-pill">Best for this home</span> : null}
-                          </strong>
-                          <p>{option.description}</p>
-                          {result ? (
-                            <small>
-                              {money(result.annualCost)}/yr · save {money(result.annualSavingVsCurrent)} · install from{" "}
-                              {money(result.option.installedFrom)}
-                            </small>
-                          ) : (
-                            <small>Install from {money(option.installedFrom)}</small>
-                          )}
-                        </div>
-                      </label>
+                      <div
+                        key={option.id}
+                        className={`hd-option-card${on ? " is-on" : ""}${result?.recommended ? " is-best" : ""}${chosen ? " is-chosen" : ""}`}
+                      >
+                        <label className="hd-option-check">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={() => {
+                              const current = project.reportOptionIds ?? [];
+                              const next = on ? current.filter((id) => id !== option.id) : [...current, option.id];
+                              patchProject({ reportOptionIds: next.length ? next : [option.id] });
+                            }}
+                          />
+                          <div>
+                            <strong>
+                              {option.label}
+                              {result?.recommended ? <span className="ewg-pill">Best for this home</span> : null}
+                              {chosen ? <span className="ewg-pill ewg-pill-chosen">On plan</span> : null}
+                            </strong>
+                            <p>{option.description}</p>
+                            {result ? (
+                              <small>
+                                {money(result.annualCost)}/yr · save {money(result.annualSavingVsCurrent)} · install from{" "}
+                                {money(result.option.installedFrom)}
+                              </small>
+                            ) : (
+                              <small>Install from {money(option.installedFrom)}</small>
+                            )}
+                          </div>
+                        </label>
+                        <button
+                          type="button"
+                          className="hd-btn hd-btn-primary hd-option-design"
+                          onClick={() => designSystemOnPlan(option.id)}
+                        >
+                          Design on plan
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -794,6 +851,7 @@ export default function HeatDesignLabPage() {
                     Recommended: {optionResults[0].option.label}
                     {optionResults[0].pump ? ` (${optionResults[0].pump.model})` : ""} —{" "}
                     {money(optionResults[0].annualCost)}/yr running cost.
+                    {project.heatingLayout ? " Layout ready on the floor plan — drag plant and pipes to suit." : ""}
                   </div>
                 ) : null}
               </>

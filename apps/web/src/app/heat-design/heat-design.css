@@ -1135,13 +1135,20 @@
 
 .hd-option-card {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr auto;
   gap: 0.7rem;
-  align-items: start;
+  align-items: center;
   border: 1px solid var(--hd-line);
   border-radius: 0.9rem;
   padding: 0.85rem 0.95rem;
   background: #fff;
+}
+
+.hd-option-check {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.7rem;
+  align-items: start;
   cursor: pointer;
 }
 
@@ -1152,6 +1159,15 @@
 
 .hd-option-card.is-best {
   background: linear-gradient(180deg, #f0f9fc, #fff);
+}
+
+.hd-option-card.is-chosen {
+  border-color: #0f766e;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.14);
+}
+
+.hd-option-design {
+  white-space: nowrap;
 }
 
 .hd-option-card strong {
@@ -1419,6 +1435,42 @@
   font-weight: 800;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+}
+
+.ewg-pill-chosen {
+  background: #0f766e;
+}
+
+.hp-layout-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+  align-items: baseline;
+  margin: 0 0 0.55rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 0.7rem;
+  background: linear-gradient(90deg, rgba(15, 118, 110, 0.1), rgba(21, 127, 168, 0.08));
+  border: 1px solid rgba(15, 118, 110, 0.25);
+  font-size: 0.86rem;
+  color: #334155;
+}
+
+.hp-layout-banner strong {
+  color: #0f766e;
+}
+
+.hp-layout-banner em {
+  font-style: normal;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.hd-report-plan-key {
+  margin: 0;
+  padding: 0.45rem 0.75rem 0.65rem;
+  border-top: 1px solid var(--hd-line);
+  color: #64748b;
+  font-size: 0.78rem;
 }
 
 .ewg-report-footer {

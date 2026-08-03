@@ -97,6 +97,7 @@ export function DesignReport({ project, design, options, className }: DesignRepo
             (room) => (room.floorLevel ?? "ground") === (project.activeFloor ?? "ground"),
           )}
           title={`${(project.activeFloor ?? "ground").replace(/^./, (c) => c.toUpperCase())} floor · ${project.rooms.length} rooms · space heat loss ${kw(design.totalHeatLossKw)}`}
+          layout={project.heatingLayout}
         />
       </section>
 
