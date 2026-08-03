@@ -30,7 +30,7 @@ export async function GET() {
       talkLab: "/field/talk-lab",
       talkLabBuild: "realtime-voice-picker-v1",
       heatDesign: "/heat-design",
-      heatDesignBuild: "remove-controls-v1",
+      heatDesignBuild: "print-report-fix-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       photoCompressBuild: "shrink-v1",
