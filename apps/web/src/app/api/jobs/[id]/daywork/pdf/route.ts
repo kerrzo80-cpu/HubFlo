@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { buildDayworkAccountRecordFromEvidence, listDayworkSheetsForJob } from "@/lib/engineer-flow";
+import {
+  buildDayworkAccountRecordFromEvidence,
+  ensureDayworkVariationCostCentre,
+  listDayworkSheetsForJob,
+  reconcileDayworkVariationsFromEvidence,
+} from "@/lib/engineer-flow";
 import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
+import { findDayworkSheetForJob, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { getJobs } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
@@ -25,12 +31,42 @@ export async function GET(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
+  try {
+    reconcileDayworkVariationsFromEvidence();
+  } catch {
+    // Best-effort before PDF.
+  }
+
   const url = new URL(request.url);
-  const costCentreId = url.searchParams.get("costCentreId")?.trim();
+  const costCentreId =
+    url.searchParams.get("costCentreId")?.trim() || ensureDayworkVariationCostCentre(jobId);
   const format = url.searchParams.get("format")?.trim().toLowerCase();
+
   let sheets = listDayworkSheetsForJob(jobId);
   if (costCentreId) {
-    sheets = sheets.filter((sheet) => sheet.costCentreId === costCentreId);
+    const matched = findDayworkSheetForJob(
+      Object.fromEntries(sheets.map((sheet) => [`${sheet.jobId}:${sheet.costCentreId}`, sheet])),
+      jobId,
+      costCentreId,
+    );
+    sheets = matched
+      ? [matched]
+      : sheets.filter(
+          (sheet) =>
+            sheet.costCentreId === costCentreId || String(sheet.costCentreId || "").includes("daywork"),
+        );
+  }
+  if (!sheets.length) {
+    try {
+      sheets = listDayworkSheetsFromStore(jobId).filter(
+        (sheet) =>
+          !costCentreId ||
+          sheet.costCentreId === costCentreId ||
+          String(sheet.costCentreId || "").includes("daywork"),
+      );
+    } catch {
+      sheets = [];
+    }
   }
   if (!sheets.length) {
     const fallbackId = costCentreId || `${jobId}-daywork-account`;
@@ -49,7 +85,13 @@ export async function GET(request: Request, { params }: Params) {
   }
 
   if (!sheets.length) {
-    return NextResponse.json({ error: "No Daywork Account sheet found for this job." }, { status: 404 });
+    return NextResponse.json(
+      {
+        error:
+          "No Daywork Account sheet saved yet — fill materials, names and both signatures, Save and finish, then Preview PDF.",
+      },
+      { status: 404 },
+    );
   }
 
   if (format === "pdf") {

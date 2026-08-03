@@ -26425,6 +26425,53 @@ export default function Dashboard() {
                   Refresh from server
                 </button>
               ) : null}
+              {centre ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  disabled={previewingDayworkPdf}
+                  onClick={() => {
+                    void (async () => {
+                      setPreviewingDayworkPdf(true);
+                      try {
+                        const response = await fetch(
+                          `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(centre.id)}&format=pdf`,
+                          { credentials: "include", headers: requestHeaders },
+                        );
+                        if (!response.ok) {
+                          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+                          throw new Error(
+                            body?.error ||
+                              "No Daywork sheet saved yet — Save and finish first, then Preview PDF.",
+                          );
+                        }
+                        const blob = await response.blob();
+                        if (!blob.size || !/pdf/i.test(blob.type) && blob.type !== "application/octet-stream") {
+                          // Some browsers report empty type for application/pdf — still open if bytes exist.
+                          if (!blob.size) throw new Error("PDF response was empty.");
+                        }
+                        const url = URL.createObjectURL(blob);
+                        const opened = window.open(url, "_blank", "noopener,noreferrer");
+                        if (!opened) {
+                          // Popup blocked — fall back to same-tab navigation.
+                          window.location.assign(url);
+                        }
+                        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                        showNotice("Opened Daywork PDF preview.");
+                      } catch (error) {
+                        const message =
+                          error instanceof Error ? error.message : "Could not open Daywork PDF preview.";
+                        showNotice(message);
+                        window.alert(message);
+                      } finally {
+                        setPreviewingDayworkPdf(false);
+                      }
+                    })();
+                  }}
+                >
+                  {previewingDayworkPdf ? "Opening PDF…" : "Preview valuation PDF"}
+                </button>
+              ) : null}
               {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
                 <button
                   className="simpro-blue-button"
@@ -26501,19 +26548,27 @@ export default function Dashboard() {
                 try {
                   const response = await fetch(
                     `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(centre.id)}&format=pdf`,
-                    { headers: requestHeaders },
+                    { credentials: "include", headers: requestHeaders },
                   );
                   if (!response.ok) {
                     const body = (await response.json().catch(() => null)) as { error?: string } | null;
-                    throw new Error(body?.error || "Could not build Daywork PDF preview.");
+                    throw new Error(
+                      body?.error ||
+                        "No Daywork sheet saved yet — Save and finish first, then Preview PDF.",
+                    );
                   }
                   const blob = await response.blob();
+                  if (!blob.size) throw new Error("PDF response was empty.");
                   const url = URL.createObjectURL(blob);
-                  window.open(url, "_blank", "noopener,noreferrer");
+                  const opened = window.open(url, "_blank", "noopener,noreferrer");
+                  if (!opened) window.location.assign(url);
                   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
                   showNotice("Opened Daywork PDF preview — this is the file attached to valuations.");
                 } catch (error) {
-                  showNotice(error instanceof Error ? error.message : "Could not open Daywork PDF preview.");
+                  const message =
+                    error instanceof Error ? error.message : "Could not open Daywork PDF preview.";
+                  showNotice(message);
+                  window.alert(message);
                 } finally {
                   setPreviewingDayworkPdf(false);
                 }
