@@ -18,9 +18,11 @@ export type DayworkLabourDay = {
   hours: string;
 };
 
+/** Field captures description + qty; Core office fills unitCost (£ each). */
 export type DayworkLineItem = {
   description: string;
   qty: string;
+  unitCost?: string;
 };
 
 /** Client-safe Daywork Account record (Field + Core form). Rates / costs filled in Core by office. */
@@ -34,15 +36,15 @@ export type DayworkAccountRecord = {
   labourDaysJson?: string;
   /** Derived total hours across labour days (for variations). */
   labourHours?: string;
-  /** JSON array of { description, qty }. */
+  /** JSON array of { description, qty, unitCost? }. */
   materialsJson?: string;
-  /** JSON array of { description, qty }. */
+  /** JSON array of { description, qty, unitCost? }. */
   plantJson?: string;
   /** Office-only fields (Core). */
   labourRate?: string;
-  /** Office materials cost (£) for the sheet. */
+  /** Derived materials total (£) from line unit costs — kept for older readers. */
   materialsCost?: string;
-  /** Office plant cost (£) for the sheet. */
+  /** Derived plant total (£) from line unit costs — kept for older readers. */
   plantCost?: string;
   markupPercent?: string;
   plumberSignature?: string;
@@ -90,16 +92,21 @@ export function parseDayworkLineItems(value?: string): DayworkLineItem[] {
   try {
     const parsed = JSON.parse(value) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) => {
-        if (!item || typeof item !== "object") return null;
-        const row = item as Record<string, unknown>;
-        const description = String(row.description || "").trim();
-        const qty = String(row.qty ?? "").trim();
-        if (!description && !qty) return null;
-        return { description, qty };
-      })
-      .filter((item): item is DayworkLineItem => Boolean(item));
+    const rows: DayworkLineItem[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const description = String(row.description || "").trim();
+      const qty = String(row.qty ?? "").trim();
+      const unitCost = String(row.unitCost ?? "").trim();
+      if (!description && !qty && !unitCost) continue;
+      rows.push({
+        description,
+        qty,
+        ...(unitCost ? { unitCost } : {}),
+      });
+    }
+    return rows;
   } catch {
     return [];
   }
@@ -116,9 +123,33 @@ export function serialiseDayworkLabourDays(rows: DayworkLabourDay[]) {
 export function serialiseDayworkLineItems(rows: DayworkLineItem[]) {
   return JSON.stringify(
     rows
-      .map((row) => ({ description: row.description.trim(), qty: String(row.qty).trim() }))
+      .map((row) => ({
+        description: row.description.trim(),
+        qty: String(row.qty).trim(),
+        ...(String(row.unitCost || "").trim() ? { unitCost: String(row.unitCost).trim() } : {}),
+      }))
       .filter((row) => row.description || row.qty),
   );
+}
+
+/** Merge Field qty/description lines with any office unit costs already on the sheet. */
+export function mergeDayworkLineUnitCosts(fieldJson?: string, pricedJson?: string) {
+  const fieldLines = parseDayworkLineItems(fieldJson);
+  const pricedLines = parseDayworkLineItems(pricedJson);
+  if (!fieldLines.length) return pricedJson || fieldJson || "";
+  const next = fieldLines.map((line, index) => {
+    const match =
+      pricedLines.find(
+        (priced) =>
+          priced.description.trim().toLowerCase() === line.description.trim().toLowerCase() &&
+          String(priced.qty).trim() === String(line.qty).trim(),
+      ) || pricedLines[index];
+    return {
+      ...line,
+      unitCost: line.unitCost || match?.unitCost || "",
+    };
+  });
+  return serialiseDayworkLineItems(next);
 }
 
 export function totalDayworkLabourHours(record: DayworkAccountRecord | null | undefined) {
@@ -138,13 +169,25 @@ function parseMoney(value?: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Field captures hours/qty; Core office applies labour rate + materials/plant £. */
+export function dayworkLineAmount(item: DayworkLineItem) {
+  const qty = parseMoney(item.qty);
+  const unitCost = parseMoney(item.unitCost);
+  return qty * unitCost;
+}
+
+export function sumDayworkLineItems(value?: string) {
+  return parseDayworkLineItems(value).reduce((sum, item) => sum + dayworkLineAmount(item), 0);
+}
+
+/** Field captures hours/qty; Core office applies labour rate + per-line materials/plant £. */
 export function dayworkAccountTotals(record: DayworkAccountRecord | null | undefined) {
   const labourHours = totalDayworkLabourHours(record);
   const labourRate = parseMoney(record?.labourRate);
   const labourCost = labourHours * labourRate;
-  const materials = parseMoney(record?.materialsCost);
-  const plant = parseMoney(record?.plantCost);
+  const materialsFromLines = sumDayworkLineItems(record?.materialsJson);
+  const plantFromLines = sumDayworkLineItems(record?.plantJson);
+  const materials = materialsFromLines > 0 ? materialsFromLines : parseMoney(record?.materialsCost);
+  const plant = plantFromLines > 0 ? plantFromLines : parseMoney(record?.plantCost);
   const markupPercent = parseMoney(record?.markupPercent);
   const materialsWithMarkup = materials * (1 + markupPercent / 100);
   const plantWithMarkup = plant * (1 + markupPercent / 100);
@@ -182,7 +225,15 @@ function formatLineItems(value?: string) {
   if (!items.length) return "";
   return items
     .filter((item) => item.description || item.qty)
-    .map((item) => `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}`)
+    .map((item) => {
+      const amount = dayworkLineAmount(item);
+      const unit = parseMoney(item.unitCost);
+      const priced =
+        unit > 0
+          ? ` @ ${money(unit)}${amount ? ` = ${money(amount)}` : ""}`
+          : "";
+      return `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}${priced}`;
+    })
     .join("; ");
 }
 
@@ -229,7 +280,7 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
     {
       section: "Labour",
       rows: [
-        row("labourName", "Operative name", record?.labourName || context.engineer),
+        row("labourName", "Operative name", record?.labourName || ""),
         row("labourTrade", "Trade", record?.labourTrade || ""),
         row("labourDays", "Hours by day", formatLabourDays(record)),
         row("labourHours", "Total hrs", totals.labourHours ? String(totals.labourHours) : ""),
@@ -240,14 +291,14 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
       section: "Materials",
       rows: [
         row("materials", "Materials used", formatLineItems(record?.materialsJson)),
-        row("materialsCost", "Materials cost (office)", record?.materialsCost ? money(parseMoney(record.materialsCost)) : "Set in Core"),
+        row("materialsCost", "Materials total", money(totals.materials) || "Set unit prices in Core"),
       ],
     },
     {
       section: "Plant",
       rows: [
         row("plant", "Plant used", formatLineItems(record?.plantJson)),
-        row("plantCost", "Plant cost (office)", record?.plantCost ? money(parseMoney(record.plantCost)) : "Set in Core"),
+        row("plantCost", "Plant total", money(totals.plant) || "Set unit prices in Core"),
       ],
     },
     {
@@ -255,8 +306,8 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
       rows: [
         row("sumLabourHrs", "Labour hours", totals.labourHours ? String(totals.labourHours) : ""),
         row("sumLabour", "Labour cost", money(totals.labourCost) || "Pending office rate"),
-        row("sumMaterials", "Materials cost", money(totals.materialsWithMarkup) || "Pending office cost"),
-        row("sumPlant", "Plant cost", money(totals.plantWithMarkup) || "Pending office cost"),
+        row("sumMaterials", "Materials cost", money(totals.materialsWithMarkup) || "Pending office prices"),
+        row("sumPlant", "Plant cost", money(totals.plantWithMarkup) || "Pending office prices"),
         row("markup", "Add % (office)", totals.markupPercent ? `${totals.markupPercent}%` : "Set in Core"),
         row("sumTotal", "Sheet total", money(totals.total) || "Pending office pricing"),
       ],
@@ -397,4 +448,14 @@ export function summariseDayworkMaterials(record: DayworkAccountRecord | null | 
 
 export function summariseDayworkPlant(record: DayworkAccountRecord | null | undefined) {
   return formatLineItems(record?.plantJson);
+}
+
+/** Apply derived materials/plant totals from per-line unit costs onto the record. */
+export function withDerivedDayworkLineTotals(record: DayworkAccountRecord): DayworkAccountRecord {
+  const totals = dayworkAccountTotals(record);
+  return {
+    ...record,
+    materialsCost: totals.materials ? String(Math.round(totals.materials * 100) / 100) : record.materialsCost,
+    plantCost: totals.plant ? String(Math.round(totals.plant * 100) / 100) : record.plantCost,
+  };
 }

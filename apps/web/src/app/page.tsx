@@ -3403,6 +3403,10 @@ const defaultCostCentreFlowAssignmentMap = costCentreFlowAssignments.reduce<Reco
 }, {});
 
 function normalizeEngineerFlowTemplate(template: EngineerFlowTemplate): EngineerFlowTemplate {
+  if (template.id === dayworkAccountFlowTemplate.id) {
+    // Always use the current Daywork stop/go (hub may still hold the old short list).
+    return dayworkAccountFlowTemplate;
+  }
   if (template.id !== defaultBoilerFlowTemplate.id) return template;
   return {
     ...template,
@@ -3418,6 +3422,8 @@ function normalizeEngineerFlowTemplates(templates: EngineerFlowTemplate[], legac
     merged.set(legacyTemplate.id, normalizeEngineerFlowTemplate(legacyTemplate));
   }
   templates.forEach((template) => merged.set(template.id, normalizeEngineerFlowTemplate(template)));
+  // Force current Daywork template even if hub overwrote with a stale copy.
+  merged.set(dayworkAccountFlowTemplate.id, dayworkAccountFlowTemplate);
 
   return Array.from(merged.values()).filter((template) => template.name.trim() && template.steps.length > 0);
 }
@@ -18030,6 +18036,45 @@ export default function Dashboard() {
     setHomeView("cost-centre-record");
   }
 
+  async function refreshDayworkSheetFromServer(jobId: string, costCentreId: string) {
+    try {
+      const response = await fetch(
+        `/api/jobs/${encodeURIComponent(jobId)}/daywork?costCentreId=${encodeURIComponent(costCentreId)}`,
+        { headers: requestHeaders },
+      );
+      if (!response.ok) return false;
+      const body = (await response.json()) as {
+        sheet?: DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string };
+        record?: DayworkAccountRecord;
+        dayworkSheets?: Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>;
+        flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+        jobDeliveryEvents?: JobDeliveryEvent[];
+      };
+      if (body.dayworkSheets) setDayworkSheets(body.dayworkSheets);
+      else if (body.sheet) {
+        setDayworkSheets((current) => ({ ...current, [`${jobId}:${costCentreId}`]: body.sheet! }));
+      } else if (body.record) {
+        setDayworkSheets((current) => ({
+          ...current,
+          [`${jobId}:${costCentreId}`]: {
+            ...body.record!,
+            jobId,
+            jobRef: jobs.find((item) => item.id === jobId)?.ref || jobId,
+            costCentreId,
+            updatedAt: body.record!.completedAt || new Date().toISOString(),
+          },
+        }));
+      }
+      if (body.flowStepEvidence) {
+        setFlowStepEvidence((current) => ({ ...current, ...body.flowStepEvidence }));
+      }
+      if (body.jobDeliveryEvents) setJobDeliveryEvents(body.jobDeliveryEvents);
+      return Boolean(body.sheet || body.record);
+    } catch {
+      return false;
+    }
+  }
+
   function openDayworkAccountRecord(jobId: string, options?: { costCentreId?: string }) {
     const dayworkCentreId = options?.costCentreId || `${jobId}-daywork-account`;
     const centres = jobEstimateCostCentres[jobId] ?? [];
@@ -18082,7 +18127,41 @@ export default function Dashboard() {
     }
 
     if (!match) {
-      showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
+      // Still try server refresh — Field may have created the centre already.
+      void refreshDayworkSheetFromServer(jobId, dayworkCentreId).then((found) => {
+        if (!found) {
+          showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
+        } else {
+          setJobEstimateCostCentres((current) => {
+            const existing = current[jobId] ?? [];
+            if (existing.some((centre) => centre.id === dayworkCentreId || /daywork/i.test(`${centre.name}`))) {
+              return current;
+            }
+            return {
+              ...current,
+              [jobId]: [
+                ...existing,
+                {
+                  id: dayworkCentreId,
+                  name: "Daywork account",
+                  templateName: "Daywork account",
+                  variation: true,
+                  variationSectionId: `${jobId}-variation-section-daywork`,
+                  clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
+                  engineerDescription:
+                    "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+                  materials: [],
+                  labour: [],
+                },
+              ],
+            };
+          });
+          setSelectedCostCentreId(dayworkCentreId);
+          setActiveCostCentreTab("engineer-flow");
+          setHomeView("cost-centre-record");
+          showNotice("Daywork Account refreshed from Field.");
+        }
+      });
       setActiveJobTab("cost-centres");
       setActiveJobCostCentreListTab("variations");
       setHomeView("job-record");
@@ -18094,7 +18173,9 @@ export default function Dashboard() {
     setActiveCostCentreTab("engineer-flow");
     setActiveJobBuildTab("summary");
     setHomeView("cost-centre-record");
-    showNotice("Daywork Account opened in Engineer Flow.");
+    void refreshDayworkSheetFromServer(jobId, match.id).then((found) => {
+      showNotice(found ? "Daywork Account opened — Field sheet loaded." : "Daywork Account opened in Engineer Flow.");
+    });
     scrollWorkspaceToTop();
   }
 
@@ -26219,6 +26300,8 @@ export default function Dashboard() {
                       materialsCost: costs.materialsCost,
                       plantCost: costs.plantCost,
                       markupPercent: costs.markupPercent,
+                      materialsJson: costs.materialsJson,
+                      plantJson: costs.plantJson,
                     }),
                   });
                   const body = (await response.json().catch(() => null)) as {
@@ -26249,6 +26332,8 @@ export default function Dashboard() {
                     const next = { ...current };
                     for (const [stepId, value] of [
                       ["daywork-labour-rate", costs.labourRate],
+                      ["daywork-materials", costs.materialsJson],
+                      ["daywork-plant", costs.plantJson],
                       ["daywork-materials-cost", costs.materialsCost],
                       ["daywork-plant-cost", costs.plantCost],
                       ["daywork-markup-percent", costs.markupPercent],

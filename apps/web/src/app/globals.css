@@ -12583,6 +12583,34 @@ h1 {
   justify-content: space-between;
 }
 
+.daywork-line-pricing {
+  display: grid;
+  gap: 8px;
+}
+
+.daywork-line-pricing > strong {
+  color: #1f3a2e;
+}
+
+.daywork-line-pricing-row {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 120px 90px;
+}
+
+.daywork-line-pricing-row label {
+  display: grid;
+  gap: 2px;
+}
+
+.daywork-line-pricing-row input {
+  border: 1px solid #c9d5ce;
+  border-radius: 8px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
 .daywork-signoff-block {
   display: grid;
   gap: 10px;
@@ -12600,6 +12628,10 @@ h1 {
 
 @media (max-width: 720px) {
   .daywork-office-pricing-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daywork-line-pricing-row {
     grid-template-columns: 1fr;
   }
 }

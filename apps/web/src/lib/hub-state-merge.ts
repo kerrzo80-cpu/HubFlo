@@ -288,6 +288,8 @@ export function mergeDayworkSheets(serverValue: unknown, clientValue: unknown) {
         materialsCost: clientSheet.materialsCost || serverSheet.materialsCost,
         plantCost: clientSheet.plantCost || serverSheet.plantCost,
         markupPercent: clientSheet.markupPercent || serverSheet.markupPercent,
+        materialsJson: mergeLineJsonPreferringUnitCosts(serverSheet.materialsJson, clientSheet.materialsJson),
+        plantJson: mergeLineJsonPreferringUnitCosts(serverSheet.plantJson, clientSheet.plantJson),
       };
       continue;
     }
@@ -295,6 +297,14 @@ export function mergeDayworkSheets(serverValue: unknown, clientValue: unknown) {
     const preferred = clientAt > serverAt ? { ...serverSheet, ...clientSheet } : { ...clientSheet, ...serverSheet };
     merged[key] = {
       ...preferred,
+      description: preferred.description || serverSheet.description || clientSheet.description,
+      weekEnding: preferred.weekEnding || serverSheet.weekEnding || clientSheet.weekEnding,
+      labourName: preferred.labourName || serverSheet.labourName || clientSheet.labourName,
+      labourTrade: preferred.labourTrade || serverSheet.labourTrade || clientSheet.labourTrade,
+      labourDaysJson: preferred.labourDaysJson || serverSheet.labourDaysJson || clientSheet.labourDaysJson,
+      labourHours: preferred.labourHours || serverSheet.labourHours || clientSheet.labourHours,
+      materialsJson: mergeLineJsonPreferringUnitCosts(serverSheet.materialsJson, clientSheet.materialsJson),
+      plantJson: mergeLineJsonPreferringUnitCosts(serverSheet.plantJson, clientSheet.plantJson),
       plumberSignature: preferred.plumberSignature || serverSheet.plumberSignature || clientSheet.plumberSignature,
       clientSignature: preferred.clientSignature || serverSheet.clientSignature || clientSheet.clientSignature,
       plumberSignerName: preferred.plumberSignerName || serverSheet.plumberSignerName || clientSheet.plumberSignerName,
@@ -303,6 +313,39 @@ export function mergeDayworkSheets(serverValue: unknown, clientValue: unknown) {
   }
 
   return merged;
+}
+
+/** Keep Field line descriptions/qty and prefer whichever side has unitCost. */
+function mergeLineJsonPreferringUnitCosts(serverValue: unknown, clientValue: unknown) {
+  const serverText = typeof serverValue === "string" ? serverValue : "";
+  const clientText = typeof clientValue === "string" ? clientValue : "";
+  if (!serverText.trim()) return clientText;
+  if (!clientText.trim()) return serverText;
+  try {
+    const serverLines = JSON.parse(serverText) as unknown;
+    const clientLines = JSON.parse(clientText) as unknown;
+    if (!Array.isArray(serverLines) || !Array.isArray(clientLines)) {
+      return clientText.length >= serverText.length ? clientText : serverText;
+    }
+    // Prefer the longer description/qty list (usually Field), overlay unit costs from either.
+    const base = serverLines.length >= clientLines.length ? serverLines : clientLines;
+    const other = base === serverLines ? clientLines : serverLines;
+    const merged = base.map((item, index) => {
+      const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+      const match = other[index] && typeof other[index] === "object" ? (other[index] as Record<string, unknown>) : {};
+      const description = String(row.description || match.description || "").trim();
+      const qty = String(row.qty ?? match.qty ?? "").trim();
+      const unitCost = String(row.unitCost || match.unitCost || "").trim();
+      return {
+        description,
+        qty,
+        ...(unitCost ? { unitCost } : {}),
+      };
+    });
+    return JSON.stringify(merged.filter((row) => row.description || row.qty));
+  } catch {
+    return clientText || serverText;
+  }
 }
 
 /**

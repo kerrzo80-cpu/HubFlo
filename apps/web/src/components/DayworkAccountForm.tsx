@@ -1,27 +1,38 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SignatureImage } from "@/components/SignaturePad";
 import {
   buildDayworkFormSections,
   dayworkAccountTotals,
+  dayworkLineAmount,
+  parseDayworkLineItems,
+  serialiseDayworkLineItems,
   type DayworkAccountContext,
   type DayworkAccountRecord,
+  type DayworkLineItem,
 } from "@/lib/daywork-account-form";
 
-type OfficeCosts = {
+export type DayworkOfficeCostsPayload = {
   labourRate: string;
+  markupPercent: string;
+  materialsJson: string;
+  plantJson: string;
   materialsCost: string;
   plantCost: string;
-  markupPercent: string;
 };
 
 type Props = {
   context: DayworkAccountContext;
-  /** When set, office can price labour rate + materials/plant £ before valuations. */
-  onSaveOfficeCosts?: (costs: OfficeCosts) => Promise<void> | void;
+  /** When set, office can price labour rate + each material/plant line before valuations. */
+  onSaveOfficeCosts?: (costs: DayworkOfficeCostsPayload) => Promise<void> | void;
   savingOfficeCosts?: boolean;
 };
+
+function money(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "£0.00";
+  return value.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
+}
 
 export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCosts }: Props) {
   const sections = buildDayworkFormSections(context);
@@ -34,26 +45,71 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
   const bothSigned = Boolean(
     context.record?.plumberSignature?.trim() && context.record?.clientSignature?.trim(),
   );
-  const [costs, setCosts] = useState<OfficeCosts>({
-    labourRate: context.record?.labourRate || "",
-    materialsCost: context.record?.materialsCost || "",
-    plantCost: context.record?.plantCost || "",
-    markupPercent: context.record?.markupPercent || "",
-  });
+
+  const [labourRate, setLabourRate] = useState(context.record?.labourRate || "");
+  const [markupPercent, setMarkupPercent] = useState(context.record?.markupPercent || "");
+  const [materials, setMaterials] = useState<DayworkLineItem[]>(() =>
+    parseDayworkLineItems(context.record?.materialsJson),
+  );
+  const [plant, setPlant] = useState<DayworkLineItem[]>(() => parseDayworkLineItems(context.record?.plantJson));
 
   useEffect(() => {
-    setCosts({
-      labourRate: context.record?.labourRate || "",
-      materialsCost: context.record?.materialsCost || "",
-      plantCost: context.record?.plantCost || "",
-      markupPercent: context.record?.markupPercent || "",
-    });
+    setLabourRate(context.record?.labourRate || "");
+    setMarkupPercent(context.record?.markupPercent || "");
+    setMaterials(parseDayworkLineItems(context.record?.materialsJson));
+    setPlant(parseDayworkLineItems(context.record?.plantJson));
   }, [
     context.record?.labourRate,
-    context.record?.materialsCost,
-    context.record?.plantCost,
     context.record?.markupPercent,
+    context.record?.materialsJson,
+    context.record?.plantJson,
+    context.record?.completedAt,
   ]);
+
+  const liveTotals = useMemo(
+    () =>
+      dayworkAccountTotals({
+        populatedFrom: "core",
+        labourHours: context.record?.labourHours,
+        labourDaysJson: context.record?.labourDaysJson,
+        labourRate,
+        markupPercent,
+        materialsJson: serialiseDayworkLineItems(materials),
+        plantJson: serialiseDayworkLineItems(plant),
+      }),
+    [context.record?.labourDaysJson, context.record?.labourHours, labourRate, markupPercent, materials, plant],
+  );
+
+  function updateMaterial(index: number, patch: Partial<DayworkLineItem>) {
+    setMaterials((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  function updatePlant(index: number, patch: Partial<DayworkLineItem>) {
+    setPlant((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  async function saveCosts() {
+    if (!onSaveOfficeCosts) return;
+    const materialsJson = serialiseDayworkLineItems(materials);
+    const plantJson = serialiseDayworkLineItems(plant);
+    const nextTotals = dayworkAccountTotals({
+      populatedFrom: "core",
+      labourDaysJson: context.record?.labourDaysJson,
+      labourHours: context.record?.labourHours,
+      labourRate,
+      markupPercent,
+      materialsJson,
+      plantJson,
+    });
+    await onSaveOfficeCosts({
+      labourRate,
+      markupPercent,
+      materialsJson,
+      plantJson,
+      materialsCost: nextTotals.materials ? String(Math.round(nextTotals.materials * 100) / 100) : "",
+      plantCost: nextTotals.plant ? String(Math.round(nextTotals.plant * 100) / 100) : "",
+    });
+  }
 
   return (
     <article className="daywork-account-form">
@@ -62,8 +118,8 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
           <p className="daywork-account-kicker">Errol Watson Group style sheet</p>
           <h3>Daywork Account</h3>
           <p>
-            Field captures labour hours, materials used and dual sign-off. Office adds labour rate and materials /
-            plant costs here before the sheet goes out with valuations.
+            Field captures labour hours, materials used and dual sign-off. Office sets labour rate and a unit price
+            for each material / plant line before valuations.
           </p>
         </div>
         <div className="daywork-account-ref">
@@ -71,8 +127,8 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
           <span>
             {filledCount}/{totalCount} fields ·{" "}
             {totals.labourHours ? `${totals.labourHours} hrs` : "No hours yet"}
-            {totals.total
-              ? ` · ${totals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}`
+            {liveTotals.total
+              ? ` · ${liveTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}`
               : ""}
           </span>
           <span className={bothSigned ? "daywork-sign-status ready" : "daywork-sign-status pending"}>
@@ -84,7 +140,7 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
       {onSaveOfficeCosts ? (
         <section className="daywork-office-pricing">
           <h4>Office pricing</h4>
-          <p>Add costs before including this daywork in an application for payment.</p>
+          <p>Set labour £/hr and a unit price against each Field material / plant line.</p>
           <div className="daywork-office-pricing-grid">
             <label>
               <span>Labour rate (£/hr)</span>
@@ -93,30 +149,8 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                value={costs.labourRate}
-                onChange={(event) => setCosts((current) => ({ ...current, labourRate: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Materials cost (£)</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={costs.materialsCost}
-                onChange={(event) => setCosts((current) => ({ ...current, materialsCost: event.target.value }))}
-              />
-            </label>
-            <label>
-              <span>Plant cost (£)</span>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={costs.plantCost}
-                onChange={(event) => setCosts((current) => ({ ...current, plantCost: event.target.value }))}
+                value={labourRate}
+                onChange={(event) => setLabourRate(event.target.value)}
               />
             </label>
             <label>
@@ -126,26 +160,80 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                value={costs.markupPercent}
-                onChange={(event) => setCosts((current) => ({ ...current, markupPercent: event.target.value }))}
+                value={markupPercent}
+                onChange={(event) => setMarkupPercent(event.target.value)}
               />
             </label>
           </div>
+
+          <div className="daywork-line-pricing">
+            <strong>Materials — unit price each</strong>
+            {materials.length === 0 ? (
+              <p className="muted">No materials from Field yet.</p>
+            ) : (
+              materials.map((row, index) => (
+                <div className="daywork-line-pricing-row" key={`mat-price-${index}`}>
+                  <span>
+                    {row.description || "Material"}
+                    {row.qty ? ` × ${row.qty}` : ""}
+                  </span>
+                  <label>
+                    <span>£ each</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={row.unitCost || ""}
+                      onChange={(event) => updateMaterial(index, { unitCost: event.target.value })}
+                      aria-label={`${row.description || "Material"} unit price`}
+                    />
+                  </label>
+                  <strong>{money(dayworkLineAmount(row))}</strong>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="daywork-line-pricing">
+            <strong>Plant — unit price each</strong>
+            {plant.length === 0 ? (
+              <p className="muted">No plant from Field yet.</p>
+            ) : (
+              plant.map((row, index) => (
+                <div className="daywork-line-pricing-row" key={`plant-price-${index}`}>
+                  <span>
+                    {row.description || "Plant"}
+                    {row.qty ? ` × ${row.qty}` : ""}
+                  </span>
+                  <label>
+                    <span>£ each</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      value={row.unitCost || ""}
+                      onChange={(event) => updatePlant(index, { unitCost: event.target.value })}
+                      aria-label={`${row.description || "Plant"} unit price`}
+                    />
+                  </label>
+                  <strong>{money(dayworkLineAmount(row))}</strong>
+                </div>
+              ))
+            )}
+          </div>
+
           <div className="daywork-office-pricing-actions">
             <strong>
-              {totals.labourHours ? `${totals.labourHours} hrs from Field` : "No Field hours yet"}
-              {costs.labourRate
-                ? ` · labour ${(Number(costs.labourRate) * (totals.labourHours || 0) || 0).toLocaleString("en-GB", {
-                    style: "currency",
-                    currency: "GBP",
-                  })}`
-                : ""}
+              {liveTotals.labourHours ? `${liveTotals.labourHours} hrs from Field` : "No Field hours yet"}
+              {` · mats ${money(liveTotals.materials)} · plant ${money(liveTotals.plant)} · total ${money(liveTotals.total)}`}
             </strong>
             <button
               className="simpro-blue-button"
               type="button"
               disabled={Boolean(savingOfficeCosts)}
-              onClick={() => void onSaveOfficeCosts(costs)}
+              onClick={() => void saveCosts()}
             >
               {savingOfficeCosts ? "Saving…" : "Save office costs"}
             </button>

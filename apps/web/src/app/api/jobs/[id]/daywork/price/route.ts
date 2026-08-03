@@ -17,6 +17,8 @@ type Body = {
   materialsCost?: string;
   plantCost?: string;
   markupPercent?: string;
+  materialsJson?: string;
+  plantJson?: string;
 };
 
 /** Office pricing for a Daywork Account sheet on a job. */
@@ -42,6 +44,8 @@ export async function POST(request: Request, { params }: Params) {
     materialsCost: body.materialsCost,
     plantCost: body.plantCost,
     markupPercent: body.markupPercent,
+    materialsJson: body.materialsJson,
+    plantJson: body.plantJson,
   });
 
   const hubState = getHubDetailState() as HubDetailState & {
@@ -50,5 +54,5 @@ export async function POST(request: Request, { params }: Params) {
   const sheet = hubState.dayworkSheets?.[dayworkSheetKey(jobId, costCentreId)];
   const record = sheet || buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
 
-  return NextResponse.json({ ok: true, event, record });
+  return NextResponse.json({ ok: true, event, record, sheet });
 }

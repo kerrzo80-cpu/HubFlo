@@ -3,8 +3,10 @@ import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
 import {
   dayworkAccountTotals,
   dayworkSheetKey,
+  mergeDayworkLineUnitCosts,
   parseDayworkLineItems,
   totalDayworkLabourHours,
+  withDerivedDayworkLineTotals,
   type DayworkAccountRecord,
   type DayworkSheetSnapshot,
 } from "@/lib/daywork-account-form";
@@ -487,12 +489,13 @@ export function resolveFlowTemplatesFromHub(hubState: HubDetailState = getHubDet
       map.set(template.id, boilerServiceFlowTemplate);
       return;
     }
-    if (template.id === dayworkAccountFlowTemplate.id && template.steps.length < dayworkAccountFlowTemplate.steps.length) {
+    if (template.id === dayworkAccountFlowTemplate.id) {
       map.set(template.id, dayworkAccountFlowTemplate);
       return;
     }
     map.set(template.id, template);
   });
+  map.set(dayworkAccountFlowTemplate.id, dayworkAccountFlowTemplate);
   return Array.from(map.values());
 }
 
@@ -874,8 +877,12 @@ export function saveDayworkSheetToHub(options: {
   // Preserve any office pricing already set in Core when Field re-saves the sheet.
   const sheetKey = dayworkSheetKey(options.jobId, options.costCentreId);
   const previousSheet = hubState.dayworkSheets?.[sheetKey];
-  const snapshot: DayworkSheetSnapshot = {
+  const materialsJson = mergeDayworkLineUnitCosts(options.record.materialsJson, previousSheet?.materialsJson);
+  const plantJson = mergeDayworkLineUnitCosts(options.record.plantJson, previousSheet?.plantJson);
+  const snapshot = withDerivedDayworkLineTotals({
     ...options.record,
+    materialsJson,
+    plantJson,
     labourRate: options.record.labourRate || previousSheet?.labourRate,
     materialsCost: options.record.materialsCost || previousSheet?.materialsCost,
     plantCost: options.record.plantCost || previousSheet?.plantCost,
@@ -884,7 +891,19 @@ export function saveDayworkSheetToHub(options: {
     jobRef: options.jobRef,
     costCentreId: options.costCentreId,
     updatedAt: capturedAt,
-  };
+  } as DayworkSheetSnapshot);
+
+  // Keep evidence materials/plant JSON in sync with merged unit costs.
+  if (materialsJson) {
+    const materialsKey = flowEvidenceKey(options.jobId, options.costCentreId, "daywork-materials");
+    evidenceStore[materialsKey] = { text: materialsJson, capturedAt };
+    completionStore[materialsKey] = true;
+  }
+  if (plantJson) {
+    const plantKey = flowEvidenceKey(options.jobId, options.costCentreId, "daywork-plant");
+    evidenceStore[plantKey] = { text: plantJson, capturedAt };
+    completionStore[plantKey] = true;
+  }
 
   saveHubDetailState({
     ...hubState,
@@ -1201,7 +1220,7 @@ function restoreDayworkEvidenceFromSnapshot(sheet: DayworkSheetSnapshot) {
   });
 }
 
-/** Office pricing for a Daywork sheet — labour rate + materials/plant £. */
+/** Office pricing for a Daywork sheet — labour rate + per-line materials/plant £. */
 export function saveDayworkOfficePricing(options: {
   jobId: string;
   jobRef: string;
@@ -1210,6 +1229,8 @@ export function saveDayworkOfficePricing(options: {
   materialsCost?: string;
   plantCost?: string;
   markupPercent?: string;
+  materialsJson?: string;
+  plantJson?: string;
 }) {
   const hubState = getHubDetailState() as HubDetailState & {
     flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
@@ -1218,21 +1239,32 @@ export function saveDayworkOfficePricing(options: {
   const sheetKey = dayworkSheetKey(options.jobId, options.costCentreId);
   const existingSheet = hubState.dayworkSheets?.[sheetKey];
   const fromEvidence = buildDayworkAccountRecordFromEvidence(options.jobId, options.costCentreId, hubState);
-  const base: DayworkAccountRecord = {
+  const materialsJson =
+    options.materialsJson?.trim() ||
+    existingSheet?.materialsJson ||
+    fromEvidence?.materialsJson ||
+    "";
+  const plantJson =
+    options.plantJson?.trim() || existingSheet?.plantJson || fromEvidence?.plantJson || "";
+  const base = withDerivedDayworkLineTotals({
     populatedFrom: "core",
     ...(fromEvidence || {}),
     ...(existingSheet || {}),
+    materialsJson,
+    plantJson,
     labourRate: options.labourRate?.trim() ?? existingSheet?.labourRate ?? fromEvidence?.labourRate,
-    materialsCost: options.materialsCost?.trim() ?? existingSheet?.materialsCost ?? fromEvidence?.materialsCost,
-    plantCost: options.plantCost?.trim() ?? existingSheet?.plantCost ?? fromEvidence?.plantCost,
     markupPercent: options.markupPercent?.trim() ?? existingSheet?.markupPercent ?? fromEvidence?.markupPercent,
-  };
+    materialsCost: options.materialsCost?.trim() || undefined,
+    plantCost: options.plantCost?.trim() || undefined,
+  });
 
   const capturedAt = new Date().toISOString();
   const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
   const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
   for (const [stepId, value] of [
     ["daywork-labour-rate", base.labourRate],
+    ["daywork-materials", base.materialsJson],
+    ["daywork-plant", base.plantJson],
     ["daywork-materials-cost", base.materialsCost],
     ["daywork-plant-cost", base.plantCost],
     ["daywork-markup-percent", base.markupPercent],
