@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { SignaturePad } from "@/components/SignaturePad";
 import {
   DAYWORK_TRADE_OPTIONS,
   DAYWORK_WEEKDAY_OPTIONS,
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
+  defaultDayworkWeekEndingUk,
   totalDayworkLabourHours,
   validateDayworkSheetDraft,
   type DayworkAccountRecord,
@@ -17,9 +18,14 @@ import {
 import { isoDateToUk, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
 
 type Props = {
-  scheduleId: string;
+  /** Field schedule id — saves via /api/field/jobs/.../daywork */
+  scheduleId?: string;
+  /** Core job id — saves via /api/jobs/.../daywork when scheduleId is absent */
+  jobId?: string;
+  costCentreId?: string;
   engineerName: string;
   initialRecord?: DayworkAccountRecord | null;
+  requestHeaders?: HeadersInit;
   onSaved?: (record: DayworkAccountRecord) => void;
   onCancel?: () => void;
 };
@@ -28,13 +34,42 @@ function updateRow<T>(rows: T[], index: number, patch: Partial<T>): T[] {
   return rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
 }
 
-export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSaved, onCancel }: Props) {
-  const [draft, setDraft] = useState<DayworkSheetDraft>(() =>
-    dayworkDraftFromRecord(initialRecord, { labourName: engineerName, labourTrade: "Plumber" }),
-  );
+function shoutError(message: string) {
+  if (typeof window !== "undefined") {
+    window.alert(message);
+  }
+}
+
+export function DayworkSheetForm({
+  scheduleId,
+  jobId,
+  costCentreId,
+  engineerName,
+  initialRecord,
+  requestHeaders,
+  onSaved,
+  onCancel,
+}: Props) {
+  const [draft, setDraft] = useState<DayworkSheetDraft>(() => {
+    const base = dayworkDraftFromRecord(initialRecord, {
+      labourName: engineerName,
+      labourTrade: "Plumber",
+    });
+    if (!base.weekEnding.trim()) {
+      base.weekEnding = defaultDayworkWeekEndingUk();
+    }
+    if (!base.labourName.trim() && engineerName.trim()) {
+      base.labourName = engineerName;
+    }
+    if (!base.plumberSignerName.trim() && (base.labourName || engineerName)) {
+      base.plumberSignerName = base.labourName || engineerName;
+    }
+    return base;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const errorRef = useRef<HTMLDivElement | null>(null);
 
   const totalHours = useMemo(
     () =>
@@ -46,6 +81,7 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
   );
 
   const weekEndingIso = ukDateToIso(draft.weekEnding) || "";
+  const saveViaCore = !scheduleId && Boolean(jobId);
 
   function setLabourDay(index: number, patch: Partial<DayworkLabourDay>) {
     setDraft((current) => ({ ...current, labourDays: updateRow(current.labourDays, index, patch) }));
@@ -59,23 +95,44 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
     setDraft((current) => ({ ...current, plant: updateRow(current.plant, index, patch) }));
   }
 
+  function showFailure(message: string) {
+    setError(message);
+    setNotice("");
+    shoutError(message);
+    window.setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  }
+
   async function saveSheet() {
     const validationError = validateDayworkSheetDraft(draft);
     if (validationError) {
-      setError(validationError);
-      setNotice("");
+      showFailure(validationError);
+      return;
+    }
+    if (!scheduleId && !jobId) {
+      showFailure("Missing job or schedule — cannot save Daywork sheet.");
       return;
     }
     setSaving(true);
     setError("");
     setNotice("");
     try {
-      const record = dayworkRecordFromDraft(draft, "engineer-app");
-      const response = await fetch(`/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`, {
+      const record = dayworkRecordFromDraft(draft, saveViaCore ? "core" : "engineer-app");
+      const endpoint = scheduleId
+        ? `/api/field/jobs/${encodeURIComponent(scheduleId)}/daywork`
+        : `/api/jobs/${encodeURIComponent(jobId!)}/daywork`;
+      const response = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save", record, createdBy: engineerName }),
+        headers: {
+          "Content-Type": "application/json",
+          ...(requestHeaders || {}),
+        },
+        body: JSON.stringify({
+          action: "save",
+          record,
+          createdBy: engineerName,
+          ...(costCentreId ? { costCentreId } : {}),
+        }),
       });
       const body = (await response.json()) as {
         error?: string;
@@ -96,15 +153,14 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
             "Save did not stick on the live store — try again. If it keeps failing, sign out/in and retry.",
         );
       }
-      setNotice(
-        `Saved to live store · ${body.materialsCount ?? 0} materials · client ${
-          body.hasClientName ? "named" : "missing"
-        } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}`,
-      );
+      const okMessage = `Saved to live store · ${body.materialsCount ?? 0} materials · client ${
+        body.hasClientName ? "named" : "missing"
+      } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}`;
+      setNotice(okMessage);
       if (body.record) onSaved?.(body.record);
       else onSaved?.(record);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Could not save daywork sheet.");
+      showFailure(saveError instanceof Error ? saveError.message : "Could not save daywork sheet.");
     } finally {
       setSaving(false);
     }
@@ -113,9 +169,15 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
   return (
     <div className="daywork-sheet-form stack">
       <p className="checklist-intro muted">
-        Fill the Daywork Account — rates and markups are added by the office in Core.
+        {saveViaCore
+          ? "Enter the Daywork Account in Core — materials, printed names and both signatures. This writes to the same live store Field uses."
+          : "Fill the Daywork Account — rates and markups are added by the office in Core."}
       </p>
-      {error ? <div className="feedback error">{error}</div> : null}
+      {error ? (
+        <div className="feedback error" ref={errorRef} role="alert">
+          {error}
+        </div>
+      ) : null}
       {notice ? <div className="feedback">{notice}</div> : null}
 
       <label className="daywork-field">

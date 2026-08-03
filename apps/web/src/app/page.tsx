@@ -113,6 +113,7 @@ import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from 
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
+import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { SignatureImage } from "@/components/SignaturePad";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
 import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
@@ -7740,6 +7741,7 @@ export default function Dashboard() {
     Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>
   >({});
   const [savingDayworkOfficeCosts, setSavingDayworkOfficeCosts] = useState(false);
+  const [editingDayworkInCore, setEditingDayworkInCore] = useState(false);
   const [previewingDayworkPdf, setPreviewingDayworkPdf] = useState(false);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
@@ -26351,7 +26353,7 @@ export default function Dashboard() {
             {centre ? <small>Assigned from cost centre type: {centre.templateName ?? "General plumbing"}</small> : null}
             <small style={{ display: "block", marginTop: 4 }}>
               {isDayworkFlow
-                ? "Plumber fills labour, materials and dual sign-off on Field — the Daywork Account populates here and lands in Variations."
+                ? "Enter the Daywork Account here in Core, or on Field — materials, printed names and dual sign-off land in Variations."
                 : isGasServiceFlow
                   ? "Engineer fills this on the app — values appear here on the NeXa Landlord Gas Safety Record automatically."
                   : "Engineer fills this on the app — values appear here automatically."}
@@ -26401,32 +26403,86 @@ export default function Dashboard() {
           <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
             <strong>Daywork Account</strong>
             <span>
-              {dayworkRecord?.description || dayworkRecord?.plumberSignature
-                ? `${dayworkTotals.labourHours || 0} hrs from Field${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
-                : "No signed Field sheet on the server yet — open Field → Add Daywork Account → fill names + signatures → Save"}
+              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature
+                ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
+                : "No signed sheet on the server yet — enter it below in Core (or on Field) and Save and finish"}
             </span>
-            {centre ? (
-              <button
-                className="simpro-grey-button"
-                type="button"
-                style={{ marginTop: 8 }}
-                onClick={() => {
-                  void refreshDayworkSheetFromServer(job.id, centre.id).then((found) => {
-                    showNotice(
-                      found
-                        ? "Pulled latest Daywork sheet from Field."
-                        : "Still no Daywork sheet on the server — save it again on Field.",
-                    );
-                  });
-                }}
-              >
-                Refresh from Field
-              </button>
-            ) : null}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {centre ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  onClick={() => {
+                    void refreshDayworkSheetFromServer(job.id, centre.id).then((found) => {
+                      showNotice(
+                        found
+                          ? "Pulled latest Daywork sheet from the live store."
+                          : "Still no Daywork sheet on the server — fill the form below and Save and finish.",
+                      );
+                    });
+                  }}
+                >
+                  Refresh from server
+                </button>
+              ) : null}
+              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
+                <button
+                  className="simpro-blue-button"
+                  type="button"
+                  onClick={() => setEditingDayworkInCore(true)}
+                >
+                  Edit sheet in Core
+                </button>
+              ) : null}
+              {editingDayworkInCore && dayworkRecord?.plumberSignature ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  onClick={() => setEditingDayworkInCore(false)}
+                >
+                  Cancel edit
+                </button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
-        {isDayworkFlow ? (
+        {isDayworkFlow && centre && (editingDayworkInCore || !dayworkRecord?.plumberSignature || !dayworkRecord?.clientSignature) ? (
+          <div style={{ marginBottom: 16 }}>
+            <DayworkSheetForm
+              key={`core-daywork-${job.id}-${centre.id}-${dayworkRecord?.completedAt || "new"}`}
+              jobId={job.id}
+              costCentreId={centre.id}
+              engineerName={activeEmployee?.name || job.manager || "Office"}
+              initialRecord={dayworkRecord}
+              requestHeaders={requestHeaders}
+              onCancel={
+                dayworkRecord?.plumberSignature
+                  ? () => setEditingDayworkInCore(false)
+                  : undefined
+              }
+              onSaved={(record) => {
+                const snapshot = {
+                  ...record,
+                  jobId: job.id,
+                  jobRef: job.ref,
+                  costCentreId: centre.id,
+                  updatedAt: new Date().toISOString(),
+                };
+                setDayworkSheets((current) => ({
+                  ...current,
+                  [`${job.id}:${centre.id}`]: snapshot,
+                  [`${job.id}:${job.id}-daywork-account`]: snapshot,
+                }));
+                setEditingDayworkInCore(false);
+                void refreshDayworkSheetFromServer(job.id, centre.id);
+                showNotice("Daywork Account saved in Core — materials, names and signatures are on the live store.");
+              }}
+            />
+          </div>
+        ) : null}
+
+        {isDayworkFlow && dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
           <div style={{ marginBottom: 16 }}>
             <DayworkAccountForm
               context={{

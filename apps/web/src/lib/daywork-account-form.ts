@@ -340,10 +340,22 @@ export type DayworkSheetDraft = {
   clientSignerName: string;
 };
 
+/** Upcoming Sunday as DD-MM-YYYY so Field Save is not blocked by an empty week-ending. */
+export function defaultDayworkWeekEndingUk(from: Date = new Date()): string {
+  const date = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const day = date.getDay(); // 0 = Sun
+  const daysUntilSunday = day === 0 ? 0 : 7 - day;
+  date.setDate(date.getDate() + daysUntilSunday);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${dd}-${mm}-${yyyy}`;
+}
+
 export function emptyDayworkSheetDraft(defaults?: Partial<DayworkSheetDraft>): DayworkSheetDraft {
   return {
     description: "",
-    weekEnding: "",
+    weekEnding: defaultDayworkWeekEndingUk(),
     voReference: "",
     labourName: "",
     labourTrade: "Plumber",

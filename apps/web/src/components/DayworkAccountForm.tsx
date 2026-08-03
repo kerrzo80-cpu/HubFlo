@@ -127,8 +127,8 @@ export function DayworkAccountForm({
           <p className="daywork-account-kicker">Errol Watson Group style sheet</p>
           <h3>Daywork Account</h3>
           <p>
-            Field captures labour hours, materials used and dual sign-off. Office sets labour rate and a unit price
-            for each material / plant line before valuations.
+            Capture labour hours, materials used and dual sign-off on Field or in Core. Office sets labour rate and a
+            unit price for each material / plant line before valuations.
           </p>
         </div>
         <div className="daywork-account-ref">

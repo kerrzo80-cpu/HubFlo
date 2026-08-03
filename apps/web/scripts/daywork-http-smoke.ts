@@ -117,6 +117,39 @@ async function main() {
     materials: sheet.materialsJson,
     client: sheet.clientSignerName,
   });
+
+  // Core can also ingest a sheet without Field (office entry path).
+  const coreSaved = await json<{
+    persisted?: boolean;
+    sheet?: { clientSignerName?: string; materialsJson?: string };
+  }>("/api/jobs/job-gas-cert-trial/daywork", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "save",
+      costCentreId: "job-gas-cert-trial-daywork-account",
+      createdBy: "Office",
+      record: {
+        description: "Core-entered daywork sheet for reactive call-out",
+        weekEnding: "03-08-2026",
+        labourName: "Chris Lawson",
+        labourTrade: "Plumber",
+        labourDaysJson: JSON.stringify([{ day: "Wed", hours: "4" }]),
+        labourHours: "4",
+        materialsJson: JSON.stringify([{ description: "Compression fitting", qty: "1" }]),
+        plantJson: JSON.stringify([]),
+        plumberSignature: sig,
+        clientSignature: sig,
+        plumberSignerName: "Chris Lawson",
+        clientSignerName: "Office Client",
+        completedAt: new Date().toISOString(),
+        populatedFrom: "core",
+      },
+    }),
+  });
+  if (!coreSaved.persisted || coreSaved.sheet?.clientSignerName !== "Office Client") {
+    throw new Error("Core POST did not persist Daywork sheet");
+  }
+  console.log("PASS daywork-core-save", { client: coreSaved.sheet?.clientSignerName });
 }
 
 main().catch((error) => {
