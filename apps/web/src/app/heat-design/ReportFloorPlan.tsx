@@ -207,7 +207,7 @@ export function ReportFloorPlan({
       {layout ? (
         <p className="hd-report-plan-key">
           Heating design overlay: plant, {layout.emitterMode === "ufh" ? "UFH" : layout.emitterMode === "radiators" ? "radiators" : "radiators / UFH"}{" "}
-          and pipework for the chosen system. Flow red · return blue · primary teal · refrigerant purple.
+          and pipework for the chosen system. Flow red · return blue · primary brand blue · refrigerant purple.
         </p>
       ) : null}
     </div>

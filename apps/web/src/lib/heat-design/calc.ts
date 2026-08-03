@@ -336,11 +336,13 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
         ? project.reportOptionIds
         : ["opt-ashp", "opt-gas", "opt-oil"],
     chosenSystemId: project.chosenSystemId,
+    emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
     heatingLayout: project.heatingLayout
       ? {
           ...project.heatingLayout,
           emitters: project.heatingLayout.emitters ?? [],
-          emitterMode: project.heatingLayout.emitterMode ?? "mixed",
+          emitterMode:
+            project.heatingLayout.emitterMode ?? project.emitterMode ?? "radiators",
         }
       : null,
     rooms: (project.rooms ?? []).map((room, index) => {

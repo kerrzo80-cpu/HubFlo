@@ -490,19 +490,6 @@ export function FloorPlanCanvas({
               Re-seed layout
             </button>
           ) : null}
-          {heatingLayout && onEmitterModeChange ? (
-            <label className="hp-emitter-mode">
-              Emitters
-              <select
-                value={emitterMode}
-                onChange={(event) => onEmitterModeChange(event.target.value as HeatingEmitterMode)}
-              >
-                <option value="mixed">Mixed rads / UFH</option>
-                <option value="radiators">Radiators only</option>
-                <option value="ufh">UFH only</option>
-              </select>
-            </label>
-          ) : null}
           <div className="hp-zoom-controls" aria-label="Zoom">
             <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setZoom((z) => Math.max(0.45, Number((z - 0.15).toFixed(2))))}>
               −
@@ -585,7 +572,7 @@ export function FloorPlanCanvas({
           <strong>{layoutSystemLabel || "Heating layout"}</strong>
           <span>
             Designed layout — drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple ·
-            primary teal. Use zoom if anything sits outside the first view.
+            primary blue. Use zoom if anything sits outside the first view.
           </span>
           {selectedPlant ? <em>Selected: {selectedPlant.label}</em> : null}
           {selectedEmitter ? <em>Selected: {selectedEmitter.label}</em> : null}
@@ -1059,7 +1046,7 @@ export function FloorPlanCanvas({
                       fontWeight={700}
                       style={{ pointerEvents: "none" }}
                     >
-                      {emitter.outputWatts ? `${emitter.outputWatts}W` : "RAD"}
+                      {emitter.label}
                     </text>
                   </g>
                 );
@@ -1145,6 +1132,37 @@ export function FloorPlanCanvas({
           ))}
         </div>
       </div>
+      {showLayout && floorEmitters.length ? (
+        <div className="hp-emitter-schedule">
+          <strong>
+            Emitter schedule ·{" "}
+            {emitterMode === "ufh" ? "Underfloor heating" : emitterMode === "mixed" ? "Mixed" : "Radiators"}
+          </strong>
+          <table>
+            <thead>
+              <tr>
+                <th>Room</th>
+                <th>Type</th>
+                <th>Size / model</th>
+                <th>Output</th>
+              </tr>
+            </thead>
+            <tbody>
+              {floorEmitters.map((emitter) => {
+                const room = rooms.find((item) => item.id === emitter.roomId);
+                return (
+                  <tr key={emitter.id} className={emitter.id === selectedEmitterId ? "is-on" : undefined}>
+                    <td>{room?.name || "Room"}</td>
+                    <td>{emitter.kind === "ufh" ? "UFH" : "Radiator"}</td>
+                    <td>{emitter.kind === "ufh" ? `${emitter.widthM.toFixed(1)} × ${emitter.depthM.toFixed(1)} m zone` : emitter.label}</td>
+                    <td>{emitter.outputWatts ? `${emitter.outputWatts} W` : emitter.kind === "ufh" ? "—" : "TBC"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
       <p className="hp-canvas-hint">
         <strong>Windows / doors:</strong> select a room → tap <em>Window</em> or <em>Door</em> → click a wall. Drag the
         W/D mark to slide it · click a mark then <em>Remove opening</em>. <strong>Rooms:</strong>{" "}

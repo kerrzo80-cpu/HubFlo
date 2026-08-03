@@ -152,6 +152,8 @@ export type HeatDesignProject = {
   chosenSystemId?: string;
   /** Movable plant / pipework layout for the chosen system */
   heatingLayout?: HeatingSystemLayout | null;
+  /** Preferred emitters when designing on plan */
+  emitterMode: HeatingEmitterMode;
   cylinderLitres: number;
   dailyHotWaterLitres: number;
   outdoorUnitDistanceM: number;

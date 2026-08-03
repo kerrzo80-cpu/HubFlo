@@ -197,7 +197,18 @@ export function DesignReport({ project, design, options, className }: DesignRepo
       </section>
 
       <section className="ewg-report-section">
-        <h2>Room heat-loss schedule</h2>
+        <h2>Room heat-loss & emitter schedule</h2>
+        <p className="ewg-report-intro">
+          Emitter mode:{" "}
+          {project.emitterMode === "ufh"
+            ? "underfloor heating"
+            : project.emitterMode === "mixed"
+              ? "mixed radiators / UFH"
+              : "radiators"}
+          {project.heatingLayout?.emitters?.length
+            ? " — sizes below match the designed floor-plan layout."
+            : " — radiator sizes from heat-loss pick until you Design on plan."}
+        </p>
         <table className="ewg-report-table">
           <thead>
             <tr>
@@ -215,11 +226,19 @@ export function DesignReport({ project, design, options, className }: DesignRepo
                 { ...room, meanWaterTemperature: String(project.flowTemperature) },
                 project.designExternalTemp,
               );
+              const layoutEmitter = (project.heatingLayout?.emitters ?? []).find((item) => item.roomId === room.id);
               const rad = pickRadiatorForRoom(
                 { ...room, meanWaterTemperature: String(project.flowTemperature) },
                 project.designExternalTemp,
               );
               const openings = room.openings ?? [];
+              const emitterLabel = layoutEmitter
+                ? layoutEmitter.kind === "ufh"
+                  ? `UFH ${layoutEmitter.widthM.toFixed(1)}×${layoutEmitter.depthM.toFixed(1)} m`
+                  : layoutEmitter.label
+                : rad
+                  ? `${rad.range} ${rad.model} · ${rad.outputWatts} W`
+                  : "Upgrade needed";
               return (
                 <tr key={room.id}>
                   <td>{room.name}</td>
@@ -227,7 +246,7 @@ export function DesignReport({ project, design, options, className }: DesignRepo
                   <td>{loss.floorArea.toFixed(1)} m²</td>
                   <td>{wattsLabel(loss.watts)}</td>
                   <td>{openings.length ? openings.map((o) => (o.kind === "door" ? "D" : "W")).join(" ") : "—"}</td>
-                  <td>{rad ? `${rad.range} ${rad.model}` : "Upgrade needed"}</td>
+                  <td>{emitterLabel}</td>
                 </tr>
               );
             })}
@@ -236,7 +255,7 @@ export function DesignReport({ project, design, options, className }: DesignRepo
       </section>
 
       <section className="ewg-report-section">
-        <h2>Materials allowance (selected ASHP path)</h2>
+        <h2>Materials allowance</h2>
         <table className="ewg-report-table">
           <thead>
             <tr>

@@ -1,20 +1,20 @@
 .hd-lab {
-  --hd-ink: #14211c;
-  --hd-muted: #5c6b64;
-  --hd-line: #d7e2db;
-  --hd-panel: rgba(255, 255, 255, 0.86);
-  --hd-accent: #0f7a5a;
-  --hd-accent-deep: #0a4f3b;
-  --hd-warm: #c45c26;
+  --hd-ink: #0f2430;
+  --hd-muted: #5a6f7a;
+  --hd-line: #cfdce4;
+  --hd-panel: rgba(255, 255, 255, 0.9);
+  --hd-accent: #157fa8;
+  --hd-accent-deep: #0e5f7f;
+  --hd-warm: #157fa8;
   --hd-warn: #9a3412;
-  --hd-ok: #166534;
-  --hd-shadow: 0 18px 48px rgba(20, 33, 28, 0.1);
+  --hd-ok: #0e5f7f;
+  --hd-shadow: 0 18px 48px rgba(15, 36, 48, 0.1);
   min-height: 100vh;
   color: var(--hd-ink);
   background:
-    radial-gradient(ellipse 75% 48% at 8% -8%, #c7e6d8 0%, transparent 55%),
-    radial-gradient(ellipse 65% 42% at 96% 4%, #f0dfc4 0%, transparent 50%),
-    linear-gradient(165deg, #e7f2ec, #f6f2e9 48%, #eef2ef);
+    radial-gradient(ellipse 75% 48% at 8% -8%, #c5e4f0 0%, transparent 55%),
+    radial-gradient(ellipse 65% 42% at 96% 4%, #d9e8f0 0%, transparent 50%),
+    linear-gradient(165deg, #e8f3f8, #f4f7f9 48%, #eef3f6);
   font-family: "Segoe UI", "Avenir Next", "Helvetica Neue", sans-serif;
 }
 
@@ -1164,8 +1164,8 @@
 }
 
 .hd-option-card.is-chosen {
-  border-color: #0f766e;
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.14);
+  border-color: #157fa8;
+  box-shadow: 0 0 0 2px rgba(21, 127, 168, 0.14);
 }
 
 .hd-option-design {
@@ -1367,7 +1367,7 @@
 }
 
 .ewg-report-table .is-good {
-  color: #166534;
+  color: #0e5f7f;
   font-weight: 700;
 }
 
@@ -1440,7 +1440,7 @@
 }
 
 .ewg-pill-chosen {
-  background: #0f766e;
+  background: #0e5f7f;
 }
 
 .hp-layout-banner {
@@ -1451,14 +1451,14 @@
   margin: 0 0 0.55rem;
   padding: 0.55rem 0.75rem;
   border-radius: 0.7rem;
-  background: linear-gradient(90deg, rgba(15, 118, 110, 0.1), rgba(21, 127, 168, 0.08));
-  border: 1px solid rgba(15, 118, 110, 0.25);
+  background: linear-gradient(90deg, rgba(21, 127, 168, 0.12), rgba(21, 127, 168, 0.05));
+  border: 1px solid rgba(21, 127, 168, 0.28);
   font-size: 0.86rem;
   color: #334155;
 }
 
 .hp-layout-banner strong {
-  color: #0f766e;
+  color: #0e5f7f;
 }
 
 .hp-layout-banner em {
@@ -1480,22 +1480,145 @@
   padding-right: 0.45rem;
 }
 
-.hp-emitter-mode {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: #475569;
+.hd-emitter-picker {
+  margin: 0 0 1rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--hd-line);
+  border-radius: 0.9rem;
+  background: #fff;
 }
 
-.hp-emitter-mode select {
+.hd-emitter-picker > strong {
+  display: block;
+  margin-bottom: 0.55rem;
+  color: var(--hd-accent-deep);
+}
+
+.hd-emitter-choices {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.hd-emitter-choice {
+  appearance: none;
+  text-align: left;
   border: 1px solid var(--hd-line);
-  border-radius: 0.45rem;
-  padding: 0.28rem 0.4rem;
+  border-radius: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  background: #f8fbfd;
+  cursor: pointer;
+  color: var(--hd-ink);
+}
+
+.hd-emitter-choice strong {
+  display: block;
+  margin-bottom: 0.2rem;
+}
+
+.hd-emitter-choice span {
+  display: block;
+  color: var(--hd-muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.hd-emitter-choice.is-on {
+  border-color: var(--hd-accent);
+  background: rgba(21, 127, 168, 0.1);
+  box-shadow: 0 0 0 2px rgba(21, 127, 168, 0.12);
+}
+
+.hd-benefits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+}
+
+.hd-benefit-card {
+  border: 1px solid var(--hd-line);
+  border-radius: 0.9rem;
+  padding: 0.85rem 0.95rem;
   background: #fff;
-  font: inherit;
-  color: #0f172a;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.hd-benefit-card.is-best {
+  border-color: var(--hd-accent);
+  background: linear-gradient(180deg, #eef7fb, #fff);
+}
+
+.hd-benefit-card.is-chosen {
+  box-shadow: 0 0 0 2px rgba(21, 127, 168, 0.16);
+}
+
+.hd-benefit-card header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.hd-benefit-card p {
+  margin: 0;
+  color: var(--hd-muted);
+  font-size: 0.88rem;
+}
+
+.hd-benefit-card ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--hd-ink);
+  font-size: 0.86rem;
+}
+
+.hd-benefit-notes {
+  font-size: 0.78rem !important;
+  color: var(--hd-muted) !important;
+}
+
+.hd-subhead {
+  margin: 1.1rem 0 0.65rem;
+  font-size: 1.05rem;
+}
+
+.hp-emitter-schedule {
+  border: 1px solid var(--hd-line);
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  background: #fff;
+}
+
+.hp-emitter-schedule > strong {
+  display: block;
+  margin-bottom: 0.45rem;
+  color: var(--hd-accent-deep);
+  font-size: 0.9rem;
+}
+
+.hp-emitter-schedule table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.hp-emitter-schedule th,
+.hp-emitter-schedule td {
+  text-align: left;
+  padding: 0.35rem 0.4rem;
+  border-bottom: 1px solid var(--hd-line);
+}
+
+.hp-emitter-schedule tr.is-on td {
+  background: rgba(21, 127, 168, 0.08);
+}
+
+@media (max-width: 800px) {
+  .hd-emitter-choices {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hd-report-plan-key {

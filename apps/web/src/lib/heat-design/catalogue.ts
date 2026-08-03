@@ -293,6 +293,7 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
     reportOptionIds: ["opt-ashp", "opt-gas", "opt-oil"],
     chosenSystemId: undefined,
     heatingLayout: null,
+    emitterMode: "radiators",
     cylinderLitres: 210,
     dailyHotWaterLitres: 150,
     outdoorUnitDistanceM: 3,

@@ -279,7 +279,7 @@ function buildEmitters(
     );
     const place = radiatorPlacement(room);
     const label = rad
-      ? `${rad.model} · ${room.name || "Room"}`
+      ? `${rad.model} · ${rad.outputWatts}W`
       : `Radiator · ${room.name || "Room"}`;
     emitters.push({
       id: uid("rad"),
@@ -317,7 +317,7 @@ function serviceSpineY(rooms: HeatDesignRoom[], plantRoom: HeatDesignRoom): numb
 export function seedHeatingLayout(
   project: HeatDesignProject,
   systemOptionId: string,
-  emitterMode: HeatingEmitterMode = "mixed",
+  emitterMode: HeatingEmitterMode = project.emitterMode ?? "radiators",
 ): HeatingSystemLayout {
   const kind = kindForOption(systemOptionId);
   const floor: FloorLevel = project.activeFloor ?? "ground";
@@ -511,20 +511,20 @@ export function pipeStroke(kind: HeatingPipeKind): { stroke: string; dash?: stri
       return { stroke: "#0891b2", width: 3 };
     case "primary":
     default:
-      return { stroke: "#0f766e", width: 3.5 };
+      return { stroke: "#157fa8", width: 3.5 };
   }
 }
 
 export function plantFill(kind: HeatingPlantKind): string {
   switch (kind) {
     case "outdoor_unit":
-      return "#0f766e";
+      return "#157fa8";
     case "boiler":
     case "electric_boiler":
-      return "#b45309";
+      return "#0e5f7f";
     case "cylinder":
     case "buffer":
-      return "#0369a1";
+      return "#0284c7";
     case "manifold":
       return "#334155";
     case "oil_tank":
