@@ -21,7 +21,10 @@ import {
   wattsLabel,
   buildEras,
   ceilingTypes,
+  clampFlowTempToSystem,
+  defaultFlowTempForSystem,
   floorTypes,
+  flowTempOptionsForSystem,
   glazingTypes,
   propertyTypes,
   radiatorRanges,
@@ -66,6 +69,9 @@ export default function HeatDesignLabPage() {
   const [notice, setNotice] = useState("");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
+  const [quotePushBusy, setQuotePushBusy] = useState(false);
+  const [quoteOptions, setQuoteOptions] = useState<Array<{ id: string; ref: string; customer: string }>>([]);
+  const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -78,6 +84,22 @@ export default function HeatDesignLabPage() {
     if (!project) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(project));
   }, [project]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/quotes")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: Array<{ id: string; ref: string; customer: string }>) => {
+        if (cancelled || !Array.isArray(rows)) return;
+        setQuoteOptions(rows.map((row) => ({ id: row.id, ref: row.ref, customer: row.customer })));
+      })
+      .catch(() => {
+        /* public lab may be logged out — push will prompt sign-in */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!pendingPrint || tab !== "report") return;
@@ -161,15 +183,77 @@ export default function HeatDesignLabPage() {
 
   function designSystemOnPlan(optionId: string, mode?: HeatingEmitterMode) {
     if (!project) return;
-    const emitterMode = mode ?? project.emitterMode ?? "radiators";
-    const layout = seedHeatingLayout(project, optionId, emitterMode);
     const option = heatingSystemOptions.find((item) => item.id === optionId);
-    patchProject({ chosenSystemId: optionId, emitterMode, heatingLayout: layout });
+    const emitterMode = mode ?? project.emitterMode ?? "radiators";
+    const flowTemperature = clampFlowTempToSystem(
+      option?.kind,
+      project.flowTemperature === defaultFlowTempForSystem(
+        heatingSystemOptions.find((item) => item.id === project.chosenSystemId)?.kind,
+      )
+        ? defaultFlowTempForSystem(option?.kind)
+        : project.flowTemperature,
+    );
+    // If user still on ASHP default (45) and switching to boiler, jump to boiler default
+    const nextFlow =
+      option?.kind && option.kind !== "ashp" && option.kind !== "hybrid" && project.flowTemperature <= 55
+        ? defaultFlowTempForSystem(option.kind)
+        : option?.kind === "ashp" && project.flowTemperature >= 60
+          ? defaultFlowTempForSystem("ashp")
+          : flowTemperature;
+    const nextProject = { ...project, chosenSystemId: optionId, emitterMode, flowTemperature: nextFlow };
+    const layout = seedHeatingLayout(nextProject, optionId, emitterMode);
+    patchProject({
+      chosenSystemId: optionId,
+      emitterMode,
+      flowTemperature: nextFlow,
+      heatingLayout: layout,
+    });
     setLayoutMode(true);
     setTab("plan");
     setNotice(
-      `Designed ${option?.label ?? "system"} with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"} — sizes shown per room.`,
+      `Designed ${option?.label ?? "system"} at ${nextFlow}°C flow with ${emitterMode === "ufh" ? "underfloor heating" : emitterMode === "mixed" ? "mixed radiators / UFH" : "radiators"}.`,
     );
+  }
+
+  async function pushKitToQuote() {
+    if (!project || !design) return;
+    setQuotePushBusy(true);
+    try {
+      const option = heatingSystemOptions.find((item) => item.id === project.chosenSystemId);
+      const res = await fetch("/api/heat-design/push-to-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quoteId: selectedQuoteId || undefined,
+          customerName: project.customerName,
+          projectName: project.name,
+          address: [project.address, project.postcode].filter(Boolean).join(", "),
+          chosenSystemLabel: option?.label,
+          flowTemperature: project.flowTemperature,
+          emitterMode: project.emitterMode,
+          kit: design.kit,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNotice(data.error || "Could not push materials — sign in with quote access.");
+        return;
+      }
+      setNotice(
+        `Pushed ${data.lineCount} material lines into quote ${data.quote?.ref || ""}. Convert that quote to a job and the materials follow.`,
+      );
+      if (data.quote?.id) {
+        setSelectedQuoteId(data.quote.id);
+        setQuoteOptions((current) => {
+          if (current.some((row) => row.id === data.quote.id)) return current;
+          return [{ id: data.quote.id, ref: data.quote.ref, customer: data.quote.customer }, ...current];
+        });
+      }
+    } catch {
+      setNotice("Could not reach quote API — check you are signed in.");
+    } finally {
+      setQuotePushBusy(false);
+    }
   }
 
   function regenerateLayout(mode?: HeatingEmitterMode) {
@@ -207,6 +291,10 @@ export default function HeatDesignLabPage() {
     heatingSystemOptions.find((item) => item.id === project.chosenSystemId) ??
     optionResults.find((row) => row.recommended)?.option ??
     null;
+  const flowOptions = flowTempOptionsForSystem(chosenOption?.kind);
+  const showHeatPumpPicker = (project.reportOptionIds ?? []).some(
+    (id) => id === "opt-ashp" || id === "opt-hybrid",
+  ) || chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid";
 
   return (
     <main className="hd-lab">
@@ -668,39 +756,63 @@ export default function HeatDesignLabPage() {
                   </div>
                 )}
 
-                {(project.reportOptionIds ?? []).some((id) => id === "opt-ashp" || id === "opt-hybrid") ? (
-                  <>
-                    <h3 className="hd-subhead">Heat pump unit (ASHP / hybrid)</h3>
+                <>
+                    <h3 className="hd-subhead">Design flow temperature</h3>
+                    <p className="hd-lead" style={{ marginTop: 0 }}>
+                      {chosenOption
+                        ? `Matched to ${chosenOption.label} — boilers go up to 80°C; heat pumps stay lower.`
+                        : "Pick a system (Design on plan) to unlock the matching flow range."}
+                    </p>
                     <div className="hd-grid-2" style={{ marginBottom: 16 }}>
                       <label className="hd-field">
                         Design flow temperature °C
                         <select
-                          value={project.flowTemperature}
+                          value={
+                            flowOptions.some((item) => item.value === project.flowTemperature)
+                              ? project.flowTemperature
+                              : clampFlowTempToSystem(chosenOption?.kind, project.flowTemperature)
+                          }
                           onChange={(event) => {
                             const flowTemperature = Number(event.target.value);
-                            const nextLoad = calculateSystemDesign({ ...project, flowTemperature });
-                            const pump = suggestHeatPump(nextLoad.designLoadKw, flowTemperature);
-                            patchProject({ flowTemperature, selectedHeatPumpId: pump.id });
+                            const patch: Partial<HeatDesignProject> = { flowTemperature };
+                            if (chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid") {
+                              const nextLoad = calculateSystemDesign({ ...project, flowTemperature });
+                              const pump = suggestHeatPump(nextLoad.designLoadKw, flowTemperature);
+                              patch.selectedHeatPumpId = pump.id;
+                            }
+                            patchProject(patch);
                           }}
                         >
-                          <option value={35}>35°C — best efficiency</option>
-                          <option value={40}>40°C</option>
-                          <option value={45}>45°C — balanced</option>
-                          <option value={50}>50°C</option>
-                          <option value={55}>55°C — smaller emitters</option>
+                          {flowOptions.map((item) => (
+                            <option key={item.value} value={item.value}>
+                              {item.label}
+                            </option>
+                          ))}
                         </select>
                       </label>
-                      <label className="hd-field">
-                        Outdoor unit → neighbour m
-                        <input
-                          inputMode="decimal"
-                          value={project.nearestNeighbourDistanceM}
-                          onChange={(event) =>
-                            patchProject({ nearestNeighbourDistanceM: Number(event.target.value) || 0 })
-                          }
-                        />
-                      </label>
+                      {showHeatPumpPicker ? (
+                        <label className="hd-field">
+                          Outdoor unit → neighbour m
+                          <input
+                            inputMode="decimal"
+                            value={project.nearestNeighbourDistanceM}
+                            onChange={(event) =>
+                              patchProject({ nearestNeighbourDistanceM: Number(event.target.value) || 0 })
+                            }
+                          />
+                        </label>
+                      ) : (
+                        <label className="hd-field">
+                          Chosen system
+                          <input value={chosenOption?.label || "None yet — Design on plan"} readOnly />
+                        </label>
+                      )}
                     </div>
+                  </>
+
+                {showHeatPumpPicker ? (
+                  <>
+                    <h3 className="hd-subhead">Heat pump unit (ASHP / hybrid)</h3>
                     <div className="hd-pump-list">
                       {heatPumpCatalogue.map((pump) => {
                         const atFlow =
@@ -724,8 +836,8 @@ export default function HeatDesignLabPage() {
                               {pump.brand} {pump.model}
                             </strong>
                             <small>
-                              {atFlow.toFixed(1)} kW @ {project.flowTemperature}°C · from {money(pump.typicalInstalledFrom)} ·{" "}
-                              {pump.soundPowerDb} dB(A)
+                              {atFlow.toFixed(1)} kW @ {Math.min(55, project.flowTemperature)}°C · from{" "}
+                              {money(pump.typicalInstalledFrom)} · {pump.soundPowerDb} dB(A)
                             </small>
                           </button>
                         );
@@ -744,14 +856,40 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Kit / materials list</h2>
                 <p className="hd-lead">
-                  Built from the floor-plan geometry, selected wall construction, openings and radiator picks. Demo
-                  trade prices — not a full merchant BOM yet.
+                  Built for{" "}
+                  <strong>{chosenOption?.label || "the design system"}</strong> at {project.flowTemperature}°C flow —
+                  pipework, plant, emitters and extras. Push into a quote; converting that quote carries materials into
+                  the job.
                 </p>
                 <div className={`hd-banner${design.materialsComplete ? "" : " warn"}`} style={{ marginBottom: 12 }}>
                   {design.materialsComplete
                     ? "Materials checklist complete for this lab project."
                     : `Still needed: ${design.materialsNotes.join(" ")}`}
                 </div>
+                <div className="hd-quote-push">
+                  <label className="hd-field">
+                    Quote (optional)
+                    <select value={selectedQuoteId} onChange={(event) => setSelectedQuoteId(event.target.value)}>
+                      <option value="">Create new draft quote</option>
+                      {quoteOptions.map((quote) => (
+                        <option key={quote.id} value={quote.id}>
+                          {quote.ref} — {quote.customer}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="hd-btn hd-btn-primary"
+                    disabled={quotePushBusy || !design.kit.length || !project.chosenSystemId}
+                    onClick={() => void pushKitToQuote()}
+                  >
+                    {quotePushBusy ? "Pushing…" : "Push materials to quote"}
+                  </button>
+                </div>
+                {!project.chosenSystemId ? (
+                  <p className="hd-lead">Design a system on plan first so the kit matches gas / ASHP / oil etc.</p>
+                ) : null}
                 <div className="hd-extras">
                   {kitExtraOptions.map((extra) => {
                     const on = project.kitExtras.includes(extra.id);

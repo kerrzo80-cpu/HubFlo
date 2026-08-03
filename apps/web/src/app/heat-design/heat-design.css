@@ -1579,9 +1579,18 @@
   color: var(--hd-muted) !important;
 }
 
-.hd-subhead {
-  margin: 1.1rem 0 0.65rem;
-  font-size: 1.05rem;
+.hd-quote-push {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: end;
+  margin-bottom: 0.85rem;
+}
+
+@media (max-width: 700px) {
+  .hd-quote-push {
+    grid-template-columns: 1fr;
+  }
 }
 
 .hp-emitter-schedule {

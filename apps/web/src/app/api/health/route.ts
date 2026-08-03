@@ -38,7 +38,7 @@ export async function GET() {
       talkLab: "/field/talk-lab",
       talkLabBuild: "realtime-voice-picker-v1",
       heatDesign: "/heat-design",
-      heatDesignBuild: "emitters-benefits-brand-blue-v1",
+      heatDesignBuild: "flow-kit-quote-push-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       photoCompressBuild: "shrink-v1",

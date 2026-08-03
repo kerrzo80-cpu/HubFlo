@@ -304,7 +304,9 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
 }
 
 export function buildKitLines(input: {
-  pump: HeatPumpOption;
+  systemKind?: import("./systems").HeatingSystemKind;
+  systemLabel?: string;
+  pump?: HeatPumpOption | null;
   cylinderLitres: number;
   flowTemperature: number;
   emitterUpgradeCount: number;
@@ -315,69 +317,215 @@ export function buildKitLines(input: {
   pipeRunM?: number;
   wallConstructionLabel?: string;
   radiatorLines?: Array<{ description: string; qty: number; unitCost: number }>;
+  emitterMode?: "radiators" | "ufh" | "mixed";
+  designLoadKw?: number;
 }): KitLine[] {
+  const kind = input.systemKind ?? "ashp";
   const floorArea = input.floorAreaM2 ?? 0;
   const exteriorWallArea = input.exteriorWallAreaM2 ?? 0;
   const pipeRunM = Math.max(12, Math.round(input.pipeRunM ?? floorArea * 1.1));
-  const lines: KitLine[] = [
-    {
+  const loadKw = input.designLoadKw ?? 0;
+  const boilerKw = Math.max(12, Math.ceil(loadKw + 4));
+  const lines: KitLine[] = [];
+
+  if (kind === "ashp" || kind === "hybrid") {
+    const pump = input.pump;
+    lines.push({
       id: "kit-ashp",
       category: "Heat pump",
-      description: `${input.pump.brand} ${input.pump.model}`,
+      description: pump ? `${pump.brand} ${pump.model}` : "Air source heat pump (TBC)",
       qty: 1,
-      unitCost: Math.round(input.pump.typicalInstalledFrom * 0.55),
+      unitCost: pump ? Math.round(pump.typicalInstalledFrom * 0.55) : 4500,
       required: true,
-    },
-    {
+    });
+    if (kind === "hybrid") {
+      lines.push({
+        id: "kit-hybrid-boiler",
+        category: "Boiler",
+        description: `Hybrid peak gas boiler ~${boilerKw} kW`,
+        qty: 1,
+        unitCost: 1100 + boilerKw * 35,
+        required: true,
+      });
+    }
+    lines.push({
       id: "kit-cylinder",
       category: "Cylinder",
       description: `${input.cylinderLitres} L heat-pump ready cylinder`,
       qty: 1,
       unitCost: input.cylinderLitres >= 250 ? 1450 : input.cylinderLitres >= 200 ? 1180 : 980,
       required: true,
-    },
-    {
+    });
+    lines.push({
       id: "kit-buffer",
       category: "Hydraulics",
       description: input.flowTemperature <= 40 ? "50 L buffer / volumiser" : "Optional volumiser tee set",
       qty: 1,
       unitCost: input.flowTemperature <= 40 ? 320 : 95,
       required: true,
-    },
-    {
-      id: "kit-filter",
-      category: "Hydraulics",
-      description: "Magnetic filter + inhibitor pack",
-      qty: 1,
-      unitCost: 145,
-      required: true,
-    },
-    {
-      id: "kit-pipe",
-      category: "Pipework",
-      description: `Flow/return pipework & insulation (~${pipeRunM} m)`,
-      qty: pipeRunM,
-      unitCost: 18,
-      unit: "m",
-      required: true,
-    },
-    {
-      id: "kit-electrics",
+    });
+    lines.push({
+      id: "kit-electrics-ou",
       category: "Electrical",
-      description: "Isolator, cable, outdoor supply allowance",
+      description: "Isolator, cable, outdoor unit supply allowance",
       qty: 1,
       unitCost: 390,
       required: true,
-    },
-    {
-      id: "kit-controls",
-      category: "Controls",
-      description: "Weather compensation + room thermostat pack",
+    });
+  } else if (kind === "gas") {
+    lines.push({
+      id: "kit-gas-boiler",
+      category: "Boiler",
+      description: `Condensing gas boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
       qty: 1,
-      unitCost: 260,
+      unitCost: 950 + boilerKw * 28,
       required: true,
-    },
-  ];
+    });
+    lines.push({
+      id: "kit-flue",
+      category: "Flue",
+      description: "Concentric flue kit + plume management allowance",
+      qty: 1,
+      unitCost: 220,
+      required: true,
+    });
+    lines.push({
+      id: "kit-gas-valve",
+      category: "Gas",
+      description: "Gas isolation / meter connection allowance",
+      qty: 1,
+      unitCost: 180,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L unvented / system cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : input.cylinderLitres >= 200 ? 820 : 690,
+      required: true,
+    });
+  } else if (kind === "oil") {
+    lines.push({
+      id: "kit-oil-boiler",
+      category: "Boiler",
+      description: `Condensing oil boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 1400 + boilerKw * 32,
+      required: true,
+    });
+    lines.push({
+      id: "kit-oil-tank",
+      category: "Fuel",
+      description: "Oil tank / bund connection allowance",
+      qty: 1,
+      unitCost: 850,
+      required: true,
+    });
+    lines.push({
+      id: "kit-flue",
+      category: "Flue",
+      description: "Oil flue kit + liner allowance",
+      qty: 1,
+      unitCost: 280,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L system cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : 820,
+      required: true,
+    });
+  } else if (kind === "lpg") {
+    lines.push({
+      id: "kit-lpg-boiler",
+      category: "Boiler",
+      description: `Condensing LPG boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 1050 + boilerKw * 30,
+      required: true,
+    });
+    lines.push({
+      id: "kit-lpg-tank",
+      category: "Fuel",
+      description: "LPG tank / bottle bank connection allowance",
+      qty: 1,
+      unitCost: 420,
+      required: true,
+    });
+    lines.push({
+      id: "kit-flue",
+      category: "Flue",
+      description: "Concentric flue kit",
+      qty: 1,
+      unitCost: 220,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L system cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : 820,
+      required: true,
+    });
+  } else {
+    lines.push({
+      id: "kit-electric-boiler",
+      category: "Boiler",
+      description: `Electric boiler ~${boilerKw} kW @ ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 800 + boilerKw * 40,
+      required: true,
+    });
+    lines.push({
+      id: "kit-electrics-eb",
+      category: "Electrical",
+      description: "High-load supply / isolator allowance",
+      qty: 1,
+      unitCost: 480,
+      required: true,
+    });
+    lines.push({
+      id: "kit-cylinder",
+      category: "Cylinder",
+      description: `${input.cylinderLitres} L cylinder`,
+      qty: 1,
+      unitCost: input.cylinderLitres >= 250 ? 980 : 820,
+      required: true,
+    });
+  }
+
+  lines.push({
+    id: "kit-filter",
+    category: "Hydraulics",
+    description: "Magnetic filter + inhibitor pack",
+    qty: 1,
+    unitCost: 145,
+    required: true,
+  });
+  lines.push({
+    id: "kit-pipe",
+    category: "Pipework",
+    description: `Flow/return pipework & insulation (~${pipeRunM} m) @ ${input.flowTemperature}°C design`,
+    qty: pipeRunM,
+    unitCost: kind === "ashp" || kind === "hybrid" ? 18 : 14,
+    unit: "m",
+    required: true,
+  });
+  lines.push({
+    id: "kit-controls",
+    category: "Controls",
+    description:
+      kind === "ashp" || kind === "hybrid"
+        ? "Weather compensation + room thermostat pack"
+        : "Boiler controls / programmer + room thermostat pack",
+    qty: 1,
+    unitCost: kind === "ashp" || kind === "hybrid" ? 260 : 180,
+    required: true,
+  });
 
   if (input.wallConstructionLabel && exteriorWallArea > 0) {
     lines.push({
@@ -401,7 +549,19 @@ export function buildKitLines(input: {
     });
   }
 
-  if (input.radiatorLines?.length) {
+  const emitterMode = input.emitterMode ?? "radiators";
+  if (emitterMode === "ufh") {
+    const ufhArea = Math.max(8, Math.round(floorArea * 0.85));
+    lines.push({
+      id: "kit-ufh",
+      category: "Emitters",
+      description: `Underfloor heating manifolds + loops (~${ufhArea} m²)`,
+      qty: ufhArea,
+      unitCost: 42,
+      unit: "m²",
+      required: true,
+    });
+  } else if (input.radiatorLines?.length) {
     input.radiatorLines.forEach((line, index) => {
       lines.push({
         id: `kit-rad-${index}`,
@@ -412,6 +572,16 @@ export function buildKitLines(input: {
         required: true,
       });
     });
+    if (emitterMode === "mixed") {
+      lines.push({
+        id: "kit-ufh-mixed",
+        category: "Emitters",
+        description: "UFH allowance for wet rooms (mixed design)",
+        qty: 1,
+        unitCost: 680,
+        required: true,
+      });
+    }
   } else if (input.emitterUpgradeCount > 0) {
     lines.push({
       id: "kit-rads",
@@ -433,6 +603,17 @@ export function buildKitLines(input: {
       qty: 1,
       unitCost: extra.unitCost,
       required: false,
+    });
+  }
+
+  if (input.systemLabel) {
+    lines.unshift({
+      id: "kit-system-note",
+      category: "System",
+      description: `Design system: ${input.systemLabel} · ${input.flowTemperature}°C flow`,
+      qty: 1,
+      unitCost: 0,
+      required: true,
     });
   }
 

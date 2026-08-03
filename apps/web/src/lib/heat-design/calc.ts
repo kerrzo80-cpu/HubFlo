@@ -20,6 +20,7 @@ import {
   roomWallExterior,
   syncRoomFromPolygon,
 } from "./geometry";
+import { heatingSystemOptions } from "./systems";
 import type {
   HeatDesignProject,
   HeatDesignRoom,
@@ -260,8 +261,15 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   if (project.rooms.length === 0) materialsNotes.push("Add rooms on the floor plan.");
   if (openingCount === 0) materialsNotes.push("Add windows/doors on walls for glazing takeoff.");
 
+  const chosenSystem =
+    heatingSystemOptions.find((item) => item.id === project.chosenSystemId) ??
+    heatingSystemOptions.find((item) => item.id === "opt-ashp");
+  const systemKind = chosenSystem?.kind ?? "ashp";
+
   const kit = buildKitLines({
-    pump: selectedPump,
+    systemKind,
+    systemLabel: chosenSystem?.label,
+    pump: systemKind === "ashp" || systemKind === "hybrid" ? selectedPump : null,
     cylinderLitres,
     flowTemperature: project.flowTemperature,
     emitterUpgradeCount,
@@ -272,6 +280,8 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     pipeRunM: Math.round(totalFloorArea * 1.15 + project.rooms.length * 4),
     wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
     radiatorLines,
+    emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    designLoadKw,
   });
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const materialsComplete =
