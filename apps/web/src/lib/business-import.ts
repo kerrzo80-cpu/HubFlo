@@ -1,4 +1,14 @@
-export type BusinessImportType = "employees" | "customers" | "suppliers" | "leads" | "quotes" | "jobs" | "invoices";
+export type BusinessImportType =
+  | "employees"
+  | "customers"
+  | "sites"
+  | "suppliers"
+  | "contacts"
+  | "contractors"
+  | "leads"
+  | "quotes"
+  | "jobs"
+  | "invoices";
 
 export type BusinessImportRow = Record<string, string>;
 
@@ -10,7 +20,10 @@ export type ParsedBusinessImport = {
 export const businessImportLabels: Record<BusinessImportType, string> = {
   employees: "Employees",
   customers: "Customers",
+  sites: "Sites",
   suppliers: "Suppliers",
+  contacts: "Contacts",
+  contractors: "Contractors",
   leads: "Leads",
   quotes: "Quotes",
   jobs: "Jobs",
@@ -20,7 +33,10 @@ export const businessImportLabels: Record<BusinessImportType, string> = {
 export const businessImportTemplateHeaders: Record<BusinessImportType, string[]> = {
   employees: ["name", "role", "job_title", "email", "phone", "start_date"],
   customers: ["customer", "account_reference", "primary_contact", "email", "phone", "billing_address", "site_name", "site_address", "vat_treatment", "vat_rate", "notes"],
+  sites: ["customer", "site_name", "site_address", "primary_contact", "service_line", "next_visit", "access_notes", "site_vat_treatment", "site_vat_rate"],
   suppliers: ["supplier", "email", "phone", "account_reference", "category", "notes"],
+  contacts: ["name", "company", "role", "email", "phone", "notes"],
+  contractors: ["contractor", "trade", "primary_contact", "email", "phone", "notes"],
   leads: ["reference", "customer", "phone", "email", "address", "description", "source", "status", "surveyor", "survey_date", "survey_time"],
   quotes: ["reference", "customer", "description", "owner", "status", "value", "next_action", "due"],
   jobs: ["reference", "customer", "site", "description", "manager", "status", "value", "next_action", "due", "scheduled_date", "scheduled_time"],
@@ -135,8 +151,19 @@ export function validateBusinessImportRow(type: BusinessImportType, row: Busines
     requireValue("customer", ["customer", "client", "customer_name", "client_name", "name"]);
     requireValue("billing_address", ["billing_address", "address", "site_address", "site"]);
   }
+  if (type === "sites") {
+    requireValue("customer", ["customer", "client", "customer_name", "client_name", "name"]);
+    requireValue("site_name", ["site_name", "site"]);
+    requireValue("site_address", ["site_address", "address"]);
+  }
   if (type === "suppliers") {
     requireValue("supplier", ["supplier", "supplier_name", "name"]);
+  }
+  if (type === "contacts") {
+    requireValue("name", ["name", "contact", "contact_name"]);
+  }
+  if (type === "contractors") {
+    requireValue("contractor", ["contractor", "contractor_name", "name"]);
   }
   if (type === "leads") {
     requireValue("customer", ["customer", "client", "customer_name", "client_name", "name"]);

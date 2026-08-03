@@ -210,6 +210,7 @@ export type Employee = {
   id: string;
   name: string;
   role: HubRole;
+  archived?: boolean;
   permissions: AccessOverride;
   profile?: EmployeeProfile;
   login?: EmployeeLogin;

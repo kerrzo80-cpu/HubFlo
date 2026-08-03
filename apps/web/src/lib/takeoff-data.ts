@@ -162,6 +162,10 @@ export type TakeoffMaterialAllowance = {
   supplierRequired: boolean;
   preferredSupplier?: string;
   sourceDocumentId?: string;
+  /** Parent bill line when this is a Blake-suggested ancillary (clips, brackets, etc.). */
+  parentMaterialId?: string;
+  /** Why Blake added this line (drawing / rule of thumb). */
+  blakeNote?: string;
 };
 
 export type TakeoffLabourAllowance = {
@@ -172,6 +176,12 @@ export type TakeoffLabourAllowance = {
   costRate: number;
   markupPercent: number;
   notes: string;
+  /** Bill / material line this labour belongs to. */
+  linkedMaterialId?: string;
+  /** e.g. 0.15 hours per metre of gutter. */
+  hoursPerUnit?: number;
+  /** Unit the rate is based on (m, Nr, sum). */
+  unitBasis?: string;
 };
 
 export type TakeoffSupplierRequestItem = {
@@ -355,6 +365,35 @@ export type TakeoffMarkupSymbol = {
   included: boolean;
 };
 
+export type TakeoffMarkupPackageStatus = "suggested" | "accepted" | "dismissed";
+
+export type TakeoffMarkupPackageChildItem = {
+  id: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  section?: string;
+  supplierRequired?: boolean;
+  note?: string;
+  defaultSelected?: boolean;
+  selected?: boolean;
+};
+
+export type TakeoffMarkupPackageInstance = {
+  id: string;
+  templateId: string;
+  title: string;
+  summary: string;
+  parentSymbolId: string;
+  parentKind: TakeoffMarkupSymbolKind;
+  parentCategory: TakeoffMarkupSymbolCategory;
+  status: TakeoffMarkupPackageStatus;
+  section: string;
+  childItems: Array<TakeoffMarkupPackageChildItem & { selected: boolean }>;
+  createdAt: string;
+  updatedAt?: string;
+};
+
 export type TakeoffServicesMarkup = {
   drawingDocumentId?: string;
   calibration: {
@@ -370,6 +409,10 @@ export type TakeoffServicesMarkup = {
   };
   pipes: TakeoffMarkupPipe[];
   symbols: TakeoffMarkupSymbol[];
+  /** Suggested/accepted plant packages (boiler flue pack, bath waste/taps, stack tap-in, etc.). */
+  packages?: TakeoffMarkupPackageInstance[];
+  /** Material line IDs removed from BoQ that should not be regenerated from markup. */
+  excludedQuantityIds?: string[];
   assumptions: string[];
   updatedAt?: string;
 };
@@ -2685,4 +2728,105 @@ export function pushSurveyProjectToQuote(
     },
     totalSell: applied.totalSell,
   };
+}
+
+export function materialAllowancesFromParsedBoq(
+  parsed: {
+    fileName: string;
+    lines: Array<{
+      ref: string;
+      section: string;
+      description: string;
+      quantity: number;
+      unit: string;
+      rate: number | null;
+    }>;
+  },
+  documentId: string,
+): TakeoffMaterialAllowance[] {
+  const trade = parsed.fileName.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim() || "Imported BOQ";
+  return parsed.lines.map((line, index) => {
+    const haystack = `${line.description} ${line.section}`.toLowerCase();
+    const supplierRequired = /prime cost|pc value|nominated supplier|sanitary|towel rail|cylinder|boiler|radiator|supply and install/.test(haystack);
+    return {
+      id: `boq-xlsx-${documentId}-${index}`,
+      section: line.section || trade,
+      description: line.description,
+      quantity: line.quantity,
+      unit: line.unit || "item",
+      unitCost: line.rate ?? 0,
+      markupPercent: 30,
+      supplierRequired,
+      preferredSupplier: "",
+      sourceDocumentId: documentId,
+    } satisfies TakeoffMaterialAllowance;
+  });
+}
+
+export function mergeBoqMaterialAllowances(
+  existing: TakeoffMaterialAllowance[],
+  incoming: TakeoffMaterialAllowance[],
+  documentIds: string[],
+) {
+  const retained = existing.filter((line) => !line.sourceDocumentId || !documentIds.includes(line.sourceDocumentId));
+  const keys = new Set(retained.map((line) => `${line.section}::${line.description}`.toLowerCase()));
+  const fresh = incoming.filter((line) => {
+    const key = `${line.section}::${line.description}`.toLowerCase();
+    if (keys.has(key)) return false;
+    keys.add(key);
+    return true;
+  });
+  return [...retained, ...fresh];
+}
+
+export function applyParsedBoqDocumentsToProject(
+  projectId: string,
+  imports: Array<{ documentId: string; materials: TakeoffMaterialAllowance[]; note: string }>,
+  actor = "NeXa Takeoff",
+): TakeoffProject | null {
+  refreshTakeoffStore();
+  const project = takeoffStore.projects.find((item) => item.id === projectId);
+  if (!project || !imports.length) return project ?? null;
+
+  const documentIds = imports.map((item) => item.documentId);
+  const incoming = imports.flatMap((item) => item.materials);
+  const materialAllowances = mergeBoqMaterialAllowances(project.materialAllowances, incoming, documentIds);
+  const notesByDocument = new Map(imports.map((item) => [item.documentId, item.note]));
+  const importedCount = incoming.length;
+
+  const updated = updateTakeoffProject(projectId, {
+    status: project.status === "Draft" ? "In review" : project.status,
+    materialAllowances,
+    documents: project.documents.map((document) => {
+      const note = notesByDocument.get(document.id);
+      if (!note) return document;
+      return {
+        ...document,
+        status: "Parsed",
+        notes: Array.from(new Set([...document.notes, note])),
+      };
+    }),
+    review: {
+      ...project.review,
+      riskFlags: Array.from(new Set([
+        ...project.review.riskFlags,
+        "Excel BOQ lines imported as material allowances — confirm rates, exclusions and provisional sums",
+      ])),
+      officeNotes: project.review.officeNotes || "Excel BOQ lines imported for office pricing.",
+    },
+  });
+
+  if (updated) {
+    appendAuditEvent({
+      actor,
+      action: "imported",
+      recordType: "takeoff_project",
+      recordId: project.id,
+      summary: `${project.reference} imported ${importedCount} Excel BOQ material line(s).`,
+      source: "takeoff add-on",
+      importance: "normal",
+    });
+  }
+
+  return updated;
 }

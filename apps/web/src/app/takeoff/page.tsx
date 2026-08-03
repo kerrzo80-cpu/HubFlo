@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type TouchEvent as ReactTouchEvent, type WheelEvent as ReactWheelEvent } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -32,6 +32,8 @@ import {
 } from "lucide-react";
 
 import { roleHeaderName } from "@/lib/access";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
 import type { ClientSite } from "@/lib/people-data";
 import type { Quote } from "@/lib/workflow-data";
 import type {
@@ -56,6 +58,22 @@ import type {
   TakeoffServicesMarkup,
   TakeoffSupplierRequestItem,
 } from "@/lib/takeoff-data";
+import {
+  acceptMarkupPackage,
+  dismissMarkupPackage,
+  ensureSuggestedPackage,
+  filterSupplierRequestsForKeptMaterials,
+  filterSurveyMaterialsCoveredByPackages,
+  isAutoFittingOwnedByPackage,
+  materialAllowancesFromAcceptedPackages,
+  normaliseMarkupPackages,
+  packageOwnedParentSymbolIds,
+  packagesForSymbol,
+  prunePackagesForMissingSymbols,
+  surveyMaterialOverlapsAcceptedPackage,
+  togglePackageChild,
+} from "@/lib/takeoff-markup-packages";
+import { sanitizeRemovalSectionTakeoffMaterials } from "@/lib/takeoff-removal-materials";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
@@ -125,11 +143,10 @@ type HeatCalcDraft = {
 };
 
 const tabs: Array<{ key: TakeoffTab; label: string; icon: LucideIcon }> = [
-  { key: "intake", label: "1. Documents", icon: Upload },
-  { key: "markup", label: "2. Services markup", icon: Wrench },
-  { key: "rooms", label: "3. Zones / rooms", icon: Ruler },
-  { key: "boq", label: "4. Quantities / RFQ", icon: PackageSearch },
-  { key: "review", label: "5. Review & handoff", icon: CheckCircle2 },
+  { key: "intake", label: "Documents", icon: Upload },
+  { key: "markup", label: "Markup", icon: Wrench },
+  { key: "boq", label: "BoQ / RFQ", icon: PackageSearch },
+  { key: "review", label: "Handoff", icon: CheckCircle2 },
 ];
 
 const requestHeaders: HeadersInit = {
@@ -700,6 +717,8 @@ function createDefaultServicesMarkup(): TakeoffServicesMarkup {
     },
     pipes: [],
     symbols: [],
+    packages: [],
+    excludedQuantityIds: [],
     assumptions: [
       "Lengths are measured from the marked-up drawing and should be checked against site conditions before order.",
       "L-shaped pipe routes auto-add a 90 degree elbow at the bend; review fittings before issuing the supplier request.",
@@ -775,6 +794,13 @@ function normaliseServicesMarkup(markup?: TakeoffServicesMarkup): TakeoffService
       drawingDocumentId: symbol.drawingDocumentId ?? markup?.drawingDocumentId,
       layerId: markupLayerIdForSymbol(symbol),
     })),
+    packages: prunePackagesForMissingSymbols(
+      normaliseMarkupPackages(markup?.packages ?? fallback.packages),
+      markup?.symbols ?? fallback.symbols,
+    ),
+    excludedQuantityIds: Array.isArray(markup?.excludedQuantityIds)
+      ? markup.excludedQuantityIds.filter((id): id is string => typeof id === "string" && Boolean(id))
+      : fallback.excludedQuantityIds ?? [],
     assumptions: markup?.assumptions ?? fallback.assumptions,
   };
 }
@@ -1283,6 +1309,11 @@ function markupCalibrated(calibration: TakeoffServicesMarkup["calibration"]) {
   );
 }
 
+function markupNeedsCalibrationNudge(markup: TakeoffServicesMarkup) {
+  return !markupCalibrated(markup.calibration)
+    && markup.pipes.some((pipe) => pipe.included && pipe.points.length >= 2);
+}
+
 type ServicesMarkupSummary = {
   pipeRows: Array<{
     id: string;
@@ -1359,7 +1390,11 @@ function summariseServicesMarkup(
   });
 
   const symbolRows = new Map<string, ServicesMarkupSummary["symbolRows"][number]>();
-  markup.symbols.filter((symbol) => symbol.included).forEach((symbol) => {
+  const packageParentIds = packageOwnedParentSymbolIds(markup.packages);
+  markup.symbols.filter((symbol) => (
+    symbol.included
+    && !isAutoFittingOwnedByPackage(symbol, packageParentIds)
+  )).forEach((symbol) => {
     const locationKey = markupContextId(symbol);
     const locationLabel = markupContextLabel(symbol, documents, { showDrawing });
     const key = `${locationKey}|${symbol.category}-${symbol.kind}-${symbol.service ?? ""}-${symbol.material ?? ""}-${symbol.diameter ?? ""}`;
@@ -1491,22 +1526,27 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
   });
   const stockLength = Math.max(1, markup.settings.pipeStockLengthM || 3);
   const existingMarkupMaterials = project.materialAllowances.filter((line) => (
-    line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+    line.id.startsWith("markup-material")
+    || line.id.startsWith("markup-symbol-material")
+    || line.id.startsWith("markup-package-material")
   ));
 
   const pipeMaterials: TakeoffMaterialAllowance[] = summary.pipeRows.map((row) => {
     const id = markupLineId("markup-material", row.id);
     const existing = existingMarkupMaterials.find((line) => line.id === id)
       ?? existingMarkupMaterials.find((line) => line.section === "Services markup" && line.description.startsWith(`${row.service} - ${row.label}`));
+    const uncalibrated = !row.calibrated || row.stockQuantity <= 0;
+    const description = markupSupplierPipeDescription(row, stockLength);
     return {
       id,
       section: row.costCentreSection ?? "Services markup",
-      description: markupSupplierPipeDescription(row, stockLength),
+      description: uncalibrated ? `Uncalibrated — ${description}` : description,
       quantity: row.stockQuantity,
       unit: `${markupSupplierQuantity(stockLength)}m length`,
       unitCost: existing?.unitCost ?? 0,
       markupPercent: existing?.markupPercent ?? 30,
-      supplierRequired: existing?.supplierRequired ?? true,
+      // Don't RFQ zero-length pipe stock until the drawing is calibrated.
+      supplierRequired: uncalibrated ? false : (existing?.supplierRequired ?? true),
       preferredSupplier: existing?.preferredSupplier ?? "",
     };
   });
@@ -1529,10 +1569,28 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
     };
   });
 
-  const markupMaterials = [...pipeMaterials, ...symbolMaterials];
-  const existingMarkupRequests = project.supplierRequests.filter((line) => line.notes === "From Services Markup");
+  const packageMaterials = materialAllowancesFromAcceptedPackages(markup.packages, existingMarkupMaterials);
+  const excludedIds = new Set(markup.excludedQuantityIds ?? []);
+  const markupMaterials = [...pipeMaterials, ...symbolMaterials, ...packageMaterials]
+    .filter((line) => !excludedIds.has(line.id));
+  const preservedNonMarkup = filterSurveyMaterialsCoveredByPackages(
+    project.materialAllowances.filter((line) => (
+      !line.id.startsWith("markup-material")
+      && !line.id.startsWith("markup-symbol-material")
+      && !line.id.startsWith("markup-package-material")
+    )),
+    markup.packages,
+  );
+  const keptMaterialIds = new Set([
+    ...preservedNonMarkup.map((line) => line.id),
+    ...markupMaterials.map((line) => line.id),
+  ]);
+  const existingMarkupRequests = project.supplierRequests.filter((line) => (
+    line.notes === "From Services Markup" || line.notes === "From Markup package"
+  ));
   const supplierRowsByKey = new Map<string, TakeoffSupplierRequestItem>();
   markupMaterials.forEach((line) => {
+    if (!line.supplierRequired) return;
     const key = `${line.description.trim().toLowerCase()}::${line.unit.trim().toLowerCase()}`;
     const existingGroup = supplierRowsByKey.get(key);
     if (existingGroup) {
@@ -1540,7 +1598,8 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
       return;
     }
 
-    const id = markupLineId("markup-rfq", line.id);
+    const fromPackage = line.id.startsWith("markup-package-material");
+    const id = markupLineId(fromPackage ? "markup-package-rfq" : "markup-rfq", line.id);
     const existing = existingMarkupRequests.find((item) => item.id === id || item.linkedMaterialId === line.id)
       ?? existingMarkupRequests.find((item) => (
         item.description.trim().toLowerCase() === line.description.trim().toLowerCase()
@@ -1553,19 +1612,26 @@ function buildMarkupQuantityPatch(markup: TakeoffServicesMarkup, project: Takeof
       quantity: line.quantity,
       unit: line.unit,
       linkedMaterialId: existing?.linkedMaterialId ?? line.id,
-      notes: "From Services Markup",
+      notes: fromPackage ? "From Markup package" : "From Services Markup",
     });
   });
   const supplierRows = Array.from(supplierRowsByKey.values());
+  const preservedSupplierRequests = filterSupplierRequestsForKeptMaterials(
+    project.supplierRequests.filter((line) => (
+      line.notes !== "From Services Markup" && line.notes !== "From Markup package"
+    )),
+    keptMaterialIds,
+    markup.packages,
+  );
 
   return {
     summary,
     materialAllowances: [
-      ...project.materialAllowances.filter((line) => !line.id.startsWith("markup-material") && !line.id.startsWith("markup-symbol-material")),
+      ...preservedNonMarkup,
       ...markupMaterials,
     ],
     supplierRequests: [
-      ...project.supplierRequests.filter((line) => line.notes !== "From Services Markup"),
+      ...preservedSupplierRequests,
       ...supplierRows,
     ],
   };
@@ -2122,7 +2188,18 @@ export default function TakeoffPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [clientSites, setClientSites] = useState<ClientSite[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [activeTab, setActiveTab] = useState<TakeoffTab>("intake");
+  const [activeTab, setActiveTab] = useState<TakeoffTab>(() => {
+    // Default to a page-scroll tab. SSR cannot read the URL; locking into markup/drawing
+    // mode on the server left BoQ stuck with overflow:hidden after hydration.
+    if (typeof window === "undefined") return "boq";
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    if (tab === "pack" || tab === "estimate") return "review";
+    if (tab && ["intake", "markup", "rooms", "boq", "review", "surveyor", "survey", "heat", "runs"].includes(tab)) {
+      return tab as TakeoffTab;
+    }
+    return "boq";
+  });
   const [newProject, setNewProject] = useState<NewProjectDraft>(blankNewProject);
   const [quoteSearch, setQuoteSearch] = useState("");
   const [isQuoteSearchOpen, setIsQuoteSearchOpen] = useState(false);
@@ -2133,6 +2210,9 @@ export default function TakeoffPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isUploadingDocs, setIsUploadingDocs] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isBlakeReviewing, setIsBlakeReviewing] = useState(false);
+  const [blakeBoqDraft, setBlakeBoqDraft] = useState<BlakeBoqReviewDraft | null>(null);
+  const [blakeReviewProvider, setBlakeReviewProvider] = useState<string>("");
   const [isGeneratingSurveyPlan, setIsGeneratingSurveyPlan] = useState(false);
   const [isSurveyDrafting, setIsSurveyDrafting] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
@@ -2207,6 +2287,23 @@ export default function TakeoffPage() {
     if (activeTab !== "markup") return;
     setIsMarkupMaterialsCollapsed(false);
   }, [activeTab, selectedProject?.id]);
+
+  const takeoffDrawingMode = activeTab === "markup";
+  const takeoffAppClassName = takeoffDrawingMode
+    ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen"
+    : "takeoff-app takeoff-page-scroll";
+  const takeoffAppRef = useRef<HTMLElement | null>(null);
+
+  // Defensive: React was updating children for BoQ while leaving the SSR drawing-mode
+  // className stuck on <main>, which kept html/body overflow locked on iPhone.
+  useLayoutEffect(() => {
+    const node = takeoffAppRef.current;
+    if (!node) return;
+    if (node.className !== takeoffAppClassName) {
+      node.className = takeoffAppClassName;
+    }
+    node.setAttribute("data-takeoff-mode", takeoffDrawingMode ? "drawing" : "page");
+  }, [takeoffAppClassName, takeoffDrawingMode]);
 
   useEffect(() => () => {
     if (markupViewFrameRef.current !== null && typeof window !== "undefined") {
@@ -2474,6 +2571,37 @@ const filteredMarkupPlantTools = useMemo(() => {
     () => displayedServicesMarkup.symbols.find((symbol) => symbol.id === selectedMarkupElementId) ?? null,
     [displayedServicesMarkup.symbols, selectedMarkupElementId],
   );
+
+  const selectedMarkupPackages = useMemo(
+    () => {
+      if (!selectedMarkupSymbol || selectedMarkupSymbol.autoGenerated) return [];
+      const existing = packagesForSymbol(displayedServicesMarkup.packages, selectedMarkupSymbol.id);
+      if (existing.length) return existing;
+      const suggested = ensureSuggestedPackage([], selectedMarkupSymbol);
+      return suggested;
+    },
+    [displayedServicesMarkup.packages, selectedMarkupSymbol],
+  );
+
+  // Show package cards even when the parent symbol is no longer selected
+  // (common after a tap-to-place on mobile / fullscreen markup).
+  const promptMarkupPackages = useMemo(() => {
+    const byId = new Map<string, (typeof selectedMarkupPackages)[number]>();
+    selectedMarkupPackages.forEach((pack) => byId.set(pack.id, pack));
+    (displayedServicesMarkup.packages ?? [])
+      .filter((pack) => pack.status === "suggested")
+      .forEach((pack) => {
+        if (!byId.has(pack.id)) byId.set(pack.id, pack);
+      });
+    return Array.from(byId.values());
+  }, [displayedServicesMarkup.packages, selectedMarkupPackages]);
+
+  useEffect(() => {
+    if (!promptMarkupPackages.length) return;
+    if (promptMarkupPackages.some((pack) => pack.status === "suggested")) {
+      setIsMarkupMaterialsCollapsed(false);
+    }
+  }, [promptMarkupPackages]);
 
   const markupSelectedDrawing = useMemo(
     () => drawingDocuments.find((document) => document.id === workingServicesMarkup.drawingDocumentId) ?? drawingDocuments[0] ?? null,
@@ -2879,16 +3007,43 @@ const filteredMarkupPlantTools = useMemo(() => {
     loadData().catch(() => {});
   }, []);
 
+  // Strip install pipe metreage that landed under removal / strip-out sections.
   useEffect(() => {
-    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (!selectedProject) return;
+    const sanitized = sanitizeRemovalSectionTakeoffMaterials(
+      selectedProject.materialAllowances,
+      selectedProject.supplierRequests,
+    );
+    if (!sanitized.changed) return;
+    updateProject({
+      materialAllowances: sanitized.materials,
+      supplierRequests: sanitized.supplierRequests,
+    }, "Removal section materials corrected — caps/isolation only, not pipe metreage.");
+  }, [selectedProject?.id, selectedProject?.materialAllowances, selectedProject?.supplierRequests]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
+    const project = params.get("project");
     if (tab === "pack" || tab === "estimate") {
       setActiveTab("review");
       return;
     }
     if (tabs.some((item) => item.key === tab)) {
       setActiveTab(tab as TakeoffTab);
+      return;
     }
+    if (project) setActiveTab("markup");
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !selectedProjectId) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("project", selectedProjectId);
+    params.set("tab", activeTab === "rooms" ? "markup" : activeTab);
+    const next = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState(null, "", next);
+  }, [activeTab, selectedProjectId]);
 
   useEffect(() => {
     setQuoteSearch(selectedQuote ? quoteSearchLabel(selectedQuote, clientSites) : "");
@@ -2996,13 +3151,21 @@ const filteredMarkupPlantTools = useMemo(() => {
       servicesMarkup: workingServicesMarkup,
     });
     const currentMaterials = selectedProject.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+      line.id.startsWith("markup-material")
+      || line.id.startsWith("markup-symbol-material")
+      || line.id.startsWith("markup-package-material")
     ));
     const nextMaterials = quantityPatch.materialAllowances.filter((line) => (
-      line.id.startsWith("markup-material") || line.id.startsWith("markup-symbol-material")
+      line.id.startsWith("markup-material")
+      || line.id.startsWith("markup-symbol-material")
+      || line.id.startsWith("markup-package-material")
     ));
-    const currentRequests = selectedProject.supplierRequests.filter((line) => line.notes === "From Services Markup");
-    const nextRequests = quantityPatch.supplierRequests.filter((line) => line.notes === "From Services Markup");
+    const currentRequests = selectedProject.supplierRequests.filter((line) => (
+      line.notes === "From Services Markup" || line.notes === "From Markup package"
+    ));
+    const nextRequests = quantityPatch.supplierRequests.filter((line) => (
+      line.notes === "From Services Markup" || line.notes === "From Markup package"
+    ));
     if (JSON.stringify(currentMaterials) === JSON.stringify(nextMaterials) && JSON.stringify(currentRequests) === JSON.stringify(nextRequests)) return;
     patchProject(selectedProject.id, {
       servicesMarkup: workingServicesMarkup,
@@ -4910,11 +5073,16 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     updateServicesMarkup((current) => withRegeneratedPipeAutoSymbols({
       ...current,
       symbols: [...current.symbols, ...symbolsToAdd],
+      packages: ensureSuggestedPackage(current.packages, nextSymbol),
     }), linkedSymbols.length
       ? `${nextSymbol.kind} placed with ${linkedSymbols.length} associated item${linkedSymbols.length === 1 ? "" : "s"}.`
       : `${nextSymbol.kind} placed on the drawing.`);
     setSelectedMarkupElementId(nextSymbol.id);
     setLastCommittedMarkupElementId(nextSymbol.id);
+    setIsMarkupMaterialsCollapsed(false);
+    if (ensureSuggestedPackage([], nextSymbol).length) {
+      setNotice(`${nextSymbol.kind} placed — tick the package card on the drawing, then add selected items to quantities.`);
+    }
     return nextSymbol;
   }
 
@@ -5140,6 +5308,66 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     }));
   }
 
+  function findMarkupPackageWorkingSet(packageId: string) {
+    const fromStore = (displayedServicesMarkup.packages ?? []).find((item) => item.id === packageId);
+    const fromPrompt = promptMarkupPackages.find((item) => item.id === packageId) ?? fromStore;
+    if (!fromPrompt) return null;
+    const parentSymbol = displayedServicesMarkup.symbols.find((symbol) => symbol.id === fromPrompt.parentSymbolId)
+      ?? (selectedMarkupSymbol?.id === fromPrompt.parentSymbolId ? selectedMarkupSymbol : null);
+    const base = packagesForSymbol(displayedServicesMarkup.packages, fromPrompt.parentSymbolId);
+    const working = base.length
+      ? base
+      : parentSymbol
+        ? ensureSuggestedPackage([], parentSymbol)
+        : [fromPrompt];
+    return { parentSymbolId: fromPrompt.parentSymbolId, working };
+  }
+
+  function upsertMarkupPackagesForParent(parentSymbolId: string, nextPackages: ReturnType<typeof packagesForSymbol>) {
+    updateServicesMarkup((current) => {
+      const withoutParent = (current.packages ?? []).filter((item) => item.parentSymbolId !== parentSymbolId);
+      return {
+        ...current,
+        packages: [...withoutParent, ...nextPackages],
+      };
+    }, undefined, { recordUndo: false });
+  }
+
+  function handleTogglePackageChild(packageId: string, childId: string, selected: boolean) {
+    const found = findMarkupPackageWorkingSet(packageId);
+    if (!found) return;
+    upsertMarkupPackagesForParent(
+      found.parentSymbolId,
+      togglePackageChild(found.working, packageId, childId, selected),
+    );
+  }
+
+  function handleAcceptMarkupPackage(packageId: string) {
+    const found = findMarkupPackageWorkingSet(packageId);
+    if (!found) return;
+    const accepted = acceptMarkupPackage(found.working, packageId);
+    const packagesForOverlap = [
+      ...(displayedServicesMarkup.packages ?? []).filter((item) => item.id !== packageId),
+      ...accepted.filter((item) => item.id === packageId),
+    ];
+    const covered = selectedProject?.materialAllowances.filter((line) => (
+      (line.id.startsWith("survey-mat") || line.id.startsWith("openai-survey-material"))
+      && surveyMaterialOverlapsAcceptedPackage(line.description, packagesForOverlap)
+    )).length ?? 0;
+    upsertMarkupPackagesForParent(found.parentSymbolId, accepted);
+    const pack = accepted.find((item) => item.id === packageId);
+    const count = pack?.childItems.filter((child) => child.selected).length ?? 0;
+    setNotice(count
+      ? `${pack?.title ?? "Package"} added to quantities (${count} item${count === 1 ? "" : "s"})${covered ? `; ${covered} survey provisional line${covered === 1 ? "" : "s"} covered by the package` : ""}.`
+      : "Package accepted.");
+  }
+
+  function handleDismissMarkupPackage(packageId: string) {
+    const found = findMarkupPackageWorkingSet(packageId);
+    if (!found) return;
+    upsertMarkupPackagesForParent(found.parentSymbolId, dismissMarkupPackage(found.working, packageId));
+  }
+
   function moveSelectedMarkupElement(dx: number, dy: number) {
     if (selectedMarkupPipe) {
       const undoMarkup = currentServicesMarkupSnapshot();
@@ -5263,13 +5491,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     restoreServicesMarkupFromUndo(previousMarkup);
   }
 
-  function pushMarkupToBoq() {
+  function pushMarkupToBoq(options: { force?: boolean } = {}) {
     if (!selectedProject) return;
+    if (!options.force && markupNeedsCalibrationNudge(displayedServicesMarkup)) {
+      setNotice("Pipe routes are drawn but the drawing isn’t calibrated — stock lengths would be 0m. Calibrate first, or send anyway from the banner.");
+      startMarkupCalibration();
+      return;
+    }
     const quantityPatch = buildMarkupQuantityPatch(displayedServicesMarkup, selectedProject);
     updateProject({
       materialAllowances: quantityPatch.materialAllowances,
       supplierRequests: quantityPatch.supplierRequests,
-    }, "Takeoff quantities are up to date.");
+    }, options.force && markupNeedsCalibrationNudge(displayedServicesMarkup)
+      ? "Quantities sent — pipe stock lengths are still 0m until you calibrate."
+      : "Takeoff quantities are up to date.");
     setActiveTab("boq");
   }
 
@@ -5710,7 +5945,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
         }
         throw new Error(body.error ?? (text || `Unable to upload Takeoff documents (${response.status})`));
       }
-      const result = (await response.json()) as { project?: TakeoffProject; documents?: TakeoffDocument[] };
+      const result = (await response.json()) as {
+        project?: TakeoffProject;
+        documents?: TakeoffDocument[];
+        importedBoqLines?: number;
+        parseWarnings?: string[];
+      };
       if (!result?.project) {
         throw new Error("Upload did not return an updated project.");
       }
@@ -5747,9 +5987,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       }
       replaceProject(updatedProject);
       setSelectedProjectId(updatedProject.id);
-      setNotice(kind === "Drawing"
-        ? `${files.length} drawing file${files.length === 1 ? "" : "s"} uploaded and locked into the markup workspace.`
-        : `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.`);
+      if (kind === "Drawing") {
+        setNotice(`${files.length} drawing file${files.length === 1 ? "" : "s"} uploaded and locked into the markup workspace.`);
+      } else if ((result.importedBoqLines ?? 0) > 0) {
+        setActiveTab("boq");
+        setBlakeBoqDraft(null);
+        setNotice(
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded — ${result.importedBoqLines} bill line${result.importedBoqLines === 1 ? "" : "s"} imported. Upload drawings too, then Ask Blake to review bill for clips and hours/metre.`,
+        );
+      } else {
+        const warning = result.parseWarnings?.slice(0, 2).join(" ") ?? "";
+        setNotice(
+          `${files.length} ${kind.toLowerCase()} file${files.length === 1 ? "" : "s"} uploaded for AI scan.${warning ? ` ${warning}` : ""}`,
+        );
+      }
       return updatedProject;
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload Takeoff documents");
@@ -5832,6 +6083,57 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       setError(extractError instanceof Error ? extractError.message : "Unable to run extraction");
     } finally {
       setIsExtracting(false);
+    }
+  }
+
+  async function runBlakeBoqReview(apply = false) {
+    if (!selectedProject) return;
+    const billCount = selectedProject.materialAllowances.filter((line) => !line.parentMaterialId).length;
+    if (!billCount) {
+      setError("Import BOQ Excel lines first, then ask Blake to review each bill item against the drawings.");
+      setActiveTab("intake");
+      return;
+    }
+    const hasDrawing = selectedProject.documents.some((document) =>
+      document.kind === "Drawing" || document.kind === "Marked-up drawing",
+    );
+    if (!hasDrawing && aiStatus?.connected) {
+      setNotice("No drawings on this project yet — Blake will still suggest ancillaries/labour from the bill, then refine when drawings are uploaded.");
+    }
+
+    setIsBlakeReviewing(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selectedProject.id}/blake-boq-review`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ actor: "Blake", apply }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Unable to run Blake BOQ review");
+      }
+      const result = (await response.json()) as {
+        project: TakeoffProject;
+        draft: BlakeBoqReviewDraft;
+        provider?: string;
+        generated: { billLines: number; ancillaries: number; labour: number; applied: boolean };
+      };
+      setBlakeBoqDraft(result.draft);
+      setBlakeReviewProvider(result.provider || "Pilot");
+      if (result.generated.applied) {
+        replaceProject(result.project);
+      }
+      setActiveTab("boq");
+      setNotice(
+        result.generated.applied
+          ? `Blake applied ${result.generated.ancillaries} ancillary line(s) and ${result.generated.labour} labour line(s) across ${result.generated.billLines} bill item(s).`
+          : `Blake drafted review for ${result.generated.billLines} bill item(s): ${result.generated.ancillaries} ancillar${result.generated.ancillaries === 1 ? "y" : "ies"}, ${result.generated.labour} labour suggestion(s). Review below, then Apply.`,
+      );
+    } catch (blakeError) {
+      setError(blakeError instanceof Error ? blakeError.message : "Unable to run Blake BOQ review");
+    } finally {
+      setIsBlakeReviewing(false);
     }
   }
 
@@ -6215,6 +6517,128 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
     updateProject({ materialAllowances: replaceById(selectedProject.materialAllowances, id, patch) });
   }
 
+  function removeMaterial(id: string) {
+    if (!selectedProject) return;
+    const line = selectedProject.materialAllowances.find((item) => item.id === id);
+    const isMarkupGenerated = (
+      id.startsWith("markup-material")
+      || id.startsWith("markup-symbol-material")
+      || id.startsWith("markup-package-material")
+    );
+
+    if (!isMarkupGenerated) {
+      updateProject({ materialAllowances: removeById(selectedProject.materialAllowances, id) });
+      setNotice("Material removed.");
+      return;
+    }
+
+    // Markup regenerates BoQ lines from the drawing unless we exclude them (and
+    // drop package children / un-include matching symbols).
+    updateServicesMarkup((current) => {
+      const excluded = new Set([...(current.excludedQuantityIds ?? []), id]);
+      let packages = current.packages ?? [];
+      let symbols = current.symbols;
+      const disabledSymbolIds = new Set<string>();
+
+      if (id.startsWith("markup-package-material-")) {
+        let removedChildId: string | null = null;
+        let removedTemplateId: string | null = null;
+        for (const pack of packages) {
+          const prefix = `markup-package-material-${pack.id}-`;
+          if (!id.startsWith(prefix)) continue;
+          removedChildId = id.slice(prefix.length);
+          removedTemplateId = pack.templateId;
+          break;
+        }
+        if (removedChildId) {
+          packages = packages.map((pack) => {
+            if (removedTemplateId && pack.templateId !== removedTemplateId) return pack;
+            excluded.add(`markup-package-material-${pack.id}-${removedChildId}`);
+            const childItems = pack.childItems.map((child) => (
+              child.id === removedChildId ? { ...child, selected: false } : child
+            ));
+            return {
+              ...pack,
+              childItems,
+              status: childItems.some((child) => child.selected) ? pack.status : "dismissed" as const,
+              updatedAt: new Date().toISOString(),
+            };
+          });
+        }
+      }
+
+      if (id.startsWith("markup-symbol-material") && line) {
+        const desc = line.description.toLowerCase();
+        symbols = symbols.map((symbol) => {
+          if (symbol.autoGenerated) return symbol;
+          const locationKey = markupContextId(symbol);
+          const key = `${locationKey}|${symbol.category}-${symbol.kind}-${symbol.service ?? ""}-${symbol.material ?? ""}-${symbol.diameter ?? ""}`;
+          const generatedId = markupLineId("markup-symbol-material", key);
+          if (generatedId === id) {
+            disabledSymbolIds.add(symbol.id);
+            return { ...symbol, included: false };
+          }
+          return symbol;
+        });
+        if (!disabledSymbolIds.size) {
+          symbols = symbols.map((symbol) => {
+            if (symbol.autoGenerated || disabledSymbolIds.has(symbol.id)) return symbol;
+            const kind = String(symbol.kind).toLowerCase();
+            if (kind && desc.includes(kind)) {
+              disabledSymbolIds.add(symbol.id);
+              return { ...symbol, included: false };
+            }
+            return symbol;
+          });
+        }
+        if (disabledSymbolIds.size) {
+          packages = packages.map((pack) => {
+            if (!disabledSymbolIds.has(pack.parentSymbolId)) return pack;
+            pack.childItems.forEach((child) => {
+              excluded.add(`markup-package-material-${pack.id}-${child.id}`);
+            });
+            return {
+              ...pack,
+              status: "dismissed" as const,
+              updatedAt: new Date().toISOString(),
+            };
+          });
+        }
+      }
+
+      if (
+        id.startsWith("markup-material")
+        && !id.startsWith("markup-symbol-material")
+        && !id.startsWith("markup-package-material")
+        && line
+      ) {
+        const desc = line.description.toLowerCase();
+        return {
+          ...current,
+          packages,
+          symbols,
+          pipes: current.pipes.map((pipe) => {
+            if (!pipe.included) return pipe;
+            const haystack = `${pipe.service} ${pipe.material} ${pipe.diameter}`.toLowerCase();
+            if (desc.includes(pipe.material.toLowerCase()) && desc.includes(pipe.diameter.toLowerCase())) {
+              return { ...pipe, included: false };
+            }
+            if (desc.includes(haystack)) return { ...pipe, included: false };
+            return pipe;
+          }),
+          excludedQuantityIds: Array.from(excluded),
+        };
+      }
+
+      return {
+        ...current,
+        packages,
+        symbols,
+        excludedQuantityIds: Array.from(excluded),
+      };
+    }, "Material removed from quantities.");
+  }
+
   function addLabour() {
     if (!selectedProject) return;
     const labour: TakeoffLabourAllowance = {
@@ -6320,7 +6744,12 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
   }
 
   return (
-    <main className={activeTab === "markup" ? "takeoff-app takeoff-drawing-mode takeoff-markup-fullscreen" : "takeoff-app"}>
+    <main
+      key={takeoffDrawingMode ? "drawing" : "page"}
+      ref={takeoffAppRef}
+      className={takeoffAppClassName}
+      data-takeoff-mode={takeoffDrawingMode ? "drawing" : "page"}
+    >
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
@@ -6404,7 +6833,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                   type="button"
                   onClick={() => {
                     setSelectedProjectId(project.id);
-                    setActiveTab("intake");
+                    setActiveTab((current) => (current === "intake" ? "markup" : current));
                   }}
                 >
                   <span>
@@ -6494,87 +6923,53 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               ) : null}
 
               <section className="estimate-flow-strip" aria-label="Estimate workflow">
-                <button type="button" onClick={() => setActiveTab("surveyor")}>
+                <a href="/survey">
                   <span>1</span>
                   <strong>Survey</strong>
-                  <small>Guided survey, photos, LiDAR, heat loss</small>
-                </button>
-                <button className={activeTab === "markup" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
+                  <small>Upload evidence and describe the works</small>
+                </a>
+                <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
-                  <strong>Takeoff</strong>
-                  <small>Drawings, specs and contractor BOQs</small>
+                  <strong>Markup</strong>
+                  <small>Mark up drawings and measured routes</small>
                 </button>
-                <button type="button" onClick={() => setActiveTab("review")}>
+                <button className={activeTab === "boq" ? "active" : ""} type="button" onClick={() => setActiveTab("boq")}>
                   <span>3</span>
-                  <strong>Estimate pack</strong>
-                  <small>Review cost centres before quote push</small>
+                  <strong>BoQ / RFQ</strong>
+                  <small>Quantities and supplier quote requests</small>
+                </button>
+                <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => setActiveTab("review")}>
+                  <span>4</span>
+                  <strong>Handoff</strong>
+                  <small>Review then push to Core quote</small>
                 </button>
               </section>
 
-              <section className="takeoff-ai-handoff">
+              <section className="takeoff-simple-banner">
                 <div>
-                  <Sparkles size={20} />
+                  <Sparkles size={18} />
                   <span>
-                    <strong>Office takeoff: documents in, estimate pack out</strong>
+                    <strong>AI takeoff</strong>
                     <small>
-                      {selectedQuote
-                        ? `Linked to ${selectedQuote.ref}. Push estimate writes the reviewed BOQ into Core as quote cost centres.`
-                        : "Link this Takeoff to a Core quote first, then push the reviewed BOQ into that quote as cost centres."}
+                      Upload drawings, let Blake build the BoQ, tweak what matters, then hand off to quote
+                      {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
                     </small>
                   </span>
                 </div>
-                <div className="takeoff-ai-handoff-actions">
-                  <a className="takeoff-primary-button" href="/survey/guided">
-                    <MessageCircle size={15} />
-                    Open Guided Survey
-                  </a>
-                  <UploadButton
-                    kind="LiDAR scan"
-                    label={isUploadingDocs ? "Importing LiDAR" : "Import LiDAR scan"}
-                    accept=".json,.usd,.usdz,.obj,.glb,.gltf,.ply,application/json,model/*"
-                    disabled={isUploadingDocs}
-                    onUpload={addLidarDocuments}
-                  />
-                  <button className="takeoff-primary-button" type="button" onClick={() => setActiveTab("markup")}>
-                    <Wrench size={15} />
-                    Open services markup
-                  </button>
-                  <button
-                    className="takeoff-secondary-button"
-                    type="button"
-                    disabled={isExtracting || selectedProject.documents.length === 0}
-                    onClick={runAiExtraction}
-                  >
-                    <Sparkles size={15} />
-                    {isExtracting ? "Scanning" : "Scan documents"}
-                  </button>
-                  <button className="takeoff-secondary-button" type="button" disabled={isPushing || !selectedProject.linkedQuoteId} onClick={pushProject}>
-                    <Send size={15} />
-                    {isPushing ? "Pushing" : selectedProject.linkedQuoteId ? "Push to Core quote" : "Link quote first"}
-                  </button>
+                <div className={`takeoff-ai-status compact ${aiStatus?.connected ? "connected" : "missing"}`}>
+                  <Sparkles size={14} />
+                  <span>
+                    <strong>{aiStatus?.connected ? `AI ready · ${aiStatus.model}` : "AI key missing"}</strong>
+                    <small>
+                      {aiStatus?.connected
+                        ? "Survey packs and AI scan use this connection."
+                        : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live, then redeploy.`}
+                    </small>
+                  </span>
                 </div>
               </section>
 
-              <section className="takeoff-metrics" aria-label="Takeoff totals">
-                <article>
-                  <span>Material sell</span>
-                  <strong>{money(projectTotals.materialSell)}</strong>
-                </article>
-                <article>
-                  <span>Labour sell</span>
-                  <strong>{money(projectTotals.labourSell)}</strong>
-                </article>
-                <article>
-                  <span>Labour hours</span>
-                  <strong>{projectTotals.labourHours.toFixed(1)}</strong>
-                </article>
-                <article>
-                  <span>Supplier items</span>
-                  <strong>{projectTotals.supplierCount}</strong>
-                </article>
-              </section>
-
-              <nav className="takeoff-tabs" aria-label="Takeoff sections">
+              <nav className="takeoff-tabs takeoff-tabs-simple" aria-label="Takeoff sections">
                 {tabs.map((tab) => {
                   const Icon = tab.icon;
                   return (
@@ -6644,18 +7039,18 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </button>
                     </PanelTitle>
                     <div className="takeoff-upload-strip">
-                    <UploadButton kind="Drawing" label="Drawings" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={isUploadingDocs} onUpload={addDocuments} />
-                      <UploadButton kind="Specification" label="Specs" disabled={isUploadingDocs} onUpload={addDocuments} />
-                      <UploadButton kind="Contractor BOQ" label="BOQs" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Drawing" label="Drawings" accept=".pdf,.jpg,.jpeg,.png,.webp" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Specification" label="Specs" accept=".pdf,.doc,.docx,.xlsx,.xlsm,.csv,.txt" disabled={isUploadingDocs} onUpload={addDocuments} />
+                      <UploadButton kind="Contractor BOQ" label="BOQs" accept=".xlsx,.xlsm,.csv,.txt,.pdf" disabled={isUploadingDocs} onUpload={addDocuments} />
                     </div>
                     <div className={`takeoff-ai-status ${aiStatus?.connected ? "connected" : "missing"}`}>
                       <Sparkles size={15} />
                       <span>
-                        <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected yet"}</strong>
+                        <strong>{aiStatus?.connected ? "OpenAI connected" : "OpenAI not connected"}</strong>
                         <small>
                           {aiStatus?.connected
-                            ? `AI scan will use ${aiStatus.model}${aiStatus.source === "local" ? " from local pilot settings" : ""}. ${aiReadyDocumentCount} of ${selectedProject.documents.length} file(s) are AI-ready.`
-                            : "Paste an OpenAI Platform API key below, then re-upload files for a live scan."}
+                            ? `AI scan uses ${aiStatus.model}${aiStatus.source === "local" ? " from local pilot settings" : ""}. ${aiReadyDocumentCount} of ${selectedProject.documents.length} file(s) are AI-ready.`
+                            : `Set ${aiStatus?.keyName || "OPENAI_API_KEY"} on Render → nexa-live → Environment (model name alone is not enough), then Manual Deploy. You can also paste a key below for this service.`}
                         </small>
                       </span>
                       {!aiStatus?.connected ? (
@@ -6773,16 +7168,34 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                     <span>{isMarkupMaterialsCollapsed ? `Tools · ${servicesMarkupSummary.pipeRows.length + servicesMarkupSummary.symbolRows.length}` : "Hide"}</span>
                   </button>
                   <article className="takeoff-panel services-markup-toolbar">
-                    <PanelTitle icon={Wrench} title="Services Markup" action={servicesMarkup.calibration.status}>
+                    <PanelTitle icon={Wrench} title="Markup tools" action={servicesMarkup.calibration.status}>
                       <button className="takeoff-small-button" type="button" onClick={() => setIsMarkupExpanded((current) => !current)}>
                         <Maximize2 size={14} />
                         {isMarkupExpanded ? "Exit focus" : "Focus board"}
                       </button>
-                      <button className="takeoff-small-button" type="button" onClick={pushMarkupToBoq}>
+                      <button
+                        className={markupNeedsCalibrationNudge(displayedServicesMarkup) ? "takeoff-small-button warn" : "takeoff-small-button"}
+                        type="button"
+                        onClick={() => pushMarkupToBoq()}
+                      >
                         <PackageSearch size={14} />
-                        Send to Takeoff quantities
+                        Send to quantities
                       </button>
                     </PanelTitle>
+
+                    {markupNeedsCalibrationNudge(displayedServicesMarkup) ? (
+                      <div className="takeoff-boq-next-step warn takeoff-markup-cal-banner">
+                        <span>Pipe routes are drawn but not calibrated — stock lengths will be 0m until you set a known length on the drawing.</span>
+                        <div className="takeoff-markup-cal-banner-actions">
+                          <button className="takeoff-primary-button" type="button" onClick={startMarkupCalibration}>
+                            Calibrate now
+                          </button>
+                          <button className="takeoff-small-button" type="button" onClick={() => pushMarkupToBoq({ force: true })}>
+                            Send anyway
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="services-markup-setup">
                         <label>
@@ -7232,6 +7645,53 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       </div>
 
                       <div className="services-markup-plan-stage" onWheel={handleMarkupWheel}>
+                        {promptMarkupPackages.length ? (
+                          <div
+                            className="services-markup-package-float"
+                            onPointerDown={(event) => event.stopPropagation()}
+                            onTouchStart={(event) => event.stopPropagation()}
+                          >
+                            {promptMarkupPackages.map((pack) => (
+                              <section key={`float-${pack.id}`} data-status={pack.status}>
+                                <header>
+                                  <Sparkles size={15} />
+                                  <div>
+                                    <strong>{pack.title}</strong>
+                                    <small>{pack.summary}</small>
+                                  </div>
+                                </header>
+                                <div className="services-markup-package-list">
+                                  {pack.childItems.map((child) => (
+                                    <label key={child.id}>
+                                      <input
+                                        type="checkbox"
+                                        checked={child.selected}
+                                        disabled={pack.status === "accepted"}
+                                        onChange={(event) => handleTogglePackageChild(pack.id, child.id, event.target.checked)}
+                                      />
+                                      <span>
+                                        <strong>{child.description}</strong>
+                                        <small>{child.quantity} {child.unit}</small>
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                                {pack.status !== "accepted" ? (
+                                  <div className="services-markup-package-actions">
+                                    <button className="takeoff-primary-button" type="button" onClick={() => handleAcceptMarkupPackage(pack.id)}>
+                                      Add selected to quantities
+                                    </button>
+                                    <button className="takeoff-small-button" type="button" onClick={() => handleDismissMarkupPackage(pack.id)}>
+                                      Dismiss
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="services-markup-package-note">Added to BoQ / RFQ.</p>
+                                )}
+                              </section>
+                            ))}
+                          </div>
+                        ) : null}
                         {markupToolMode === "calibrate" ? (
                           <div
                             className="takeoff-calibration-hud"
@@ -7619,6 +8079,20 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
 
                     <aside className="takeoff-panel services-markup-properties">
                       <PanelTitle icon={ClipboardList} title="Selected item" action={selectedMarkupPipe ? "Pipe" : selectedMarkupSymbol?.category ?? "None"} />
+                      {selectedMarkupPackages.length ? (
+                        <div className="services-markup-package-mobile">
+                          <Sparkles size={14} />
+                          <span>
+                            <strong>{selectedMarkupPackages[0]?.title}</strong>
+                            <small>Tap items in the package list, then add to quantities.</small>
+                          </span>
+                          {selectedMarkupPackages[0]?.status !== "accepted" ? (
+                            <button type="button" className="takeoff-small-button" onClick={() => handleAcceptMarkupPackage(selectedMarkupPackages[0]!.id)}>
+                              Add package
+                            </button>
+                          ) : <b>Added</b>}
+                        </div>
+                      ) : null}
                       {selectedMarkupPipe ? (
                         <div className="takeoff-form-grid">
                           <label>
@@ -7668,6 +8142,50 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         </div>
                       ) : selectedMarkupSymbol ? (
                         <div className="takeoff-form-grid">
+                          {selectedMarkupPackages.length ? (
+                            <div className="services-markup-package wide">
+                              {selectedMarkupPackages.map((pack) => (
+                                <section key={pack.id} data-status={pack.status}>
+                                  <header>
+                                    <Sparkles size={15} />
+                                    <div>
+                                      <strong>{pack.title}</strong>
+                                      <small>{pack.summary}</small>
+                                    </div>
+                                    <b>{pack.status === "accepted" ? "Added" : "Suggested"}</b>
+                                  </header>
+                                  <div className="services-markup-package-list">
+                                    {pack.childItems.map((child) => (
+                                      <label key={child.id}>
+                                        <input
+                                          type="checkbox"
+                                          checked={child.selected}
+                                          disabled={pack.status === "accepted"}
+                                          onChange={(event) => handleTogglePackageChild(pack.id, child.id, event.target.checked)}
+                                        />
+                                        <span>
+                                          <strong>{child.description}</strong>
+                                          <small>{child.quantity} {child.unit}</small>
+                                        </span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                  {pack.status !== "accepted" ? (
+                                    <div className="services-markup-package-actions">
+                                      <button className="takeoff-primary-button" type="button" onClick={() => handleAcceptMarkupPackage(pack.id)}>
+                                        Add selected to quantities
+                                      </button>
+                                      <button className="takeoff-small-button" type="button" onClick={() => handleDismissMarkupPackage(pack.id)}>
+                                        Dismiss
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <p className="services-markup-package-note">Package items are in the BoQ / RFQ list. Un-dismiss and re-add if you need changes.</p>
+                                  )}
+                                </section>
+                              ))}
+                            </div>
+                          ) : null}
                           <label>
                             Item
                             <select
@@ -7783,6 +8301,10 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                       <div>
                         <span>Plant / equipment</span>
                         <strong>{servicesMarkupSummary.plantCount}</strong>
+                      </div>
+                      <div>
+                        <span>Packages added</span>
+                        <strong>{(displayedServicesMarkup.packages ?? []).filter((item) => item.status === "accepted").length}</strong>
                       </div>
                     </div>
                       <div className="services-markup-table">
@@ -8618,7 +9140,153 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
               ) : null}
 
               {activeTab === "boq" ? (
-                <section className="takeoff-grid">
+                <section className="takeoff-grid takeoff-boq-simple">
+                  <article className="takeoff-panel takeoff-boq-hero">
+                    <div className="takeoff-blake-hero-row">
+                      <BuddyCharacter
+                        mood={isBlakeReviewing ? "thinking" : blakeBoqDraft ? "guide" : "idle"}
+                        size="md"
+                        title="Blake"
+                      />
+                      <div>
+                        <h2>Bill of quantities</h2>
+                        <p>
+                          Blake reviews each bill item against your drawings. He does not restate lengths already on the bill
+                          (e.g. 49m gutters) — he works out ancillaries like clips, then labour as hours per metre / Nr.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="takeoff-boq-hero-metrics">
+                      <div>
+                        <span>Materials</span>
+                        <strong>{selectedProject.materialAllowances.length}</strong>
+                      </div>
+                      <div>
+                        <span>Labour</span>
+                        <strong>{projectTotals.labourHours.toFixed(1)} hrs</strong>
+                      </div>
+                      <div>
+                        <span>Sell</span>
+                        <strong>{money(projectTotals.totalSell)}</strong>
+                      </div>
+                    </div>
+                    <div className="takeoff-boq-hero-actions">
+                      <button
+                        className="takeoff-primary-button"
+                        type="button"
+                        disabled={isBlakeReviewing || !selectedProject.materialAllowances.some((line) => !line.parentMaterialId)}
+                        onClick={() => runBlakeBoqReview(false)}
+                      >
+                        <Sparkles size={15} />
+                        {isBlakeReviewing ? "Blake reviewing…" : "Ask Blake to review bill"}
+                      </button>
+                      <button
+                        className="takeoff-secondary-button"
+                        type="button"
+                        disabled={isBlakeReviewing || !blakeBoqDraft}
+                        onClick={() => runBlakeBoqReview(true)}
+                      >
+                        <CheckCircle2 size={15} />
+                        Apply Blake suggestions
+                      </button>
+                      <button
+                        className="takeoff-small-button"
+                        type="button"
+                        disabled={isExtracting || selectedProject.documents.length === 0}
+                        onClick={runAiExtraction}
+                      >
+                        <RefreshCw size={15} />
+                        {isExtracting ? "Scanning…" : "Full AI scan"}
+                      </button>
+                      <button className="takeoff-secondary-button" type="button" onClick={() => setActiveTab("review")}>
+                        <CheckCircle2 size={15} />
+                        Review &amp; handoff
+                      </button>
+                    </div>
+                    {!selectedProject.materialAllowances.length ? (
+                      <p className="takeoff-boq-next-step">
+                        Upload BOQ Excel + drawings in Intake first. Blake then reviews each bill line for clips, brackets and man-hours.
+                      </p>
+                    ) : markupNeedsCalibrationNudge(workingServicesMarkup) ? (
+                      <div className="takeoff-boq-next-step warn">
+                        <span>Pipe routes are on the drawing but not calibrated — stock lengths stay 0m and won’t go on RFQ until you calibrate.</span>
+                        <div className="takeoff-markup-cal-banner-actions">
+                          <button
+                            className="takeoff-primary-button"
+                            type="button"
+                            onClick={() => {
+                              setActiveTab("markup");
+                              window.setTimeout(() => startMarkupCalibration(), 0);
+                            }}
+                          >
+                            Calibrate in markup
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+
+                  {blakeBoqDraft ? (
+                    <article className="takeoff-panel takeoff-blake-review-panel">
+                      <PanelTitle
+                        icon={Sparkles}
+                        title="Blake bill review"
+                        action={`${blakeReviewProvider || "Blake"} · ${blakeBoqDraft.confidence}`}
+                      />
+                      <p className="takeoff-blake-review-summary">{blakeBoqDraft.summary}</p>
+                      <div className="takeoff-blake-review-list">
+                        {blakeBoqDraft.reviews
+                          .filter((review) => review.ancillaries.length || review.labour.length || review.drawingNotes.length)
+                          .slice(0, 40)
+                          .map((review) => (
+                            <div className="takeoff-blake-review-card" key={review.parentMaterialId}>
+                              <header>
+                                <strong>{review.parentDescription}</strong>
+                                <span>
+                                  Bill qty {review.parentQuantity} {review.parentUnit}
+                                  {review.skippedRestate ? " · parent qty not restated" : ""}
+                                </span>
+                              </header>
+                              {review.ancillaries.length ? (
+                                <ul>
+                                  {review.ancillaries.map((item) => (
+                                    <li key={`${review.parentMaterialId}-${item.description}`}>
+                                      <b>Ancillary:</b> {item.description} · {item.quantity} {item.unit}
+                                      <small>{item.rationale}</small>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              {review.labour.length ? (
+                                <ul>
+                                  {review.labour.map((item) => (
+                                    <li key={`${review.parentMaterialId}-${item.role}-${item.hoursPerUnit}`}>
+                                      <b>Labour:</b> {item.role} · {item.hours.toFixed(2)} hrs
+                                      {" "}({item.hoursPerUnit} hrs/{item.unitBasis})
+                                      <small>{item.notes}</small>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                              {review.drawingNotes.length ? (
+                                <p className="takeoff-blake-drawing-notes">{review.drawingNotes.join(" ")}</p>
+                              ) : null}
+                            </div>
+                          ))}
+                      </div>
+                      {blakeBoqDraft.questions.length ? (
+                        <div className="takeoff-blake-questions">
+                          <strong>Blake still wants to confirm</strong>
+                          <ul>
+                            {blakeBoqDraft.questions.map((question) => (
+                              <li key={question}>{question}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                    </article>
+                  ) : null}
+
                   <article className="takeoff-panel">
                     <PanelTitle icon={PackageSearch} title="Materials" action={money(projectTotals.materialSell)}>
                       <button className="takeoff-small-button" type="button" onClick={addMaterial}>
@@ -8639,20 +9307,27 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span />
                       </div>
                       {selectedProject.materialAllowances.map((line) => (
-                        <div className="takeoff-table-row" key={line.id}>
+                        <div className={`takeoff-table-row${line.parentMaterialId ? " blake-ancillary" : ""}`} key={line.id}>
                           <input value={line.section} onChange={(event) => updateMaterial(line.id, { section: event.target.value })} />
-                          <input value={line.description} onChange={(event) => updateMaterial(line.id, { description: event.target.value })} />
+                          <div className="takeoff-material-desc">
+                            <input value={line.description} onChange={(event) => updateMaterial(line.id, { description: event.target.value })} />
+                            {line.blakeNote ? <small>{line.blakeNote}</small> : null}
+                            {line.parentMaterialId ? <small>Blake ancillary</small> : null}
+                          </div>
                           <input type="number" value={line.quantity} onChange={(event) => updateMaterial(line.id, { quantity: numberFromInput(event.target.value) })} />
                           <input value={line.unit} onChange={(event) => updateMaterial(line.id, { unit: event.target.value })} />
                           <input type="number" value={line.unitCost} onChange={(event) => updateMaterial(line.id, { unitCost: numberFromInput(event.target.value) })} />
                           <input type="number" value={line.markupPercent} onChange={(event) => updateMaterial(line.id, { markupPercent: numberFromInput(event.target.value) })} />
                           <input type="checkbox" checked={line.supplierRequired} onChange={(event) => updateMaterial(line.id, { supplierRequired: event.target.checked })} />
                           <input value={line.preferredSupplier ?? ""} onChange={(event) => updateMaterial(line.id, { preferredSupplier: event.target.value })} />
-                          <button type="button" aria-label="Remove material" onClick={() => updateProject({ materialAllowances: removeById(selectedProject.materialAllowances, line.id) })}>
+                          <button type="button" aria-label="Remove material" onClick={() => removeMaterial(line.id)}>
                             <Trash2 size={15} />
                           </button>
                         </div>
                       ))}
+                      {!selectedProject.materialAllowances.length ? (
+                        <p className="takeoff-empty-table-note">Materials appear here from BOQ import, Blake ancillaries, Survey AI, and markup packages.</p>
+                      ) : null}
                     </div>
                   </article>
 
@@ -8674,10 +9349,15 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span />
                       </div>
                       {selectedProject.labourAllowances.map((line) => (
-                        <div className="takeoff-table-row" key={line.id}>
+                        <div className={`takeoff-table-row${line.linkedMaterialId ? " blake-labour" : ""}`} key={line.id}>
                           <input value={line.section} onChange={(event) => updateLabour(line.id, { section: event.target.value })} />
                           <input value={line.role} onChange={(event) => updateLabour(line.id, { role: event.target.value })} />
-                          <input type="number" value={line.hours} onChange={(event) => updateLabour(line.id, { hours: numberFromInput(event.target.value) })} />
+                          <div className="takeoff-labour-hours">
+                            <input type="number" value={line.hours} onChange={(event) => updateLabour(line.id, { hours: numberFromInput(event.target.value) })} />
+                            {line.hoursPerUnit != null && line.unitBasis ? (
+                              <small>{line.hoursPerUnit} hrs/{line.unitBasis}</small>
+                            ) : null}
+                          </div>
                           <input type="number" value={line.costRate} onChange={(event) => updateLabour(line.id, { costRate: numberFromInput(event.target.value) })} />
                           <input type="number" value={line.markupPercent} onChange={(event) => updateLabour(line.id, { markupPercent: numberFromInput(event.target.value) })} />
                           <input value={line.notes} onChange={(event) => updateLabour(line.id, { notes: event.target.value })} />
@@ -8686,6 +9366,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                           </button>
                         </div>
                       ))}
+                      {!selectedProject.labourAllowances.length ? (
+                        <p className="takeoff-empty-table-note">Ask Blake to review the bill to draft hours per metre / Nr against each item.</p>
+                      ) : null}
                     </div>
                   </article>
 

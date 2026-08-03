@@ -341,15 +341,63 @@ function defaultSurvey(input: Partial<SurveyRecord>, context: MutationContext): 
   };
 }
 
-export function getSurveys(tenantId: string) {
+export function getSurveys(tenantId: string, options?: { includeArchived?: boolean }) {
   ensureLegacyMigration();
-  return clone(store.surveys.filter((survey) => survey.tenantId === tenantId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+  return clone(
+    store.surveys
+      .filter((survey) => survey.tenantId === tenantId)
+      .filter((survey) => options?.includeArchived ? true : survey.status !== "Archived")
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+  );
 }
 
 export function getSurvey(tenantId: string, id: string) {
   ensureLegacyMigration();
   const survey = store.surveys.find((item) => item.tenantId === tenantId && (item.id === id || item.reference === id));
   return survey ? clone(survey) : undefined;
+}
+
+export function archiveSurvey(
+  tenantId: string,
+  id: string,
+  expectedVersion: number | undefined,
+  actor: string,
+): VersionedMutationResult<SurveyRecord> {
+  ensureLegacyMigration();
+  const index = store.surveys.findIndex((item) => item.tenantId === tenantId && (item.id === id || item.reference === id));
+  const current = index >= 0 ? store.surveys[index] : undefined;
+  if (!current) return { ok: false, reason: "not_found", message: "Survey not found." };
+  if (expectedVersion !== undefined && expectedVersion !== current.version) {
+    return { ok: false, reason: "version_conflict", current: clone(current), message: "This survey changed on another device. Reload before archiving." };
+  }
+  if (current.status === "Archived") return { ok: true, value: clone(current) };
+  const updatedAt = nowIso();
+  const updated: SurveyRecord = {
+    ...current,
+    status: "Archived",
+    version: current.version + 1,
+    audit: [...current.audit, audit(actor, "Archived", "Survey archived from the survey list.")].slice(-200),
+    updatedAt,
+  };
+  store.surveys[index] = updated;
+  persist();
+  return { ok: true, value: clone(updated) };
+}
+
+export function deleteSurvey(
+  tenantId: string,
+  id: string,
+  actor: string,
+): VersionedMutationResult<{ id: string; reference: string }> {
+  ensureLegacyMigration();
+  const index = store.surveys.findIndex((item) => item.tenantId === tenantId && (item.id === id || item.reference === id));
+  const current = index >= 0 ? store.surveys[index] : undefined;
+  if (!current) return { ok: false, reason: "not_found", message: "Survey not found." };
+  const removed = store.surveys.splice(index, 1)[0]!;
+  // Keep linked estimates; they can still be opened from Estimator.
+  persist();
+  void actor;
+  return { ok: true, value: { id: removed.id, reference: removed.reference } };
 }
 
 export function createSurvey(
@@ -409,6 +457,9 @@ export function updateSurvey(
     createdAt: current.createdAt,
     updatedAt,
   };
+  if (Object.prototype.hasOwnProperty.call(safePatch, "jobLink") && !safePatch.jobLink) {
+    delete updated.jobLink;
+  }
   store.surveys[index] = updated;
   persist();
   return { ok: true, value: clone(updated) };
@@ -573,6 +624,52 @@ export function getEstimates(tenantId: string) {
 export function getEstimate(tenantId: string, id: string) {
   const estimate = store.estimates.find((item) => item.tenantId === tenantId && (item.id === id || item.reference === id));
   return estimate ? clone(estimate) : undefined;
+}
+
+export function saveEstimateRecord(tenantId: string, estimate: EstimateRecord) {
+  ensureLegacyMigration();
+  const index = store.estimates.findIndex((item) => item.tenantId === tenantId && item.id === estimate.id);
+  if (index >= 0) store.estimates[index] = clone(estimate);
+  else store.estimates.unshift(clone(estimate));
+  persist();
+  return clone(estimate);
+}
+
+export function attachQuickPackToSurvey(
+  tenantId: string,
+  surveyId: string,
+  payload: {
+    estimateId: string;
+    takeoffProjectId: string;
+    expectedVersion?: number;
+    actor: string;
+    detail: string;
+  },
+): VersionedMutationResult<SurveyRecord> {
+  ensureLegacyMigration();
+  const index = store.surveys.findIndex((item) => item.tenantId === tenantId && (item.id === surveyId || item.reference === surveyId));
+  const current = index >= 0 ? store.surveys[index] : undefined;
+  if (!current) return { ok: false, reason: "not_found", message: "Survey not found." };
+  if (payload.expectedVersion !== undefined && payload.expectedVersion !== current.version) {
+    return { ok: false, reason: "version_conflict", current: clone(current), message: "This survey changed on another device. Reload before saving again." };
+  }
+  const updatedAt = nowIso();
+  const updated: SurveyRecord = {
+    ...current,
+    estimateId: payload.estimateId,
+    legacyTakeoffProjectId: payload.takeoffProjectId,
+    status: "Sent to estimator",
+    sentToEstimatorAt: updatedAt,
+    version: current.version + 1,
+    audit: [
+      ...current.audit,
+      audit(payload.actor, "Quick cost centres generated", payload.detail),
+    ].slice(-200),
+    updatedAt,
+  };
+  store.surveys[index] = updated;
+  persist();
+  return { ok: true, value: clone(updated) };
 }
 
 export function regenerateEstimate(

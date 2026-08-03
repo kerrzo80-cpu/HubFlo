@@ -17,6 +17,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { EngineerCostCentreOption, EngineerScheduleItem } from "@/lib/engineer-data";
+import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 import type {
   EngineerJobWorkflow,
   EngineerWorkflowNote,
@@ -74,12 +75,12 @@ function checklistTitle(costCentre: string) {
 function checklistHelp(costCentre: string) {
   const normalised = costCentre.toLowerCase();
   if (/service/.test(normalised) && /boiler/.test(normalised)) {
-    return "This is the simple stop / go list for a boiler service cost centre. The engineer supplies each required item before completion can be confirmed.";
+    return "Fill each stop/go item — answers populate the Gas service record on this job in NeXa Core. Required items block Complete.";
   }
   if (/replace|replacement|install|boiler change/.test(normalised)) {
-    return "This is the boiler replacement stop / go list. Existing boiler evidence, new boiler details, flue route, commissioning and completion evidence are captured before handover.";
+    return "Boiler replacement stop/go. Evidence writes straight into NeXa Core on the cost centre before handover.";
   }
-  return "This checklist is driven by the cost centre type. Required items block completion until the engineer supplies the evidence.";
+  return "This checklist is driven by the cost centre type. Evidence writes into NeXa Core; required items block completion.";
 }
 
 function statusCopy(status: EngineerJobWorkflow["requirements"][number]["status"]) {
@@ -102,6 +103,7 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
   const [workflow, setWorkflow] = useState<EngineerJobWorkflow>(() => initialWorkflow(job));
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [draftByRequirement, setDraftByRequirement] = useState<Record<string, { text?: string; numberValue?: string; photoName?: string }>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [noteVisibility, setNoteVisibility] = useState<EngineerWorkflowNote["visibility"]>("Office review");
@@ -215,11 +217,86 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
   }
 
   async function markRequirementDone(requirementId: string) {
-    await runWorkflowAction(
+    const requirement = workflow.requirements.find((item) => item.id === requirementId);
+    const draft = draftByRequirement[requirementId] || {};
+    const evidenceType = requirement?.evidence || "Checkbox";
+    const validation = requirement?.validation;
+    const raw =
+      evidenceType === "Number"
+        ? draft.numberValue?.trim() || ""
+        : evidenceType === "Photo"
+          ? draft.photoName?.trim() || ""
+          : draft.text?.trim() || "";
+
+    if (evidenceType !== "Checkbox" && !raw) {
+      setError(
+        evidenceType === "Photo"
+          ? `Add a photo for “${requirement?.label || "this item"}” before saving.`
+          : evidenceType === "Number"
+            ? `Enter a number for “${requirement?.label || "this item"}” before saving.`
+            : `Enter a value for “${requirement?.label || "this item"}” before saving.`,
+      );
+      return;
+    }
+
+    if (validation && evidenceType !== "Checkbox") {
+      if (validation.inputKind === "date") {
+        const uk = toUkDateDisplay(raw);
+        if (!/^\d{2}-\d{2}-\d{4}$/.test(uk)) {
+          setError(`“${requirement?.label || "This item"}” must be a valid UK date (DD-MM-YYYY).`);
+          return;
+        }
+      } else {
+        const compact = raw.replace(/\s+/g, "");
+        if (typeof validation.exactDigits === "number") {
+          const digits = compact.replace(/\D/g, "");
+          if (digits.length !== validation.exactDigits || digits.length !== compact.length) {
+            setError(
+              `“${requirement?.label || "This item"}” must be exactly ${validation.exactDigits} digits (you entered ${digits.length || 0}).`,
+            );
+            return;
+          }
+        }
+        if (typeof validation.minLength === "number" && compact.length < validation.minLength) {
+          setError(`“${requirement?.label || "This item"}” must be at least ${validation.minLength} characters.`);
+          return;
+        }
+        if (validation.pattern) {
+          try {
+            const regex = new RegExp(validation.pattern);
+            if (!regex.test(raw) && !regex.test(compact)) {
+              setError(
+                validation.helpText
+                  ? `“${requirement?.label || "This item"}” is not valid. ${validation.helpText}`
+                  : `“${requirement?.label || "This item"}” is not in the required format.`,
+              );
+              return;
+            }
+          } catch {
+            // Ignore bad patterns.
+          }
+        }
+      }
+    }
+
+    const saved = await runWorkflowAction(
       "complete_requirement",
-      { requirementId },
-      "Checklist evidence sent to office review.",
+      {
+        requirementId,
+        text: validation?.inputKind === "date" ? toUkDateDisplay(draft.text || "") : draft.text,
+        numberValue: draft.numberValue,
+        photoName: draft.photoName,
+        evidence: draft,
+      },
+      "Evidence saved — NeXa Core gas/service form updated.",
     );
+    if (saved) {
+      setDraftByRequirement((current) => {
+        const next = { ...current };
+        delete next[requirementId];
+        return next;
+      });
+    }
   }
 
   async function uploadPhotos(event: ChangeEvent<HTMLInputElement>) {
@@ -362,22 +439,127 @@ export default function EngineerJobWorkspace({ job, jobs }: EngineerJobWorkspace
             </div>
             <p className="engineer-muted-copy">{checklistHelp(job.costCentre)}</p>
             <div className="engineer-requirement-list">
-              {workflow.requirements.map((requirement) => (
-                <div className={`engineer-requirement ${requirement.status}`} key={requirement.id}>
-                  <div>
-                    <span>{requirement.label}</span>
-                    <small>{requirement.status === "missing" ? "Required before completion" : requirement.status === "done" ? "Evidence supplied" : "Optional support evidence"}</small>
+              {workflow.requirements.map((requirement) => {
+                const draft = draftByRequirement[requirement.id] || {};
+                const evidenceType = requirement.evidence || "Checkbox";
+                const doneValue = [
+                  requirement.value?.text,
+                  requirement.value?.numberValue,
+                  requirement.value?.photoName,
+                ]
+                  .map((part) => String(part || "").trim())
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
+                  <div className={`engineer-requirement ${requirement.status}`} key={requirement.id}>
+                    <div>
+                      <span>{requirement.label}</span>
+                      <small>
+                        {requirement.stage ? `${requirement.stage} · ` : ""}
+                        {evidenceType}
+                        {requirement.status === "missing"
+                          ? " · Required before completion"
+                          : requirement.status === "done"
+                            ? doneValue
+                              ? ` · ${doneValue}`
+                              : " · Evidence supplied"
+                            : " · Optional"}
+                      </small>
+                      {requirement.status === "missing" && evidenceType !== "Checkbox" ? (
+                        <div className="engineer-requirement-capture" style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                          {requirement.validation?.inputKind === "date" ? (
+                            <>
+                              <input
+                                type="date"
+                                lang="en-GB"
+                                value={toDateInputValue(draft.text)}
+                                onChange={(event) =>
+                                  setDraftByRequirement((current) => ({
+                                    ...current,
+                                    [requirement.id]: {
+                                      ...current[requirement.id],
+                                      text: event.target.value ? isoDateToUk(event.target.value) : "",
+                                    },
+                                  }))
+                                }
+                              />
+                              {draft.text ? <small>Selected: {toUkDateDisplay(draft.text)}</small> : null}
+                            </>
+                          ) : null}
+                          {(evidenceType === "Text" || evidenceType === "Signature") && requirement.validation?.inputKind !== "date" ? (
+                            <input
+                              type={requirement.validation?.inputKind === "digits" ? "tel" : "text"}
+                              inputMode={
+                                requirement.validation?.inputKind === "digits"
+                                  ? "numeric"
+                                  : requirement.validation?.inputMode || "text"
+                              }
+                              pattern={requirement.validation?.inputKind === "digits" ? "[0-9]*" : undefined}
+                              value={draft.text || ""}
+                              placeholder={
+                                requirement.validation?.placeholder ||
+                                (evidenceType === "Signature" ? "Signed by…" : "Type the answer…")
+                              }
+                              maxLength={requirement.validation?.exactDigits || requirement.validation?.maxLength}
+                              onChange={(event) => {
+                                const nextValue =
+                                  requirement.validation?.inputKind === "digits"
+                                    ? event.target.value.replace(/\D/g, "")
+                                    : event.target.value;
+                                setDraftByRequirement((current) => ({
+                                  ...current,
+                                  [requirement.id]: { ...current[requirement.id], text: nextValue },
+                                }));
+                              }}
+                            />
+                          ) : null}
+                          {evidenceType === "Number" ? (
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              pattern="[0-9]*[.]?[0-9]*"
+                              value={draft.numberValue || ""}
+                              placeholder={requirement.validation?.placeholder || "Enter reading…"}
+                              onChange={(event) => {
+                                const nextValue = event.target.value.replace(/[^0-9.]/g, "");
+                                setDraftByRequirement((current) => ({
+                                  ...current,
+                                  [requirement.id]: { ...current[requirement.id], numberValue: nextValue },
+                                }));
+                              }}
+                            />
+                          ) : null}
+                          {evidenceType === "Photo" ? (
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0];
+                                if (!file) return;
+                                setDraftByRequirement((current) => ({
+                                  ...current,
+                                  [requirement.id]: { ...current[requirement.id], photoName: file.name },
+                                }));
+                                event.target.value = "";
+                              }}
+                            />
+                          ) : null}
+                          {requirement.validation?.helpText ? <small>{requirement.validation.helpText}</small> : null}
+                          {draft.photoName ? <small>Selected: {draft.photoName}</small> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="engineer-requirement-actions">
+                      <strong>{statusCopy(requirement.status)}</strong>
+                      {requirement.status === "missing" ? (
+                        <button type="button" onClick={() => void markRequirementDone(requirement.id)} disabled={isSaving}>
+                          {evidenceType === "Checkbox" ? "Mark complete" : "Save to NeXa"}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="engineer-requirement-actions">
-                    <strong>{statusCopy(requirement.status)}</strong>
-                    {requirement.status === "missing" ? (
-                      <button type="button" onClick={() => void markRequirementDone(requirement.id)} disabled={isSaving}>
-                        Mark supplied
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             {missingRequirements.length ? (
               <div className="engineer-stop-message">Cannot mark complete yet. Missing: {missingRequirements.map((item) => item.label).join(", ")}.</div>

@@ -5,12 +5,20 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
+import {
+  isExcelWorkbookFile,
+  parseEnquiryBoqFromXlsx,
+} from "@/lib/boq-xlsx";
 import { getServerStoreDirectory } from "@/lib/server-store";
 import {
+  applyParsedBoqDocumentsToProject,
   getTakeoffProject,
+  materialAllowancesFromParsedBoq,
   updateTakeoffProject,
   type TakeoffDocument,
   type TakeoffDocumentKind,
+  type TakeoffMaterialAllowance,
+  type TakeoffProject,
 } from "@/lib/takeoff-data";
 
 export const runtime = "nodejs";
@@ -41,7 +49,10 @@ function inferredMimeType(file: File) {
     ".webp": "image/webp",
     ".pdf": "application/pdf",
     ".txt": "text/plain",
+    ".csv": "text/csv",
     ".json": "application/json",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
     ".usd": "model/vnd.usd",
     ".usdz": "model/vnd.usdz+zip",
     ".obj": "model/obj",
@@ -68,7 +79,11 @@ function uploadNotes(kind: TakeoffDocumentKind) {
   if (kind === "Survey note") return ["Uploaded for OpenAI survey quote draft; confirm handwriting, scope and exclusions."];
   if (kind === "Survey photo") return ["Uploaded for OpenAI survey quote draft; confirm room condition and visible measurements."];
   if (kind === "LiDAR scan") return ["Uploaded as LiDAR/RoomPlan evidence; confirm imported room dimensions before quote issue."];
-  return ["Uploaded for OpenAI/BOQ scan; check provisional sums and exclusions."];
+  return ["Uploaded contractor BOQ; Excel files are parsed into material lines automatically."];
+}
+
+function shouldParseBoqSpreadsheet(kind: TakeoffDocumentKind, fileName: string, mimeType?: string) {
+  return (kind === "Contractor BOQ" || kind === "Specification") && isExcelWorkbookFile(fileName, mimeType);
 }
 
 export async function POST(
@@ -117,6 +132,8 @@ export async function POST(
   await mkdir(storageRoot, { recursive: true });
 
   const documents: TakeoffDocument[] = [];
+  const boqImports: Array<{ documentId: string; materials: TakeoffMaterialAllowance[]; note: string }> = [];
+  const parseWarnings: string[] = [];
 
   for (const file of files) {
     const documentId = `takeoff-doc-${randomUUID()}`;
@@ -124,27 +141,56 @@ export async function POST(
     const storageKey = ["takeoff-files", id, storedFileName].join("/");
     const filePath = path.join(storageRoot, storedFileName);
     const buffer = Buffer.from(await file.arrayBuffer());
+    const mimeType = inferredMimeType(file);
 
     await writeFile(filePath, buffer);
+
+    const notes = uploadNotes(kind);
+    let parsedStatus: TakeoffDocument["status"] = "Uploaded";
+    if (shouldParseBoqSpreadsheet(kind, file.name, mimeType)) {
+      try {
+        const parsed = parseEnquiryBoqFromXlsx(buffer, file.name);
+        if (parsed.lines.length) {
+          const materials = materialAllowancesFromParsedBoq(parsed, documentId);
+          boqImports.push({
+            documentId,
+            materials,
+            note: `${parsed.lines.length} bill line(s) imported from Excel into materials.`,
+          });
+          notes.push(`${parsed.lines.length} material line(s) imported from spreadsheet (not AI-guessed).`);
+          parsedStatus = "Parsed";
+        } else {
+          parseWarnings.push(`${file.name}: ${parsed.notes.join(" ") || "No bill lines found."}`);
+          notes.push(...parsed.notes);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to parse Excel BOQ.";
+        parseWarnings.push(`${file.name}: ${message}`);
+        notes.push(message);
+      }
+    }
 
     documents.push({
       id: documentId,
       kind,
       fileName: file.name,
-      mimeType: inferredMimeType(file),
+      mimeType,
       size: file.size,
       storageKey,
       uploadedAt,
-      status: "Uploaded",
-      notes: uploadNotes(kind),
+      status: parsedStatus,
+      notes,
     });
   }
 
   const riskFlags = Array.from(new Set([
     ...project.review.riskFlags,
-    "Uploaded source files need AI scan or office review before approval",
+    boqImports.length
+      ? "Excel BOQ lines imported as material allowances — confirm rates, exclusions and provisional sums"
+      : "Uploaded source files need AI scan or office review before approval",
   ]));
-  const updated = updateTakeoffProject(id, {
+
+  let updated: TakeoffProject | null = updateTakeoffProject(id, {
     status: project.status === "Draft" ? "In review" : project.status,
     documents: [...documents, ...project.documents],
     review: {
@@ -157,5 +203,16 @@ export async function POST(
     return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
   }
 
-  return NextResponse.json({ project: updated, documents }, { status: 201 });
+  if (boqImports.length) {
+    updated = applyParsedBoqDocumentsToProject(id, boqImports) ?? updated;
+  }
+
+  const importedLines = boqImports.reduce((sum, item) => sum + item.materials.length, 0);
+
+  return NextResponse.json({
+    project: updated,
+    documents,
+    importedBoqLines: importedLines,
+    parseWarnings,
+  }, { status: 201 });
 }

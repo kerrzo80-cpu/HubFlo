@@ -40,6 +40,13 @@ export interface Job {
   scheduledDate?: string;
   scheduledTime?: string;
   scheduledDurationHours?: number;
+  confirmationSentAt?: string;
+  confirmationSentTo?: string;
+  etaSentAt?: string;
+  etaSentTo?: string;
+  etaMinutes?: number;
+  completionSentAt?: string;
+  completionSentTo?: string;
   actualStartTime?: string;
   actualEndTime?: string;
   actualDurationHours?: number;
@@ -98,8 +105,31 @@ export interface PurchaseRequest {
   sentAt?: string;
   invoiceFileName?: string;
   invoiceReceivedAt?: string;
+  supplierInvoiceAmount?: number;
+  supplierInvoiceRef?: string;
   receivedAt?: string;
   updatedAt?: string;
+  xeroBillId?: string;
+  xeroBillNumber?: string;
+  xeroExportedAt?: string;
+  xeroAccountsStatus?: "Not sent" | "Queued" | "Sent";
+  supplierPaymentStatus?: "Unpaid" | "Part paid" | "Paid";
+  supplierPaidAmount?: number;
+  supplierPayments?: Array<{
+    id: string;
+    paidAt: string;
+    amount: number;
+    method: string;
+    reference?: string;
+    note?: string;
+    actor?: string;
+    source?: "manual" | "xero";
+    sourcePaymentId?: string;
+    sourceBillId?: string;
+    importedAt?: string;
+    reconciled?: boolean;
+  }>;
+  xeroPaymentsCheckedAt?: string;
 }
 
 export interface PurchaseOrderLine {
@@ -109,6 +139,8 @@ export interface PurchaseOrderLine {
   estimatedCost: number;
   actualCost?: number;
   receivedPercent: number;
+  catalogItemId?: string;
+  sku?: string;
 }
 
 export interface WorkflowStore {
@@ -365,6 +397,15 @@ function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
 }
 
 export function getJobs(): Job[] {
+  // Keep the Field gas-cert trial mirrored in Core even on live SQLite stores.
+  try {
+    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+      ensureGasCertTrialInCore: () => Job | null;
+    };
+    ensureGasCertTrialInCore();
+  } catch {
+    // Trial bootstrap is best-effort.
+  }
   return clone(getStore().jobs);
 }
 
@@ -402,12 +443,26 @@ export function updateJob(id: string, patch: Partial<Job>): Job | null {
   if (index < 0) return null;
   const current = store.jobs[index];
   if (!current) return null;
+  const resolvedClient = (patch.clientId ?? current.clientId)
+    ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
+    : undefined;
+  const resolvedSite = (patch.siteId ?? current.siteId)
+    ? findSite(
+        patch.siteId ?? current.siteId,
+        resolvedClient?.id ?? patch.clientId ?? current.clientId,
+        patch.site ?? current.site,
+      )
+    : undefined;
   const nextHealth = patch.status ? deriveJobHealth(patch.status) : current.health;
   const updated: Job = {
     ...current,
     ...patch,
     id: current.id,
     health: nextHealth,
+    clientId: patch.clientId ?? resolvedClient?.id ?? current.clientId,
+    siteId: patch.siteId ?? resolvedSite?.id ?? current.siteId,
+    customer: resolvedClient?.name ?? patch.customer ?? current.customer,
+    site: resolvedSite?.address ?? patch.site ?? current.site,
   };
   store.jobs[index] = updated;
   persistWorkflowStore();
@@ -506,12 +561,25 @@ export function updateQuote(id: string, patch: Partial<Quote>): Quote | null {
   if (index < 0) return null;
   const current = store.quotes[index];
   if (!current) return null;
+  const resolvedClient = (patch.clientId ?? current.clientId)
+    ? findClient(patch.clientId ?? current.clientId, patch.customer ?? current.customer)
+    : undefined;
+  const resolvedSite = (patch.siteId ?? current.siteId)
+    ? findSite(
+        patch.siteId ?? current.siteId,
+        resolvedClient?.id ?? patch.clientId ?? current.clientId,
+        current.customer,
+      )
+    : undefined;
 
   const updated: Quote = {
     ...current,
     ...patch,
     id: current.id,
     ref: current.ref,
+    clientId: patch.clientId ?? resolvedClient?.id ?? current.clientId,
+    siteId: patch.siteId ?? resolvedSite?.id ?? current.siteId,
+    customer: resolvedClient?.name ?? patch.customer ?? current.customer,
   };
   store.quotes[index] = updated;
   persistWorkflowStore();
@@ -666,7 +734,17 @@ export function createPurchaseRequest(
     sentAt: payload.sentAt,
     invoiceFileName: payload.invoiceFileName,
     invoiceReceivedAt: payload.invoiceReceivedAt,
+    supplierInvoiceAmount: payload.supplierInvoiceAmount,
+    supplierInvoiceRef: payload.supplierInvoiceRef,
     receivedAt: payload.receivedAt,
+    xeroBillId: payload.xeroBillId,
+    xeroBillNumber: payload.xeroBillNumber,
+    xeroExportedAt: payload.xeroExportedAt,
+    xeroAccountsStatus: payload.xeroAccountsStatus,
+    supplierPaymentStatus: payload.supplierPaymentStatus,
+    supplierPaidAmount: payload.supplierPaidAmount,
+    supplierPayments: payload.supplierPayments,
+    xeroPaymentsCheckedAt: payload.xeroPaymentsCheckedAt,
   };
   store.purchaseRequests = [created, ...store.purchaseRequests];
   persistWorkflowStore();

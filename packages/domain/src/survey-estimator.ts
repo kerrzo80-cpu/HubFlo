@@ -14,7 +14,7 @@ export const surveyJobTypes = [
 ] as const;
 
 export type SurveyJobType = (typeof surveyJobTypes)[number];
-export type SurveyStatus = "Draft" | "Ready for review" | "Complete" | "Sent to estimator";
+export type SurveyStatus = "Draft" | "Ready for review" | "Complete" | "Sent to estimator" | "Archived";
 export type SurveyMarket = "Domestic" | "Commercial";
 export type SurveyOccupancy = "Occupied" | "Vacant" | "Unknown";
 export type SurveyValueStatus = "Confirmed" | "Assumed" | "Provisional" | "TBC" | "Not applicable";

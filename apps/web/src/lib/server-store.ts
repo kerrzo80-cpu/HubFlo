@@ -2,9 +2,14 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 
-const SQLITE_STORE_PATH = process.env.NEXA_STORE_PATH;
+// Treat empty/whitespace-only env values as unset. Nullish coalescing (??) keeps
+// an empty string, so `NEXA_STORE_DIR=` in a .env file would otherwise resolve the
+// store directory to "" and write every store file into the process CWD (repo root)
+// instead of the ignored .hubflo-runtime directory / configured disk.
+const SQLITE_STORE_PATH = process.env.NEXA_STORE_PATH?.trim() || undefined;
+const CONFIGURED_STORE_DIR = process.env.NEXA_STORE_DIR?.trim() || undefined;
 const STORE_DIR =
-  process.env.NEXA_STORE_DIR
+  CONFIGURED_STORE_DIR
   ?? (SQLITE_STORE_PATH ? path.dirname(SQLITE_STORE_PATH) : path.join(process.cwd(), ".hubflo-runtime"));
 const STORE_FILE_EXT = ".json";
 
@@ -119,8 +124,9 @@ export function loadServerStore<T>(name: string, fallback: T): T {
   }
 }
 
-export function writeServerStore<T>(name: string, value: T) {
+export function writeServerStore<T>(name: string, value: T): boolean {
   const database = getSqliteStore();
+  const payload = JSON.stringify(value, null, 2);
   if (database) {
     try {
       database
@@ -131,8 +137,8 @@ export function writeServerStore<T>(name: string, value: T) {
             value = excluded.value,
             updated_at = excluded.updated_at
         `)
-        .run(name, JSON.stringify(value, null, 2), new Date().toISOString());
-      return;
+        .run(name, payload, new Date().toISOString());
+      return true;
     } catch {
       // Fall through to JSON when the configured SQLite store is unavailable.
     }
@@ -141,9 +147,10 @@ export function writeServerStore<T>(name: string, value: T) {
   try {
     ensureStoreDirectory();
     const file = getStoreFilePath(name);
-    writeFileSync(file, JSON.stringify(value, null, 2), "utf8");
+    writeFileSync(file, payload, "utf8");
+    return true;
   } catch {
-    // Keep writes best-effort in sandboxed environments.
+    return false;
   }
 }
 

@@ -1,0 +1,39 @@
+{
+  "jobId": 1001,
+  "sections": [
+    {
+      "ID": 1,
+      "Name": "Main works",
+      "CostCenters": [
+        {
+          "ID": 501,
+          "Name": "Plumbing",
+          "Total": { "ExTax": 800.0, "Tax": 160.0, "IncTax": 960.0 },
+          "Items": {
+            "Labours": [
+              {
+                "ID": 11,
+                "Description": "Fit suite",
+                "Qty": 4,
+                "Total": { "ExTax": 320.0 }
+              }
+            ],
+            "OneOffs": [
+              {
+                "ID": 21,
+                "Description": "Suite package",
+                "Qty": 1,
+                "Total": { "ExTax": 480.0 }
+              }
+            ],
+            "ServiceFees": [],
+            "Materials": null
+          }
+        }
+      ]
+    }
+  ],
+  "notes": [],
+  "customFields": [],
+  "attachments": []
+}

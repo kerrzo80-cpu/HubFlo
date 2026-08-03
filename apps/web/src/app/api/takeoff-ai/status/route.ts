@@ -18,6 +18,6 @@ export async function GET(request: Request) {
     model: config.model,
     source: config.source,
     updatedAt: config.updatedAt,
-    keyName: "OPENAI_API_KEY",
+    keyName: config.keyName,
   });
 }

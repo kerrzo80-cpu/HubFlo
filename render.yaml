@@ -6,7 +6,7 @@ services:
     plan: starter
     autoDeploy: true
     healthCheckPath: /api/health
-    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile && pnpm --filter @hubflo/web build
+    buildCommand: corepack enable && corepack prepare pnpm@11.5.3 --activate && pnpm install --frozen-lockfile --filter @hubflo/web... && NODE_OPTIONS=--max-old-space-size=3072 pnpm --filter @hubflo/web build
     startCommand: corepack enable && pnpm --filter @hubflo/web start --hostname 0.0.0.0 --port $PORT
     disk:
       name: nexa-pilot-data
@@ -15,6 +15,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24.14.0
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=3072
       - key: NEXA_STORE_PATH
         value: /var/data/nexa-pilot.sqlite
       - key: NEXA_STORE_DIR
@@ -27,6 +29,24 @@ services:
         sync: false
       - key: NEXT_PUBLIC_APP_URL
         value: https://nexa-pilot.onrender.com
+      # simPRO — prefer OAuth refresh (same pattern as nexa-live)
+      - key: SIMPRO_BASE_URL
+        sync: false
+      - key: SIMPRO_API_BASE_URL
+        sync: false
+      - key: SIMPRO_COMPANY_ID
+        sync: false
+      - key: SIMPRO_CLIENT_ID
+        sync: false
+      - key: SIMPRO_CLIENT_SECRET
+        sync: false
+      - key: SIMPRO_REFRESH_TOKEN_FILE
+        value: /var/data/simpro_refresh_token.txt
+      - key: SIMPRO_REFRESH_TOKEN
+        sync: false
+      - key: SIMPRO_WEBHOOK_SECRET
+        sync: false
+      # Optional bridges when direct OAuth is not used on pilot
       - key: SIMPRO_QUOTE_PUSH_URL
         sync: false
       - key: SIMPRO_QUOTE_PUSH_TOKEN
@@ -37,13 +57,5 @@ services:
         sync: false
       - key: SIMPRO_SCHEDULER_HUB_PASSWORD
         sync: false
-      - key: SIMPRO_API_BASE_URL
-        sync: false
-      - key: SIMPRO_ACCESS_TOKEN
-        sync: false
-      - key: SIMPRO_COMPANY_ID
-        sync: false
-      - key: SIMPRO_DEFAULT_CUSTOMER_ID
-        sync: false
-      - key: SIMPRO_DEFAULT_SITE_ID
+      - key: OPENAI_API_KEY
         sync: false

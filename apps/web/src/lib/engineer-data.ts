@@ -1,4 +1,5 @@
 import { getHubDetailState } from "@/lib/hub-detail-store";
+import { requirementsFromFlowTemplate } from "@/lib/engineer-flow";
 import { getJobs, getPurchaseRequests, type Job } from "@/lib/workflow-data";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 
@@ -17,6 +18,28 @@ export type EngineerRequirement = {
   id: string;
   label: string;
   status: RequirementStatus;
+  evidence?: "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
+  stepId?: string;
+  costCentreId?: string;
+  required?: boolean;
+  stage?: string;
+  formField?: string;
+  validation?: {
+    exactDigits?: number;
+    minLength?: number;
+    maxLength?: number;
+    pattern?: string;
+    helpText?: string;
+    placeholder?: string;
+    inputMode?: "text" | "numeric" | "decimal";
+    inputKind?: "text" | "date" | "digits" | "decimal";
+  };
+  value?: {
+    text?: string;
+    numberValue?: string;
+    photoName?: string;
+    capturedAt?: string;
+  };
 };
 
 export type EngineerCostCentreOption = {
@@ -188,6 +211,51 @@ export const engineerSchedule: EngineerScheduleItem[] = [
   },
 ];
 
+function gasCertTrialSchedule(): EngineerScheduleItem[] {
+  const today = new Date().toISOString().slice(0, 10);
+  // Keep IDs aligned with Core hub evidence keys (gas-cert-trial-core).
+  const jobId = "job-gas-cert-trial";
+  const costCentreId = "job-gas-cert-trial-boiler-service";
+  const costCentreName = "Boiler servicing";
+  const requirements = requirementsFromFlowTemplate({
+    jobId,
+    costCentreId,
+    costCentreName,
+    templateName: "Boiler servicing",
+  });
+  return [
+    {
+      scheduleId: "sched-gas-cert-trial",
+      jobId,
+      jobRef: "J-TRIAL-GAS",
+      source: "seed",
+      costCentre: costCentreName,
+      costCentres: [{ id: costCentreId, name: costCentreName, templateName: "Boiler servicing" }],
+      engineerId: "eng-chris",
+      engineerName: "Chris Lawson",
+      date: today,
+      start: "09:00",
+      end: "11:00",
+      durationHours: 2,
+      plannedHours: 2,
+      customer: "Chris Lawson Boiler service",
+      contactName: "Chris Lawson",
+      phone: "+441423000000",
+      address: "14 Hillside Avenue, Harrogate, HG2 7PL",
+      description:
+        "Chris Lawson Boiler service — stop/go answers populate the Core Landlord Gas Safety Record.",
+      accessNotes: "Chris Lawson Boiler service trial. Safe to complete.",
+      officeNotes: [
+        "Open Field as Chris Lawson, complete Boiler servicing stop/go, then Core: /?job=job-gas-cert-trial&centre=job-gas-cert-trial-boiler-service&tab=engineer-flow",
+      ],
+      status: "Scheduled",
+      attachments: [],
+      photos: [],
+      requirements,
+    },
+  ];
+}
+
 function demoEngineerSchedule() {
   return useDemoSeedData() ? engineerSchedule : [];
 }
@@ -206,7 +274,7 @@ function normaliseName(value: string) {
   return value.toLowerCase().replace(/[^a-z]+/g, " ").trim();
 }
 
-function engineerIdForName(name: string) {
+export function engineerIdForName(name: string) {
   const normalised = normaliseName(name);
   if (normalised.includes("brian")) return "eng-brian";
   if (normalised.includes("errol")) return "eng-errol";
@@ -314,31 +382,45 @@ function defaultCostCentreOptionsForJob(jobId: string, jobRef: string, fallbackN
   return [{ id: `${jobId}-cost-centre`, name: fallbackName, templateName: fallbackName }];
 }
 
-function requirementsForCostCentre(job: Job, costCentre: string): EngineerRequirement[] {
+function requirementsForCostCentre(
+  job: Job,
+  costCentre: string,
+  costCentreOption?: EngineerCostCentreOption,
+): EngineerRequirement[] {
+  const centreId = costCentreOption?.id || `${job.id}-cost-centre`;
+  const fromHub = requirementsFromFlowTemplate({
+    jobId: job.id,
+    costCentreId: centreId,
+    costCentreName: costCentre,
+    templateName: costCentreOption?.templateName || costCentre,
+  });
+  if (fromHub.length) return fromHub;
+
+  // Fallback if hub templates unavailable.
   const scope = `${costCentre} ${job.description}`.toLowerCase();
   if (/boiler/.test(scope) && /service/.test(scope)) {
     return [
-      { id: `req-${job.id}-appliance-photo`, label: "Appliance photo", status: "missing" },
-      { id: `req-${job.id}-data-plate`, label: "Data plate / serial number", status: "missing" },
-      { id: `req-${job.id}-flue-analyser`, label: "Flue/analyser evidence", status: "missing" },
-      { id: `req-${job.id}-service-notes`, label: "Service notes / defects", status: "missing" },
+      { id: `req-${job.id}-appliance-photo`, label: "Appliance photo", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-data-plate`, label: "Data plate / serial number", status: "missing", evidence: "Text", required: true },
+      { id: `req-${job.id}-flue-analyser`, label: "Flue/analyser evidence", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-service-notes`, label: "Service notes / defects", status: "missing", evidence: "Text", required: true },
     ];
   }
 
   if (/boiler/.test(scope) && /replace|replacement|install|change/.test(scope)) {
     return [
-      { id: `req-${job.id}-existing-boiler`, label: "Existing boiler photos", status: "missing" },
-      { id: `req-${job.id}-new-boiler`, label: "New boiler data plate / serial number", status: "missing" },
-      { id: `req-${job.id}-flue-photo`, label: "Flue route photo", status: "missing" },
-      { id: `req-${job.id}-commissioning`, label: "Commissioning / benchmark details", status: "missing" },
-      { id: `req-${job.id}-completion`, label: "Completion photos", status: "missing" },
+      { id: `req-${job.id}-existing-boiler`, label: "Existing boiler photos", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-new-boiler`, label: "New boiler data plate / serial number", status: "missing", evidence: "Text", required: true },
+      { id: `req-${job.id}-flue-photo`, label: "Flue route photo", status: "missing", evidence: "Photo", required: true },
+      { id: `req-${job.id}-commissioning`, label: "Commissioning / benchmark details", status: "missing", evidence: "Text", required: true },
+      { id: `req-${job.id}-completion`, label: "Completion photos", status: "missing", evidence: "Photo", required: true },
     ];
   }
 
   return [
-    { id: `req-${job.id}-arrival`, label: "Arrival / before photo", status: "missing" },
-    { id: `req-${job.id}-work-note`, label: "Engineer work note", status: "missing" },
-    { id: `req-${job.id}-completion`, label: "Completion / issue photo", status: "optional" },
+    { id: `req-${job.id}-arrival`, label: "Arrival / before photo", status: "missing", evidence: "Photo", required: true },
+    { id: `req-${job.id}-work-note`, label: "Engineer work note", status: "missing", evidence: "Text", required: true },
+    { id: `req-${job.id}-completion`, label: "Completion / issue photo", status: "optional", evidence: "Photo", required: false },
   ];
 }
 
@@ -389,7 +471,7 @@ function coreJobToEngineerScheduleItem(job: Job): EngineerScheduleItem | null {
       { id: `att-${job.id}-job`, name: `${job.ref} job pack`, type: "PDF", uploadedBy: "Office", uploadedAt: "Core" },
     ],
     photos: [],
-    requirements: requirementsForCostCentre(job, costCentre),
+    requirements: requirementsForCostCentre(job, costCentre, costCentres[0]),
   };
 }
 
@@ -441,7 +523,7 @@ function coreJobPlanToEngineerScheduleItem(job: Job, assignment: CoreJobSchedule
       { id: `att-${job.id}-job`, name: `${job.ref} job pack`, type: "PDF", uploadedBy: "Office", uploadedAt: "Core" },
     ],
     photos: [],
-    requirements: requirementsForCostCentre(job, selectedCostCentre.name),
+    requirements: requirementsForCostCentre(job, selectedCostCentre.name, selectedCostCentre),
   };
 }
 
@@ -481,11 +563,22 @@ function liveEngineerSchedule() {
 }
 
 export function getEngineerSchedule(engineerId?: string) {
-  const liveItems = liveEngineerSchedule();
+  try {
+    const { ensureGasCertTrialInCore } = require("@/lib/gas-cert-trial-core") as {
+      ensureGasCertTrialInCore: () => unknown;
+    };
+    ensureGasCertTrialInCore();
+  } catch {
+    // Trial bootstrap is best-effort.
+  }
+  const trialJobId = "job-gas-cert-trial";
+  // Prefer the fixed Chris Lawson trial schedule (sched-gas-cert-trial) over any Core planner clones.
+  const liveItems = liveEngineerSchedule().filter((item) => item.jobId !== trialJobId);
   const liveJobIds = new Set(liveItems.map((item) => item.jobId));
   const items = [
+    ...gasCertTrialSchedule(),
     ...liveItems,
-    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId)),
+    ...demoEngineerSchedule().filter((item) => !liveJobIds.has(item.jobId) && item.jobId !== trialJobId),
   ].map(withCostCentreOptions);
   return engineerId ? items.filter((item) => item.engineerId === engineerId) : items;
 }

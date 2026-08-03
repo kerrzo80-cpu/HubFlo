@@ -1,14 +1,15 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
+import { SurveyScrollUnlock } from "./survey-scroll-unlock";
 
 export const metadata: Metadata = {
-  title: "NeXa Estimator",
-  description: "NeXa estimator for site survey chat, room scans, heat loss and quote handoff.",
-  applicationName: "NeXa Estimator",
+  title: "NeXa Surveyor",
+  description: "NeXa Surveyor for guided site capture, Blake assistance and AI estimate packs.",
+  applicationName: "NeXa Surveyor",
   manifest: "/manifest-estimator.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NeXa Estimator",
+    title: "NeXa Surveyor",
   },
   icons: {
     icon: [
@@ -19,10 +20,21 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function SurveyLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return children;
+  return (
+    <>
+      <SurveyScrollUnlock />
+      {children}
+    </>
+  );
 }

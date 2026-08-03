@@ -10,7 +10,8 @@ type CreateSurveyBody = Partial<SurveyRecord> & { clientMutationId?: string };
 export async function GET(request: Request) {
   if (!canReadSurveys(request)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   const { tenantId } = surveyRequestContext(request);
-  return NextResponse.json(getSurveys(tenantId));
+  const includeArchived = new URL(request.url).searchParams.get("includeArchived") === "1";
+  return NextResponse.json(getSurveys(tenantId, { includeArchived }));
 }
 
 export async function POST(request: Request) {

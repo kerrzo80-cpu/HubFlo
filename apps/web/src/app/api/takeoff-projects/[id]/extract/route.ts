@@ -3,15 +3,23 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { employeeHeaderName, getAccessProfileFromHeaders } from "@/lib/access";
+import {
+  boqLinesToPromptText,
+  isExcelWorkbookFile,
+  parseEnquiryBoqFromXlsx,
+} from "@/lib/boq-xlsx";
 import { parseJsonRequestBody } from "@/lib/http";
 import { getServerStoreDirectory } from "@/lib/server-store";
 import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
 import {
   applyTakeoffExtractionDraft,
   getTakeoffProject,
+  materialAllowancesFromParsedBoq,
+  mergeBoqMaterialAllowances,
   runTakeoffDraftExtraction,
   type TakeoffDocument,
   type TakeoffExtractionDraft,
+  type TakeoffMaterialAllowance,
   type TakeoffMeasurement,
   type TakeoffPipeRun,
   type TakeoffProject,
@@ -388,8 +396,43 @@ function getOutputText(response: unknown) {
   }).filter(Boolean).join("\n");
 }
 
+async function loadDeterministicBoqMaterials(project: TakeoffProject) {
+  const materials: TakeoffMaterialAllowance[] = [];
+  const promptChunks: string[] = [];
+  const skipped: string[] = [];
+  const documentIds: string[] = [];
+
+  for (const document of project.documents) {
+    if (document.kind !== "Contractor BOQ" && document.kind !== "Specification") continue;
+    if (!isExcelWorkbookFile(document.fileName, document.mimeType)) continue;
+    const filePath = storedFilePath(document);
+    if (!filePath) {
+      skipped.push(`${document.fileName} was uploaded before file storage was enabled`);
+      continue;
+    }
+    try {
+      const buffer = await readFile(filePath);
+      const parsed = parseEnquiryBoqFromXlsx(buffer, document.fileName);
+      if (!parsed.lines.length) {
+        skipped.push(`${document.fileName}: ${parsed.notes.join(" ") || "no bill lines"}`);
+        continue;
+      }
+      documentIds.push(document.id);
+      materials.push(...materialAllowancesFromParsedBoq(parsed, document.id));
+      promptChunks.push(boqLinesToPromptText(parsed));
+    } catch (error) {
+      skipped.push(`${document.fileName}: ${error instanceof Error ? error.message : "parse failed"}`);
+    }
+  }
+
+  return { materials, promptChunks, skipped, documentIds };
+}
+
 async function buildOpenAiContent(project: TakeoffProject) {
   const skipped: string[] = [];
+  const deterministic = await loadDeterministicBoqMaterials(project);
+  skipped.push(...deterministic.skipped);
+
   const intro: OpenAiTextContent = {
     type: "input_text",
     text: [
@@ -398,8 +441,15 @@ async function buildOpenAiContent(project: TakeoffProject) {
       `Site: ${project.site}`,
       `Scope: ${project.description}`,
       `Documents: ${project.documents.map((document) => `${document.kind}: ${document.fileName}`).join("; ") || "None"}`,
-      "Extract a heating/plumbing takeoff for office review. For each room/area, capture lengthM, widthM and heightM from the drawing/spec if visible. If only area is visible, set areaM2 and leave missing dimensions as 0. If scale or dimensions are unclear, use 0 and add a question instead of guessing.",
-    ].join("\n"),
+      "Extract a heating/plumbing takeoff for office review.",
+      "IMPORTANT: Structured Excel BOQ line items are provided as text below. Do NOT invent a short summary package for those rows.",
+      "Use materialAllowances only for extras not already listed in the structured BOQ text (or leave materialAllowances empty if the BOQ text is complete).",
+      "Focus labourAllowances, rooms, pipe runs, radiators, supplierRequests, risks and questions on top of the structured bill.",
+      "For each room/area, capture lengthM, widthM and heightM from the drawing/spec if visible. If only area is visible, set areaM2 and leave missing dimensions as 0. If scale or dimensions are unclear, use 0 and add a question instead of guessing.",
+      deterministic.promptChunks.length
+        ? `\nStructured BOQ text:\n${deterministic.promptChunks.join("\n\n")}`
+        : "",
+    ].filter(Boolean).join("\n"),
   };
   const content: OpenAiInputContent[] = [intro];
 
@@ -412,6 +462,12 @@ async function buildOpenAiContent(project: TakeoffProject) {
     }
     if ((document.size ?? 0) > OPENAI_FILE_LIMIT_BYTES) {
       skipped.push(`${document.fileName} is over the OpenAI pilot scan limit`);
+      continue;
+    }
+
+    // Excel BOQs are already inlined as structured text — skip binary xlsx upload to the model.
+    if (isExcelWorkbookFile(document.fileName, document.mimeType)) {
+      sourceFiles += 1;
       continue;
     }
 
@@ -434,12 +490,12 @@ async function buildOpenAiContent(project: TakeoffProject) {
     intro.text = `${intro.text}\nSkipped files: ${skipped.join("; ")}`;
   }
 
-  return { content, sourceFiles };
+  return { content, sourceFiles, deterministic };
 }
 
 async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKey: string, model: string) {
-  const { content, sourceFiles } = await buildOpenAiContent(project);
-  if (sourceFiles === 0) {
+  const { content, sourceFiles, deterministic } = await buildOpenAiContent(project);
+  if (sourceFiles === 0 && !deterministic.materials.length) {
     throw new TakeoffExtractionInputError(
       "OpenAI is connected, but no AI-ready source files are stored for this project. Re-upload the drawings/specs/BOQs in Intake, then run AI scan again.",
     );
@@ -458,7 +514,7 @@ async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKe
           role: "developer",
           content: [{
             type: "input_text",
-            text: "You are a UK mechanical estimating assistant for NeXa Takeoff. Return conservative draft BOQ/takeoff data for office review only. Never claim the output is final or measured if the document evidence is unclear.",
+            text: "You are a UK mechanical estimating assistant for NeXa Takeoff. Return conservative draft BOQ/takeoff data for office review only. Never claim the output is final or measured if the document evidence is unclear. Prefer the structured Excel BOQ text when present; do not collapse it into a few package allowances.",
           }],
         },
         {
@@ -489,14 +545,34 @@ async function runOpenAiExtraction(project: TakeoffProject, actor: string, apiKe
 
   const payload = JSON.parse(outputText) as OpenAiTakeoffPayload;
   const draft = normalizeOpenAiPayload(project, payload);
+
+  // Keep deterministic Excel bill lines; only keep AI materials that are not already covered.
+  if (deterministic.materials.length) {
+    const covered = new Set(deterministic.materials.map((line) => line.description.toLowerCase()));
+    const aiExtras = draft.materialAllowances.filter((line) => !covered.has(line.description.toLowerCase()));
+    draft.materialAllowances = mergeBoqMaterialAllowances(aiExtras, deterministic.materials, deterministic.documentIds);
+    draft.riskFlags = Array.from(new Set([
+      ...draft.riskFlags,
+      "Excel BOQ lines imported as material allowances — confirm rates, exclusions and provisional sums",
+    ]));
+    draft.questions = Array.from(new Set([
+      ...draft.questions,
+      "Confirm provisional sums, nominated supply items and whether rates are net or gross.",
+    ]));
+  }
+
   return applyTakeoffExtractionDraft(project.id, draft, {
     actor,
     provider: "OpenAI",
     model,
-    summary: payload.summary,
+    summary: deterministic.materials.length
+      ? `${payload.summary} Imported ${deterministic.materials.length} Excel BOQ material line(s) deterministically.`
+      : payload.summary,
     confidence: payload.confidence,
-    documentNote: "OpenAI extraction drafted from stored source files; office review still required.",
-    sourceFiles,
+    documentNote: deterministic.materials.length
+      ? `Imported ${deterministic.materials.length} Excel BOQ line(s) exactly; OpenAI drafted labour/rooms/extras for review.`
+      : "OpenAI extraction drafted from stored source files; office review still required.",
+    sourceFiles: Math.max(sourceFiles, deterministic.documentIds.length),
   });
 }
 
@@ -520,10 +596,77 @@ export async function POST(
   }
 
   try {
-    const result = openAiConfig.apiKey
-      ? await runOpenAiExtraction(project, actor, openAiConfig.apiKey, openAiConfig.model)
-      : runTakeoffDraftExtraction(id, actor);
+    if (openAiConfig.apiKey) {
+      const result = await runOpenAiExtraction(project, actor, openAiConfig.apiKey, openAiConfig.model);
+      if (!result) {
+        return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
+      }
+      return NextResponse.json(result);
+    }
 
+    // Offline/pilot path: still import Excel BOQ lines exactly instead of inventing package stubs.
+    const deterministic = await loadDeterministicBoqMaterials(project);
+    if (deterministic.materials.length) {
+      const draft: TakeoffExtractionDraft = {
+        rooms: [],
+        measurements: [],
+        pipeRuns: [],
+        radiators: [],
+        materialAllowances: deterministic.materials,
+        labourAllowances: [
+          {
+            id: `boq-labour-install-${project.id}`,
+            section: "Installation",
+            role: "Engineer labour",
+            hours: Math.max(8, Math.round(deterministic.materials.length * 1.25)),
+            costRate: 38,
+            markupPercent: 45,
+            notes: "Draft labour from imported Excel BOQ line count — adjust after review.",
+          },
+          {
+            id: `boq-labour-review-${project.id}`,
+            section: "Office review",
+            role: "Project manager",
+            hours: 4,
+            costRate: 48,
+            markupPercent: 40,
+            notes: "Office review of imported bill lines and exclusions.",
+          },
+        ],
+        supplierRequests: deterministic.materials
+          .filter((line) => line.supplierRequired)
+          .slice(0, 40)
+          .map((line, index) => ({
+            id: `boq-supplier-${project.id}-${index}`,
+            supplier: line.preferredSupplier || "",
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit,
+            linkedMaterialId: line.id,
+            notes: "Imported from Excel BOQ — confirm price, availability and lead time.",
+          })),
+        riskFlags: [
+          "Excel BOQ lines imported as material allowances — confirm rates, exclusions and provisional sums",
+        ],
+        questions: [
+          "Confirm provisional sums, nominated supply items and whether rates are net or gross.",
+        ],
+      };
+      const result = applyTakeoffExtractionDraft(project.id, draft, {
+        actor,
+        provider: "Pilot",
+        summary: `Imported ${deterministic.materials.length} Excel BOQ material line(s) exactly.`,
+        confidence: "High",
+        documentNote: `Imported ${deterministic.materials.length} Excel BOQ line(s) exactly for office pricing.`,
+        sourceFiles: deterministic.documentIds.length,
+      });
+      if (!result) {
+        return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
+      }
+      return NextResponse.json(result);
+    }
+
+    const result = runTakeoffDraftExtraction(id, actor);
     if (!result) {
       return NextResponse.json({ error: "Takeoff project not found" }, { status: 404 });
     }

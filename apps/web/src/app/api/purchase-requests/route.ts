@@ -58,6 +58,8 @@ export async function POST(request: Request) {
     sentAt: payload.sentAt,
     invoiceFileName: payload.invoiceFileName,
     invoiceReceivedAt: payload.invoiceReceivedAt,
+    supplierInvoiceAmount: payload.supplierInvoiceAmount,
+    supplierInvoiceRef: payload.supplierInvoiceRef,
     receivedAt: payload.receivedAt,
     updatedAt: payload.updatedAt,
   } as PurchaseRequestInput);

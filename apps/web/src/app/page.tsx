@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   BarChart3,
   Bell,
+  Bot,
   Building2,
   CalendarDays,
   Check,
@@ -37,8 +38,10 @@ import {
   MapPin,
   Menu,
   MoreHorizontal,
+  Package,
   Plus,
   PoundSterling,
+  Repeat,
   Search,
   Send,
   Settings,
@@ -74,6 +77,20 @@ import {
   type VatTreatment,
 } from "@/lib/people-seed-data";
 import {
+  buddyMoodFromFindings,
+  defaultBuddyMemory,
+  dismissBuddyFinding,
+  loadBuddyMemory,
+  markWalkthroughComplete,
+  recordBuddyMiss,
+  recordBuddyQuotePattern,
+  buddyMemoryPrompt,
+  type BuddyMemory,
+  type BuddyMood,
+} from "@/lib/buddy-memory";
+import { BuddyCharacter } from "@/lib/BuddyCharacter";
+import { buddyWatchSummary, watchQuoteReadiness, type BuddyWatchFinding } from "@/lib/buddy-quote-watch";
+import {
   employeeHeaderName,
   getAccessProfile,
   permissionHeaderName,
@@ -91,6 +108,17 @@ import {
   weekDays,
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
+import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
+import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
+import { OpenAiKeyCard } from "./OpenAiKeyCard";
+import { DashboardOverview } from "./DashboardOverview";
+import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
+import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
+import { DayworkAccountForm } from "@/components/DayworkAccountForm";
+import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
+import { SignatureImage } from "@/components/SignaturePad";
+import type { GasServiceRecord } from "@/lib/engineer-flow";
+import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -135,6 +163,7 @@ const STORAGE_KEYS = {
   financeSettings: "hubflo:finance-settings:v1",
   integrationSettings: "hubflo:integration-settings:v1",
   flowCompletion: "hubflo:flow-completion:v1",
+  flowEvidence: "hubflo:flow-evidence:v1",
   quoteCostCentres: "hubflo:quote-cost-centres:v1",
   quoteSections: "hubflo:quote-sections:v1",
   quoteSchedulePlans: "hubflo:quote-schedule-plans:v1",
@@ -147,15 +176,24 @@ const STORAGE_KEYS = {
   communications: "hubflo:communications:v1",
   invoices: "hubflo:invoices:v1",
   customCatalog: "hubflo:custom-catalog:v1",
+  catalogFolders: "hubflo:catalog-folders:v1",
+  manualRecordDocuments: "hubflo:manual-record-documents:v1",
   suppliers: "hubflo:suppliers:v1",
+  contacts: "hubflo:contacts:v1",
+  contractors: "hubflo:contractors:v1",
   dashboardLayouts: "hubflo:dashboard-layouts:v1",
+  openWorkspaceTabs: "hubflo:open-workspace-tabs:v1",
 } as const;
+
+const OPEN_WORKSPACE_TAB_LIMIT = 10;
 
 const SETUP_SERVER_SYNC_HOLD_MS = 120000;
 const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 
 const dashboardPanelIds = [
+  "invoiceOps",
+  "unassignedJobs",
   "schedule",
   "notifications",
   "leadFollowups",
@@ -164,6 +202,8 @@ const dashboardPanelIds = [
   "variations",
   "approvedQuotes",
   "timesheets",
+  "assetDue",
+  "overdueJobs",
 ] as const;
 
 type DashboardPanelId = (typeof dashboardPanelIds)[number];
@@ -175,6 +215,8 @@ type DashboardLayout = {
 };
 
 const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: DashboardPanelSize }> = {
+  invoiceOps: { label: "Invoice ops", size: "wide" },
+  unassignedJobs: { label: "Unassigned jobs", size: "standard" },
   schedule: { label: "Weekly schedule", size: "wide" },
   notifications: { label: "Action notifications", size: "side" },
   leadFollowups: { label: "Lead follow-ups", size: "standard" },
@@ -183,6 +225,8 @@ const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: Dashbo
   variations: { label: "Variations", size: "standard" },
   approvedQuotes: { label: "Approved quotes", size: "standard" },
   timesheets: { label: "Timesheets", size: "standard" },
+  assetDue: { label: "Assets due", size: "standard" },
+  overdueJobs: { label: "Overdue jobs", size: "standard" },
 };
 
 const defaultDashboardLayout: DashboardLayout = {
@@ -283,6 +327,99 @@ function clearTrustedEmployeeSession() {
 
 function normalizeClientIdentity(value: string) {
   return value.trim().toLowerCase();
+}
+
+/** simPRO-style site picker tokens (not persisted site IDs). */
+const CLIENT_SITE_BILLING = "__billing__";
+const CLIENT_SITE_NEW = "__new__";
+
+function isSyntheticClientSiteToken(siteId?: string | null) {
+  return siteId === CLIENT_SITE_BILLING || siteId === CLIENT_SITE_NEW;
+}
+
+function addressesMatch(left?: string | null, right?: string | null) {
+  const a = normalizeClientIdentity(left ?? "");
+  const b = normalizeClientIdentity(right ?? "");
+  return Boolean(a) && a === b;
+}
+
+function realSiteIdOrUndefined(siteId?: string | null) {
+  if (!siteId || isSyntheticClientSiteToken(siteId)) return undefined;
+  return siteId;
+}
+
+function defaultSiteSelectionForClient(
+  client: ClientRecord,
+  sites: ClientSite[],
+): { siteId: string; address: string } {
+  const billing = String(client.billingAddress || "").trim();
+  const clientSitesForCustomer = sites.filter((site) => site.clientId === client.id);
+  if (billing) {
+    const matchingSite = clientSitesForCustomer.find((site) => addressesMatch(site.address, billing));
+    if (matchingSite) return { siteId: matchingSite.id, address: matchingSite.address };
+    return { siteId: CLIENT_SITE_BILLING, address: billing };
+  }
+  if (clientSitesForCustomer[0]) {
+    return { siteId: clientSitesForCustomer[0].id, address: clientSitesForCustomer[0].address };
+  }
+  return { siteId: CLIENT_SITE_NEW, address: "" };
+}
+
+function resolveSiteSelectionForClient(
+  client: ClientRecord | undefined,
+  sites: ClientSite[],
+  selection: string,
+): { siteId: string; address: string } {
+  if (!client) return { siteId: "", address: "" };
+  if (selection === CLIENT_SITE_BILLING) {
+    return { siteId: CLIENT_SITE_BILLING, address: String(client.billingAddress || "").trim() };
+  }
+  if (selection === CLIENT_SITE_NEW || !selection) {
+    return { siteId: CLIENT_SITE_NEW, address: "" };
+  }
+  const site = sites.find((item) => item.id === selection && item.clientId === client.id);
+  if (site) return { siteId: site.id, address: site.address };
+  return { siteId: CLIENT_SITE_NEW, address: "" };
+}
+
+function siteSelectionValueForForm(
+  client: ClientRecord | undefined,
+  sites: ClientSite[],
+  siteId: string | undefined,
+  address: string,
+): string {
+  if (!client) return "";
+  if (siteId === CLIENT_SITE_BILLING || siteId === CLIENT_SITE_NEW) return siteId;
+  if (siteId && sites.some((site) => site.id === siteId && site.clientId === client.id)) return siteId;
+  if (addressesMatch(address, client.billingAddress)) return CLIENT_SITE_BILLING;
+  const matched = sites.find(
+    (site) => site.clientId === client.id && addressesMatch(site.address, address),
+  );
+  if (matched) return matched.id;
+  return address.trim() ? CLIENT_SITE_NEW : CLIENT_SITE_NEW;
+}
+
+function reconcileSiteIdForAddress(
+  clientId: string | undefined,
+  clients: ClientRecord[],
+  sites: ClientSite[],
+  currentSiteId: string | undefined,
+  address: string,
+): string {
+  if (!clientId) return currentSiteId || CLIENT_SITE_NEW;
+  const client = clients.find((item) => item.id === clientId);
+  if (!client) return currentSiteId || CLIENT_SITE_NEW;
+  const realId = realSiteIdOrUndefined(currentSiteId);
+  if (realId) {
+    const linked = sites.find((site) => site.id === realId && site.clientId === clientId);
+    if (linked && addressesMatch(linked.address, address)) return linked.id;
+  }
+  if (addressesMatch(address, client.billingAddress)) return CLIENT_SITE_BILLING;
+  const matched = sites.find(
+    (site) => site.clientId === clientId && addressesMatch(site.address, address),
+  );
+  if (matched) return matched.id;
+  return CLIENT_SITE_NEW;
 }
 
 type LeadCustomerMatch = {
@@ -451,17 +588,21 @@ function resolveLeadSiteFromDraft(
   client: ClientRecord | undefined,
   sites: ClientSite[],
 ) {
-  if (draft.siteId) {
+  const requestedSiteId = realSiteIdOrUndefined(draft.siteId);
+  if (requestedSiteId) {
     const explicitSite = sites.find((site) =>
-      site.id === draft.siteId && (!client || site.clientId === client.id),
+      site.id === requestedSiteId && (!client || site.clientId === client.id),
     );
-    if (explicitSite) return explicitSite;
+    // Only keep the linked site when the typed address still matches it.
+    if (explicitSite && (!draft.address.trim() || addressesMatch(explicitSite.address, draft.address))) {
+      return explicitSite;
+    }
   }
 
   if (!client) return undefined;
 
   return (
-    sites.find((site) => site.clientId === client.id && normalizeClientIdentity(site.address) === normalizeClientIdentity(draft.address))
+    sites.find((site) => site.clientId === client.id && addressesMatch(site.address, draft.address))
     ?? (draft.address
       ? {
           id: `site-${Date.now()}-${Math.round(Math.random() * 1000)}`,
@@ -537,22 +678,36 @@ type HomeView =
   | "employee-card"
   | "clients"
   | "client-record"
+  | "directory-manager"
   | "quote-record"
   | "jobs"
   | "job-create"
   | "purchase-orders"
   | "purchase-order-record"
+  | "stock"
+  | "recurring"
   | "reports"
   | "invoices"
   | "invoice-create"
   | "invoice-record"
+  | "xero"
   | "job-record"
   | "quote-cost-centre-record"
   | "cost-centre-record";
+
+type OpenWorkspaceTabKind = "lead" | "quote" | "job" | "invoice" | "client";
+
+type OpenWorkspaceTab = {
+  kind: OpenWorkspaceTabKind;
+  recordId: string;
+  ref: string;
+  title: string;
+};
+
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
 type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
 type ReportDateRange = "Today" | "This week" | "Last week" | "This month" | "Last month" | "Year to date" | "Last year" | "Custom" | "All time";
-type ReportTab = "executive" | "financial" | "jobs" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
+type ReportTab = "executive" | "financial" | "jobs" | "wip" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
 type ReportTone = "blue" | "green" | "amber" | "red";
 
 type ClientTab = "overview" | "sites" | "history";
@@ -566,7 +721,7 @@ type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one
 type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
-type DirectoryRecordScope = "lead" | "quote" | "job" | "invoice";
+type DirectoryRecordScope = "lead" | "quote" | "job" | "invoice" | "employee" | "client" | "site" | "supplier" | "contact" | "contractor";
 type SetupCategory =
   | "overview"
   | "business"
@@ -577,7 +732,14 @@ type SetupCategory =
   | "workflow-rules"
   | "imports"
   | "catalogue"
+  | "prebuilds"
   | "rates"
+  | "stock-setup"
+  | "asset-types"
+  | "statuses"
+  | "tax-codes"
+  | "email-templates"
+  | "security"
   | "integrations"
   | "communications"
   | "finance";
@@ -596,29 +758,53 @@ type PermissionRow = {
   label: string;
 };
 
+type RecordSetupOptions = {
+  quoteType: "Project" | "Service" | "Recurring";
+  stage: string;
+  primaryTech: string;
+  labourEstimatesOn: boolean;
+  labourMarkupMode: "system" | "custom";
+  labourMarkupPercent: string;
+  labourFitTime: "Minutes (0.1)" | "Hours";
+  labourTaxCode: string;
+  materialMarkupPercent: string;
+  discountPercent: string;
+  itemTaxCode: string;
+  tags: string;
+  siteContact: string;
+  additionalContactName: string;
+};
+
 type QuoteDraft = {
   clientId: string;
   siteId: string;
   customer: string;
+  contactName: string;
   phone: string;
   email: string;
   address: string;
+  siteName: string;
+  addressParts: LeadAddressParts;
   owner: string;
   description: string;
   status: QuoteStatus;
   value: string;
   next: string;
   due: string;
+  setup: RecordSetupOptions;
 };
 
 type JobDraft = {
   clientId: string;
   siteId: string;
   customer: string;
+  contactName: string;
   phone: string;
   email: string;
   address: string;
   site: string;
+  siteName: string;
+  addressParts: LeadAddressParts;
   description: string;
   manager: string;
   scheduledDate: string;
@@ -627,6 +813,26 @@ type JobDraft = {
   value: string;
   next: string;
   due: string;
+  setup: RecordSetupOptions;
+};
+
+type ClientRecordDraft = {
+  name: string;
+  primaryContact: string;
+  email: string;
+  phone: string;
+  billingAddress: string;
+  commercialOwner: string;
+  notes: string;
+};
+
+type ClientSiteDraft = {
+  name: string;
+  address: string;
+  primaryContact: string;
+  accessNotes: string;
+  serviceLine: string;
+  nextVisit: string;
 };
 
 type OneOffMaterialDraft = {
@@ -723,6 +929,14 @@ type QuoteScheduleDraft = {
 type CatalogImportDraft = {
   folder: string;
   type: CatalogItem["type"];
+  supplierId: string;
+};
+
+type CatalogImportPreview = {
+  fileName: string;
+  items: CatalogItem[];
+  skippedBlank: number;
+  headers: string[];
 };
 
 type BusinessImportResult = {
@@ -749,6 +963,7 @@ type Lead = {
   address: string;
   description: string;
   status: LeadStatus;
+  lostReason?: string;
   surveyor: string;
   surveyDate: string;
   surveyTime: string;
@@ -777,14 +992,32 @@ type LeadContact = {
 
 type LeadDraft = Omit<Lead, "id" | "ref" | "createdAt" | "next"> & {
   customerMode: LeadCustomerMode;
+  siteName?: string;
+  siteContact?: string;
+  setup?: RecordSetupOptions;
 };
 
 type RecordDocumentScope = "lead" | "quote" | "job" | "invoice";
 type InvoiceScopeType = "quote" | "job";
-type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "full";
+type InvoiceClaimType = "deposit" | "valuation" | "progress-claim" | "retention-release" | "credit-note" | "full";
 type ValuationStatus = "Draft valuation" | "Submitted" | "Agreed" | "Progress claim";
 type AccountsExportStatus = "Not sent" | "Queued" | "Sent";
 type InvoicePaymentStatus = "Unpaid" | "Part paid" | "Paid";
+
+type InvoicePaymentRecord = {
+  id: string;
+  paidAt: string;
+  amount: number;
+  method: string;
+  reference?: string;
+  note?: string;
+  actor?: string;
+  source?: "manual" | "xero" | "adjustment";
+  sourcePaymentId?: string;
+  sourceInvoiceId?: string;
+  importedAt?: string;
+  reconciled?: boolean;
+};
 
 type ValuationLine = {
   id: string;
@@ -800,13 +1033,23 @@ type ValuationLine = {
 
 type JobInvoiceDraft = {
   jobId: string;
-  mode: Exclude<InvoiceClaimType, "progress-claim">;
+  mode: Exclude<InvoiceClaimType, "progress-claim" | "retention-release" | "credit-note">;
   depositPercent: number;
   retentionPercent: number;
   valuationPeriod: string;
   notes: string;
   valuationLines: ValuationLine[];
 };
+
+function invoiceClaimTypeLabel(claimType?: InvoiceClaimType, claimPercent?: number) {
+  if (claimType === "deposit") return `${claimPercent ?? 0}% deposit`;
+  if (claimType === "valuation") return "Application for payment";
+  if (claimType === "progress-claim") return "Progress claim";
+  if (claimType === "retention-release") return "Retention release";
+  if (claimType === "credit-note") return "Credit note";
+  if (claimType === "full") return "Invoice in full";
+  return "Invoice";
+}
 
 type InvoiceLine = {
   id: string;
@@ -848,9 +1091,21 @@ type Invoice = {
   valuationLines?: ValuationLine[];
   retentionPercent?: number;
   applicationRef?: string;
+  retentionReleasedAmount?: number;
+  retentionReleaseOfRefs?: string[];
+  creditOfInvoiceId?: string;
+  creditOfRef?: string;
   accountsStatus?: AccountsExportStatus;
   paymentStatus?: InvoicePaymentStatus;
   paidAmount?: number;
+  payments?: InvoicePaymentRecord[];
+  xeroInvoiceId?: string;
+  xeroInvoiceNumber?: string;
+  xeroExportedAt?: string;
+  chaseCount?: number;
+  lastChasedAt?: string;
+  lastChasedTo?: string;
+  lastChaseMessageId?: string;
 };
 
 type InvoiceEmailDraft = {
@@ -922,6 +1177,48 @@ function valuationNetAmount(value: number, retentionPercent: number) {
   return Math.max(0, value) * (1 - Math.max(0, retentionPercent) / 100);
 }
 
+function progressClaimGrossAmount(invoice: Invoice) {
+  if (invoice.valuationLines?.length) {
+    return invoice.valuationLines.reduce((sum, line) => sum + Math.max(0, line.agreedThisPeriod || line.requestedThisPeriod || 0), 0);
+  }
+  const rate = Math.max(0, Math.min(99.9, invoice.retentionPercent ?? 0)) / 100;
+  if (rate > 0 && rate < 1) return (invoice.chargeTotal || 0) / (1 - rate);
+  return invoice.chargeTotal || 0;
+}
+
+function progressClaimRetainedAmount(invoice: Invoice) {
+  const rate = Math.max(0, invoice.retentionPercent ?? 0) / 100;
+  if (rate <= 0) return 0;
+  return progressClaimGrossAmount(invoice) * rate;
+}
+
+function jobRetentionBalances(jobId: string, invoiceList: Invoice[]) {
+  const claims = invoiceList.filter(
+    (invoice) =>
+      invoice.sourceType === "job" &&
+      invoice.sourceId === jobId &&
+      invoice.status !== "Cancelled" &&
+      invoice.claimType === "progress-claim",
+  );
+  const releases = invoiceList.filter(
+    (invoice) =>
+      invoice.sourceType === "job" &&
+      invoice.sourceId === jobId &&
+      invoice.status !== "Cancelled" &&
+      invoice.claimType === "retention-release",
+  );
+  const retained = claims.reduce((sum, invoice) => sum + progressClaimRetainedAmount(invoice), 0);
+  const released = releases.reduce((sum, invoice) => sum + Math.max(0, invoice.chargeTotal || 0), 0);
+  return {
+    retained,
+    released,
+    available: Math.max(0, retained - released),
+    claimCount: claims.length,
+    releaseCount: releases.length,
+    claimRefs: claims.map((invoice) => invoice.applicationRef || invoice.ref),
+  };
+}
+
 function buildInvoiceRef(settings: FinanceSettings, existing: string[]) {
   return numberedReference("invoice", settings, existing);
 }
@@ -974,9 +1271,7 @@ function makeInvoiceFromQuote(
   settings: FinanceSettings,
 ): Invoice {
   const createdOn = new Date().toISOString().slice(0, 10);
-  const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const dueDate = invoiceDueDateFromSettings(settings, createdOn);
   const lines: InvoiceLine[] = sourceCentres.flatMap((centre) => {
     const totals = quoteCostCentreTotals(centre);
     const centreName = centre.name;
@@ -1071,9 +1366,7 @@ function makeInvoiceFromJobTotals(
   settings: FinanceSettings,
 ): Invoice {
   const createdOn = new Date().toISOString().slice(0, 10);
-  const dueDate = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  const dueDate = invoiceDueDateFromSettings(settings, createdOn);
 
   const billedVariations = variations.filter((variation) => isBillableVariationStatus(variation.status));
   const variationLineTotalCost = sumMoney(billedVariations, "costValue");
@@ -1120,19 +1413,59 @@ function makeInvoiceFromJobTotals(
   };
 }
 
-function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null): InvoiceEmailDraft {
+function invoiceGrossTotal(invoice: Pick<Invoice, "chargeTotal" | "vatRate">) {
+  return invoice.chargeTotal * (1 + (invoice.vatRate || 0) / 100);
+}
+
+function invoiceOutstandingBalance(invoice: Pick<Invoice, "chargeTotal" | "vatRate" | "paidAmount">) {
+  return Math.max(0, invoiceGrossTotal(invoice) - (invoice.paidAmount ?? 0));
+}
+
+function makeInvoiceEmailDraft(invoice: Invoice, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): InvoiceEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
+  const totalDue = currency(invoiceGrossTotal(invoice));
+  const outstanding = currency(invoiceOutstandingBalance(invoice));
+  const paid = currency(invoice.paidAmount ?? 0);
+  const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
   const vatNote = invoice.vatNote ? `\n\n${invoice.vatNote}` : "";
+  const vars = {
+    ref: invoice.ref,
+    description: invoice.title,
+    contact: contactName,
+    company: companyName,
+    total: totalDue,
+    outstanding,
+    paid,
+    dueDate: invoice.dueDate || invoice.issuedDate || "",
+    date: invoice.dueDate || invoice.issuedDate || "",
+    daysOverdue: String(daysOverdue),
+  };
   return {
-    to: client?.email ?? "",
+    to: client?.email ?? invoice.sentTo ?? "",
     cc: "",
-    subject: `${invoice.ref} - ${invoice.title}`,
-    body: `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${currency(invoice.chargeTotal * (1 + invoice.vatRate / 100))}.${vatNote}\n\nKind regards,\nNeXa`,
+    subject: template?.subject
+      ? fillEmailTemplate(template.subject, vars)
+      : `${invoice.ref} - ${invoice.title}`,
+    body: template?.body
+      ? `${fillEmailTemplate(template.body, vars)}${vatNote}`
+      : `Hi ${contactName},\n\nPlease find attached invoice ${invoice.ref} for ${invoice.title}.\n\nTotal due including VAT: ${totalDue}.${vatNote}\n\nKind regards,\n${companyName}`,
     attachPdf: true,
   };
 }
 
 type DocumentVisibility = "Private" | "Engineer" | "Client";
+
+type SetupEmailTemplateRow = {
+  id: string;
+  key: string;
+  name: string;
+  subject: string;
+  body: string;
+};
+
+function fillEmailTemplate(text: string, vars: Record<string, string>) {
+  return text.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => vars[key] ?? "");
+}
 
 type DocumentFolderTemplate = {
   id: string;
@@ -1152,11 +1485,20 @@ type RecordDocumentFile = {
   previewImageDataUrl?: string;
 };
 
+type ManualRecordDocuments = Record<string, RecordDocumentFile[]>;
+
 type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
+
+type EngineerFlowStepEvidenceValue = {
+  text?: string;
+  numberValue?: string;
+  photoName?: string;
+  capturedAt?: string;
+};
 
 type EngineerFlowStep = {
   id: string;
-  stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover";
+  stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover" | "Gas certificate" | "Daywork";
   label: string;
   evidence: EngineerFlowEvidence;
   required: boolean;
@@ -1220,6 +1562,21 @@ type JobDeliveryEvent = {
   status?: string;
   portalToken?: string;
   source: "NeXa" | "WhatsApp" | "Engineer app";
+  costCentreId?: string;
+  formType?: string;
+  plumberSignature?: string;
+  clientSignature?: string;
+  plumberSignerName?: string;
+  clientSignerName?: string;
+  weekEnding?: string;
+  labourTrade?: string;
+  labourDaysJson?: string;
+  labourRate?: string;
+  materialsCost?: string;
+  plantCost?: string;
+  materialsJson?: string;
+  plantJson?: string;
+  description?: string;
 };
 
 type JobDeliveryDraft = {
@@ -1260,6 +1617,10 @@ type CatalogItem = {
   costRate: number;
   sellRate: number;
   category?: string;
+  supplierId?: string;
+  supplierName?: string;
+  sku?: string;
+  stockItemId?: string;
 };
 
 type QuoteCostLine = {
@@ -1351,6 +1712,11 @@ type BusinessSettings = {
   companyNumber: string;
   defaultFromEmail: string;
   clientPortalBrandLine: string;
+  brandPrimaryColor: string;
+  brandAccentColor: string;
+  logoUrl: string;
+  portalWelcomeText: string;
+  portalAcceptanceText: string;
 };
 
 type FormTemplate = {
@@ -1375,6 +1741,8 @@ type WorkflowRulesSettings = {
   defaultMarkupPercent: string;
   poApprovalThreshold: string;
   autoCreatePendingJobOnAcceptance: boolean;
+  autoCreateDepositOnAcceptance: boolean;
+  defaultDepositPercent: string;
   requireCommercialReviewBeforeInvoice: boolean;
 };
 
@@ -1427,6 +1795,67 @@ type SupplierDirectoryRecord = {
   account: string;
   category?: string;
   notes?: string;
+  archived?: boolean;
+};
+
+type ContactDirectoryRecord = {
+  id: string;
+  name: string;
+  company?: string;
+  role?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  archived?: boolean;
+};
+
+type ContractorDirectoryRecord = {
+  id: string;
+  name: string;
+  trade?: string;
+  primaryContact?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  archived?: boolean;
+};
+
+type DirectoryManagerEntity = "sites" | "suppliers" | "contacts" | "contractors";
+
+type EmailIntegrationStatus = {
+  configured: boolean;
+  provider: "Outlook" | "Gmail";
+  senderEmail: string;
+  username: string;
+  smtpHost: string;
+  smtpPort: number;
+  secure: boolean;
+  secretStored: boolean;
+  lastTestedAt?: string;
+  lastTestRecipient?: string;
+  lastTestMessageId?: string;
+  lastSentAt?: string;
+  lastSentMessageId?: string;
+  lastError?: string;
+};
+
+type LiveEmailDelivery = {
+  provider: "Outlook" | "Gmail";
+  from: string;
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+  sentAt: string;
+};
+
+type EmailIntegrationDraft = {
+  provider: "Outlook" | "Gmail";
+  senderEmail: string;
+  username: string;
+  secret: string;
+  smtpHost: string;
+  smtpPort: string;
+  secure: boolean;
 };
 
 type LabourRateSetting = {
@@ -1446,7 +1875,7 @@ type QuoteEmailDraft = {
   attachPdf: boolean;
 };
 
-type CommunicationRecordType = "lead" | "quote" | "job" | "invoice";
+type CommunicationRecordType = "lead" | "quote" | "job" | "invoice" | "client";
 type CommunicationDirection = "outbound" | "inbound";
 
 type CommunicationRecord = {
@@ -1514,6 +1943,9 @@ type SurveyAsset = {
   status: "Draft" | "Review" | "Ready";
   clientVisible: boolean;
   createdAt: string;
+  fileName?: string;
+  fileUrl?: string;
+  previewImageDataUrl?: string;
 };
 
 type QuoteCostCentre = {
@@ -1622,31 +2054,42 @@ type HubDetailStatePayload = {
   costCentreTypes?: string[];
   costCentreFlowAssignmentDrafts?: Record<string, string>;
   flowStepCompletion?: Record<string, boolean>;
+  flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
   quoteCostCentres?: Record<string, QuoteCostCentre[]>;
   quoteSections?: Record<string, QuoteSection[]>;
   quoteSchedulePlans?: Record<string, QuoteScheduleAssignment[]>;
   jobSchedulePlans?: Record<string, JobScheduleAssignment[]>;
   customQuoteCatalog?: CatalogItem[];
+  catalogFolders?: string[];
   jobCostCentres?: Record<string, EstimateCostCentre[]>;
   jobSections?: Record<string, JobSection[]>;
   jobReviews?: Record<string, JobReviewState>;
   jobDeliveryEvents?: JobDeliveryEvent[];
   jobVariationSections?: Record<string, JobVariationSection[]>;
+  dayworkSheets?: Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>;
   communications?: CommunicationRecord[];
   invoices?: Invoice[];
   suppliers?: SupplierDirectoryRecord[];
+  contacts?: ContactDirectoryRecord[];
+  contractors?: ContractorDirectoryRecord[];
   simproExports?: SimproExportRecord[];
 };
 
 type SimproExportRecord = {
   id: string;
+  entityType?: "quote" | "job";
+  recordId?: string;
+  recordRef?: string;
   quoteId: string;
   quoteRef: string;
+  jobId?: string;
+  jobRef?: string;
   createdAt: string;
   actor: string;
   status: "Queued" | "Sent" | "Failed";
   mode: "manual" | "webhook" | "scheduler" | "direct";
   simproQuoteId?: string;
+  simproJobId?: string;
   endpoint?: string;
   setupRequired?: string;
   error?: string;
@@ -1669,7 +2112,10 @@ type SimproSyncOperation = {
   nexaRef?: string;
   summary: string;
   detail?: string;
+  candidates?: Array<{ nexaId: string; nexaName: string; nexaRef?: string }>;
 };
+
+type SimproSyncEntity = SimproSyncOperation["entity"];
 
 type SimproSyncRun = {
   id: string;
@@ -1677,7 +2123,7 @@ type SimproSyncRun = {
   startedAt: string;
   finishedAt: string;
   actor: string;
-  entities: Array<"clients" | "sites" | "quotes" | "jobs" | "invoices">;
+  entities: SimproSyncEntity[];
   totals: {
     fetched: number;
     created: number;
@@ -1702,11 +2148,30 @@ type SimproSyncStatus = {
   recentRuns: SimproSyncRun[];
 };
 
+const simproImportEntityOptions: Array<{ key: SimproSyncEntity; label: string }> = [
+  { key: "clients", label: "Clients" },
+  { key: "sites", label: "Sites" },
+  { key: "quotes", label: "Quotes" },
+  { key: "jobs", label: "Jobs" },
+  { key: "invoices", label: "Invoices" },
+];
+
+type SimproReconnectStatus = {
+  ready: boolean;
+  missing: string[];
+  authUrl?: string;
+  checkedAt: string;
+  sync?: SimproSyncStatus;
+};
+
 type SimproBridgeStatus = {
   configured: boolean;
   mode: "webhook" | "scheduler" | "direct" | "missing" | "unknown";
   missing: string[];
   endpoint?: string;
+  guidance?: string;
+  quotePushReady?: boolean;
+  jobPushReady?: boolean;
   checkedAt?: string;
   detectedEnvKeys?: string[];
   sync?: SimproSyncStatus;
@@ -1722,10 +2187,15 @@ type SimproBridgeStatus = {
 
 type XeroConnectionStatus = {
   configured: boolean;
+  mode: "oauth" | "static-token" | "csv-only" | "missing";
   missing: string[];
   detectedEnvKeys: string[];
   tenantIdPresent: boolean;
   redirectUriPresent: boolean;
+  hasRefreshToken: boolean;
+  hasAccessToken: boolean;
+  accessTokenExpiresAt?: string;
+  authUrl?: string;
   checkedAt: string;
 };
 
@@ -1762,6 +2232,31 @@ type LoginDraft = {
   password: string;
 };
 
+type NexaAssistantAction = {
+  id: string;
+  kind: "confirm_booking";
+  title: string;
+  detail: string;
+  confirmLabel: string;
+};
+
+type NexaAssistantMessage = {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+  action?: NexaAssistantAction;
+  aiUsed?: boolean;
+};
+
+type NexaAssistantApiResponse = {
+  reply?: string;
+  error?: string;
+  action?: NexaAssistantAction;
+  aiUsed?: boolean;
+  assignment?: JobScheduleAssignment;
+  jobId?: string;
+};
+
 type ServerAuthUser = {
   id: string;
   employeeId?: string;
@@ -1787,20 +2282,22 @@ const modules: ModuleItem[] = [
   { label: "Leads", icon: Mail },
   { label: "Quotes", icon: FileText },
   { label: "Jobs", icon: Wrench },
-  { label: "POs", icon: ClipboardCheck },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
-  { label: "Reports", icon: BarChart3 },
-  { label: "Add-ons", icon: Sparkles },
-  { label: "People", icon: Users, subItems: ["Employees", "Clients", "Suppliers"] },
+  { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
+  { label: "More", icon: MoreHorizontal, subItems: ["POs", "Stock", "Xero", "Recurring", "Reports", "Add-ons"] },
   { label: "Setup", icon: Settings },
 ];
 
-const sideNavigation = [
+const sideNavigation: Array<{
+  label: string;
+  icon: typeof Gauge;
+  active?: boolean;
+  badge?: string | number;
+}> = [
   { label: "Overview", icon: Gauge, active: true },
-  { label: "My work", icon: ListChecks, badge: 6 },
+  { label: "My work", icon: ListChecks },
   { label: "Operations", icon: HardHat },
-  { label: "Communications", icon: Inbox, badge: 3 },
   { label: "Reports", icon: BarChart3 },
 ];
 
@@ -1837,6 +2334,7 @@ const reportTabs: Array<{ key: ReportTab; label: string }> = [
   { key: "executive", label: "Executive" },
   { key: "financial", label: "Financial" },
   { key: "jobs", label: "Jobs" },
+  { key: "wip", label: "WIP" },
   { key: "engineers", label: "Engineers" },
   { key: "pipeline", label: "Estimating" },
   { key: "customers", label: "Customers" },
@@ -1915,6 +2413,11 @@ const defaultBusinessSettings: BusinessSettings = {
   companyNumber: "SC000000",
   defaultFromEmail: "office@errolwatsongroup.co.uk",
   clientPortalBrandLine: "Control every moving part.",
+  brandPrimaryColor: "#157fa8",
+  brandAccentColor: "#0f5f7d",
+  logoUrl: "/ewg-logo.png",
+  portalWelcomeText: "Welcome to your Errol Watson Group workspace. Review quotes, jobs and invoices in one place.",
+  portalAcceptanceText: "By accepting this quotation online you confirm the scope, price and terms shown.",
 };
 
 const defaultFormTemplates: FormTemplate[] = [
@@ -2453,6 +2956,7 @@ const costCentreTemplates = [
   "Bathroom refurbishment",
   "Boiler servicing",
   "Boiler replacement",
+  "Daywork account",
   "General plumbing",
   "Heating remedials",
   "Reactive maintenance",
@@ -2466,10 +2970,17 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
   { key: "workflow-rules", label: "Workflow rules", detail: "Lead chases, quote follow-ups, approvals and default margins", subItems: ["Leads", "Quotes", "Approvals"] },
-  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Suppliers", "Leads", "Quotes", "Jobs", "Invoices"] },
+  { key: "imports", label: "Data import", detail: "Bring existing business records into NeXa", subItems: ["Employees", "Customers", "Sites", "Suppliers", "Contacts", "Contractors", "Leads", "Quotes", "Jobs", "Invoices"] },
   { key: "catalogue", label: "Catalogue import", detail: "Import and manage reusable priced items", subItems: ["Materials", "Labour", "Suppliers"] },
+  { key: "prebuilds", label: "Pre-builds", detail: "Material + labour kits that expand onto cost centres" },
   { key: "rates", label: "Rates & markups", detail: "Default labour rates and markup percentages", subItems: ["Labour rates", "Default markups", "Supplier pricing"] },
-  { key: "integrations", label: "Integrations", detail: "simPRO, Xero and live system sync", subItems: ["simPRO", "Xero", "Import from simPRO"] },
+  { key: "stock-setup", label: "Stock locations", detail: "Warehouse and van stock locations" },
+  { key: "asset-types", label: "Asset types", detail: "Gas, oil, pipework and service intervals" },
+  { key: "statuses", label: "Statuses & reasons", detail: "Lead/quote/job/invoice statuses and lost reasons" },
+  { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
+  { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
+  { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
+  { key: "integrations", label: "Integrations", detail: "NeXa AI, simPRO, Xero and live system sync", subItems: ["NeXa AI", "simPRO", "Xero", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
 ];
@@ -2483,14 +2994,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Branding: {
-      summary: "Mockup area for logo placement, brand colours, form headers and client portal styling.",
-      focus: ["Upload company logo", "Set brand colours", "Preview quote and portal headers"],
-      status: "Mockup page",
+      summary: "Set logo URL, brand colours and preview how headers appear on quotes and the client portal.",
+      focus: ["Company logo URL", "Brand colours", "Preview quote and portal headers"],
+      status: "Editable now",
     },
     Portal: {
-      summary: "Mockup area for client portal wording, acceptance pages and customer-facing contact details.",
+      summary: "Edit client portal welcome and acceptance wording plus customer-facing contact details.",
       focus: ["Portal welcome text", "Online acceptance wording", "Public contact details"],
-      status: "Mockup page",
+      status: "Editable now",
     },
   },
   forms: {
@@ -2599,9 +3110,24 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       focus: ["Customer account details", "Billing and site addresses", "VAT treatment defaults"],
       status: "Working import",
     },
+    Sites: {
+      summary: "Import site records separately when customers already exist and you just need the service addresses and site contacts.",
+      focus: ["Customer match", "Site name and address", "Site VAT overrides"],
+      status: "Working import",
+    },
     Suppliers: {
       summary: "Import supplier records used by purchase orders and supplier request forms.",
       focus: ["Supplier name and email", "Trade account references", "Purchasing categories"],
+      status: "Working import",
+    },
+    Contacts: {
+      summary: "Import office, site and commercial contacts so they are ready to attach to customers, sites, quotes and jobs.",
+      focus: ["Name and company", "Role, email and phone", "Duplicate protection"],
+      status: "Working import",
+    },
+    Contractors: {
+      summary: "Import subcontractors and specialist trade partners used across quotes, jobs and purchase requests.",
+      focus: ["Contractor name", "Trade and primary contact", "Email and phone"],
       status: "Working import",
     },
     Leads: {
@@ -2642,6 +3168,7 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
   },
+  prebuilds: {},
   rates: {
     "Labour rates": {
       summary: "Set the standard labour cost, markup and sell rates used when new quote or job labour lines are added.",
@@ -2659,21 +3186,32 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
   },
+  "stock-setup": {},
+  "asset-types": {},
+  statuses: {},
+  "tax-codes": {},
+  "email-templates": {},
+  security: {},
   integrations: {
+    "NeXa AI": {
+      summary: "Connect OpenAI once here to power Blake across Takeoff, Survey, the Field app and the NeXa Assistant — no redeploy needed.",
+      focus: ["Paste your OpenAI API key", "Powers every AI feature", "Environment key still takes precedence"],
+      status: "Set up in seconds",
+    },
     simPRO: {
-      summary: "Check the live simPRO connection, preview records waiting to come across and apply safe imports into NeXa.",
-      focus: ["Connection status", "Clients, sites, quotes, jobs and invoices", "Conflict-safe imports"],
+      summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm NeXa can keep pushing records across.",
+      focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
       status: "Working bridge",
     },
     Xero: {
-      summary: "Prepare the Xero accounts connection used for invoice export, progress claim export and payment reconciliation.",
-      focus: ["OAuth tenant", "Invoice push", "Payment status sync"],
+      summary: "Connect Xero once, then use the Xero left-nav module for sales and supplier-bill export queues (simPRO-style).",
+      focus: ["OAuth tenant", "Export queues", "Mark exported"],
       status: "Setup area ready",
     },
     "Import from simPRO": {
-      summary: "Run a simPRO preview first, then apply imports after checking what NeXa will create or link.",
-      focus: ["Preview before import", "Safe creates and links", "Conflict review"],
-      status: "Working import",
+      summary: "Optional inbound tools for controlled migration only. Leave this off during normal day-to-day use while NeXa stays the front end.",
+      focus: ["Migration-only preview", "Controlled backfill", "Conflict review"],
+      status: "Use only when needed",
     },
   },
   communications: {
@@ -2700,14 +3238,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Editable now",
     },
     Valuations: {
-      summary: "Mockup page for applications for payment, progress claims and staged valuation templates.",
-      focus: ["Application prefix", "Valuation layout", "Supporting evidence rules"],
-      status: "Mockup page",
+      summary: "Raise applications for payment and progress claims from jobs with billed-to-date remaining controls.",
+      focus: ["Application for payment", "Progress claims", "Remaining contract value"],
+      status: "Editable now",
     },
     "PO approvals": {
-      summary: "Mockup page for purchase order approval thresholds and cost-centre-level supplier spend controls.",
-      focus: ["Approval thresholds", "Cost centre allocation", "Supplier PO issue rules"],
-      status: "Mockup page",
+      summary: "Set purchase order approval thresholds used when POs need office sign-off before send.",
+      focus: ["Approval thresholds", "Workflow gate messaging", "Supplier PO issue rules"],
+      status: "Editable now",
     },
   },
 };
@@ -2800,16 +3338,24 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
 
 const boilerServiceFlowTemplate: EngineerFlowTemplate = {
   id: "boiler-service-flow",
-  name: "Boiler servicing stop/go flow",
+  name: "Boiler servicing stop/go · Landlord Gas Safety Record",
   appliesTo: ["Boiler servicing"],
   steps: [
-    { id: "service-boiler-photo", stage: "Existing Boiler", label: "Upload photos of boiler and surrounding area", evidence: "Photo", required: true },
-    { id: "service-location", stage: "Existing Boiler", label: "Confirm boiler location", evidence: "Text", required: true },
-    { id: "service-make-model", stage: "Existing Boiler", label: "Record boiler make/model", evidence: "Text", required: true },
-    { id: "service-serial", stage: "Existing Boiler", label: "Record boiler serial number", evidence: "Text", required: true },
-    { id: "service-flue", stage: "Commissioning", label: "Complete flue and ventilation checks", evidence: "Checkbox", required: true },
-    { id: "service-readings", stage: "Commissioning", label: "Enter service readings", evidence: "Number", required: true },
-    { id: "service-customer-signoff", stage: "Handover", label: "Customer sign-off after service", evidence: "Signature", required: true },
+    { id: "service-boiler-photo", stage: "Existing Boiler", label: "Appliance / data plate photo", evidence: "Photo", required: true },
+    { id: "service-location", stage: "Existing Boiler", label: "Appliance location", evidence: "Text", required: true },
+    { id: "service-make-model", stage: "Existing Boiler", label: "Make / model", evidence: "Text", required: true },
+    { id: "service-serial", stage: "Existing Boiler", label: "Serial number", evidence: "Text", required: true },
+    { id: "service-visual", stage: "Commissioning", label: "Visual condition of appliance & flue satisfactory", evidence: "Checkbox", required: true },
+    { id: "service-flue", stage: "Commissioning", label: "Flue & ventilation satisfactory", evidence: "Checkbox", required: true },
+    { id: "service-safety-devices", stage: "Commissioning", label: "Safety devices working correctly", evidence: "Checkbox", required: true },
+    { id: "service-operating-pressure", stage: "Gas certificate", label: "Operating pressure / heat input", evidence: "Text", required: true },
+    { id: "service-co-reading", stage: "Gas certificate", label: "CO reading (ppm)", evidence: "Number", required: true },
+    { id: "service-ratio", stage: "Gas certificate", label: "CO / CO₂ combustion ratio", evidence: "Number", required: true },
+    { id: "service-safe-to-use", stage: "Gas certificate", label: "Appliance safe to use", evidence: "Checkbox", required: true },
+    { id: "service-defects", stage: "Gas certificate", label: "Defects identified / remedial action", evidence: "Text", required: true },
+    { id: "service-next-due", stage: "Gas certificate", label: "Next safety check due", evidence: "Text", required: true },
+    { id: "service-gas-safe-id", stage: "Handover", label: "Gas Safe licence / ID card no.", evidence: "Text", required: true },
+    { id: "service-customer-signoff", stage: "Handover", label: "Received by (landlord / tenant)", evidence: "Signature", required: true },
   ],
 };
 
@@ -2826,9 +3372,30 @@ const generalWorksFlowTemplate: EngineerFlowTemplate = {
   ],
 };
 
+const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
+  id: "daywork-account-flow",
+  name: "Daywork account stop/go",
+  appliesTo: ["Daywork account", "Daywork"],
+  steps: [
+    { id: "daywork-description", stage: "Daywork", label: "Description of works", evidence: "Text", required: true },
+    { id: "daywork-week-ending", stage: "Daywork", label: "Week ending", evidence: "Text", required: true },
+    { id: "daywork-vo-ref", stage: "Daywork", label: "Variation reference", evidence: "Text", required: false },
+    { id: "daywork-labour-name", stage: "Daywork", label: "Operative name", evidence: "Text", required: true },
+    { id: "daywork-labour-trade", stage: "Daywork", label: "Labour trade", evidence: "Text", required: true },
+    { id: "daywork-labour-days", stage: "Daywork", label: "Labour hours by day", evidence: "Text", required: true },
+    { id: "daywork-materials", stage: "Daywork", label: "Materials", evidence: "Text", required: false },
+    { id: "daywork-plant", stage: "Daywork", label: "Plant", evidence: "Text", required: false },
+    { id: "daywork-plumber-name", stage: "Handover", label: "Plumber / contractor printed name", evidence: "Text", required: true },
+    { id: "daywork-plumber-sign", stage: "Handover", label: "Plumber / contractor signature", evidence: "Signature", required: true },
+    { id: "daywork-client-name", stage: "Handover", label: "Client / Clerk of Works printed name", evidence: "Text", required: true },
+    { id: "daywork-client-sign", stage: "Handover", label: "Client / Clerk of Works signature", evidence: "Signature", required: true },
+  ],
+};
+
 const defaultEngineerFlowTemplates = [
   defaultBoilerFlowTemplate,
   boilerServiceFlowTemplate,
+  dayworkAccountFlowTemplate,
   generalWorksFlowTemplate,
 ];
 
@@ -2847,6 +3414,10 @@ const defaultCostCentreFlowAssignmentMap = costCentreFlowAssignments.reduce<Reco
 }, {});
 
 function normalizeEngineerFlowTemplate(template: EngineerFlowTemplate): EngineerFlowTemplate {
+  if (template.id === dayworkAccountFlowTemplate.id) {
+    // Always use the current Daywork stop/go (hub may still hold the old short list).
+    return dayworkAccountFlowTemplate;
+  }
   if (template.id !== defaultBoilerFlowTemplate.id) return template;
   return {
     ...template,
@@ -2862,6 +3433,8 @@ function normalizeEngineerFlowTemplates(templates: EngineerFlowTemplate[], legac
     merged.set(legacyTemplate.id, normalizeEngineerFlowTemplate(legacyTemplate));
   }
   templates.forEach((template) => merged.set(template.id, normalizeEngineerFlowTemplate(template)));
+  // Force current Daywork template even if hub overwrote with a stale copy.
+  merged.set(dayworkAccountFlowTemplate.id, dayworkAccountFlowTemplate);
 
   return Array.from(merged.values()).filter((template) => template.name.trim() && template.steps.length > 0);
 }
@@ -3087,8 +3660,8 @@ const seedEmployees: EmployeeCard[] = [
     permissions: {
       showQuotes: false,
       showFinance: false,
-      showAssets: false,
-      showStock: false,
+      showAssets: true,
+      showStock: true,
     },
     profile: {
       email: "chris.lawson@errolwatsongroup.com",
@@ -3465,6 +4038,8 @@ const defaultWorkflowRules: WorkflowRulesSettings = {
   defaultMarkupPercent: "30",
   poApprovalThreshold: "500",
   autoCreatePendingJobOnAcceptance: true,
+  autoCreateDepositOnAcceptance: false,
+  defaultDepositPercent: "30",
   requireCommercialReviewBeforeInvoice: true,
 };
 
@@ -3513,7 +4088,7 @@ const defaultFinanceSettings: FinanceSettings = {
 const integrationModes: IntegrationMode[] = ["Not connected", "Queued handoff", "One-way push", "Two-way sync"];
 
 const defaultIntegrationSettings: IntegrationSettings = {
-  simproMode: "Queued handoff",
+  simproMode: "One-way push",
   simproApiBaseUrl: "",
   simproCompanyId: "",
   simproWebhookUrl: "",
@@ -3588,6 +4163,13 @@ const postcodeDirectory = [
     ],
   },
   {
+    postcode: "AB10 1YP",
+    addresses: [
+      "12 Albyn Terrace, Aberdeen, AB10 1YP",
+      "14 Albyn Terrace, Aberdeen, AB10 1YP",
+    ],
+  },
+  {
     postcode: "AB15 4EQ",
     addresses: [
       "136 King's Gate, Aberdeen, AB15 4EQ",
@@ -3604,6 +4186,13 @@ const postcodeDirectory = [
     ],
   },
   {
+    postcode: "AB15 4AL",
+    addresses: [
+      "8 Rubislaw Den North, Aberdeen, AB15 4AL",
+      "10 Rubislaw Den North, Aberdeen, AB15 4AL",
+    ],
+  },
+  {
     postcode: "AB21 9JD",
     addresses: [
       "4 Stoneywood Road, Aberdeen, AB21 9JD",
@@ -3611,10 +4200,75 @@ const postcodeDirectory = [
       "8 Stoneywood Road, Aberdeen, AB21 9JD",
     ],
   },
+  {
+    postcode: "AB24",
+    addresses: [
+      "12 Hopetoun Crescent, Aberdeen, AB24",
+      "14 Hopetoun Crescent, Aberdeen, AB24",
+    ],
+  },
+  {
+    postcode: "AB12 4TG",
+    addresses: [
+      "1 Hillside Drive, Portlethen, AB12 4TG",
+      "2 Hillside Drive, Portlethen, AB12 4TG",
+      "3 Hillside Drive, Portlethen, AB12 4TG",
+      "4 Hillside Drive, Portlethen, AB12 4TG",
+      "5 Hillside Drive, Portlethen, AB12 4TG",
+      "6 Hillside Drive, Portlethen, AB12 4TG",
+      "7 Hillside Drive, Portlethen, AB12 4TG",
+      "8 Hillside Drive, Portlethen, AB12 4TG",
+      "9 Hillside Drive, Portlethen, AB12 4TG",
+      "10 Hillside Drive, Portlethen, AB12 4TG",
+      "11 Hillside Drive, Portlethen, AB12 4TG",
+      "12 Hillside Drive, Portlethen, AB12 4TG",
+      "14 Hillside Drive, Portlethen, AB12 4TG",
+      "15 Hillside Drive, Portlethen, AB12 4TG",
+      "16 Hillside Drive, Portlethen, AB12 4TG",
+      "17 Hillside Drive, Portlethen, AB12 4TG",
+      "18 Hillside Drive, Portlethen, AB12 4TG",
+      "19 Hillside Drive, Portlethen, AB12 4TG",
+      "20 Hillside Drive, Portlethen, AB12 4TG",
+      "21 Hillside Drive, Portlethen, AB12 4TG",
+      "22 Hillside Drive, Portlethen, AB12 4TG",
+      "23 Hillside Drive, Portlethen, AB12 4TG",
+      "24 Hillside Drive, Portlethen, AB12 4TG",
+      "25 Hillside Drive, Portlethen, AB12 4TG",
+      "26 Hillside Drive, Portlethen, AB12 4TG",
+      "27 Hillside Drive, Portlethen, AB12 4TG",
+      "28 Hillside Drive, Portlethen, AB12 4TG",
+      "29 Hillside Drive, Portlethen, AB12 4TG",
+      "30 Hillside Drive, Portlethen, AB12 4TG",
+      "31 Hillside Drive, Portlethen, AB12 4TG",
+      "32 Hillside Drive, Portlethen, AB12 4TG",
+      "33 Hillside Drive, Portlethen, AB12 4TG",
+      "34 Hillside Drive, Portlethen, AB12 4TG",
+      "35 Hillside Drive, Portlethen, AB12 4TG",
+      "36 Hillside Drive, Portlethen, AB12 4TG",
+      "37 Hillside Drive, Portlethen, AB12 4TG",
+      "38 Hillside Drive, Portlethen, AB12 4TG",
+      "39 Hillside Drive, Portlethen, AB12 4TG",
+      "40 Hillside Drive, Portlethen, AB12 4TG",
+      "41 Hillside Drive, Portlethen, AB12 4TG",
+      "42 Hillside Drive, Portlethen, AB12 4TG",
+      "43 Hillside Drive, Portlethen, AB12 4TG",
+      "44 Hillside Drive, Portlethen, AB12 4TG",
+      "45 Hillside Drive, Portlethen, AB12 4TG",
+      "46 Hillside Drive, Portlethen, AB12 4TG",
+      "47 Hillside Drive, Portlethen, AB12 4TG",
+      "48 Hillside Drive, Portlethen, AB12 4TG",
+      "49 Hillside Drive, Portlethen, AB12 4TG",
+      "50 Hillside Drive, Portlethen, AB12 4TG",
+      "51 Hillside Drive, Portlethen, AB12 4TG",
+      "52 Hillside Drive, Portlethen, AB12 4TG",
+      "54 Hillside Drive, Portlethen, AB12 4TG",
+    ],
+  },
 ];
 
 const quoteCatalogFolders = [
   "Boiler parts",
+  "Radiators",
   "Bathroom items",
   "Pipework and fittings",
   "Consumables",
@@ -3629,10 +4283,21 @@ function inferCatalogFolder(item: Pick<CatalogItem, "name" | "type" | "category"
   if (item.type === "Plant") return "Plant and access";
   if (item.type === "Subcontractor") return "Subcontractors";
   if (name.includes("boiler")) return "Boiler parts";
+  if (name.includes("radiator") || name.includes("stelrad") || name.includes("k1") || name.includes("k2") || name.includes("k3")) return "Radiators";
   if (name.includes("bath") || name.includes("shower") || name.includes("toilet") || name.includes("basin")) return "Bathroom items";
   if (name.includes("pipe") || name.includes("fitting") || name.includes("valve")) return "Pipework and fittings";
   if (name.includes("consumable") || name.includes("skip") || name.includes("sundr")) return "Consumables";
   return "General materials";
+}
+
+function mergeCatalogFolderList(base: string[], extra: Array<string | undefined | null>) {
+  const next = [...base];
+  extra.forEach((folder) => {
+    const trimmed = folder?.trim();
+    if (!trimmed) return;
+    if (!next.some((item) => item.toLowerCase() === trimmed.toLowerCase())) next.push(trimmed);
+  });
+  return next;
 }
 
 const quoteCatalog: CatalogItem[] = [
@@ -3839,6 +4504,37 @@ function makeDefaultJobSections(job: Job): JobSection[] {
 }
 
 function makeDefaultEstimateCostCentres(job: Job): EstimateCostCentre[] {
+  if (job.id === "job-gas-cert-trial") {
+    return [
+      {
+        id: "job-gas-cert-trial-boiler-service",
+        name: "Boiler servicing",
+        templateName: "Boiler servicing",
+        clientDescription: "Annual boiler service and gas safety checks for Chris Lawson Boiler service.",
+        engineerDescription:
+          "Complete boiler servicing stop/go on the Field app. Readings and photos populate the Core Landlord Gas Safety Record.",
+        materials: [
+          {
+            id: "job-gas-cert-trial-boiler-service-service-kit",
+            catalogItemId: "material-consumables",
+            description: "Service consumables allowance",
+            quantity: 1,
+            unitCost: 35,
+            markupPercent: 25,
+          },
+        ],
+        labour: [
+          {
+            id: "job-gas-cert-trial-boiler-service-engineer",
+            role: "Gas engineer labour",
+            hours: 2,
+            costRate: 45,
+            markupPercent: 30,
+          },
+        ],
+      },
+    ];
+  }
   const base = Math.max(job.value, 1000);
   const centres: EstimateCostCentre[] = [
     {
@@ -3993,29 +4689,61 @@ function estimateCostCentresFromQuote(job: Job, quoteCentres: QuoteCostCentre[])
   });
 }
 
+const blankLeadAddressParts: LeadAddressParts = {
+  line1: "",
+  line2: "",
+  town: "",
+  county: "",
+  postcode: "",
+};
+
+const blankRecordSetupOptions: RecordSetupOptions = {
+  quoteType: "Project",
+  stage: "Quote",
+  primaryTech: "",
+  labourEstimatesOn: true,
+  labourMarkupMode: "system",
+  labourMarkupPercent: "30",
+  labourFitTime: "Minutes (0.1)",
+  labourTaxCode: "Standard 20%",
+  materialMarkupPercent: "30",
+  discountPercent: "0",
+  itemTaxCode: "Standard 20%",
+  tags: "",
+  siteContact: "",
+  additionalContactName: "",
+};
+
 const blankQuote: QuoteDraft = {
   clientId: "",
-  siteId: "",
+  siteId: CLIENT_SITE_NEW,
   customer: "",
+  contactName: "",
   phone: "",
   email: "",
   address: "",
+  siteName: "",
+  addressParts: blankLeadAddressParts,
   owner: "Errol Watson",
   description: "",
   status: "Draft",
   value: "",
   next: "",
   due: "Today",
+  setup: blankRecordSetupOptions,
 };
 
 const blankJob: JobDraft = {
   clientId: "",
-  siteId: "",
+  siteId: CLIENT_SITE_NEW,
   customer: "",
+  contactName: "",
   phone: "",
   email: "",
   address: "",
   site: "",
+  siteName: "",
+  addressParts: blankLeadAddressParts,
   description: "",
   manager: "Errol Watson",
   scheduledDate: "",
@@ -4024,6 +4752,26 @@ const blankJob: JobDraft = {
   value: "",
   next: "",
   due: "Today",
+  setup: blankRecordSetupOptions,
+};
+
+const blankClientRecordDraft: ClientRecordDraft = {
+  name: "",
+  primaryContact: "",
+  email: "",
+  phone: "",
+  billingAddress: "",
+  commercialOwner: "",
+  notes: "",
+};
+
+const blankClientSiteDraft: ClientSiteDraft = {
+  name: "",
+  address: "",
+  primaryContact: "",
+  accessNotes: "",
+  serviceLine: "",
+  nextVisit: "",
 };
 
 const blankOneOffMaterialDraft: OneOffMaterialDraft = {
@@ -4032,14 +4780,6 @@ const blankOneOffMaterialDraft: OneOffMaterialDraft = {
   markupPercent: "30",
   unitSell: "",
   quantity: "1",
-};
-
-const blankLeadAddressParts: LeadAddressParts = {
-  line1: "",
-  line2: "",
-  town: "",
-  county: "",
-  postcode: "",
 };
 
 const blankLeadMainContact: LeadContact = {
@@ -4054,7 +4794,9 @@ const blankLeadMainContact: LeadContact = {
 const blankLead: LeadDraft = {
   customerMode: "new",
   clientId: undefined,
-  siteId: undefined,
+  siteId: CLIENT_SITE_NEW,
+  siteName: "",
+  siteContact: "",
   mainContact: blankLeadMainContact,
   additionalContacts: [],
   addressParts: blankLeadAddressParts,
@@ -4069,6 +4811,7 @@ const blankLead: LeadDraft = {
   surveyDate: "",
   surveyTime: "",
   createdBy: "Carol",
+  setup: blankRecordSetupOptions,
 };
 
 type PurchaseOrderLineDraft = {
@@ -4078,6 +4821,8 @@ type PurchaseOrderLineDraft = {
   estimatedCost: string;
   actualCost: string;
   receivedPercent: string;
+  catalogItemId?: string;
+  sku?: string;
 };
 
 function makePurchaseOrderLineDraft(index = 0): PurchaseOrderLineDraft {
@@ -4088,6 +4833,8 @@ function makePurchaseOrderLineDraft(index = 0): PurchaseOrderLineDraft {
     estimatedCost: "",
     actualCost: "",
     receivedPercent: "0",
+    catalogItemId: undefined,
+    sku: "",
   };
 }
 
@@ -4110,6 +4857,20 @@ const defaultSupplierDirectory: SupplierDirectoryRecord[] = [
   { id: "supplier-aldrite", name: "Aldrite Plumbing Ltd", email: "orders@aldrite.example", account: "Bathroom materials", category: "Bathroom materials" },
   { id: "supplier-valve-source", name: "Valve Source", email: "sales@valvesource.example", account: "Specialist valves", category: "Specialist valves" },
 ];
+
+const defaultContactDirectory: ContactDirectoryRecord[] = [];
+
+const defaultContractorDirectory: ContractorDirectoryRecord[] = [];
+
+const blankEmailIntegrationDraft: EmailIntegrationDraft = {
+  provider: "Outlook",
+  senderEmail: "",
+  username: "",
+  secret: "",
+  smtpHost: "smtp.office365.com",
+  smtpPort: "587",
+  secure: false,
+};
 
 const purchaseOrderStatusFilters = [
   "All POs",
@@ -4385,12 +5146,15 @@ function buildEventVariationFromDeliveryEvent(event: JobDeliveryEvent, index: nu
   return {
     id: event.id,
     reference: `V-${String(index + 1).padStart(3, "0")}`,
-    title: event.summary || "Variation raised",
+    title:
+      event.formType === "daywork"
+        ? `Daywork · ${event.summary || "Account"}`
+        : event.summary || "Variation raised",
     status: mapVariationStatusFromEvent(event),
     costValue: event.costValue ?? 0,
     sellValue: event.sellValue ?? 0,
     description: event.summary || "No variation summary captured.",
-    reason: event.reason || "Engineer raised",
+    reason: event.formType === "daywork" ? "Daywork account" : event.reason || "Engineer raised",
   labourHours: event.hours,
   materialsUsed: event.materials,
   requiresClientApproval: event.requiresClientApproval ?? true,
@@ -4399,6 +5163,141 @@ function buildEventVariationFromDeliveryEvent(event: JobDeliveryEvent, index: nu
   portalToken: event.portalToken,
   source: "event",
   };
+}
+
+/** Rebuild a Daywork variation card from Core flow evidence when the delivery event was wiped. */
+function buildDayworkRecordFromFlowEvidence(
+  evidence: Record<string, EngineerFlowStepEvidenceValue>,
+  jobId: string,
+  costCentreId: string,
+): DayworkAccountRecord | null {
+  const record: DayworkAccountRecord = { populatedFrom: "core" };
+  let any = false;
+  const fieldMap: Record<string, keyof DayworkAccountRecord> = {
+    "daywork-description": "description",
+    "daywork-week-ending": "weekEnding",
+    "daywork-vo-ref": "voReference",
+    "daywork-labour-name": "labourName",
+    "daywork-labour-trade": "labourTrade",
+    "daywork-labour-days": "labourDaysJson",
+    "daywork-materials": "materialsJson",
+    "daywork-plant": "plantJson",
+    "daywork-plumber-sign": "plumberSignature",
+    "daywork-client-sign": "clientSignature",
+    "daywork-plumber-name": "plumberSignerName",
+    "daywork-client-name": "clientSignerName",
+  };
+  for (const [stepId, field] of Object.entries(fieldMap)) {
+    const value = evidence[`${jobId}:${costCentreId}:${stepId}`];
+    const text = value?.text?.trim() || value?.numberValue?.trim() || value?.photoName?.trim();
+    if (!text) continue;
+    (record as Record<string, string | undefined>)[field] = text;
+    record.completedAt = value?.capturedAt || record.completedAt;
+    any = true;
+  }
+  for (const [stepId, field] of [
+    ["daywork-labour-rate", "labourRate"],
+    ["daywork-materials-cost", "materialsCost"],
+    ["daywork-plant-cost", "plantCost"],
+    ["daywork-markup-percent", "markupPercent"],
+  ] as const) {
+    const value = evidence[`${jobId}:${costCentreId}:${stepId}`];
+    const text = value?.text?.trim() || value?.numberValue?.trim();
+    if (!text) continue;
+    record[field] = text;
+    any = true;
+  }
+  if (record.labourDaysJson) {
+    record.labourHours = String(totalDayworkLabourHours(record) || "");
+  }
+  return any ? record : null;
+}
+
+function synthesiseDayworkDeliveryEventsFromEvidence(options: {
+  jobId: string;
+  jobRef: string;
+  flowStepEvidence: Record<string, EngineerFlowStepEvidenceValue>;
+  jobCostCentres: EstimateCostCentre[];
+  existingEvents: JobDeliveryEvent[];
+  dayworkSheets?: Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>;
+}): JobDeliveryEvent[] {
+  const centreIds = new Set<string>();
+  for (const centre of options.jobCostCentres) {
+    if (centre.id.includes("daywork") || /daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) {
+      centreIds.add(centre.id);
+    }
+  }
+  centreIds.add(`${options.jobId}-daywork-account`);
+  for (const sheet of Object.values(options.dayworkSheets || {})) {
+    if (sheet.jobId === options.jobId && sheet.costCentreId) centreIds.add(sheet.costCentreId);
+  }
+  for (const key of Object.keys(options.flowStepEvidence)) {
+    if (!key.startsWith(`${options.jobId}:`) || !key.includes(":daywork-")) continue;
+    const withoutJob = key.slice(options.jobId.length + 1);
+    const stepSep = withoutJob.lastIndexOf(":");
+    if (stepSep <= 0) continue;
+    const costCentreId = withoutJob.slice(0, stepSep);
+    if (costCentreId) centreIds.add(costCentreId);
+  }
+
+  const synthesised: JobDeliveryEvent[] = [];
+  for (const costCentreId of centreIds) {
+    const eventId = `daywork-${options.jobId}-${costCentreId}`;
+    if (options.existingEvents.some((event) => event.id === eventId)) continue;
+    const sheet = options.dayworkSheets?.[`${options.jobId}:${costCentreId}`];
+    const record = sheet || buildDayworkRecordFromFlowEvidence(options.flowStepEvidence, options.jobId, costCentreId);
+    if (!record) continue;
+    const bothSigned = Boolean(record.plumberSignature?.trim() && record.clientSignature?.trim());
+    if (!bothSigned && !record.description?.trim()) continue;
+    const totals = dayworkAccountTotals(record);
+    const labourHours = totalDayworkLabourHours(record) || totals.labourHours;
+    synthesised.push({
+      id: eventId,
+      jobId: options.jobId,
+      jobRef: options.jobRef,
+      kind: "variation",
+      actor: record.labourName?.trim() || record.plumberSignerName?.trim() || "Field",
+      summary: record.description?.trim() || `Daywork account${record.voReference ? ` · ${record.voReference}` : ""}`,
+      createdAt: record.completedAt || sheet?.updatedAt || new Date().toISOString(),
+      hours: labourHours || undefined,
+      materials: [
+        record.materialsJson
+          ? (() => {
+              try {
+                const items = JSON.parse(record.materialsJson) as Array<{ description?: string; qty?: string }>;
+                if (!Array.isArray(items)) return "";
+                return items
+                  .map((item) => `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}`)
+                  .filter(Boolean)
+                  .join("; ");
+              } catch {
+                return "";
+              }
+            })()
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || undefined,
+      costValue: Math.round(totals.total * 100) / 100 || 0,
+      sellValue: Math.round(totals.total * 100) / 100 || 0,
+      reason: "Daywork account",
+      requiresClientApproval: true,
+      clientApprovalStatus: bothSigned ? "Viewed" : "Not sent",
+      status: bothSigned ? (totals.total > 0 ? "Priced" : "Office review") : "Draft",
+      source: "Engineer app",
+      costCentreId,
+      formType: "daywork",
+      plumberSignature: record.plumberSignature,
+      clientSignature: record.clientSignature,
+      plumberSignerName: record.plumberSignerName,
+      clientSignerName: record.clientSignerName,
+      weekEnding: record.weekEnding,
+      labourRate: record.labourRate,
+      materialsCost: record.materialsCost,
+      plantCost: record.plantCost,
+    });
+  }
+  return synthesised;
 }
 
 function sumMoney(items: Array<{ budget?: number; costValue?: number; sellValue?: number }>, key: "budget" | "costValue" | "sellValue") {
@@ -6320,19 +7219,48 @@ function daysSinceDate(value: string, currentDate = currentOperatingDate) {
   return Math.floor((current - start) / 86_400_000);
 }
 
+function invoiceDueDateFromSettings(settings: FinanceSettings, issuedDate = currentOperatingDate) {
+  const termsDays = Math.max(0, Math.round(numericSetting(settings.paymentTermsDays, 14)));
+  return shiftIsoDate(issuedDate, termsDays);
+}
+
+function jobLooksUnassigned(job: Pick<Job, "manager">, schedulePlans: JobScheduleAssignment[] | undefined) {
+  if (schedulePlans && schedulePlans.length > 0) return false;
+  const manager = (job.manager || "").trim();
+  if (!manager) return true;
+  return /^(imported from simpro|engineer tbc|unassigned|tbc|n\/a|none)$/i.test(manager);
+}
+
+function invoiceAgeBand(daysOverdue: number): "0-30" | "31-60" | "60+" {
+  if (daysOverdue <= 30) return "0-30";
+  if (daysOverdue <= 60) return "31-60";
+  return "60+";
+}
+
 function numericSetting(value: string | number, fallback: number) {
   const parsed = Number.parseFloat(String(value).replace(",", "."));
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null): QuoteEmailDraft {
+function makeQuoteEmailDraft(quote: Quote, client?: ClientRecord | null, template?: SetupEmailTemplateRow | null, companyName = "NeXa"): QuoteEmailDraft {
   const contactName = client?.primaryContact?.split(" ")[0] || "there";
-
+  const vars = {
+    ref: quote.ref,
+    description: quote.description,
+    contact: contactName,
+    company: companyName,
+    total: currency(quote.value),
+    date: quote.due || "",
+  };
   return {
     to: client?.email ?? "",
     cc: "",
-    subject: `${quote.ref} - ${quote.description}`,
-    body: `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\nNeXa`,
+    subject: template?.subject
+      ? fillEmailTemplate(template.subject, vars)
+      : `${quote.ref} - ${quote.description}`,
+    body: template?.body
+      ? `${fillEmailTemplate(template.body, vars)}\n\nView and accept online:\n${quotePortalLink(quote)}`
+      : `Hi ${contactName},\n\nPlease find attached our quote for ${quote.description}.\n\nYou can review and accept it online here:\n${quotePortalLink(quote)}\n\nKind regards,\n${companyName}`,
     layout: "quote",
     attachPdf: true,
   };
@@ -6452,6 +7380,57 @@ function purchaseRequestReceiptPercent(request: PurchaseRequest) {
   return 0;
 }
 
+function purchaseRequestOrderedCost(request: PurchaseRequest) {
+  if (request.lines?.length) {
+    return request.lines.reduce((total, line) => total + (Number(line.estimatedCost) || 0), 0);
+  }
+  return Number(request.estimatedCost) || 0;
+}
+
+function purchaseRequestInvoicedCost(request: PurchaseRequest) {
+  if (typeof request.supplierInvoiceAmount === "number" && Number.isFinite(request.supplierInvoiceAmount)) {
+    return Math.max(0, request.supplierInvoiceAmount);
+  }
+  if (request.invoiceReceivedAt || request.invoiceFileName) {
+    if (typeof request.actualCost === "number" && Number.isFinite(request.actualCost)) {
+      return Math.max(0, request.actualCost);
+    }
+  }
+  return null;
+}
+
+function purchaseRequestThreeWayMatch(request: PurchaseRequest) {
+  const ordered = purchaseRequestOrderedCost(request);
+  const received = purchaseRequestActualCost(request);
+  const invoiced = purchaseRequestInvoicedCost(request);
+  const receiptPercent = purchaseRequestReceiptPercent(request);
+  const tolerance = Math.max(0.02, ordered * 0.01);
+  const receivedVsOrdered = Math.abs(received - ordered);
+  const invoicedVsOrdered = invoiced === null ? null : Math.abs(invoiced - ordered);
+  const invoicedVsReceived = invoiced === null ? null : Math.abs(invoiced - received);
+
+  let status: "Matched" | "Variance" | "Incomplete" = "Incomplete";
+  if (receiptPercent >= 100 && invoiced !== null) {
+    status =
+      receivedVsOrdered <= tolerance &&
+      (invoicedVsOrdered ?? Number.POSITIVE_INFINITY) <= tolerance &&
+      (invoicedVsReceived ?? Number.POSITIVE_INFINITY) <= tolerance
+        ? "Matched"
+        : "Variance";
+  }
+
+  return {
+    ordered,
+    received,
+    invoiced,
+    receiptPercent,
+    status,
+    orderedVsReceived: received - ordered,
+    orderedVsInvoiced: invoiced === null ? null : invoiced - ordered,
+    receivedVsInvoiced: invoiced === null ? null : invoiced - received,
+  };
+}
+
 function purchaseRequestTone(request: PurchaseRequest) {
   if (request.status === "Received") return "green";
   if (request.status === "Rejected" || request.status === "Disputed") return "red";
@@ -6517,6 +7496,8 @@ export default function Dashboard() {
   const [clients, setClients] = useState<ClientRecord[]>(seedClients);
   const [clientSites, setClientSites] = useState<ClientSite[]>(seedClientSites);
   const [suppliers, setSuppliers] = useState<SupplierDirectoryRecord[]>(defaultSupplierDirectory);
+  const [contacts, setContacts] = useState<ContactDirectoryRecord[]>(defaultContactDirectory);
+  const [contractors, setContractors] = useState<ContractorDirectoryRecord[]>(defaultContractorDirectory);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [activeEmployeeId, setActiveEmployeeId] = useState(seedEmployees[0]?.id ?? "");
   const [loggedInEmployeeId, setLoggedInEmployeeId] = useState<string | null>(null);
@@ -6526,6 +7507,7 @@ export default function Dashboard() {
   const [serverWorkspaceMode, setServerWorkspaceMode] = useState<ServerWorkspaceMode>("checking");
   const [serverAuthUser, setServerAuthUser] = useState<ServerAuthUser | null>(null);
   const [activeClientId, setActiveClientId] = useState(seedClients[0]?.id ?? "");
+  const [activeDirectoryManager, setActiveDirectoryManager] = useState<DirectoryManagerEntity>("suppliers");
   const [editingEmployeeId, setEditingEmployeeId] = useState<string | null>(null);
   const [newEmployeeId, setNewEmployeeId] = useState<string | null>(null);
   const [employeePermissionDraft, setEmployeePermissionDraft] = useState<AccessOverride>({});
@@ -6546,7 +7528,7 @@ export default function Dashboard() {
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("pending");
-  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("valuations");
+  const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
   const [reportCustomEndDate, setReportCustomEndDate] = useState(currentOperatingDate);
@@ -6562,6 +7544,11 @@ export default function Dashboard() {
   const [workflowRules, setWorkflowRules] = useState<WorkflowRulesSettings>(defaultWorkflowRules);
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() => normalizeFinanceSettings(defaultFinanceSettings));
   const [integrationSettings, setIntegrationSettings] = useState<IntegrationSettings>(defaultIntegrationSettings);
+  const [emailIntegrationDraft, setEmailIntegrationDraft] = useState<EmailIntegrationDraft>(blankEmailIntegrationDraft);
+  const [emailIntegrationStatus, setEmailIntegrationStatus] = useState<EmailIntegrationStatus | null>(null);
+  const [isSavingEmailIntegration, setIsSavingEmailIntegration] = useState(false);
+  const [isTestingEmailIntegration, setIsTestingEmailIntegration] = useState(false);
+  const [isSendingLiveEmail, setIsSendingLiveEmail] = useState(false);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
   const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
@@ -6571,6 +7558,8 @@ export default function Dashboard() {
   const [activeSetupCategory, setActiveSetupCategory] = useState<SetupCategory>("overview");
   const [activeSetupSubItem, setActiveSetupSubItem] = useState<string | null>(null);
   const [flowStepCompletion, setFlowStepCompletion] = useState<Record<string, boolean>>({});
+  const [flowStepEvidence, setFlowStepEvidence] = useState<Record<string, EngineerFlowStepEvidenceValue>>({});
+  const [isSendingJobCompletion, setIsSendingJobCompletion] = useState(false);
   const [newDocumentFolderName, setNewDocumentFolderName] = useState("");
   const [newCostCentreTypeName, setNewCostCentreTypeName] = useState("");
   const [newEngineerFlowTemplateName, setNewEngineerFlowTemplateName] = useState("");
@@ -6584,11 +7573,34 @@ export default function Dashboard() {
   const [leadPostcodeSearch, setLeadPostcodeSearch] = useState("");
   const [newQuote, setNewQuote] = useState<QuoteDraft>(blankQuote);
   const [newJob, setNewJob] = useState<JobDraft>(blankJob);
+  const [quotePostcodeSearch, setQuotePostcodeSearch] = useState("");
+  const [jobPostcodeSearch, setJobPostcodeSearch] = useState("");
+  const [leadAddressMatches, setLeadAddressMatches] = useState<Array<{ postcode: string; address: string }>>([]);
+  const [quoteAddressMatches, setQuoteAddressMatches] = useState<Array<{ postcode: string; address: string }>>([]);
+  const [jobAddressMatches, setJobAddressMatches] = useState<Array<{ postcode: string; address: string }>>([]);
+  const [leadAddressLookupBusy, setLeadAddressLookupBusy] = useState(false);
+  const [quoteAddressLookupBusy, setQuoteAddressLookupBusy] = useState(false);
+  const [jobAddressLookupBusy, setJobAddressLookupBusy] = useState(false);
+  const [recordSetupById, setRecordSetupById] = useState<Record<string, RecordSetupOptions>>({});
+  const [newClientSiteDraft, setNewClientSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
   const [showPurchaseForm, setShowPurchaseForm] = useState(false);
   const [purchaseDraft, setPurchaseDraft] = useState(blankPurchaseRequest);
   const [editingPurchaseRequestId, setEditingPurchaseRequestId] = useState<string | null>(null);
   const [sectionError, setSectionError] = useState<string | null>(null);
   const [sectionNotice, setSectionNotice] = useState<string | null>(null);
+  const [nexaAssistantOpen, setNexaAssistantOpen] = useState(false);
+  const [nexaAssistantDraft, setNexaAssistantDraft] = useState("");
+  const [nexaAssistantBusy, setNexaAssistantBusy] = useState(false);
+  const [buddyMemory, setBuddyMemory] = useState<BuddyMemory>(() => defaultBuddyMemory());
+  const [buddySendOverride, setBuddySendOverride] = useState(false);
+  const [nexaAssistantMessages, setNexaAssistantMessages] = useState<NexaAssistantMessage[]>([
+    {
+      id: "buddy-welcome",
+      role: "assistant",
+      text: "Hi — I'm Blake. I hold the quote checks and walkthroughs so the page stays clear. Ask me what’s missing, how to finish a quote, or to send anyway.",
+    },
+  ]);
+  const nexaAssistantMessagesRef = useRef<HTMLDivElement | null>(null);
   const [createMenuPosition, setCreateMenuPosition] = useState({ left: 0, top: 0 });
   const [openModuleMenu, setOpenModuleMenu] = useState<string | null>(null);
   const [openDirectoryActionMenu, setOpenDirectoryActionMenu] = useState<{ scope: DirectoryRecordScope; id: string } | null>(null);
@@ -6616,6 +7628,11 @@ export default function Dashboard() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [selectedPurchaseRequestId, setSelectedPurchaseRequestId] = useState<string | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const [openWorkspaceTabs, setOpenWorkspaceTabs] = useState<OpenWorkspaceTab[]>([]);
+  const hasHydratedOpenWorkspaceTabs = useRef(false);
+  const clientsRef = useRef(clients);
+  const clientSitesRef = useRef(clientSites);
+  const postcodeLookupGenRef = useRef(0);
   const [selectedQuoteCostCentreId, setSelectedQuoteCostCentreId] = useState<string | null>(null);
   const [selectedCostCentreId, setSelectedCostCentreId] = useState<string | null>(null);
   const [quoteCostCentreNameDraft, setQuoteCostCentreNameDraft] = useState("");
@@ -6654,6 +7671,18 @@ export default function Dashboard() {
   const [catalogImportDraft, setCatalogImportDraft] = useState<CatalogImportDraft>({
     folder: quoteCatalogFolders[0] ?? "General materials",
     type: "Material",
+    supplierId: "",
+  });
+  const [catalogFolders, setCatalogFolders] = useState<string[]>(quoteCatalogFolders);
+  const [catalogImportPreview, setCatalogImportPreview] = useState<CatalogImportPreview | null>(null);
+  const [catalogImportResult, setCatalogImportResult] = useState<BusinessImportResult | null>(null);
+  const [newCatalogFolderName, setNewCatalogFolderName] = useState("");
+  const [newCatalogItemDraft, setNewCatalogItemDraft] = useState({
+    name: "",
+    unit: "each",
+    costRate: "",
+    sellRate: "",
+    sku: "",
   });
   const [businessImportType, setBusinessImportType] = useState<BusinessImportType>("employees");
   const [businessImportFileName, setBusinessImportFileName] = useState("");
@@ -6662,6 +7691,22 @@ export default function Dashboard() {
   const [businessImportBusy, setBusinessImportBusy] = useState(false);
   const [businessImportResult, setBusinessImportResult] = useState<BusinessImportResult | null>(null);
   const [customQuoteCatalog, setCustomQuoteCatalog] = useState<CatalogItem[]>([]);
+  const [prebuildKits, setPrebuildKits] = useState<Array<{
+    id: string;
+    name: string;
+    category: string;
+    notes?: string;
+    lines: Array<{
+      id: string;
+      kind: "Material" | "Labour";
+      description: string;
+      quantity: number;
+      unitCost: number;
+      unitSell?: number;
+      unit?: string;
+    }>;
+  }>>([]);
+  const [selectedPrebuildId, setSelectedPrebuildId] = useState("");
   const [supplierQuoteDrafts, setSupplierQuoteDrafts] = useState<Record<string, SupplierQuoteDraft>>({});
   const [jobSupplierRequestDrafts, setJobSupplierRequestDrafts] = useState<Record<string, JobSupplierRequestDraft>>({});
   const [selectedQuoteMaterialLineIds, setSelectedQuoteMaterialLineIds] = useState<Record<string, string[]>>({});
@@ -6670,6 +7715,11 @@ export default function Dashboard() {
   const [quoteEmailDrafts, setQuoteEmailDrafts] = useState<Record<string, QuoteEmailDraft>>({});
   const [invoiceEmailDrafts, setInvoiceEmailDrafts] = useState<Record<string, InvoiceEmailDraft>>({});
   const [jobInvoiceDraft, setJobInvoiceDraft] = useState<JobInvoiceDraft | null>(null);
+  const [manualRecordDocuments, setManualRecordDocuments] = useState<ManualRecordDocuments>({});
+  const [quoteClientDraft, setQuoteClientDraft] = useState<ClientRecordDraft>(blankClientRecordDraft);
+  const [quoteSiteDraft, setQuoteSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
+  const [jobClientDraft, setJobClientDraft] = useState<ClientRecordDraft>(blankClientRecordDraft);
+  const [jobSiteDraft, setJobSiteDraft] = useState<ClientSiteDraft>(blankClientSiteDraft);
   const [jobEstimateCostCentres, setJobEstimateCostCentres] = useState<Record<string, EstimateCostCentre[]>>({});
   const [jobSections, setJobSections] = useState<Record<string, JobSection[]>>({});
   const [jobVariationSections, setJobVariationSections] = useState<Record<string, JobVariationSection[]>>({});
@@ -6694,6 +7744,12 @@ export default function Dashboard() {
   const schedulerDragDraftRef = useRef<SchedulerDragDraft | null>(null);
   const [jobReviewApprovals, setJobReviewApprovals] = useState<Record<string, JobReviewState>>({});
   const [jobDeliveryEvents, setJobDeliveryEvents] = useState<JobDeliveryEvent[]>([]);
+  const [dayworkSheets, setDayworkSheets] = useState<
+    Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>
+  >({});
+  const [savingDayworkOfficeCosts, setSavingDayworkOfficeCosts] = useState(false);
+  const [editingDayworkInCore, setEditingDayworkInCore] = useState(false);
+  const [previewingDayworkPdf, setPreviewingDayworkPdf] = useState(false);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
   const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
@@ -6704,10 +7760,72 @@ export default function Dashboard() {
     missing: [],
   });
   const [simproSyncStatus, setSimproSyncStatus] = useState<SimproSyncStatus | null>(null);
+  const [simproReconnectStatus, setSimproReconnectStatus] = useState<SimproReconnectStatus | null>(null);
   const [xeroConnectionStatus, setXeroConnectionStatus] = useState<XeroConnectionStatus | null>(null);
+  const [isConnectingXero, setIsConnectingXero] = useState(false);
+  const [selectedSimproImportEntities, setSelectedSimproImportEntities] = useState<SimproSyncEntity[]>(
+    ["clients", "sites"],
+  );
+  const [simproConflictLinkChoices, setSimproConflictLinkChoices] = useState<Record<string, string>>({});
+  const [invoicePaymentAmountDraft, setInvoicePaymentAmountDraft] = useState("");
+  const [invoicePaymentMethodDraft, setInvoicePaymentMethodDraft] = useState("Bank transfer");
+  const [invoicePaymentReferenceDraft, setInvoicePaymentReferenceDraft] = useState("");
+  const [invoiceRemittanceAfterPayment, setInvoiceRemittanceAfterPayment] = useState(false);
+  const [poReceiptDraft, setPoReceiptDraft] = useState<{
+    requestId: string;
+    locationId: string;
+    locations: Array<{ id: string; name: string; kind: string }>;
+    stockItems: Array<{ id: string; sku: string; name: string; catalogItemId?: string }>;
+    lines: Array<{
+      id: string;
+      description: string;
+      orderedQty: number;
+      receiveQty: string;
+      sku: string;
+      unitCost: string;
+      alreadyReceivedPercent: number;
+      catalogItemId?: string;
+      stockItemId?: string;
+    }>;
+  } | null>(null);
+  const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
+  const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
+  const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
+  const [activeXeroTab, setActiveXeroTab] = useState<"sales" | "bills" | "exported" | "connection">("sales");
+  const [xeroSelectedInvoiceIds, setXeroSelectedInvoiceIds] = useState<string[]>([]);
+  const [xeroSelectedPoIds, setXeroSelectedPoIds] = useState<string[]>([]);
+  const [xeroBusyId, setXeroBusyId] = useState<string | null>(null);
+  const [isPullingPoBillPayments, setIsPullingPoBillPayments] = useState(false);
+  const [isSendingClientStatement, setIsSendingClientStatement] = useState(false);
+  const [isSendingInvoiceRemittance, setIsSendingInvoiceRemittance] = useState(false);
+  const [isSendingJobConfirmation, setIsSendingJobConfirmation] = useState(false);
+  const [isSendingJobEta, setIsSendingJobEta] = useState(false);
+  const [jobEtaMinutesDraft, setJobEtaMinutesDraft] = useState("45");
+  const [dueSiteAssetRows, setDueSiteAssetRows] = useState<Array<{
+    id: string;
+    siteId: string;
+    clientId?: string;
+    type: string;
+    name: string;
+    nextServiceDate?: string;
+    certificateExpiresAt?: string;
+    make?: string;
+    model?: string;
+  }>>([]);
+  const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
+  const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
+  const [poSupplierPaymentDraft, setPoSupplierPaymentDraft] = useState({ amount: "", method: "Bank transfer", reference: "" });
+  const [stockIssueCostByJobRef, setStockIssueCostByJobRef] = useState<Record<string, number>>({});
+  const [retentionReleaseAmountDraft, setRetentionReleaseAmountDraft] = useState("");
+  const [invoiceCreditAmountDraft, setInvoiceCreditAmountDraft] = useState("");
+  const [invoiceCreditReasonDraft, setInvoiceCreditReasonDraft] = useState("");
   const [isRunningSimproPreview, setIsRunningSimproPreview] = useState(false);
   const [isApplyingSimproImport, setIsApplyingSimproImport] = useState(false);
+  const [isTestingSimproConnection, setIsTestingSimproConnection] = useState(false);
+  const [isSubmittingSimproReconnect, setIsSubmittingSimproReconnect] = useState(false);
+  const [simproReconnectDraft, setSimproReconnectDraft] = useState("");
   const [isSendingQuoteToSimpro, setIsSendingQuoteToSimpro] = useState(false);
+  const [isSendingJobToSimpro, setIsSendingJobToSimpro] = useState(false);
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [recordSaveStatus, setRecordSaveStatus] = useState<RecordSaveStatus>("saved");
@@ -6721,6 +7839,7 @@ export default function Dashboard() {
   const pendingSetupSaveRef = useRef(false);
   const pendingCostCentreSaveRef = useRef(false);
   const pendingEmployeeSaveRef = useRef(false);
+  const loadedEmployeeDraftIdRef = useRef<string | null>(null);
   const pendingInvoiceSaveRef = useRef(false);
   const quoteCostCentresRef = useRef<Record<string, QuoteCostCentre[]>>({});
   const savedRecordFingerprintRef = useRef("");
@@ -6759,6 +7878,21 @@ export default function Dashboard() {
     () => clients.find((client) => client.id === activeClientId) ?? clients[0] ?? null,
     [activeClientId, clients],
   );
+
+  const activeClientOutstandingInvoices = useMemo(() => {
+    if (!activeClient) return [];
+    return invoices
+      .filter((invoice) => {
+        if (invoice.claimType === "valuation") return false;
+        if (invoice.status === "Cancelled" || invoice.status === "Draft" || invoice.status === "Paid") return false;
+        const linked =
+          invoice.clientId === activeClient.id ||
+          invoice.customer.trim().toLowerCase() === activeClient.name.trim().toLowerCase();
+        if (!linked) return false;
+        return invoiceOutstandingBalance(invoice) > 0.009;
+      })
+      .sort((left, right) => (left.dueDate < right.dueDate ? -1 : 1));
+  }, [activeClient, invoices]);
 
   const activeClientSites = useMemo(
     () => clientSites.filter((site) => site.clientId === activeClientId),
@@ -6840,8 +7974,19 @@ export default function Dashboard() {
     [activeEngineerFlowTemplateId, engineerFlowLibrary],
   );
 
-  function engineerFlowTemplateForCostCentre(centre?: Pick<EstimateCostCentre, "templateName"> | null) {
+  function engineerFlowTemplateForCostCentre(
+    centre?: Pick<EstimateCostCentre, "templateName" | "name" | "id"> | null,
+  ) {
     const templateName = centre?.templateName ?? "General plumbing";
+    // Always force the Daywork Account flow for daywork centres — hub assignment drafts
+    // can still point at a stale general / boiler template.
+    if (
+      /daywork/i.test(templateName) ||
+      /daywork/i.test(String(centre?.name || "")) ||
+      /daywork/i.test(String(centre?.id || ""))
+    ) {
+      return dayworkAccountFlowTemplate;
+    }
     const assignedFlowId = costCentreFlowAssignmentDrafts[templateName];
     return (
       engineerFlowLibrary.find((template) => template.id === assignedFlowId) ??
@@ -6877,6 +8022,16 @@ export default function Dashboard() {
   const selectedLead = useMemo(
     () => (selectedLeadId ? leads.find((lead) => lead.id === selectedLeadId) ?? null : null),
     [leads, selectedLeadId],
+  );
+
+  const selectedLeadClient = useMemo(
+    () => (selectedLead?.clientId ? clients.find((client) => client.id === selectedLead.clientId) ?? null : null),
+    [clients, selectedLead],
+  );
+
+  const selectedLeadSite = useMemo(
+    () => (selectedLead?.siteId ? clientSites.find((site) => site.id === selectedLead.siteId) ?? null : null),
+    [clientSites, selectedLead],
   );
 
   const selectedLeadAudit = useMemo(
@@ -6995,6 +8150,38 @@ export default function Dashboard() {
     [purchaseRequests, selectedPurchaseRequestId],
   );
 
+  useEffect(() => {
+    if (!selectedPurchaseOrder) {
+      setPoSupplierInvoiceDraft({ amount: "", reference: "" });
+      setPoSupplierPaymentDraft({ amount: "", method: "Bank transfer", reference: "" });
+      return;
+    }
+    setPoSupplierInvoiceDraft({
+      amount:
+        selectedPurchaseOrder.supplierInvoiceAmount !== undefined
+          ? String(selectedPurchaseOrder.supplierInvoiceAmount)
+          : selectedPurchaseOrder.actualCost !== undefined
+            ? String(selectedPurchaseOrder.actualCost)
+            : "",
+      reference: selectedPurchaseOrder.supplierInvoiceRef || selectedPurchaseOrder.invoiceFileName || "",
+    });
+    const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
+    const remaining = Math.max(0, (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0));
+    setPoSupplierPaymentDraft({
+      amount: remaining > 0 ? remaining.toFixed(2) : "",
+      method: "Bank transfer",
+      reference: "",
+    });
+  }, [
+    selectedPurchaseOrder?.id,
+    selectedPurchaseOrder?.supplierInvoiceAmount,
+    selectedPurchaseOrder?.supplierInvoiceRef,
+    selectedPurchaseOrder?.actualCost,
+    selectedPurchaseOrder?.invoiceFileName,
+    selectedPurchaseOrder?.supplierPaidAmount,
+    selectedPurchaseOrder?.supplierPayments,
+  ]);
+
   const selectedInvoice = useMemo(
     () => (selectedInvoiceId ? invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null : null),
     [invoices, selectedInvoiceId],
@@ -7004,7 +8191,7 @@ export default function Dashboard() {
     if (!hasHydratedLocalData || !selectedInvoiceId || selectedInvoice || homeView !== "invoice-record") return;
     setSelectedInvoiceId(null);
     setActiveInvoiceTab("summary");
-    setActiveInvoiceFolderKey("valuations");
+    setActiveInvoiceFolderKey("overdue");
     setHomeView("invoices");
     showNotice("That valuation or invoice is not available in the shared workspace yet. Showing the invoice folders instead.");
   }, [hasHydratedLocalData, homeView, selectedInvoice, selectedInvoiceId]);
@@ -7014,6 +8201,16 @@ export default function Dashboard() {
     refreshPlannerClock();
     const timer = window.setInterval(refreshPlannerClock, 60_000);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const node = nexaAssistantMessagesRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [nexaAssistantMessages, nexaAssistantBusy, nexaAssistantOpen]);
+
+  useEffect(() => {
+    setBuddyMemory(loadBuddyMemory());
   }, []);
 
   const activeRecordFingerprint = useMemo(() => {
@@ -7086,6 +8283,23 @@ export default function Dashboard() {
       setRecordSaveStatus((current) => (current === "saving" ? current : "unsaved"));
     }
   }, [activeRecordFingerprint, hasHydratedLocalData, hasLoadedHubDetailState]);
+
+  // Always pull the latest Field Daywork sheet when opening a Daywork cost centre.
+  // Keep polling briefly so a Field Save and finish appears in Core without a manual refresh.
+  useEffect(() => {
+    if (!hasLoadedHubDetailState) return;
+    if (homeView !== "cost-centre-record") return;
+    if (!selectedJobId || !selectedCostCentreId) return;
+    if (!/daywork/i.test(selectedCostCentreId)) {
+      const centre = (jobEstimateCostCentres[selectedJobId] ?? []).find((item) => item.id === selectedCostCentreId);
+      if (!centre || !/daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) return;
+    }
+    void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
+    const timer = window.setInterval(() => {
+      void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId, jobEstimateCostCentres]);
 
   const selectedPurchaseOrderJob = useMemo(
     () =>
@@ -7161,6 +8375,52 @@ export default function Dashboard() {
         : null,
     [clientSites, selectedJob],
   );
+
+  useEffect(() => {
+    setQuoteClientDraft(selectedQuoteClient ? {
+      name: selectedQuoteClient.name,
+      primaryContact: selectedQuoteClient.primaryContact,
+      email: selectedQuoteClient.email,
+      phone: selectedQuoteClient.phone,
+      billingAddress: selectedQuoteClient.billingAddress,
+      commercialOwner: selectedQuoteClient.commercialOwner,
+      notes: selectedQuoteClient.notes,
+    } : blankClientRecordDraft);
+  }, [selectedQuoteClient]);
+
+  useEffect(() => {
+    setQuoteSiteDraft(selectedQuoteSite ? {
+      name: selectedQuoteSite.name,
+      address: selectedQuoteSite.address,
+      primaryContact: selectedQuoteSite.primaryContact,
+      accessNotes: selectedQuoteSite.accessNotes,
+      serviceLine: selectedQuoteSite.serviceLine,
+      nextVisit: selectedQuoteSite.nextVisit,
+    } : blankClientSiteDraft);
+  }, [selectedQuoteSite]);
+
+  useEffect(() => {
+    setJobClientDraft(selectedJobClient ? {
+      name: selectedJobClient.name,
+      primaryContact: selectedJobClient.primaryContact,
+      email: selectedJobClient.email,
+      phone: selectedJobClient.phone,
+      billingAddress: selectedJobClient.billingAddress,
+      commercialOwner: selectedJobClient.commercialOwner,
+      notes: selectedJobClient.notes,
+    } : blankClientRecordDraft);
+  }, [selectedJobClient]);
+
+  useEffect(() => {
+    setJobSiteDraft(selectedJobSite ? {
+      name: selectedJobSite.name,
+      address: selectedJobSite.address,
+      primaryContact: selectedJobSite.primaryContact,
+      accessNotes: selectedJobSite.accessNotes,
+      serviceLine: selectedJobSite.serviceLine,
+      nextVisit: selectedJobSite.nextVisit,
+    } : blankClientSiteDraft);
+  }, [selectedJobSite]);
 
   const selectedJobScheduleAssignments = useMemo(
     () =>
@@ -7259,8 +8519,26 @@ export default function Dashboard() {
   );
 
   const selectedJobTimesheetHours = useMemo(
-    () => selectedJobDeliveryEvents.reduce((total, event) => total + (event.kind === "timesheet" ? event.hours ?? 0 : 0), 0),
+    () =>
+      selectedJobDeliveryEvents.reduce((total, event) => {
+        if (event.kind !== "timesheet" || event.status === "Rejected") return total;
+        return total + (event.hours ?? 0);
+      }, 0),
     [selectedJobDeliveryEvents],
+  );
+
+  const selectedJobApprovedTimesheetHours = useMemo(
+    () =>
+      selectedJobDeliveryEvents.reduce((total, event) => {
+        if (event.kind !== "timesheet" || event.status !== "Approved") return total;
+        return total + (event.hours ?? 0);
+      }, 0),
+    [selectedJobDeliveryEvents],
+  );
+
+  const pendingTimesheetApprovals = useMemo(
+    () => jobDeliveryEvents.filter((event) => event.kind === "timesheet" && (event.status === "Submitted" || !event.status)),
+    [jobDeliveryEvents],
   );
 
   const selectedJobPurchaseRequests = useMemo(
@@ -7310,6 +8588,23 @@ export default function Dashboard() {
   const selectedQuoteCostCentres = useMemo(
     () => (selectedQuote ? quoteCostCentres[selectedQuote.id] ?? [] : []),
     [quoteCostCentres, selectedQuote],
+  );
+
+  const selectedQuoteBuddyFindings = useMemo(() => {
+    if (!selectedQuote) return [] as BuddyWatchFinding[];
+    return watchQuoteReadiness({
+      quote: selectedQuote,
+      clientName: selectedQuoteClient?.name ?? selectedQuote.customer,
+      siteName: selectedQuoteSite?.name,
+      siteAddress: selectedQuoteSite?.address,
+      costCentres: selectedQuoteCostCentres,
+      memory: buddyMemory,
+    });
+  }, [buddyMemory, selectedQuote, selectedQuoteClient, selectedQuoteCostCentres, selectedQuoteSite]);
+
+  const selectedQuoteBuddySummary = useMemo(
+    () => buddyWatchSummary(selectedQuoteBuddyFindings),
+    [selectedQuoteBuddyFindings],
   );
 
   const selectedQuoteBaseCostCentres = useMemo(
@@ -7398,6 +8693,36 @@ export default function Dashboard() {
         ? buildQuoteReviewQuestions(selectedQuote, selectedQuoteCostCentres, selectedQuoteTotals)
         : [],
     [selectedQuote, selectedQuoteCostCentres, selectedQuoteTotals],
+  );
+
+  const selectedQuoteOpenReviewQuestions = useMemo(
+    () => selectedQuoteReviewQuestions.filter((question) => !checkedQuoteReviewQuestions[question.id]),
+    [checkedQuoteReviewQuestions, selectedQuoteReviewQuestions],
+  );
+
+  const buddyAlertCount = useMemo(() => {
+    const blocks = selectedQuoteBuddyFindings.filter((item) => item.severity === "block").length;
+    const highs = selectedQuoteOpenReviewQuestions.filter((item) => item.severity === "high").length;
+    return blocks + highs;
+  }, [selectedQuoteBuddyFindings, selectedQuoteOpenReviewQuestions]);
+
+  const buddyHasOpenChecks = selectedQuoteBuddyFindings.length > 0 || selectedQuoteOpenReviewQuestions.length > 0;
+
+  const buddyMood: BuddyMood = useMemo(
+    () =>
+      buddyMoodFromFindings(
+        selectedQuoteBuddyFindings.some((item) => item.severity === "block") ||
+          selectedQuoteOpenReviewQuestions.some((item) => item.severity === "high"),
+        selectedQuoteBuddyFindings.some((item) => item.severity === "warn" || item.severity === "tip") ||
+          selectedQuoteOpenReviewQuestions.some((item) => item.severity === "medium" || item.severity === "low"),
+        nexaAssistantBusy || isSendingQuoteToSimpro,
+      ),
+    [
+      isSendingQuoteToSimpro,
+      nexaAssistantBusy,
+      selectedQuoteBuddyFindings,
+      selectedQuoteOpenReviewQuestions,
+    ],
   );
 
   const selectedJobEstimateCostCentres = useMemo(
@@ -7803,7 +9128,7 @@ export default function Dashboard() {
 
   const selectedJobVariations = useMemo(
     () => (selectedJob ? buildVariationsForJob(selectedJob) : []),
-    [jobDeliveryEvents, selectedJob],
+    [dayworkSheets, flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob],
   );
 
   const selectedJobBillableVariations = useMemo(
@@ -7874,6 +9199,51 @@ export default function Dashboard() {
     };
   }, [selectedInvoice]);
 
+  useEffect(() => {
+    if (!selectedInvoice) {
+      setInvoicePaymentAmountDraft("");
+      setInvoiceCreditAmountDraft("");
+      setInvoiceCreditReasonDraft("");
+      return;
+    }
+    const remaining = Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0));
+    setInvoicePaymentAmountDraft(remaining > 0 ? remaining.toFixed(2) : "");
+    if (
+      selectedInvoice.claimType === "valuation" ||
+      selectedInvoice.claimType === "credit-note" ||
+      selectedInvoice.status === "Cancelled"
+    ) {
+      setInvoiceCreditAmountDraft("");
+      setInvoiceCreditReasonDraft("");
+      return;
+    }
+    setInvoiceCreditAmountDraft(remaining > 0 ? remaining.toFixed(2) : selectedInvoiceFinancials.grandTotal.toFixed(2));
+    setInvoiceCreditReasonDraft("");
+  }, [selectedInvoice?.id, selectedInvoice?.paidAmount, selectedInvoice?.claimType, selectedInvoice?.status, selectedInvoiceFinancials.grandTotal]);
+
+  const selectedRetentionBalances = useMemo(() => {
+    if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
+      return { retained: 0, released: 0, available: 0, claimCount: 0, releaseCount: 0, claimRefs: [] as string[] };
+    }
+    return jobRetentionBalances(selectedInvoice.sourceId, invoices);
+  }, [selectedInvoice, invoices]);
+
+  useEffect(() => {
+    if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
+      setRetentionReleaseAmountDraft("");
+      return;
+    }
+    if (selectedInvoice.claimType !== "progress-claim" && selectedInvoice.claimType !== "retention-release") {
+      setRetentionReleaseAmountDraft("");
+      return;
+    }
+    setRetentionReleaseAmountDraft(
+      selectedRetentionBalances.available > 0
+        ? String(Math.round(selectedRetentionBalances.available * 100) / 100)
+        : "",
+    );
+  }, [selectedInvoice?.id, selectedInvoice?.claimType, selectedInvoice?.sourceType, selectedRetentionBalances.available]);
+
   const selectedValuationTotals = useMemo(
     () => valuationLineTotals(selectedInvoice?.valuationLines ?? [], selectedInvoice?.retentionPercent ?? 0),
     [selectedInvoice],
@@ -7887,18 +9257,27 @@ export default function Dashboard() {
   const jobInvoiceDraftTotals = useMemo(() => {
     if (!jobInvoiceDraft) return valuationLineTotals([], 0);
     const lines = jobInvoiceDraft.mode === "deposit"
-      ? jobInvoiceDraft.valuationLines.map((line) => ({
-          ...line,
-          requestedThisPeriod: line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100),
-          agreedThisPeriod: line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100),
-        }))
+      ? jobInvoiceDraft.valuationLines.map((line) => {
+          const remaining = Math.max(0, line.contractValue - line.previousApplications);
+          const target = line.contractValue * (Math.max(0, Math.min(100, jobInvoiceDraft.depositPercent)) / 100);
+          const requestedThisPeriod = Math.min(remaining, Math.max(0, target - line.previousApplications));
+          return {
+            ...line,
+            requestedThisPeriod,
+            agreedThisPeriod: requestedThisPeriod,
+          };
+        })
       : jobInvoiceDraft.mode === "full"
         ? jobInvoiceDraft.valuationLines.map((line) => ({
             ...line,
             requestedThisPeriod: Math.max(0, line.contractValue - line.previousApplications),
             agreedThisPeriod: Math.max(0, line.contractValue - line.previousApplications),
           }))
-        : jobInvoiceDraft.valuationLines;
+        : jobInvoiceDraft.valuationLines.map((line) => {
+            const remaining = Math.max(0, line.contractValue - line.previousApplications);
+            const requestedThisPeriod = Math.min(remaining, Math.max(0, line.requestedThisPeriod));
+            return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
+          });
     return valuationLineTotals(lines, jobInvoiceDraft.mode === "valuation" ? jobInvoiceDraft.retentionPercent : 0);
   }, [jobInvoiceDraft]);
 
@@ -8147,11 +9526,12 @@ export default function Dashboard() {
       },
       {
         label: "Communication doorway",
-        detail:
-          communicationEvents > 0
+        detail: selectedJob.confirmationSentAt
+          ? `Confirmation sent ${selectedJob.confirmationSentAt}${selectedJob.confirmationSentTo ? ` to ${selectedJob.confirmationSentTo}` : ""}`
+          : communicationEvents > 0
             ? `${communicationEvents} confirmations or site messages captured`
-            : "Capture the first site update or office message.",
-        complete: communicationEvents > 0,
+            : "Send a job confirmation or capture the first site update.",
+        complete: Boolean(selectedJob.confirmationSentAt) || communicationEvents > 0,
       },
     ];
     const requiredItems = items.filter((item) => !item.optional);
@@ -8220,6 +9600,8 @@ export default function Dashboard() {
   useEffect(() => {
     if (!editingEmployeeId || !activeEditingEmployee) return;
     if (editingEmployeeId === newEmployeeId) return;
+    if (loadedEmployeeDraftIdRef.current === editingEmployeeId) return;
+    loadedEmployeeDraftIdRef.current = editingEmployeeId;
     setEmployeeRoleDraft(activeEditingEmployee.role);
     setEmployeePermissionDraft({ ...(activeEditingEmployee.permissions ?? {}) });
     const draft = makeEmployeeProfileDraft(activeEditingEmployee);
@@ -8270,6 +9652,8 @@ export default function Dashboard() {
     setClients(storedClients);
     setClientSites(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.clientSites, seedClientSites));
     setSuppliers(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.suppliers, defaultSupplierDirectory));
+    setContacts(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.contacts, defaultContactDirectory));
+    setContractors(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.contractors, defaultContractorDirectory));
     setAuditEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.auditEvents, []));
     setActiveClientId(storedClients[0]?.id ?? "");
     const storedQuoteCostCentres = isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.quoteCostCentres, {});
@@ -8313,17 +9697,31 @@ export default function Dashboard() {
       ),
     );
     setFlowStepCompletion(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.flowCompletion, {}));
+    setFlowStepEvidence(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.flowEvidence, {}));
     setQuoteCostCentres(storedQuoteCostCentres);
     setQuoteSections(storedQuoteSections);
     setQuoteSchedulePlans(storedQuoteSchedulePlans);
     setJobSchedulePlans(storedJobSchedulePlans);
-    setCustomQuoteCatalog(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.customCatalog, []));
+    const storedCustomCatalog = isLiveWorkspace ? [] : (safeLoadStoredJson(STORAGE_KEYS.customCatalog, []) as CatalogItem[]);
+    setCustomQuoteCatalog(storedCustomCatalog);
+    {
+      const storedFolders = isLiveWorkspace
+        ? quoteCatalogFolders
+        : (safeLoadStoredJson(STORAGE_KEYS.catalogFolders, quoteCatalogFolders) as string[]);
+      setCatalogFolders(
+        mergeCatalogFolderList(
+          storedFolders.length ? storedFolders : quoteCatalogFolders,
+          storedCustomCatalog.map((item) => inferCatalogFolder(item)),
+        ),
+      );
+    }
     setJobEstimateCostCentres(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobCostCentres, {}));
     setJobSections(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobSections, {}));
     setJobReviewApprovals(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobReviews, {}));
     setJobDeliveryEvents(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.jobDeliveryEvents, []));
     setJobVariationSections(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.jobVariationSections, {}));
     setCommunicationRecords(isLiveWorkspace ? [] : safeLoadStoredJson(STORAGE_KEYS.communications, []));
+    setManualRecordDocuments(isLiveWorkspace ? {} : safeLoadStoredJson(STORAGE_KEYS.manualRecordDocuments, {}));
     setHasHydratedLocalData(true);
   }, [hasHydratedLocalData, serverAuthMode, serverAuthUser, serverWorkspaceMode]);
 
@@ -8335,8 +9733,9 @@ export default function Dashboard() {
     const loadLiveData = async () => {
       let hasOfflineFallback = false;
       try {
-        const [clientsResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
+        const [clientsResponse, clientSitesResponse, leadsResponse, jobsResponse, quotesResponse, purchaseResponse, auditResponse, hubStateResponse] = await Promise.all([
           fetch("/api/clients", { headers: requestHeaders }),
+          fetch("/api/client-sites", { headers: requestHeaders }),
           fetch("/api/leads", { headers: requestHeaders }),
           fetch("/api/jobs", { headers: requestHeaders }),
           fetch("/api/quotes", { headers: requestHeaders }),
@@ -8349,6 +9748,12 @@ export default function Dashboard() {
 
         if (clientsResponse.ok) {
           setClients((await clientsResponse.json()) as ClientRecord[]);
+        } else {
+          hasOfflineFallback = true;
+        }
+
+        if (clientSitesResponse.ok) {
+          setClientSites((await clientSitesResponse.json()) as ClientSite[]);
         } else {
           hasOfflineFallback = true;
         }
@@ -8445,6 +9850,7 @@ export default function Dashboard() {
             hasAppliedHubSetupState.current = true;
           }
           if (hubState.flowStepCompletion) setFlowStepCompletion(hubState.flowStepCompletion);
+          if (hubState.flowStepEvidence) setFlowStepEvidence(hubState.flowStepEvidence);
           if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current) {
             if (hubState.quoteCostCentres) setQuoteCostCentres(hubState.quoteCostCentres);
             if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
@@ -8452,18 +9858,145 @@ export default function Dashboard() {
             if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
             if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
             if (hubState.jobSections) setJobSections(hubState.jobSections);
+          } else if (hubState.jobCostCentres) {
+            // Keep local cost-centre edits, but never drop Field Daywork centres/sections.
+            setJobEstimateCostCentres((current) => {
+              const next = { ...current };
+              for (const [jobId, centres] of Object.entries(hubState.jobCostCentres || {})) {
+                if (!Array.isArray(centres)) continue;
+                const local = Array.isArray(next[jobId]) ? [...next[jobId]] : [];
+                for (const centre of centres) {
+                  const isDaywork =
+                    String(centre.id || "").includes("daywork") ||
+                    /daywork/i.test(`${centre.name || ""} ${centre.templateName || ""}`);
+                  if (!isDaywork) continue;
+                  if (!local.some((item) => item.id === centre.id)) {
+                    local.push(centre);
+                  }
+                }
+                next[jobId] = local;
+              }
+              return next;
+            });
+            if (hubState.jobVariationSections) {
+              setJobVariationSections((current) => {
+                const next = { ...current };
+                for (const [jobId, sections] of Object.entries(hubState.jobVariationSections || {})) {
+                  if (!Array.isArray(sections)) continue;
+                  const local = Array.isArray(next[jobId]) ? [...next[jobId]] : [];
+                  for (const section of sections) {
+                    if (!/daywork/i.test(String(section.name || "")) && !String(section.id || "").includes("daywork")) {
+                      continue;
+                    }
+                    if (!local.some((item) => item.id === section.id)) {
+                      local.push(section);
+                    }
+                  }
+                  next[jobId] = local;
+                }
+                return next;
+              });
+            }
           }
-          if (hubState.customQuoteCatalog) setCustomQuoteCatalog(hubState.customQuoteCatalog);
+          if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.customQuoteCatalog) {
+            setCustomQuoteCatalog(hubState.customQuoteCatalog);
+            setCatalogFolders((current) =>
+              mergeCatalogFolderList(
+                hubState.catalogFolders?.length ? hubState.catalogFolders : current,
+                hubState.customQuoteCatalog!.map((item) => inferCatalogFolder(item)),
+              ),
+            );
+          } else if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.catalogFolders?.length) {
+            setCatalogFolders((current) => mergeCatalogFolderList(hubState.catalogFolders!, current));
+          }
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
-          if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
+          if (hubState.dayworkSheets) {
+            // Prefer the richer sheet (Field signatures/materials) when merging poll updates.
+            setDayworkSheets((current) => {
+              const incoming = hubState.dayworkSheets || {};
+              const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
+              const merged: typeof current = { ...current };
+              for (const key of keys) {
+                const local = current[key];
+                const remote = incoming[key];
+                if (!remote) continue;
+                if (!local) {
+                  merged[key] = remote;
+                  continue;
+                }
+                const remoteSigned = Boolean(remote.plumberSignature?.trim() && remote.clientSignature?.trim());
+                const localSigned = Boolean(local.plumberSignature?.trim() && local.clientSignature?.trim());
+                if (remoteSigned && !localSigned) {
+                  merged[key] = { ...local, ...remote };
+                  continue;
+                }
+                merged[key] = {
+                  ...local,
+                  ...remote,
+                  materialsJson: remote.materialsJson || local.materialsJson,
+                  plantJson: remote.plantJson || local.plantJson,
+                  plumberSignature: remote.plumberSignature || local.plumberSignature,
+                  clientSignature: remote.clientSignature || local.clientSignature,
+                  plumberSignerName: remote.plumberSignerName || local.plumberSignerName,
+                  clientSignerName: remote.clientSignerName || local.clientSignerName,
+                  description: remote.description || local.description,
+                  labourDaysJson: remote.labourDaysJson || local.labourDaysJson,
+                };
+              }
+              return merged;
+            });
+          }
+          if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current && hubState.jobVariationSections) {
+            setJobVariationSections(hubState.jobVariationSections);
+          }
           if (hubState.communications) setCommunicationRecords(hubState.communications);
           if (hubState.suppliers) setSuppliers(hubState.suppliers);
+          if (hubState.contacts) setContacts(hubState.contacts);
+          if (hubState.contractors) setContractors(hubState.contractors);
           if (hubState.invoices && !hasRecentLocalInvoiceEdit && !pendingInvoiceSaveRef.current) {
             setInvoices(hubState.invoices);
           }
           if (hubState.simproExports) setSimproExports(hubState.simproExports);
           setHasLoadedHubDetailState(true);
+
+          try {
+            const documentsResponse = await fetch("/api/record-documents", { headers: requestHeaders });
+            if (documentsResponse.ok) {
+              const payload = (await documentsResponse.json()) as {
+                documents?: Array<{
+                  scope: RecordDocumentScope;
+                  recordRef: string;
+                  folderId: string;
+                  name: string;
+                  type: string;
+                  visibility: "Private" | "Engineer" | "Public" | "Client";
+                  linkedTo: string;
+                  fileUrl: string;
+                }>;
+              };
+              const next: ManualRecordDocuments = {};
+              for (const document of payload.documents ?? []) {
+                const key = recordDocumentStorageKey(document.scope, document.recordRef);
+                const visibility: DocumentVisibility =
+                  document.visibility === "Public" ? "Client" : (document.visibility as DocumentVisibility);
+                next[key] = [
+                  ...(next[key] ?? []),
+                  {
+                    folderId: document.folderId,
+                    name: document.name,
+                    type: document.type,
+                    visibility,
+                    linkedTo: document.linkedTo,
+                    fileUrl: document.fileUrl,
+                  },
+                ];
+              }
+              setManualRecordDocuments(next);
+            }
+          } catch {
+            // Documents stay empty until next successful load.
+          }
         } else {
           hasOfflineFallback = true;
         }
@@ -8499,6 +10032,10 @@ export default function Dashboard() {
     const savedEmployees = removeRetiredPilotEmployeeWhenReplaced(
       newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
     );
+    // Never push an empty dayworkSheets map from Core — that races Field saves.
+    // Server merge preserves Field sheets, but omitting empty keeps the wire payload honest.
+    const dayworkSheetsPayload =
+      dayworkSheets && Object.keys(dayworkSheets).length > 0 ? dayworkSheets : undefined;
     return {
       employees: savedEmployees,
       businessSettings,
@@ -8514,19 +10051,24 @@ export default function Dashboard() {
       costCentreTypes: costCentreTypeOptions,
       costCentreFlowAssignmentDrafts,
       flowStepCompletion,
+      flowStepEvidence,
       quoteCostCentres,
       quoteSections,
       quoteSchedulePlans,
       jobSchedulePlans,
       customQuoteCatalog,
+      catalogFolders,
       jobCostCentres: jobEstimateCostCentres,
       jobSections,
       jobReviews: jobReviewApprovals,
       jobDeliveryEvents,
       jobVariationSections,
+      ...(dayworkSheetsPayload ? { dayworkSheets: dayworkSheetsPayload } : {}),
       communications: communicationRecords,
       invoices,
       suppliers,
+      contacts,
+      contractors,
       simproExports,
     };
   }
@@ -8653,8 +10195,9 @@ export default function Dashboard() {
 
     const loadIntegrationStatuses = async () => {
       try {
-        const [simproResponse, xeroResponse] = await Promise.all([
+        const [simproResponse, simproReconnectResponse, xeroResponse] = await Promise.all([
           fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
+          fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
           fetch("/api/integrations/xero/status", { headers: requestHeaders }),
         ]);
         if (!stopped) {
@@ -8662,6 +10205,9 @@ export default function Dashboard() {
             const status = (await simproResponse.json()) as SimproBridgeStatus;
             setSimproBridgeStatus(status);
             if (status.sync) setSimproSyncStatus(status.sync);
+          }
+          if (simproReconnectResponse.ok) {
+            setSimproReconnectStatus((await simproReconnectResponse.json()) as SimproReconnectStatus);
           }
           if (xeroResponse.ok) {
             setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
@@ -8674,6 +10220,7 @@ export default function Dashboard() {
             mode: "unknown",
             missing: ["Unable to check Simpro bridge"],
           });
+          setSimproReconnectStatus(null);
           setSimproSyncStatus(null);
           setXeroConnectionStatus(null);
         }
@@ -8698,6 +10245,8 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.clients, clients);
     safeSaveStoredJson(STORAGE_KEYS.clientSites, clientSites);
     safeSaveStoredJson(STORAGE_KEYS.suppliers, suppliers);
+    safeSaveStoredJson(STORAGE_KEYS.contacts, contacts);
+    safeSaveStoredJson(STORAGE_KEYS.contractors, contractors);
     safeSaveStoredJson(STORAGE_KEYS.leads, leads);
     safeSaveStoredJson(STORAGE_KEYS.jobs, jobs);
     safeSaveStoredJson(STORAGE_KEYS.quotes, quotes);
@@ -8718,17 +10267,21 @@ export default function Dashboard() {
     safeSaveStoredJson(STORAGE_KEYS.costCentreTypes, costCentreTypeOptions);
     safeSaveStoredJson(STORAGE_KEYS.costCentreFlowAssignments, costCentreFlowAssignmentDrafts);
     safeSaveStoredJson(STORAGE_KEYS.flowCompletion, flowStepCompletion);
+    safeSaveStoredJson(STORAGE_KEYS.flowEvidence, flowStepEvidence);
     safeSaveStoredJson(STORAGE_KEYS.quoteCostCentres, quoteCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.quoteSections, quoteSections);
     safeSaveStoredJson(STORAGE_KEYS.quoteSchedulePlans, quoteSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.jobSchedulePlans, jobSchedulePlans);
     safeSaveStoredJson(STORAGE_KEYS.customCatalog, customQuoteCatalog);
+    safeSaveStoredJson(STORAGE_KEYS.catalogFolders, catalogFolders);
     safeSaveStoredJson(STORAGE_KEYS.jobCostCentres, jobEstimateCostCentres);
     safeSaveStoredJson(STORAGE_KEYS.jobSections, jobSections);
     safeSaveStoredJson(STORAGE_KEYS.jobReviews, jobReviewApprovals);
     safeSaveStoredJson(STORAGE_KEYS.jobDeliveryEvents, jobDeliveryEvents);
     safeSaveStoredJson(STORAGE_KEYS.jobVariationSections, jobVariationSections);
     safeSaveStoredJson(STORAGE_KEYS.communications, communicationRecords);
+    safeSaveStoredJson(STORAGE_KEYS.manualRecordDocuments, manualRecordDocuments);
+    safeSaveStoredJson(STORAGE_KEYS.openWorkspaceTabs, openWorkspaceTabs);
 
     if (!hasLoadedHubDetailState) return;
 
@@ -8808,22 +10361,60 @@ export default function Dashboard() {
     costCentreTypeOptions,
     costCentreFlowAssignmentDrafts,
     flowStepCompletion,
+    flowStepEvidence,
     quoteCostCentres,
     quoteSections,
     quoteSchedulePlans,
     jobSchedulePlans,
     customQuoteCatalog,
+    catalogFolders,
     jobEstimateCostCentres,
     jobSections,
     jobReviewApprovals,
     jobDeliveryEvents,
     jobVariationSections,
+    dayworkSheets,
     communicationRecords,
+    manualRecordDocuments,
+    openWorkspaceTabs,
     simproExports,
     hasHydratedLocalData,
     hasLoadedHubDetailState,
     requestHeaders,
   ]);
+
+  useEffect(() => {
+    if (hasHydratedOpenWorkspaceTabs.current) return;
+    hasHydratedOpenWorkspaceTabs.current = true;
+    const stored = safeLoadStoredJson<OpenWorkspaceTab[]>(STORAGE_KEYS.openWorkspaceTabs, []);
+    if (Array.isArray(stored) && stored.length) {
+      setOpenWorkspaceTabs(
+        stored
+          .filter((item) => item && typeof item.recordId === "string" && typeof item.kind === "string")
+          .slice(-OPEN_WORKSPACE_TAB_LIMIT),
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || !openWorkspaceTabs.length) return;
+    const leadIds = new Set(leads.map((item) => item.id));
+    const quoteIds = new Set(quotes.map((item) => item.id));
+    const jobIds = new Set(jobs.map((item) => item.id));
+    const invoiceIds = new Set(invoices.map((item) => item.id));
+    const clientIds = new Set(clients.map((item) => item.id));
+    setOpenWorkspaceTabs((current) => {
+      const next = current.filter((tab) => {
+        if (tab.kind === "lead") return leadIds.has(tab.recordId);
+        if (tab.kind === "quote") return quoteIds.has(tab.recordId);
+        if (tab.kind === "job") return jobIds.has(tab.recordId);
+        if (tab.kind === "invoice") return invoiceIds.has(tab.recordId);
+        if (tab.kind === "client") return clientIds.has(tab.recordId);
+        return false;
+      });
+      return next.length === current.length ? current : next;
+    });
+  }, [clients, hasHydratedLocalData, invoices, jobs, leads, openWorkspaceTabs.length, quotes]);
 
   useEffect(() => {
     if (!hasHydratedLocalData || !selectedJob) return;
@@ -8835,20 +10426,220 @@ export default function Dashboard() {
 
     const params = new URLSearchParams(window.location.search);
     const quoteParam = params.get("quote");
-    if (!quoteParam) {
+    const jobParam = params.get("job");
+
+    if (quoteParam) {
+      const targetQuote = quotes.find((quote) => quote.id === quoteParam || quote.ref === quoteParam);
+      if (!targetQuote) return;
+      openQuoteDrawer(targetQuote.id);
+      setQuoteStatusFilter("All quotes");
+      showNotice(`${targetQuote.ref} opened from Blake AI intake.`);
       setHandledInitialRoute(true);
+      window.history.replaceState(null, "", window.location.pathname);
       return;
     }
 
-    const targetQuote = quotes.find((quote) => quote.id === quoteParam || quote.ref === quoteParam);
-    if (!targetQuote) return;
+    if (jobParam) {
+      const targetJob = jobs.find((job) => job.id === jobParam || job.ref === jobParam);
+      if (!targetJob) return;
+      openJobDrawer(targetJob.id);
+      const centreParam = new URLSearchParams(window.location.search).get("centre");
+      const tabParam = new URLSearchParams(window.location.search).get("tab");
+      if (centreParam) {
+        const isDayworkCentre = /daywork/i.test(centreParam);
+        if (isDayworkCentre) {
+          setActiveJobTab("cost-centres");
+          setActiveJobCostCentreListTab("variations");
+        }
+        setSelectedCostCentreId(centreParam);
+        const allowedTabs: CostCentreTab[] = [
+          "summary",
+          "info",
+          "parts-labour",
+          "po",
+          "engineer-flow",
+          "schedule",
+          "assets",
+        ];
+        setActiveCostCentreTab(
+          allowedTabs.includes(tabParam as CostCentreTab)
+            ? (tabParam as CostCentreTab)
+            : "engineer-flow",
+        );
+        setActiveJobBuildTab("summary");
+        setHomeView("cost-centre-record");
+        showNotice(
+          isDayworkCentre
+            ? `${targetJob.ref} Daywork Account opened — Engineer Flow.`
+            : `${targetJob.ref} Engineer Flow opened — gas service record / certificate preview.`,
+        );
+      } else {
+        showNotice(`${targetJob.ref} opened from Blake AI intake.`);
+      }
+      setHandledInitialRoute(true);
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
 
-    openQuoteDrawer(targetQuote.id);
-    setQuoteStatusFilter("All quotes");
-    showNotice(`${targetQuote.ref} opened from AI Surveyor handoff.`);
     setHandledInitialRoute(true);
+  }, [handledInitialRoute, hasHydratedLocalData, jobs, quotes]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get("view");
+    if (viewParam === "lead-create" && access.canCreateLead) {
+      setLeadFormError("");
+      setLeadPostcodeSearch("");
+      setNewLead({
+        ...blankLead,
+        setup: makeIntakeSetupOptions(),
+        createdBy: activeEmployee?.name || blankLead.createdBy,
+      });
+      setHomeView("lead-create");
+      setShowCreateLead(true);
+      scrollWorkspaceToTop();
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    if (viewParam === "quote-create" && access.canCreateQuote) {
+      setQuotePostcodeSearch("");
+      setNewQuote({
+        ...blankQuote,
+        owner: activeEmployee?.name || blankQuote.owner,
+        setup: makeIntakeSetupOptions(),
+      });
+      setHomeView("quote-create");
+      setShowCreateQuote(true);
+      scrollWorkspaceToTop();
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    if (viewParam === "job-create" && access.canCreateJob) {
+      setJobPostcodeSearch("");
+      setNewJob({
+        ...blankJob,
+        manager: activeEmployee?.name || blankJob.manager,
+        setup: makeIntakeSetupOptions(),
+      });
+      setHomeView("job-create");
+      setShowCreateJob(true);
+      scrollWorkspaceToTop();
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    const leadParam = params.get("lead");
+    if (!leadParam) return;
+    const targetLead = leads.find((lead) => lead.id === leadParam || lead.ref === leadParam);
+    if (!targetLead) return;
+    openLeadRecord(targetLead.id);
+    showNotice(`${targetLead.ref} opened from AI intake.`);
     window.history.replaceState(null, "", window.location.pathname);
-  }, [handledInitialRoute, hasHydratedLocalData, quotes]);
+  }, [
+    access.canCreateJob,
+    access.canCreateLead,
+    access.canCreateQuote,
+    activeEmployee?.name,
+    hasHydratedLocalData,
+    leads,
+  ]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData || typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const xeroResult = params.get("xero");
+    if (!xeroResult) return;
+    const message = params.get("message");
+    if (xeroResult === "connected") {
+      showNotice("Xero connected. Invoice export can use the live API when a tenant is present.");
+      void (async () => {
+        try {
+          const response = await fetch("/api/integrations/xero/status", { headers: requestHeaders });
+          if (response.ok) setXeroConnectionStatus((await response.json()) as XeroConnectionStatus);
+        } catch {
+          // status refresh is best-effort after OAuth redirect
+        }
+      })();
+    } else {
+      showNotice(message ? `Xero connect failed: ${decodeURIComponent(message)}` : "Xero connect failed.");
+    }
+    params.delete("xero");
+    params.delete("message");
+    const next = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${next ? `?${next}` : ""}${window.location.hash}`);
+  }, [hasHydratedLocalData]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/stock", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as {
+          items?: Array<{ id: string; unitCost?: number }>;
+          movements?: Array<{ itemId: string; quantity: number; reason: string; jobRef?: string }>;
+        } | null;
+        if (cancelled || !response.ok || !body) return;
+        const costByItem = new Map((body.items || []).map((item) => [item.id, item.unitCost || 0]));
+        const byJob: Record<string, number> = {};
+        for (const movement of body.movements || []) {
+          if (!movement.jobRef?.trim()) continue;
+          const ref = movement.jobRef.trim().toLowerCase();
+          const qty = Math.abs(Number(movement.quantity) || 0);
+          const unitCost = costByItem.get(movement.itemId) || 0;
+          const lineCost = qty * unitCost;
+          if (movement.reason === "Issue to job") {
+            byJob[ref] = (byJob[ref] || 0) + lineCost;
+          } else if (movement.reason === "Return from job") {
+            byJob[ref] = (byJob[ref] || 0) - lineCost;
+          }
+        }
+        setStockIssueCostByJobRef(byJob);
+      } catch {
+        // reports stay usable without stock
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydratedLocalData, requestHeaders, homeView]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/site-assets?due=1&withinDays=30", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as {
+          assets?: Array<{
+            id: string;
+            siteId: string;
+            clientId?: string;
+            type: string;
+            name: string;
+            nextServiceDate?: string;
+            certificateExpiresAt?: string;
+            make?: string;
+            model?: string;
+          }>;
+        } | null;
+        if (!cancelled && response.ok) {
+          setDueSiteAssetRows(body?.assets || []);
+        }
+      } catch {
+        // dashboard panel is best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydratedLocalData, requestHeaders, homeView]);
+
+  useEffect(() => {
+    if (!pendingInvoiceChaseId || !selectedInvoice || selectedInvoice.id !== pendingInvoiceChaseId) return;
+    setPendingInvoiceChaseId(null);
+    void prepareSelectedInvoicePaymentChase();
+  }, [pendingInvoiceChaseId, selectedInvoice?.id]);
 
   useEffect(() => {
     return () => {
@@ -9195,6 +10986,13 @@ export default function Dashboard() {
         ),
       },
       {
+        key: "uninvoiced",
+        label: "Ready to invoice",
+        detail: "Completed work waiting for an invoice",
+        tone: "red",
+        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status)),
+      },
+      {
         key: "review",
         label: "Complete",
         detail: "Completed, reviewed or moved into finance",
@@ -9223,10 +11021,45 @@ export default function Dashboard() {
     const isOverdue = (invoice: Invoice) =>
       invoice.status !== "Paid" &&
       invoice.status !== "Cancelled" &&
+      invoice.status !== "Draft" &&
       /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
       invoice.dueDate < currentOperatingDate;
 
+    const isCollectible = (invoice: Invoice) =>
+      invoice.claimType !== "valuation" && invoice.claimType !== "credit-note";
+
+    const overdueItems = searchFilteredInvoices
+      .filter((invoice) => isCollectible(invoice) && isOverdue(invoice))
+      .map((invoice) => {
+        const daysOverdue = daysSinceDate(invoice.dueDate) ?? 0;
+        return { invoice, daysOverdue, band: invoiceAgeBand(Math.max(0, daysOverdue)) };
+      })
+      .sort((left, right) => right.daysOverdue - left.daysOverdue);
+
     return [
+      {
+        key: "overdue",
+        label: "Overdue invoices",
+        detail: (() => {
+          const bands: Record<"0-30" | "31-60" | "60+", number> = { "0-30": 0, "31-60": 0, "60+": 0 };
+          overdueItems.forEach((item) => {
+            const band = item.band as "0-30" | "31-60" | "60+";
+            bands[band] += 1;
+          });
+          return overdueItems.length
+            ? `Ageing 0-30: ${bands["0-30"]} · 31-60: ${bands["31-60"]} · 60+: ${bands["60+"]}`
+            : "Needs chasing or finance action";
+        })(),
+        tone: "red",
+        items: overdueItems.map((item) => item.invoice),
+      },
+      {
+        key: "draft",
+        label: "Draft invoices",
+        detail: "Created but not yet sent to the customer",
+        tone: "amber",
+        items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Draft"),
+      },
       {
         key: "valuations",
         label: "Valuations",
@@ -9235,39 +11068,40 @@ export default function Dashboard() {
         items: searchFilteredInvoices.filter((invoice) => invoice.claimType === "valuation"),
       },
       {
+        key: "credits",
+        label: "Credit notes",
+        detail: "Credits issued against invoices and applied to the ledger",
+        tone: "amber",
+        items: searchFilteredInvoices.filter((invoice) => invoice.claimType === "credit-note"),
+      },
+      {
         key: "unpaid",
         label: "Unpaid invoices",
         detail: "Sent or part-paid invoices inside payment terms",
         tone: "blue",
         items: searchFilteredInvoices.filter((invoice) =>
-          invoice.claimType !== "valuation" &&
+          isCollectible(invoice) &&
+          invoice.status !== "Draft" &&
           !isOverdue(invoice) &&
           (invoice.status === "Sent" || invoice.status === "Partially paid"),
         ),
-      },
-      {
-        key: "overdue",
-        label: "Overdue invoices",
-        detail: "Needs chasing or finance action",
-        tone: "red",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && isOverdue(invoice)),
       },
       {
         key: "paid",
         label: "Paid invoices",
         detail: "Closed billing records",
         tone: "green",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Paid"),
+        items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Paid"),
       },
       {
         key: "archived",
         label: "Archived",
         detail: "Cancelled or superseded finance records",
         tone: "green",
-        items: searchFilteredInvoices.filter((invoice) => invoice.claimType !== "valuation" && invoice.status === "Cancelled"),
+        items: searchFilteredInvoices.filter((invoice) => isCollectible(invoice) && invoice.status === "Cancelled"),
       },
     ];
-  }, [searchFilteredInvoices]);
+  }, [currentOperatingDate, searchFilteredInvoices]);
 
   const visibleInvoiceDirectoryGroups = useMemo(
     () => activeInvoiceFolderKey === "all"
@@ -9296,11 +11130,29 @@ export default function Dashboard() {
     return modules.filter((module) => {
       if (module.label === "People" && !access.showCustomers) return false;
       if (module.label === "Jobs" && !access.showJobs) return false;
-      if (module.label === "POs" && !access.canRequestPurchase && !access.canApprovePurchase && !access.showFinance) return false;
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
-      if (module.label === "Reports" && !access.showFinance) return false;
+      if (module.label === "More") {
+        const canSeeAnyMore =
+          access.showFinance ||
+          access.showStock ||
+          access.canRequestPurchase ||
+          access.canApprovePurchase ||
+          access.showJobs;
+        return canSeeAnyMore;
+      }
+      return true;
+    });
+  }, [access]);
+
+  const visibleMoreItems = useMemo(() => {
+    const more = modules.find((module) => module.label === "More");
+    return (more?.subItems || []).filter((item) => {
+      if (item === "POs") return access.canRequestPurchase || access.canApprovePurchase || access.showFinance;
+      if (item === "Stock") return access.showStock || access.showFinance || access.canRequestPurchase;
+      if (item === "Xero" || item === "Reports") return access.showFinance;
+      if (item === "Recurring") return access.showJobs || access.showFinance;
       return true;
     });
   }, [access]);
@@ -9510,6 +11362,100 @@ export default function Dashboard() {
         return !jobDeliveryEvents.some((event) => event.jobId === job.id && event.kind === "timesheet");
       }),
     [jobDeliveryEvents, jobs],
+  );
+
+  const overdueScheduledJobs = useMemo(() => {
+    const closed = new Set(["Completed", "Ready to invoice", "Invoiced", "Cancelled", "Closed"]);
+    return jobs
+      .filter((job) => {
+        if (closed.has(job.status)) return false;
+        const date = job.scheduledDate;
+        if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return false;
+        return date < currentOperatingDate;
+      })
+      .sort((left, right) => (left.scheduledDate || "").localeCompare(right.scheduledDate || ""));
+  }, [currentOperatingDate, jobs]);
+
+  const uninvoicedCompletedJobs = useMemo(
+    () =>
+      jobs
+        .filter((job) => ["Completed", "Ready to invoice"].includes(job.status))
+        .sort((left, right) => (left.due < right.due ? -1 : 1)),
+    [jobs],
+  );
+
+  const unassignedProgressJobs = useMemo(
+    () =>
+      jobs.filter((job) => {
+        if (!["Accepted", "Pending", "Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status)) {
+          return false;
+        }
+        return jobLooksUnassigned(job, jobSchedulePlans[job.id]);
+      }),
+    [jobSchedulePlans, jobs],
+  );
+
+  const overdueInvoiceRows = useMemo(
+    () =>
+      invoices
+        .filter((invoice) =>
+          invoice.claimType !== "valuation" &&
+          invoice.status !== "Paid" &&
+          invoice.status !== "Cancelled" &&
+          invoice.status !== "Draft" &&
+          /^\d{4}-\d{2}-\d{2}$/.test(invoice.dueDate) &&
+          invoice.dueDate < currentOperatingDate,
+        )
+        .map((invoice) => {
+          const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
+          return { invoice, daysOverdue, band: invoiceAgeBand(daysOverdue) };
+        })
+        .sort((left, right) => right.daysOverdue - left.daysOverdue),
+    [invoices],
+  );
+
+  const xeroSalesToExport = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => {
+          if (invoice.claimType === "valuation") return false;
+          if (invoice.status === "Cancelled" || invoice.status === "Draft") return false;
+          if (!invoice.lines.length) return false;
+          return (invoice.accountsStatus || "Not sent") !== "Sent";
+        })
+        .sort((left, right) => right.issuedDate.localeCompare(left.issuedDate)),
+    [invoices],
+  );
+
+  const xeroSalesExported = useMemo(
+    () =>
+      invoices
+        .filter((invoice) => {
+          if (invoice.claimType === "valuation") return false;
+          return (invoice.accountsStatus || "Not sent") === "Sent" || Boolean(invoice.xeroInvoiceId || invoice.xeroExportedAt);
+        })
+        .sort((left, right) => String(right.xeroExportedAt || right.issuedDate).localeCompare(String(left.xeroExportedAt || left.issuedDate))),
+    [invoices],
+  );
+
+  const xeroBillsToExport = useMemo(
+    () =>
+      purchaseRequests
+        .filter((request) => {
+          if (request.status === "Rejected" || request.status === "Draft") return false;
+          if (!request.poNumber?.trim()) return false;
+          return (request.xeroAccountsStatus || "Not sent") !== "Sent" && !request.xeroBillId;
+        })
+        .sort((left, right) => String(right.createdAt).localeCompare(String(left.createdAt))),
+    [purchaseRequests],
+  );
+
+  const xeroBillsExported = useMemo(
+    () =>
+      purchaseRequests
+        .filter((request) => (request.xeroAccountsStatus || "Not sent") === "Sent" || Boolean(request.xeroBillId || request.xeroExportedAt))
+        .sort((left, right) => String(right.xeroExportedAt || right.createdAt).localeCompare(String(left.xeroExportedAt || left.createdAt))),
+    [purchaseRequests],
   );
 
   const officeAlerts = useMemo(
@@ -9968,8 +11914,12 @@ export default function Dashboard() {
           );
           const jobPurchaseRequests = purchaseRequests.filter((request) => request.jobId === job.id && request.status !== "Rejected");
           const pendingMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestPendingCost(request), 0);
-          const actualMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestActualCost(request), 0);
-          const jobTimesheets = jobDeliveryEvents.filter((event) => event.jobId === job.id && event.kind === "timesheet");
+          const poMaterialCost = jobPurchaseRequests.reduce((total, request) => total + purchaseRequestActualCost(request), 0);
+          const stockMaterialCost = stockIssueCostByJobRef[job.ref.toLowerCase()] || 0;
+          const actualMaterialCost = poMaterialCost + stockMaterialCost;
+          const jobTimesheets = jobDeliveryEvents.filter(
+            (event) => event.jobId === job.id && event.kind === "timesheet" && event.status === "Approved",
+          );
           const workedHours = jobTimesheets.reduce((total, event) => total + (event.hours ?? 0), 0);
           const actualLabourCost = jobTimesheets.reduce((total, event) => {
             if (event.costValue !== undefined) return total + event.costValue;
@@ -10022,6 +11972,7 @@ export default function Dashboard() {
       reportDateRange,
       reportEngineerFilter,
       reportStatusFilter,
+      stockIssueCostByJobRef,
     ],
   );
 
@@ -10056,8 +12007,9 @@ export default function Dashboard() {
   const reportInvoiceRows = useMemo(
     () =>
       reportFilteredInvoices.map((invoice) => {
-        const paidAmount = invoice.status === "Paid" ? invoice.chargeTotal : invoice.paidAmount ?? 0;
-        const owed = invoice.status === "Cancelled" ? 0 : Math.max(0, invoice.chargeTotal - paidAmount);
+        const grandTotal = invoice.chargeTotal * (1 + invoice.vatRate / 100);
+        const paidAmount = invoice.status === "Paid" ? grandTotal : invoice.paidAmount ?? 0;
+        const owed = invoice.status === "Cancelled" ? 0 : Math.max(0, grandTotal - paidAmount);
         return {
           invoice,
           revenue: invoice.status === "Cancelled" ? 0 : invoice.chargeTotal,
@@ -10559,6 +12511,12 @@ export default function Dashboard() {
         source: "team scheduler",
         importance: "high",
       });
+      await pushJobToSimproRecord(updated, {
+        costCentres: schedulerSelectedJobCostCentres,
+        schedule: nextAssignments,
+        silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule this work package.";
       setSectionError(message);
@@ -10711,19 +12669,391 @@ export default function Dashboard() {
     return buildLeadCustomerMatches(newLead, clients, clientSites);
   }, [clientSites, clients, newLead.clientId, newLead.customerName, newLead.email, newLead.phone, newLead.address]);
 
-  const leadAddressMatches = useMemo(() => {
-    const query = leadPostcodeSearch.trim().toLowerCase();
-    if (query.length < 3) return [];
-    return postcodeDirectory
-      .filter((entry) => entry.postcode.toLowerCase().includes(query))
-      .flatMap((entry) => entry.addresses.map((address) => ({ postcode: entry.postcode, address })))
-      .slice(0, 8);
+  function workspaceAddressMatches(query: string) {
+    const q = query.trim().toLowerCase();
+    const compact = q.replace(/\s+/g, "");
+    if (q.length < 2) return [] as Array<{ postcode: string; address: string }>;
+    const matches: Array<{ postcode: string; address: string }> = [];
+    const seen = new Set<string>();
+    const push = (address: string) => {
+      const trimmed = address.trim();
+      if (!trimmed) return;
+      const key = trimmed.toLowerCase();
+      if (seen.has(key)) return;
+      const postcode = postcodeFromAddress(trimmed);
+      const haystack = `${trimmed} ${postcode}`.toLowerCase().replace(/\s+/g, "");
+      if (!trimmed.toLowerCase().includes(q) && !haystack.includes(compact) && !postcode.toLowerCase().includes(q)) {
+        return;
+      }
+      seen.add(key);
+      matches.push({ postcode: postcode || query.trim().toUpperCase(), address: trimmed });
+    };
+    clients.forEach((client) => push(client.billingAddress));
+    clientSites.forEach((site) => push(site.address));
+    return matches;
+  }
+
+  useEffect(() => {
+    clientsRef.current = clients;
+  }, [clients]);
+
+  useEffect(() => {
+    clientSitesRef.current = clientSites;
+  }, [clientSites]);
+
+  function mergePostcodeLookupMatches(
+    query: string,
+    apiMatches: Array<{ postcode: string; address: string }> | undefined,
+  ) {
+    const q = query.trim().toLowerCase();
+    const compact = q.replace(/\s+/g, "");
+    const seeded = postcodeDirectory.flatMap((entry) => {
+      const entryCompact = entry.postcode.replace(/\s+/g, "").toLowerCase();
+      const postcodeHit =
+        entry.postcode.toLowerCase().includes(q) ||
+        entryCompact.includes(compact) ||
+        (compact.length >= 5 && entryCompact === compact);
+      if (!postcodeHit) return [];
+      return entry.addresses.map((address) => ({ postcode: entry.postcode, address }));
+    });
+    const merged = [...seeded, ...workspaceAddressMatches(query), ...(apiMatches ?? [])];
+    const seen = new Set<string>();
+    return merged
+      .filter((match) => {
+        const address = match.address.trim();
+        const key = address.toLowerCase();
+        if (!key || seen.has(key)) return false;
+        // Never surface invented area placeholders as selectable addresses.
+        if (/^property at\b/i.test(address) || /^area around\b/i.test(address)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 60);
+  }
+
+  function applyPostcodeMetaToParts(
+    currentParts: LeadAddressParts | undefined,
+    currentAddress: string | undefined,
+    meta: { postcode?: string; town?: string; county?: string },
+  ) {
+    const line1 = currentParts?.line1?.trim() || "";
+    const looksLikePlaceholder = /^property at\b/i.test(line1) || /^property at\b/i.test(currentAddress || "");
+    if (line1 && !looksLikePlaceholder) {
+      return {
+        ...blankLeadAddressParts,
+        ...currentParts,
+        postcode: meta.postcode || currentParts?.postcode || "",
+      };
+    }
+    return {
+      ...blankLeadAddressParts,
+      ...currentParts,
+      line1: looksLikePlaceholder ? "" : line1,
+      town: currentParts?.town?.trim() || meta.town || "",
+      county: currentParts?.county?.trim() || meta.county || "",
+      postcode: meta.postcode || "",
+    };
+  }
+
+  function runPostcodeAddressLookup(options: {
+    query: string;
+    setMatches: (matches: Array<{ postcode: string; address: string }>) => void;
+    setBusy: (busy: boolean) => void;
+    applyMeta: (meta: { postcode?: string; town?: string; county?: string }) => void;
+  }) {
+    const query = options.query.trim();
+    const gen = ++postcodeLookupGenRef.current;
+
+    if (query.length < 2) {
+      options.setMatches([]);
+      options.setBusy(false);
+      return () => undefined;
+    }
+
+    // Incomplete postcodes: don't hit the API — keeps the UI off "Looking up…".
+    if (!/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(query)) {
+      options.setMatches(mergePostcodeLookupMatches(query, []));
+      options.setBusy(false);
+      return () => undefined;
+    }
+
+    const controller = new AbortController();
+    options.setBusy(true);
+
+    const finish = (matches?: Array<{ postcode: string; address: string }>) => {
+      if (gen !== postcodeLookupGenRef.current) return;
+      if (matches) options.setMatches(matches);
+      options.setBusy(false);
+    };
+
+    const hardTimeout = window.setTimeout(() => {
+      controller.abort();
+      finish(mergePostcodeLookupMatches(query, []));
+    }, 5500);
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch(`/api/postcode-lookup?q=${encodeURIComponent(query)}`, {
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => ({}))) as {
+            matches?: Array<{ postcode: string; address: string }>;
+            meta?: { postcode?: string; town?: string; county?: string } | null;
+          };
+          if (gen !== postcodeLookupGenRef.current) return;
+          options.setMatches(mergePostcodeLookupMatches(query, payload.matches));
+          if (payload.meta?.postcode) options.applyMeta(payload.meta);
+        } catch {
+          if (gen === postcodeLookupGenRef.current) {
+            options.setMatches(mergePostcodeLookupMatches(query, []));
+          }
+        } finally {
+          window.clearTimeout(hardTimeout);
+          if (gen === postcodeLookupGenRef.current) options.setBusy(false);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      window.clearTimeout(hardTimeout);
+      controller.abort();
+      // Do not clear busy here if a newer lookup owns the spinner.
+      if (gen === postcodeLookupGenRef.current) options.setBusy(false);
+    };
+  }
+
+  useEffect(() => {
+    return runPostcodeAddressLookup({
+      query: leadPostcodeSearch,
+      setMatches: setLeadAddressMatches,
+      setBusy: setLeadAddressLookupBusy,
+      applyMeta: (meta) => {
+        setNewLead((current) => {
+          const addressParts = applyPostcodeMetaToParts(current.addressParts, current.address, meta);
+          const address = leadAddressFromParts(addressParts);
+          return {
+            ...current,
+            addressParts,
+            address,
+            siteId: reconcileSiteIdForAddress(
+              current.clientId,
+              clientsRef.current,
+              clientSitesRef.current,
+              current.siteId,
+              address,
+            ),
+          };
+        });
+      },
+    });
+    // Intentionally only the postcode string — live client polling must not retrigger Looking up…
   }, [leadPostcodeSearch]);
+
+  useEffect(() => {
+    return runPostcodeAddressLookup({
+      query: quotePostcodeSearch,
+      setMatches: setQuoteAddressMatches,
+      setBusy: setQuoteAddressLookupBusy,
+      applyMeta: (meta) => {
+        setNewQuote((current) => {
+          const addressParts = applyPostcodeMetaToParts(current.addressParts, current.address, meta);
+          const address = leadAddressFromParts(addressParts);
+          return {
+            ...current,
+            addressParts,
+            address,
+            siteId: reconcileSiteIdForAddress(
+              current.clientId,
+              clientsRef.current,
+              clientSitesRef.current,
+              current.siteId,
+              address,
+            ),
+          };
+        });
+      },
+    });
+  }, [quotePostcodeSearch]);
+
+  useEffect(() => {
+    return runPostcodeAddressLookup({
+      query: jobPostcodeSearch,
+      setMatches: setJobAddressMatches,
+      setBusy: setJobAddressLookupBusy,
+      applyMeta: (meta) => {
+        setNewJob((current) => {
+          const addressParts = applyPostcodeMetaToParts(current.addressParts, current.address, meta);
+          const address = leadAddressFromParts(addressParts);
+          return {
+            ...current,
+            addressParts,
+            address,
+            siteId: reconcileSiteIdForAddress(
+              current.clientId,
+              clientsRef.current,
+              clientSitesRef.current,
+              current.siteId,
+              address,
+            ),
+          };
+        });
+      },
+    });
+  }, [jobPostcodeSearch]);
+
+  function addressSelectedFromPostcode(postcodeSearch: string, address: string) {
+    const query = postcodeSearch.trim().toLowerCase();
+    const target = address.trim().toLowerCase();
+    if (query.length < 2 || !target) return false;
+    return (
+      leadAddressMatches.some((match) => match.address.trim().toLowerCase() === target) ||
+      quoteAddressMatches.some((match) => match.address.trim().toLowerCase() === target) ||
+      jobAddressMatches.some((match) => match.address.trim().toLowerCase() === target) ||
+      postcodeDirectory.some((entry) =>
+        entry.postcode.toLowerCase().includes(query) &&
+        entry.addresses.some((candidate) => candidate.trim().toLowerCase() === target),
+      )
+    );
+  }
+
+  function intakeAddressReady(input: {
+    postcodeSearch: string;
+    address: string;
+    clientId?: string;
+    siteId?: string;
+  }) {
+    const address = input.address.trim();
+    if (!address) return false;
+    const linkedSiteId = realSiteIdOrUndefined(input.siteId);
+    if (linkedSiteId) return true;
+    if (input.siteId === CLIENT_SITE_BILLING && address) return true;
+    if (addressSelectedFromPostcode(input.postcodeSearch, address)) return true;
+    const hasPostcode = Boolean(postcodeFromAddress(address) || input.postcodeSearch.trim().length >= 5);
+    return hasPostcode && address.length >= 8;
+  }
 
   function showNotice(message: string) {
     if (noticeClearTimeout.current) clearTimeout(noticeClearTimeout.current);
     setSectionNotice(message);
     noticeClearTimeout.current = setTimeout(() => setSectionNotice(null), 4200);
+  }
+
+  async function sendNexaAssistantMessage() {
+    const message = nexaAssistantDraft.trim();
+    if (!message || nexaAssistantBusy) return;
+    const userMessage: NexaAssistantMessage = {
+      id: `nexa-user-${crypto.randomUUID()}`,
+      role: "user",
+      text: message,
+    };
+    const history = [...nexaAssistantMessages, userMessage]
+      .filter((item) => item.id !== "buddy-welcome")
+      .map((item) => ({ role: item.role, text: item.text }));
+    setNexaAssistantMessages((current) => [...current, userMessage]);
+    setNexaAssistantDraft("");
+    setNexaAssistantBusy(true);
+    try {
+      const response = await fetch("/api/nexa-assistant", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message,
+          history,
+          buddyContext: {
+            ...buddyMemoryPrompt(buddyMemory),
+            quoteWatch: selectedQuote
+              ? {
+                  ref: selectedQuote.ref,
+                  headline: selectedQuoteBuddySummary.headline,
+                  findings: selectedQuoteBuddyFindings.slice(0, 6).map((item) => ({
+                    severity: item.severity,
+                    title: item.title,
+                    detail: item.detail,
+                  })),
+                  reviewQuestions: selectedQuoteOpenReviewQuestions.slice(0, 6).map((item) => ({
+                    severity: item.severity,
+                    title: item.title,
+                    detail: item.detail,
+                  })),
+                }
+              : undefined,
+          },
+        }),
+      });
+      const result = (await response.json()) as NexaAssistantApiResponse;
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `buddy-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: result.reply || result.error || "Blake could not complete that request.",
+          action: result.action,
+          aiUsed: result.aiUsed,
+        },
+      ]);
+    } catch {
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `buddy-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: "I could not reach the live NeXa workspace. Nothing was changed.",
+        },
+      ]);
+    } finally {
+      setNexaAssistantBusy(false);
+    }
+  }
+
+  async function confirmNexaAssistantBooking(action: NexaAssistantAction) {
+    if (nexaAssistantBusy) return;
+    setNexaAssistantBusy(true);
+    try {
+      const response = await fetch("/api/nexa-assistant", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmActionId: action.id }),
+      });
+      const result = (await response.json()) as NexaAssistantApiResponse;
+      setNexaAssistantMessages((current) => [
+        ...current.map((message) =>
+          message.action?.id === action.id ? { ...message, action: undefined } : message,
+        ),
+        {
+          id: `buddy-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: result.reply || result.error || "The booking was not created.",
+        },
+      ]);
+      if (response.ok) {
+        if (result.assignment) {
+          setJobSchedulePlans((current) => ({
+            ...current,
+            [result.assignment!.jobId]: [
+              ...(current[result.assignment!.jobId] ?? []).filter((item) => item.id !== result.assignment!.id),
+              result.assignment!,
+            ].sort((first, second) =>
+              `${first.startDate}T${first.startTime}`.localeCompare(`${second.startDate}T${second.startTime}`),
+            ),
+          }));
+        }
+        await refreshCoreWorkflowRecords();
+        showNotice("Live schedule updated by Blake.");
+      }
+    } catch {
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `buddy-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: "The live booking could not be saved. Nothing was changed.",
+        },
+      ]);
+    } finally {
+      setNexaAssistantBusy(false);
+    }
   }
 
   async function refreshCoreWorkflowRecords() {
@@ -10747,17 +13077,36 @@ export default function Dashboard() {
 
   async function refreshIntegrationConnectionStatus() {
     try {
-      const [simproResponse, xeroResponse] = await Promise.all([
+      const [simproResponse, simproReconnectResponse, xeroResponse, emailResponse] = await Promise.all([
         fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
+        fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
         fetch("/api/integrations/xero/status", { headers: requestHeaders }),
+        fetch("/api/integrations/email/settings", { headers: requestHeaders }),
       ]);
       if (simproResponse.ok) {
         const status = (await simproResponse.json()) as SimproBridgeStatus;
         setSimproBridgeStatus(status);
         if (status.sync) setSimproSyncStatus(status.sync);
       }
+      if (simproReconnectResponse.ok) {
+        setSimproReconnectStatus((await simproReconnectResponse.json()) as SimproReconnectStatus);
+      }
       if (xeroResponse.ok) {
         setXeroConnectionStatus((await xeroResponse.json()) as XeroConnectionStatus);
+      }
+      if (emailResponse.ok) {
+        const status = (await emailResponse.json()) as EmailIntegrationStatus;
+        setEmailIntegrationStatus(status);
+        setEmailIntegrationDraft((current) => ({
+          ...current,
+          provider: status.provider,
+          senderEmail: status.senderEmail,
+          username: status.username,
+          smtpHost: status.smtpHost,
+          smtpPort: String(status.smtpPort),
+          secure: status.secure,
+          secret: "",
+        }));
       }
       showNotice("Integration status refreshed.");
     } catch {
@@ -10765,7 +13114,157 @@ export default function Dashboard() {
     }
   }
 
+  async function saveEmailIntegrationSettings() {
+    if (!emailIntegrationDraft.senderEmail.trim() || !emailIntegrationDraft.username.trim()) {
+      showNotice("Add the sender email and username before saving the email integration.");
+      return;
+    }
+    setIsSavingEmailIntegration(true);
+    try {
+      const response = await fetch("/api/integrations/email/settings", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: emailIntegrationDraft.provider,
+          senderEmail: emailIntegrationDraft.senderEmail,
+          username: emailIntegrationDraft.username,
+          secret: emailIntegrationDraft.secret,
+          smtpHost: emailIntegrationDraft.smtpHost,
+          smtpPort: Number(emailIntegrationDraft.smtpPort) || undefined,
+          secure: emailIntegrationDraft.secure,
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as EmailIntegrationStatus | { error?: string } | null;
+      if (!response.ok || !result || "error" in result) {
+        throw new Error(result && "error" in result ? result.error || "Unable to save email settings." : "Unable to save email settings.");
+      }
+      const savedStatus = result as EmailIntegrationStatus;
+      setEmailIntegrationStatus(savedStatus);
+      setEmailIntegrationDraft((current) => ({ ...current, secret: "" }));
+      showNotice(`${savedStatus.provider} email settings saved.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to save the email integration.");
+    } finally {
+      setIsSavingEmailIntegration(false);
+    }
+  }
+
+  async function testEmailIntegrationSettings() {
+    setIsTestingEmailIntegration(true);
+    try {
+      const response = await fetch("/api/integrations/email/test", {
+        method: "POST",
+        headers: requestHeaders,
+      });
+      const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string; status?: EmailIntegrationStatus } | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || "Unable to test the email integration.");
+      }
+      if (result.status) setEmailIntegrationStatus(result.status);
+      showNotice(result.message || "Email connection looks reachable.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to test the email integration.");
+    } finally {
+      setIsTestingEmailIntegration(false);
+    }
+  }
+
+  async function sendThroughLiveOutbox(input: {
+    to: string;
+    cc?: string;
+    subject: string;
+    text: string;
+    document?: {
+      filename: string;
+      title: string;
+      businessName: string;
+      reference: string;
+      recipient: string;
+      subject: string;
+      rows: Array<{ description: string; detail?: string; value: string }>;
+      subtotal: string;
+      vat: string;
+      total: string;
+    };
+    extraAttachments?: Array<{
+      filename: string;
+      contentBase64: string;
+      contentType?: string;
+    }>;
+  }) {
+    const response = await fetch("/api/integrations/email/send", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      error?: string;
+      delivery?: LiveEmailDelivery;
+    } | null;
+    if (!response.ok || !result?.ok || !result.delivery) {
+      throw new Error(result?.error || `Email provider returned HTTP ${response.status}`);
+    }
+    return result.delivery;
+  }
+
+  async function submitSimproReconnect() {
+    const code = simproReconnectDraft.trim();
+    if (!code) {
+      showNotice("Paste the fresh simPRO authorisation code or full redirect URL first.");
+      return;
+    }
+
+    setIsSubmittingSimproReconnect(true);
+    try {
+      const response = await fetch("/api/integrations/simpro/reconnect", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+        reconnect?: SimproReconnectStatus;
+        sync?: SimproSyncStatus;
+      } | null;
+
+      if (!response.ok) {
+        throw new Error(result?.error || `simPRO reconnect returned HTTP ${response.status}`);
+      }
+
+      setSimproReconnectDraft("");
+      if (result?.reconnect) setSimproReconnectStatus(result.reconnect);
+      if (result?.sync) setSimproSyncStatus(result.sync);
+      await refreshIntegrationConnectionStatus();
+      showNotice("simPRO reconnected. The live token has been refreshed in NeXa.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to reconnect simPRO.");
+    } finally {
+      setIsSubmittingSimproReconnect(false);
+    }
+  }
+
+  function toggleSimproImportEntity(entity: SimproSyncEntity) {
+    setSelectedSimproImportEntities((current) => (
+      current.includes(entity)
+        ? current.filter((item) => item !== entity)
+        : [...current, entity]
+    ));
+  }
+
   async function runSimproSync(mode: "preview" | "apply") {
+    if (integrationSettings.simproMode !== "Two-way sync") {
+      showNotice("simPRO imports are paused because this workspace is set to one-way push. Switch to Two-way sync only when you want to preview or apply inbound records.");
+      return;
+    }
+    if (!selectedSimproImportEntities.length) {
+      showNotice("Select at least one simPRO record type before running the import.");
+      return;
+    }
+
     if (mode === "preview") {
       setIsRunningSimproPreview(true);
     } else {
@@ -10781,7 +13280,7 @@ export default function Dashboard() {
         },
         body: JSON.stringify({
           mode,
-          entities: ["clients", "sites", "quotes", "jobs", "invoices"],
+          entities: selectedSimproImportEntities,
           actor: activeEmployee?.name ?? "NeXa user",
         }),
       });
@@ -10795,14 +13294,67 @@ export default function Dashboard() {
 
       showNotice(
         mode === "preview"
-          ? `simPRO preview complete: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
-          : `simPRO safe import complete: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
+          ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
+          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
     } finally {
       setIsRunningSimproPreview(false);
       setIsApplyingSimproImport(false);
+    }
+  }
+
+  async function resolveSimproConflict(operation: SimproSyncOperation, action: "link" | "create" | "skip") {
+    try {
+      const response = await fetch("/api/integrations/simpro/sync", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actor: activeEmployee?.name ?? "NeXa user",
+          resolve: {
+            operationId: operation.id,
+            action,
+            nexaId: action === "link" ? (simproConflictLinkChoices[operation.id] || operation.candidates?.[0]?.nexaId) : undefined,
+          },
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        operation?: SimproSyncOperation;
+        status?: SimproSyncStatus;
+        error?: string;
+      } | null;
+      if (!response.ok || !result?.operation) {
+        throw new Error(result?.error || `Conflict resolve returned HTTP ${response.status}`);
+      }
+      if (result.status) setSimproSyncStatus(result.status);
+      if (action === "create" || action === "link") await refreshCoreWorkflowRecords();
+      showNotice(result.operation.summary);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to resolve simPRO conflict.");
+    }
+  }
+
+  async function testSimproConnection() {
+    setIsTestingSimproConnection(true);
+    try {
+      const response = await fetch("/api/integrations/simpro/test", {
+        method: "POST",
+        headers: requestHeaders,
+      });
+      const result = (await response.json().catch(() => null)) as { ok?: boolean; error?: string; message?: string } | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || `simPRO connection test returned HTTP ${response.status}`);
+      }
+      await refreshIntegrationConnectionStatus();
+      showNotice(result.message || "simPRO connection verified.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to test the simPRO connection.");
+    } finally {
+      setIsTestingSimproConnection(false);
     }
   }
 
@@ -10883,7 +13435,17 @@ export default function Dashboard() {
     setClients((current) => current.map((client) => (client.id === clientId ? { ...client, ...patch } : client)));
   }
 
+  function updateClientRecordDraft(clientId: string, patch: Partial<ClientRecord>) {
+    markSetupEdited();
+    setClients((current) => current.map((client) => (client.id === clientId ? { ...client, ...patch } : client)));
+  }
+
   function updateSiteVatProfile(siteId: string, patch: Pick<Partial<ClientSite>, "vatTreatment" | "vatRateOverride">) {
+    markSetupEdited();
+    setClientSites((current) => current.map((site) => (site.id === siteId ? { ...site, ...patch } : site)));
+  }
+
+  function updateClientSiteDraft(siteId: string, patch: Partial<ClientSite>) {
     markSetupEdited();
     setClientSites((current) => current.map((site) => (site.id === siteId ? { ...site, ...patch } : site)));
   }
@@ -11006,6 +13568,7 @@ export default function Dashboard() {
   }
 
   function updateDocumentFolder(folderId: string, patch: Partial<DocumentFolderTemplate>) {
+    markSetupEdited();
     setDocumentFolderTemplates((current) =>
       current.map((folder) => (folder.id === folderId ? { ...folder, ...patch } : folder)),
     );
@@ -11014,6 +13577,7 @@ export default function Dashboard() {
   function addDocumentFolderTemplate() {
     const name = newDocumentFolderName.trim();
     if (!name) return;
+    markSetupEdited();
     setDocumentFolderTemplates((current) => [
       ...current,
       {
@@ -11029,11 +13593,13 @@ export default function Dashboard() {
   }
 
   function removeDocumentFolderTemplate(folderId: string) {
+    markSetupEdited();
     setDocumentFolderTemplates((current) => current.filter((folder) => folder.id !== folderId));
     showNotice("Folder removed from the default template.");
   }
 
   function updateEngineerFlowStep(stepId: string, patch: Partial<EngineerFlowStep>) {
+    markSetupEdited();
     setEngineerFlowTemplates((current) =>
       current.map((template) =>
         template.id === activeEngineerFlowTemplate.id
@@ -11053,6 +13619,7 @@ export default function Dashboard() {
   }
 
   function updateEngineerFlowTemplate(templateId: string, patch: Partial<EngineerFlowTemplate>) {
+    markSetupEdited();
     setEngineerFlowTemplates((current) =>
       current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
     );
@@ -11064,6 +13631,7 @@ export default function Dashboard() {
   function addEngineerFlowTemplate() {
     const name = newEngineerFlowTemplateName.trim();
     if (!name) return;
+    markSetupEdited();
     const id = `engineer-flow-${Date.now()}`;
     const template: EngineerFlowTemplate = {
       id,
@@ -11088,6 +13656,7 @@ export default function Dashboard() {
   function addEngineerFlowStep() {
     const label = newEngineerFlowStepLabel.trim();
     if (!label) return;
+    markSetupEdited();
     const step: EngineerFlowStep = {
       id: `${activeEngineerFlowTemplate.id}-step-${Date.now()}`,
       stage: "Existing Boiler",
@@ -11107,6 +13676,7 @@ export default function Dashboard() {
       showNotice("A checklist needs at least one step.");
       return;
     }
+    markSetupEdited();
     updateEngineerFlowTemplate(activeEngineerFlowTemplate.id, {
       steps: activeEngineerFlowTemplate.steps.filter((step) => step.id !== stepId),
     });
@@ -11120,6 +13690,7 @@ export default function Dashboard() {
       showNotice(`${name} already exists.`);
       return;
     }
+    markSetupEdited();
     setCostCentreTypeOptions((current) => [...current, name]);
     setCostCentreFlowAssignmentDrafts((current) => ({
       ...current,
@@ -11132,6 +13703,7 @@ export default function Dashboard() {
   function updateCostCentreTypeOption(oldName: string, nextName: string) {
     const trimmed = nextName.trim();
     if (!trimmed) return;
+    markSetupEdited();
     setCostCentreTypeOptions((current) => current.map((typeName) => (typeName === oldName ? trimmed : typeName)));
     setCostCentreFlowAssignmentDrafts((current) => {
       const next = { ...current };
@@ -11149,6 +13721,7 @@ export default function Dashboard() {
       showNotice("Keep at least one cost centre type.");
       return;
     }
+    markSetupEdited();
     setCostCentreTypeOptions((current) => current.filter((item) => item !== typeName));
     setCostCentreFlowAssignmentDrafts((current) => {
       const next = { ...current };
@@ -11171,24 +13744,33 @@ export default function Dashboard() {
       const header = rows[0] ?? [];
       if (!header.length || rows.length < 2) {
         showNotice("Could not detect catalogue rows. Export as CSV with description/name, cost and sell/rate columns.");
+        setCatalogImportPreview(null);
         return;
       }
 
-      const nameIndex = detectColumn(header, [["description", "item description", "name", "item", "material", "part"], ["details"]]);
+      const nameIndex = detectColumn(header, [["description", "item description", "name", "item", "material", "part", "product"], ["details"]]);
       const unitIndex = detectColumn(header, [["unit", "uom", "measure"]]);
-      const costIndex = detectColumn(header, [["cost", "unit cost", "trade price", "buy", "buy price", "rate"], ["price"]]);
+      const costIndex = detectColumn(header, [["cost", "unit cost", "trade price", "buy", "buy price", "rate", "net", "list"], ["price"]]);
       const sellIndex = detectColumn(header, [["sell", "sell rate", "charge", "charge rate", "selling price"]]);
       const typeIndex = detectColumn(header, [["type", "category type", "item type"]]);
       const folderIndex = detectColumn(header, [["folder", "category", "group", "section"]]);
+      const supplierIndex = detectColumn(header, [["supplier", "vendor", "manufacturer", "brand"]]);
+      const skuIndex = detectColumn(header, [["sku", "part number", "part no", "part code", "code", "item code", "product code"]]);
 
       if (nameIndex < 0) {
         showNotice("No description/name column found in the catalogue file.");
+        setCatalogImportPreview(null);
         return;
       }
 
+      const selectedSupplier = suppliers.find((item) => item.id === catalogImportDraft.supplierId);
+      let skippedBlank = 0;
       const imported = rows.slice(1).flatMap((row, index) => {
         const name = row[nameIndex]?.trim();
-        if (!name) return [];
+        if (!name) {
+          skippedBlank += 1;
+          return [];
+        }
         const typeValue = row[typeIndex]?.trim() as CatalogItem["type"] | undefined;
         const type: CatalogItem["type"] = ["Labour", "Material", "Plant", "Subcontractor"].includes(typeValue ?? "")
           ? typeValue!
@@ -11197,6 +13779,8 @@ export default function Dashboard() {
         const fallbackMarkup = defaultMarkupForCatalogType(type, normalizedFinanceSettings);
         const sellRate = parseNumberish(row[sellIndex] ?? "") ?? lineSellFromMarkup(costRate, fallbackMarkup);
         const category = row[folderIndex]?.trim() || catalogImportDraft.folder;
+        const rowSupplier = row[supplierIndex]?.trim() || "";
+        const sku = row[skuIndex]?.trim() || undefined;
         return [{
           id: `imported-catalog-${Date.now()}-${index}`,
           type,
@@ -11205,25 +13789,236 @@ export default function Dashboard() {
           costRate,
           sellRate,
           category,
+          supplierId: selectedSupplier?.id,
+          supplierName: selectedSupplier?.name || rowSupplier || undefined,
+          sku,
         } satisfies CatalogItem];
       });
 
       if (!imported.length) {
-        showNotice("No catalogue items imported from that file.");
+        showNotice("No catalogue items found in that file.");
+        setCatalogImportPreview(null);
         return;
       }
 
-      setCustomQuoteCatalog((current) => {
-        const existingKeys = new Set(current.map((item) => `${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
-        const fresh = imported.filter((item) => !existingKeys.has(`${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
-        return [...fresh, ...current];
+      // Offer any new folder names from the file.
+      const foldersFromFile = Array.from(new Set(imported.map((item) => item.category).filter(Boolean) as string[]));
+      setCatalogFolders((current) => {
+        const next = [...current];
+        foldersFromFile.forEach((folder) => {
+          if (!next.some((item) => item.toLowerCase() === folder.toLowerCase())) next.push(folder);
+        });
+        return next;
       });
-      markSetupEdited();
-      showNotice(`${imported.length} catalogue item(s) imported from ${file.name}.`);
+
+      setCatalogImportPreview({
+        fileName: file.name,
+        items: imported,
+        skippedBlank,
+        headers: header,
+      });
+      setCatalogImportResult(null);
+      showNotice(`${imported.length} row(s) ready to import from ${file.name}. Review below, then press Import.`);
     } catch {
-      showNotice("Unable to import that catalogue file.");
+      showNotice("Unable to read that catalogue file. Use CSV / TSV / TXT (Excel .xlsx is not supported yet).");
+      setCatalogImportPreview(null);
     } finally {
       event.currentTarget.value = "";
+    }
+  }
+
+  async function commitCatalogImport() {
+    if (!catalogImportPreview?.items.length) {
+      showNotice("Upload a price list first, then press Import.");
+      return;
+    }
+    const selectedSupplier = suppliers.find((item) => item.id === catalogImportDraft.supplierId);
+    // Stamp the folder/supplier chosen in the form at Import time (user may change them after upload).
+    const incoming = catalogImportPreview.items.map((item) => ({
+      ...item,
+      category: catalogImportDraft.folder || item.category,
+      type: catalogImportDraft.type || item.type,
+      supplierId: selectedSupplier?.id ?? item.supplierId,
+      supplierName: selectedSupplier?.name ?? item.supplierName,
+    }));
+    const existingKeys = new Set(customQuoteCatalog.map((item) => `${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
+    const fresh = incoming.filter((item) => !existingKeys.has(`${item.type}:${item.category ?? ""}:${item.name}`.toLowerCase()));
+    const skipped = incoming.length - fresh.length;
+    setCustomQuoteCatalog((current) => [...fresh, ...current]);
+    if (!catalogFolders.some((folder) => folder.toLowerCase() === catalogImportDraft.folder.toLowerCase())) {
+      setCatalogFolders((current) => [...current, catalogImportDraft.folder]);
+    }
+    markSetupEdited();
+
+    const stockBindCandidates = fresh.filter(
+      (item) => item.type !== "Labour" && Boolean((item.sku || "").trim()) && Boolean((item.supplierName || "").trim()),
+    );
+    let stockPreferredSynced = 0;
+    if (stockBindCandidates.length) {
+      try {
+        for (const item of stockBindCandidates) {
+          const sku = (item.sku || "").trim();
+          const response = await fetch("/api/stock", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "upsert-item",
+              item: {
+                id: item.stockItemId,
+                sku,
+                name: item.name,
+                unit: item.unit,
+                unitCost: item.costRate,
+                preferredSupplier: item.supplierName,
+                catalogItemId: item.id,
+              },
+            }),
+          });
+          if (!response.ok) continue;
+          const body = await response.json().catch(() => null) as {
+            items?: Array<{ id?: string; sku?: string; catalogItemId?: string }>;
+          } | null;
+          const stockItem = (body?.items || []).find(
+            (row) => row.catalogItemId === item.id || row.sku?.toLowerCase() === sku.toLowerCase(),
+          );
+          if (stockItem?.id) {
+            stockPreferredSynced += 1;
+            setCustomQuoteCatalog((current) =>
+              current.map((row) => (row.id === item.id ? { ...row, stockItemId: stockItem.id } : row)),
+            );
+          }
+        }
+      } catch {
+        // catalogue import still succeeds even if stock sync fails
+      }
+    }
+
+    setCatalogImportResult({
+      imported: fresh.length,
+      skipped,
+      errors: [
+        ...(skipped ? [`${skipped} duplicate item(s) were skipped (same name, type and folder).`] : []),
+        ...(stockPreferredSynced
+          ? [`${stockPreferredSynced} stock item(s) updated with preferred supplier from the catalogue.`]
+          : []),
+      ],
+    });
+    setCatalogImportPreview(null);
+    if (fresh[0]?.category) setActiveCatalogueFolder(fresh[0].category);
+    showNotice(
+      `${fresh.length} catalogue item(s) imported${skipped ? ` · ${skipped} duplicate(s) skipped` : ""}${
+        stockPreferredSynced ? ` · ${stockPreferredSynced} preferred supplier(s) synced to stock` : ""
+      }.`,
+    );
+  }
+
+  function clearCatalogImportPreview() {
+    setCatalogImportPreview(null);
+  }
+
+  function openCatalogueSetup(notice?: string) {
+    setHomeView("settings");
+    setActiveSetupCategory("catalogue");
+    setActiveSetupSubItem(null);
+    closeContextSidebarOnMobile();
+    scrollWorkspaceToTop();
+    if (notice) showNotice(notice);
+  }
+
+  function addCatalogFolder(name?: string) {
+    const trimmed = (name ?? newCatalogFolderName).trim();
+    if (!trimmed) {
+      showNotice("Enter a folder name first (e.g. Radiators).");
+      return;
+    }
+    if (catalogFolders.some((folder) => folder.toLowerCase() === trimmed.toLowerCase())) {
+      setCatalogImportDraft((current) => ({ ...current, folder: catalogFolders.find((folder) => folder.toLowerCase() === trimmed.toLowerCase()) || trimmed }));
+      setActiveCatalogueFolder(catalogFolders.find((folder) => folder.toLowerCase() === trimmed.toLowerCase()) || trimmed);
+      setNewCatalogFolderName("");
+      showNotice(`${trimmed} already exists — selected it.`);
+      return;
+    }
+    markSetupEdited();
+    setCatalogFolders((current) => [...current, trimmed]);
+    setCatalogImportDraft((current) => ({ ...current, folder: trimmed }));
+    setActiveCatalogueFolder(trimmed);
+    setNewCatalogFolderName("");
+    showNotice(`Folder “${trimmed}” added.`);
+  }
+
+  function addCatalogItemFromDraft() {
+    const name = newCatalogItemDraft.name.trim();
+    if (!name) {
+      showNotice("Enter an item name before adding it to the catalogue.");
+      return;
+    }
+    const costRate = parseNumberish(newCatalogItemDraft.costRate) ?? 0;
+    const sellRate =
+      parseNumberish(newCatalogItemDraft.sellRate) ??
+      lineSellFromMarkup(costRate, defaultMarkupForCatalogType(catalogImportDraft.type, normalizedFinanceSettings));
+    const selectedSupplier = suppliers.find((item) => item.id === catalogImportDraft.supplierId);
+    const item: CatalogItem = {
+      id: `catalog-manual-${Date.now()}`,
+      type: catalogImportDraft.type,
+      name,
+      unit: newCatalogItemDraft.unit.trim() || (catalogImportDraft.type === "Labour" ? "hour" : "each"),
+      costRate,
+      sellRate,
+      category: catalogImportDraft.folder,
+      supplierId: selectedSupplier?.id,
+      supplierName: selectedSupplier?.name,
+      sku: newCatalogItemDraft.sku.trim() || undefined,
+    };
+    markSetupEdited();
+    setCustomQuoteCatalog((current) => [item, ...current]);
+    setNewCatalogItemDraft({ name: "", unit: "each", costRate: "", sellRate: "", sku: "" });
+    setActiveCatalogueFolder(item.category || catalogImportDraft.folder);
+    showNotice(`${item.name} added to ${item.category}${item.sku ? ` · SKU ${item.sku}` : ""}.`);
+  }
+
+  async function bindCatalogItemToStock(item: CatalogItem) {
+    if (item.type === "Labour") {
+      showNotice("Labour catalogue items are not stocked.");
+      return;
+    }
+    const sku = (item.sku || item.name).trim();
+    if (!sku) {
+      showNotice("Add a SKU on the catalogue item before binding stock.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsert-item",
+          item: {
+            id: item.stockItemId,
+            sku,
+            name: item.name,
+            unit: item.unit,
+            unitCost: item.costRate,
+            preferredSupplier: item.supplierName,
+            catalogItemId: item.id,
+          },
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to bind stock item");
+      const stockItem = (body.items || []).find((row: { sku?: string; catalogItemId?: string; id?: string }) =>
+        row.catalogItemId === item.id || row.sku?.toLowerCase() === sku.toLowerCase(),
+      );
+      markSetupEdited();
+      setCustomQuoteCatalog((current) =>
+        current.map((row) =>
+          row.id === item.id
+            ? { ...row, sku, stockItemId: stockItem?.id || row.stockItemId }
+            : row,
+        ),
+      );
+      showNotice(`${item.name} bound to stock as SKU ${sku}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to bind stock item.");
     }
   }
 
@@ -11403,6 +14198,47 @@ export default function Dashboard() {
         setClientSites(nextSites);
       }
 
+      if (businessImportType === "sites") {
+        let nextClients = clients;
+        let nextSites = clientSites;
+        for (let index = 0; index < validRows.length; index += 1) {
+          const row = validRows[index]!;
+          const customerName = importValue(row, ["customer", "client", "customer_name", "client_name", "name"]);
+          const siteName = importValue(row, ["site_name", "site"]);
+          const siteAddress = importValue(row, ["site_address", "address"]);
+          const response = await fetch("/api/clients", {
+            method: "POST",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: customerName,
+              address: siteAddress,
+              primaryContact: importValue(row, ["primary_contact", "contact", "contact_name"]),
+              siteName,
+              siteAddress,
+              accessNotes: importValue(row, ["access_notes", "site_notes"]),
+              serviceLine: importValue(row, ["service_line", "work_type", "category"]),
+              nextVisit: importValue(row, ["next_visit", "next_service"]),
+              siteVatTreatment: importValue(row, ["site_vat_treatment", "site_vat_type"]),
+              siteVatRateOverride: importValue(row, ["site_vat_rate", "site_vat_rate_override"]),
+              source: "site import",
+              actor: activeEmployee?.name ?? "NeXa import",
+            }),
+          });
+          const result = await response.json().catch(() => ({})) as { error?: string; clients?: ClientRecord[]; clientSites?: ClientSite[] };
+          if (!response.ok) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${result.error || "site import failed"}.`);
+            continue;
+          }
+          if (result.clients) nextClients = result.clients;
+          if (result.clientSites) nextSites = result.clientSites;
+          imported += response.status === 200 ? 0 : 1;
+          if (response.status === 200) skipped += 1;
+        }
+        setClients(nextClients);
+        setClientSites(nextSites);
+      }
+
       if (businessImportType === "suppliers") {
         const existingKeys = new Set(
           suppliers.flatMap((supplier) => [supplier.name.trim().toLowerCase(), supplier.email.trim().toLowerCase()]).filter(Boolean),
@@ -11441,6 +14277,78 @@ export default function Dashboard() {
           if (!response.ok) throw new Error("Suppliers could not be saved to the shared workspace.");
           setSuppliers(nextSuppliers);
           pendingSetupSaveRef.current = false;
+        }
+      }
+
+      if (businessImportType === "contacts") {
+        const existingKeys = new Set(
+          contacts.flatMap((contact) => [
+            `${contact.name.trim().toLowerCase()}:${(contact.company ?? "").trim().toLowerCase()}`,
+            (contact.email ?? "").trim().toLowerCase(),
+          ]).filter(Boolean),
+        );
+        const importedContacts: ContactDirectoryRecord[] = [];
+        validRows.forEach((row, index) => {
+          const name = importValue(row, ["name", "contact", "contact_name"]);
+          const company = importValue(row, ["company", "customer", "client"]);
+          const email = importValue(row, ["email", "email_address"]);
+          const duplicateKey = `${name.toLowerCase()}:${company.toLowerCase()}`;
+          if (existingKeys.has(duplicateKey) || (email && existingKeys.has(email.toLowerCase()))) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists.`);
+            return;
+          }
+          importedContacts.push({
+            id: `contact-directory-${crypto.randomUUID()}`,
+            name,
+            company: company || undefined,
+            role: importValue(row, ["role", "job_title", "title"]) || undefined,
+            email: email || undefined,
+            phone: importValue(row, ["phone", "telephone", "mobile"]) || undefined,
+            notes: importValue(row, ["notes", "note"]) || undefined,
+          });
+          existingKeys.add(duplicateKey);
+          if (email) existingKeys.add(email.toLowerCase());
+          imported += 1;
+        });
+        if (importedContacts.length) {
+          markSetupEdited();
+          setContacts((current) => [...current, ...importedContacts].sort((first, second) => first.name.localeCompare(second.name)));
+        }
+      }
+
+      if (businessImportType === "contractors") {
+        const existingKeys = new Set(
+          contractors.flatMap((contractor) => [
+            contractor.name.trim().toLowerCase(),
+            (contractor.email ?? "").trim().toLowerCase(),
+          ]).filter(Boolean),
+        );
+        const importedContractors: ContractorDirectoryRecord[] = [];
+        validRows.forEach((row, index) => {
+          const name = importValue(row, ["contractor", "contractor_name", "name"]);
+          const email = importValue(row, ["email", "email_address"]);
+          if (existingKeys.has(name.toLowerCase()) || (email && existingKeys.has(email.toLowerCase()))) {
+            skipped += 1;
+            errors.push(`Row ${index + 2}: ${name} already exists.`);
+            return;
+          }
+          importedContractors.push({
+            id: `contractor-${crypto.randomUUID()}`,
+            name,
+            trade: importValue(row, ["trade", "category", "work_type"]) || undefined,
+            primaryContact: importValue(row, ["primary_contact", "contact", "contact_name"]) || undefined,
+            email: email || undefined,
+            phone: importValue(row, ["phone", "telephone", "mobile"]) || undefined,
+            notes: importValue(row, ["notes", "note"]) || undefined,
+          });
+          existingKeys.add(name.toLowerCase());
+          if (email) existingKeys.add(email.toLowerCase());
+          imported += 1;
+        });
+        if (importedContractors.length) {
+          markSetupEdited();
+          setContractors((current) => [...current, ...importedContractors].sort((first, second) => first.name.localeCompare(second.name)));
         }
       }
 
@@ -11675,9 +14583,53 @@ export default function Dashboard() {
     return `${recordId}:${stepId}`;
   }
 
+  function isFlowStepEvidenceSatisfied(step: EngineerFlowStep, key: string) {
+    if (step.evidence === "Checkbox") {
+      return Boolean(flowStepCompletion[key]);
+    }
+    const evidence = flowStepEvidence[key];
+    if (!evidence) return false;
+    if (step.evidence === "Text" || step.evidence === "Signature") {
+      return Boolean(evidence.text?.trim());
+    }
+    if (step.evidence === "Number") {
+      return evidence.numberValue != null && String(evidence.numberValue).trim() !== "";
+    }
+    if (step.evidence === "Photo") {
+      return Boolean(evidence.photoName?.trim());
+    }
+    return Boolean(flowStepCompletion[key]);
+  }
+
   function toggleFlowStep(recordId: string, stepId: string) {
     const key = flowCompletionKey(recordId, stepId);
     setFlowStepCompletion((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function updateFlowStepEvidence(recordId: string, step: EngineerFlowStep, patch: EngineerFlowStepEvidenceValue) {
+    const key = flowCompletionKey(recordId, step.id);
+    setFlowStepEvidence((current) => {
+      const nextValue = { ...(current[key] || {}), ...patch, capturedAt: new Date().toISOString() };
+      return { ...current, [key]: nextValue };
+    });
+    const merged = { ...(flowStepEvidence[key] || {}), ...patch };
+    const satisfied =
+      step.evidence === "Photo"
+        ? Boolean((patch.photoName ?? merged.photoName)?.trim())
+        : step.evidence === "Number"
+          ? String(patch.numberValue ?? merged.numberValue ?? "").trim() !== ""
+          : Boolean((patch.text ?? merged.text)?.trim());
+    setFlowStepCompletion((current) => ({ ...current, [key]: satisfied }));
+  }
+
+  function clearFlowStepEvidence(recordId: string, stepId: string) {
+    const key = flowCompletionKey(recordId, stepId);
+    setFlowStepEvidence((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setFlowStepCompletion((current) => ({ ...current, [key]: false }));
   }
 
   function logAuditEvent(event: Omit<AuditEvent, "id" | "createdAt">) {
@@ -11870,15 +14822,37 @@ export default function Dashboard() {
   async function updateLeadStatusFromDirectory(lead: Lead, status: LeadStatus) {
     closeDirectoryActionMenu();
     if (lead.status === status) return;
+    let lostReason = lead.lostReason;
+    if (status === "Lost") {
+      try {
+        const response = await fetch("/api/setup-config", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as { lostReasons?: Array<{ label: string }> } | null;
+        const reasons = (body?.lostReasons || []).map((row) => row.label).filter(Boolean);
+        const promptText = reasons.length
+          ? `Lost reason for ${lead.ref}:\n${reasons.map((reason, index) => `${index + 1}. ${reason}`).join("\n")}\n\nType the reason (or number):`
+          : `Lost reason for ${lead.ref}:`;
+        const typed = window.prompt(promptText, reasons[0] || "Price");
+        if (typed === null) return;
+        const asNumber = Number(typed.trim());
+        if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= reasons.length) {
+          lostReason = reasons[asNumber - 1];
+        } else {
+          lostReason = typed.trim() || reasons[0] || "Unspecified";
+        }
+      } catch {
+        lostReason = window.prompt(`Lost reason for ${lead.ref}:`, "Price") || "Unspecified";
+      }
+    }
     const previous = lead;
     const nextLead = {
       ...lead,
       status,
-      next: status === "Lost" ? "Archived as lost." : status === "Quoted" ? "Marked as quoted." : lead.next,
+      lostReason: status === "Lost" ? lostReason : lead.lostReason,
+      next: status === "Lost" ? `Archived as lost${lostReason ? ` · ${lostReason}` : ""}.` : status === "Quoted" ? "Marked as quoted." : lead.next,
     };
     setLeads((current) => current.map((item) => (item.id === lead.id ? nextLead : item)));
 
-    const result = await syncLead(lead.id, { status, next: nextLead.next });
+    const result = await syncLead(lead.id, { status, next: nextLead.next, lostReason: nextLead.lostReason });
     if (!result.ok) {
       setLeads((current) => current.map((item) => (item.id === lead.id ? previous : item)));
       showNotice(result.error || `Unable to update ${lead.ref}.`);
@@ -11891,11 +14865,11 @@ export default function Dashboard() {
       action: status.toLowerCase(),
       recordType: "lead",
       recordId: lead.id,
-      summary: `${lead.ref} status changed to ${status}.`,
+      summary: `${lead.ref} status changed to ${status}${status === "Lost" && lostReason ? ` (${lostReason})` : ""}.`,
       source: "directory actions",
       importance: status === "Lost" ? "high" : "normal",
     });
-    showNotice(`${lead.ref} moved to ${status}.`);
+    showNotice(`${lead.ref} moved to ${status}${status === "Lost" && lostReason ? ` · ${lostReason}` : ""}.`);
   }
 
   async function deleteLeadFromDirectory(lead: Lead) {
@@ -11914,6 +14888,7 @@ export default function Dashboard() {
         setSelectedLeadId(null);
         setHomeView("leads");
       }
+      forgetOpenWorkspaceTab("lead", lead.id);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "deleted",
@@ -11986,6 +14961,7 @@ export default function Dashboard() {
         setSelectedQuoteId(null);
         setHomeView("quotes");
       }
+      forgetOpenWorkspaceTab("quote", quote.id);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "deleted",
@@ -12061,6 +15037,7 @@ export default function Dashboard() {
         setSelectedJobId(null);
         setHomeView("jobs");
       }
+      forgetOpenWorkspaceTab("job", job.id);
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "deleted",
@@ -12077,6 +15054,205 @@ export default function Dashboard() {
       setJobSections(previousSections);
       showNotice(`Unable to delete ${job.ref}.`);
     }
+  }
+
+  async function updateEmployeeArchive(employee: EmployeeCard, archived: boolean) {
+    closeDirectoryActionMenu();
+    markEmployeeEdited();
+    setEmployees((current) => current.map((item) => (item.id === employee.id ? { ...item, archived } : item)));
+
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (usersResponse.ok) {
+          const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+          const existingAuthUser = authUsers.find((user) => user.employeeId === employee.id);
+          if (existingAuthUser) {
+            await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ enabled: !archived }),
+            });
+          }
+        }
+      } catch {
+        // Keep the employee archive working even if auth account sync fails.
+      }
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: archived ? "archived" : "restored",
+      recordType: "employee",
+      recordId: employee.id,
+      summary: `${employee.name} ${archived ? "archived" : "restored"}.`,
+      source: "directory actions",
+      importance: "normal",
+    });
+    showNotice(`${employee.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  async function deleteEmployeeFromDirectory(employee: EmployeeCard) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(employee.name)) return;
+    const previousEmployees = employees;
+    markEmployeeEdited();
+    setEmployees((current) => current.filter((item) => item.id !== employee.id));
+    if (editingEmployeeId === employee.id) {
+      clearEmployeeEditingState();
+      setHomeView("employees");
+    }
+
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (usersResponse.ok) {
+          const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+          const existingAuthUser = authUsers.find((user) => user.employeeId === employee.id);
+          if (existingAuthUser) {
+            const deleteResponse = await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "DELETE",
+            });
+            if (!deleteResponse.ok) throw new Error("Unable to remove secure login.");
+          }
+        }
+      } catch (error) {
+        setEmployees(previousEmployees);
+        showNotice(error instanceof Error ? error.message : `Unable to delete ${employee.name}.`);
+        return;
+      }
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "deleted",
+      recordType: "employee",
+      recordId: employee.id,
+      summary: `${employee.name} deleted from employee records.`,
+      source: "directory actions",
+      importance: "high",
+    });
+    showNotice(`${employee.name} deleted.`);
+  }
+
+  async function updateClientArchive(client: ClientRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    const previousClients = clients;
+    setClients((current) => current.map((item) => (item.id === client.id ? { ...item, archived } : item)));
+    try {
+      const response = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "NeXa user" }),
+      });
+      if (!response.ok) throw new Error("Unable to update the client record.");
+      showNotice(`${client.name} ${archived ? "archived" : "restored"}.`);
+    } catch (error) {
+      setClients(previousClients);
+      showNotice(error instanceof Error ? error.message : `Unable to update ${client.name}.`);
+    }
+  }
+
+  async function deleteClientFromDirectory(client: ClientRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(client.name)) return;
+    const previousClients = clients;
+    const previousSites = clientSites;
+    setClients((current) => current.filter((item) => item.id !== client.id));
+    setClientSites((current) => current.filter((site) => site.clientId !== client.id));
+    try {
+      const response = await fetch(`/api/clients/${client.id}`, {
+        method: "DELETE",
+        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      });
+      if (!response.ok) throw new Error("Unable to delete the client record.");
+      showNotice(`${client.name} deleted.`);
+    } catch (error) {
+      setClients(previousClients);
+      setClientSites(previousSites);
+      showNotice(error instanceof Error ? error.message : `Unable to delete ${client.name}.`);
+    }
+  }
+
+  async function updateSiteArchive(site: ClientSite, archived: boolean) {
+    closeDirectoryActionMenu();
+    const previousSites = clientSites;
+    setClientSites((current) => current.map((item) => (item.id === site.id ? { ...item, archived } : item)));
+    try {
+      const response = await fetch(`/api/client-sites/${site.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+        body: JSON.stringify({ archived, actor: activeEmployee?.name ?? "NeXa user" }),
+      });
+      if (!response.ok) throw new Error("Unable to update the site record.");
+      showNotice(`${site.name} ${archived ? "archived" : "restored"}.`);
+    } catch (error) {
+      setClientSites(previousSites);
+      showNotice(error instanceof Error ? error.message : `Unable to update ${site.name}.`);
+    }
+  }
+
+  async function deleteSiteFromDirectory(site: ClientSite) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(site.name)) return;
+    const previousSites = clientSites;
+    setClientSites((current) => current.filter((item) => item.id !== site.id));
+    try {
+      const response = await fetch(`/api/client-sites/${site.id}`, {
+        method: "DELETE",
+        headers: { ...requestHeaders, "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      });
+      if (!response.ok) throw new Error("Unable to delete the site record.");
+      showNotice(`${site.name} deleted.`);
+    } catch (error) {
+      setClientSites(previousSites);
+      showNotice(error instanceof Error ? error.message : `Unable to delete ${site.name}.`);
+    }
+  }
+
+  function updateSupplierArchive(record: SupplierDirectoryRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    markSetupEdited();
+    setSuppliers((current) => current.map((item) => (item.id === record.id ? { ...item, archived } : item)));
+    showNotice(`${record.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  function deleteSupplierFromDirectory(record: SupplierDirectoryRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(record.name)) return;
+    markSetupEdited();
+    setSuppliers((current) => current.filter((item) => item.id !== record.id));
+    showNotice(`${record.name} deleted.`);
+  }
+
+  function updateContactArchive(record: ContactDirectoryRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    markSetupEdited();
+    setContacts((current) => current.map((item) => (item.id === record.id ? { ...item, archived } : item)));
+    showNotice(`${record.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  function deleteContactFromDirectory(record: ContactDirectoryRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(record.name)) return;
+    markSetupEdited();
+    setContacts((current) => current.filter((item) => item.id !== record.id));
+    showNotice(`${record.name} deleted.`);
+  }
+
+  function updateContractorArchive(record: ContractorDirectoryRecord, archived: boolean) {
+    closeDirectoryActionMenu();
+    markSetupEdited();
+    setContractors((current) => current.map((item) => (item.id === record.id ? { ...item, archived } : item)));
+    showNotice(`${record.name} ${archived ? "archived" : "restored"}.`);
+  }
+
+  function deleteContractorFromDirectory(record: ContractorDirectoryRecord) {
+    closeDirectoryActionMenu();
+    if (!confirmPilotDelete(record.name)) return;
+    markSetupEdited();
+    setContractors((current) => current.filter((item) => item.id !== record.id));
+    showNotice(`${record.name} deleted.`);
   }
 
   function renderDirectoryActionMenu(
@@ -12214,6 +15390,7 @@ export default function Dashboard() {
   }
 
   function clearEmployeeEditingState() {
+    loadedEmployeeDraftIdRef.current = null;
     setEditingEmployeeId(null);
     setEmployeePermissionDraft({});
     setEmployeeProfileDraft(createBlankEmployeeProfileDraft());
@@ -12255,10 +15432,10 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
-  async function saveCurrentRecord() {
+  async function saveCurrentRecord(): Promise<boolean> {
     if (!activeRecordFingerprint) {
       showNotice("Open a lead, quote, job or invoice before saving.");
-      return;
+      return false;
     }
 
     setRecordSaveStatus("saving");
@@ -12304,15 +15481,111 @@ export default function Dashboard() {
       setRecordSaveStatus("saved");
       setSectionError(null);
       showNotice("Saved to NeXa.");
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to save this record right now.";
       setRecordSaveStatus("error");
       setSectionError(message);
       showNotice(message);
+      return false;
     }
   }
 
-  function renderRecordSaveControls() {
+  async function saveCurrentCostCentreAndFinish(returnToRecord: () => void) {
+    const saved = await saveCurrentRecord();
+    if (saved) returnToRecord();
+  }
+
+  function finishActiveRecord() {
+    if (homeView === "lead-record" && selectedLeadId) {
+      forgetOpenWorkspaceTab("lead", selectedLeadId);
+      setSelectedLeadId(null);
+      setHomeView("leads");
+      showNotice("Lead finished and closed.");
+    } else if ((homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuoteId) {
+      const ref = selectedQuote?.ref || "Quote";
+      forgetOpenWorkspaceTab("quote", selectedQuoteId);
+      setSelectedQuoteId(null);
+      setSelectedQuoteCostCentreId(null);
+      setHomeView("quotes");
+      showNotice(`${ref} finished and closed.`);
+    } else if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJobId) {
+      const ref = selectedJob?.ref || "Job";
+      forgetOpenWorkspaceTab("job", selectedJobId);
+      setSelectedJobId(null);
+      setSelectedCostCentreId(null);
+      setHomeView("jobs");
+      showNotice(`${ref} finished and closed.`);
+    } else if (homeView === "invoice-record" && selectedInvoiceId) {
+      const ref = selectedInvoice?.ref || "Invoice";
+      forgetOpenWorkspaceTab("invoice", selectedInvoiceId);
+      setSelectedInvoiceId(null);
+      setHomeView("invoices");
+      showNotice(`${ref} finished and closed.`);
+    } else {
+      showNotice("Nothing to finish.");
+      return;
+    }
+    scrollWorkspaceToTop();
+  }
+
+  async function saveAndFinishRecord() {
+    const saved = await saveCurrentRecord();
+    if (!saved) return;
+    finishActiveRecord();
+  }
+
+  async function recheckXeroConfiguration() {
+    try {
+      const response = await fetch("/api/integrations/xero/status", { headers: requestHeaders });
+      if (!response.ok) throw new Error("Xero configuration check failed.");
+      const status = (await response.json()) as XeroConnectionStatus;
+      setXeroConnectionStatus(status);
+      const modeLabel =
+        status.mode === "oauth"
+          ? "OAuth connected"
+          : status.mode === "static-token"
+            ? "static token"
+            : "CSV pack fallback";
+      showNotice(
+        status.configured
+          ? `Xero ready (${modeLabel}). Invoice export uses live API when possible, otherwise a CSV pack.`
+          : status.authUrl
+            ? `Xero OAuth app is ready to connect. Missing for live push: ${status.missing.join(", ") || "tenant / token"}.`
+            : `Xero CSV export still works. To connect live API set ${status.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI"}.`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to check Xero configuration.");
+    }
+  }
+
+  async function connectXeroOAuth() {
+    setIsConnectingXero(true);
+    try {
+      const response = await fetch("/api/integrations/xero/connect", { headers: requestHeaders });
+      const body = (await response.json().catch(() => null)) as
+        | { authUrl?: string; error?: string; status?: XeroConnectionStatus }
+        | null;
+      if (body?.status) setXeroConnectionStatus(body.status);
+      if (!response.ok || !body?.authUrl) {
+        throw new Error(body?.error || "Unable to start Xero OAuth connect.");
+      }
+      window.location.assign(body.authUrl);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to start Xero connect.");
+      setIsConnectingXero(false);
+    }
+  }
+
+  function xeroModeLabel(status: XeroConnectionStatus | null) {
+    if (!status) return "Xero · checking…";
+    if (status.mode === "oauth") return status.configured ? "Xero · OAuth live" : "Xero · OAuth needs tenant";
+    if (status.mode === "static-token") return "Xero · static token";
+    if (status.configured) return "Xero · credentials detected";
+    return "Xero · CSV pack ready";
+  }
+
+  function renderRecordSaveControls(mode: "record" | "nested" = "record") {
     const statusLabel = recordSaveStatus === "saving"
       ? "Saving..."
       : recordSaveStatus === "unsaved"
@@ -12320,23 +15593,54 @@ export default function Dashboard() {
         : recordSaveStatus === "error"
           ? "Save failed"
           : "All changes saved";
+    const cancelRecord = () => {
+      if (mode === "nested") {
+        if (homeView === "quote-cost-centre-record") returnToQuoteRecord();
+        else returnToJobRecord();
+        return;
+      }
+      if (homeView === "lead-record") returnToLeadsDirectory();
+      else if (homeView === "quote-record") returnToQuotesDirectory();
+      else if (homeView === "job-record") returnToJobsDirectory();
+      else if (homeView === "invoice-record") returnFromInvoiceRecord();
+    };
+    const finishNested = () => {
+      void saveCurrentCostCentreAndFinish(
+        homeView === "quote-cost-centre-record" ? returnToQuoteRecord : returnToJobRecord,
+      );
+    };
     return (
-      <>
+      <div className="record-save-controls">
+        <span className="record-autosave-pill" title="NeXa keeps saving while you work">
+          Auto-save on
+        </span>
         <span className={`record-save-status ${recordSaveStatus}`} aria-live="polite">
           {statusLabel}
         </span>
         <button
-          className="primary-button record-save-button"
+          className="secondary-button record-cancel-button"
           type="button"
-          aria-label={recordSaveStatus === "saving" ? "Saving changes" : "Save changes"}
-          title={recordSaveStatus === "saving" ? "Saving changes" : "Save changes"}
+          aria-label="Cancel"
+          title="Leave without finishing this record"
           disabled={recordSaveStatus === "saving"}
-          onClick={saveCurrentRecord}
+          onClick={cancelRecord}
         >
-          <Check size={16} />
-          {recordSaveStatus === "saving" ? "Saving" : "Save changes"}
+          Cancel
         </button>
-      </>
+        <button
+          className="primary-button record-finish-button"
+          type="button"
+          aria-label="Save and finish"
+          title="Save and close this record"
+          disabled={recordSaveStatus === "saving"}
+          onClick={() => {
+            if (mode === "nested") finishNested();
+            else void saveAndFinishRecord();
+          }}
+        >
+          {recordSaveStatus === "saving" ? "Saving..." : "Save and finish"}
+        </button>
+      </div>
     );
   }
 
@@ -12427,18 +15731,34 @@ export default function Dashboard() {
       scrollWorkspaceToTop();
       return;
     }
-    if (item === "Suppliers") {
-      setHomeView("settings");
-      setActiveSetupCategory("communications");
-      setActiveSetupSubItem("Supplier emails");
+    if (item === "Sites") {
+      setActiveDirectoryManager("sites");
+      setHomeView("directory-manager");
       scrollWorkspaceToTop();
-      showNotice("Supplier request and communication settings opened.");
+      return;
+    }
+    if (item === "Suppliers") {
+      setActiveDirectoryManager("suppliers");
+      setHomeView("directory-manager");
+      scrollWorkspaceToTop();
+      return;
+    }
+    if (item === "Contacts") {
+      setActiveDirectoryManager("contacts");
+      setHomeView("directory-manager");
+      scrollWorkspaceToTop();
+      return;
+    }
+    if (item === "Contractors") {
+      setActiveDirectoryManager("contractors");
+      setHomeView("directory-manager");
+      scrollWorkspaceToTop();
       return;
     }
     setHomeView("settings");
     setActiveSetupSubItem(null);
     scrollWorkspaceToTop();
-    showNotice(`${item} settings are handled through Setup in this prototype.`);
+    showNotice(`${item} settings are managed through Setup.`);
   }
 
   function scrollToWorkspaceSection(sectionId: string) {
@@ -12552,6 +15872,45 @@ export default function Dashboard() {
     setHomeView("jobs");
     scrollWorkspaceToTop();
     showNotice("Open a ready-to-invoice job, then choose Create invoice.");
+  }
+
+  function navigateToModule(label: string) {
+    if (label === "Dashboard") {
+      returnToDashboard();
+    } else if (label === "Leads") {
+      returnToLeadsDirectory();
+    } else if (label === "Quotes") {
+      returnToQuotesDirectory();
+    } else if (label === "Jobs") {
+      returnToJobsDirectory();
+    } else if (label === "POs") {
+      setHomeView("purchase-orders");
+    } else if (label === "Stock") {
+      setHomeView("stock");
+    } else if (label === "Schedules") {
+      setHomeView("schedule");
+    } else if (label === "Setup") {
+      setHomeView("settings");
+      setActiveSetupSubItem(null);
+    } else if (label === "Invoices") {
+      returnToInvoiceDirectory();
+    } else if (label === "Xero") {
+      setHomeView("xero");
+      setActiveXeroTab("sales");
+    } else if (label === "Recurring") {
+      setHomeView("recurring");
+    } else if (label === "Reports") {
+      setHomeView("reports");
+      setActiveReportTab("executive");
+    } else if (label === "Add-ons") {
+      setHomeView("addons");
+    } else {
+      setHomeView("settings");
+      setActiveSetupSubItem(null);
+      showNotice(`${label} configuration opens through Setup.`);
+    }
+    closeContextSidebarOnMobile();
+    scrollWorkspaceToTop();
   }
 
   function handleContextNavClick(label: string) {
@@ -12682,17 +16041,132 @@ export default function Dashboard() {
     });
   }
 
+  function openWorkspaceTabKey(tab: Pick<OpenWorkspaceTab, "kind" | "recordId">) {
+    return `${tab.kind}:${tab.recordId}`;
+  }
+
+  function rememberOpenWorkspaceTab(tab: OpenWorkspaceTab) {
+    setOpenWorkspaceTabs((current) => {
+      const key = openWorkspaceTabKey(tab);
+      const without = current.filter((item) => openWorkspaceTabKey(item) !== key);
+      return [...without, tab].slice(-OPEN_WORKSPACE_TAB_LIMIT);
+    });
+  }
+
+  function isOpenWorkspaceTabActive(tab: OpenWorkspaceTab) {
+    if (tab.kind === "lead") return homeView === "lead-record" && selectedLeadId === tab.recordId;
+    if (tab.kind === "quote") {
+      return ["quote-record", "quote-cost-centre-record"].includes(homeView) && selectedQuoteId === tab.recordId;
+    }
+    if (tab.kind === "job") {
+      return ["job-record", "cost-centre-record"].includes(homeView) && selectedJobId === tab.recordId;
+    }
+    if (tab.kind === "invoice") return homeView === "invoice-record" && selectedInvoiceId === tab.recordId;
+    if (tab.kind === "client") return homeView === "client-record" && activeClientId === tab.recordId;
+    return false;
+  }
+
+  function activateOpenWorkspaceTab(tab: OpenWorkspaceTab) {
+    if (tab.kind === "lead") {
+      openLeadRecord(tab.recordId);
+      return;
+    }
+    if (tab.kind === "quote") {
+      openQuoteDrawer(tab.recordId);
+      return;
+    }
+    if (tab.kind === "job") {
+      openJobDrawer(tab.recordId);
+      return;
+    }
+    if (tab.kind === "invoice") {
+      openInvoiceRecord(tab.recordId);
+      return;
+    }
+    openClientRecordView(tab.recordId);
+  }
+
+  function closeOpenWorkspaceTab(tab: OpenWorkspaceTab, event?: MouseEvent<HTMLButtonElement>) {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const wasActive = isOpenWorkspaceTabActive(tab);
+    const remaining = openWorkspaceTabs.filter((item) => openWorkspaceTabKey(item) !== openWorkspaceTabKey(tab));
+    setOpenWorkspaceTabs(remaining);
+
+    if (!wasActive) return;
+
+    const fallback = remaining[remaining.length - 1];
+    if (fallback) {
+      activateOpenWorkspaceTab(fallback);
+      return;
+    }
+
+    if (tab.kind === "lead") {
+      setSelectedLeadId(null);
+      setHomeView("leads");
+    } else if (tab.kind === "quote") {
+      setSelectedQuoteId(null);
+      setSelectedQuoteCostCentreId(null);
+      setHomeView("quotes");
+    } else if (tab.kind === "job") {
+      setSelectedJobId(null);
+      setSelectedCostCentreId(null);
+      setHomeView("jobs");
+    } else if (tab.kind === "invoice") {
+      setSelectedInvoiceId(null);
+      setHomeView("invoices");
+    } else {
+      setActiveClientId("");
+      setHomeView("clients");
+    }
+    scrollWorkspaceToTop();
+  }
+
+  function forgetOpenWorkspaceTab(kind: OpenWorkspaceTabKind, recordId: string) {
+    setOpenWorkspaceTabs((current) =>
+      current.filter((item) => !(item.kind === kind && item.recordId === recordId)),
+    );
+  }
+
   function openClientRecordView(clientId: string) {
+    const client = clients.find((item) => item.id === clientId);
+    rememberOpenWorkspaceTab({
+      kind: "client",
+      recordId: clientId,
+      ref: client?.accountReference || "Customer",
+      title: client?.name || "Customer",
+    });
     setActiveClientId(clientId);
     setActiveClientTab("overview");
     setHomeView("client-record");
     scrollWorkspaceToTop();
   }
 
+  function openClientSiteRecordView(clientId: string, siteName?: string) {
+    const client = clients.find((item) => item.id === clientId);
+    rememberOpenWorkspaceTab({
+      kind: "client",
+      recordId: clientId,
+      ref: client?.accountReference || "Customer",
+      title: client?.name || "Customer",
+    });
+    setActiveClientId(clientId);
+    setActiveClientTab("sites");
+    setHomeView("client-record");
+    scrollWorkspaceToTop();
+    if (siteName) {
+      showNotice(`Opened ${siteName} under the customer sites tab.`);
+    }
+  }
+
   function openLeadRecord(leadId: string) {
-    setSelectedQuoteId(null);
-    setSelectedJobId(null);
-    setSelectedInvoiceId(null);
+    const lead = leads.find((item) => item.id === leadId);
+    rememberOpenWorkspaceTab({
+      kind: "lead",
+      recordId: leadId,
+      ref: lead?.ref || "Lead",
+      title: lead?.customerName || lead?.description || "Lead",
+    });
     setSelectedLeadId(leadId);
     setActiveLeadTab("details");
     setHomeView("lead-record");
@@ -12708,10 +16182,14 @@ export default function Dashboard() {
   }
 
   function openQuoteDrawer(quoteId: string) {
-    setSelectedLeadId(null);
-    setSelectedJobId(null);
+    const quote = quotes.find((item) => item.id === quoteId);
+    rememberOpenWorkspaceTab({
+      kind: "quote",
+      recordId: quoteId,
+      ref: quote?.ref || "Quote",
+      title: quote?.customer || quote?.description || "Quote",
+    });
     setSelectedQuoteCostCentreId(null);
-    setSelectedInvoiceId(null);
     setSelectedQuoteId(quoteId);
     setActiveQuoteTab("setup");
     setHomeView("quote-record");
@@ -12719,10 +16197,14 @@ export default function Dashboard() {
   }
 
   function openJobDrawer(jobId: string) {
-    setSelectedLeadId(null);
-    setSelectedQuoteId(null);
+    const job = jobs.find((item) => item.id === jobId);
+    rememberOpenWorkspaceTab({
+      kind: "job",
+      recordId: jobId,
+      ref: job?.ref || "Job",
+      title: job?.customer || job?.description || "Job",
+    });
     setSelectedQuoteCostCentreId(null);
-    setSelectedInvoiceId(null);
     setSelectedJobId(jobId);
     setSelectedCostCentreId(null);
     setActiveJobTab("summary");
@@ -12731,6 +16213,13 @@ export default function Dashboard() {
   }
 
   function openInvoiceRecord(invoiceId: string) {
+    const invoice = invoices.find((item) => item.id === invoiceId);
+    rememberOpenWorkspaceTab({
+      kind: "invoice",
+      recordId: invoiceId,
+      ref: invoice?.ref || "Invoice",
+      title: invoice?.customer || "Invoice",
+    });
     setSelectedInvoiceId(invoiceId);
     setActiveInvoiceTab("summary");
     setHomeView("invoice-record");
@@ -12738,7 +16227,15 @@ export default function Dashboard() {
   }
 
   function buildVariationsForJob(job: Job) {
-    const capturedVariations = jobDeliveryEvents
+    const synthesisedDaywork = synthesiseDayworkDeliveryEventsFromEvidence({
+      jobId: job.id,
+      jobRef: job.ref,
+      flowStepEvidence,
+      jobCostCentres: jobEstimateCostCentres[job.id] ?? [],
+      existingEvents: jobDeliveryEvents,
+      dayworkSheets,
+    });
+    const capturedVariations = [...jobDeliveryEvents, ...synthesisedDaywork]
       .filter((event) => event.jobId === job.id && event.kind === "variation")
       .map((event, index) => buildEventVariationFromDeliveryEvent(event, index));
 
@@ -12829,20 +16326,31 @@ export default function Dashboard() {
       normalizedFinanceSettings,
     );
     const previousByCentre = new Map<string, number>();
+    let unallocatedPrevious = 0;
 
     invoices
       .filter((invoice) =>
         invoice.sourceType === "job" &&
         invoice.sourceId === job.id &&
         invoice.status !== "Cancelled" &&
-        invoice.claimType !== "valuation",
+        invoice.claimType !== "valuation" &&
+        invoice.claimType !== "retention-release" &&
+        invoice.claimType !== "credit-note",
       )
       .forEach((invoice) => {
-        invoice.valuationLines?.forEach((line) => {
-          if (!line.costCentreId) return;
-          const value = line.agreedThisPeriod || line.requestedThisPeriod;
-          previousByCentre.set(line.costCentreId, (previousByCentre.get(line.costCentreId) ?? 0) + value);
-        });
+        const lines = invoice.valuationLines || [];
+        if (lines.length) {
+          lines.forEach((line) => {
+            const value = line.agreedThisPeriod || line.requestedThisPeriod;
+            if (line.costCentreId) {
+              previousByCentre.set(line.costCentreId, (previousByCentre.get(line.costCentreId) ?? 0) + value);
+            } else {
+              unallocatedPrevious += value;
+            }
+          });
+        } else {
+          unallocatedPrevious += invoice.chargeTotal || 0;
+        }
       });
 
     const valuationLines: ValuationLine[] = centres.map((centre) => {
@@ -12865,9 +16373,15 @@ export default function Dashboard() {
         id: `valuation-${job.id}-${Date.now()}`,
         description: job.description || job.ref,
         contractValue: job.value,
-        previousApplications: 0,
+        previousApplications: unallocatedPrevious,
         requestedThisPeriod: 0,
         agreedThisPeriod: 0,
+      });
+    } else if (unallocatedPrevious > 0) {
+      const weightTotal = valuationLines.reduce((sum, line) => sum + Math.max(line.contractValue, 1), 0);
+      valuationLines.forEach((line) => {
+        const share = (Math.max(line.contractValue, 1) / weightTotal) * unallocatedPrevious;
+        line.previousApplications += share;
       });
     }
 
@@ -12900,6 +16414,124 @@ export default function Dashboard() {
     );
   }
 
+  function createDepositInvoiceForJob(job: Job, depositPercentInput: number, options?: { openRecord?: boolean; centres?: EstimateCostCentre[] }) {
+    const depositPercent = Math.max(1, Math.min(100, Math.round(Number(depositPercentInput) || 0)));
+    if (!Number.isFinite(depositPercent) || depositPercent <= 0) {
+      showNotice("Set a valid deposit percentage first.");
+      return null;
+    }
+
+    const client = clients.find((item) => item.id === job.clientId) ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+    const centres =
+      options?.centres ??
+      jobEstimateCostCentres[job.id] ??
+      makeDefaultEstimateCostCentres(job);
+    const sourceLineTotals = buildInvoiceLineTotalsFromEstimate(centres);
+    const sourceTotals = sourceLineTotals.reduce(
+      (acc, line) => ({
+        cost: acc.cost + line.costToUs,
+        charge: acc.charge + line.chargeToClient,
+        lineItems: [...acc.lineItems, line],
+      }),
+      { cost: 0, charge: 0, lineItems: [] as InvoiceLine[] },
+    );
+    const base = makeInvoiceFromJobTotals(job, client, site, sourceTotals, invoices, buildVariationsForJob(job), normalizedFinanceSettings);
+
+    let valuationLines: ValuationLine[] = centres.map((centre) => {
+      const totals = estimateCostCentreTotals(centre);
+      return {
+        id: `valuation-${centre.id}-${Date.now()}`,
+        costCentreId: centre.id,
+        category: centre.variation ? "variation" : "contractual",
+        description: centre.name,
+        comments: centre.variation ? centre.clientDescription : undefined,
+        contractValue: totals.totalSell,
+        previousApplications: 0,
+        requestedThisPeriod: 0,
+        agreedThisPeriod: 0,
+      };
+    });
+
+    if (valuationLines.length === 0) {
+      valuationLines = [
+        {
+          id: `valuation-${job.id}-${Date.now()}`,
+          description: job.description || job.ref,
+          contractValue: job.value || sourceTotals.charge,
+          previousApplications: 0,
+          requestedThisPeriod: 0,
+          agreedThisPeriod: 0,
+        },
+      ];
+    }
+
+    valuationLines = valuationLines.map((line) => {
+      const remaining = Math.max(0, line.contractValue - line.previousApplications);
+      const target = line.contractValue * (depositPercent / 100);
+      const requestedThisPeriod = Math.min(remaining, Math.max(0, target - line.previousApplications));
+      return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
+    });
+
+    const grossClaim = valuationLines.reduce((sum, line) => sum + line.requestedThisPeriod, 0);
+    if (grossClaim <= 0) {
+      showNotice(`Nothing left to claim for a ${depositPercent}% deposit on ${job.ref}.`);
+      return null;
+    }
+
+    const contractTotal = valuationLines.reduce((sum, line) => sum + line.contractValue, 0) || job.value || grossClaim;
+    const netClaim = valuationNetAmount(grossClaim, 0);
+    const costRatio = contractTotal > 0 ? Math.min(1, grossClaim / contractTotal) : 0;
+    const lines: InvoiceLine[] = valuationLines
+      .filter((line) => line.requestedThisPeriod > 0)
+      .map((line) => ({
+        id: `invoice-claim-${line.id}`,
+        description: line.description,
+        category: "Other",
+        costToUs: sourceTotals.cost * (line.contractValue / Math.max(1, contractTotal)) * costRatio,
+        chargeToClient: valuationNetAmount(line.requestedThisPeriod, 0),
+        note: `${depositPercent}% deposit claim`,
+      }));
+
+    const created: Invoice = {
+      ...base,
+      title: `${depositPercent}% deposit for ${job.ref}`,
+      lines,
+      costTotal: lines.reduce((sum, line) => sum + line.costToUs, 0),
+      chargeTotal: netClaim,
+      notes: `${depositPercent}% deposit created on quote acceptance for ${job.ref}. ${base.vatNote ?? ""}`.trim(),
+      claimType: "deposit",
+      claimPercent: depositPercent,
+      retentionPercent: 0,
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+      valuationLines,
+    };
+
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(
+      nextInvoices,
+      "Could not save deposit invoice to the shared workspace, so local fallback is being used.",
+    );
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "invoice created",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `${created.ref} created as ${depositPercent}% deposit from ${job.ref}.`,
+      source: "quote acceptance",
+      importance: "high",
+    });
+    if (options?.openRecord !== false) {
+      setActiveInvoiceFolderKey("unpaid");
+      openInvoiceRecord(created.id);
+    }
+    return created;
+  }
+
   function createInvoiceClaimFromJob() {
     if (!jobInvoiceDraft) return;
     const job = jobs.find((item) => item.id === jobInvoiceDraft.jobId);
@@ -12928,7 +16560,9 @@ export default function Dashboard() {
 
     if (jobInvoiceDraft.mode === "deposit") {
       valuationLines = valuationLines.map((line) => {
-        const requestedThisPeriod = line.contractValue * (depositPercent / 100);
+        const remaining = Math.max(0, line.contractValue - line.previousApplications);
+        const target = line.contractValue * (depositPercent / 100);
+        const requestedThisPeriod = Math.min(remaining, Math.max(0, target - line.previousApplications));
         return { ...line, requestedThisPeriod, agreedThisPeriod: requestedThisPeriod };
       });
     }
@@ -12941,16 +16575,26 @@ export default function Dashboard() {
     }
 
     if (jobInvoiceDraft.mode === "valuation") {
-      valuationLines = valuationLines.map((line) => ({
-        ...line,
-        requestedThisPeriod: Math.max(0, line.requestedThisPeriod),
-        agreedThisPeriod: Math.max(0, line.requestedThisPeriod),
-      }));
+      valuationLines = valuationLines.map((line) => {
+        const remaining = Math.max(0, line.contractValue - line.previousApplications);
+        const requestedThisPeriod = Math.min(remaining, Math.max(0, line.requestedThisPeriod));
+        return {
+          ...line,
+          requestedThisPeriod,
+          agreedThisPeriod: requestedThisPeriod,
+        };
+      });
     }
 
     const grossClaim = valuationLines.reduce((sum, line) => sum + line.requestedThisPeriod, 0);
     if (grossClaim <= 0) {
-      showNotice(jobInvoiceDraft.mode === "valuation" ? "Add at least one value to this valuation." : "The claim value must be greater than zero.");
+      showNotice(
+        jobInvoiceDraft.mode === "deposit"
+          ? "Nothing left to claim for this deposit — previous claims already cover that percentage."
+          : jobInvoiceDraft.mode === "valuation"
+            ? "Add at least one value to this valuation (within remaining contract value)."
+            : "Nothing left to invoice — this job is already billed to contract value.",
+      );
       return;
     }
 
@@ -13067,7 +16711,7 @@ export default function Dashboard() {
       lines: nextLines,
       costTotal: nextLines.reduce((sum, line) => line.costToUs + sum, 0),
       chargeTotal: nextLines.reduce((sum, line) => line.chargeToClient + sum, 0),
-      accountsStatus: "Queued",
+      accountsStatus: "Not sent",
       paymentStatus: "Unpaid",
       paidAmount: 0,
     };
@@ -13094,7 +16738,100 @@ export default function Dashboard() {
       importance: "high",
     });
     setActiveInvoiceFolderKey("unpaid");
-    showNotice(`${applicationRef} approved. Invoice ${nextRef} created, marked unpaid and queued for Xero.`);
+    showNotice(`${applicationRef} approved. Invoice ${nextRef} created and marked unpaid. Xero export is not enabled yet.`);
+  }
+
+  function createRetentionReleaseInvoice() {
+    if (!selectedInvoice || selectedInvoice.sourceType !== "job") {
+      showNotice("Open a progress claim linked to a job before releasing retention.");
+      return;
+    }
+    if (selectedInvoice.claimType !== "progress-claim" && selectedInvoice.claimType !== "retention-release") {
+      showNotice("Retention release is available from an agreed progress claim.");
+      return;
+    }
+    const jobId = selectedInvoice.sourceId;
+    const job = jobs.find((item) => item.id === jobId) ?? null;
+    if (!job) {
+      showNotice("Linked job not found for this progress claim.");
+      return;
+    }
+    const balances = jobRetentionBalances(jobId, invoices);
+    if (balances.available <= 0.009) {
+      showNotice(`${job.ref} has no retention left to release.`);
+      return;
+    }
+    let amount = Number(retentionReleaseAmountDraft);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      amount = balances.available;
+    }
+    if (amount > balances.available + 0.009) {
+      showNotice(`Release cannot exceed available retention of ${currency(balances.available)}.`);
+      return;
+    }
+    amount = Math.min(amount, balances.available);
+
+    const client = clients.find((item) => item.id === job.clientId || item.id === selectedInvoice.clientId) ?? selectedInvoiceClient ?? null;
+    const site = job.siteId ? clientSites.find((item) => item.id === job.siteId) ?? null : null;
+    const nextRef = buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref));
+    const vatProfile = resolveVatProfile(normalizedFinanceSettings, client, site);
+    const line: InvoiceLine = {
+      id: `retention-release-${Date.now()}`,
+      description: `Retention release · ${job.ref}`,
+      category: "Other",
+      costToUs: 0,
+      chargeToClient: amount,
+      note: `Release of retained value from ${balances.claimRefs.slice(0, 4).join(", ") || "progress claims"}`,
+    };
+    const created: Invoice = {
+      id: `invoice-${Date.now()}`,
+      ref: nextRef,
+      status: "Sent",
+      sourceType: "job",
+      sourceId: job.id,
+      sourceRef: job.ref,
+      sourceName: job.customer,
+      customer: job.customer,
+      issuedDate: currentOperatingDate,
+      dueDate: invoiceDueDateFromSettings(normalizedFinanceSettings),
+      clientId: client?.id || selectedInvoice.clientId,
+      siteId: site?.id || selectedInvoice.siteId,
+      title: `Retention release · ${job.ref}`,
+      lines: [line],
+      costTotal: 0,
+      chargeTotal: amount,
+      vatRate: vatProfile.rate,
+      vatTreatment: vatProfile.treatment,
+      vatNote: vatProfile.note,
+      notes: `Retention release for ${job.ref}. Available was ${currency(balances.available)} before this invoice.`,
+      claimType: "retention-release",
+      retentionPercent: selectedInvoice.retentionPercent,
+      applicationRef: selectedInvoice.applicationRef,
+      retentionReleasedAmount: amount,
+      retentionReleaseOfRefs: balances.claimRefs,
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+      payments: [],
+    };
+
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save retention release invoice to the shared workspace.");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "retention released",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `${created.ref} releases ${currency(amount)} retention on ${job.ref} (${currency(balances.available - amount)} still retained).`,
+      source: "job billing",
+      importance: "high",
+    });
+    setRetentionReleaseAmountDraft("");
+    setActiveInvoiceFolderKey("unpaid");
+    openInvoiceRecord(created.id);
+    showNotice(`${created.ref} created for ${currency(amount)} retention release on ${job.ref}.`);
   }
 
   function amendSelectedValuation() {
@@ -13122,43 +16859,835 @@ export default function Dashboard() {
     showNotice(`${selectedInvoice.ref} reopened. Amend the agreed values, then resubmit or approve.`);
   }
 
-  function queueSelectedInvoiceToAccounts() {
-    if (!selectedInvoice || selectedInvoice.claimType === "valuation") return;
-    markInvoiceEdited();
-    setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
-      ? { ...invoice, accountsStatus: "Queued" }
-      : invoice,
-    ));
-    logAuditEvent({
-      actor: activeEmployee?.name ?? "NeXa user",
-      action: "queued for accounts",
-      recordType: "invoice",
-      recordId: selectedInvoice.id,
-      summary: `${selectedInvoice.ref} queued for the accounts connector.`,
-      source: "accounts handoff",
-      importance: "high",
-    });
-    showNotice(`${selectedInvoice.ref} queued. Connect Xero in Setup before live export.`);
-  }
-
   function updateSelectedInvoicePayment(paymentStatus: InvoicePaymentStatus) {
     if (!selectedInvoice) return;
-    const paidAmount = paymentStatus === "Paid"
-      ? selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100)
-      : paymentStatus === "Part paid"
-        ? (selectedInvoice.paidAmount || 0)
-        : 0;
+    const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
+    if (paymentStatus === "Unpaid") {
+      markInvoiceEdited();
+      setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
+        ? {
+            ...invoice,
+            paymentStatus: "Unpaid",
+            paidAmount: 0,
+            payments: [],
+            status: invoice.status === "Paid" || invoice.status === "Partially paid" ? "Sent" : invoice.status,
+          }
+        : invoice,
+      ));
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "payment cleared",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref} payment ledger cleared.`,
+        source: "web",
+        importance: "normal",
+      });
+      showNotice(`${selectedInvoice.ref} marked unpaid.`);
+      return;
+    }
+
+    const remaining = Math.max(0, grandTotal - (selectedInvoice.paidAmount ?? 0));
+    let amount = paymentStatus === "Paid" ? remaining : Number(invoicePaymentAmountDraft);
+    if (paymentStatus === "Paid" && remaining <= 0) {
+      showNotice(`${selectedInvoice.ref} is already paid in full.`);
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      showNotice("Enter the payment amount before recording it.");
+      return;
+    }
+    if (amount > remaining + 0.009) {
+      showNotice(`Payment cannot exceed the remaining balance of ${currency(remaining)}.`);
+      return;
+    }
+
+    const nextPaid = Math.min(grandTotal, (selectedInvoice.paidAmount ?? 0) + amount);
+    const nextStatus: InvoicePaymentStatus = nextPaid >= grandTotal - 0.009 ? "Paid" : "Part paid";
+    const payment: InvoicePaymentRecord = {
+      id: `pay-${Date.now()}`,
+      paidAt: new Date().toISOString().slice(0, 10),
+      amount,
+      method: invoicePaymentMethodDraft.trim() || "Bank transfer",
+      reference: invoicePaymentReferenceDraft.trim() || undefined,
+      actor: activeEmployee?.name ?? "NeXa user",
+    };
+
     markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
           ...invoice,
-          paymentStatus,
-          paidAmount,
-          status: paymentStatus === "Paid" ? "Paid" : paymentStatus === "Part paid" ? "Partially paid" : invoice.status,
+          paymentStatus: nextStatus,
+          paidAmount: nextPaid,
+          payments: [...(invoice.payments || []), payment],
+          status: nextStatus === "Paid" ? "Paid" : nextStatus === "Part paid" ? "Partially paid" : invoice.status === "Paid" || invoice.status === "Partially paid" ? "Sent" : invoice.status,
         }
       : invoice,
     ));
-    showNotice(`${selectedInvoice.ref} marked ${paymentStatus.toLowerCase()}.`);
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "payment recorded",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} payment ${currency(amount)} via ${payment.method}${payment.reference ? ` · ${payment.reference}` : ""} (${nextStatus}).`,
+      source: "web",
+      importance: nextStatus === "Paid" ? "high" : "normal",
+    });
+    setInvoicePaymentReferenceDraft("");
+    const stillRemaining = Math.max(0, grandTotal - nextPaid);
+    setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
+    showNotice(`${selectedInvoice.ref}: recorded ${currency(amount)} · paid to date ${currency(nextPaid)}.`);
+    if (invoiceRemittanceAfterPayment) {
+      void sendSelectedInvoiceRemittanceAdvice(undefined, {
+        payment,
+        paidAmount: nextPaid,
+        outstanding: stillRemaining,
+      });
+    }
+  }
+
+  async function sendSelectedInvoiceRemittanceAdvice(
+    paymentId?: string,
+    overrides?: { payment?: InvoicePaymentRecord; paidAmount?: number; outstanding?: number },
+  ) {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Remittance advice is for collectible invoices, not valuations.");
+      return;
+    }
+    if (selectedInvoice.claimType === "credit-note") {
+      showNotice("Remittance advice is for the original invoice, not the credit note.");
+      return;
+    }
+    const payments = selectedInvoice.payments || [];
+    const payment = overrides?.payment
+      || (paymentId
+        ? payments.find((item) => item.id === paymentId) ?? payments[payments.length - 1]
+        : payments[payments.length - 1]);
+    if (!payment) {
+      showNotice("Record a payment before sending remittance advice.");
+      return;
+    }
+
+    const to =
+      selectedInvoiceClient?.email?.trim() ||
+      selectedInvoice.sentTo?.trim() ||
+      selectedInvoiceEmailDraft?.to?.trim() ||
+      "";
+    if (!to.includes("@")) {
+      showNotice("Add a customer email before sending remittance advice.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedInvoiceClient?.primaryContact?.split(" ")[0] ||
+      selectedInvoice.customer.split(" ")[0] ||
+      "there";
+    const outstanding = overrides?.outstanding ?? invoiceOutstandingBalance(selectedInvoice);
+    const paidToDate = overrides?.paidAmount ?? selectedInvoice.paidAmount ?? 0;
+    const paymentReference = payment.reference?.trim() || "Not supplied";
+
+    let subject = `Remittance advice · ${selectedInvoice.ref} · ${currency(payment.amount)}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `Thank you. We have allocated the following payment against invoice ${selectedInvoice.ref}.\n\n` +
+      `Payment date: ${payment.paidAt}\n` +
+      `Amount received: ${currency(payment.amount)}\n` +
+      `Method: ${payment.method}\n` +
+      `Reference: ${paymentReference}\n\n` +
+      `Paid to date: ${currency(paidToDate)}\n` +
+      `Outstanding balance: ${currency(outstanding)}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "remittance");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedInvoice.ref,
+          paymentAmount: currency(payment.amount),
+          paymentDate: payment.paidAt,
+          paymentMethod: payment.method,
+          paymentReference,
+          paid: currency(paidToDate),
+          outstanding: currency(outstanding),
+          total: currency(selectedInvoiceFinancials.grandTotal),
+          date: currentOperatingDate,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    setIsSendingInvoiceRemittance(true);
+    try {
+      const delivery = await sendThroughLiveOutbox({
+        to,
+        subject,
+        text: bodyText,
+        document: {
+          filename: `${selectedInvoice.ref}-remittance.pdf`,
+          title: "Remittance advice",
+          businessName: companyName,
+          reference: selectedInvoice.ref,
+          recipient: selectedInvoice.customer,
+          subject: `Payment of ${currency(payment.amount)} allocated`,
+          rows: [
+            {
+              description: `Payment received · ${payment.paidAt}`,
+              detail: `${payment.method}${payment.reference ? ` · ${payment.reference}` : ""}`,
+              value: currency(payment.amount),
+            },
+            {
+              description: "Paid to date",
+              detail: selectedInvoice.title,
+              value: currency(paidToDate),
+            },
+            {
+              description: "Outstanding balance",
+              detail: `Invoice total ${currency(selectedInvoiceFinancials.grandTotal)}`,
+              value: currency(outstanding),
+            },
+          ],
+          subtotal: currency(payment.amount),
+          vat: currency(0),
+          total: currency(payment.amount),
+        },
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "remittance sent",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref} remittance for ${currency(payment.amount)} emailed to ${to}.`,
+        source: "outlook draft",
+        importance: "normal",
+      });
+      addCommunicationRecord({
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+        direction: "outbound",
+        channel: "Outlook",
+        subject,
+        body: bodyText,
+        from: delivery.from,
+        to,
+        messageId: delivery.messageId,
+        status: "Sent",
+      });
+      showNotice(`Remittance advice sent to ${to} for ${currency(payment.amount)}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send remittance advice.");
+    } finally {
+      setIsSendingInvoiceRemittance(false);
+    }
+  }
+
+  function createCreditNoteFromSelectedInvoice() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Convert the valuation to a progress claim before issuing a credit.");
+      return;
+    }
+    if (selectedInvoice.claimType === "credit-note") {
+      showNotice("Open the original invoice to issue another credit.");
+      return;
+    }
+    if (selectedInvoice.status === "Cancelled" || selectedInvoice.status === "Draft") {
+      showNotice("Credit notes can only be issued against sent invoices.");
+      return;
+    }
+
+    const grandTotal = selectedInvoiceFinancials.grandTotal;
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    let amountIncVat = Number(invoiceCreditAmountDraft);
+    if (!Number.isFinite(amountIncVat) || amountIncVat <= 0) {
+      showNotice("Enter the credit amount before creating a credit note.");
+      return;
+    }
+    if (amountIncVat > grandTotal + 0.009) {
+      showNotice(`Credit cannot exceed the invoice total of ${currency(grandTotal)}.`);
+      return;
+    }
+    amountIncVat = Math.min(amountIncVat, grandTotal);
+
+    const vatRate = Math.max(0, selectedInvoice.vatRate || 0);
+    const netAmount = vatRate > 0 ? amountIncVat / (1 + vatRate / 100) : amountIncVat;
+    const reason = invoiceCreditReasonDraft.trim() || "Commercial credit";
+    const nextRef = buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref));
+    const creditLine: InvoiceLine = {
+      id: `credit-line-${Date.now()}`,
+      description: `Credit against ${selectedInvoice.ref}`,
+      category: "Other",
+      costToUs: 0,
+      chargeToClient: Math.round(netAmount * 100) / 100,
+      note: reason,
+    };
+    const creditNote: Invoice = {
+      id: `invoice-credit-${Date.now()}`,
+      ref: nextRef,
+      status: "Paid",
+      sourceType: selectedInvoice.sourceType,
+      sourceId: selectedInvoice.sourceId,
+      sourceRef: selectedInvoice.sourceRef,
+      sourceName: selectedInvoice.sourceName,
+      customer: selectedInvoice.customer,
+      issuedDate: currentOperatingDate,
+      dueDate: currentOperatingDate,
+      clientId: selectedInvoice.clientId,
+      siteId: selectedInvoice.siteId,
+      title: `Credit note · ${selectedInvoice.ref}`,
+      lines: [creditLine],
+      costTotal: 0,
+      chargeTotal: creditLine.chargeToClient,
+      vatRate: selectedInvoice.vatRate,
+      vatTreatment: selectedInvoice.vatTreatment,
+      vatNote: selectedInvoice.vatNote,
+      notes: `Credit against ${selectedInvoice.ref}. ${reason}`,
+      claimType: "credit-note",
+      creditOfInvoiceId: selectedInvoice.id,
+      creditOfRef: selectedInvoice.ref,
+      accountsStatus: "Not sent",
+      paymentStatus: "Paid",
+      paidAmount: invoiceGrossTotal({ chargeTotal: creditLine.chargeToClient, vatRate: selectedInvoice.vatRate }),
+      payments: [
+        {
+          id: `pay-credit-applied-${Date.now()}`,
+          paidAt: currentOperatingDate,
+          amount: invoiceGrossTotal({ chargeTotal: creditLine.chargeToClient, vatRate: selectedInvoice.vatRate }),
+          method: "Credit note",
+          reference: selectedInvoice.ref,
+          note: "Credit issued and applied",
+          actor: activeEmployee?.name ?? "NeXa user",
+          source: "adjustment",
+          sourceInvoiceId: selectedInvoice.id,
+        },
+      ],
+    };
+
+    const appliedToInvoice = Math.min(amountIncVat, outstanding);
+    const sourcePayment: InvoicePaymentRecord | null = appliedToInvoice > 0.009
+      ? {
+          id: `pay-credit-${Date.now()}`,
+          paidAt: currentOperatingDate,
+          amount: appliedToInvoice,
+          method: "Credit note",
+          reference: nextRef,
+          note: reason,
+          actor: activeEmployee?.name ?? "NeXa user",
+          source: "adjustment",
+          sourceInvoiceId: creditNote.id,
+        }
+      : null;
+
+    const nextPaid = (selectedInvoice.paidAmount ?? 0) + (sourcePayment?.amount ?? 0);
+    const nextPaymentStatus: InvoicePaymentStatus =
+      nextPaid >= grandTotal - 0.009 ? "Paid" : nextPaid > 0.009 ? "Part paid" : selectedInvoice.paymentStatus ?? "Unpaid";
+    const nextInvoiceStatus: InvoiceStatus =
+      nextPaymentStatus === "Paid"
+        ? "Paid"
+        : nextPaymentStatus === "Part paid"
+          ? "Partially paid"
+          : selectedInvoice.status === "Paid" || selectedInvoice.status === "Partially paid"
+            ? "Sent"
+            : selectedInvoice.status;
+
+    markInvoiceEdited();
+    const nextInvoices = [
+      creditNote,
+      ...invoices.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              paidAmount: nextPaid,
+              paymentStatus: nextPaymentStatus,
+              status: nextInvoiceStatus,
+              payments: sourcePayment ? [...(invoice.payments || []), sourcePayment] : invoice.payments || [],
+              notes: invoice.notes
+                ? `${invoice.notes}\nCredit ${nextRef} for ${currency(amountIncVat)} · ${reason}`
+                : `Credit ${nextRef} for ${currency(amountIncVat)} · ${reason}`,
+            }
+          : invoice,
+      ),
+    ];
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save credit note to the shared workspace.");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "credit note created",
+      recordType: "invoice",
+      recordId: creditNote.id,
+      summary: `${nextRef} credits ${currency(amountIncVat)} against ${selectedInvoice.ref}${
+        sourcePayment ? ` · applied ${currency(sourcePayment.amount)} to ledger` : " · original already paid"
+      }.`,
+      source: "invoice credit",
+      importance: "high",
+    });
+    setInvoiceCreditAmountDraft("");
+    setInvoiceCreditReasonDraft("");
+    setActiveInvoiceFolderKey("credits");
+    openInvoiceRecord(creditNote.id);
+    showNotice(
+      sourcePayment
+        ? `${nextRef} created and ${currency(sourcePayment.amount)} applied to ${selectedInvoice.ref}.`
+        : `${nextRef} created against paid invoice ${selectedInvoice.ref}.`,
+    );
+  }
+
+  async function exportInvoiceToXero(invoice: Invoice) {
+    if (!invoice.lines.length) {
+      showNotice("Add invoice lines before exporting to Xero.");
+      return false;
+    }
+    if (invoice.claimType === "valuation") {
+      showNotice("Convert the valuation to a progress claim before exporting to Xero.");
+      return false;
+    }
+    setIsExportingInvoiceToXero(true);
+    setXeroBusyId(invoice.id);
+    try {
+      const client = clients.find((item) => item.id === invoice.clientId) ?? null;
+      const creditOfInvoice = invoice.creditOfInvoiceId
+        ? invoices.find((item) => item.id === invoice.creditOfInvoiceId) ?? null
+        : null;
+      const response = await fetch("/api/integrations/xero/export", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice: {
+            id: invoice.id,
+            ref: invoice.ref,
+            customer: invoice.customer,
+            customerEmail: client?.email || invoice.sentTo || undefined,
+            clientId: invoice.clientId || client?.id,
+            xeroContactId: client?.xeroContactId,
+            issuedDate: invoice.issuedDate,
+            dueDate: invoice.dueDate,
+            chargeTotal: invoice.chargeTotal,
+            vatRate: invoice.vatRate,
+            notes: invoice.notes,
+            claimType: invoice.claimType,
+            creditOfRef: invoice.creditOfRef || creditOfInvoice?.ref,
+            creditOfXeroInvoiceId: creditOfInvoice?.xeroInvoiceId,
+            xeroInvoiceId: invoice.xeroInvoiceId,
+            lines: invoice.lines.map((line) => ({
+              description: line.description,
+              category: line.category,
+              chargeToClient: line.chargeToClient,
+              costToUs: line.costToUs,
+            })),
+          },
+        }),
+      });
+      const body = await response.json().catch(() => null) as {
+        export?: { mode?: string; detail?: string; status?: string; updatedExisting?: boolean };
+        accountsStatus?: AccountsExportStatus;
+        csv?: string | null;
+        error?: string;
+        xeroInvoiceId?: string | null;
+        xeroInvoiceNumber?: string | null;
+        xeroExportedAt?: string | null;
+        xeroContactId?: string | null;
+        clientId?: string | null;
+      } | null;
+      if (!response.ok || !body?.export) {
+        throw new Error(body?.error || `Xero export failed (HTTP ${response.status})`);
+      }
+      const accountsStatus = body.accountsStatus ?? "Sent";
+      markInvoiceEdited();
+      setInvoices((current) => current.map((item) => item.id === invoice.id
+        ? {
+            ...item,
+            accountsStatus,
+            ...(body.xeroInvoiceId
+              ? {
+                  xeroInvoiceId: body.xeroInvoiceId,
+                  xeroInvoiceNumber: body.xeroInvoiceNumber || item.ref,
+                  xeroExportedAt: body.xeroExportedAt || new Date().toISOString(),
+                }
+              : body.xeroExportedAt
+                ? { xeroExportedAt: body.xeroExportedAt }
+                : {}),
+          }
+        : item,
+      ));
+      if (body.xeroContactId && (body.clientId || client?.id)) {
+        const clientId = body.clientId || client?.id;
+        if (clientId) {
+          setClients((current) =>
+            current.map((entry) =>
+              entry.id === clientId ? { ...entry, xeroContactId: body.xeroContactId || entry.xeroContactId } : entry,
+            ),
+          );
+          void fetch(`/api/clients/${clientId}`, {
+            method: "PATCH",
+            headers: { ...requestHeaders, "Content-Type": "application/json" },
+            body: JSON.stringify({ xeroContactId: body.xeroContactId }),
+          }).catch(() => {});
+        }
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero export",
+        recordType: "invoice",
+        recordId: invoice.id,
+        summary: `${invoice.ref} exported to Xero (${body.export.mode || "export"}): ${body.export.detail || accountsStatus}.`,
+        source: "web",
+        importance: "high",
+      });
+      if (body.csv) {
+        const blob = new Blob([body.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${invoice.ref}-xero.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+      showNotice(body.export.detail || `${invoice.ref} sent to Xero.`);
+      return true;
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to export invoice to Xero.");
+      return false;
+    } finally {
+      setIsExportingInvoiceToXero(false);
+      setXeroBusyId(null);
+    }
+  }
+
+  async function exportSelectedInvoiceToXero() {
+    if (!selectedInvoice) return;
+    await exportInvoiceToXero(selectedInvoice);
+  }
+
+  function markInvoiceExportedInXero(invoice: Invoice, exported = true) {
+    markInvoiceEdited();
+    const stamp = new Date().toISOString();
+    const accountsStatus: AccountsExportStatus = exported ? "Sent" : "Not sent";
+    setInvoices((current) => {
+      const next = current.map((item) =>
+        item.id === invoice.id
+          ? {
+              ...item,
+              accountsStatus,
+              xeroExportedAt: exported ? stamp : undefined,
+              ...(exported ? {} : { xeroInvoiceId: undefined, xeroInvoiceNumber: undefined }),
+            }
+          : item,
+      );
+      saveHubDetailStateWithInvoices(next, "Could not save Xero export status.");
+      return next;
+    });
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: exported ? "xero marked exported" : "xero unmarked",
+      recordType: "invoice",
+      recordId: invoice.id,
+      summary: exported
+        ? `${invoice.ref} marked as exported to Xero.`
+        : `${invoice.ref} unmarked from Xero exported list.`,
+      source: "xero hub",
+      importance: "normal",
+    });
+    showNotice(exported ? `${invoice.ref} marked as exported.` : `${invoice.ref} moved back to export queue.`);
+  }
+
+  async function markPurchaseOrderExportedInXero(request: PurchaseRequest, exported = true) {
+    const stamp = new Date().toISOString();
+    await patchPurchaseRequest(
+      request.id,
+      exported
+        ? {
+            xeroAccountsStatus: "Sent",
+            xeroExportedAt: stamp,
+          }
+        : {
+            xeroAccountsStatus: "Not sent",
+            xeroExportedAt: undefined,
+            xeroBillId: undefined,
+            xeroBillNumber: undefined,
+          },
+      exported
+        ? `${request.poNumber} marked as exported to Xero.`
+        : `${request.poNumber} unmarked from Xero exported list.`,
+    );
+  }
+
+  async function exportSelectedXeroInvoices() {
+    const queue = invoices.filter((invoice) => xeroSelectedInvoiceIds.includes(invoice.id));
+    if (!queue.length) {
+      showNotice("Select at least one sales invoice or credit to export.");
+      return;
+    }
+    let ok = 0;
+    for (const invoice of queue) {
+      if (await exportInvoiceToXero(invoice)) ok += 1;
+    }
+    setXeroSelectedInvoiceIds([]);
+    showNotice(`Exported ${ok} of ${queue.length} item(s) to Xero.`);
+  }
+
+  async function exportSelectedXeroBills() {
+    const queue = purchaseRequests.filter((request) => xeroSelectedPoIds.includes(request.id));
+    if (!queue.length) {
+      showNotice("Select at least one supplier bill to export.");
+      return;
+    }
+    for (const request of queue) {
+      setXeroBusyId(request.id);
+      await exportPurchaseOrderBillToXero(request);
+      setXeroBusyId(null);
+    }
+    setXeroSelectedPoIds([]);
+  }
+
+  async function pullSelectedInvoicePaymentsFromXero() {
+    if (!selectedInvoice) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Convert the valuation to a progress claim before pulling Xero payments.");
+      return;
+    }
+    if (selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled") {
+      showNotice("Draft or cancelled invoices cannot pull Xero payments.");
+      return;
+    }
+    setIsPullingXeroPayments(true);
+    try {
+      const response = await fetch("/api/integrations/xero/payments", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          invoice: {
+            id: selectedInvoice.id,
+            ref: selectedInvoice.ref,
+            chargeTotal: selectedInvoice.chargeTotal,
+            vatRate: selectedInvoice.vatRate,
+            status: selectedInvoice.status,
+            claimType: selectedInvoice.claimType,
+            payments: selectedInvoice.payments || [],
+            paidAmount: selectedInvoice.paidAmount ?? 0,
+            xeroInvoiceId: selectedInvoice.xeroInvoiceId,
+          },
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        addedCount?: number;
+        skippedCount?: number;
+        fetchedCount?: number;
+        conflicts?: Array<{ xeroPaymentId: string; reason: string }>;
+        payments?: InvoicePaymentRecord[];
+        paidAmount?: number;
+        paymentStatus?: InvoicePaymentStatus;
+        status?: InvoiceStatus;
+        xeroInvoiceId?: string;
+        xeroInvoiceNumber?: string;
+        match?: { invoiceNumber?: string; xeroInvoiceId?: string; matchedBy?: string };
+      } | null;
+      if (!response.ok || !body?.payments) {
+        throw new Error(body?.error || `Xero payment pull failed (HTTP ${response.status})`);
+      }
+
+      markInvoiceEdited();
+      setInvoices((current) =>
+        current.map((invoice) =>
+          invoice.id === selectedInvoice.id
+            ? {
+                ...invoice,
+                payments: body.payments,
+                paidAmount: body.paidAmount ?? invoice.paidAmount,
+                paymentStatus: body.paymentStatus ?? invoice.paymentStatus,
+                status: body.status ?? invoice.status,
+                ...(body.xeroInvoiceId
+                  ? {
+                      xeroInvoiceId: body.xeroInvoiceId,
+                      xeroInvoiceNumber: body.xeroInvoiceNumber || invoice.xeroInvoiceNumber || invoice.ref,
+                    }
+                  : {}),
+              }
+            : invoice,
+        ),
+      );
+
+      const grandTotal = selectedInvoice.chargeTotal * (1 + selectedInvoice.vatRate / 100);
+      const stillRemaining = Math.max(0, grandTotal - (body.paidAmount ?? 0));
+      setInvoicePaymentAmountDraft(stillRemaining > 0 ? stillRemaining.toFixed(2) : "");
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero payment pull",
+        recordType: "invoice",
+        recordId: selectedInvoice.id,
+        summary: `${selectedInvoice.ref}: pulled ${body.addedCount ?? 0} Xero payment(s), skipped ${body.skippedCount ?? 0}, conflicts ${(body.conflicts || []).length} (Xero ${body.match?.xeroInvoiceId || "invoice"}).`,
+        source: "web",
+        importance: (body.addedCount ?? 0) > 0 ? "high" : "normal",
+      });
+
+      const conflicts = body.conflicts || [];
+      const firstConflict = conflicts[0];
+      const conflictNote =
+        firstConflict
+          ? ` ${conflicts.length} need review (${firstConflict.reason}).`
+          : "";
+      showNotice(
+        `${selectedInvoice.ref}: ${body.addedCount ?? 0} payment(s) imported from Xero` +
+          `${body.skippedCount ? `, ${body.skippedCount} already on ledger` : ""}` +
+          ` · paid to date ${currency(body.paidAmount ?? 0)}.${conflictNote}`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to pull payments from Xero.");
+    } finally {
+      setIsPullingXeroPayments(false);
+    }
+  }
+
+  async function generateRecurringJobFromPlan(plan: {
+    name: string;
+    customer: string;
+    site?: string;
+    description: string;
+    nextDueDate?: string;
+  }): Promise<string | null> {
+    const client = clients.find((item) => item.name.toLowerCase() === plan.customer.trim().toLowerCase())
+      ?? clients.find((item) => item.name.toLowerCase().includes(plan.customer.trim().toLowerCase()));
+    if (!client) {
+      showNotice(`No client matches "${plan.customer}". Create the client in People first.`);
+      return null;
+    }
+    const sitesForClient = clientSites.filter((site) => site.clientId === client.id);
+    const site = plan.site
+      ? sitesForClient.find((item) =>
+          item.name.toLowerCase().includes(plan.site!.trim().toLowerCase())
+          || item.address.toLowerCase().includes(plan.site!.trim().toLowerCase()),
+        ) ?? sitesForClient[0]
+      : sitesForClient[0];
+    if (!site) {
+      showNotice(`Client ${client.name} needs a site before a recurring job can be generated.`);
+      return null;
+    }
+    const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(plan.nextDueDate || "") ? plan.nextDueDate! : "This week";
+    const payload = {
+      ref: numberedReference("job", normalizedFinanceSettings, jobs.map((item) => item.ref)),
+      clientId: client.id,
+      siteId: site.id,
+      customer: client.name,
+      site: site.address,
+      description: plan.description.trim() || plan.name,
+      manager: activeEmployee?.name || "Unassigned",
+      status: "Needs scheduling",
+      value: 0,
+      next: `Generated from recurring plan ${plan.name}`,
+      due: dueDate,
+      scheduledDate: /^\d{4}-\d{2}-\d{2}$/.test(plan.nextDueDate || "") ? plan.nextDueDate : undefined,
+    };
+    try {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error("Unable to create recurring job");
+      const created = (await response.json()) as Job;
+      setJobs((current) => [created, ...current]);
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "created",
+        recordType: "job",
+        recordId: created.id,
+        summary: `Recurring job ${created.ref} generated from ${plan.name}.`,
+        source: "web",
+        importance: "high",
+      });
+      return created.ref;
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to generate recurring job.");
+      return null;
+    }
+  }
+
+  async function generateRecurringInvoiceFromPlan(plan: {
+    name: string;
+    customer: string;
+    site?: string;
+    description: string;
+    amount?: number;
+    nextDueDate?: string;
+  }): Promise<string | null> {
+    const client = clients.find((item) => item.name.toLowerCase() === plan.customer.trim().toLowerCase())
+      ?? clients.find((item) => item.name.toLowerCase().includes(plan.customer.trim().toLowerCase()));
+    const sitesForClient = client ? clientSites.filter((site) => site.clientId === client.id) : [];
+    const site = plan.site
+      ? sitesForClient.find((item) =>
+          item.name.toLowerCase().includes(plan.site!.trim().toLowerCase())
+          || item.address.toLowerCase().includes(plan.site!.trim().toLowerCase()),
+        ) ?? sitesForClient[0]
+      : sitesForClient[0];
+    const amount = Number(plan.amount) || 0;
+    if (amount <= 0) {
+      showNotice("Set an amount on the recurring invoice plan before generating.");
+      return null;
+    }
+    const vatProfile = resolveVatProfile(normalizedFinanceSettings, client ?? null, site ?? null);
+    const issuedDate = /^\d{4}-\d{2}-\d{2}$/.test(plan.nextDueDate || "")
+      ? plan.nextDueDate!
+      : currentOperatingDate;
+    const created: Invoice = {
+      id: `inv-${Date.now()}-${Math.round(Math.random() * 1000)}`,
+      ref: buildInvoiceRef(normalizedFinanceSettings, invoices.map((item) => item.ref)),
+      status: "Draft",
+      sourceType: "job",
+      sourceId: `recurring-${plan.name}`,
+      sourceRef: plan.name,
+      sourceName: `Recurring · ${plan.name}`,
+      customer: client?.name || plan.customer,
+      issuedDate,
+      dueDate: invoiceDueDateFromSettings(normalizedFinanceSettings, issuedDate),
+      clientId: client?.id,
+      siteId: site?.id,
+      title: plan.name,
+      lines: [
+        {
+          id: `inv-line-${Date.now()}`,
+          description: plan.description || plan.name,
+          category: "Other",
+          costToUs: 0,
+          chargeToClient: amount,
+          note: "Recurring invoice plan",
+        },
+      ],
+      costTotal: 0,
+      chargeTotal: amount,
+      vatRate: vatProfile.rate,
+      vatTreatment: vatProfile.treatment,
+      vatNote: vatProfile.note,
+      notes: `Generated from recurring plan ${plan.name}. ${vatProfile.note}`,
+      claimType: "full",
+      accountsStatus: "Not sent",
+      paymentStatus: "Unpaid",
+      paidAmount: 0,
+    };
+    const nextInvoices = [created, ...invoices];
+    markInvoiceEdited();
+    setInvoices(nextInvoices);
+    saveHubDetailStateWithInvoices(nextInvoices, "Could not save recurring invoice to the shared workspace.");
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "invoice created",
+      recordType: "invoice",
+      recordId: created.id,
+      summary: `Recurring invoice ${created.ref} generated from ${plan.name}.`,
+      source: "web",
+      importance: "high",
+    });
+    return created.ref;
   }
 
   function updateSelectedInvoiceStatus(status: InvoiceStatus) {
@@ -13196,14 +17725,48 @@ export default function Dashboard() {
     }));
   }
 
-  function sendSelectedInvoiceEmail() {
+  async function sendSelectedInvoiceEmail() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
     if (!selectedInvoiceEmailDraft.to.trim()) {
       showNotice("Add a recipient before sending the invoice.");
       return;
     }
-    const sentAt = workflowTimestamp();
-    const outlookMessageId = `outlook-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: selectedInvoiceEmailDraft.to,
+        cc: selectedInvoiceEmailDraft.cc,
+        subject: selectedInvoiceEmailDraft.subject,
+        text: selectedInvoiceEmailDraft.body,
+        document: selectedInvoiceEmailDraft.attachPdf
+          ? {
+              filename: `${selectedInvoice.ref}.pdf`,
+              title: selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "retention-release" ? "Retention release" : selectedInvoice.claimType === "credit-note" ? "Credit note" : "Invoice",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: selectedInvoice.ref,
+              recipient: selectedInvoice.customer,
+              subject: selectedInvoice.title,
+              rows: selectedInvoice.lines.map((line) => ({
+                description: line.description,
+                detail: line.note,
+                value: currency(line.chargeToClient),
+              })),
+              subtotal: currency(selectedInvoice.chargeTotal),
+              vat: currency(selectedInvoiceFinancials.vatAmount),
+              total: currency(selectedInvoiceFinancials.grandTotal),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send the invoice.";
+      setSectionError(message);
+      showNotice(`Invoice not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return;
+    }
+    const sentAt = delivery.sentAt;
+    const outlookMessageId = delivery.messageId;
     const sourceJob =
       selectedInvoice.sourceType === "job"
         ? jobs.find((job) => job.id === selectedInvoice.sourceId) ?? null
@@ -13268,7 +17831,7 @@ export default function Dashboard() {
       channel: "Outlook",
       subject: selectedInvoiceEmailDraft.subject,
       body: selectedInvoiceEmailDraft.body,
-      from: "accounts@errolwatsongroup.co.uk",
+      from: delivery.from,
       to: selectedInvoiceEmailDraft.to.trim(),
       cc: selectedInvoiceEmailDraft.cc.trim(),
       messageId: outlookMessageId,
@@ -13279,9 +17842,154 @@ export default function Dashboard() {
         ? `Invoice ${selectedInvoice.ref} sent and ${sourceJob.ref} marked invoiced.`
         : `Invoice ${selectedInvoice.ref} sent and logged.`,
     );
+    setIsSendingLiveEmail(false);
   }
 
-  function submitSelectedValuation() {
+  async function prepareSelectedInvoicePaymentChase() {
+    if (!selectedInvoice) return;
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    if (outstanding <= 0.009) {
+      showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
+      return;
+    }
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const templates = body?.emailTemplates || [];
+      const template =
+        templates.find((row) => row.key === "invoice-overdue") ||
+        templates.find((row) => row.key === "invoice") ||
+        null;
+      const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+      const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
+      setInvoiceEmailDrafts((current) => ({
+        ...current,
+        [selectedInvoice.id]: {
+          ...existing,
+          to: existing.to || next.to || selectedInvoice.sentTo || "",
+          subject: next.subject,
+          body: next.body,
+          attachPdf: true,
+        },
+      }));
+      showNotice(
+        template
+          ? `Loaded “${template.name}” chase wording. Review and send.`
+          : "Chase draft ready. Review and send.",
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to prepare payment chase.");
+    }
+  }
+
+  async function sendSelectedInvoicePaymentChase() {
+    if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
+    if (selectedInvoice.claimType === "valuation") {
+      showNotice("Valuations use Submit valuation, not payment chase.");
+      return;
+    }
+    if (selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled") {
+      showNotice("Draft or cancelled invoices cannot be chased.");
+      return;
+    }
+    const outstanding = invoiceOutstandingBalance(selectedInvoice);
+    if (outstanding <= 0.009) {
+      showNotice(`${selectedInvoice.ref} has no outstanding balance to chase.`);
+      return;
+    }
+    if (!selectedInvoiceEmailDraft.to.trim().includes("@")) {
+      showNotice("Add a customer email before sending the payment chase.");
+      return;
+    }
+
+    const daysOverdue = Math.max(0, daysSinceDate(selectedInvoice.dueDate) ?? 0);
+    if (daysOverdue <= 0 && selectedInvoice.dueDate >= currentOperatingDate) {
+      showNotice(`${selectedInvoice.ref} is not overdue yet (due ${selectedInvoice.dueDate}).`);
+      return;
+    }
+
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: selectedInvoiceEmailDraft.to,
+        cc: selectedInvoiceEmailDraft.cc,
+        subject: selectedInvoiceEmailDraft.subject,
+        text: selectedInvoiceEmailDraft.body,
+        document: selectedInvoiceEmailDraft.attachPdf
+          ? {
+              filename: `${selectedInvoice.ref}-payment-chase.pdf`,
+              title: "Invoice payment reminder",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: selectedInvoice.ref,
+              recipient: selectedInvoice.customer,
+              subject: selectedInvoice.title,
+              rows: selectedInvoice.lines.map((line) => ({
+                description: line.description,
+                detail: line.note,
+                value: currency(line.chargeToClient),
+              })),
+              subtotal: currency(selectedInvoice.chargeTotal),
+              vat: currency(selectedInvoiceFinancials.vatAmount),
+              total: currency(selectedInvoiceFinancials.grandTotal),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send payment chase.";
+      setSectionError(message);
+      showNotice(`Payment chase not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return;
+    }
+
+    const chasedAt = delivery.sentAt;
+    const chaseCount = (selectedInvoice.chaseCount ?? 0) + 1;
+    markInvoiceEdited();
+    setInvoices((current) =>
+      current.map((invoice) =>
+        invoice.id === selectedInvoice.id
+          ? {
+              ...invoice,
+              chaseCount,
+              lastChasedAt: chasedAt,
+              lastChasedTo: selectedInvoiceEmailDraft.to.trim(),
+              lastChaseMessageId: delivery.messageId,
+              // Keep original send metadata; chase is a separate reminder trail.
+              status: invoice.status === "Draft" ? "Sent" : invoice.status,
+            }
+          : invoice,
+      ),
+    );
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: "payment chase",
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      summary: `${selectedInvoice.ref} payment chase #${chaseCount} emailed to ${selectedInvoiceEmailDraft.to.trim()} · outstanding ${currency(outstanding)} · ${daysOverdue}d overdue.`,
+      source: "outlook draft",
+      importance: "high",
+    });
+    addCommunicationRecord({
+      recordType: "invoice",
+      recordId: selectedInvoice.id,
+      relatedJobId: selectedInvoice.sourceType === "job" ? selectedInvoice.sourceId : undefined,
+      direction: "outbound",
+      channel: "Outlook",
+      subject: selectedInvoiceEmailDraft.subject,
+      body: selectedInvoiceEmailDraft.body,
+      from: delivery.from,
+      to: selectedInvoiceEmailDraft.to.trim(),
+      cc: selectedInvoiceEmailDraft.cc.trim(),
+      messageId: delivery.messageId,
+      status: "Sent",
+    });
+    showNotice(`${selectedInvoice.ref}: payment chase #${chaseCount} sent to ${selectedInvoiceEmailDraft.to.trim()}.`);
+    setIsSendingLiveEmail(false);
+  }
+
+  async function submitSelectedValuation() {
     if (!selectedInvoice || !selectedInvoiceEmailDraft) return;
     if (selectedInvoice.claimType !== "valuation") {
       showNotice("Create a valuation from the job billing menu before submitting an application for payment.");
@@ -13294,7 +18002,60 @@ export default function Dashboard() {
 
     const subject = `Application for payment - ${selectedInvoice.sourceName}`;
     const body = `Hi,\n\nPlease find our application for payment for ${selectedInvoice.sourceName}.\n\nApplication value excluding VAT: ${currency(selectedInvoice.chargeTotal)}.\nVAT: ${currency(selectedInvoice.chargeTotal * (selectedInvoice.vatRate / 100))}.\nTotal applied for: ${currency(selectedInvoiceFinancials.grandTotal)}.\n\nKind regards,\nNeXa`;
-    const messageId = `outlook-valuation-${selectedInvoice.ref.toLowerCase()}-${Date.now()}`;
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      let dayworkAttachments: Array<{ filename: string; contentBase64: string; contentType?: string }> = [];
+      if (selectedInvoice.sourceType === "job" && selectedInvoice.sourceId) {
+        try {
+          const dayworkResponse = await fetch(
+            `/api/jobs/${encodeURIComponent(selectedInvoice.sourceId)}/daywork/pdf`,
+            { headers: requestHeaders },
+          );
+          if (dayworkResponse.ok) {
+            const dayworkPayload = (await dayworkResponse.json()) as {
+              attachments?: Array<{ filename: string; contentBase64: string; contentType?: string }>;
+            };
+            dayworkAttachments = dayworkPayload.attachments ?? [];
+          }
+        } catch {
+          // Daywork PDF attach is best-effort.
+        }
+      }
+
+      delivery = await sendThroughLiveOutbox({
+        to: selectedInvoiceEmailDraft.to,
+        cc: selectedInvoiceEmailDraft.cc,
+        subject,
+        text: body,
+        document: selectedInvoiceEmailDraft.attachPdf
+          ? {
+              filename: `${selectedInvoice.ref}-application-for-payment.pdf`,
+              title: "Application for payment",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: selectedInvoice.ref,
+              recipient: selectedInvoice.customer,
+              subject: selectedInvoice.sourceName,
+              rows: selectedInvoice.lines.map((line) => ({
+                description: line.description,
+                detail: line.note,
+                value: currency(line.chargeToClient),
+              })),
+              subtotal: currency(selectedInvoice.chargeTotal),
+              vat: currency(selectedInvoiceFinancials.vatAmount),
+              total: currency(selectedInvoiceFinancials.grandTotal),
+            }
+          : undefined,
+        extraAttachments: dayworkAttachments,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to submit the application for payment.";
+      setSectionError(message);
+      showNotice(`Valuation not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return;
+    }
+    const messageId = delivery.messageId;
 
     addCommunicationRecord({
       recordType: "invoice",
@@ -13304,14 +18065,14 @@ export default function Dashboard() {
       channel: "Outlook",
       subject,
       body,
-      from: "accounts@errolwatsongroup.co.uk",
+      from: delivery.from,
       to: selectedInvoiceEmailDraft.to.trim(),
       cc: selectedInvoiceEmailDraft.cc.trim(),
       messageId,
       status: "Sent",
     });
 
-    const sentAt = workflowTimestamp();
+    const sentAt = delivery.sentAt;
     markInvoiceEdited();
     setInvoices((current) => current.map((invoice) => invoice.id === selectedInvoice.id
       ? {
@@ -13346,7 +18107,10 @@ export default function Dashboard() {
       });
     }
 
-    showNotice("Application for payment submitted. Add the agreed values when the contractor replies.");
+    showNotice(
+      "Application for payment submitted. Signed Daywork Account PDF(s) attached when available. Add the agreed values when the contractor replies.",
+    );
+    setIsSendingLiveEmail(false);
   }
 
   function openQuoteCostCentreRecord(centreId: string) {
@@ -13360,6 +18124,166 @@ export default function Dashboard() {
     setActiveCostCentreTab("summary");
     setActiveJobBuildTab("summary");
     setHomeView("cost-centre-record");
+  }
+
+  async function refreshDayworkSheetFromServer(jobId: string, costCentreId: string) {
+    try {
+      const response = await fetch(
+        `/api/jobs/${encodeURIComponent(jobId)}/daywork?costCentreId=${encodeURIComponent(costCentreId)}`,
+        { headers: requestHeaders },
+      );
+      if (!response.ok) return false;
+      const body = (await response.json()) as {
+        sheet?: DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string };
+        record?: DayworkAccountRecord;
+        dayworkSheets?: Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>;
+        flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+        jobDeliveryEvents?: JobDeliveryEvent[];
+      };
+      if (body.dayworkSheets) {
+        setDayworkSheets(body.dayworkSheets);
+      } else if (body.sheet) {
+        const resolvedCentreId = body.sheet.costCentreId || costCentreId;
+        setDayworkSheets((current) => ({
+          ...current,
+          [`${jobId}:${resolvedCentreId}`]: body.sheet!,
+          [`${jobId}:${costCentreId}`]: body.sheet!,
+        }));
+      } else if (body.record) {
+        const resolvedCentreId = costCentreId;
+        const snapshot = {
+          ...body.record,
+          jobId,
+          jobRef: jobs.find((item) => item.id === jobId)?.ref || jobId,
+          costCentreId: resolvedCentreId,
+          updatedAt: body.record.completedAt || new Date().toISOString(),
+        };
+        setDayworkSheets((current) => ({
+          ...current,
+          [`${jobId}:${resolvedCentreId}`]: snapshot,
+        }));
+      }
+      if (body.flowStepEvidence) {
+        setFlowStepEvidence((current) => ({ ...current, ...body.flowStepEvidence }));
+      }
+      if (body.jobDeliveryEvents) setJobDeliveryEvents(body.jobDeliveryEvents);
+      const found = body.sheet || body.record;
+      return Boolean(
+        found &&
+          (found.plumberSignature ||
+            found.clientSignature ||
+            found.clientSignerName ||
+            found.materialsJson ||
+            found.description ||
+            found.labourDaysJson),
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function openDayworkAccountRecord(jobId: string, options?: { costCentreId?: string }) {
+    const dayworkCentreId = options?.costCentreId || `${jobId}-daywork-account`;
+    const centres = jobEstimateCostCentres[jobId] ?? [];
+    let match =
+      centres.find((centre) => centre.id === dayworkCentreId) ||
+      centres.find((centre) => /daywork/i.test(`${centre.name} ${centre.templateName || ""}`));
+
+    // If Field saved evidence but the variation cost centre was wiped from Core UI state, recreate it.
+    if (!match) {
+      const hasEvidence = Object.keys(flowStepEvidence).some(
+        (key) => key.startsWith(`${jobId}:`) && key.includes(":daywork-"),
+      );
+      if (hasEvidence || options?.costCentreId) {
+        const sectionId = `${jobId}-variation-section-daywork`;
+        const created: EstimateCostCentre = {
+          id: dayworkCentreId,
+          name: "Daywork account",
+          templateName: "Daywork account",
+          variation: true,
+          variationSectionId: sectionId,
+          clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
+          engineerDescription:
+            "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+          materials: [],
+          labour: [],
+        };
+        setJobVariationSections((current) => {
+          const existing = current[jobId] ?? [];
+          if (existing.some((section) => section.id === sectionId || /daywork/i.test(section.name))) {
+            return current;
+          }
+          return {
+            ...current,
+            [jobId]: [
+              ...existing,
+              {
+                id: sectionId,
+                name: "Daywork / reactive variations",
+                description: "Reactive daywork sheets raised from Field.",
+              },
+            ],
+          };
+        });
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [jobId]: [...(current[jobId] ?? []), created],
+        }));
+        match = created;
+      }
+    }
+
+    if (!match) {
+      // Still try server refresh — Field may have created the centre already.
+      void refreshDayworkSheetFromServer(jobId, dayworkCentreId).then((found) => {
+        if (!found) {
+          showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
+        } else {
+          setJobEstimateCostCentres((current) => {
+            const existing = current[jobId] ?? [];
+            if (existing.some((centre) => centre.id === dayworkCentreId || /daywork/i.test(`${centre.name}`))) {
+              return current;
+            }
+            return {
+              ...current,
+              [jobId]: [
+                ...existing,
+                {
+                  id: dayworkCentreId,
+                  name: "Daywork account",
+                  templateName: "Daywork account",
+                  variation: true,
+                  variationSectionId: `${jobId}-variation-section-daywork`,
+                  clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
+                  engineerDescription:
+                    "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+                  materials: [],
+                  labour: [],
+                },
+              ],
+            };
+          });
+          setSelectedCostCentreId(dayworkCentreId);
+          setActiveCostCentreTab("engineer-flow");
+          setHomeView("cost-centre-record");
+          showNotice("Daywork Account refreshed from Field.");
+        }
+      });
+      setActiveJobTab("cost-centres");
+      setActiveJobCostCentreListTab("variations");
+      setHomeView("job-record");
+      return;
+    }
+    setActiveJobTab("cost-centres");
+    setActiveJobCostCentreListTab("variations");
+    setSelectedCostCentreId(match.id);
+    setActiveCostCentreTab("engineer-flow");
+    setActiveJobBuildTab("summary");
+    setHomeView("cost-centre-record");
+    void refreshDayworkSheetFromServer(jobId, match.id).then((found) => {
+      showNotice(found ? "Daywork Account opened — Field sheet loaded." : "Daywork Account opened in Engineer Flow.");
+    });
+    scrollWorkspaceToTop();
   }
 
   function openPurchaseOrderRegisterRow(request: PurchaseRequest) {
@@ -13410,10 +18334,46 @@ export default function Dashboard() {
     editPurchaseRequest(request);
   }
 
-  function returnToInvoiceDirectory() {
+  function returnToInvoiceDirectory(folderKey = "overdue") {
     setSelectedInvoiceId(null);
     setActiveInvoiceTab("summary");
+    setActiveInvoiceFolderKey(folderKey);
     setHomeView("invoices");
+  }
+
+  function openInvoiceOpsPack(folderKey: "overdue" | "draft" | "unpaid" = "overdue") {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedJobId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setActiveInvoiceFolderKey(folderKey);
+    setHomeView("invoices");
+    scrollWorkspaceToTop();
+  }
+
+  function openUninvoicedJobsPack() {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedJobId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setActiveJobFolderKey("uninvoiced");
+    setHomeView("jobs");
+    scrollWorkspaceToTop();
+  }
+
+  function openUnassignedJobsOnSchedule(job?: Job) {
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedInvoiceId(null);
+    clearEmployeeEditingState();
+    setHomeView("schedule");
+    if (job) {
+      selectSchedulerJob(job);
+      setSelectedJobId(job.id);
+    }
+    scrollWorkspaceToTop();
   }
 
   function returnFromInvoiceRecord() {
@@ -13460,6 +18420,45 @@ export default function Dashboard() {
     }));
   }
 
+  async function applySetupEmailTemplate(kind: "quote" | "invoice" | "invoice-overdue" | "follow-up") {
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const body = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      if (!response.ok) throw new Error("Unable to load Setup email templates.");
+      const templates = body?.emailTemplates || [];
+      const template =
+        templates.find((row) => row.key === kind) ||
+        (kind === "invoice-overdue" ? templates.find((row) => row.key === "invoice") : undefined) ||
+        templates.find((row) => row.key === "quote");
+      if (!template) {
+        showNotice(`No Setup email template found for ${kind}. Add one under Setup → Email templates.`);
+        return;
+      }
+      if (kind === "invoice" || kind === "invoice-overdue") {
+        if (!selectedInvoice) return;
+        const existing = invoiceEmailDrafts[selectedInvoice.id] ?? makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient);
+        const next = makeInvoiceEmailDraft(selectedInvoice, selectedInvoiceClient, template, companyName);
+        setInvoiceEmailDrafts((current) => ({
+          ...current,
+          [selectedInvoice.id]: { ...existing, subject: next.subject, body: next.body },
+        }));
+        showNotice(`Applied Setup template “${template.name}”.`);
+        return;
+      }
+      if (!selectedQuote) return;
+      const existing = quoteEmailDrafts[selectedQuote.id] ?? makeQuoteEmailDraft(selectedQuote, selectedQuoteClient);
+      const next = makeQuoteEmailDraft(selectedQuote, selectedQuoteClient, template, companyName);
+      setQuoteEmailDrafts((current) => ({
+        ...current,
+        [selectedQuote.id]: { ...existing, subject: next.subject, body: next.body },
+      }));
+      showNotice(`Applied Setup template “${template.name}”.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to apply email template.");
+    }
+  }
+
   async function persistQuotePatch(quoteId: string, patch: Partial<Quote>) {
     const response = await fetch(`/api/quotes/${quoteId}`, {
       method: "PATCH",
@@ -13472,8 +18471,725 @@ export default function Dashboard() {
     return updated;
   }
 
+  async function persistJobPatch(jobId: string, patch: Partial<Job>) {
+    const response = await fetch(`/api/jobs/${jobId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!response.ok) throw new Error("Unable to update job");
+    const updated = (await response.json()) as Job;
+    setJobs((current) => current.map((job) => (job.id === updated.id ? updated : job)));
+    return updated;
+  }
+
+  async function saveSelectedLeadLinking(clientId: string, siteId: string) {
+    if (!selectedLead) return;
+    const client = clients.find((item) => item.id === clientId);
+    if (!client) {
+      showNotice("Pick a customer before saving lead site details.");
+      return;
+    }
+    let site = clientSites.find((item) => item.id === siteId && item.clientId === clientId);
+    if (!site && siteId === CLIENT_SITE_BILLING) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          client.billingAddress,
+          client.primaryContact || client.name,
+          selectedLead.description || "Lead work",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to use the customer address as the site.";
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site && siteId === CLIENT_SITE_NEW) {
+      openClientSiteRecordView(client.id);
+      showNotice("Add the new site on the customer record, then link it here.");
+      return;
+    }
+    if (!site) {
+      showNotice("Pick a site before saving lead details.");
+      return;
+    }
+    try {
+      const response = await fetch(`/api/leads/${selectedLead.id}`, {
+        method: "PATCH",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          siteId: site.id,
+          actor: activeEmployee?.name ?? "NeXa user",
+        }),
+      });
+      if (!response.ok) throw new Error("Unable to update lead site");
+      const updated = (await response.json()) as Lead;
+      setLeads((current) => current.map((lead) => (lead.id === updated.id ? { ...lead, ...updated, address: site.address, siteId: site.id } : lead)));
+      showNotice(`${updated.ref} linked to ${client.name} / ${site.name}.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to update lead site.";
+      showNotice(message);
+    }
+  }
+
+  async function saveSelectedQuoteLinking(clientId: string, siteId: string) {
+    if (!selectedQuote) return;
+    const client = clients.find((item) => item.id === clientId);
+    if (!client) {
+      showNotice("Pick a customer before saving quote details.");
+      return;
+    }
+    let site = clientSites.find((item) => item.id === siteId && item.clientId === clientId);
+    if (!site && siteId === CLIENT_SITE_BILLING) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          client.billingAddress,
+          client.primaryContact || client.name,
+          selectedQuote.description || "Quote work",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to use the customer address as the site.";
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site && siteId === CLIENT_SITE_NEW) {
+      openClientSiteRecordView(client.id);
+      showNotice("Add the new site on the customer record, then link it here.");
+      return;
+    }
+    if (!site) {
+      showNotice("Pick a site before saving quote details.");
+      return;
+    }
+    const updated = await persistQuotePatch(selectedQuote.id, {
+      clientId: client.id,
+      siteId: site.id,
+      customer: client.name,
+    });
+    showNotice(`${updated.ref} linked to ${client.name} / ${site.name}.`);
+  }
+
+  async function saveSelectedJobLinking(clientId: string, siteId: string) {
+    if (!selectedJob) return;
+    const client = clients.find((item) => item.id === clientId);
+    if (!client) {
+      showNotice("Pick a customer before saving job details.");
+      return;
+    }
+    let site = clientSites.find((item) => item.id === siteId && item.clientId === clientId);
+    if (!site && siteId === CLIENT_SITE_BILLING) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          client.billingAddress,
+          client.primaryContact || client.name,
+          selectedJob.description || "Job work",
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to use the customer address as the site.";
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site && siteId === CLIENT_SITE_NEW) {
+      openClientSiteRecordView(client.id);
+      showNotice("Add the new site on the customer record, then link it here.");
+      return;
+    }
+    if (!site) {
+      showNotice("Pick a site before saving job details.");
+      return;
+    }
+    const updated = await persistJobPatch(selectedJob.id, {
+      clientId: client.id,
+      siteId: site.id,
+      customer: client.name,
+      site: site.address,
+    });
+    showNotice(`${updated.ref} linked to ${client.name} / ${site.name}.`);
+  }
+
+  async function sendSelectedJobConfirmation() {
+    if (!selectedJob) return;
+    const visitDate =
+      selectedJobScheduleAssignments[0]?.startDate ||
+      selectedJob.scheduledDate ||
+      "";
+    const visitTime =
+      selectedJobScheduleAssignments[0]?.startTime ||
+      selectedJob.scheduledTime ||
+      "";
+    if (!visitDate || !visitTime) {
+      showNotice("Book a date and time on the job before sending confirmation.");
+      return;
+    }
+
+    const emailTo = selectedJobClient?.email?.trim() || "";
+    const phoneTo = (selectedJobClient?.phone || "").replace(/[^\d+]/g, "").trim();
+    const hasEmail = emailTo.includes("@");
+    const hasPhone = phoneTo.replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) {
+      showNotice("Add a customer email or phone before sending job confirmation.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedJobClient?.primaryContact?.split(" ")[0] ||
+      selectedJob.customer.split(" ")[0] ||
+      "there";
+    const engineer =
+      selectedJobScheduleAssignments[0]?.employeeName ||
+      selectedJob.manager ||
+      "Our engineer";
+    const siteLabel =
+      selectedJobSite?.address ||
+      selectedJobSite?.name ||
+      selectedJob.site ||
+      "Site to confirm";
+    const whenLabel = `${visitDate} at ${visitTime}`;
+
+    let subject = `Job ${selectedJob.ref} confirmed · ${whenLabel}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `We have booked job ${selectedJob.ref} for ${whenLabel}.\n\n` +
+      `Engineer: ${engineer}\n` +
+      `Site: ${siteLabel}\n` +
+      `Scope: ${selectedJob.description}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "job-confirmation");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedJob.ref,
+          date: visitDate,
+          time: visitTime,
+          engineer,
+          site: siteLabel,
+          description: selectedJob.description,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    const whatsappMessage =
+      `Hi ${contactName}, job ${selectedJob.ref} is booked for ${whenLabel}. ` +
+      `Engineer: ${engineer}. Site: ${siteLabel}. — ${companyName}`;
+
+    setIsSendingJobConfirmation(true);
+    const channels: string[] = [];
+    try {
+      if (hasEmail) {
+        const delivery = await sendThroughLiveOutbox({
+          to: emailTo,
+          subject,
+          text: bodyText,
+          document: {
+            filename: `${selectedJob.ref}-confirmation.pdf`,
+            title: "Job confirmation",
+            businessName: companyName,
+            reference: selectedJob.ref,
+            recipient: selectedJob.customer,
+            subject: `Visit booked for ${whenLabel}`,
+            rows: [
+              { description: "Visit date", detail: visitDate, value: visitTime },
+              { description: "Engineer", detail: engineer, value: selectedJob.ref },
+              { description: "Site", detail: siteLabel, value: "" },
+              { description: "Scope", detail: selectedJob.description, value: currency(selectedJob.value) },
+            ],
+            subtotal: currency(selectedJob.value),
+            vat: currency(0),
+            total: currency(selectedJob.value),
+          },
+        });
+        channels.push(`email ${emailTo}`);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body: bodyText,
+          from: delivery.from,
+          to: emailTo,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+      }
+
+      if (hasPhone) {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+        } | null;
+        if (waResponse.ok && waBody?.status === "sent") {
+          channels.push(`WhatsApp ${phoneTo}`);
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject: `WhatsApp confirmation · ${selectedJob.ref}`,
+            body: whatsappMessage,
+            from: "NeXa Connect",
+            to: phoneTo,
+            status: "Sent",
+          });
+        } else if (waBody?.status === "not_configured") {
+          channels.push(`WhatsApp preview to ${phoneTo} (connector not configured)`);
+        } else if (hasEmail) {
+          // email already sent; note WhatsApp miss without failing the whole confirmation
+          showNotice(`Email sent; WhatsApp failed${waBody?.error ? `: ${waBody.error}` : ""}.`);
+        } else {
+          throw new Error(waBody?.error || "WhatsApp confirmation failed and no email was available.");
+        }
+      }
+
+      if (!channels.length) {
+        throw new Error("Unable to send confirmation on email or WhatsApp.");
+      }
+
+      const sentTo = channels.join(" · ");
+      await persistJobPatch(selectedJob.id, {
+        confirmationSentAt: currentOperatingDate,
+        confirmationSentTo: sentTo,
+      });
+
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "whatsapp",
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        summary: `Job confirmation sent via ${sentTo} for ${whenLabel}`,
+        source: hasPhone ? "WhatsApp" : "NeXa",
+        status: "Captured",
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "confirmation sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} confirmation sent via ${sentTo} · ${whenLabel}.`,
+        source: hasPhone ? "whatsapp doorway" : "outlook draft",
+        importance: "high",
+      });
+      showNotice(`Job confirmation sent via ${sentTo} for ${whenLabel}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send job confirmation.");
+    } finally {
+      setIsSendingJobConfirmation(false);
+    }
+  }
+
+  async function sendSelectedJobEta() {
+    if (!selectedJob) return;
+    const etaMinutes = Math.max(1, Math.round(Number(jobEtaMinutesDraft) || 0));
+    if (!Number.isFinite(etaMinutes) || etaMinutes <= 0) {
+      showNotice("Enter ETA minutes (e.g. 45) before sending.");
+      return;
+    }
+
+    const emailTo = selectedJobClient?.email?.trim() || "";
+    const phoneTo = (selectedJobClient?.phone || "").replace(/[^\d+]/g, "").trim();
+    const hasEmail = emailTo.includes("@");
+    const hasPhone = phoneTo.replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) {
+      showNotice("Add a customer email or phone before sending an ETA.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedJobClient?.primaryContact?.split(" ")[0] ||
+      selectedJob.customer.split(" ")[0] ||
+      "there";
+    const engineer =
+      selectedJobScheduleAssignments[0]?.employeeName ||
+      selectedJob.manager ||
+      "Our engineer";
+    const siteLabel =
+      selectedJobSite?.address ||
+      selectedJobSite?.name ||
+      selectedJob.site ||
+      "Site";
+    const etaLabel = etaMinutes === 1 ? "1 minute" : `${etaMinutes} minutes`;
+
+    let subject = `On the way · ${selectedJob.ref} · ETA ${etaLabel}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `Our engineer ${engineer} is on the way for job ${selectedJob.ref}.\n\n` +
+      `ETA: about ${etaLabel}.\n` +
+      `Site: ${siteLabel}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "job-eta");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedJob.ref,
+          engineer,
+          site: siteLabel,
+          description: selectedJob.description,
+          eta: etaLabel,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    const whatsappMessage =
+      `Hi ${contactName}, ${engineer} is on the way for job ${selectedJob.ref}. ` +
+      `ETA about ${etaLabel}. Site: ${siteLabel}. — ${companyName}`;
+
+    setIsSendingJobEta(true);
+    const channels: string[] = [];
+    try {
+      if (hasEmail) {
+        const delivery = await sendThroughLiveOutbox({
+          to: emailTo,
+          subject,
+          text: bodyText,
+          document: {
+            filename: `${selectedJob.ref}-eta.pdf`,
+            title: "Job ETA / on the way",
+            businessName: companyName,
+            reference: selectedJob.ref,
+            recipient: selectedJob.customer,
+            subject: `ETA about ${etaLabel}`,
+            rows: [
+              { description: "ETA", detail: etaLabel, value: selectedJob.ref },
+              { description: "Engineer", detail: engineer, value: "" },
+              { description: "Site", detail: siteLabel, value: "" },
+              { description: "Scope", detail: selectedJob.description, value: "" },
+            ],
+            subtotal: currency(selectedJob.value),
+            vat: currency(0),
+            total: currency(selectedJob.value),
+          },
+        });
+        channels.push(`email ${emailTo}`);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body: bodyText,
+          from: delivery.from,
+          to: emailTo,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+      }
+
+      if (hasPhone) {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+        } | null;
+        if (waResponse.ok && waBody?.status === "sent") {
+          channels.push(`WhatsApp ${phoneTo}`);
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject: `WhatsApp ETA · ${selectedJob.ref}`,
+            body: whatsappMessage,
+            from: "NeXa Connect",
+            to: phoneTo,
+            status: "Sent",
+          });
+        } else if (waBody?.status === "not_configured") {
+          channels.push(`WhatsApp preview to ${phoneTo} (connector not configured)`);
+        } else if (hasEmail) {
+          showNotice(`Email sent; WhatsApp failed${waBody?.error ? `: ${waBody.error}` : ""}.`);
+        } else {
+          throw new Error(waBody?.error || "WhatsApp ETA failed and no email was available.");
+        }
+      }
+
+      if (!channels.length) {
+        throw new Error("Unable to send ETA on email or WhatsApp.");
+      }
+
+      const sentTo = channels.join(" · ");
+      await persistJobPatch(selectedJob.id, {
+        etaSentAt: currentOperatingDate,
+        etaSentTo: sentTo,
+        etaMinutes,
+      });
+
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "whatsapp",
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        summary: `ETA sent via ${sentTo} · about ${etaLabel}`,
+        source: hasPhone ? "WhatsApp" : "NeXa",
+        status: "Captured",
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "eta sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} ETA sent via ${sentTo} · about ${etaLabel}.`,
+        source: hasPhone ? "whatsapp doorway" : "outlook draft",
+        importance: "high",
+      });
+      showNotice(`ETA sent via ${sentTo} · about ${etaLabel}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send job ETA.");
+    } finally {
+      setIsSendingJobEta(false);
+    }
+  }
+
+  async function sendSelectedJobCompletion() {
+    if (!selectedJob) return;
+
+    const emailTo = selectedJobClient?.email?.trim() || "";
+    const phoneTo = (selectedJobClient?.phone || "").replace(/[^\d+]/g, "").trim();
+    const hasEmail = emailTo.includes("@");
+    const hasPhone = phoneTo.replace(/\D/g, "").length >= 10;
+    if (!hasEmail && !hasPhone) {
+      showNotice("Add a customer email or phone before sending a completion notice.");
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const contactName =
+      selectedJobClient?.primaryContact?.split(" ")[0] ||
+      selectedJob.customer.split(" ")[0] ||
+      "there";
+    const engineer =
+      selectedJobScheduleAssignments[0]?.employeeName ||
+      selectedJob.manager ||
+      "Our engineer";
+    const siteLabel =
+      selectedJobSite?.address ||
+      selectedJobSite?.name ||
+      selectedJob.site ||
+      "Site";
+
+    let subject = `Work complete · ${selectedJob.ref}`;
+    let bodyText =
+      `Hi ${contactName},\n\n` +
+      `Our engineer has finished work on job ${selectedJob.ref}.\n\n` +
+      `Site: ${siteLabel}\n` +
+      `Scope: ${selectedJob.description}\n\n` +
+      `Kind regards,\n${companyName}`;
+
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "job-complete");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          ref: selectedJob.ref,
+          engineer,
+          site: siteLabel,
+          description: selectedJob.description,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    const whatsappMessage =
+      `Hi ${contactName}, work on job ${selectedJob.ref} is complete. ` +
+      `Site: ${siteLabel}. — ${companyName}`;
+
+    setIsSendingJobCompletion(true);
+    const channels: string[] = [];
+    try {
+      if (hasEmail) {
+        const delivery = await sendThroughLiveOutbox({
+          to: emailTo,
+          subject,
+          text: bodyText,
+          document: {
+            filename: `${selectedJob.ref}-complete.pdf`,
+            title: "Job complete",
+            businessName: companyName,
+            reference: selectedJob.ref,
+            recipient: selectedJob.customer,
+            subject: "Work finished",
+            rows: [
+              { description: "Engineer", detail: engineer, value: selectedJob.ref },
+              { description: "Site", detail: siteLabel, value: "" },
+              { description: "Scope", detail: selectedJob.description, value: "" },
+            ],
+            subtotal: currency(selectedJob.value),
+            vat: currency(0),
+            total: currency(selectedJob.value),
+          },
+        });
+        channels.push(`email ${emailTo}`);
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body: bodyText,
+          from: delivery.from,
+          to: emailTo,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+      }
+
+      if (hasPhone) {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+        } | null;
+        if (waResponse.ok && waBody?.status === "sent") {
+          channels.push(`WhatsApp ${phoneTo}`);
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject: `WhatsApp complete · ${selectedJob.ref}`,
+            body: whatsappMessage,
+            from: "NeXa Connect",
+            to: phoneTo,
+            status: "Sent",
+          });
+        } else if (waBody?.status === "not_configured") {
+          channels.push(`WhatsApp preview to ${phoneTo} (connector not configured)`);
+        } else if (hasEmail) {
+          showNotice(`Email sent; WhatsApp failed${waBody?.error ? `: ${waBody.error}` : ""}.`);
+        } else {
+          throw new Error(waBody?.error || "WhatsApp completion notice failed and no email was available.");
+        }
+      }
+
+      if (!channels.length) {
+        throw new Error("Unable to send completion notice on email or WhatsApp.");
+      }
+
+      const sentTo = channels.join(" · ");
+      await persistJobPatch(selectedJob.id, {
+        completionSentAt: currentOperatingDate,
+        completionSentTo: sentTo,
+      });
+
+      addJobDeliveryEvent({
+        jobId: selectedJob.id,
+        jobRef: selectedJob.ref,
+        kind: "whatsapp",
+        actor: activeEmployee?.name ?? selectedJob.manager,
+        summary: `Job complete notice sent via ${sentTo}`,
+        source: hasPhone ? "WhatsApp" : "NeXa",
+        status: "Captured",
+      });
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "completion sent",
+        recordType: "job",
+        recordId: selectedJob.id,
+        summary: `${selectedJob.ref} completion notice sent via ${sentTo}.`,
+        source: hasPhone ? "whatsapp doorway" : "outlook draft",
+        importance: "high",
+      });
+      showNotice(`Completion notice sent via ${sentTo}.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send job completion notice.");
+    } finally {
+      setIsSendingJobCompletion(false);
+    }
+  }
+
   async function sendSelectedQuoteToSimpro() {
     if (!selectedQuote) return;
+
+    const findings = watchQuoteReadiness({
+      quote: selectedQuote,
+      clientName: selectedQuoteClient?.name ?? selectedQuote.customer,
+      siteName: selectedQuoteSite?.name,
+      siteAddress: selectedQuoteSite?.address,
+      costCentres: quoteCostCentres[selectedQuote.id] ?? [],
+      memory: buddyMemory,
+    });
+    const blockers = findings.filter((item) => item.severity === "block");
+    if (blockers.length > 0 && !buddySendOverride) {
+      const nextMemory = recordBuddyMiss(
+        buddyMemory,
+        blockers.map((item) => item.id),
+      );
+      setBuddyMemory(nextMemory);
+      setNexaAssistantOpen(true);
+      setNexaAssistantMessages((current) => [
+        ...current,
+        {
+          id: `buddy-watch-${crypto.randomUUID()}`,
+          role: "assistant",
+          text: [
+            selectedQuoteBuddySummary.headline + ".",
+            "",
+            ...blockers.map((item) => `• ${item.title} — ${item.detail}`),
+            "",
+            "Fix those, or tell me to send anyway if you’re sure.",
+          ].join("\n"),
+        },
+      ]);
+      showNotice("Blake stopped the Simpro send — check the alerts first.");
+      return;
+    }
+
+    setBuddySendOverride(false);
     setIsSendingQuoteToSimpro(true);
     setSectionError(null);
 
@@ -13515,8 +19231,37 @@ export default function Dashboard() {
 
       if (exportRecord.status === "Sent") {
         showNotice(`${selectedQuote.ref} sent to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`);
+        const centres = quoteCostCentres[selectedQuote.id] ?? [];
+        const lines = centres.flatMap((centre) => centre.lines ?? []);
+        const labourHours = lines.reduce((sum, line) => {
+          const catalogId = (line.catalogItemId || "").toLowerCase();
+          const looksLabour =
+            catalogId.startsWith("labour-") ||
+            catalogId.startsWith("labor-") ||
+            /\b(labour|labor|engineer hours?|plumber hours?|fitter hours?)\b/i.test(line.description || "");
+          return looksLabour ? sum + (Number(line.quantity) || 0) : sum;
+        }, 0);
+        setBuddyMemory(
+          recordBuddyQuotePattern(buddyMemory, {
+            lineCount: lines.length,
+            labourHours,
+            sent: true,
+          }),
+        );
+        setNexaAssistantMessages((current) => [
+          ...current,
+          {
+            id: `buddy-sent-${crypto.randomUUID()}`,
+            role: "assistant",
+            text: `All good — ${selectedQuote.ref} is away to Simpro${exportRecord.simproQuoteId ? ` as ${exportRecord.simproQuoteId}` : ""}.`,
+          },
+        ]);
       } else if (exportRecord.status === "Failed") {
-        const message = exportRecord.error ?? "Simpro bridge failed.";
+        const message = typeof exportRecord.error === "string" && exportRecord.error.trim()
+          ? exportRecord.error
+          : exportRecord.error
+            ? JSON.stringify(exportRecord.error)
+            : "Simpro bridge failed.";
         setSectionError(message);
         showNotice(message);
       } else {
@@ -13532,6 +19277,90 @@ export default function Dashboard() {
     }
   }
 
+  async function pushJobToSimproRecord(
+    job: Job,
+    options: {
+      schedule?: JobScheduleAssignment[];
+      costCentres?: EstimateCostCentre[];
+      silentSuccess?: boolean;
+      silentIfUnconfigured?: boolean;
+    } = {},
+  ) {
+    if (integrationSettings.simproMode === "Not connected" || integrationSettings.simproMode === "Queued handoff") {
+      if (!options.silentIfUnconfigured) {
+        showNotice("simPRO push is turned off in Setup. Switch the workspace to One-way push when you want NeXa to send jobs downstream.");
+      }
+      return null;
+    }
+
+    const response = await fetch(`/api/jobs/${job.id}/simpro-push`, {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actor: activeEmployee?.name ?? "NeXa user",
+        costCentres: options.costCentres ?? (jobEstimateCostCentres[job.id] ?? []),
+        schedule: options.schedule ?? (jobSchedulePlans[job.id] ?? []),
+      }),
+    });
+    const result = (await response.json().catch(() => null)) as {
+      job?: Job;
+      exportRecord?: SimproExportRecord;
+      auditEvent?: AuditEvent;
+      error?: string;
+    } | null;
+
+    if (!result?.job || !result.exportRecord) {
+      throw new Error(result?.error ?? "Unable to create the simPRO job handoff.");
+    }
+
+    setJobs((current) => current.map((item) => (item.id === result.job?.id ? result.job : item)));
+    setSimproExports((current) => [
+      result.exportRecord as SimproExportRecord,
+      ...current.filter((item) => item.id !== result.exportRecord?.id),
+    ]);
+    if (result.auditEvent) {
+      setAuditEvents((current) => [
+        result.auditEvent as AuditEvent,
+        ...current.filter((event) => event.id !== result.auditEvent?.id),
+      ]);
+    }
+
+    if (!options.silentSuccess) {
+      if (result.exportRecord.status === "Sent") {
+        showNotice(`${job.ref} sent to simPRO${result.exportRecord.simproJobId ? ` as ${result.exportRecord.simproJobId}` : ""}.`);
+      } else if (result.exportRecord.status === "Failed") {
+        const failed = result.exportRecord.error;
+        throw new Error(
+          typeof failed === "string" && failed.trim()
+            ? failed
+            : failed
+              ? JSON.stringify(failed)
+              : "simPRO bridge failed for this job.",
+        );
+      } else {
+        showNotice(`${job.ref} is queued in NeXa only until the simPRO job bridge settings are completed.`);
+      }
+    }
+
+    return result;
+  }
+
+  async function sendSelectedJobToSimpro(overrides?: { schedule?: JobScheduleAssignment[]; costCentres?: EstimateCostCentre[]; silentSuccess?: boolean; silentIfUnconfigured?: boolean }) {
+    if (!selectedJob) return null;
+    setIsSendingJobToSimpro(true);
+    setSectionError(null);
+    try {
+      return await pushJobToSimproRecord(selectedJob, overrides);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create the simPRO job handoff.";
+      setSectionError(message);
+      showNotice(message);
+      return null;
+    } finally {
+      setIsSendingJobToSimpro(false);
+    }
+  }
+
   async function sendQuoteEmail(quote: Quote, draft: QuoteEmailDraft) {
     if (!draft.to.trim()) {
       showNotice("Add a recipient before sending the quote.");
@@ -13541,8 +19370,51 @@ export default function Dashboard() {
     const portalToken = quote.portalToken ?? makeQuotePortalToken(quote);
     const portalBaseUrl = typeof window !== "undefined" ? window.location.origin : "http://127.0.0.1:3000";
     const portalUrl = quote.portalUrl ?? `${portalBaseUrl}/client/quotes/${portalToken}`;
-    const sentAt = workflowTimestamp();
-    const outlookMessageId = `outlook-${quote.ref.toLowerCase()}-${Date.now()}`;
+    const emailText = `${draft.body}\n\nView and accept your quote online: ${portalUrl}`;
+    const costCentres = quoteCostCentres[quote.id] ?? [];
+    const subtotal = costCentres.length
+      ? costCentres.reduce((sum, centre) => sum + quoteCostCentreTotals(centre).totalSell, 0)
+      : quote.value;
+    const vatAmount = subtotal * (numberFromSetting(normalizedFinanceSettings.vatRate, 20) / 100);
+    setIsSendingLiveEmail(true);
+    let delivery: LiveEmailDelivery;
+    try {
+      delivery = await sendThroughLiveOutbox({
+        to: draft.to,
+        cc: draft.cc,
+        subject: draft.subject,
+        text: emailText,
+        document: draft.attachPdf
+          ? {
+              filename: `${quote.ref}.pdf`,
+              title: "Quotation",
+              businessName: businessSettings.tradingName || businessSettings.companyName,
+              reference: quote.ref,
+              recipient: quote.customer,
+              subject: quote.description,
+              rows: costCentres.length
+                ? costCentres.map((centre) => ({
+                    description: centre.name,
+                    detail: centre.clientDescription,
+                    value: currency(quoteCostCentreTotals(centre).totalSell),
+                  }))
+                : [{ description: quote.description, value: currency(subtotal) }],
+              subtotal: currency(subtotal),
+              vat: currency(vatAmount),
+              total: currency(subtotal + vatAmount),
+            }
+          : undefined,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send the quote.";
+      setSectionError(message);
+      showNotice(`Quote not sent: ${message}`);
+      setIsSendingLiveEmail(false);
+      return false;
+    }
+    const sentAt = delivery.sentAt;
+    const outlookMessageId = delivery.messageId;
+    let recordUpdateWarning = "";
 
     try {
       await persistQuotePatch(quote.id, {
@@ -13554,10 +19426,8 @@ export default function Dashboard() {
         sentAt,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to send quote right now.";
-      setSectionError(message);
-      showNotice(message);
-      return false;
+      recordUpdateWarning = error instanceof Error ? error.message : "The quote record could not be updated.";
+      setSectionError(`The email was sent, but ${recordUpdateWarning}`);
     }
 
     logAuditEvent({
@@ -13565,7 +19435,7 @@ export default function Dashboard() {
       action: "emailed",
       recordType: "quote",
       recordId: quote.id,
-      summary: `${quote.ref} emailed from NeXa via Outlook to ${draft.to} with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached. Portal link: ${portalUrl}.`,
+      summary: `${quote.ref} emailed from NeXa via Outlook to ${draft.to}${draft.attachPdf ? ` with ${documentLayouts.find((layout) => layout.key === draft.layout)?.label ?? "quote"} PDF attached` : ""}. Portal link: ${portalUrl}.`,
       source: "outlook draft",
       importance: "normal",
     });
@@ -13576,8 +19446,8 @@ export default function Dashboard() {
       direction: "outbound",
       channel: "Outlook",
       subject: draft.subject,
-      body: `${draft.body}\n\nPortal link: ${portalUrl}`,
-      from: "office@errolwatsongroup.co.uk",
+      body: emailText,
+      from: delivery.from,
       to: draft.to.trim(),
       cc: draft.cc.trim(),
       messageId: outlookMessageId,
@@ -13592,7 +19462,8 @@ export default function Dashboard() {
       ));
     }
 
-    showNotice("Quote sent from NeXa and captured against the quote.");
+    showNotice(recordUpdateWarning ? `Quote email sent, but ${recordUpdateWarning}` : "Quote sent from NeXa and captured against the quote.");
+    setIsSendingLiveEmail(false);
     return true;
   }
 
@@ -13963,11 +19834,94 @@ export default function Dashboard() {
       action: "submitted",
       recordType: "job",
       recordId: selectedJob.id,
-      summary: `${hours} hrs timesheet submitted for ${selectedJob.ref}.`,
+      summary: `${hours} hrs timesheet submitted for ${selectedJob.ref} — awaiting office approval.`,
       source: "timesheet capture",
       importance: "normal",
     });
-    showNotice("Timesheet captured against the job.");
+    showNotice("Timesheet submitted for office approval.");
+  }
+
+  function reviewJobTimesheet(eventId: string, decision: "Approved" | "Rejected") {
+    const event = jobDeliveryEvents.find((row) => row.id === eventId);
+    if (!event || event.kind !== "timesheet") return;
+    if (event.status === "Approved" || event.status === "Rejected") {
+      showNotice(`Timesheet already ${event.status.toLowerCase()}.`);
+      return;
+    }
+    const hours = event.hours ?? 0;
+    const hourlyRate = employeeHourlyRateByName.get(event.actor) ?? Number(fallbackLabourRateSetting.costRate);
+    const costValue = decision === "Approved" ? hours * hourlyRate : event.costValue;
+    setJobDeliveryEvents((current) =>
+      current.map((row) =>
+        row.id === eventId
+          ? {
+              ...row,
+              status: decision,
+              costValue,
+            }
+          : row,
+      ),
+    );
+
+    if (decision === "Approved" && hours > 0) {
+      setJobEstimateCostCentres((current) => {
+        const existing = current[event.jobId] ?? [];
+        const job = jobs.find((row) => row.id === event.jobId);
+        const centres: EstimateCostCentre[] = existing.length
+          ? existing.map((centre) => ({ ...centre, labour: [...centre.labour], materials: [...centre.materials] }))
+          : job
+            ? makeDefaultEstimateCostCentres(job)
+            : [];
+        if (!centres.length) return current;
+        const target = centres[0];
+        if (!target) return current;
+        const labourLine: EstimateLabourLine = {
+          id: `labour-ts-${eventId}`,
+          role: `${event.actor} (approved timesheet)`,
+          hours,
+          costRate: hourlyRate,
+          markupPercent: Number(fallbackLabourRateSetting.markupPercent) || 30,
+          rateSource: "manual",
+        };
+        const nextCentres: EstimateCostCentre[] = [
+          {
+            ...target,
+            labour: [...target.labour.filter((line) => line.id !== labourLine.id), labourLine],
+          },
+          ...centres.slice(1),
+        ];
+        return { ...current, [event.jobId]: nextCentres };
+      });
+
+      const job = jobs.find((row) => row.id === event.jobId);
+      if (job) {
+        const approvedHours =
+          jobDeliveryEvents
+            .filter((row) => row.jobId === event.jobId && row.kind === "timesheet" && (row.status === "Approved" || row.id === eventId))
+            .reduce((total, row) => total + (row.id === eventId ? hours : row.hours ?? 0), 0);
+        const plannedHours = Math.max(0, job.scheduledDurationHours ?? 0);
+        void persistJobPatch(event.jobId, {
+          actualDurationHours: approvedHours,
+          labourCostVariance: plannedHours > 0 ? approvedHours - plannedHours : undefined,
+        }).catch(() => {
+          // local UI already updated via delivery events / cost centres
+        });
+      }
+    }
+
+    logAuditEvent({
+      actor: activeEmployee?.name ?? "NeXa user",
+      action: decision === "Approved" ? "timesheet approved" : "timesheet rejected",
+      recordType: "job",
+      recordId: event.jobId,
+      summary:
+        decision === "Approved"
+          ? `${hours} hrs approved on ${event.jobRef} at ${currency(hourlyRate)}/hr (${currency(costValue || 0)} labour cost).`
+          : `${hours} hrs timesheet rejected on ${event.jobRef}.`,
+      source: "timesheet approval",
+      importance: "high",
+    });
+    showNotice(decision === "Approved" ? `Approved ${hours}h on ${event.jobRef}.` : `Rejected timesheet on ${event.jobRef}.`);
   }
 
   function raiseSelectedJobVariation() {
@@ -14452,6 +20406,12 @@ export default function Dashboard() {
         source: "job planner",
         importance: "high",
       });
+      await pushJobToSimproRecord(updated, {
+        costCentres: selectedJobEstimateCostCentres,
+        schedule: nextAssignments,
+        silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule job.";
       setSectionError(message);
@@ -14532,6 +20492,12 @@ export default function Dashboard() {
         summary: `${selectedJob.ref} planner allocation removed.`,
         source: "job planner",
         importance: "normal",
+      });
+      await pushJobToSimproRecord(updated, {
+        costCentres: selectedJobEstimateCostCentres,
+        schedule: nextAssignments,
+        silentSuccess: true,
+        silentIfUnconfigured: true,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to remove the planner allocation.";
@@ -14705,7 +20671,15 @@ export default function Dashboard() {
   async function approveSelectedJobForInvoice() {
     if (!selectedJob) return;
     if (!selectedJobReviewComplete) {
+      if (workflowRules.requireCommercialReviewBeforeInvoice && !selectedJobReviewState.commercial) {
+        showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
+        return;
+      }
       showNotice("All completion review checks must be ticked before invoicing.");
+      return;
+    }
+    if (workflowRules.requireCommercialReviewBeforeInvoice && !selectedJobReviewState.commercial) {
+      showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
       return;
     }
     try {
@@ -15132,6 +21106,108 @@ export default function Dashboard() {
           : centre,
       ),
     );
+  }
+
+  async function ensurePrebuildKitsLoaded() {
+    if (prebuildKits.length) return prebuildKits;
+    try {
+      const response = await fetch("/api/prebuilds", { headers: requestHeaders });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "Unable to load pre-builds");
+      const kits = body.kits || [];
+      setPrebuildKits(kits);
+      if (!selectedPrebuildId && kits[0]?.id) setSelectedPrebuildId(kits[0].id);
+      return kits as typeof prebuildKits;
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to load pre-builds.");
+      return [] as typeof prebuildKits;
+    }
+  }
+
+  async function applySelectedPrebuildToJobCentre(centreId: string) {
+    const kits = await ensurePrebuildKitsLoaded();
+    const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+    if (!kit) {
+      showNotice("Create a pre-build in Setup → Pre-builds first.");
+      return;
+    }
+    const materialMarkup = defaultMaterialMarkupPercent;
+    const labourMarkup = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
+    setJobCentresForSelected((centres) =>
+      centres.map((centre) => {
+        if (centre.id !== centreId) return centre;
+        const materials = [...centre.materials];
+        const labour = [...centre.labour];
+        kit.lines.forEach((line, index) => {
+          if (line.kind === "Labour") {
+            labour.push({
+              id: `labour-pb-${kit.id}-${Date.now()}-${index}`,
+              role: line.description,
+              hours: line.quantity,
+              costRate: line.unitCost,
+              markupPercent: line.unitSell && line.unitCost
+                ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
+                : labourMarkup,
+              rateSource: "manual",
+            });
+          } else {
+            materials.push({
+              id: `material-pb-${kit.id}-${Date.now()}-${index}`,
+              catalogItemId: `prebuild-${kit.id}`,
+              description: line.description,
+              quantity: line.quantity,
+              unitCost: line.unitCost,
+              markupPercent: line.unitSell && line.unitCost
+                ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
+                : materialMarkup,
+              rateSource: "manual",
+            });
+          }
+        });
+        return { ...centre, materials, labour };
+      }),
+    );
+    showNotice(`Applied pre-build “${kit.name}” (${kit.lines.length} lines).`);
+  }
+
+  async function applySelectedPrebuildToQuoteCentre(centreId: string) {
+    if (!selectedQuote) return;
+    const kits = await ensurePrebuildKitsLoaded();
+    const kit = kits.find((row) => row.id === selectedPrebuildId) || kits[0];
+    if (!kit) {
+      showNotice("Create a pre-build in Setup → Pre-builds first.");
+      return;
+    }
+    const materialMarkup = defaultMaterialMarkupPercent;
+    const labourMarkup = defaultMarkupForCatalogType("Labour", normalizedFinanceSettings);
+    markCostCentreEdited();
+    setQuoteCostCentres((current) => ({
+      ...current,
+      [selectedQuote.id]: (current[selectedQuote.id] ?? []).map((centre) => {
+        if (centre.id !== centreId) return centre;
+        const lines = [...centre.lines];
+        kit.lines.forEach((line, index) => {
+          const markup =
+            line.unitSell && line.unitCost
+              ? Math.round(((line.unitSell / line.unitCost) - 1) * 100)
+              : line.kind === "Labour"
+                ? labourMarkup
+                : materialMarkup;
+          const unitSell = line.unitSell ?? roundCurrencyValue(lineSellFromMarkup(line.unitCost, markup));
+          lines.push({
+            id: `quote-pb-${kit.id}-${Date.now()}-${index}`,
+            catalogItemId: line.kind === "Labour" ? "one-off-labour" : `prebuild-${kit.id}`,
+            description: `${line.description}${line.kind === "Labour" ? ` (${line.quantity} hrs)` : ""}`,
+            quantity: line.kind === "Labour" ? 1 : line.quantity,
+            unitCost: line.kind === "Labour" ? line.unitCost * line.quantity : line.unitCost,
+            unitSell: line.kind === "Labour" ? unitSell * line.quantity : unitSell,
+            rateSource: "manual",
+          });
+        });
+        return { ...centre, lines };
+      }),
+    }));
+    showNotice(`Applied pre-build “${kit.name}” to ${selectedQuote.ref}.`);
   }
 
   function addOneOffEstimateMaterialLine(centreId: string) {
@@ -16249,6 +22325,16 @@ export default function Dashboard() {
   function makeSurveyAsset(centre: QuoteCostCentre, kind: SurveyAssetKind): SurveyAsset {
     const stamp = new Date().toISOString();
     const count = (centre.surveyAssets ?? []).filter((asset) => asset.kind === kind).length + 1;
+    const previewLabel = `${kind}: ${centre.name}`;
+    const previewImageDataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="600" viewBox="0 0 900 600">
+        <rect width="900" height="600" fill="#eef6fa"/>
+        <rect x="40" y="40" width="820" height="520" rx="28" fill="#ffffff" stroke="#c8dde6" stroke-width="4"/>
+        <text x="80" y="150" font-family="Arial, sans-serif" font-size="44" fill="#173949">${previewLabel}</text>
+        <text x="80" y="220" font-family="Arial, sans-serif" font-size="28" fill="#4d6672">${centre.name}</text>
+        <text x="80" y="290" font-family="Arial, sans-serif" font-size="24" fill="#688492">Preview placeholder - replace with uploaded survey evidence.</text>
+      </svg>`,
+    )}`;
     const defaults: Record<SurveyAssetKind, Pick<SurveyAsset, "title" | "detail" | "status" | "clientVisible">> = {
       "Room scan": {
         title: `${centre.name} room scan ${count}`,
@@ -16274,6 +22360,8 @@ export default function Dashboard() {
       id: `${centre.id}-survey-${Date.now()}-${count}`,
       kind,
       createdAt: stamp,
+      fileName: `${centre.name}-${kind.toLowerCase().replace(/\s+/g, "-")}-${count}.svg`,
+      previewImageDataUrl,
       ...defaults[kind],
     };
   }
@@ -17544,50 +23632,6 @@ export default function Dashboard() {
       ? ""
       : enteredLoginPassword || activeEditingEmployee?.login?.password || "EWG2026";
 
-    if (serverAuthMode === "users") {
-      try {
-        const usersResponse = await fetch("/api/auth/users");
-        if (!usersResponse.ok) throw new Error("Unable to read secure user accounts.");
-        const authUsers = (await usersResponse.json()) as ServerAuthUser[];
-        const existingAuthUser = authUsers.find((user) => user.employeeId === editingEmployeeId);
-        if (employeeProfileDraft.loginEnabled && !existingAuthUser && enteredLoginPassword.length < 10) {
-          showNotice("Set a password of at least 10 characters for this new login.");
-          setActiveEmployeeTab("login");
-          return;
-        }
-
-        const payload = {
-          employeeId: editingEmployeeId,
-          name: savedEmployeeName,
-          username: savedLoginUsername,
-          role: employeeRoleDraft,
-          permissions: employeePermissionDraft,
-          enabled: employeeProfileDraft.loginEnabled,
-          ...(enteredLoginPassword ? { password: enteredLoginPassword } : {}),
-        };
-        const response = existingAuthUser
-          ? await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            })
-          : employeeProfileDraft.loginEnabled
-            ? await fetch("/api/auth/users", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-              })
-            : null;
-        if (response && !response.ok) {
-          const result = await response.json().catch(() => ({})) as { error?: string };
-          throw new Error(result.error || "Unable to save the secure login.");
-        }
-      } catch (error) {
-        showNotice(error instanceof Error ? error.message : "Unable to save the secure login.");
-        return;
-      }
-    }
-
     markEmployeeEdited();
     const nextEmployees = employees.map((employee) =>
         employee.id === editingEmployeeId
@@ -17644,6 +23688,50 @@ export default function Dashboard() {
       return;
     }
 
+    let loginSyncWarning = "";
+    if (serverAuthMode === "users") {
+      try {
+        const usersResponse = await fetch("/api/auth/users");
+        if (!usersResponse.ok) throw new Error("secure user accounts are unavailable");
+        const authUsers = (await usersResponse.json()) as ServerAuthUser[];
+        const existingAuthUser = authUsers.find((user) => user.employeeId === editingEmployeeId);
+        const isCreatingLogin = employeeProfileDraft.loginEnabled && !existingAuthUser && Boolean(enteredLoginPassword);
+        if (isCreatingLogin && enteredLoginPassword.length < 10) {
+          throw new Error("set a password of at least 10 characters on the Login tab");
+        }
+
+        const payload = {
+          employeeId: editingEmployeeId,
+          name: savedEmployeeName,
+          username: savedLoginUsername,
+          role: employeeRoleDraft,
+          permissions: employeePermissionDraft,
+          enabled: employeeProfileDraft.loginEnabled,
+          ...(enteredLoginPassword ? { password: enteredLoginPassword } : {}),
+        };
+        const response = existingAuthUser
+          ? await fetch(`/api/auth/users/${encodeURIComponent(existingAuthUser.id)}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            })
+          : isCreatingLogin
+            ? await fetch("/api/auth/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              })
+            : null;
+        if (response && !response.ok) {
+          const result = await response.json().catch(() => ({})) as { error?: string };
+          throw new Error(result.error || "the secure login could not be updated");
+        }
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : "the secure login could not be updated";
+        loginSyncWarning = ` Employee details were saved, but the login was not changed: ${reason}.`;
+      }
+    }
+
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "updated",
@@ -17655,7 +23743,7 @@ export default function Dashboard() {
     });
     setNewEmployeeId(null);
     setSectionError(null);
-    showNotice("Employee card updated.");
+    showNotice(loginSyncWarning ? `Employee card saved.${loginSyncWarning}` : "Employee card saved.");
   }
 
   function openCreateMenu(event: MouseEvent<HTMLButtonElement>) {
@@ -17667,6 +23755,17 @@ export default function Dashboard() {
     setShowCreateMenu(true);
   }
 
+  function makeIntakeSetupOptions(): RecordSetupOptions {
+    return {
+      ...blankRecordSetupOptions,
+      primaryTech: activeEmployee?.name || surveyorOptions[0] || "",
+      labourMarkupPercent: String(defaultLabourMarkupPercent),
+      materialMarkupPercent: String(defaultMaterialMarkupPercent),
+      labourTaxCode: "Standard 20%",
+      itemTaxCode: "Standard 20%",
+    };
+  }
+
   function createLead() {
     if (!access.canCreateLead) {
       showNotice("Your role does not have permission to create leads.");
@@ -17674,11 +23773,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    setLeadFormError("");
-    setLeadPostcodeSearch("");
-    setHomeView("lead-create");
-    setShowCreateLead(true);
-    scrollWorkspaceToTop();
+    window.location.assign("/ai-intake?mode=lead");
   }
 
   function createQuote() {
@@ -17688,9 +23783,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    setHomeView("quote-create");
-    setShowCreateQuote(true);
-    scrollWorkspaceToTop();
+    window.location.assign("/ai-intake?mode=quote");
   }
 
   function createJobFromMenu() {
@@ -17700,9 +23793,7 @@ export default function Dashboard() {
       return;
     }
     setShowCreateMenu(false);
-    setHomeView("job-create");
-    setShowCreateJob(true);
-    scrollWorkspaceToTop();
+    window.location.assign("/ai-intake?mode=job");
   }
 
   function createRef() {
@@ -17720,10 +23811,13 @@ export default function Dashboard() {
   function updateLeadAddressParts(patch: Partial<LeadAddressParts>) {
     setNewLead((current) => {
       const addressParts = { ...blankLeadAddressParts, ...current.addressParts, ...patch };
+      const address = leadAddressFromParts(addressParts);
       return {
         ...current,
         addressParts,
-        address: leadAddressFromParts(addressParts),
+        address,
+        siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+        siteName: current.siteName?.trim() || (address ? makeSiteName(address) : ""),
       };
     });
   }
@@ -17773,18 +23867,32 @@ export default function Dashboard() {
     }));
   }
 
+  function siteNameForSelection(client: ClientRecord | undefined, selection: { siteId: string; address: string }) {
+    const realId = realSiteIdOrUndefined(selection.siteId);
+    if (realId) {
+      const site = clientSites.find((item) => item.id === realId);
+      if (site?.name) return site.name;
+    }
+    if (selection.siteId === CLIENT_SITE_BILLING && client) {
+      return makeSiteName(selection.address || client.billingAddress || client.name);
+    }
+    if (selection.address) return makeSiteName(selection.address);
+    return "";
+  }
+
   function setLeadExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
-    const address = site?.address ?? client.billingAddress;
+    const selection = defaultSiteSelectionForClient(client, clientSites);
+    const address = selection.address;
     const postcode = postcodeFromAddress(address);
     setLeadPostcodeSearch(postcode);
     setNewLead((current) => ({
       ...current,
       customerMode: "existing",
       clientId,
-      siteId: site?.id ?? "",
+      siteId: selection.siteId,
+      siteName: siteNameForSelection(client, selection),
       customerName: client.name,
       phone: client.phone,
       email: client.email,
@@ -17802,15 +23910,20 @@ export default function Dashboard() {
   }
 
   function setLeadExistingSite(siteId: string) {
-    const site = clientSites.find((item) => item.id === siteId);
-    const postcode = site ? postcodeFromAddress(site.address) : "";
+    const client = clients.find((item) => item.id === newLead.clientId);
+    const selection = resolveSiteSelectionForClient(client, clientSites, siteId);
+    const postcode = selection.address ? postcodeFromAddress(selection.address) : "";
     setNewLead((current) => ({
       ...current,
-      siteId,
-      address: site?.address ?? current.address,
-      addressParts: site ? leadAddressPartsFromAddress(site.address, postcode) : current.addressParts,
+      siteId: selection.siteId,
+      siteName: selection.siteId === CLIENT_SITE_NEW ? "" : siteNameForSelection(client, selection),
+      address: selection.address,
+      addressParts: selection.address
+        ? leadAddressPartsFromAddress(selection.address, postcode)
+        : blankLeadAddressParts,
     }));
     if (postcode) setLeadPostcodeSearch(postcode);
+    else if (selection.siteId === CLIENT_SITE_NEW) setLeadPostcodeSearch("");
   }
 
   function clearLeadCustomerMatch() {
@@ -17818,31 +23931,44 @@ export default function Dashboard() {
       ...current,
       customerMode: "new",
       clientId: undefined,
-      siteId: undefined,
+      siteId: CLIENT_SITE_NEW,
     }));
   }
 
   function setQuoteExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
+    const selection = defaultSiteSelectionForClient(client, clientSites);
+    const postcode = postcodeFromAddress(selection.address);
+    setQuotePostcodeSearch(postcode);
     setNewQuote((current) => ({
       ...current,
       clientId,
-      siteId: site?.id ?? "",
+      siteId: selection.siteId,
+      siteName: siteNameForSelection(client, selection),
       customer: client.name,
+      contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
-      address: site?.address ?? client.billingAddress,
+      address: selection.address,
+      addressParts: leadAddressPartsFromAddress(selection.address, postcode),
     }));
   }
 
   function setQuoteExistingSite(siteId: string) {
-    const site = clientSites.find((item) => item.id === siteId);
+    const client = clients.find((item) => item.id === newQuote.clientId);
+    const selection = resolveSiteSelectionForClient(client, clientSites, siteId);
+    const postcode = selection.address ? postcodeFromAddress(selection.address) : "";
+    if (selection.address) setQuotePostcodeSearch(postcode);
+    else if (selection.siteId === CLIENT_SITE_NEW) setQuotePostcodeSearch("");
     setNewQuote((current) => ({
       ...current,
-      siteId,
-      address: site?.address ?? current.address,
+      siteId: selection.siteId,
+      siteName: selection.siteId === CLIENT_SITE_NEW ? "" : siteNameForSelection(client, selection),
+      address: selection.address,
+      addressParts: selection.address
+        ? leadAddressPartsFromAddress(selection.address, postcode)
+        : blankLeadAddressParts,
     }));
   }
 
@@ -17850,54 +23976,189 @@ export default function Dashboard() {
     setNewQuote((current) => ({
       ...current,
       clientId: "",
-      siteId: "",
-      customer: "",
-      phone: "",
-      email: "",
-      address: "",
+      siteId: CLIENT_SITE_NEW,
     }));
   }
 
   function setJobExistingClient(clientId: string) {
     const client = clients.find((item) => item.id === clientId);
-    const site = clientSites.find((item) => item.clientId === clientId);
     if (!client) return;
+    const selection = defaultSiteSelectionForClient(client, clientSites);
+    const postcode = postcodeFromAddress(selection.address);
+    setJobPostcodeSearch(postcode);
     setNewJob((current) => ({
       ...current,
       clientId,
-      siteId: site?.id ?? "",
+      siteId: selection.siteId,
+      siteName: siteNameForSelection(client, selection),
       customer: client.name,
+      contactName: client.primaryContact,
       phone: client.phone,
       email: client.email,
-      address: site?.address ?? client.billingAddress,
-      site: site?.address ?? current.site,
+      address: selection.address,
+      site: selection.address || current.site,
+      addressParts: leadAddressPartsFromAddress(selection.address, postcode),
     }));
   }
 
   function setJobExistingSite(siteId: string) {
-    const site = clientSites.find((item) => item.id === siteId);
+    const client = clients.find((item) => item.id === newJob.clientId);
+    const selection = resolveSiteSelectionForClient(client, clientSites, siteId);
+    const postcode = selection.address ? postcodeFromAddress(selection.address) : "";
+    if (selection.address) setJobPostcodeSearch(postcode);
+    else if (selection.siteId === CLIENT_SITE_NEW) setJobPostcodeSearch("");
     setNewJob((current) => ({
       ...current,
-      siteId,
-      address: site?.address ?? current.address,
-      site: site?.address ?? current.site,
+      siteId: selection.siteId,
+      siteName: selection.siteId === CLIENT_SITE_NEW ? "" : siteNameForSelection(client, selection),
+      address: selection.address,
+      site: selection.address,
+      addressParts: selection.address
+        ? leadAddressPartsFromAddress(selection.address, postcode)
+        : blankLeadAddressParts,
     }));
+  }
+
+  function selectQuoteAddress(address: string, postcode: string) {
+    const addressParts = leadAddressPartsFromAddress(address, postcode);
+    setNewQuote((current) => ({
+      ...current,
+      address,
+      addressParts,
+      siteName: current.siteName.trim() || makeSiteName(address),
+      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+    }));
+    setQuotePostcodeSearch(postcode);
+  }
+
+  function selectJobAddress(address: string, postcode: string) {
+    const addressParts = leadAddressPartsFromAddress(address, postcode);
+    setNewJob((current) => ({
+      ...current,
+      address,
+      site: address,
+      addressParts,
+      siteName: current.siteName.trim() || makeSiteName(address),
+      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+    }));
+    setJobPostcodeSearch(postcode);
+  }
+
+  function updateQuoteAddressParts(patch: Partial<LeadAddressParts>) {
+    setNewQuote((current) => {
+      const addressParts = { ...blankLeadAddressParts, ...current.addressParts, ...patch };
+      const address = leadAddressFromParts(addressParts);
+      return {
+        ...current,
+        addressParts,
+        address,
+        siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+        siteName: current.siteName.trim() || (address ? makeSiteName(address) : ""),
+      };
+    });
+  }
+
+  function updateJobAddressParts(patch: Partial<LeadAddressParts>) {
+    setNewJob((current) => {
+      const addressParts = { ...blankLeadAddressParts, ...current.addressParts, ...patch };
+      const address = leadAddressFromParts(addressParts);
+      return {
+        ...current,
+        addressParts,
+        address,
+        site: address,
+        siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+        siteName: current.siteName.trim() || (address ? makeSiteName(address) : ""),
+      };
+    });
+  }
+
+  function patchQuoteSetup(patch: Partial<RecordSetupOptions>) {
+    setNewQuote((current) => ({ ...current, setup: { ...current.setup, ...patch } }));
+  }
+
+  function patchJobSetup(patch: Partial<RecordSetupOptions>) {
+    setNewJob((current) => ({ ...current, setup: { ...current.setup, ...patch } }));
+  }
+
+  function patchLeadSetup(patch: Partial<RecordSetupOptions>) {
+    setNewLead((current) => ({
+      ...current,
+      setup: { ...(current.setup ?? blankRecordSetupOptions), ...patch },
+    }));
+  }
+
+  function beginNewCustomerOnQuote() {
+    setNewQuote((current) => ({
+      ...current,
+      clientId: "",
+      siteId: CLIENT_SITE_NEW,
+      siteName: "",
+      address: "",
+      addressParts: blankLeadAddressParts,
+      contactName: "",
+      phone: "",
+      email: "",
+      setup: { ...current.setup, siteContact: "", additionalContactName: "" },
+    }));
+    setQuotePostcodeSearch("");
+  }
+
+  function beginNewSiteOnQuote() {
+    setQuoteExistingSite(CLIENT_SITE_NEW);
+  }
+
+  function beginNewCustomerOnJob() {
+    setNewJob((current) => ({
+      ...current,
+      clientId: "",
+      siteId: CLIENT_SITE_NEW,
+      siteName: "",
+      address: "",
+      site: "",
+      addressParts: blankLeadAddressParts,
+      contactName: "",
+      phone: "",
+      email: "",
+      setup: { ...current.setup, siteContact: "", additionalContactName: "" },
+    }));
+    setJobPostcodeSearch("");
+  }
+
+  function beginNewSiteOnJob() {
+    setJobExistingSite(CLIENT_SITE_NEW);
+  }
+
+  function beginNewCustomerOnLead() {
+    setNewLead((current) => ({
+      ...current,
+      customerMode: "new",
+      clientId: undefined,
+      siteId: CLIENT_SITE_NEW,
+      siteName: "",
+      address: "",
+      addressParts: blankLeadAddressParts,
+      siteContact: "",
+      phone: "",
+      email: "",
+      mainContact: blankLeadMainContact,
+    }));
+    setLeadPostcodeSearch("");
+  }
+
+  function beginNewSiteOnLead() {
+    setLeadExistingSite(CLIENT_SITE_NEW);
   }
 
   function clearJobCustomerMatch() {
     setNewJob((current) => ({
       ...current,
       clientId: "",
-      siteId: "",
-      customer: "",
-      phone: "",
-      email: "",
-      address: "",
-      site: "",
+      siteId: CLIENT_SITE_NEW,
     }));
   }
 
-  async function createCustomerFromDraft(source: string, draft: { customer: string; phone: string; email: string; address: string }) {
+  async function createCustomerFromDraft(source: string, draft: { customer: string; contactName?: string; phone: string; email: string; address: string }) {
     if (!draft.customer.trim()) {
       showNotice("Add the customer name before creating the customer record.");
       return null;
@@ -17920,7 +24181,7 @@ export default function Dashboard() {
       headers: { ...requestHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
         name: draft.customer.trim(),
-        primaryContact: draft.customer.trim(),
+        primaryContact: draft.contactName?.trim() || draft.customer.trim(),
         phone: draft.phone.trim(),
         email: draft.email.trim(),
         address: draft.address.trim(),
@@ -17958,12 +24219,330 @@ export default function Dashboard() {
     return { client: createdClient, site: createdSite };
   }
 
+  function syncClientAcrossWorkflowRecords(client: ClientRecord) {
+    setQuotes((current) => current.map((quote) => (
+      quote.clientId === client.id ? { ...quote, customer: client.name } : quote
+    )));
+    setJobs((current) => current.map((job) => (
+      job.clientId === client.id ? { ...job, customer: client.name } : job
+    )));
+  }
+
+  function syncSiteAcrossWorkflowRecords(site: ClientSite) {
+    setJobs((current) => current.map((job) => (
+      job.siteId === site.id ? { ...job, site: site.address } : job
+    )));
+  }
+
+  async function persistClientRecordPatch(clientId: string, patch: Partial<ClientRecord>) {
+    const response = await fetch(`/api/clients/${clientId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      client?: ClientRecord;
+      quotes?: Quote[];
+      jobs?: Job[];
+    };
+    if (!response.ok || !result.client) throw new Error(result.error || "Unable to update the customer record.");
+    setClients((current) => current.map((client) => (client.id === result.client!.id ? result.client! : client)));
+    syncClientAcrossWorkflowRecords(result.client);
+    if (result.quotes?.length) {
+      setQuotes((current) => current.map((quote) => result.quotes!.find((item) => item.id === quote.id) ?? quote));
+    }
+    if (result.jobs?.length) {
+      setJobs((current) => current.map((job) => result.jobs!.find((item) => item.id === job.id) ?? job));
+    }
+    return result.client;
+  }
+
+  async function sendActiveClientStatement() {
+    if (!activeClient) return;
+    if (!activeClient.email?.trim().includes("@")) {
+      showNotice("Add a customer email before sending a statement.");
+      return;
+    }
+    if (!activeClientOutstandingInvoices.length) {
+      showNotice(`${activeClient.name} has no outstanding invoices to statement.`);
+      return;
+    }
+
+    const companyName = businessSettings.tradingName || businessSettings.companyName || "NeXa";
+    const asAt = currentOperatingDate;
+    const rows = activeClientOutstandingInvoices.map((invoice) => {
+      const outstanding = invoiceOutstandingBalance(invoice);
+      const daysOverdue = Math.max(0, daysSinceDate(invoice.dueDate) ?? 0);
+      return {
+        invoice,
+        outstanding,
+        daysOverdue,
+        description: `${invoice.ref} · due ${invoice.dueDate}${daysOverdue > 0 ? ` · ${daysOverdue}d overdue` : ""}`,
+        value: currency(outstanding),
+      };
+    });
+    const totalOutstanding = rows.reduce((sum, row) => sum + row.outstanding, 0);
+    const contactName = activeClient.primaryContact?.split(" ")[0] || "there";
+
+    let subject = `Account statement from ${companyName} · ${asAt}`;
+    let bodyText = `Hi ${contactName},\n\nPlease find your outstanding account statement as at ${asAt}.\n\nTotal outstanding: ${currency(totalOutstanding)}.\n\nKind regards,\n${companyName}`;
+    try {
+      const response = await fetch("/api/setup-config", { headers: requestHeaders });
+      const config = (await response.json().catch(() => null)) as { emailTemplates?: SetupEmailTemplateRow[] } | null;
+      const template = (config?.emailTemplates || []).find((row) => row.key === "statement");
+      if (template) {
+        const vars = {
+          contact: contactName,
+          company: companyName,
+          date: asAt,
+          outstanding: currency(totalOutstanding),
+          ref: activeClient.accountReference || activeClient.name,
+        };
+        subject = fillEmailTemplate(template.subject, vars);
+        bodyText = fillEmailTemplate(template.body, vars);
+      }
+    } catch {
+      // keep defaults
+    }
+
+    setIsSendingClientStatement(true);
+    try {
+      const delivery = await sendThroughLiveOutbox({
+        to: activeClient.email.trim(),
+        subject,
+        text: bodyText,
+        document: {
+          filename: `${activeClient.accountReference || activeClient.name}-statement.pdf`,
+          title: "Customer statement",
+          businessName: companyName,
+          reference: `STMT-${asAt}`,
+          recipient: activeClient.name,
+          subject: `Outstanding balance as at ${asAt}`,
+          rows: rows.map((row) => ({
+            description: row.description,
+            detail: row.invoice.title,
+            value: row.value,
+          })),
+          subtotal: currency(totalOutstanding),
+          vat: currency(0),
+          total: currency(totalOutstanding),
+        },
+      });
+
+      const sentAt = delivery.sentAt;
+      await persistClientRecordPatch(activeClient.id, {
+        lastStatementSentAt: sentAt,
+        lastStatementSentTo: activeClient.email.trim(),
+      });
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "statement sent",
+        recordType: "client",
+        recordId: activeClient.id,
+        summary: `${activeClient.name} statement emailed to ${activeClient.email.trim()} · ${rows.length} invoice(s) · ${currency(totalOutstanding)} outstanding.`,
+        source: "outlook draft",
+        importance: "high",
+      });
+      addCommunicationRecord({
+        recordType: "client",
+        recordId: activeClient.id,
+        direction: "outbound",
+        channel: "Outlook",
+        subject,
+        body: bodyText,
+        from: delivery.from,
+        to: activeClient.email.trim(),
+        messageId: delivery.messageId,
+        status: "Sent",
+      });
+      showNotice(`Statement sent to ${activeClient.email.trim()} · ${currency(totalOutstanding)} across ${rows.length} invoice(s).`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send customer statement.");
+    } finally {
+      setIsSendingClientStatement(false);
+    }
+  }
+
+  async function persistSiteRecordPatch(siteId: string, patch: Partial<ClientSite>) {
+    const response = await fetch(`/api/client-sites/${siteId}`, {
+      method: "PATCH",
+      headers: { ...requestHeaders, "Content-Type": "application/json", "x-hub-actor": activeEmployee?.name ?? "NeXa user" },
+      body: JSON.stringify({ ...patch, actor: activeEmployee?.name ?? "NeXa user" }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      site?: ClientSite;
+      jobs?: Job[];
+    };
+    if (!response.ok || !result.site) throw new Error(result.error || "Unable to update the site record.");
+    setClientSites((current) => current.map((site) => (site.id === result.site!.id ? result.site! : site)));
+    syncSiteAcrossWorkflowRecords(result.site);
+    if (result.jobs?.length) {
+      setJobs((current) => current.map((job) => result.jobs!.find((item) => item.id === job.id) ?? job));
+    }
+    return result.site;
+  }
+
+  async function createSiteForClient(clientId: string, draft: ClientSiteDraft) {
+    const response = await fetch("/api/client-sites", {
+      method: "POST",
+      headers: { ...requestHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        clientId,
+        name: draft.name,
+        address: draft.address,
+        primaryContact: draft.primaryContact,
+        accessNotes: draft.accessNotes,
+        serviceLine: draft.serviceLine,
+        nextVisit: draft.nextVisit,
+        actor: activeEmployee?.name ?? "NeXa user",
+      }),
+    });
+    const result = await response.json().catch(() => ({})) as {
+      error?: string;
+      site?: ClientSite;
+      clientSites?: ClientSite[];
+      auditEvents?: AuditEvent[];
+    };
+    if (!response.ok || !result.site) throw new Error(result.error || "Unable to create the site record.");
+    setClientSites((current) => {
+      const map = new Map<string, ClientSite>(current.map((site) => [site.id, site]));
+      (result.clientSites ?? [result.site!]).forEach((site) => map.set(site.id, site));
+      return Array.from(map.values());
+    });
+    if (result.auditEvents?.length) {
+      setAuditEvents((current) => [...result.auditEvents!, ...current.filter((item) => !result.auditEvents!.some((event) => event.id === item.id))]);
+    }
+    return result.site;
+  }
+
+  async function resolveOrCreateSiteForClient(
+    clientId: string,
+    address: string,
+    primaryContact: string,
+    serviceLine: string,
+    siteName = "",
+  ) {
+    const trimmed = address.trim();
+    if (!trimmed) throw new Error("Add the site address before continuing.");
+    const existing = clientSites.find(
+      (site) => site.clientId === clientId && addressesMatch(site.address, trimmed),
+    );
+    if (existing) return existing;
+    return createSiteForClient(clientId, {
+      ...blankClientSiteDraft,
+      name: siteName.trim() || makeSiteName(trimmed),
+      address: trimmed,
+      primaryContact: primaryContact.trim() || "Site contact",
+      serviceLine: serviceLine.trim() || "Site work",
+    });
+  }
+
+  function resolveLinkedSiteAgainstAddress(siteId: string | undefined, address: string, clientId?: string) {
+    const realId = realSiteIdOrUndefined(siteId);
+    if (!realId) return undefined;
+    const site = clientSites.find(
+      (item) => item.id === realId && (!clientId || item.clientId === clientId),
+    );
+    if (!site) return undefined;
+    if (address.trim() && !addressesMatch(site.address, address)) return undefined;
+    return site;
+  }
+
+  function recordDocumentStorageKey(recordType: RecordDocumentScope, recordRef: string) {
+    return `${recordType}:${recordRef}`;
+  }
+
+  function appendManualRecordDocuments(recordType: RecordDocumentScope, recordRef: string, files: RecordDocumentFile[]) {
+    const key = recordDocumentStorageKey(recordType, recordRef);
+    setManualRecordDocuments((current) => ({
+      ...current,
+      [key]: [...files, ...(current[key] ?? [])],
+    }));
+  }
+
+  async function addManualRecordDocuments(
+    recordType: RecordDocumentScope,
+    recordRef: string,
+    fileList: FileList | null,
+  ) {
+    if (!fileList?.length) return;
+
+    // Live/shared workspace: persist files on the server so they survive refresh.
+    if (serverWorkspaceMode === "live") {
+      try {
+        const body = new FormData();
+        body.set("scope", recordType);
+        body.set("recordRef", recordRef);
+        Array.from(fileList).forEach((file) => body.append("files", file));
+        const response = await fetch("/api/record-documents", {
+          method: "POST",
+          headers: { ...requestHeaders },
+          body,
+        });
+        const payload = (await response.json()) as { documents?: Array<{
+          id: string;
+          folderId: string;
+          name: string;
+          type: string;
+          visibility: "Private" | "Engineer" | "Public" | "Client";
+          linkedTo: string;
+          fileUrl: string;
+        }>; error?: string };
+        if (!response.ok || !payload.documents?.length) {
+          throw new Error(payload.error || "Upload failed");
+        }
+        appendManualRecordDocuments(
+          recordType,
+          recordRef,
+          payload.documents.map((document) => ({
+            folderId: document.folderId,
+            name: document.name,
+            type: document.type,
+            visibility: (document.visibility === "Public" ? "Client" : document.visibility) as DocumentVisibility,
+            linkedTo: document.linkedTo,
+            fileUrl: document.fileUrl,
+          })),
+        );
+        showNotice(`${payload.documents.length} file${payload.documents.length === 1 ? "" : "s"} saved to ${recordRef}.`);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to upload documents.";
+        showNotice(message);
+        setSectionError(message);
+        return;
+      }
+    }
+
+    const files = await Promise.all(
+      Array.from(fileList).map(async (file): Promise<RecordDocumentFile> => {
+        const previewImageDataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+          reader.onerror = () => resolve("");
+          reader.readAsDataURL(file);
+        });
+        return {
+          folderId: file.type.startsWith("image/") ? (recordType === "job" ? "mid-work-photos" : "survey-photos") : "office-private",
+          name: file.name,
+          type: file.type || "Attachment",
+          visibility: recordType === "job" && file.type.startsWith("image/") ? "Engineer" : "Private",
+          linkedTo: recordRef,
+          previewImageDataUrl,
+        };
+      }),
+    );
+    appendManualRecordDocuments(recordType, recordRef, files);
+    showNotice(`${files.length} file${files.length === 1 ? "" : "s"} added to ${recordRef}.`);
+  }
+
   function selectLeadAddress(address: string, postcode: string) {
-    const matchingSite = clientSites.find((site) => site.clientId === newLead.clientId && site.address === address);
     const addressParts = leadAddressPartsFromAddress(address, postcode);
     setNewLead((current) => ({
       ...current,
-      siteId: matchingSite?.id,
+      siteId: reconcileSiteIdForAddress(current.clientId, clients, clientSites, current.siteId, address),
+      siteName: current.siteName?.trim() || makeSiteName(address),
       address,
       addressParts,
     }));
@@ -17989,7 +24568,8 @@ export default function Dashboard() {
       ref: createLeadRef(),
       source: newLead.source,
       clientId: newLead.clientId || undefined,
-      siteId: newLead.siteId || undefined,
+      siteId: realSiteIdOrUndefined(newLead.siteId),
+      siteName: newLead.siteName?.trim() || undefined,
       mainContact: newLead.mainContact ? normaliseLeadContact(newLead.mainContact) : undefined,
       additionalContacts: (newLead.additionalContacts ?? [])
         .map(normaliseLeadContact)
@@ -18217,7 +24797,7 @@ export default function Dashboard() {
 
   async function syncLead(
     leadId: string,
-    patch: Partial<Pick<Lead, "status" | "surveyor" | "surveyDate" | "surveyTime" | "next">>,
+    patch: Partial<Pick<Lead, "status" | "lostReason" | "surveyor" | "surveyDate" | "surveyTime" | "next">>,
   ): Promise<LeadSyncResult> {
     try {
       const response = await fetch(`/api/leads/${leadId}`, {
@@ -18506,7 +25086,24 @@ export default function Dashboard() {
 
   async function submitQuote() {
     let client = clients.find((item) => item.id === newQuote.clientId);
-    let site = clientSites.find((item) => item.id === newQuote.siteId);
+    let site = resolveLinkedSiteAgainstAddress(newQuote.siteId, newQuote.address, newQuote.clientId);
+    if (!newQuote.customer.trim()) {
+      showNotice("Choose or enter the customer before creating the quote.");
+      return;
+    }
+    if (!newQuote.contactName.trim()) {
+      showNotice("Add the main contact before creating the quote.");
+      return;
+    }
+    if (!intakeAddressReady({
+      postcodeSearch: quotePostcodeSearch,
+      address: newQuote.address,
+      clientId: newQuote.clientId,
+      siteId: newQuote.siteId,
+    })) {
+      showNotice("Enter a postcode and choose or type the site address before creating the quote.");
+      return;
+    }
     if (!client) {
       try {
         const createdCustomer = await createCustomerFromDraft("quote intake", newQuote);
@@ -18519,6 +25116,26 @@ export default function Dashboard() {
         showNotice(message);
         return;
       }
+    }
+    if (client && !site) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          newQuote.address,
+          newQuote.contactName,
+          newQuote.description.trim() || "Quote work",
+          newQuote.siteName,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create site for the quote.";
+        setSectionError(message);
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site) {
+      showNotice("This quote needs a site before it can be created.");
+      return;
     }
     if (!newQuote.description.trim()) {
       showNotice("Add a quote description before creating the quote.");
@@ -18545,12 +25162,18 @@ export default function Dashboard() {
         body: JSON.stringify(payload),
       });
 
-      if (!response.ok) throw new Error("Unable to create quote");
+      const createdPayload = (await response.json()) as Quote & { error?: string };
+      if (!response.ok || !createdPayload.id) {
+        throw new Error(createdPayload.error || "Unable to create quote");
+      }
 
-      const created = (await response.json()) as Quote;
+      const created = createdPayload;
+      const setupSnapshot = { ...newQuote.setup };
+      setRecordSetupById((current) => ({ ...current, [created.id]: setupSnapshot }));
       setQuotes((current) => [created, ...current]);
       setShowCreateQuote(false);
       setNewQuote(blankQuote);
+      setQuotePostcodeSearch("");
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "created",
@@ -18562,14 +25185,33 @@ export default function Dashboard() {
       });
       openQuoteDrawer(created.id);
       showNotice(`Quote ${created.ref} created and opened.`);
-    } catch {
-      setSectionError("Unable to create quote right now.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to create quote right now.";
+      setSectionError(message);
+      showNotice(message);
     }
   }
 
   async function createJob() {
     let client = clients.find((item) => item.id === newJob.clientId);
-    let site = clientSites.find((item) => item.id === newJob.siteId);
+    let site = resolveLinkedSiteAgainstAddress(newJob.siteId, newJob.address, newJob.clientId);
+    if (!newJob.customer.trim()) {
+      showNotice("Choose or enter the customer before creating the job.");
+      return;
+    }
+    if (!newJob.contactName.trim()) {
+      showNotice("Add the main contact before creating the job.");
+      return;
+    }
+    if (!intakeAddressReady({
+      postcodeSearch: jobPostcodeSearch,
+      address: newJob.address,
+      clientId: newJob.clientId,
+      siteId: newJob.siteId,
+    })) {
+      showNotice("Enter a postcode and choose or type the site address before creating the job.");
+      return;
+    }
     if (!client) {
       try {
         const createdCustomer = await createCustomerFromDraft("reactive job intake", newJob);
@@ -18582,6 +25224,26 @@ export default function Dashboard() {
         showNotice(message);
         return;
       }
+    }
+    if (client && !site) {
+      try {
+        site = await resolveOrCreateSiteForClient(
+          client.id,
+          newJob.address,
+          newJob.contactName,
+          newJob.description.trim() || "Job work",
+          newJob.siteName,
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to create site for the job.";
+        setSectionError(message);
+        showNotice(message);
+        return;
+      }
+    }
+    if (!site) {
+      showNotice("This job needs a site before it can be created.");
+      return;
     }
     if (!newJob.description.trim()) {
       showNotice("Add a job description before creating the job.");
@@ -18633,6 +25295,8 @@ export default function Dashboard() {
       if (!response.ok) throw new Error("Unable to create job");
 
       const created = (await response.json()) as Job;
+      const setupSnapshot = { ...newJob.setup };
+      setRecordSetupById((current) => ({ ...current, [created.id]: setupSnapshot }));
       setJobs((current) => [created, ...current]);
       setShowCreateJob(false);
       setNewJob(blankJob);
@@ -18652,8 +25316,8 @@ export default function Dashboard() {
     }
   }
 
-  async function convertQuoteToJob(quote: Quote) {
-    if (!access.canCreateJob || quote.status !== "Accepted" || quote.convertedJobId) return;
+  async function convertQuoteToJob(quote: Quote): Promise<Job | null> {
+    if (!access.canCreateJob || quote.status !== "Accepted" || quote.convertedJobId) return null;
 
     try {
       const response = await fetch(`/api/quotes/${quote.id}/convert`, {
@@ -18673,13 +25337,15 @@ export default function Dashboard() {
         auditEvents: AuditEvent[];
       };
 
+      const centresFromQuote = estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []);
+
       setQuotes((current) =>
         current.map((item) => (item.id === result.quote.id ? result.quote : item)),
       );
       setJobs((current) => [result.job, ...current.filter((job) => job.id !== result.job.id)]);
       setJobEstimateCostCentres((current) => ({
         ...current,
-        [result.job.id]: estimateCostCentresFromQuote(result.job, quoteCostCentres[quote.id] ?? []),
+        [result.job.id]: centresFromQuote,
       }));
       setAuditEvents((current) => [
         ...result.auditEvents,
@@ -18694,10 +25360,25 @@ export default function Dashboard() {
         source: "web",
         importance: "high",
       });
+
+      let depositNotice = "";
+      if (workflowRules.autoCreateDepositOnAcceptance) {
+        const depositPercent = Math.max(1, Math.min(100, Number(workflowRules.defaultDepositPercent) || 30));
+        const deposit = createDepositInvoiceForJob(result.job, depositPercent, {
+          openRecord: false,
+          centres: centresFromQuote,
+        });
+        if (deposit) {
+          depositNotice = ` Deposit ${deposit.ref} (${depositPercent}%) created.`;
+        }
+      }
+
       openJobDrawer(result.job.id);
-      showNotice(`${result.quote.ref} converted into ${result.job.ref}.`);
+      showNotice(`${result.quote.ref} converted into ${result.job.ref}.${depositNotice}`);
+      return result.job;
     } catch {
       setSectionError("Unable to convert quote into a job right now.");
+      return null;
     }
   }
 
@@ -18749,6 +25430,9 @@ export default function Dashboard() {
         .filter((line) => line.description.trim() || line.estimatedCost.trim() || line.actualCost.trim() || Number(line.receivedPercent) > 0)
         .map((line, index) => {
           const receivedPercent = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
+          const catalog = line.catalogItemId
+            ? availableQuoteCatalog.find((item) => item.id === line.catalogItemId)
+            : availableQuoteCatalog.find((item) => item.name.toLowerCase() === line.description.trim().toLowerCase());
           return {
             id: line.id || `po-line-${index + 1}`,
             description: line.description.trim() || `Open material line ${index + 1}`,
@@ -18756,6 +25440,8 @@ export default function Dashboard() {
             estimatedCost: Number(line.estimatedCost) || 0,
             actualCost: line.actualCost.trim() ? Number(line.actualCost) || 0 : undefined,
             receivedPercent,
+            catalogItemId: line.catalogItemId || catalog?.id,
+            sku: line.sku?.trim() || catalog?.sku || undefined,
           };
         });
       const lineEstimatedCost = lines.reduce((total, line) => total + line.estimatedCost, 0);
@@ -18839,6 +25525,8 @@ export default function Dashboard() {
             estimatedCost: String(line.estimatedCost || ""),
             actualCost: line.actualCost !== undefined ? String(line.actualCost) : "",
             receivedPercent: String(line.receivedPercent ?? 0),
+            catalogItemId: line.catalogItemId,
+            sku: line.sku || "",
           }))
         : [{
             ...makePurchaseOrderLineDraft(),
@@ -18883,6 +25571,15 @@ export default function Dashboard() {
   }
 
   async function markPurchaseRequestStatus(id: string, status: PurchaseStatus) {
+    if (status === "Approved") {
+      const request = purchaseRequests.find((item) => item.id === id);
+      const threshold = Number(workflowRules.poApprovalThreshold) || 0;
+      const amount = request?.estimatedCost ?? 0;
+      if (threshold > 0 && amount > threshold && !access.canApprovePurchase) {
+        showNotice(`POs over £${threshold.toFixed(0)} need a purchaser with Approve POs access.`);
+        return;
+      }
+    }
     await patchPurchaseRequest(id, { status }, `PO marked ${status}.`);
   }
 
@@ -18894,27 +25591,366 @@ export default function Dashboard() {
     );
   }
 
+  async function exportPurchaseOrderBillToXero(request: PurchaseRequest) {
+    if (!request.poNumber?.trim()) {
+      showNotice("Issue a PO number before exporting a supplier bill to Xero.");
+      return;
+    }
+    if (!request.supplier?.trim()) {
+      showNotice("Add a supplier before exporting a bill to Xero.");
+      return;
+    }
+
+    const lines = (request.lines?.length
+      ? request.lines
+      : [{
+          id: `${request.id}-line`,
+          description: request.item || request.poNumber || "Supplier materials",
+          quantity: 1,
+          estimatedCost: request.estimatedCost,
+          actualCost: request.actualCost,
+          receivedPercent: 0,
+        }]
+    ).map((line) => {
+      const quantity = Math.max(1, Number(line.quantity) || 1);
+      const total = Number(line.actualCost ?? line.estimatedCost) || 0;
+      return {
+        description: line.description || request.item || "PO line",
+        quantity,
+        unitAmount: total / quantity,
+      };
+    }).filter((line) => line.unitAmount > 0 || line.description);
+
+    if (!lines.length) {
+      showNotice("Add PO lines with cost before exporting to Xero.");
+      return;
+    }
+
+    setIsExportingPoBillToXero(true);
+    try {
+      const response = await fetch("/api/integrations/xero/bills", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bill: {
+            id: request.id,
+            poNumber: request.poNumber,
+            supplier: request.supplier,
+            jobRef: request.jobRef,
+            issuedDate: (request.invoiceReceivedAt || request.receivedAt || request.createdAt || "").slice(0, 10) || undefined,
+            notes: request.reason || request.invoiceFileName || undefined,
+            xeroBillId: request.xeroBillId,
+            lines,
+          },
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        export?: { mode?: string; detail?: string };
+        csv?: string | null;
+        xeroBillId?: string | null;
+        xeroBillNumber?: string | null;
+        xeroExportedAt?: string | null;
+        accountsStatus?: "Sent";
+      } | null;
+      if (!response.ok || !body?.export) {
+        throw new Error(body?.error || `Xero bill export failed (HTTP ${response.status})`);
+      }
+
+      await patchPurchaseRequest(
+        request.id,
+        {
+          xeroAccountsStatus: "Sent",
+          ...(body.xeroBillId
+            ? {
+                xeroBillId: body.xeroBillId,
+                xeroBillNumber: body.xeroBillNumber || request.poNumber,
+                xeroExportedAt: body.xeroExportedAt || new Date().toISOString(),
+              }
+            : { xeroExportedAt: new Date().toISOString() }),
+        },
+        body.export.detail || `${request.poNumber} bill sent to Xero.`,
+      );
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero bill export",
+        recordType: "purchase_request",
+        recordId: request.id,
+        summary: `${request.poNumber}: ${body.export.detail || "exported supplier bill to Xero"}.`,
+        source: "web",
+        importance: "high",
+      });
+
+      if (body.csv) {
+        const blob = new Blob([body.csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${request.poNumber}-xero-bill.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to export PO bill to Xero.");
+    } finally {
+      setIsExportingPoBillToXero(false);
+    }
+  }
+
+  async function pullPurchaseOrderBillPaymentsFromXero(request: PurchaseRequest) {
+    if (!request.poNumber?.trim()) {
+      showNotice("Issue a PO number before pulling Xero bill payments.");
+      return;
+    }
+    const billAmount =
+      typeof request.supplierInvoiceAmount === "number" && Number.isFinite(request.supplierInvoiceAmount)
+        ? request.supplierInvoiceAmount
+        : typeof request.actualCost === "number" && Number.isFinite(request.actualCost)
+          ? request.actualCost
+          : purchaseRequestOrderedCost(request);
+    if (billAmount <= 0) {
+      showNotice("Set a supplier invoice amount (or PO cost) before pulling payments.");
+      return;
+    }
+
+    setIsPullingPoBillPayments(true);
+    try {
+      const response = await fetch("/api/integrations/xero/bill-payments", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bill: {
+            id: request.id,
+            poNumber: request.poNumber,
+            billAmount,
+            xeroBillId: request.xeroBillId,
+            supplierPayments: request.supplierPayments || [],
+            supplierPaidAmount: request.supplierPaidAmount ?? 0,
+          },
+        }),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+        addedCount?: number;
+        skippedCount?: number;
+        conflicts?: Array<{ xeroPaymentId: string; reason: string }>;
+        supplierPayments?: PurchaseRequest["supplierPayments"];
+        supplierPaidAmount?: number;
+        supplierPaymentStatus?: PurchaseRequest["supplierPaymentStatus"];
+        xeroBillId?: string;
+        xeroBillNumber?: string;
+        xeroPaymentsCheckedAt?: string;
+        match?: { xeroBillId?: string };
+      } | null;
+      if (!response.ok || !body?.supplierPayments) {
+        throw new Error(body?.error || `Xero bill payment pull failed (HTTP ${response.status})`);
+      }
+
+      await patchPurchaseRequest(
+        request.id,
+        {
+          supplierPayments: body.supplierPayments,
+          supplierPaidAmount: body.supplierPaidAmount ?? 0,
+          supplierPaymentStatus: body.supplierPaymentStatus || "Unpaid",
+          xeroPaymentsCheckedAt: body.xeroPaymentsCheckedAt || new Date().toISOString(),
+          ...(body.xeroBillId
+            ? {
+                xeroBillId: body.xeroBillId,
+                xeroBillNumber: body.xeroBillNumber || request.xeroBillNumber || request.poNumber,
+              }
+            : {}),
+        },
+        `${request.poNumber}: ${body.addedCount ?? 0} supplier payment(s) imported from Xero` +
+          `${body.skippedCount ? `, ${body.skippedCount} already on ledger` : ""}.`,
+      );
+
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "xero bill payment pull",
+        recordType: "purchase_request",
+        recordId: request.id,
+        summary: `${request.poNumber}: pulled ${body.addedCount ?? 0} Xero bill payment(s), skipped ${body.skippedCount ?? 0}, conflicts ${(body.conflicts || []).length} (Xero ${body.match?.xeroBillId || "bill"}).`,
+        source: "web",
+        importance: (body.addedCount ?? 0) > 0 ? "high" : "normal",
+      });
+
+      const firstConflict = (body.conflicts || [])[0];
+      if (firstConflict) {
+        showNotice(
+          `${request.poNumber}: ${body.addedCount ?? 0} payment(s) imported · ${body.conflicts!.length} need review (${firstConflict.reason}).`,
+        );
+      }
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to pull bill payments from Xero.");
+    } finally {
+      setIsPullingPoBillPayments(false);
+    }
+  }
+
+  async function openPurchaseOrderReceipt(request: PurchaseRequest) {
+    const baseLines = request.lines?.length
+      ? request.lines
+      : [{
+          id: `${request.id}-line`,
+          description: request.item || request.poNumber || "PO item",
+          quantity: 1,
+          estimatedCost: request.estimatedCost,
+          actualCost: request.actualCost,
+          receivedPercent: request.status === "Received" ? 100 : 0,
+        }];
+    let locations: Array<{ id: string; name: string; kind: string }> = [];
+    let stockItems: Array<{ id: string; sku: string; name: string; catalogItemId?: string }> = [];
+    try {
+      const response = await fetch("/api/stock", { headers: requestHeaders });
+      const body = await response.json();
+      if (response.ok) {
+        locations = body.locations || [];
+        stockItems = body.items || [];
+      }
+    } catch {
+      locations = [];
+      stockItems = [];
+    }
+    const warehouse = locations.find((row) => row.kind === "Warehouse") || locations[0];
+    setPoReceiptDraft({
+      requestId: request.id,
+      locationId: warehouse?.id || "",
+      locations,
+      stockItems,
+      lines: baseLines.map((line, index) => {
+        const orderedQty = Math.max(1, Number(line.quantity) || 1);
+        const already = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
+        const remainingQty = Math.max(0, orderedQty * (1 - already / 100));
+        const catalog =
+          (line.catalogItemId ? availableQuoteCatalog.find((item) => item.id === line.catalogItemId) : undefined) ||
+          availableQuoteCatalog.find((item) => item.name.toLowerCase() === line.description.toLowerCase());
+        const sku =
+          line.sku?.trim() ||
+          catalog?.sku?.trim() ||
+          stockItems.find((item) => item.catalogItemId && item.catalogItemId === (line.catalogItemId || catalog?.id))?.sku ||
+          "";
+        const stockItem =
+          (catalog?.stockItemId ? stockItems.find((item) => item.id === catalog.stockItemId) : undefined) ||
+          (sku ? stockItems.find((item) => item.sku.toLowerCase() === sku.toLowerCase()) : undefined) ||
+          (line.catalogItemId || catalog?.id
+            ? stockItems.find((item) => item.catalogItemId === (line.catalogItemId || catalog?.id))
+            : undefined);
+        return {
+          id: line.id,
+          description: line.description,
+          orderedQty,
+          receiveQty: remainingQty > 0 ? String(Number(remainingQty.toFixed(2))) : "0",
+          sku: sku || `${request.poNumber || request.id}-${index + 1}`,
+          unitCost: String(((line.actualCost ?? line.estimatedCost) / orderedQty) || catalog?.costRate || 0),
+          alreadyReceivedPercent: already,
+          catalogItemId: line.catalogItemId || catalog?.id,
+          stockItemId: stockItem?.id || catalog?.stockItemId,
+        };
+      }),
+    });
+  }
+
   async function receivePurchaseOrderInvoice(request: PurchaseRequest) {
-    const receivedLines = request.lines?.map((line) => ({
-      ...line,
-      actualCost: line.actualCost ?? line.estimatedCost,
-      receivedPercent: 100,
-    }));
-    const actualCost = receivedLines?.length
-      ? receivedLines.reduce((total, line) => total + (line.actualCost ?? line.estimatedCost), 0)
-      : request.actualCost ?? request.estimatedCost;
+    const draft = poReceiptDraft?.requestId === request.id ? poReceiptDraft : null;
+    if (!draft) {
+      await openPurchaseOrderReceipt(request);
+      return;
+    }
+
+    const receiptLines = draft.lines
+      .map((line) => ({
+        ...line,
+        qty: Math.max(0, Number(line.receiveQty) || 0),
+        unitCost: Math.max(0, Number(line.unitCost) || 0),
+        sku: line.sku.trim() || `${request.poNumber || request.id}-${line.id}`,
+      }))
+      .filter((line) => line.qty > 0);
+
+    if (!receiptLines.length) {
+      showNotice("Enter a receive quantity on at least one line.");
+      return;
+    }
+    if (!draft.locationId) {
+      showNotice("Choose a stock location (warehouse or van) before receiving.");
+      return;
+    }
+
+    const updatedLines = (request.lines?.length ? request.lines : [{
+      id: `${request.id}-line`,
+      description: request.item || request.poNumber || "PO item",
+      quantity: 1,
+      estimatedCost: request.estimatedCost,
+      actualCost: request.actualCost,
+      receivedPercent: 0,
+    }]).map((line) => {
+      const receipt = receiptLines.find((row) => row.id === line.id);
+      if (!receipt) return line;
+      const orderedQty = Math.max(1, Number(line.quantity) || 1);
+      const previousQty = orderedQty * (Math.min(100, Math.max(0, line.receivedPercent || 0)) / 100);
+      const nextQty = Math.min(orderedQty, previousQty + receipt.qty);
+      const receivedPercent = Math.min(100, Math.round((nextQty / orderedQty) * 100));
+      const lineActual = receipt.unitCost * nextQty;
+      return {
+        ...line,
+        actualCost: lineActual || line.actualCost || line.estimatedCost,
+        receivedPercent,
+        sku: receipt.sku || line.sku,
+        catalogItemId: receipt.catalogItemId || line.catalogItemId,
+      };
+    });
+
+    const allReceived = updatedLines.every((line) => (line.receivedPercent || 0) >= 100);
+    const anyReceived = updatedLines.some((line) => (line.receivedPercent || 0) > 0);
+    const actualCost = updatedLines.reduce((total, line) => total + (line.actualCost ?? line.estimatedCost), 0);
+
     await patchPurchaseRequest(
       request.id,
       {
-        status: "Received",
-        lines: receivedLines,
+        status: allReceived ? "Received" : anyReceived ? "Part received" : request.status,
+        lines: updatedLines,
         actualCost,
         invoiceFileName: request.invoiceFileName || `${request.poNumber || request.id} supplier invoice`,
-        invoiceReceivedAt: workflowTimestamp(),
-        receivedAt: workflowTimestamp(),
+        invoiceReceivedAt: request.invoiceReceivedAt || workflowTimestamp(),
+        supplierInvoiceAmount: request.supplierInvoiceAmount ?? actualCost,
+        receivedAt: allReceived ? workflowTimestamp() : request.receivedAt,
       },
-      `${request.poNumber || "PO"} received. Cost is now actual against ${request.costCentreName ?? "the cost centre"}.`,
+      `${request.poNumber || "PO"} ${allReceived ? "fully received" : "part received"} into stock.`,
     );
+
+    try {
+      const response = await fetch("/api/stock", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "receive-po",
+          receipt: {
+            locationId: draft.locationId,
+            lines: receiptLines.map((line) => ({
+              sku: line.sku,
+              name: line.description || request.item || "PO receipt item",
+              quantity: line.qty,
+              unitCost: line.unitCost,
+              unit: "each",
+              stockItemId: line.stockItemId,
+              catalogItemId: line.catalogItemId,
+            })),
+            poNumber: request.poNumber,
+            jobRef: request.jobRef,
+          },
+        }),
+      });
+      const body = await response.json().catch(() => null) as { error?: string } | null;
+      if (!response.ok) {
+        showNotice(body?.error || "PO updated, but stock receipt could not be recorded.");
+        return;
+      }
+      const locationName = draft.locations.find((row) => row.id === draft.locationId)?.name || "stock";
+      showNotice(`${request.poNumber || "PO"} received into ${locationName} (${receiptLines.length} line${receiptLines.length === 1 ? "" : "s"}).`);
+      setPoReceiptDraft(null);
+    } catch {
+      showNotice("PO updated, but stock receipt could not be recorded.");
+    }
   }
 
   function documentFilesForRecord(recordType: RecordDocumentScope, recordRef: string): RecordDocumentFile[] {
@@ -18951,9 +25987,10 @@ export default function Dashboard() {
     const job = recordType === "job" ? jobs.find((item) => item.ref === recordRef) ?? null : null;
     if (recordType === "quote" && !quote) return baseFiles;
     if (recordType === "job" && !job) return baseFiles;
-    const centres = quote ? (quoteCostCentres[quote.id] ?? []) : [];
+    const quoteCentres = quote ? (quoteCostCentres[quote.id] ?? []) : [];
+    const jobCentres = job ? (jobEstimateCostCentres[job.id] ?? []) : [];
     const workflowFiles = quote
-      ? centres.flatMap((centre): RecordDocumentFile[] => {
+      ? quoteCentres.flatMap((centre): RecordDocumentFile[] => {
           const sourceDocuments = (centre.takeoffDocuments ?? []).map((document): RecordDocumentFile => ({
             folderId:
               document.kind === "Drawings"
@@ -18968,10 +26005,29 @@ export default function Dashboard() {
             fileUrl: document.fileUrl,
             previewImageDataUrl: document.previewImageDataUrl,
           }));
+          const surveyFiles = (centre.surveyAssets ?? []).map((asset): RecordDocumentFile => ({
+            folderId: asset.kind === "Concept look" ? "client-quote-pack" : "survey-photos",
+            name: asset.fileName || asset.title,
+            type: asset.kind,
+            visibility: asset.clientVisible ? "Client" : "Engineer",
+            linkedTo: centre.name,
+            fileUrl: asset.fileUrl,
+            previewImageDataUrl: asset.previewImageDataUrl,
+          }));
 
-          return [...sourceDocuments];
+          return [...sourceDocuments, ...surveyFiles];
         })
-      : [];
+      : jobCentres.flatMap((centre): RecordDocumentFile[] =>
+          (centre.surveyAssets ?? []).map((asset) => ({
+            folderId: asset.clientVisible ? "completion-photos" : "mid-work-photos",
+            name: asset.fileName || asset.title,
+            type: asset.kind,
+            visibility: asset.clientVisible ? "Client" : "Engineer",
+            linkedTo: centre.name,
+            fileUrl: asset.fileUrl,
+            previewImageDataUrl: asset.previewImageDataUrl,
+          })),
+        );
     const quoteSupplierDraft = quote ? supplierQuoteDrafts[QUOTE_SUMMARY_SUPPLIER_DRAFT_KEY] : null;
     const jobSupplierDraft = recordType === "job" ? jobSupplierRequestDrafts[JOB_SUMMARY_SUPPLIER_DRAFT_KEY] : null;
     const supplierFiles: RecordDocumentFile[] = quoteSupplierDraft?.fileName
@@ -18998,7 +26054,8 @@ export default function Dashboard() {
           ]
         : [];
 
-    return [...workflowFiles, ...supplierFiles, ...jobSupplierFiles, ...baseFiles];
+    const manualFiles = manualRecordDocuments[recordDocumentStorageKey(recordType, recordRef)] ?? [];
+    return [...manualFiles, ...workflowFiles, ...supplierFiles, ...jobSupplierFiles, ...baseFiles];
   }
 
   function openRecordDocumentFile(file: RecordDocumentFile) {
@@ -19063,39 +26120,24 @@ export default function Dashboard() {
             <span className="permission-heading">Document folders</span>
             <h2>{recordRef} document hub</h2>
           </div>
-          <button
-            className="primary-button"
-            type="button"
-            onClick={() => {
-              setHomeView("settings");
-              setActiveSetupCategory("documents");
-              setActiveSetupSubItem("Folders");
-              scrollWorkspaceToTop();
-              showNotice("Document folders are editable here; quote and job files appear from the live workflow.");
-            }}
-          >
+          <label className="primary-button">
             <Plus size={15} />
             Add document
-          </button>
+            <input
+              className="file-input"
+              type="file"
+              multiple
+              onChange={(event) => {
+                void addManualRecordDocuments(recordType, recordRef, event.target.files);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
         </div>
 
-        <div className="document-folder-grid">
-          {folders.map((folder) => {
-            const count = exampleFiles.filter((file) => file.folderId === folder.id).length;
-            return (
-              <article className="document-folder-card" key={folder.id}>
-                <FileText size={19} />
-                <div>
-                  <strong>{folder.name}</strong>
-                  <span>{folder.description}</span>
-                </div>
-                <small>
-                  {count} files · {folder.defaultVisibility}
-                </small>
-              </article>
-            );
-          })}
-        </div>
+        <p className="documents-toolbar-note">
+          Files attached here stay with the {recordRef} paper trail. Survey evidence, takeoff files and manual uploads all open from the list below.
+        </p>
 
         <div className="document-file-list">
           <div className="document-file-row table-head">
@@ -19145,8 +26187,174 @@ export default function Dashboard() {
     const flowTemplate = centre ? engineerFlowTemplateForCostCentre(centre) : engineerFlowTemplate;
     const completionRecordId = centre ? `${job.id}:${centre.id}` : job.id;
     const requiredSteps = flowTemplate.steps.filter((step) => step.required);
-    const completedRequired = requiredSteps.filter((step) => flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]).length;
-    const nextBlockedStep = requiredSteps.find((step) => !flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]);
+    const completedRequired = requiredSteps.filter((step) =>
+      isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
+    ).length;
+    const nextBlockedStep = requiredSteps.find(
+      (step) => !isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
+    );
+    const isGasServiceFlow = flowTemplate.id === "boiler-service-flow";
+    const isDayworkFlow = flowTemplate.id === "daywork-account-flow";
+    const gasRecord: GasServiceRecord | null = isGasServiceFlow
+      ? (() => {
+          const record: GasServiceRecord = { populatedFrom: "core" };
+          let any = false;
+          const booleanFields = new Set([
+            "flueVentilationOk",
+            "visualConditionOk",
+            "safetyDevicesOk",
+            "applianceSafeToUse",
+          ]);
+          const fieldSteps: Array<{ key: string; formField: keyof GasServiceRecord; kind: "text" | "number" | "checkbox" }> = [
+            { key: "service-location", formField: "location", kind: "text" },
+            { key: "service-make-model", formField: "makeModel", kind: "text" },
+            { key: "service-serial", formField: "serialNumber", kind: "text" },
+            { key: "service-boiler-photo", formField: "appliancePhoto", kind: "text" },
+            { key: "service-visual", formField: "visualConditionOk", kind: "checkbox" },
+            { key: "service-flue", formField: "flueVentilationOk", kind: "checkbox" },
+            { key: "service-safety-devices", formField: "safetyDevicesOk", kind: "checkbox" },
+            { key: "service-operating-pressure", formField: "operatingPressure", kind: "text" },
+            { key: "service-co-reading", formField: "coReading", kind: "number" },
+            { key: "service-ratio", formField: "combustionRatio", kind: "number" },
+            { key: "service-safe-to-use", formField: "applianceSafeToUse", kind: "checkbox" },
+            { key: "service-defects", formField: "defects", kind: "text" },
+            { key: "service-next-due", formField: "nextServiceDate", kind: "text" },
+            { key: "service-gas-safe-id", formField: "gasSafeLicenceNumber", kind: "text" },
+            { key: "service-customer-signoff", formField: "customerSignature", kind: "text" },
+          ];
+          for (const step of fieldSteps) {
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, step.key)] || {};
+            if (step.kind === "checkbox") {
+              if (flowStepCompletion[flowCompletionKey(completionRecordId, step.key)] || evidence.text || evidence.capturedAt) {
+                (record as Record<string, string | boolean | undefined>)[step.formField] = true;
+                record.completedAt = evidence.capturedAt || record.completedAt;
+                any = true;
+              }
+              continue;
+            }
+            const value =
+              step.kind === "number"
+                ? evidence.numberValue?.trim()
+                : evidence.text?.trim() || evidence.photoName?.trim();
+            if (!value) continue;
+            (record as Record<string, string | boolean | undefined>)[step.formField] = value;
+            record.completedAt = evidence.capturedAt || record.completedAt;
+            any = true;
+          }
+          void booleanFields;
+          return any ? record : null;
+        })()
+      : null;
+    const dayworkRecord: DayworkAccountRecord | null = isDayworkFlow
+      ? (() => {
+          const preferredKey = `${job.id}:${centre?.id || `${job.id}-daywork-account`}`;
+          const sheet =
+            dayworkSheets[preferredKey] ||
+            Object.values(dayworkSheets).find((candidate) => candidate?.jobId === job.id) ||
+            Object.values(dayworkSheets).find(
+              (candidate) => String(candidate?.costCentreId || "") === String(centre?.id || ""),
+            );
+          const eventFallback = jobDeliveryEvents.find(
+            (event) =>
+              event.jobId === job.id &&
+              event.formType === "daywork" &&
+              (!centre?.id ||
+                event.costCentreId === centre.id ||
+                String(event.costCentreId || "").includes("daywork")),
+          );
+          const record: DayworkAccountRecord = {
+            populatedFrom: "core",
+            ...(eventFallback
+              ? {
+                  description: eventFallback.description || eventFallback.summary,
+                  weekEnding: eventFallback.weekEnding,
+                  labourName: eventFallback.actor,
+                  labourTrade: eventFallback.labourTrade,
+                  labourDaysJson: eventFallback.labourDaysJson,
+                  labourHours: eventFallback.hours ? String(eventFallback.hours) : undefined,
+                  materialsJson: eventFallback.materialsJson,
+                  plantJson: eventFallback.plantJson,
+                  plumberSignature: eventFallback.plumberSignature,
+                  clientSignature: eventFallback.clientSignature,
+                  plumberSignerName: eventFallback.plumberSignerName,
+                  clientSignerName: eventFallback.clientSignerName,
+                  labourRate: eventFallback.labourRate,
+                  materialsCost: eventFallback.materialsCost,
+                  plantCost: eventFallback.plantCost,
+                  completedAt: eventFallback.createdAt,
+                }
+              : {}),
+            ...(sheet || {}),
+          };
+          let any = Boolean(sheet || eventFallback);
+          const fieldMap: Record<string, keyof DayworkAccountRecord> = {
+            "daywork-description": "description",
+            "daywork-week-ending": "weekEnding",
+            "daywork-vo-ref": "voReference",
+            "daywork-labour-name": "labourName",
+            "daywork-labour-trade": "labourTrade",
+            "daywork-labour-days": "labourDaysJson",
+            "daywork-labour-hours": "labourHours",
+            "daywork-materials": "materialsJson",
+            "daywork-plant": "plantJson",
+            "daywork-labour-rate": "labourRate",
+            "daywork-markup-percent": "markupPercent",
+            "daywork-materials-cost": "materialsCost",
+            "daywork-plant-cost": "plantCost",
+            "daywork-plumber-sign": "plumberSignature",
+            "daywork-client-sign": "clientSignature",
+            "daywork-plumber-name": "plumberSignerName",
+            "daywork-client-name": "clientSignerName",
+          };
+          for (const step of dayworkAccountFlowTemplate.steps) {
+            const field = fieldMap[step.id];
+            if (!field) continue;
+            // Prefer durable Field sheet values — evidence can lag after hub races.
+            if (String((record as Record<string, string | undefined>)[field] || "").trim()) continue;
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, step.id)] || {};
+            const value =
+              step.evidence === "Number"
+                ? evidence.numberValue?.trim()
+                : evidence.text?.trim() || evidence.photoName?.trim();
+            if (!value) continue;
+            (record as Record<string, string | undefined>)[field] = value;
+            record.completedAt = evidence.capturedAt || record.completedAt;
+            any = true;
+          }
+          for (const [stepId, field] of [
+            ["daywork-labour-rate", "labourRate"],
+            ["daywork-markup-percent", "markupPercent"],
+            ["daywork-materials-cost", "materialsCost"],
+            ["daywork-plant-cost", "plantCost"],
+          ] as const) {
+            if (String(record[field] || "").trim()) continue;
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, stepId)] || {};
+            const value = evidence.numberValue?.trim() || evidence.text?.trim();
+            if (!value) continue;
+            record[field] = value;
+            any = true;
+          }
+          if (record.labourDaysJson) {
+            record.labourHours = String(totalDayworkLabourHours(record) || "");
+          }
+          return any ? record : null;
+        })()
+      : null;
+    const dayworkTotals = dayworkAccountTotals(dayworkRecord);
+    const gasFields = gasRecord
+      ? [
+          { label: "Location", value: gasRecord.location },
+          { label: "Make / model", value: gasRecord.makeModel },
+          { label: "Serial number", value: gasRecord.serialNumber },
+          { label: "CO reading (ppm)", value: gasRecord.coReading },
+          { label: "Combustion ratio / CO₂", value: gasRecord.combustionRatio },
+          { label: "Operating pressure", value: gasRecord.operatingPressure },
+          { label: "Defects", value: gasRecord.defects },
+          { label: "Next safety check due", value: gasRecord.nextServiceDate },
+          { label: "Gas Safe ID", value: gasRecord.gasSafeLicenceNumber },
+          { label: "Received by", value: gasRecord.customerSignature },
+        ].filter((row): row is { label: string; value: string } => Boolean(row.value?.trim()))
+      : [];
 
     return (
       <section className="engineer-flow-workspace">
@@ -19155,11 +26363,299 @@ export default function Dashboard() {
             <span className="permission-heading">Engineer app stop/go</span>
             <h2>{flowTemplate.name}</h2>
             {centre ? <small>Assigned from cost centre type: {centre.templateName ?? "General plumbing"}</small> : null}
+            <small style={{ display: "block", marginTop: 4 }}>
+              {isDayworkFlow
+                ? "Enter the Daywork Account here in Core, or on Field — materials, printed names and dual sign-off land in Variations."
+                : isGasServiceFlow
+                  ? "Engineer fills this on the app — values appear here on the NeXa Landlord Gas Safety Record automatically."
+                  : "Engineer fills this on the app — values appear here automatically."}
+            </small>
           </div>
           <span className={nextBlockedStep ? "flow-status blocked" : "flow-status ready"}>
             {nextBlockedStep ? "Blocked" : "Ready"}
           </span>
         </div>
+
+        {isGasServiceFlow ? (
+          <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
+            <strong>Gas service record</strong>
+            <span>Populated from engineer stop/go into the Gas Safe / LGSR form below</span>
+            {gasFields.length ? (
+              <dl style={{ display: "grid", gap: 8, margin: "12px 0 0", gridTemplateColumns: "160px 1fr" }}>
+                {gasFields.map((row) => (
+                  <div key={row.label} style={{ display: "contents" }}>
+                    <dt style={{ color: "var(--muted, #5b6570)" }}>{row.label}</dt>
+                    <dd style={{ margin: 0, fontWeight: 600 }}>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p>Waiting for the engineer to capture stop/go evidence on the app.</p>
+            )}
+          </div>
+        ) : null}
+
+        {isGasServiceFlow ? (
+          <div style={{ marginBottom: 16 }}>
+            <GasSafeLgsrCertificate
+              context={{
+                customer: job.customer,
+                site: job.site,
+                engineer: job.manager || "Field engineer",
+                jobRef: job.ref,
+                inspectionDate: gasRecord?.completedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+                applianceType: "Central heating boiler",
+                record: gasRecord,
+              }}
+            />
+          </div>
+        ) : null}
+
+        {isDayworkFlow ? (
+          <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
+            <strong>Daywork Account</strong>
+            <span>
+              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature
+                ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
+                : "No signed sheet on the server yet — enter it below in Core (or on Field) and Save and finish"}
+            </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+              {centre ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  onClick={() => {
+                    void refreshDayworkSheetFromServer(job.id, centre.id).then((found) => {
+                      showNotice(
+                        found
+                          ? "Pulled latest Daywork sheet from the live store."
+                          : "Still no Daywork sheet on the server — fill the form below and Save and finish.",
+                      );
+                    });
+                  }}
+                >
+                  Refresh from server
+                </button>
+              ) : null}
+              {centre ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  disabled={previewingDayworkPdf}
+                  onClick={() => {
+                    void (async () => {
+                      setPreviewingDayworkPdf(true);
+                      try {
+                        const response = await fetch(
+                          `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(centre.id)}&format=pdf`,
+                          { credentials: "include", headers: requestHeaders },
+                        );
+                        if (!response.ok) {
+                          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+                          throw new Error(
+                            body?.error ||
+                              "No Daywork sheet saved yet — Save and finish first, then Preview PDF.",
+                          );
+                        }
+                        const blob = await response.blob();
+                        if (!blob.size || !/pdf/i.test(blob.type) && blob.type !== "application/octet-stream") {
+                          // Some browsers report empty type for application/pdf — still open if bytes exist.
+                          if (!blob.size) throw new Error("PDF response was empty.");
+                        }
+                        const url = URL.createObjectURL(blob);
+                        const opened = window.open(url, "_blank", "noopener,noreferrer");
+                        if (!opened) {
+                          // Popup blocked — fall back to same-tab navigation.
+                          window.location.assign(url);
+                        }
+                        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                        showNotice("Opened Daywork PDF preview.");
+                      } catch (error) {
+                        const message =
+                          error instanceof Error ? error.message : "Could not open Daywork PDF preview.";
+                        showNotice(message);
+                        window.alert(message);
+                      } finally {
+                        setPreviewingDayworkPdf(false);
+                      }
+                    })();
+                  }}
+                >
+                  {previewingDayworkPdf ? "Opening PDF…" : "Preview valuation PDF"}
+                </button>
+              ) : null}
+              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
+                <button
+                  className="simpro-blue-button"
+                  type="button"
+                  onClick={() => setEditingDayworkInCore(true)}
+                >
+                  Edit sheet in Core
+                </button>
+              ) : null}
+              {editingDayworkInCore && dayworkRecord?.plumberSignature ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  onClick={() => setEditingDayworkInCore(false)}
+                >
+                  Cancel edit
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {isDayworkFlow && centre && (editingDayworkInCore || !dayworkRecord?.plumberSignature || !dayworkRecord?.clientSignature) ? (
+          <div style={{ marginBottom: 16 }}>
+            <DayworkSheetForm
+              key={`core-daywork-${job.id}-${centre.id}-${dayworkRecord?.completedAt || "new"}`}
+              jobId={job.id}
+              costCentreId={centre.id}
+              engineerName={activeEmployee?.name || job.manager || "Office"}
+              initialRecord={dayworkRecord}
+              requestHeaders={requestHeaders}
+              onCancel={
+                dayworkRecord?.plumberSignature
+                  ? () => setEditingDayworkInCore(false)
+                  : undefined
+              }
+              onSaved={(record) => {
+                const snapshot = {
+                  ...record,
+                  jobId: job.id,
+                  jobRef: job.ref,
+                  costCentreId: centre.id,
+                  updatedAt: new Date().toISOString(),
+                };
+                setDayworkSheets((current) => ({
+                  ...current,
+                  [`${job.id}:${centre.id}`]: snapshot,
+                  [`${job.id}:${job.id}-daywork-account`]: snapshot,
+                }));
+                setEditingDayworkInCore(false);
+                void refreshDayworkSheetFromServer(job.id, centre.id);
+                showNotice("Daywork Account saved in Core — materials, names and signatures are on the live store.");
+              }}
+            />
+          </div>
+        ) : null}
+
+        {isDayworkFlow && dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
+          <div style={{ marginBottom: 16 }}>
+            <DayworkAccountForm
+              context={{
+                customer: job.customer,
+                site: job.site,
+                engineer: job.manager || "Field engineer",
+                jobRef: job.ref,
+                contract: job.site,
+                record: dayworkRecord,
+              }}
+              savingOfficeCosts={savingDayworkOfficeCosts}
+              previewingPdf={previewingDayworkPdf}
+              onPreviewPdf={async () => {
+                if (!centre) return;
+                setPreviewingDayworkPdf(true);
+                try {
+                  const response = await fetch(
+                    `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(centre.id)}&format=pdf`,
+                    { credentials: "include", headers: requestHeaders },
+                  );
+                  if (!response.ok) {
+                    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+                    throw new Error(
+                      body?.error ||
+                        "No Daywork sheet saved yet — Save and finish first, then Preview PDF.",
+                    );
+                  }
+                  const blob = await response.blob();
+                  if (!blob.size) throw new Error("PDF response was empty.");
+                  const url = URL.createObjectURL(blob);
+                  const opened = window.open(url, "_blank", "noopener,noreferrer");
+                  if (!opened) window.location.assign(url);
+                  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  showNotice("Opened Daywork PDF preview — this is the file attached to valuations.");
+                } catch (error) {
+                  const message =
+                    error instanceof Error ? error.message : "Could not open Daywork PDF preview.";
+                  showNotice(message);
+                  window.alert(message);
+                } finally {
+                  setPreviewingDayworkPdf(false);
+                }
+              }}
+              onSaveOfficeCosts={async (costs) => {
+                if (!centre) return;
+                setSavingDayworkOfficeCosts(true);
+                try {
+                  const response = await fetch(`/api/jobs/${encodeURIComponent(job.id)}/daywork/price`, {
+                    method: "POST",
+                    headers: { ...requestHeaders, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      costCentreId: centre.id,
+                      labourRate: costs.labourRate,
+                      materialsCost: costs.materialsCost,
+                      plantCost: costs.plantCost,
+                      markupPercent: costs.markupPercent,
+                      materialsJson: costs.materialsJson,
+                      plantJson: costs.plantJson,
+                    }),
+                  });
+                  const body = (await response.json().catch(() => null)) as {
+                    error?: string;
+                    record?: DayworkAccountRecord & {
+                      jobId: string;
+                      jobRef: string;
+                      costCentreId: string;
+                      updatedAt: string;
+                    };
+                    event?: JobDeliveryEvent;
+                  } | null;
+                  if (!response.ok) throw new Error(body?.error || "Could not save office costs.");
+                  if (body?.record) {
+                    setDayworkSheets((current) => ({
+                      ...current,
+                      [`${job.id}:${centre.id}`]: body.record!,
+                    }));
+                  }
+                  if (body?.event) {
+                    setJobDeliveryEvents((current) => {
+                      const next = current.filter((event) => event.id !== body.event!.id);
+                      return [body.event as JobDeliveryEvent, ...next];
+                    });
+                  }
+                  const capturedAt = new Date().toISOString();
+                  setFlowStepEvidence((current) => {
+                    const next = { ...current };
+                    for (const [stepId, value] of [
+                      ["daywork-labour-rate", costs.labourRate],
+                      ["daywork-materials", costs.materialsJson],
+                      ["daywork-plant", costs.plantJson],
+                      ["daywork-materials-cost", costs.materialsCost],
+                      ["daywork-plant-cost", costs.plantCost],
+                      ["daywork-markup-percent", costs.markupPercent],
+                    ] as const) {
+                      const key = flowCompletionKey(`${job.id}:${centre.id}`, stepId);
+                      const text = value.trim();
+                      if (!text) {
+                        delete next[key];
+                        continue;
+                      }
+                      next[key] = { text, numberValue: text, capturedAt };
+                    }
+                    return next;
+                  });
+                  showNotice("Daywork office costs saved — ready for valuations.");
+                } catch (error) {
+                  showNotice(error instanceof Error ? error.message : "Could not save office costs.");
+                } finally {
+                  setSavingDayworkOfficeCosts(false);
+                }
+              }}
+            />
+          </div>
+        ) : null}
 
         <div className="flow-progress-panel">
           <strong>
@@ -19171,18 +26667,134 @@ export default function Dashboard() {
 
         <div className="engineer-flow-list">
           {flowTemplate.steps.map((step) => {
-            const checked = Boolean(flowStepCompletion[flowCompletionKey(completionRecordId, step.id)]);
+            const key = flowCompletionKey(completionRecordId, step.id);
+            const checked = isFlowStepEvidenceSatisfied(step, key);
+            const evidence = flowStepEvidence[key] || {};
             return (
-              <label className={checked ? "engineer-flow-step complete" : "engineer-flow-step"} key={step.id}>
-                <input type="checkbox" checked={checked} onChange={() => toggleFlowStep(completionRecordId, step.id)} />
-                <span>
-                  <strong>{step.label}</strong>
-                  <small>
-                    {step.stage} · {step.evidence}
-                    {step.required ? " · Required" : ""}
-                  </small>
-                </span>
-              </label>
+              <div className={checked ? "engineer-flow-step complete" : "engineer-flow-step"} key={step.id}>
+                {step.evidence === "Checkbox" ? (
+                  <label className="engineer-flow-check">
+                    <input type="checkbox" checked={checked} onChange={() => toggleFlowStep(completionRecordId, step.id)} />
+                    <span>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {step.stage} · {step.evidence}
+                        {step.required ? " · Required" : ""}
+                      </small>
+                    </span>
+                  </label>
+                ) : (
+                  <div className="engineer-flow-evidence">
+                    <div>
+                      <strong>{step.label}</strong>
+                      <small>
+                        {step.stage} · {step.evidence}
+                        {step.required ? " · Required" : ""}
+                        {checked ? " · Captured" : ""}
+                      </small>
+                    </div>
+                    {step.evidence === "Signature" ? (
+                      <div className="engineer-flow-evidence-row daywork-signature-evidence">
+                        {evidence.text?.startsWith("data:image/") ? (
+                          <SignatureImage value={evidence.text} alt={step.label} />
+                        ) : (
+                          <input
+                            type="text"
+                            value={evidence.text || ""}
+                            placeholder="Signed by…"
+                            onChange={(event) =>
+                              updateFlowStepEvidence(completionRecordId, step, { text: event.target.value })
+                            }
+                            aria-label={`${step.label} signature`}
+                          />
+                        )}
+                        {evidence.text?.trim() ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.evidence === "Text" ? (
+                      <div className="engineer-flow-evidence-row">
+                        <input
+                          type="text"
+                          value={evidence.text || ""}
+                          placeholder="Enter note / reading…"
+                          onChange={(event) =>
+                            updateFlowStepEvidence(completionRecordId, step, { text: event.target.value })
+                          }
+                          aria-label={`${step.label} text`}
+                        />
+                        {evidence.text?.trim() ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.evidence === "Number" ? (
+                      <div className="engineer-flow-evidence-row">
+                        <input
+                          type="number"
+                          value={evidence.numberValue || ""}
+                          placeholder="Enter value…"
+                          onChange={(event) =>
+                            updateFlowStepEvidence(completionRecordId, step, { numberValue: event.target.value })
+                          }
+                          aria-label={`${step.label} number`}
+                        />
+                        {evidence.numberValue?.trim() ? (
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {step.evidence === "Photo" ? (
+                      <div className="engineer-flow-evidence-row">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            updateFlowStepEvidence(completionRecordId, step, { photoName: file.name });
+                            event.target.value = "";
+                          }}
+                          aria-label={`${step.label} photo`}
+                        />
+                        {evidence.photoName ? (
+                          <>
+                            <small className="muted">{evidence.photoName}</small>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => clearFlowStepEvidence(completionRecordId, step.id)}
+                            >
+                              Clear
+                            </button>
+                          </>
+                        ) : (
+                          <small className="muted">Attach a photo to mark this step complete.</small>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>
@@ -19197,10 +26809,130 @@ export default function Dashboard() {
       pendingPORequests.length +
       dashboardVariationApprovals.length +
       approvedQuotesAwaitingScheduling.length +
-      overdueTimesheetJobs.length;
+      overdueTimesheetJobs.length +
+      overdueInvoiceRows.length +
+      uninvoicedCompletedJobs.length +
+      unassignedProgressJobs.length +
+      overdueScheduledJobs.length;
 
     const renderDashboardPanel = (panelId: DashboardPanelId) => {
       switch (panelId) {
+        case "invoiceOps":
+          return (
+            <section className="ops-queue-panel invoice-ops-panel" id="dashboard-invoice-ops">
+              <header>
+                <div>
+                  <h3>Invoice ops</h3>
+                  <p>
+                    {overdueInvoiceRows.length} overdue · {uninvoicedCompletedJobs.length} ready to invoice
+                  </p>
+                </div>
+                <PoundSterling size={18} />
+              </header>
+              <div className="invoice-ops-summary">
+                <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
+                  <AlertTriangle size={18} />
+                  <span>
+                    <strong>{overdueInvoiceRows.length}</strong>
+                    <b>Overdue invoices</b>
+                    <small>
+                      0-30: {overdueInvoiceRows.filter((row) => row.band === "0-30").length}
+                      {" · "}31-60: {overdueInvoiceRows.filter((row) => row.band === "31-60").length}
+                      {" · "}60+: {overdueInvoiceRows.filter((row) => row.band === "60+").length}
+                    </small>
+                  </span>
+                </button>
+                <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
+                  <FileText size={18} />
+                  <span>
+                    <strong>{uninvoicedCompletedJobs.length}</strong>
+                    <b>Completed, not invoiced</b>
+                    <small>Create or finish the invoice from the job</small>
+                  </span>
+                </button>
+              </div>
+              <div className="ops-queue-list">
+                {uninvoicedCompletedJobs.slice(0, 4).map((job) => (
+                  <article className="ops-queue-item attention" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref} · {job.customer}</strong>
+                      <span>{job.description}</span>
+                      <small>{job.status} · due {job.due}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{job.status}</span>
+                      <button className="primary-button" type="button" onClick={() => openInvoiceForJob(job)}>
+                        Invoice
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {overdueInvoiceRows.slice(0, 4).map(({ invoice, daysOverdue, band }) => (
+                  <article className="ops-queue-item" key={invoice.id}>
+                    <button type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                      <strong>{invoice.ref} · {invoice.customer}</strong>
+                      <span>{invoice.title}</span>
+                      <small>
+                        {daysOverdue} day{daysOverdue === 1 ? "" : "s"} overdue · band {band}
+                        {invoice.chaseCount ? ` · chased ×${invoice.chaseCount}` : ""}
+                      </small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{currency(invoiceOutstandingBalance(invoice))}</span>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setPendingInvoiceChaseId(invoice.id);
+                          openInvoiceRecord(invoice.id);
+                        }}
+                      >
+                        Chase
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!uninvoicedCompletedJobs.length && !overdueInvoiceRows.length ? (
+                  <div className="ops-queue-empty">No overdue invoices or completed jobs waiting to bill.</div>
+                ) : null}
+              </div>
+            </section>
+          );
+
+        case "unassignedJobs":
+          return (
+            <section className="ops-queue-panel" id="dashboard-unassigned-jobs">
+              <header>
+                <div>
+                  <h3>Unassigned jobs</h3>
+                  <p>{unassignedProgressJobs.length} live job{unassignedProgressJobs.length === 1 ? "" : "s"} with no technician</p>
+                </div>
+                <Users size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {unassignedProgressJobs.length > 0 ? (
+                  unassignedProgressJobs.slice(0, 6).map((job) => (
+                    <article className="ops-queue-item attention" key={job.id}>
+                      <button type="button" onClick={() => openJobDrawer(job.id)}>
+                        <strong>{job.ref} · {job.customer}</strong>
+                        <span>{job.description}</span>
+                        <small>{job.status} · {job.manager || "No engineer"}</small>
+                      </button>
+                      <div className="ops-queue-actions">
+                        <span className={`status-pill ${job.health}`}>{job.status}</span>
+                        <button className="primary-button" type="button" onClick={() => openUnassignedJobsOnSchedule(job)}>
+                          Assign
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="ops-queue-empty">Every live job has a technician or schedule booking.</div>
+                )}
+              </div>
+            </section>
+          );
+
         case "schedule":
           return (
             <section className="weekly-schedule-panel">
@@ -19257,6 +26989,30 @@ export default function Dashboard() {
             </div>
 
             <div className="notification-stack">
+              <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
+                <PoundSterling size={18} />
+                <span>
+                  <strong>{overdueInvoiceRows.length}</strong>
+                  <b>Overdue invoices</b>
+                  <small>Open ageing pack and chase</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
+                <FileText size={18} />
+                <span>
+                  <strong>{uninvoicedCompletedJobs.length}</strong>
+                  <b>Completed jobs to invoice</b>
+                  <small>Bill completed / ready-to-invoice work</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openUnassignedJobsOnSchedule()}>
+                <Users size={18} />
+                <span>
+                  <strong>{unassignedProgressJobs.length}</strong>
+                  <b>Jobs with no technician</b>
+                  <small>Assign from the schedule board</small>
+                </span>
+              </button>
               <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-po-requests")}>
                 <ClipboardCheck size={18} />
                 <span>
@@ -19300,9 +27056,25 @@ export default function Dashboard() {
               <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-timesheets")}>
                 <Clock3 size={18} />
                 <span>
-                  <strong>{overdueTimesheetJobs.length}</strong>
-                  <b>Timesheets overdue</b>
-                  <small>Jobs missing labour records</small>
+                  <strong>{overdueTimesheetJobs.length + pendingTimesheetApprovals.length}</strong>
+                  <b>Timesheets</b>
+                  <small>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-asset-due")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{dueSiteAssetRows.length}</strong>
+                  <b>Assets due / overdue</b>
+                  <small>Service dates in the next 30 days</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-overdue-jobs")}>
+                <Clock3 size={18} />
+                <span>
+                  <strong>{overdueScheduledJobs.length}</strong>
+                  <b>Overdue scheduled jobs</b>
+                  <small>Booked date before today, still open</small>
                 </span>
               </button>
             </div>
@@ -19488,11 +27260,31 @@ export default function Dashboard() {
             <header>
               <div>
                 <h3>Timesheets</h3>
-                <p>{overdueTimesheetJobs.length} overdue</p>
+                <p>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</p>
               </div>
               <Clock3 size={18} />
             </header>
             <div className="ops-queue-list">
+              {pendingTimesheetApprovals.length > 0 ? (
+                pendingTimesheetApprovals.slice(0, 6).map((event) => (
+                  <article className="ops-queue-item" key={event.id}>
+                    <button type="button" onClick={() => openJobDrawer(event.jobId)}>
+                      <strong>{event.jobRef}</strong>
+                      <span>{event.actor}</span>
+                      <small>{(event.hours ?? 0).toFixed(1)}h · {event.summary}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill amber">Submitted</span>
+                      <button className="primary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Approved")}>
+                        Approve
+                      </button>
+                      <button className="secondary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Rejected")}>
+                        Reject
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : null}
               {overdueTimesheetJobs.length > 0 ? (
                 overdueTimesheetJobs.slice(0, 4).map((job) => (
                   <article className="ops-queue-item" key={job.id}>
@@ -19509,11 +27301,102 @@ export default function Dashboard() {
                     </div>
                   </article>
                 ))
-              ) : (
-                <div className="ops-queue-empty">No overdue timesheets.</div>
-              )}
+              ) : null}
+              {!pendingTimesheetApprovals.length && !overdueTimesheetJobs.length ? (
+                <div className="ops-queue-empty">No timesheets waiting.</div>
+              ) : null}
             </div>
           </section>
+          );
+
+        case "assetDue":
+          return (
+            <section className="ops-queue-panel" id="dashboard-asset-due">
+              <header>
+                <div>
+                  <h3>Assets due</h3>
+                  <p>{dueSiteAssetRows.length} service or certificate dates due in the next 30 days</p>
+                </div>
+                <AlertTriangle size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {dueSiteAssetRows.slice(0, 8).map((asset) => {
+                  const site = clientSites.find((row) => row.id === asset.siteId);
+                  const client = clients.find((row) => row.id === (asset.clientId || site?.clientId));
+                  const serviceOverdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < currentOperatingDate);
+                  const certOverdue = Boolean(asset.certificateExpiresAt && asset.certificateExpiresAt < currentOperatingDate);
+                  const overdue = serviceOverdue || certOverdue;
+                  const bits = [
+                    client?.name,
+                    site?.name || site?.address,
+                    asset.nextServiceDate
+                      ? `${serviceOverdue ? "service overdue " : "service due "}${asset.nextServiceDate}`
+                      : null,
+                    asset.certificateExpiresAt
+                      ? `${certOverdue ? "cert expired " : "cert due "}${asset.certificateExpiresAt}`
+                      : null,
+                  ].filter(Boolean);
+                  return (
+                    <article className="ops-queue-item" key={asset.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (client) openClientSiteRecordView(client.id, site?.name);
+                          else showNotice("Open a job/quote for this site to manage the asset register.");
+                        }}
+                      >
+                        <strong>{asset.name}</strong>
+                        <span>{asset.type}</span>
+                        <small>{bits.join(" · ") || "Site asset"}</small>
+                      </button>
+                      <div className="ops-queue-actions">
+                        <span className={`status-pill ${overdue ? "red" : "amber"}`}>
+                          {certOverdue && !serviceOverdue ? "Cert expired" : overdue ? "Overdue" : "Due soon"}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!dueSiteAssetRows.length ? <div className="ops-queue-empty">No assets due in the next 30 days.</div> : null}
+              </div>
+            </section>
+          );
+
+        case "overdueJobs":
+          return (
+            <section className="ops-queue-panel" id="dashboard-overdue-jobs">
+              <header>
+                <div>
+                  <h3>Overdue jobs</h3>
+                  <p>{overdueScheduledJobs.length} open job{overdueScheduledJobs.length === 1 ? "" : "s"} past booked date</p>
+                </div>
+                <Clock3 size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {overdueScheduledJobs.slice(0, 8).map((job) => (
+                  <article className="ops-queue-item" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref}</strong>
+                      <span>{job.customer}</span>
+                      <small>
+                        Booked {job.scheduledDate}
+                        {job.scheduledTime ? ` at ${job.scheduledTime}` : ""}
+                        {job.manager ? ` · ${job.manager}` : ""}
+                      </small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{job.status}</span>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Open
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!overdueScheduledJobs.length ? (
+                  <div className="ops-queue-empty">No open jobs are past their booked date.</div>
+                ) : null}
+              </div>
+            </section>
           );
 
         default:
@@ -19556,6 +27439,8 @@ export default function Dashboard() {
             </div>
           </section>
         ) : null}
+
+        {!isDashboardCustomising ? <DashboardOverview /> : null}
 
         <div className="ops-dashboard-layout-grid">
           {visibleDashboardPanelIds.map((panelId) => {
@@ -19717,10 +27602,6 @@ export default function Dashboard() {
         </label>
 
         <div className="header-actions">
-          <button className="header-icon" aria-label="Messages" onClick={openCommunicationsHub}>
-            <Mail size={18} />
-            <span className="counter">3</span>
-          </button>
           <button className="header-icon" aria-label="Notifications" onClick={() => openDashboardQueue("dashboard-notifications")}>
             <Bell size={18} />
             <span className="alert-dot" />
@@ -19747,31 +27628,233 @@ export default function Dashboard() {
           </button>
           <button className="header-icon sign-out-button" aria-label="Sign out" title="Sign out" onClick={signOutEmployee}>
             <LogOut size={18} />
+            <span className="sign-out-label">Sign out</span>
           </button>
         </div>
       </header>
 
+      <div className="buddy-dock" aria-live="polite">
+        {nexaAssistantOpen ? (
+          <aside className="buddy-panel" aria-label="Blake assistant">
+            <header>
+              <div>
+                <span className={`buddy-mark mood-${buddyMood}`}>
+                  <BuddyCharacter mood={buddyMood} size="md" />
+                </span>
+                <div>
+                  <strong>Blake</strong>
+                  <small>
+                    {buddyMood === "alert"
+                      ? "Spotted something that’s not right"
+                      : buddyMood === "thinking"
+                        ? "Working in the background"
+                        : buddyMood === "guide"
+                          ? "Checking things over"
+                          : buddyMood === "good"
+                            ? "All good!"
+                            : buddyMemory.habits[0] || "Ask Blake anytime"}
+                  </small>
+                </div>
+              </div>
+              <button className="icon-button" aria-label="Close Blake" onClick={() => setNexaAssistantOpen(false)}>
+                <X size={18} />
+              </button>
+            </header>
+            <div className="buddy-messages" ref={nexaAssistantMessagesRef}>
+              {selectedQuote && buddyHasOpenChecks ? (
+                <div className={`buddy-checks mood-${buddyMood}`} aria-label="Blake quote checks">
+                  <strong>
+                    {buddyAlertCount > 0
+                      ? `${buddyAlertCount} important check${buddyAlertCount === 1 ? "" : "s"} on ${selectedQuote.ref}`
+                      : `Checks on ${selectedQuote.ref}`}
+                  </strong>
+                  <ul>
+                    {selectedQuoteBuddyFindings.slice(0, 3).map((finding) => (
+                      <li key={finding.id}>
+                        <span className={`buddy-finding-tag ${finding.severity}`}>{finding.severity}</span>
+                        <span>{finding.title}</span>
+                        <button
+                          className="text-button"
+                          type="button"
+                          onClick={() => {
+                            const next = dismissBuddyFinding(buddyMemory, selectedQuote.id, finding.id);
+                            setBuddyMemory(next);
+                          }}
+                        >
+                          Dismiss
+                        </button>
+                      </li>
+                    ))}
+                    {selectedQuoteOpenReviewQuestions.slice(0, 3).map((question) => (
+                      <li key={question.id}>
+                        <span className={`buddy-finding-tag ${question.severity}`}>{question.severity}</span>
+                        <span>{question.title}</span>
+                        {question.action !== "none" ? (
+                          <button className="text-button" type="button" onClick={() => actOnQuoteReviewQuestion(question)}>
+                            {question.action === "open-centre" ? "Open" : "Review"}
+                          </button>
+                        ) : null}
+                        <button className="text-button" type="button" onClick={() => markQuoteReviewQuestionChecked(question.id)}>
+                          Checked
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="buddy-watch-actions">
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setNexaAssistantMessages((current) => [
+                          ...current,
+                          {
+                            id: `buddy-guide-${crypto.randomUUID()}`,
+                            role: "assistant",
+                            text: [
+                              "Here’s how I’d finish this quote:",
+                              "1. Confirm client and site on quote details.",
+                              "2. Open Build quote costs and check materials + labour.",
+                              "3. Review margin / allowances if I’ve flagged them.",
+                              "4. Come back and Send to Simpro.",
+                              "",
+                              ...selectedQuoteBuddyFindings.map((item) => `• ${item.title}${item.actionHint ? ` — ${item.actionHint}` : ""}`),
+                              ...selectedQuoteOpenReviewQuestions.map((item) => `• ${item.title} — ${item.detail}`),
+                            ].join("\n"),
+                          },
+                        ]);
+                        const next = markWalkthroughComplete(buddyMemory, "quote-send-check");
+                        setBuddyMemory(next);
+                      }}
+                    >
+                      Walk me through it
+                    </button>
+                    {selectedQuoteBuddyFindings.some((item) => item.severity === "block") ? (
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setBuddySendOverride(true);
+                          showNotice("Blake will allow the next Send to Simpro.");
+                        }}
+                      >
+                        Send anyway next
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+              {nexaAssistantMessages.map((message) => (
+                <article className={`buddy-message ${message.role}`} key={message.id}>
+                  <p>{message.text}</p>
+                  {message.action ? (
+                    <div className="buddy-action">
+                      <strong>{message.action.title}</strong>
+                      <span>{message.action.detail}</span>
+                      <button
+                        className="primary-button"
+                        disabled={nexaAssistantBusy}
+                        onClick={() => void confirmNexaAssistantBooking(message.action!)}
+                      >
+                        <Check size={15} />
+                        {message.action.confirmLabel}
+                      </button>
+                    </div>
+                  ) : null}
+                  {message.role === "assistant" && message.aiUsed ? <small>Interpreted with Blake AI · checked against live NeXa data</small> : null}
+                </article>
+              ))}
+              {nexaAssistantBusy ? <p className="buddy-thinking">Blake is checking the live workspace...</p> : null}
+            </div>
+            <form
+              className="buddy-composer"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void sendNexaAssistantMessage();
+              }}
+            >
+              <textarea
+                aria-label="Chat with Blake"
+                placeholder="Ask Blake how to do a quote, what’s missing, or to send anyway..."
+                value={nexaAssistantDraft}
+                onChange={(event) => setNexaAssistantDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendNexaAssistantMessage();
+                  }
+                }}
+              />
+              <button className="primary-button icon-only" type="submit" disabled={!nexaAssistantDraft.trim() || nexaAssistantBusy} aria-label="Send to Blake">
+                <Send size={17} />
+              </button>
+            </form>
+            <small className="buddy-safety">
+              Blake learns your patterns on this device
+              {buddyMemory.workHabits.quotesWatched
+                ? ` · ~${buddyMemory.workHabits.avgLinesPerQuote || 0} lines/quote`
+                : ""}
+              {buddyMemory.workHabits.avgLabourHours
+                ? ` · ~${buddyMemory.workHabits.avgLabourHours}h labour`
+                : ""}
+              . Bookings and commercial changes only happen after you confirm.
+            </small>
+          </aside>
+        ) : null}
+        <button
+          className={nexaAssistantOpen ? `buddy-launcher active mood-${buddyMood}` : `buddy-launcher mood-${buddyMood}`}
+          aria-label={nexaAssistantOpen ? "Close Blake" : "Open Blake"}
+          title="Chat with Blake"
+          onClick={() => setNexaAssistantOpen((current) => !current)}
+        >
+          {nexaAssistantOpen ? (
+            <span className="buddy-launcher-close">
+              <X size={18} />
+            </span>
+          ) : (
+            <BuddyCharacter mood={buddyMood} size="lg" className="buddy-launcher-mascot" />
+          )}
+          <span className="buddy-launcher-label">Blake</span>
+          {!nexaAssistantOpen && buddyAlertCount > 0 ? (
+            <em className="buddy-launcher-badge" aria-hidden>
+              {buddyAlertCount > 9 ? "9+" : buddyAlertCount}
+            </em>
+          ) : !nexaAssistantOpen && buddyHasOpenChecks ? (
+            <em className="buddy-launcher-badge soft" aria-hidden>
+              ·
+            </em>
+          ) : null}
+        </button>
+      </div>
+
       <nav className="module-bar" aria-label="Main modules">
-        <button className="mobile-menu" aria-label="Open navigation" onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}>
+        <button
+          className="mobile-menu sidebar-toggle"
+          aria-label={contextSidebarCollapsed ? "Open navigation" : "Close navigation"}
+          title={contextSidebarCollapsed ? "Open navigation" : "Close navigation"}
+          onClick={() => setContextSidebarCollapsed((collapsed) => !collapsed)}
+        >
           <Menu size={19} />
         </button>
         {visibleModules.map((module) => {
           const Icon = module.icon;
+          const moreActive =
+            module.label === "More" &&
+            ["purchase-orders", "purchase-order-record", "stock", "xero", "recurring", "reports", "addons"].includes(homeView);
           const isActiveModule =
             (module.label === "Dashboard" && homeView === "dashboard") ||
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
             (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
             (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
-            (module.label === "POs" && homeView === "purchase-orders") ||
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
-            (module.label === "Invoices" && ["invoices", "invoice-record"].includes(homeView)) ||
-            (module.label === "Reports" && homeView === "reports") ||
-            (module.label === "Add-ons" && homeView === "addons") ||
-            (module.label === "People" && ["employees", "employee-card", "clients", "client-record"].includes(homeView));
+            (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
+            (module.label === "People" && ["employees", "employee-card", "clients", "client-record", "directory-manager"].includes(homeView)) ||
+            moreActive;
 
           if (module.subItems?.length) {
             const isOpen = openModuleMenu === module.label;
+            const submenuItems = module.label === "More" ? visibleMoreItems : module.subItems;
+            if (module.label === "More" && !submenuItems.length) return null;
             return (
               <div
                 key={module.label}
@@ -19790,13 +27873,18 @@ export default function Dashboard() {
                   <ChevronDown size={13} />
                 </button>
                 <div className={isOpen ? "module-submenu open" : "module-submenu"}>
-                  {module.subItems.map((item) => (
+                  {submenuItems.map((item) => (
                     <button
                       key={item}
                       type="button"
                       onClick={() => {
-                        goToPeopleSection(item);
-                        closeContextSidebarOnMobile();
+                        if (module.label === "People") {
+                          goToPeopleSection(item);
+                          closeContextSidebarOnMobile();
+                        } else {
+                          navigateToModule(item);
+                        }
+                        setOpenModuleMenu(null);
                       }}
                     >
                       {item}
@@ -19817,35 +27905,7 @@ export default function Dashboard() {
               onClick={(event) => {
                 if (module.href) return;
                 event.preventDefault();
-                if (module.label === "Dashboard") {
-                  returnToDashboard();
-                } else if (module.label === "Leads") {
-                  setHomeView("leads");
-                } else if (module.label === "Quotes") {
-                  returnToQuotesDirectory();
-                } else if (module.label === "Jobs") {
-                  returnToJobsDirectory();
-                } else if (module.label === "POs") {
-                  setHomeView("purchase-orders");
-                } else if (module.label === "Schedules") {
-                  setHomeView("schedule");
-                } else if (module.label === "Setup") {
-                  setHomeView("settings");
-                  setActiveSetupSubItem(null);
-                } else if (module.label === "Invoices") {
-                  setHomeView("invoices");
-                } else if (module.label === "Reports") {
-                  setHomeView("reports");
-                  setActiveReportTab("executive");
-                } else if (module.label === "Add-ons") {
-                  setHomeView("addons");
-                } else {
-                  setHomeView("settings");
-                  setActiveSetupSubItem(null);
-                  showNotice(`${module.label} configuration opens through Setup in this prototype.`);
-                }
-                closeContextSidebarOnMobile();
-                scrollWorkspaceToTop();
+                navigateToModule(module.label);
               }}
             >
               <Icon size={16} strokeWidth={1.8} />
@@ -19853,18 +27913,43 @@ export default function Dashboard() {
             </a>
           );
         })}
-        <button
-          className="module-more"
-          aria-label="More modules"
-          onClick={() => {
-            setHomeView("addons");
-            closeContextSidebarOnMobile();
-            scrollWorkspaceToTop();
-          }}
-        >
-          <MoreHorizontal size={18} />
-        </button>
       </nav>
+
+      {openWorkspaceTabs.length ? (
+        <div className="open-record-tabs" role="tablist" aria-label="Open records">
+          {openWorkspaceTabs.map((tab) => {
+            const active = isOpenWorkspaceTabActive(tab);
+            return (
+              <div
+                key={openWorkspaceTabKey(tab)}
+                className={active ? "open-record-tab active" : "open-record-tab"}
+                role="presentation"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  className="open-record-tab-main"
+                  onClick={() => activateOpenWorkspaceTab(tab)}
+                  title={`${tab.ref} · ${tab.title}`}
+                >
+                  <span className="open-record-tab-kind">{tab.kind}</span>
+                  <span className="open-record-tab-ref">{tab.ref}</span>
+                  <span className="open-record-tab-title">{tab.title}</span>
+                </button>
+                <button
+                  type="button"
+                  className="open-record-tab-close"
+                  aria-label={`Close ${tab.ref}`}
+                  onClick={(event) => closeOpenWorkspaceTab(tab, event)}
+                >
+                  <X size={12} strokeWidth={2.2} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
 
       <div className={contextSidebarCollapsed ? "body-shell sidebar-collapsed" : "body-shell"}>
         {!contextSidebarCollapsed ? (
@@ -19894,8 +27979,14 @@ export default function Dashboard() {
                   ? "Cost centre"
                 : homeView === "purchase-orders" || homeView === "purchase-order-record"
                   ? "Purchase orders"
+                : homeView === "stock"
+                  ? "Stock"
+                : homeView === "recurring"
+                  ? "Recurring"
                 : homeView === "invoices" || homeView === "invoice-create" || homeView === "invoice-record"
                   ? "Invoices"
+                : homeView === "xero"
+                  ? "Xero"
                 : homeView === "reports"
                   ? "Reports"
                 : homeView === "leads"
@@ -19910,7 +28001,7 @@ export default function Dashboard() {
                   ? "Add-ons"
                 : homeView === "profile"
                   ? "My profile"
-                : homeView === "clients" || homeView === "client-record"
+                : homeView === "clients" || homeView === "client-record" || homeView === "directory-manager"
                   ? "Clients"
                   : homeView === "employees"
                     ? "People"
@@ -19953,21 +28044,25 @@ export default function Dashboard() {
 
           <div className="sidebar-divider" />
           <p className="sidebar-label">Quick access</p>
-          <a href="/survey" className="context-link" aria-label="NeXa Survey" data-tooltip="NeXa Survey">
+          <a href="/survey" className="context-link" aria-label="NeXa Surveyor" data-tooltip="NeXa Surveyor">
             <Sparkles size={17} />
-            <span>NeXa Survey</span>
+            <span>NeXa Surveyor</span>
+          </a>
+          <a href="/ai-intake" className="context-link" aria-label="NeXa AI Intake" data-tooltip="AI intake — create lead & book survey">
+            <Sparkles size={17} />
+            <span>AI Intake</span>
+          </a>
+          <a href="/ai-first" className="context-link" aria-label="NeXa AI First" data-tooltip="AI-first prototype walkthrough">
+            <Sparkles size={17} />
+            <span>AI First demo</span>
           </a>
           <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />
             <span>NeXa Takeoff</span>
           </a>
-          <a href="/engineer" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
+          <a href="/field" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
             <span>NeXa Field</span>
-          </a>
-          <a href="/office/whatsapp-pilot" className="context-link" aria-label="NeXa Connect" data-tooltip="NeXa Connect">
-            <Inbox size={17} />
-            <span>NeXa Connect</span>
           </a>
           <a href="/office/alerts" className="context-link" aria-label="Office alerts" data-tooltip="Office alerts">
             <Bell size={17} />
@@ -20027,8 +28122,14 @@ export default function Dashboard() {
                       ? "Purchase orders"
                     : homeView === "purchase-order-record"
                       ? selectedPurchaseOrder?.poNumber || "Purchase order"
+                    : homeView === "stock"
+                      ? "Stock"
+                    : homeView === "recurring"
+                      ? "Recurring"
                     : homeView === "invoices"
                       ? "Invoices"
+                    : homeView === "xero"
+                      ? "Xero"
                     : homeView === "reports"
                       ? "Reports"
                     : homeView === "invoice-create"
@@ -20053,7 +28154,7 @@ export default function Dashboard() {
                       ? "Add-ons"
                     : homeView === "client-record"
                       ? "Client record"
-                      : homeView === "clients"
+                      : homeView === "clients" || homeView === "directory-manager"
                         ? "Clients"
                     : homeView === "employees"
                       ? "Employees"
@@ -20083,8 +28184,14 @@ export default function Dashboard() {
                     ? "Purchase orders"
                   : homeView === "purchase-order-record"
                     ? selectedPurchaseOrder?.poNumber || "Purchase order"
+                  : homeView === "stock"
+                    ? "Stock & van stock"
+                  : homeView === "recurring"
+                    ? "Recurring plans"
                   : homeView === "invoices"
                     ? "Invoices"
+                  : homeView === "xero"
+                    ? "Xero accounts"
                   : homeView === "reports"
                     ? "Reports & insights"
                   : homeView === "invoice-create"
@@ -20107,10 +28214,18 @@ export default function Dashboard() {
                       ? "My profile"
                   : homeView === "addons"
                     ? "NeXa add-ons"
-                  : homeView === "client-record"
+                    : homeView === "client-record"
                     ? activeClient?.name || "Client record"
                     : homeView === "clients"
                       ? "Clients"
+                  : homeView === "directory-manager"
+                    ? activeDirectoryManager === "sites"
+                      ? "Sites"
+                      : activeDirectoryManager === "suppliers"
+                        ? "Suppliers"
+                        : activeDirectoryManager === "contacts"
+                          ? "Contacts"
+                          : "Contractors"
                   : homeView === "employees"
                     ? "Employee cards"
                     : "Operations overview"}
@@ -20138,8 +28253,14 @@ export default function Dashboard() {
                     ? `${purchaseOrderRows.length} purchase orders · ${purchaseOrderStatusFilter}`
                   : homeView === "purchase-order-record"
                     ? `${selectedPurchaseOrder?.supplier ?? "Supplier TBC"} · ${selectedPurchaseOrder?.jobRef ?? "No job linked"}`
+                  : homeView === "stock"
+                    ? "Warehouse + Chris / Murray / Raymond / Ryan vans"
+                  : homeView === "recurring"
+                    ? "Service plans that generate the next job or invoice when due"
                   : homeView === "invoices"
                     ? `${filteredInvoices.length} invoices · ${invoiceStatusFilter}`
+                  : homeView === "xero"
+                    ? `${xeroSalesToExport.length} sales to export · ${xeroBillsToExport.length} bills to export`
                   : homeView === "reports"
                     ? `${reportDateRangeLabel} · ${reportExecutive.grossMargin}% gross margin · ${currency(reportExecutive.cashOwed)} cash owed`
                   : homeView === "invoice-create"
@@ -20164,6 +28285,14 @@ export default function Dashboard() {
                     ? `${activeClient?.primaryContact || "No contact"} · ${activeClient?.email || "No email on file"}`
                     : homeView === "clients"
                       ? `${clients.length} client accounts and ${clientSites.length} live sites in NeXa`
+                  : homeView === "directory-manager"
+                    ? activeDirectoryManager === "sites"
+                      ? `${clientSites.length} sites linked to ${clients.length} customer accounts`
+                      : activeDirectoryManager === "suppliers"
+                        ? `${suppliers.length} supplier records in the buying list`
+                        : activeDirectoryManager === "contacts"
+                          ? `${contacts.length} contact records ready to attach to work`
+                          : `${contractors.length} contractor records ready to allocate`
                   : homeView === "employees"
                     ? `${employees.length} employees onboarded in NeXa`
                     : `${currentOperatingDateLabel} · Live business position`}
@@ -20182,17 +28311,11 @@ export default function Dashboard() {
                 </>
               ) : homeView === "cost-centre-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnToJobRecord}>
-                    Back to job
-                  </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("nested")}
                 </>
               ) : homeView === "quote-cost-centre-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnToQuoteRecord}>
-                    Back to quote
-                  </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("nested")}
                 </>
               ) : homeView === "quote-create" ? (
                 <>
@@ -20257,6 +28380,10 @@ export default function Dashboard() {
                     <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                   ) : null}
                 </>
+              ) : homeView === "stock" || homeView === "recurring" ? (
+                <button className="secondary-button" onClick={returnToDashboard}>
+                  Back to dashboard
+                </button>
               ) : homeView === "invoices" ? (
                 <>
                   <button className="secondary-button" onClick={returnToDashboard}>
@@ -20265,6 +28392,43 @@ export default function Dashboard() {
                   {access.canEditInvoice ? (
                     <button className="primary-button" onClick={openInvoiceSourcePicker}>
                       New invoice from source
+                    </button>
+                  ) : null}
+                </>
+              ) : homeView === "xero" ? (
+                <>
+                  <button className="secondary-button" onClick={returnToDashboard}>
+                    Back to dashboard
+                  </button>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => {
+                      setHomeView("settings");
+                      setActiveSetupCategory("integrations");
+                      setActiveSetupSubItem("Xero");
+                    }}
+                  >
+                    Connection settings
+                  </button>
+                  {activeXeroTab === "sales" && access.canEditInvoice ? (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={!xeroSelectedInvoiceIds.length || isExportingInvoiceToXero}
+                      onClick={() => void exportSelectedXeroInvoices()}
+                    >
+                      {isExportingInvoiceToXero ? "Exporting…" : `Export selected (${xeroSelectedInvoiceIds.length})`}
+                    </button>
+                  ) : null}
+                  {activeXeroTab === "bills" && access.canEditInvoice ? (
+                    <button
+                      className="primary-button"
+                      type="button"
+                      disabled={!xeroSelectedPoIds.length || isExportingPoBillToXero}
+                      onClick={() => void exportSelectedXeroBills()}
+                    >
+                      {isExportingPoBillToXero ? "Exporting…" : `Export selected (${xeroSelectedPoIds.length})`}
                     </button>
                   ) : null}
                 </>
@@ -20293,10 +28457,7 @@ export default function Dashboard() {
                 </>
               ) : homeView === "invoice-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnFromInvoiceRecord}>
-                    Back to source
-                  </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("record")}
                   <button className="secondary-button" onClick={() => setActiveInvoiceTab("preview")}>
                     Preview client form
                   </button>
@@ -20318,10 +28479,7 @@ export default function Dashboard() {
                 </>
               ) : homeView === "quote-record" || homeView === "job-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnFromRecord}>
-                    Back to dashboard
-                  </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("record")}
                   <button
                     className="secondary-button"
                     onClick={() => homeView === "quote-record" ? setActiveQuoteTab("preview") : setActiveJobTab("forms")}
@@ -20370,6 +28528,24 @@ export default function Dashboard() {
                       Open linked job
                     </button>
                   ) : null}
+                  {homeView === "quote-record" && selectedQuote ? (
+                    <a
+                      className="secondary-button"
+                      href={`/survey?quote=${encodeURIComponent(selectedQuote.id)}`}
+                      style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                    >
+                      Build with Surveyor
+                    </a>
+                  ) : null}
+                  {homeView === "job-record" && selectedJob ? (
+                    <a
+                      className="secondary-button"
+                      href={`/survey?job=${encodeURIComponent(selectedJob.id)}`}
+                      style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}
+                    >
+                      Build with Surveyor
+                    </a>
+                  ) : null}
                 </>
               ) : homeView === "leads" ? (
                 <>
@@ -20400,10 +28576,7 @@ export default function Dashboard() {
                 </>
               ) : homeView === "lead-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnToLeadsDirectory}>
-                    Back to leads
-                  </button>
-                  {renderRecordSaveControls()}
+                  {renderRecordSaveControls("record")}
                   {selectedLead ? (
                     <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
                       Create quote
@@ -21177,6 +29350,75 @@ export default function Dashboard() {
                 </div>
               ) : null}
 
+              {activeReportTab === "wip" ? (
+                <div className="reports-section-grid">
+                  <section className="report-card wide">
+                    <header>
+                      <div>
+                        <span className="permission-heading">Work in progress</span>
+                        <h3>Open jobs costed versus billed</h3>
+                      </div>
+                    </header>
+                    <div className="report-table jobs">
+                      <div className="report-table-head">
+                        <span>Job</span><span>Sell / WIP value</span><span>Cost committed</span><span>Billed</span><span>Unbilled</span><span>Labour hrs</span><span>Margin</span>
+                      </div>
+                      {reportJobRows
+                        .filter((row) => !["Invoiced", "Closed"].includes(row.job.status))
+                        .map((row) => {
+                          const billed = reportInvoiceRows
+                            .filter((invoiceRow) => invoiceRow.invoice.sourceId === row.job.id && invoiceRow.invoice.status !== "Cancelled" && invoiceRow.invoice.claimType !== "credit-note")
+                            .reduce((total, invoiceRow) => total + invoiceRow.revenue, 0);
+                          const unbilled = Math.max(0, row.job.value - billed);
+                          const actualHours = row.job.actualDurationHours;
+                          const plannedHours = row.job.scheduledDurationHours;
+                          const labourLabel = typeof actualHours === "number"
+                            ? `${actualHours.toFixed(1)}h${typeof row.job.labourCostVariance === "number" ? ` (${row.job.labourCostVariance > 0 ? "+" : ""}${row.job.labourCostVariance.toFixed(1)})` : plannedHours ? ` / ${plannedHours}h` : ""}`
+                            : plannedHours
+                              ? `Plan ${plannedHours}h`
+                              : "—";
+                          return (
+                            <button className="report-table-row clickable" key={row.job.id} type="button" onClick={() => openJobDrawer(row.job.id)}>
+                              <strong>{row.job.ref} · {row.job.customer}<small>{row.job.status} · {row.job.description}</small></strong>
+                              <span>{currency(row.job.value)}</span>
+                              <span>{currency(row.committedCost || row.actualCost || row.projectedCost)}</span>
+                              <span>{currency(billed)}</span>
+                              <span>{currency(unbilled)}</span>
+                              <span>{labourLabel}</span>
+                              <span>{row.margin}%</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </section>
+                  <section className="report-card">
+                    <header><h3>WIP totals</h3></header>
+                    <div className="report-mini-stack">
+                      <article>
+                        <span>Open WIP value</span>
+                        <strong>{currency(reportJobRows.filter((row) => !["Invoiced", "Closed"].includes(row.job.status)).reduce((total, row) => total + row.job.value, 0))}</strong>
+                        <small>Jobs still live</small>
+                      </article>
+                      <article>
+                        <span>Cost committed</span>
+                        <strong>{currency(reportJobRows.filter((row) => !["Invoiced", "Closed"].includes(row.job.status)).reduce((total, row) => total + (row.committedCost || row.actualCost || row.projectedCost), 0))}</strong>
+                        <small>Materials + labour position</small>
+                      </article>
+                      <article>
+                        <span>Unbilled balance</span>
+                        <strong>{currency(reportJobRows.filter((row) => !["Invoiced", "Closed"].includes(row.job.status)).reduce((total, row) => {
+                          const billed = reportInvoiceRows
+                            .filter((invoiceRow) => invoiceRow.invoice.sourceId === row.job.id && invoiceRow.invoice.status !== "Cancelled")
+                            .reduce((sum, invoiceRow) => sum + invoiceRow.revenue, 0);
+                          return total + Math.max(0, row.job.value - billed);
+                        }, 0))}</strong>
+                        <small>Sell value not yet invoiced</small>
+                      </article>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+
               {activeReportTab === "jobs" ? (
                 <section className="report-card wide">
                   <header>
@@ -21316,7 +29558,11 @@ export default function Dashboard() {
                     <header><h3>Price tracking</h3></header>
                     <div className="report-mini-stack">
                       <article><span>Supplier RFQs</span><strong>{reportPurchaseRows.filter((row) => row.request.status === "Requested").length}</strong><small>Waiting office or supplier action</small></article>
-                      <article><span>Stock usage</span><strong>Setup</strong><small>Will use stock movements once stock is enabled.</small></article>
+                      <article>
+                        <span>Stock issued to jobs</span>
+                        <strong>{currency(Object.values(stockIssueCostByJobRef).reduce((sum, value) => sum + value, 0))}</strong>
+                        <small>Issue-to-job movements at unit cost</small>
+                      </article>
                       <article><span>Price increases</span><strong>Tracking</strong><small>Compares supplier quote PDFs against catalogue history.</small></article>
                     </div>
                   </section>
@@ -21442,7 +29688,13 @@ export default function Dashboard() {
                             </a>
                           </div>
                           <strong>{row.request.item}</strong>
-                          <small>{row.receiptPercent}% received</small>
+                          <small>
+                            {row.receiptPercent}% received
+                            {(() => {
+                              const match = purchaseRequestThreeWayMatch(row.request);
+                              return match.status !== "Incomplete" ? ` · ${match.status}` : "";
+                            })()}
+                          </small>
                         </div>
                         <span className={`status-pill ${purchaseRequestTone(row.request)}`}>{row.request.status}</span>
                         <span className="manager">{row.createdBy}</span>
@@ -21503,6 +29755,15 @@ export default function Dashboard() {
                         <div><dt>Supplier</dt><dd>{selectedPurchaseOrder.supplier}</dd></div>
                         <div><dt>Supplier email</dt><dd>{selectedPurchaseOrder.supplierEmail || "To be confirmed"}</dd></div>
                         <div><dt>Created by</dt><dd>{selectedPurchaseOrder.requestedBy}</dd></div>
+                        <div>
+                          <dt>Supplier payment</dt>
+                          <dd>
+                            {selectedPurchaseOrder.supplierPaymentStatus || "Unpaid"}
+                            {typeof selectedPurchaseOrder.supplierPaidAmount === "number"
+                              ? ` · ${currency(selectedPurchaseOrder.supplierPaidAmount)} paid`
+                              : ""}
+                          </dd>
+                        </div>
                       </dl>
                     </article>
                     <article className="client-info-card">
@@ -21516,6 +29777,217 @@ export default function Dashboard() {
                       <button className="secondary-button" type="button" onClick={openSelectedPurchaseOrderJob}>Open linked job / cost centre</button>
                     </article>
                   </div>
+
+                  {(() => {
+                    const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
+                    const tone =
+                      match.status === "Matched" ? "green" : match.status === "Variance" ? "red" : "amber";
+                    return (
+                      <section className="accounts-handoff-panel" style={{ marginTop: "1rem" }}>
+                        <header>
+                          <div>
+                            <span className="permission-heading">Accounts check</span>
+                            <h2>Three-way match</h2>
+                          </div>
+                          <span className={`status-pill ${tone}`}>{match.status}</span>
+                        </header>
+                        <div className="accounts-handoff-grid">
+                          <div><span>Ordered</span><strong>{currency(match.ordered)}</strong></div>
+                          <div><span>Received into stock</span><strong>{currency(match.received)}</strong></div>
+                          <div>
+                            <span>Supplier invoice</span>
+                            <strong>{match.invoiced === null ? "Not entered" : currency(match.invoiced)}</strong>
+                          </div>
+                          <div>
+                            <span>Receipt</span>
+                            <strong>{match.receiptPercent}%</strong>
+                          </div>
+                          <label className="accounts-payment-amount">
+                            <span>Supplier invoice amount</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={poSupplierInvoiceDraft.amount}
+                              onChange={(event) =>
+                                setPoSupplierInvoiceDraft((current) => ({ ...current, amount: event.target.value }))
+                              }
+                              aria-label="Supplier invoice amount"
+                            />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Supplier invoice ref</span>
+                            <input
+                              value={poSupplierInvoiceDraft.reference}
+                              onChange={(event) =>
+                                setPoSupplierInvoiceDraft((current) => ({ ...current, reference: event.target.value }))
+                              }
+                              placeholder="Supplier INV / remittance"
+                              aria-label="Supplier invoice reference"
+                            />
+                          </label>
+                          <div>
+                            <span>Supplier payment</span>
+                            <strong>
+                              {selectedPurchaseOrder.supplierPaymentStatus || "Unpaid"}
+                              {typeof selectedPurchaseOrder.supplierPaidAmount === "number"
+                                ? ` · ${currency(selectedPurchaseOrder.supplierPaidAmount)}`
+                                : ""}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>Remaining to supplier</span>
+                            <strong>
+                              {currency(
+                                Math.max(
+                                  0,
+                                  (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0),
+                                ),
+                              )}
+                            </strong>
+                          </div>
+                          <label className="accounts-payment-amount">
+                            <span>Pay supplier</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={poSupplierPaymentDraft.amount}
+                              onChange={(event) =>
+                                setPoSupplierPaymentDraft((current) => ({ ...current, amount: event.target.value }))
+                              }
+                              aria-label="Supplier payment amount"
+                            />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Method</span>
+                            <select
+                              value={poSupplierPaymentDraft.method}
+                              onChange={(event) =>
+                                setPoSupplierPaymentDraft((current) => ({ ...current, method: event.target.value }))
+                              }
+                              aria-label="Supplier payment method"
+                            >
+                              <option>Bank transfer</option>
+                              <option>Card</option>
+                              <option>Cheque</option>
+                              <option>Direct debit</option>
+                              <option>Other</option>
+                            </select>
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Payment ref</span>
+                            <input
+                              value={poSupplierPaymentDraft.reference}
+                              onChange={(event) =>
+                                setPoSupplierPaymentDraft((current) => ({ ...current, reference: event.target.value }))
+                              }
+                              placeholder="BACS / remittance"
+                              aria-label="Supplier payment reference"
+                            />
+                          </label>
+                        </div>
+                        {(selectedPurchaseOrder.supplierPayments || []).length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head"><span>Date</span><span>Amount</span><span>Method</span><span>Reference</span></div>
+                            {(selectedPurchaseOrder.supplierPayments || []).map((payment) => (
+                              <div className="ops-table-row" key={payment.id}>
+                                <span>{payment.paidAt}</span>
+                                <strong>{currency(payment.amount)}</strong>
+                                <span>{payment.source === "xero" ? `${payment.method} · Xero` : payment.method}</span>
+                                <span>{payment.reference || payment.actor || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <footer>
+                          <small>
+                            {match.status === "Matched"
+                              ? "Ordered, received and supplier invoice amounts agree within 1%."
+                              : match.status === "Variance"
+                                ? `Variance — received ${currency(match.orderedVsReceived)} vs order` +
+                                  (match.orderedVsInvoiced === null
+                                    ? "."
+                                    : ` · invoice ${currency(match.orderedVsInvoiced)} vs order.`)
+                                : "Enter the supplier invoice amount after goods receipt to complete the match."}
+                          </small>
+                          <div>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => {
+                                const amount = Number(poSupplierInvoiceDraft.amount);
+                                if (!Number.isFinite(amount) || amount < 0) {
+                                  showNotice("Enter a valid supplier invoice amount.");
+                                  return;
+                                }
+                                void patchPurchaseRequest(
+                                  selectedPurchaseOrder.id,
+                                  {
+                                    supplierInvoiceAmount: amount,
+                                    supplierInvoiceRef: poSupplierInvoiceDraft.reference.trim() || undefined,
+                                    invoiceFileName:
+                                      selectedPurchaseOrder.invoiceFileName ||
+                                      poSupplierInvoiceDraft.reference.trim() ||
+                                      `${selectedPurchaseOrder.poNumber || selectedPurchaseOrder.id} supplier invoice`,
+                                    invoiceReceivedAt:
+                                      selectedPurchaseOrder.invoiceReceivedAt || workflowTimestamp(),
+                                    actualCost: selectedPurchaseOrder.actualCost ?? amount,
+                                  },
+                                  `${selectedPurchaseOrder.poNumber || "PO"} supplier invoice ${currency(amount)} saved for three-way match.`,
+                                );
+                              }}
+                            >
+                              Save supplier invoice
+                            </button>
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              onClick={() => {
+                                const remaining = Math.max(
+                                  0,
+                                  (match.invoiced ?? match.ordered) - (selectedPurchaseOrder.supplierPaidAmount ?? 0),
+                                );
+                                const amount = Number(poSupplierPaymentDraft.amount);
+                                if (!Number.isFinite(amount) || amount <= 0) {
+                                  showNotice("Enter the supplier payment amount before recording it.");
+                                  return;
+                                }
+                                if (amount > remaining + 0.009) {
+                                  showNotice(`Payment cannot exceed the remaining supplier balance of ${currency(remaining)}.`);
+                                  return;
+                                }
+                                const nextPaid = (selectedPurchaseOrder.supplierPaidAmount ?? 0) + amount;
+                                const owed = match.invoiced ?? match.ordered;
+                                const nextStatus =
+                                  nextPaid >= owed - 0.009 ? "Paid" : nextPaid > 0.009 ? "Part paid" : "Unpaid";
+                                const payment = {
+                                  id: `po-pay-${Date.now()}`,
+                                  paidAt: currentOperatingDate,
+                                  amount,
+                                  method: poSupplierPaymentDraft.method.trim() || "Bank transfer",
+                                  reference: poSupplierPaymentDraft.reference.trim() || undefined,
+                                  actor: activeEmployee?.name ?? "NeXa user",
+                                  source: "manual" as const,
+                                };
+                                void patchPurchaseRequest(
+                                  selectedPurchaseOrder.id,
+                                  {
+                                    supplierPaidAmount: nextPaid,
+                                    supplierPaymentStatus: nextStatus,
+                                    supplierPayments: [...(selectedPurchaseOrder.supplierPayments || []), payment],
+                                  },
+                                  `${selectedPurchaseOrder.poNumber || "PO"}: recorded supplier payment ${currency(amount)} · ${nextStatus}.`,
+                                );
+                              }}
+                            >
+                              Record supplier payment
+                            </button>
+                          </div>
+                        </footer>
+                      </section>
+                    );
+                  })()}
 
                   <section className="record-form-preview-workspace">
                     <div className="documents-toolbar">
@@ -21559,12 +30031,49 @@ export default function Dashboard() {
                     />
                     <div className="record-form-preview-actions">
                       <button className="secondary-button" type="button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setHomeView("xero");
+                          setActiveXeroTab("bills");
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Open Xero bills
+                      </button>
                       <button className="primary-button" type="button" onClick={() => sendPurchaseOrderToSupplier(selectedPurchaseOrder)}><Mail size={15} /> Send to supplier</button>
                     </div>
                   </section>
                 </section>
               );
             })() : <section className="record-folder-empty">Purchase order not found.</section>
+          ) : homeView === "stock" ? (
+            <StockOpsPanel
+              requestHeaders={requestHeaders}
+              onNotice={showNotice}
+              jobs={jobs.map((job) => ({
+                id: job.id,
+                ref: job.ref,
+                customer: job.customer,
+                status: job.status,
+              }))}
+              actorName={activeEmployee?.name ?? "NeXa"}
+              defaultSupplier={suppliers[0]?.name || "Plumbase"}
+              onPurchaseRequestCreated={(created) => {
+                setPurchaseRequests((current) => {
+                  if (current.some((row) => row.id === created.id)) return current;
+                  return [created as PurchaseRequest, ...current];
+                });
+              }}
+            />
+          ) : homeView === "recurring" ? (
+            <RecurringOpsPanel
+              requestHeaders={requestHeaders}
+              onNotice={showNotice}
+              onGenerateJob={generateRecurringJobFromPlan}
+              onGenerateInvoice={generateRecurringInvoiceFromPlan}
+            />
           ) : homeView === "addons" ? (
             <section className="addon-workspace">
               <div className="addon-hero">
@@ -21583,6 +30092,15 @@ export default function Dashboard() {
               </div>
 
               <div className="addon-card-grid">
+                <a className="addon-product-card" href="/survey">
+                  <span className="addon-icon"><ClipboardCheck size={20} /></span>
+                  <div>
+                    <strong>NeXa Surveyor</strong>
+                    <p>Guided site capture with Blake, photos, measurements and AI estimate packs.</p>
+                    <small>Outputs survey evidence, assumptions, materials, labour and Estimator handoff.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
                 <a className="addon-product-card" href="/takeoff">
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
@@ -21592,11 +30110,20 @@ export default function Dashboard() {
                   </div>
                   <ChevronRight size={17} />
                 </a>
-                <a className="addon-product-card" href="/engineer">
+                <a className="addon-product-card" href="/estimator">
+                  <span className="addon-icon"><FileText size={20} /></span>
+                  <div>
+                    <strong>NeXa Estimator</strong>
+                    <p>Review AI-built materials and labour, then push a Core quote.</p>
+                    <small>Outputs editable estimates, RFQs and simPRO-ready quote lines.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+                <a className="addon-product-card" href="/field">
                   <span className="addon-icon"><HardHat size={20} /></span>
                   <div>
                     <strong>NeXa Field</strong>
-                    <p>Engineer packs, stop/go checks, photos, forms, timesheets and variations.</p>
+                    <p>Engineer packs, Ask Blake, photos, hours and job evidence from site.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
                   </div>
                   <ChevronRight size={17} />
@@ -21686,111 +30213,174 @@ export default function Dashboard() {
 
                 {activeQuoteTab === "setup" ? (
                   <section className="quote-record-panel">
-                    <div className="client-overview-grid">
-                      <article className="client-info-card">
-                        <span className="permission-heading">Quote details</span>
+                    <div className="simpro-record-summary">
+                      <section className="simpro-summary-block" style={{ gridColumn: "1 / -1" }}>
+                        <div className="simpro-summary-block-head">
+                          <h3>Build quote from survey</h3>
+                          <a className="record-text-link" href={`/survey?quote=${encodeURIComponent(selectedQuote.id)}`}>
+                            Open Surveyor
+                          </a>
+                        </div>
+                        <p style={{ margin: 0, color: "var(--muted, #5b6570)", lineHeight: 1.45 }}>
+                          Start a NeXa Surveyor pack linked to {selectedQuote.ref}. Customer and site come from this quote —
+                          evidence and cost centres feed back into Core instead of a disconnected draft.
+                        </p>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Customer</h3>
+                          {selectedQuoteClient ? (
+                            <button className="record-text-link" type="button" onClick={() => openClientRecordView(selectedQuoteClient.id)}>
+                              Edit customer
+                            </button>
+                          ) : (
+                            <button className="record-text-link" type="button" onClick={() => setShowCreateQuote(true)}>
+                              Link customer
+                            </button>
+                          )}
+                        </div>
                         <dl>
-                          <div>
-                            <dt>Client</dt>
-                            <dd>{selectedQuoteClient?.name ?? selectedQuote.customer}</dd>
-                          </div>
-                          <div>
-                            <dt>Site</dt>
-                            <dd>{selectedQuoteSite?.name ?? "Site to confirm"}</dd>
-                          </div>
-                          <div>
-                            <dt>Owner</dt>
-                            <dd>{selectedQuote.owner}</dd>
-                          </div>
-                          <div>
-                            <dt>Status</dt>
-                            <dd>{selectedQuote.status}</dd>
-                          </div>
-                          <div>
-                            <dt>Simpro</dt>
-                            <dd>{selectedQuote.simproStatus ?? "Not sent"}</dd>
-                          </div>
+                          <div><dt>Name</dt><dd>{selectedQuoteClient?.name ?? selectedQuote.customer}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedQuoteClient?.primaryContact ?? "To confirm"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedQuoteClient?.email ?? "To confirm"}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedQuoteClient?.phone ?? "To confirm"}</dd></div>
                         </dl>
-                      </article>
-                      <article className="client-info-card">
-                        <span className="permission-heading">Commercial position</span>
-                        <p>Build the quote from cost centres before it becomes a job. Jobs should inherit this structure rather than inventing costs after conversion.</p>
-                        <div className="quote-action-stack">
-                          <button className="primary-button" onClick={() => setActiveQuoteTab("cost-build")}>
-                            Build quote costs
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Site</h3>
+                          {selectedQuoteClient ? (
+                            <button
+                              className="record-text-link"
+                              type="button"
+                              onClick={() => openClientSiteRecordView(selectedQuoteClient.id, selectedQuoteSite?.name)}
+                            >
+                              {selectedQuoteSite ? "Edit site" : "Add site"}
+                            </button>
+                          ) : null}
+                        </div>
+                        {selectedQuoteClient ? (
+                          <label className="full-field">
+                            Linked site
+                            <select
+                              value={siteSelectionValueForForm(
+                                selectedQuoteClient,
+                                clientSites,
+                                selectedQuote.siteId,
+                                selectedQuoteSite?.address ?? selectedQuoteClient.billingAddress,
+                              )}
+                              onChange={(event) => {
+                                void saveSelectedQuoteLinking(selectedQuoteClient.id, event.target.value);
+                              }}
+                            >
+                              {selectedQuoteClient.billingAddress?.trim() ? (
+                                <option value={CLIENT_SITE_BILLING}>
+                                  Customer address — {selectedQuoteClient.billingAddress}
+                                </option>
+                              ) : null}
+                              {clientSites
+                                .filter((site) => site.clientId === selectedQuoteClient.id)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>
+                                    {site.name} - {site.address}
+                                  </option>
+                                ))}
+                              <option value={CLIENT_SITE_NEW}>+ New site address</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        <dl>
+                          <div><dt>Site</dt><dd>{selectedQuoteSite?.name ?? (selectedQuoteClient?.billingAddress ? "Customer address" : "Site to confirm")}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedQuoteSite?.address ?? selectedQuoteClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Quote</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Owner</dt><dd>{selectedQuote.owner}</dd></div>
+                          <div><dt>Status</dt><dd>{selectedQuote.status}</dd></div>
+                          <div><dt>Simpro</dt><dd>{selectedQuote.simproStatus ?? "Not sent"}</dd></div>
+                        </dl>
+                        <div className="simpro-summary-actions">
+                          <button className="record-text-link" type="button" onClick={() => setActiveQuoteTab("cost-build")}>
+                            Build costs
+                          </button>
+                          <button className="record-text-link" type="button" onClick={() => setActiveQuoteTab("documents")}>
+                            Attachments
                           </button>
                           <button
-                            className="secondary-button"
+                            className="record-text-link"
                             type="button"
                             onClick={sendSelectedQuoteToSimpro}
                             disabled={isSendingQuoteToSimpro}
                           >
                             {isSendingQuoteToSimpro ? "Sending..." : "Send to Simpro"}
                           </button>
-                          <small>
-                            {selectedQuote.simproStatus === "Sent"
-                              ? `Last sent${selectedQuote.simproQuoteId ? ` as ${selectedQuote.simproQuoteId}` : ""}.`
-                              : selectedQuote.simproStatus === "Queued"
-                                ? `Queued in NeXa only. It will not appear in Simpro until ${selectedQuoteSimproExports[0]?.setupRequired ?? "SIMPRO_QUOTE_PUSH_URL"} is configured.`
-                                : simproBridgeStatus.configured
-                                  ? "Live Simpro bridge is configured. This will push the quote payload to the bridge."
-                                  : `Simpro bridge not connected yet: ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"} missing.`}
-                          </small>
+                          {buddyHasOpenChecks ? (
+                            <button
+                              className="record-text-link"
+                              type="button"
+                              onClick={() => {
+                                setNexaAssistantOpen(true);
+                                setNexaAssistantMessages((current) => [
+                                  ...current,
+                                  {
+                                    id: `buddy-brief-${crypto.randomUUID()}`,
+                                    role: "assistant",
+                                    text: [
+                                      selectedQuoteBuddySummary.headline + ".",
+                                      "",
+                                      ...selectedQuoteBuddyFindings.slice(0, 4).map(
+                                        (item) => `• ${item.title}${item.actionHint ? ` — ${item.actionHint}` : ""}`,
+                                      ),
+                                      ...selectedQuoteOpenReviewQuestions.slice(0, 4).map(
+                                        (item) => `• ${item.title} — ${item.detail}`,
+                                      ),
+                                      "",
+                                      selectedQuoteBuddyFindings.some((item) => item.severity === "block")
+                                        ? "I’ll stop a Simpro send while blockers are open. Say “send anyway” if you’re sure, or ask me to walk you through it."
+                                        : "Ask me to walk you through any of these, or mark them checked once you’ve reviewed them.",
+                                    ].join("\n"),
+                                  },
+                                ]);
+                              }}
+                            >
+                              Ask Blake ({selectedQuoteBuddyFindings.length + selectedQuoteOpenReviewQuestions.length})
+                            </button>
+                          ) : null}
                         </div>
-                      </article>
+                      </section>
                     </div>
 
-                    <section className="ai-quote-review-panel">
-                      <header>
-                        <div>
-                          <span><Sparkles size={15} /> NeXa AI review</span>
-                          <h2>Questions before this quote goes out</h2>
+                    {recordSetupById[selectedQuote.id] ? (
+                      <section className="simpro-setup-rates" aria-label="Quote rates and options">
+                        <div className="simpro-setup-rates-head">
+                          <h4>Rates &amp; options</h4>
+                          <span>Set when this quote was created</span>
                         </div>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => showNotice("AI review refreshed against the latest quote costs.")}
-                        >
-                          Ask again
-                        </button>
-                      </header>
-                      <div className="ai-review-summary">
-                        <strong>{selectedQuoteReviewQuestions.filter((question) => !checkedQuoteReviewQuestions[question.id]).length}</strong>
-                        <span>open questions from {selectedQuotePricedCostCentres.length} priced cost centres</span>
-                      </div>
-                      {selectedQuoteReviewQuestions.length > 0 ? (
-                        <div className="ai-review-question-list">
-                          {selectedQuoteReviewQuestions.map((question) => {
-                            const checked = checkedQuoteReviewQuestions[question.id];
+                        <dl className="simpro-setup-rates-readonly">
+                          {(() => {
+                            const setup = recordSetupById[selectedQuote.id]!;
                             return (
-                              <article className={checked ? "ai-review-question checked" : "ai-review-question"} key={question.id}>
-                                <div className={`ai-review-severity ${question.severity}`}>{question.severity}</div>
-                                <div>
-                                  <strong>{question.title}</strong>
-                                  <p>{question.detail}</p>
-                                </div>
-                                <div className="ai-review-actions">
-                                  {question.action !== "none" ? (
-                                    <button className="secondary-button" type="button" onClick={() => actOnQuoteReviewQuestion(question)}>
-                                      {question.action === "open-centre" ? "Open cost centre" : "Review costs"}
-                                    </button>
-                                  ) : null}
-                                  <button className="primary-button" type="button" onClick={() => markQuoteReviewQuestionChecked(question.id)}>
-                                    <Check size={14} />
-                                    Checked
-                                  </button>
-                                </div>
-                              </article>
+                              <>
+                                <div><dt>Type</dt><dd>{setup.quoteType}</dd></div>
+                                <div><dt>Stage</dt><dd>{setup.stage}</dd></div>
+                                <div><dt>Primary tech</dt><dd>{setup.primaryTech || "—"}</dd></div>
+                                <div><dt>Labour estimates</dt><dd>{setup.labourEstimatesOn ? "On" : "Off"}</dd></div>
+                                <div><dt>Labour markup</dt><dd>{setup.labourMarkupMode === "system" ? "System settings" : `${setup.labourMarkupPercent}%`}</dd></div>
+                                <div><dt>Material markup</dt><dd>{setup.materialMarkupPercent}%</dd></div>
+                                <div><dt>Discount</dt><dd>{setup.discountPercent}%</dd></div>
+                                <div><dt>Labour tax</dt><dd>{setup.labourTaxCode}</dd></div>
+                                <div><dt>Item tax</dt><dd>{setup.itemTaxCode}</dd></div>
+                                <div><dt>Site contact</dt><dd>{setup.siteContact || "—"}</dd></div>
+                              </>
                             );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="ai-review-empty">
-                          <Check size={18} />
-                          <span>No obvious quote gaps found from the current cost centres.</span>
-                        </div>
-                      )}
-                    </section>
+                          })()}
+                        </dl>
+                      </section>
+                    ) : null}
 
                     <section className="simpro-summary-panel quote-combined-summary">
                       <h2>Quote commercial summary</h2>
@@ -22837,8 +31427,29 @@ export default function Dashboard() {
                           <aside className="quote-email-panel">
                             <div className="outlook-status-card">
                               <span>Outlook connection</span>
-                              <strong>Ready for Microsoft 365 link</strong>
-                              <p>Email will be sent through Outlook and captured back to the quote/job timeline once Graph auth is connected.</p>
+                              <strong>
+                                {emailIntegrationStatus?.lastTestMessageId
+                                  ? "Live outbox verified"
+                                  : emailIntegrationStatus?.lastError
+                                    ? "Outbox connection failed"
+                                    : emailIntegrationStatus?.configured
+                                      ? "Saved, send test required"
+                                      : "Not connected"}
+                              </strong>
+                              <p>
+                                {emailIntegrationStatus?.lastError
+                                  || (emailIntegrationStatus?.lastTestRecipient
+                                    ? `A real test message was sent to ${emailIntegrationStatus.lastTestRecipient}.`
+                                    : "Connect and test the email provider in Setup before sending customer documents.")}
+                              </p>
+                            </div>
+                            <div className="setup-template-actions">
+                              <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("quote")}>
+                                Apply quote template
+                              </button>
+                              <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("follow-up")}>
+                                Apply follow-up template
+                              </button>
                             </div>
                             <label>
                               To
@@ -22877,9 +31488,14 @@ export default function Dashboard() {
                               />
                               Attach generated PDF
                             </label>
-                            <button className="primary-button" type="button" onClick={sendSelectedQuoteEmail}>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              onClick={() => void sendSelectedQuoteEmail()}
+                            >
                               <Mail size={15} />
-                              Send quote
+                              {isSendingLiveEmail ? "Sending..." : "Send quote"}
                             </button>
                           </aside>
                         </section>
@@ -23056,8 +31672,7 @@ export default function Dashboard() {
                     <strong>{selectedQuote.ref} - {selectedQuoteCostCentre.name}</strong>
                   </div>
                   <div className="simpro-title-actions">
-                    <button className="simpro-grey-button" type="button" onClick={returnToQuoteRecord}>CANCEL</button>
-                    <button className="simpro-save-button" type="button" onClick={() => showNotice("Cost centre saved locally in this prototype.")}>SAVE AND FINISH</button>
+                    {/* Cancel + Save and finish live in the workspace header */}
                   </div>
                 </div>
 
@@ -23733,6 +32348,21 @@ export default function Dashboard() {
                                   <small>{asset.detail}</small>
                                 </div>
                                 <b>{asset.status}</b>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={() => openRecordDocumentFile({
+                                    folderId: asset.kind === "Concept look" ? "client-quote-pack" : "survey-photos",
+                                    name: asset.fileName || asset.title,
+                                    type: asset.kind,
+                                    visibility: asset.clientVisible ? "Client" : "Engineer",
+                                    linkedTo: selectedQuoteCostCentre.name,
+                                    fileUrl: asset.fileUrl,
+                                    previewImageDataUrl: asset.previewImageDataUrl,
+                                  })}
+                                >
+                                  Open
+                                </button>
                                 <label>
                                   <input
                                     checked={asset.clientVisible}
@@ -23931,15 +32561,54 @@ export default function Dashboard() {
                                   onChange={(event) => setCatalogueSearch(event.target.value)}
                                 />
                               </label>
-                              <button className="simpro-grey-button" type="button" onClick={() => showNotice("Catalogue group setup will live in Settings so every quote uses the same folders.")}>
+                              <button
+                                className="simpro-grey-button"
+                                type="button"
+                                onClick={() => openCatalogueSetup("Create folders and import supplier price lists in Setup → Catalogue.")}
+                              >
                                 CREATE GROUP
                               </button>
                               <button
                                 className="simpro-blue-button"
                                 type="button"
-                                onClick={() => showNotice("New catalogue items will be created in Settings so they can be assigned to a catalogue group before use.")}
+                                onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the quote.")}
                               >
                                 CREATE ITEM
+                              </button>
+                            </div>
+                            <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
+                              <label>
+                                Pre-build
+                                <select
+                                  value={selectedPrebuildId}
+                                  onFocus={() => void ensurePrebuildKitsLoaded()}
+                                  onChange={(event) => setSelectedPrebuildId(event.target.value)}
+                                >
+                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load pre-builds…", category: "" }]).map((kit) => (
+                                    <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={!selectedQuoteCostCentre}
+                                onClick={() => {
+                                  if (!selectedQuoteCostCentre) return;
+                                  void applySelectedPrebuildToQuoteCentre(selectedQuoteCostCentre.id);
+                                }}
+                              >
+                                Apply pre-build to cost centre
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => {
+                                  setHomeView("settings");
+                                  setActiveSetupCategory("prebuilds");
+                                }}
+                              >
+                                Manage pre-builds
                               </button>
                             </div>
 
@@ -23949,7 +32618,7 @@ export default function Dashboard() {
                                   <strong>Groups</strong>
                                   <span>Group name</span>
                                 </div>
-                                {quoteCatalogFolders.map((folder) => {
+                                {catalogFolders.map((folder) => {
                                   const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
                                   return (
                                     <button
@@ -23978,7 +32647,11 @@ export default function Dashboard() {
                                   <div className="quote-catalogue-item-row" key={item.id}>
                                     <div>
                                       <strong>{item.name}</strong>
-                                      <span>{item.type} · {item.unit} · Cost {currency(item.costRate)} · Sell {currency(item.sellRate)}</span>
+                                      <span>
+                                        {[item.supplierName, item.type, item.unit, `Cost ${currency(item.costRate)}`, `Sell ${currency(item.sellRate)}`]
+                                          .filter(Boolean)
+                                          .join(" · ")}
+                                      </span>
                                     </div>
                                     <button className="simpro-options-button" type="button" onClick={() => addQuoteLine(selectedQuoteCostCentre.id, item.id)}>
                                       ADD
@@ -24590,11 +33263,52 @@ export default function Dashboard() {
                   </section>
                 ) : null}
 
-                {activeCostCentreTab === "schedule" || activeCostCentreTab === "assets" ? (
-                  <section className="simpro-empty-workspace">
-                    <h2>{activeCostCentreTab === "schedule" ? "Schedule" : "Customer Assets"}</h2>
-                    <p>{activeCostCentreTab === "schedule" ? "No visits are scheduled for this quote cost centre yet." : "No customer assets are linked to this quote cost centre yet."}</p>
+                {activeCostCentreTab === "schedule" ? (
+                  <section className="quote-record-panel">
+                    <header className="ops-module-header">
+                      <div>
+                        <span className="permission-heading">Schedule</span>
+                        <h2>{selectedQuoteCostCentre?.name || "Cost centre"} visits</h2>
+                        <p>Quote-level diary bookings linked to this estimate.</p>
+                      </div>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setHomeView("schedule");
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Open schedule board
+                      </button>
+                    </header>
+                    {selectedQuoteScheduleAssignments.length ? (
+                      <div className="ops-table">
+                        <div className="ops-table-head"><span>Engineer</span><span>Start</span><span>End</span><span>Notes</span></div>
+                        {selectedQuoteScheduleAssignments.map((assignment) => (
+                          <div className="ops-table-row" key={assignment.id}>
+                            <strong>{assignment.employeeName}</strong>
+                            <span>{assignment.startDate} {assignment.startTime}</span>
+                            <span>{assignment.endDate} {assignment.endTime}</span>
+                            <span>{assignment.notes || "—"}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="simpro-empty-workspace">
+                        <p>No visits are scheduled for this quote yet. Use the quote planner or schedule board to book survey/install time.</p>
+                      </div>
+                    )}
                   </section>
+                ) : null}
+                {activeCostCentreTab === "assets" ? (
+                  <SiteAssetsPanel
+                    requestHeaders={requestHeaders}
+                    siteId={selectedQuote?.siteId}
+                    clientId={selectedQuote?.clientId}
+                    siteLabel={selectedQuoteSite?.address || selectedQuoteSite?.name || selectedQuote?.customer}
+                    onNotice={showNotice}
+                  />
                 ) : null}
               </section>
             ) : null
@@ -24619,6 +33333,19 @@ export default function Dashboard() {
                     <div className={selectedJobCostSummary.projectedProfit >= 0 ? "profit-positive" : "profit-negative"}>
                       <strong>{currency(selectedJobCostSummary.projectedProfit)}</strong>
                       <span>{selectedJobCostSummary.projectedMargin}% margin</span>
+                    </div>
+                    <div className={(selectedJob.labourCostVariance ?? 0) > 0 ? "profit-negative" : "profit-positive"}>
+                      <strong>
+                        {(selectedJob.actualDurationHours ?? selectedJobApprovedTimesheetHours).toFixed(1)}h
+                      </strong>
+                      <span>
+                        Labour actual
+                        {typeof selectedJob.labourCostVariance === "number"
+                          ? ` · ${selectedJob.labourCostVariance > 0 ? "+" : ""}${selectedJob.labourCostVariance.toFixed(1)}h vs plan`
+                          : selectedJob.scheduledDurationHours
+                            ? ` · plan ${selectedJob.scheduledDurationHours}h`
+                            : ""}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -24652,44 +33379,111 @@ export default function Dashboard() {
 
                 {activeJobTab === "summary" ? (
                   <section className="quote-record-panel">
-                    <div className="client-overview-grid">
-                      <article className="client-info-card">
-                        <span className="permission-heading">Job summary</span>
+                    <div className="simpro-record-summary">
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Customer</h3>
+                          {selectedJobClient ? (
+                            <button className="record-text-link" type="button" onClick={() => openClientRecordView(selectedJobClient.id)}>
+                              Edit customer
+                            </button>
+                          ) : null}
+                        </div>
                         <dl>
+                          <div><dt>Name</dt><dd>{selectedJobClient?.name ?? selectedJob.customer}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedJobClient?.primaryContact ?? "To confirm"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedJobClient?.email ?? "To confirm"}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedJobClient?.phone ?? "To confirm"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Site</h3>
+                          {selectedJobClient ? (
+                            <button
+                              className="record-text-link"
+                              type="button"
+                              onClick={() => openClientSiteRecordView(selectedJobClient.id, selectedJobSite?.name)}
+                            >
+                              {selectedJobSite ? "Edit site" : "Add site"}
+                            </button>
+                          ) : null}
+                        </div>
+                        {selectedJobClient ? (
+                          <label className="full-field">
+                            Linked site
+                            <select
+                              value={siteSelectionValueForForm(
+                                selectedJobClient,
+                                clientSites,
+                                selectedJob.siteId,
+                                selectedJobSite?.address ?? selectedJob.site ?? selectedJobClient.billingAddress,
+                              )}
+                              onChange={(event) => {
+                                void saveSelectedJobLinking(selectedJobClient.id, event.target.value);
+                              }}
+                            >
+                              {selectedJobClient.billingAddress?.trim() ? (
+                                <option value={CLIENT_SITE_BILLING}>
+                                  Customer address — {selectedJobClient.billingAddress}
+                                </option>
+                              ) : null}
+                              {clientSites
+                                .filter((site) => site.clientId === selectedJobClient.id)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>
+                                    {site.name} - {site.address}
+                                  </option>
+                                ))}
+                              <option value={CLIENT_SITE_NEW}>+ New site address</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        <dl>
+                          <div><dt>Site</dt><dd>{selectedJobSite?.name ?? (selectedJobClient?.billingAddress ? "Customer address" : selectedJob.site)}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedJobSite?.address ?? selectedJob.site ?? selectedJobClient?.billingAddress ?? "Address to confirm"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Job</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Status</dt><dd>{selectedJob.status}</dd></div>
+                          <div><dt>simPRO</dt><dd>{selectedJob.simproStatus ?? "Not sent"}</dd></div>
+                          <div><dt>Next action</dt><dd>{selectedJob.next}</dd></div>
                           <div>
-                            <dt>Client</dt>
-                            <dd>{selectedJobClient?.name ?? selectedJob.customer}</dd>
-                          </div>
-                          <div>
-                            <dt>Site</dt>
-                            <dd>{selectedJobSite?.name ?? selectedJob.site}</dd>
-                          </div>
-                          <div>
-                            <dt>Status</dt>
-                            <dd>{selectedJob.status}</dd>
-                          </div>
-                          <div>
-                            <dt>Next action</dt>
-                            <dd>{selectedJob.next}</dd>
+                            <dt>Source quote</dt>
+                            <dd>
+                              {selectedJobSourceQuote ? (
+                                <button className="record-text-link" type="button" onClick={() => openQuoteDrawer(selectedJobSourceQuote.id)}>
+                                  {selectedJobSourceQuote.ref} · {selectedJobSourceQuote.status}
+                                </button>
+                              ) : (
+                                "Manual job"
+                              )}
+                            </dd>
                           </div>
                         </dl>
-                      </article>
-                      <article className="client-info-card">
-                        <span className="permission-heading">Source quote</span>
-                        {selectedJobSourceQuote ? (
-                          <button className="drawer-link-card" type="button" onClick={() => openQuoteDrawer(selectedJobSourceQuote.id)}>
-                            <FileText size={16} />
-                            <span>
-                              <strong>{selectedJobSourceQuote.ref}</strong>
-                              <small>{selectedJobSourceQuote.status} · {currency(selectedJobSourceQuote.value)}</small>
-                            </span>
-                            <ChevronRight size={16} />
+                        <div className="simpro-summary-actions">
+                          <button className="record-text-link" type="button" onClick={() => setActiveJobTab("documents")}>
+                            Attachments
                           </button>
-                        ) : (
-                          <p>Manual job with no source quote.</p>
-                        )}
-                      </article>
+                          <button
+                            className="record-text-link"
+                            type="button"
+                            onClick={() => void sendSelectedJobToSimpro()}
+                            disabled={isSendingJobToSimpro}
+                          >
+                            {isSendingJobToSimpro ? "Sending..." : "Send to simPRO"}
+                          </button>
+                        </div>
+                      </section>
                     </div>
+
+                    {selectedJob ? (
+                      <JobFieldLivePanel jobId={selectedJob.id} jobRef={selectedJob.ref} />
+                    ) : null}
                     <section className="quote-survey-pack-preview job-survey-pack-preview">
                       <div>
                         <span>Survey pack handover</span>
@@ -24705,42 +33499,28 @@ export default function Dashboard() {
                           </div>
                           <div className="quote-survey-pack-list">
                             {selectedJobSurveyPack.assets.slice(0, 6).map((asset) => (
-                              <span key={`${asset.centreId}-${asset.id}`}>
+                              <button
+                                key={`${asset.centreId}-${asset.id}`}
+                                type="button"
+                                className="text-button"
+                                onClick={() => openRecordDocumentFile({
+                                  folderId: asset.clientVisible ? "completion-photos" : "mid-work-photos",
+                                  name: asset.fileName || asset.title,
+                                  type: asset.kind,
+                                  visibility: asset.clientVisible ? "Client" : "Engineer",
+                                  linkedTo: asset.centreName,
+                                  fileUrl: asset.fileUrl,
+                                  previewImageDataUrl: asset.previewImageDataUrl,
+                                })}
+                              >
                                 {asset.title} · {asset.centreName} · {asset.clientVisible ? "public" : "private"}
-                              </span>
+                              </button>
                             ))}
                           </div>
                         </>
                       ) : (
                         <small>No survey records were handed over from the quote yet.</small>
                       )}
-                    </section>
-                    <section className="job-readiness-panel">
-                      <header>
-                        <div>
-                          <span className="permission-heading">Ready to start</span>
-                          <h2>Pre-start control checklist</h2>
-                        </div>
-                        <strong>
-                          {selectedJobReadiness.completeCount}/{selectedJobReadiness.requiredCount}
-                          <span> required</span>
-                        </strong>
-                      </header>
-                      <div className="job-readiness-list">
-                        {selectedJobReadiness.items.map((item) => (
-                          <article
-                            className={item.complete ? "job-readiness-item complete" : "job-readiness-item"}
-                            key={item.label}
-                          >
-                            <span>{item.complete ? <Check size={15} /> : <AlertTriangle size={15} />}</span>
-                            <div>
-                              <strong>{item.label}</strong>
-                              <small>{item.detail}</small>
-                            </div>
-                            {item.optional ? <em>Optional</em> : null}
-                          </article>
-                        ))}
-                      </div>
                     </section>
                     <section className="job-scheduling-panel">
                       <header>
@@ -24758,24 +33538,121 @@ export default function Dashboard() {
                           <strong>
                             {selectedJobScheduleAssignments[0]
                               ? `${selectedJobScheduleAssignments[0].costCentreName} · ${selectedJobScheduleAssignments[0].employeeName}`
-                              : "Not scheduled"}
+                              : selectedJob.scheduledDate && selectedJob.scheduledTime
+                                ? `${selectedJob.manager} · booked`
+                                : "Not scheduled"}
                           </strong>
                           <small>
                             {selectedJobScheduleAssignments[0]
                               ? `${selectedJobScheduleAssignments[0].startDate} ${selectedJobScheduleAssignments[0].startTime} to ${selectedJobScheduleAssignments[0].endDate} ${selectedJobScheduleAssignments[0].endTime}`
-                              : "Add cost-centre work packages in the Planner tab."}
+                              : selectedJob.scheduledDate && selectedJob.scheduledTime
+                                ? `${selectedJob.scheduledDate} at ${selectedJob.scheduledTime}`
+                                : "Add cost-centre work packages in the Planner tab."}
                           </small>
+                          {selectedJob.confirmationSentAt ? (
+                            <small>
+                              Confirmation sent {selectedJob.confirmationSentAt}
+                              {selectedJob.confirmationSentTo ? ` to ${selectedJob.confirmationSentTo}` : ""}
+                            </small>
+                          ) : null}
+                          {selectedJob.etaSentAt ? (
+                            <small>
+                              ETA sent {selectedJob.etaSentAt}
+                              {selectedJob.etaMinutes ? ` · ${selectedJob.etaMinutes} min` : ""}
+                              {selectedJob.etaSentTo ? ` to ${selectedJob.etaSentTo}` : ""}
+                            </small>
+                          ) : null}
+                          {selectedJob.completionSentAt ? (
+                            <small>
+                              Completion notice sent {selectedJob.completionSentAt}
+                              {selectedJob.completionSentTo ? ` to ${selectedJob.completionSentTo}` : ""}
+                            </small>
+                          ) : null}
                         </div>
-                        <button
-                          className="primary-button"
-                          type="button"
-                          onClick={() => {
-                            setActiveJobTab("planner");
-                            scrollWorkspaceToTop();
-                          }}
-                        >
-                          Open planner
-                        </button>
+                        <div className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isSendingJobConfirmation ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startDate ||
+                                selectedJob.scheduledDate
+                              ) ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startTime ||
+                                selectedJob.scheduledTime
+                              )
+                            }
+                            title={
+                              selectedJobClient?.email?.includes("@") || (selectedJobClient?.phone || "").replace(/\D/g, "").length >= 10
+                                ? "Email and/or WhatsApp the customer a booking confirmation"
+                                : "Customer needs an email or phone number first"
+                            }
+                            onClick={() => void sendSelectedJobConfirmation()}
+                          >
+                            {isSendingJobConfirmation
+                              ? "Sending confirmation…"
+                              : selectedJob.confirmationSentAt
+                                ? "Resend confirmation"
+                                : "Email job confirmation"}
+                          </button>
+                          <label className="ops-inline-edit" title="Minutes until arrival">
+                            <input
+                              type="number"
+                              min={1}
+                              step={5}
+                              value={jobEtaMinutesDraft}
+                              onChange={(event) => setJobEtaMinutesDraft(event.target.value)}
+                              aria-label="ETA minutes"
+                              style={{ width: "4.5rem" }}
+                            />
+                          </label>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={isSendingJobEta}
+                            title={
+                              selectedJobClient?.email?.includes("@") || (selectedJobClient?.phone || "").replace(/\D/g, "").length >= 10
+                                ? "Email and/or WhatsApp an on-the-way ETA"
+                                : "Customer needs an email or phone number first"
+                            }
+                            onClick={() => void sendSelectedJobEta()}
+                          >
+                            {isSendingJobEta
+                              ? "Sending ETA…"
+                              : selectedJob.etaSentAt
+                                ? "Resend ETA"
+                                : "Send ETA"}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={isSendingJobCompletion}
+                            title={
+                              selectedJobClient?.email?.includes("@") || (selectedJobClient?.phone || "").replace(/\D/g, "").length >= 10
+                                ? "Email and/or WhatsApp that work is finished"
+                                : "Customer needs an email or phone number first"
+                            }
+                            onClick={() => void sendSelectedJobCompletion()}
+                          >
+                            {isSendingJobCompletion
+                              ? "Sending complete…"
+                              : selectedJob.completionSentAt
+                                ? "Resend complete"
+                                : "Send complete"}
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              setActiveJobTab("planner");
+                              scrollWorkspaceToTop();
+                            }}
+                          >
+                            Open planner
+                          </button>
+                        </div>
                       </div>
                     </section>
                     <section className="job-review-panel">
@@ -24812,123 +33689,6 @@ export default function Dashboard() {
                         >
                           Approve for invoice
                         </button>
-                      </div>
-                    </section>
-                    <section className="job-delivery-panel">
-                      <header>
-                        <div>
-                          <span className="permission-heading">Project management</span>
-                          <h2>WhatsApp updates and timesheets</h2>
-                        </div>
-                        <span className="status-pill blue">{selectedJobDeliveryEvents.length} events</span>
-                      </header>
-
-                      <div className="job-delivery-stats" aria-label="Job delivery totals">
-                        <article>
-                          <span>Site updates</span>
-                          <strong>{selectedJobDeliveryEvents.filter((event) => event.kind === "whatsapp").length}</strong>
-                        </article>
-                        <article>
-                          <span>Timesheets</span>
-                          <strong>{selectedJobTimesheetHours.toFixed(1)}h</strong>
-                        </article>
-                        <article>
-                          <span>Cost-centre POs</span>
-                          <strong>{selectedJobPurchaseRequests.length}</strong>
-                        </article>
-                        <article>
-                          <span>Cost-centre variations</span>
-                          <strong>{selectedJobVariations.length}</strong>
-                        </article>
-                      </div>
-                      <div className="job-readiness-item">
-                        <span><FileText size={15} /></span>
-                        <div>
-                          <strong>Variations and purchase orders are controlled from cost centres</strong>
-                          <small>Open the cost centre and use its POs tab so supplier costs land against the right section of the job.</small>
-                        </div>
-                        <div className="job-readiness-actions">
-                          <button className="secondary-button" type="button" onClick={() => setActiveJobTab("cost-centres")}>
-                            Open cost centres
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="job-delivery-grid">
-                        <article className="job-delivery-card">
-                          <header>
-                            <strong>Site update</strong>
-                            <small>Captured from WhatsApp doorway</small>
-                          </header>
-                          <label>
-                            Message
-                            <textarea
-                              value={selectedJobDeliveryDraft.whatsappNote}
-                              onChange={(event) => updateSelectedJobDeliveryDraft({ whatsappNote: event.target.value })}
-                              placeholder="Example: arrived on site, customer asked about moving radiator..."
-                            />
-                          </label>
-                          <button className="secondary-button" type="button" onClick={logSelectedJobWhatsappUpdate}>
-                            Capture update
-                          </button>
-                        </article>
-
-                        <article className="job-delivery-card">
-                          <header>
-                            <strong>Timesheet</strong>
-                            <small>Engineer time against this job</small>
-                          </header>
-                          <div className="job-delivery-two-col">
-                            <label>
-                              Hours
-                              <input
-                                type="number"
-                                min="0"
-                                step="0.25"
-                                value={selectedJobDeliveryDraft.timesheetHours}
-                                onChange={(event) => updateSelectedJobDeliveryDraft({ timesheetHours: event.target.value })}
-                              />
-                            </label>
-                            <label>
-                              Engineer
-                              <input value={selectedJob.manager} readOnly />
-                            </label>
-                          </div>
-                          <label>
-                            Notes
-                            <textarea
-                              value={selectedJobDeliveryDraft.timesheetNote}
-                              onChange={(event) => updateSelectedJobDeliveryDraft({ timesheetNote: event.target.value })}
-                              placeholder="What was done during these hours?"
-                            />
-                          </label>
-                          <button className="secondary-button" type="button" onClick={submitSelectedJobTimesheet}>
-                            Submit timesheet
-                          </button>
-                        </article>
-
-                      </div>
-
-                      <div className="job-delivery-list">
-                        <strong>Latest job activity</strong>
-                        {selectedJobDeliveryEvents.length === 0 ? (
-                          <p>No site updates, timesheets, variations or PO requests captured yet.</p>
-                        ) : (
-                          selectedJobDeliveryEvents.slice(0, 5).map((event) => (
-                            <article key={event.id} className="job-delivery-event">
-                              <span className={`delivery-kind ${event.kind}`}>{event.kind}</span>
-                              <div>
-                                <strong>{event.summary}</strong>
-                                <small>
-                                  {event.actor} · {event.source} · {event.createdAt}
-                                  {event.status ? ` · ${event.status}` : ""}
-                                </small>
-                              </div>
-                              {event.kind === "timesheet" ? <b>{(event.hours ?? 0).toFixed(1)}h</b> : null}
-                              {event.kind === "po" || event.kind === "variation" ? <b>{currency(event.sellValue ?? event.costValue ?? 0)}</b> : null}
-                            </article>
-                          ))
-                        )}
                       </div>
                     </section>
                   </section>
@@ -25625,6 +34385,23 @@ export default function Dashboard() {
                       <>
                         <h2 className="simpro-page-title">Variation Cost Centres</h2>
 
+                        {selectedJob ? (
+                          <div className="daywork-core-finder">
+                            <strong>Daywork Account</strong>
+                            <p>
+                              Field sheets show labour hours and materials used here. Office adds labour rate and
+                              materials / plant costs, then a signed Daywork PDF attaches when you submit the valuation.
+                            </p>
+                            <button
+                              className="simpro-blue-button"
+                              type="button"
+                              onClick={() => openDayworkAccountRecord(selectedJob.id)}
+                            >
+                              Open Daywork Account form
+                            </button>
+                          </div>
+                        ) : null}
+
                         <div className="simpro-filter-band">
                           <label>
                             Filter By Name/ID
@@ -25922,17 +34699,38 @@ export default function Dashboard() {
                                 <div className="variation-money">
                                   <div>
                                     <span>Cost</span>
-                                    <strong>{currency(variation.costValue)}</strong>
+                                    <strong>
+                                      {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") &&
+                                      !variation.costValue
+                                        ? "Awaiting office rate"
+                                        : currency(variation.costValue)}
+                                    </strong>
                                   </div>
                                   <div>
                                     <span>Charge</span>
-                                    <strong>{currency(variation.sellValue)}</strong>
+                                    <strong>
+                                      {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") &&
+                                      !variation.sellValue
+                                        ? "Awaiting office rate"
+                                        : currency(variation.sellValue)}
+                                    </strong>
                                   </div>
                                   <div>
                                     <span>Profit</span>
-                                    <strong>{currency(variation.sellValue - variation.costValue)}</strong>
+                                    <strong>
+                                      {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") &&
+                                      !variation.sellValue
+                                        ? "—"
+                                        : currency(variation.sellValue - variation.costValue)}
+                                    </strong>
                                   </div>
                                 </div>
+                                {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") ? (
+                                  <p className="daywork-variation-hint">
+                                    Hours and materials from Field. Open the Daywork form to add labour rate and materials
+                                    cost before valuation.
+                                  </p>
+                                ) : null}
                                 <div className="variation-approval-panel">
                                   <div>
                                     <span>Variation quote</span>
@@ -25944,6 +34742,15 @@ export default function Dashboard() {
                                     </small>
                                   </div>
                                   <div className="variation-actions">
+                                    {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") ? (
+                                      <button
+                                        className="simpro-blue-button"
+                                        type="button"
+                                        onClick={() => selectedJob && openDayworkAccountRecord(selectedJob.id)}
+                                      >
+                                        Open Daywork form
+                                      </button>
+                                    ) : null}
                                     <button
                                       className="simpro-grey-button"
                                       type="button"
@@ -26169,8 +34976,7 @@ export default function Dashboard() {
                     <strong>{selectedJob.sourceQuoteId ? selectedJobSourceQuote?.ref ?? selectedJob.ref : selectedJob.ref} - {selectedCostCentre.name}</strong>
                   </div>
                   <div className="simpro-title-actions">
-                    <button className="simpro-grey-button" type="button" onClick={returnToJobRecord}>CANCEL</button>
-                    <button className="simpro-save-button" type="button" onClick={() => showNotice("Estimate saved locally in this prototype.")}>SAVE AND FINISH</button>
+                    {/* Cancel + Save and finish live in the workspace header */}
                   </div>
                 </div>
 
@@ -26684,15 +35490,54 @@ export default function Dashboard() {
                                   onChange={(event) => setCatalogueSearch(event.target.value)}
                                 />
                               </label>
-                              <button className="simpro-grey-button" type="button" onClick={() => showNotice("Catalogue group setup will live in Settings so every job and quote uses the same folders.")}>
+                              <button
+                                className="simpro-grey-button"
+                                type="button"
+                                onClick={() => openCatalogueSetup("Create folders and import supplier price lists in Setup → Catalogue.")}
+                              >
                                 CREATE GROUP
                               </button>
                               <button
                                 className="simpro-blue-button"
                                 type="button"
-                                onClick={() => showNotice("New catalogue items will be created in Settings so they can be assigned to a catalogue group before use.")}
+                                onClick={() => openCatalogueSetup("Add or import catalogue items in Setup → Catalogue, then return here to ADD them to the job.")}
                               >
                                 CREATE ITEM
+                              </button>
+                            </div>
+                            <div className="quote-catalogue-toolbar" style={{ gap: "0.6rem", flexWrap: "wrap" }}>
+                              <label>
+                                Pre-build
+                                <select
+                                  value={selectedPrebuildId}
+                                  onFocus={() => void ensurePrebuildKitsLoaded()}
+                                  onChange={(event) => setSelectedPrebuildId(event.target.value)}
+                                >
+                                  {(prebuildKits.length ? prebuildKits : [{ id: "", name: "Load pre-builds…", category: "" }]).map((kit) => (
+                                    <option key={kit.id || "empty"} value={kit.id}>{kit.name}{kit.category ? ` · ${kit.category}` : ""}</option>
+                                  ))}
+                                </select>
+                              </label>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={!selectedCostCentre}
+                                onClick={() => {
+                                  if (!selectedCostCentre) return;
+                                  void applySelectedPrebuildToJobCentre(selectedCostCentre.id);
+                                }}
+                              >
+                                Apply pre-build to cost centre
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => {
+                                  setHomeView("settings");
+                                  setActiveSetupCategory("prebuilds");
+                                }}
+                              >
+                                Manage pre-builds
                               </button>
                             </div>
 
@@ -26702,7 +35547,7 @@ export default function Dashboard() {
                                   <strong>Groups</strong>
                                   <span>Group name</span>
                                 </div>
-                                {quoteCatalogFolders.map((folder) => {
+                                {catalogFolders.map((folder) => {
                                   const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
                                   return (
                                     <button
@@ -26731,7 +35576,11 @@ export default function Dashboard() {
                                   <div className="quote-catalogue-item-row" key={item.id}>
                                     <div>
                                       <strong>{item.name}</strong>
-                                      <span>{item.type} · {item.unit} · Cost {currency(item.costRate)} · Sell {currency(item.sellRate)}</span>
+                                      <span>
+                                        {[item.supplierName, item.type, item.unit, `Cost ${currency(item.costRate)}`, `Sell ${currency(item.sellRate)}`]
+                                          .filter(Boolean)
+                                          .join(" · ")}
+                                      </span>
                                     </div>
                                     <button className="simpro-options-button" type="button" onClick={() => addEstimateMaterialLine(selectedCostCentre.id, item.id)}>
                                       ADD
@@ -27131,11 +35980,77 @@ export default function Dashboard() {
                                       </button>
                                     ) : null}
                                     {request.status === "Pending cost" || request.status === "Part received" ? (
-                                      <button className="primary-button" type="button" onClick={() => receivePurchaseOrderInvoice(request)}>
-                                        Mark invoice received
+                                      <button className="primary-button" type="button" onClick={() => void receivePurchaseOrderInvoice(request)}>
+                                        {poReceiptDraft?.requestId === request.id ? "Confirm receipt" : "Receive goods"}
+                                      </button>
+                                    ) : null}
+                                    {poReceiptDraft?.requestId === request.id ? (
+                                      <button className="secondary-button" type="button" onClick={() => setPoReceiptDraft(null)}>
+                                        Cancel
                                       </button>
                                     ) : null}
                                   </div>
+                                  {poReceiptDraft?.requestId === request.id ? (
+                                    <div className="ops-form-grid" style={{ gridColumn: "1 / -1", marginTop: "0.75rem" }}>
+                                      <label>
+                                        Stock location
+                                        <select
+                                          value={poReceiptDraft.locationId}
+                                          onChange={(event) => setPoReceiptDraft((current) => current ? { ...current, locationId: event.target.value } : current)}
+                                        >
+                                          {poReceiptDraft.locations.map((location) => (
+                                            <option key={location.id} value={location.id}>{location.name}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      {poReceiptDraft.lines.map((line) => (
+                                        <div key={line.id} className="ops-form-grid" style={{ gridColumn: "1 / -1" }}>
+                                          <strong style={{ gridColumn: "1 / -1" }}>{line.description}</strong>
+                                          <label>
+                                            SKU
+                                            <input
+                                              value={line.sku}
+                                              onChange={(event) => setPoReceiptDraft((current) => current ? {
+                                                ...current,
+                                                lines: current.lines.map((row) => row.id === line.id ? { ...row, sku: event.target.value } : row),
+                                              } : current)}
+                                            />
+                                          </label>
+                                          <label>
+                                            Receive qty
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              value={line.receiveQty}
+                                              onChange={(event) => setPoReceiptDraft((current) => current ? {
+                                                ...current,
+                                                lines: current.lines.map((row) => row.id === line.id ? { ...row, receiveQty: event.target.value } : row),
+                                              } : current)}
+                                            />
+                                          </label>
+                                          <label>
+                                            Unit cost
+                                            <input
+                                              type="number"
+                                              min="0"
+                                              step="0.01"
+                                              value={line.unitCost}
+                                              onChange={(event) => setPoReceiptDraft((current) => current ? {
+                                                ...current,
+                                                lines: current.lines.map((row) => row.id === line.id ? { ...row, unitCost: event.target.value } : row),
+                                              } : current)}
+                                            />
+                                          </label>
+                                          <small>
+                                            Ordered {line.orderedQty} · already {line.alreadyReceivedPercent}%
+                                            {line.catalogItemId ? " · linked catalogue" : ""}
+                                            {line.stockItemId ? " · existing stock" : ""}
+                                          </small>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
                                 </article>
                               ))
                             ) : (
@@ -27153,14 +36068,466 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "engineer-flow" ? renderEngineerFlowWorkspace(selectedJob, selectedCostCentre) : null}
 
-                {activeCostCentreTab === "schedule" || activeCostCentreTab === "assets" ? (
-                  <section className="simpro-empty-workspace">
-                    <h2>{activeCostCentreTab === "schedule" ? "Schedule" : "Customer Assets"}</h2>
-                    <p>{activeCostCentreTab === "schedule" ? "No visits are scheduled for this cost centre yet." : "No customer assets are linked to this cost centre yet."}</p>
-                  </section>
+                {activeCostCentreTab === "schedule" ? (() => {
+                  const centreAssignments = selectedJobScheduleAssignments.filter(
+                    (assignment) => !selectedCostCentre || assignment.costCentreId === selectedCostCentre.id,
+                  );
+                  return (
+                    <section className="quote-record-panel">
+                      <header className="ops-module-header">
+                        <div>
+                          <span className="permission-heading">Schedule</span>
+                          <h2>{selectedCostCentre?.name || "Cost centre"} visits</h2>
+                          <p>{centreAssignments.length} planned visit{centreAssignments.length === 1 ? "" : "s"} for this work package.</p>
+                        </div>
+                        <div className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isSendingJobConfirmation ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startDate ||
+                                selectedJob?.scheduledDate
+                              ) ||
+                              !(
+                                selectedJobScheduleAssignments[0]?.startTime ||
+                                selectedJob?.scheduledTime
+                              )
+                            }
+                            onClick={() => void sendSelectedJobConfirmation()}
+                          >
+                            {isSendingJobConfirmation
+                              ? "Sending…"
+                              : selectedJob?.confirmationSentAt
+                                ? "Resend confirmation"
+                                : "Send confirmation"}
+                          </button>
+                          <label className="ops-inline-edit" title="Minutes until arrival">
+                            <input
+                              type="number"
+                              min={1}
+                              step={5}
+                              value={jobEtaMinutesDraft}
+                              onChange={(event) => setJobEtaMinutesDraft(event.target.value)}
+                              aria-label="ETA minutes"
+                              style={{ width: "4.5rem" }}
+                            />
+                          </label>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={isSendingJobEta}
+                            onClick={() => void sendSelectedJobEta()}
+                          >
+                            {isSendingJobEta
+                              ? "Sending ETA…"
+                              : selectedJob?.etaSentAt
+                                ? "Resend ETA"
+                                : "Send ETA"}
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              setActiveJobTab("planner");
+                              scrollWorkspaceToTop();
+                            }}
+                          >
+                            Open planner
+                          </button>
+                        </div>
+                      </header>
+                      {centreAssignments.length ? (
+                        <div className="ops-table">
+                          <div className="ops-table-head"><span>Package</span><span>Engineer</span><span>Start</span><span>End</span></div>
+                          {centreAssignments.map((assignment) => (
+                            <div className="ops-table-row" key={assignment.id}>
+                              <strong>{assignment.costCentreName}</strong>
+                              <span>{assignment.employeeName}</span>
+                              <span>{assignment.startDate} {assignment.startTime}</span>
+                              <span>{assignment.endDate} {assignment.endTime}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="simpro-empty-workspace">
+                          <p>No visits are scheduled for this cost centre yet. Open the job planner to allocate an engineer and diary slot.</p>
+                        </div>
+                      )}
+                    </section>
+                  );
+                })() : null}
+                {activeCostCentreTab === "assets" ? (
+                  <SiteAssetsPanel
+                    requestHeaders={requestHeaders}
+                    siteId={selectedJob?.siteId}
+                    clientId={selectedJob?.clientId}
+                    siteLabel={selectedJobSite?.address || selectedJob?.site || selectedJob?.customer}
+                    onNotice={showNotice}
+                  />
                 ) : null}
               </section>
                 ) : null
+          ) : homeView === "xero" ? (
+            <section className="quote-panel record-directory invoice-directory">
+              <div className="panel-header">
+                <div>
+                  <h2>Xero</h2>
+                  <p className="muted">
+                    Export queue for sales invoices, credit notes and supplier bills — same pattern as simPRO accounts, then we trim what you do not need.
+                  </p>
+                </div>
+                <span className={`status-pill ${xeroConnectionStatus?.configured ? "green" : "amber"}`}>
+                  {xeroConnectionStatus?.configured
+                    ? `Connected · ${xeroConnectionStatus.mode}`
+                    : xeroConnectionStatus?.authUrl
+                      ? "Ready to connect"
+                      : "CSV / setup needed"}
+                </span>
+              </div>
+
+              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Xero folders">
+                {[
+                  { key: "sales" as const, label: "Sales to export", count: xeroSalesToExport.length, tone: "amber" },
+                  { key: "bills" as const, label: "Bills to export", count: xeroBillsToExport.length, tone: "blue" },
+                  { key: "exported" as const, label: "Exported", count: xeroSalesExported.length + xeroBillsExported.length, tone: "green" },
+                  { key: "connection" as const, label: "Connection", count: xeroConnectionStatus?.configured ? 1 : 0, tone: "blue" },
+                ].map((tab) => (
+                  <button
+                    aria-selected={activeXeroTab === tab.key}
+                    className={`record-folder-card ${tab.tone} ${activeXeroTab === tab.key ? "active" : ""}`}
+                    key={tab.key}
+                    role="tab"
+                    type="button"
+                    onClick={() => setActiveXeroTab(tab.key)}
+                  >
+                    <span>{tab.label}</span>
+                    <strong>{tab.count}</strong>
+                  </button>
+                ))}
+              </div>
+
+              {activeXeroTab === "sales" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Sales invoices &amp; credits ready for Xero</h3>
+                      <p className="muted">Select rows to export, or mark as exported if already posted in Xero.</p>
+                    </div>
+                    <div className="setup-template-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          setXeroSelectedInvoiceIds(
+                            xeroSelectedInvoiceIds.length === xeroSalesToExport.length
+                              ? []
+                              : xeroSalesToExport.map((invoice) => invoice.id),
+                          )
+                        }
+                      >
+                        {xeroSelectedInvoiceIds.length === xeroSalesToExport.length && xeroSalesToExport.length
+                          ? "Clear selection"
+                          : "Select all"}
+                      </button>
+                    </div>
+                  </header>
+                  <div className="ops-table">
+                    <div className="ops-table-head">
+                      <span>Select</span>
+                      <span>Ref</span>
+                      <span>Customer</span>
+                      <span>Type</span>
+                      <span>Total</span>
+                      <span>Status</span>
+                      <span />
+                    </div>
+                    {xeroSalesToExport.map((invoice) => (
+                      <div className="ops-table-row" key={invoice.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={xeroSelectedInvoiceIds.includes(invoice.id)}
+                            onChange={(event) =>
+                              setXeroSelectedInvoiceIds((current) =>
+                                event.target.checked
+                                  ? [...current, invoice.id]
+                                  : current.filter((id) => id !== invoice.id),
+                              )
+                            }
+                            aria-label={`Select ${invoice.ref}`}
+                          />
+                        </label>
+                        <strong>{invoice.ref}</strong>
+                        <span>{invoice.customer}</span>
+                        <span>{invoiceClaimTypeLabel(invoice.claimType, invoice.claimPercent)}</span>
+                        <span>{currency(invoiceGrossTotal(invoice))}</span>
+                        <span>{invoice.accountsStatus || "Not sent"}</span>
+                        <span className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === invoice.id}
+                            onClick={() => markInvoiceExportedInXero(invoice, true)}
+                          >
+                            Mark exported
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === invoice.id || isExportingInvoiceToXero}
+                            onClick={() => void exportInvoiceToXero(invoice)}
+                          >
+                            {xeroBusyId === invoice.id ? "Exporting…" : "Export"}
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {!xeroSalesToExport.length ? <p className="muted">Nothing waiting to export. Sent invoices and credits appear here until marked or pushed to Xero.</p> : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeXeroTab === "bills" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Supplier bills ready for Xero</h3>
+                      <p className="muted">PO bills that have not been exported yet.</p>
+                    </div>
+                    <div className="setup-template-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          setXeroSelectedPoIds(
+                            xeroSelectedPoIds.length === xeroBillsToExport.length
+                              ? []
+                              : xeroBillsToExport.map((request) => request.id),
+                          )
+                        }
+                      >
+                        {xeroSelectedPoIds.length === xeroBillsToExport.length && xeroBillsToExport.length
+                          ? "Clear selection"
+                          : "Select all"}
+                      </button>
+                    </div>
+                  </header>
+                  <div className="ops-table">
+                    <div className="ops-table-head">
+                      <span>Select</span>
+                      <span>PO</span>
+                      <span>Supplier</span>
+                      <span>Job</span>
+                      <span>Amount</span>
+                      <span>Status</span>
+                      <span />
+                    </div>
+                    {xeroBillsToExport.map((request) => (
+                      <div className="ops-table-row" key={request.id}>
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={xeroSelectedPoIds.includes(request.id)}
+                            onChange={(event) =>
+                              setXeroSelectedPoIds((current) =>
+                                event.target.checked
+                                  ? [...current, request.id]
+                                  : current.filter((id) => id !== request.id),
+                              )
+                            }
+                            aria-label={`Select ${request.poNumber}`}
+                          />
+                        </label>
+                        <strong>{request.poNumber}</strong>
+                        <span>{request.supplier}</span>
+                        <span>{request.jobRef}</span>
+                        <span>{currency(request.actualCost ?? request.estimatedCost)}</span>
+                        <span>{request.xeroAccountsStatus || "Not sent"}</span>
+                        <span className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => {
+                              setSelectedPurchaseRequestId(request.id);
+                              setHomeView("purchase-order-record");
+                            }}
+                          >
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === request.id}
+                            onClick={() => void markPurchaseOrderExportedInXero(request, true)}
+                          >
+                            Mark exported
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice || xeroBusyId === request.id || isExportingPoBillToXero}
+                            onClick={() => {
+                              setXeroBusyId(request.id);
+                              void exportPurchaseOrderBillToXero(request).finally(() => setXeroBusyId(null));
+                            }}
+                          >
+                            {xeroBusyId === request.id ? "Exporting…" : "Export"}
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {!xeroBillsToExport.length ? <p className="muted">No supplier bills waiting for Xero.</p> : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeXeroTab === "exported" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Already exported / marked</h3>
+                      <p className="muted">Unmark to put an item back on the export queue.</p>
+                    </div>
+                  </header>
+                  <div className="ops-table">
+                    <div className="ops-table-head">
+                      <span>Kind</span>
+                      <span>Ref</span>
+                      <span>Party</span>
+                      <span>Xero ID</span>
+                      <span>Exported</span>
+                      <span />
+                    </div>
+                    {xeroSalesExported.map((invoice) => (
+                      <div className="ops-table-row" key={`inv-${invoice.id}`}>
+                        <span>Sales</span>
+                        <strong>{invoice.ref}</strong>
+                        <span>{invoice.customer}</span>
+                        <span>{invoice.xeroInvoiceNumber || invoice.xeroInvoiceId || "—"}</span>
+                        <span>{(invoice.xeroExportedAt || "").slice(0, 10) || "Marked"}</span>
+                        <span className="setup-template-actions">
+                          <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice}
+                            onClick={() => markInvoiceExportedInXero(invoice, false)}
+                          >
+                            Unmark
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {xeroBillsExported.map((request) => (
+                      <div className="ops-table-row" key={`po-${request.id}`}>
+                        <span>Bill</span>
+                        <strong>{request.poNumber}</strong>
+                        <span>{request.supplier}</span>
+                        <span>{request.xeroBillNumber || request.xeroBillId || "—"}</span>
+                        <span>{(request.xeroExportedAt || "").slice(0, 10) || "Marked"}</span>
+                        <span className="setup-template-actions">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => {
+                              setSelectedPurchaseRequestId(request.id);
+                              setHomeView("purchase-order-record");
+                            }}
+                          >
+                            Open
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={!access.canEditInvoice}
+                            onClick={() => void markPurchaseOrderExportedInXero(request, false)}
+                          >
+                            Unmark
+                          </button>
+                        </span>
+                      </div>
+                    ))}
+                    {!xeroSalesExported.length && !xeroBillsExported.length ? (
+                      <p className="muted">Nothing exported yet.</p>
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+
+              {activeXeroTab === "connection" ? (
+                <section className="record-folder-section">
+                  <header>
+                    <div>
+                      <h3>Xero connection</h3>
+                      <p className="muted">Connect once here; day-to-day work stays on the export queues above.</p>
+                    </div>
+                  </header>
+                  <div className="setup-readiness-grid">
+                    <article>
+                      <span>Status</span>
+                      <strong>{xeroConnectionStatus?.configured ? "Ready" : "Not connected"}</strong>
+                      <small>{xeroConnectionStatus?.mode || "CSV fallback available"}</small>
+                    </article>
+                    <article>
+                      <span>Tenant</span>
+                      <strong>{xeroConnectionStatus?.tenantIdPresent ? "Present" : "Missing"}</strong>
+                      <small>{integrationSettings.xeroTenantName || "Organisation not named yet"}</small>
+                    </article>
+                    <article>
+                      <span>OAuth</span>
+                      <strong>
+                        {xeroConnectionStatus?.hasRefreshToken
+                          ? "Token stored"
+                          : xeroConnectionStatus?.authUrl
+                            ? "Connect available"
+                            : "Env incomplete"}
+                      </strong>
+                      <small>
+                        {xeroConnectionStatus?.missing?.length
+                          ? `Missing: ${xeroConnectionStatus.missing.join(", ")}`
+                          : "Live push when a token is present; otherwise CSV import pack."}
+                      </small>
+                    </article>
+                  </div>
+                  <div className="setup-template-actions" style={{ marginTop: "1rem" }}>
+                    <button className="secondary-button" type="button" onClick={() => void recheckXeroConfiguration()}>
+                      Recheck connection
+                    </button>
+                    {xeroConnectionStatus?.authUrl ? (
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={isConnectingXero}
+                        onClick={() => {
+                          setIsConnectingXero(true);
+                          window.location.href = xeroConnectionStatus.authUrl!;
+                        }}
+                      >
+                        {isConnectingXero ? "Opening Xero…" : "Connect Xero"}
+                      </button>
+                    ) : null}
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => {
+                        setHomeView("settings");
+                        setActiveSetupCategory("integrations");
+                        setActiveSetupSubItem("Xero");
+                      }}
+                    >
+                      Open Setup → Xero
+                    </button>
+                  </div>
+                </section>
+              ) : null}
+            </section>
           ) : homeView === "invoices" ? (
             <section className="quote-panel record-directory invoice-directory">
               <div className="panel-header">
@@ -27254,7 +36621,20 @@ export default function Dashboard() {
                               </span>
                               <strong className="value">{currency(invoice.chargeTotal)}</strong>
                               <span className="next-action quote-workflow-action">
-                                <strong>Due {invoice.dueDate}</strong>
+                                <strong>
+                                  {(() => {
+                                    const daysOverdue = daysSinceDate(invoice.dueDate);
+                                    const isOverdue =
+                                      invoice.status !== "Paid" &&
+                                      invoice.status !== "Cancelled" &&
+                                      invoice.status !== "Draft" &&
+                                      typeof daysOverdue === "number" &&
+                                      daysOverdue > 0;
+                                    return isOverdue
+                                      ? `Overdue ${daysOverdue}d · due ${invoice.dueDate}${invoice.chaseCount ? ` · chased ×${invoice.chaseCount}` : ""} · owed ${currency(invoiceOutstandingBalance(invoice))}`
+                                      : `Due ${invoice.dueDate}`;
+                                  })()}
+                                </strong>
                                 <small>{source ? source.next : "No source activity"}</small>
                                 <button
                                   className="secondary-button"
@@ -27312,7 +36692,8 @@ export default function Dashboard() {
                   </div>
                   <dl>
                     <div><dt>Contract value</dt><dd>{currency(jobInvoiceDraftTotals.contractValue)}</dd></div>
-                    <div><dt>Previously claimed</dt><dd>{currency(jobInvoiceDraftTotals.previous)}</dd></div>
+                    <div><dt>Billed to date</dt><dd>{currency(jobInvoiceDraftTotals.previous)}</dd></div>
+                    <div><dt>Remaining</dt><dd>{currency(Math.max(0, jobInvoiceDraftTotals.contractValue - jobInvoiceDraftTotals.previous))}</dd></div>
                     <div><dt>Claim now</dt><dd>{currency(jobInvoiceDraft.mode === "valuation" ? jobInvoiceDraftTotals.requestedNet : jobInvoiceDraftTotals.requested)}</dd></div>
                   </dl>
                 </header>
@@ -27413,10 +36794,12 @@ export default function Dashboard() {
                           <span>Complete</span>
                         </div>
                         {jobInvoiceDraft.valuationLines.map((line) => {
-                          const cumulative = line.previousApplications + line.requestedThisPeriod;
+                          const remaining = Math.max(0, line.contractValue - line.previousApplications);
+                          const requested = Math.min(remaining, Math.max(0, line.requestedThisPeriod));
+                          const cumulative = line.previousApplications + requested;
                           const completion = line.contractValue > 0 ? Math.min(100, cumulative / line.contractValue * 100) : 0;
                           const claimPercent = line.contractValue > 0
-                            ? Number(((line.requestedThisPeriod / line.contractValue) * 100).toFixed(2))
+                            ? Number(((requested / line.contractValue) * 100).toFixed(2))
                             : 0;
                           return (
                             <div className="valuation-entry-row" key={line.id}>
@@ -27430,10 +36813,11 @@ export default function Dashboard() {
                                   min="0"
                                   max="100"
                                   step="0.01"
-                                  value={line.requestedThisPeriod ? claimPercent : ""}
+                                  value={requested ? claimPercent : ""}
                                   onChange={(event) => {
                                     const percent = Math.max(0, Math.min(100, Number(event.target.value) || 0));
-                                    updateJobValuationLine(line.id, { requestedThisPeriod: line.contractValue * (percent / 100) });
+                                    const next = Math.min(remaining, line.contractValue * (percent / 100));
+                                    updateJobValuationLine(line.id, { requestedThisPeriod: next });
                                   }}
                                 />
                                 <span>%</span>
@@ -27444,9 +36828,13 @@ export default function Dashboard() {
                                   aria-label={`${line.description} amount this application`}
                                   type="number"
                                   min="0"
+                                  max={remaining}
                                   step="0.01"
-                                  value={line.requestedThisPeriod || ""}
-                                  onChange={(event) => updateJobValuationLine(line.id, { requestedThisPeriod: Number(event.target.value) || 0 })}
+                                  value={requested || ""}
+                                  onChange={(event) => {
+                                    const next = Math.min(remaining, Math.max(0, Number(event.target.value) || 0));
+                                    updateJobValuationLine(line.id, { requestedThisPeriod: next });
+                                  }}
                                 />
                               </label>
                               <span>{currency(cumulative)}</span>
@@ -27496,7 +36884,7 @@ export default function Dashboard() {
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
                   <div>
-                    <span className="employee-record-eyebrow">{selectedInvoice.claimType === "valuation" ? "Application for payment" : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice"}</span>
+                    <span className="employee-record-eyebrow">{invoiceClaimTypeLabel(selectedInvoice.claimType, selectedInvoice.claimPercent)}</span>
                     <h2>{selectedInvoice.ref}</h2>
                     <p>{selectedInvoice.title}</p>
                   </div>
@@ -27614,9 +37002,11 @@ export default function Dashboard() {
                                 ? "Application for payment"
                                 : selectedInvoice.claimType === "progress-claim"
                                   ? "Agreed progress claim"
-                                  : selectedInvoice.claimType === "deposit"
-                                    ? "Deposit claim"
-                                    : "Job claim"}
+                                  : selectedInvoice.claimType === "retention-release"
+                                    ? "Retention release"
+                                    : selectedInvoice.claimType === "deposit"
+                                      ? "Deposit claim"
+                                      : "Job claim"}
                             </h2>
                             <p>
                               {selectedInvoice.applicationRef ? `${selectedInvoice.applicationRef} · ` : ""}
@@ -27692,30 +37082,218 @@ export default function Dashboard() {
                       </section>
                     ) : null}
 
+                    {selectedInvoice.sourceType === "job" &&
+                    (selectedInvoice.claimType === "progress-claim" || selectedInvoice.claimType === "retention-release") ? (
+                      <section className="commercial-claim-panel">
+                        <header>
+                          <div>
+                            <span className="permission-heading">Retention</span>
+                            <h2>Release retained value</h2>
+                            <p>
+                              {selectedRetentionBalances.claimCount} progress claim
+                              {selectedRetentionBalances.claimCount === 1 ? "" : "s"} ·{" "}
+                              {selectedRetentionBalances.releaseCount} release
+                              {selectedRetentionBalances.releaseCount === 1 ? "" : "s"} to date
+                            </p>
+                          </div>
+                          <span className={`status-pill ${selectedRetentionBalances.available > 0.009 ? "amber" : "green"}`}>
+                            {selectedRetentionBalances.available > 0.009 ? "Retention held" : "Fully released"}
+                          </span>
+                        </header>
+                        <div className="valuation-totals-strip">
+                          <div><span>Retained to date</span><strong>{currency(selectedRetentionBalances.retained)}</strong></div>
+                          <div><span>Released to date</span><strong>{currency(selectedRetentionBalances.released)}</strong></div>
+                          <div><span>Available to release</span><strong>{currency(selectedRetentionBalances.available)}</strong></div>
+                          {selectedInvoice.claimType === "progress-claim" ? (
+                            <div>
+                              <span>This claim retained</span>
+                              <strong>{currency(progressClaimRetainedAmount(selectedInvoice))}</strong>
+                            </div>
+                          ) : null}
+                        </div>
+                        {selectedRetentionBalances.available > 0.009 ? (
+                          <div className="commercial-claim-actions">
+                            <label className="currency-input compact">
+                              <span>£</span>
+                              <input
+                                aria-label="Retention release amount"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                max={selectedRetentionBalances.available}
+                                value={retentionReleaseAmountDraft}
+                                onChange={(event) => setRetentionReleaseAmountDraft(event.target.value)}
+                              />
+                            </label>
+                            <button className="primary-button" type="button" onClick={createRetentionReleaseInvoice}>
+                              Create retention invoice
+                            </button>
+                          </div>
+                        ) : (
+                          <p>No retention left to release on this job.</p>
+                        )}
+                      </section>
+                    ) : null}
+
                     {selectedInvoice.claimType !== "valuation" ? (
                       <section className="accounts-handoff-panel">
                         <header>
                           <div>
                             <span className="permission-heading">Accounts and payment</span>
-                            <h2>Xero handoff</h2>
+                            <h2>Payments</h2>
                           </div>
-                          <span className={`status-pill ${selectedInvoice.accountsStatus === "Sent" ? "green" : selectedInvoice.accountsStatus === "Queued" ? "amber" : "blue"}`}>
-                            {selectedInvoice.accountsStatus ?? "Not sent"}
+                          <span className={`status-pill ${selectedInvoice.paymentStatus === "Paid" ? "green" : selectedInvoice.paymentStatus === "Part paid" ? "amber" : "blue"}`}>
+                            {selectedInvoice.paymentStatus ?? "Unpaid"}
                           </span>
                         </header>
                         <div className="accounts-handoff-grid">
-                          <div><span>Claim type</span><strong>{selectedInvoice.claimType === "deposit" ? `${selectedInvoice.claimPercent ?? 0}% deposit` : selectedInvoice.claimType === "progress-claim" ? "Progress claim" : "Invoice in full"}</strong></div>
+                          <div><span>Claim type</span><strong>{invoiceClaimTypeLabel(selectedInvoice.claimType, selectedInvoice.claimPercent)}</strong></div>
                           <div><span>Payment status</span><strong>{selectedInvoice.paymentStatus ?? "Unpaid"}</strong></div>
                           <div><span>Paid to date</span><strong>{currency(selectedInvoice.paidAmount ?? 0)}</strong></div>
-                          <div><span>Connector</span><strong>Xero · Not connected</strong></div>
-                        </div>
-                        <footer>
-                          <small>Queueing preserves this handoff. Live export and payment reconciliation will switch on when the Xero connection is configured in Setup.</small>
                           <div>
-                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Mark part paid</button>
-                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Mark paid</button>
-                            <button className="primary-button" type="button" onClick={queueSelectedInvoiceToAccounts} disabled={selectedInvoice.accountsStatus === "Queued"}>
-                              Queue for Xero
+                            <span>Amount remaining</span>
+                            <strong>{currency(Math.max(0, selectedInvoiceFinancials.grandTotal - (selectedInvoice.paidAmount ?? 0)))}</strong>
+                          </div>
+                          <label className="accounts-payment-amount">
+                            <span>Payment amount</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={invoicePaymentAmountDraft}
+                              onChange={(event) => setInvoicePaymentAmountDraft(event.target.value)}
+                              aria-label="Payment amount"
+                            />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Method</span>
+                            <select value={invoicePaymentMethodDraft} onChange={(event) => setInvoicePaymentMethodDraft(event.target.value)} aria-label="Payment method">
+                              <option>Bank transfer</option>
+                              <option>Card</option>
+                              <option>Cash</option>
+                              <option>Cheque</option>
+                              <option>Direct debit</option>
+                              <option>Other</option>
+                            </select>
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>Reference</span>
+                            <input
+                              value={invoicePaymentReferenceDraft}
+                              onChange={(event) => setInvoicePaymentReferenceDraft(event.target.value)}
+                              placeholder="Bank ref / remittance"
+                              aria-label="Payment reference"
+                            />
+                          </label>
+                          <label className="accounts-payment-amount">
+                            <span>After payment</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}>
+                              <input
+                                type="checkbox"
+                                checked={invoiceRemittanceAfterPayment}
+                                onChange={(event) => setInvoiceRemittanceAfterPayment(event.target.checked)}
+                                aria-label="Email remittance advice after recording payment"
+                              />
+                              Email remittance
+                            </span>
+                          </label>
+                          {selectedInvoice.claimType !== "credit-note" ? (
+                            <>
+                              <label className="accounts-payment-amount">
+                                <span>Credit amount (inc VAT)</span>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={invoiceCreditAmountDraft}
+                                  onChange={(event) => setInvoiceCreditAmountDraft(event.target.value)}
+                                  aria-label="Credit note amount including VAT"
+                                />
+                              </label>
+                              <label className="accounts-payment-amount">
+                                <span>Credit reason</span>
+                                <input
+                                  value={invoiceCreditReasonDraft}
+                                  onChange={(event) => setInvoiceCreditReasonDraft(event.target.value)}
+                                  placeholder="Defect / omission / commercial"
+                                  aria-label="Credit note reason"
+                                />
+                              </label>
+                            </>
+                          ) : selectedInvoice.creditOfInvoiceId ? (
+                            <div>
+                              <span>Credits</span>
+                              <strong>
+                                <button
+                                  type="button"
+                                  className="text-button"
+                                  onClick={() => openInvoiceRecord(selectedInvoice.creditOfInvoiceId!)}
+                                >
+                                  {selectedInvoice.creditOfRef || "Original invoice"}
+                                </button>
+                              </strong>
+                            </div>
+                          ) : null}
+                        </div>
+                        {(selectedInvoice.payments || []).length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head"><span>Date</span><span>Amount</span><span>Method</span><span>Reference</span></div>
+                            {(selectedInvoice.payments || []).map((payment) => (
+                              <div className="ops-table-row" key={payment.id}>
+                                <span>{payment.paidAt}</span>
+                                <strong>{currency(payment.amount)}</strong>
+                                <span>{payment.method}</span>
+                                <span>{payment.reference || payment.actor || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                        <footer>
+                          <small>
+                            Record payments on this invoice. Export to accounts from the{" "}
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => {
+                                setHomeView("xero");
+                                setActiveXeroTab("sales");
+                                scrollWorkspaceToTop();
+                              }}
+                            >
+                              Xero
+                            </button>{" "}
+                            module.
+                          </small>
+                          <div>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Unpaid")}>Clear payments</button>
+                            <button className="secondary-button" type="button" onClick={() => updateSelectedInvoicePayment("Part paid")}>Record payment</button>
+                            <button className="primary-button" type="button" onClick={() => updateSelectedInvoicePayment("Paid")}>Record balance paid</button>
+                            {selectedInvoice.claimType !== "credit-note" ? (
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={!access.canEditInvoice || selectedInvoice.status === "Draft" || selectedInvoice.status === "Cancelled"}
+                                onClick={createCreditNoteFromSelectedInvoice}
+                              >
+                                Create credit note
+                              </button>
+                            ) : null}
+                            <button
+                              className="secondary-button"
+                              type="button"
+                              disabled={
+                                isSendingInvoiceRemittance ||
+                                !(selectedInvoice.payments || []).length ||
+                                !access.canEditInvoice
+                              }
+                              title={
+                                (selectedInvoice.payments || []).length
+                                  ? "Email remittance advice for the latest allocated payment"
+                                  : "Record a payment first"
+                              }
+                              onClick={() => void sendSelectedInvoiceRemittanceAdvice()}
+                            >
+                              {isSendingInvoiceRemittance ? "Sending remittance…" : "Email remittance advice"}
                             </button>
                           </div>
                         </footer>
@@ -27757,9 +37335,17 @@ export default function Dashboard() {
                             <span className="permission-heading">Outlook invoice email</span>
                             <h2>{selectedInvoice.claimType === "valuation" ? "Submit application for payment" : "Send invoice"}</h2>
                           </div>
-                          <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
-                            {selectedInvoice.status}
-                          </span>
+                          <div className="setup-template-actions">
+                            <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("invoice")}>
+                              Apply invoice template
+                            </button>
+                            <button className="secondary-button" type="button" onClick={() => void applySetupEmailTemplate("invoice-overdue")}>
+                              Apply chase template
+                            </button>
+                            <span className={`status-pill ${selectedInvoice.status === "Sent" || selectedInvoice.status === "Paid" ? "green" : "blue"}`}>
+                              {selectedInvoice.status}
+                            </span>
+                          </div>
                         </header>
                         <div className="invoice-email-grid">
                           <label>
@@ -27798,25 +37384,70 @@ export default function Dashboard() {
                             />
                             Attach generated invoice PDF
                           </label>
+                          {selectedInvoice.claimType === "valuation" ? (
+                            <p className="daywork-variation-hint">
+                              Submitting a valuation also attaches any signed Daywork Account PDF(s) for this job
+                              (printed names + signatures).
+                            </p>
+                          ) : null}
                         </div>
                         <div className="job-scheduling-actions">
                           <small>
-                            {selectedInvoice.sentAt
-                              ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
-                              : selectedInvoiceSourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full")
-                                ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
-                                : "Not sent yet"}
+                            {selectedInvoice.lastChasedAt
+                              ? `Last chased ${selectedInvoice.lastChasedAt} to ${selectedInvoice.lastChasedTo ?? "recipient"} · chase #${selectedInvoice.chaseCount ?? 0}`
+                              : selectedInvoice.sentAt
+                                ? `Last sent ${selectedInvoice.sentAt} to ${selectedInvoice.sentTo ?? "recipient"}`
+                                : selectedInvoiceSourceJob && (!selectedInvoice.claimType || selectedInvoice.claimType === "full")
+                                  ? `Sending will mark ${selectedInvoiceSourceJob.ref} as Invoiced.`
+                                  : "Not sent yet"}
                           </small>
                           {selectedInvoice.claimType === "valuation" ? (
-                            <button className="primary-button" type="button" onClick={submitSelectedValuation}>
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                              onClick={() => void submitSelectedValuation()}
+                            >
                               <FileText size={15} />
-                              {selectedInvoice.valuationStatus === "Submitted" ? "Resubmit valuation" : "Submit valuation"}
+                              {isSendingLiveEmail
+                                ? "Sending..."
+                                : selectedInvoice.valuationStatus === "Submitted"
+                                  ? "Resubmit valuation"
+                                  : "Submit valuation"}
                             </button>
                           ) : (
-                            <button className="primary-button" type="button" onClick={sendSelectedInvoiceEmail}>
-                              <Mail size={15} />
-                              Email invoice
-                            </button>
+                            <>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isSendingLiveEmail}
+                                onClick={() => void prepareSelectedInvoicePaymentChase()}
+                              >
+                                Prepare chase
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={
+                                  isSendingLiveEmail ||
+                                  !emailIntegrationStatus?.lastTestMessageId ||
+                                  invoiceOutstandingBalance(selectedInvoice) <= 0.009
+                                }
+                                onClick={() => void sendSelectedInvoicePaymentChase()}
+                              >
+                                <Mail size={15} />
+                                {isSendingLiveEmail ? "Sending..." : "Send payment chase"}
+                              </button>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={isSendingLiveEmail || !emailIntegrationStatus?.lastTestMessageId}
+                                onClick={() => void sendSelectedInvoiceEmail()}
+                              >
+                                <Mail size={15} />
+                                {isSendingLiveEmail ? "Sending..." : "Email invoice"}
+                              </button>
+                            </>
                           )}
                         </div>
                       </section>
@@ -28080,48 +37711,90 @@ export default function Dashboard() {
 
                 <section className="client-record-panel">
                   {activeLeadTab === "details" ? (
-                    <div className="client-overview-grid">
-                      <article className="client-info-card">
-                        <span className="permission-heading">Customer enquiry</span>
+                    <div className="simpro-record-summary">
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Customer</h3>
+                        </div>
                         <dl>
-                          <div>
-                            <dt>Name</dt>
-                            <dd>{selectedLead.customerName}</dd>
-                          </div>
-                          <div>
-                            <dt>Phone</dt>
-                            <dd>{selectedLead.phone || "No phone"}</dd>
-                          </div>
-                          <div>
-                            <dt>Email</dt>
-                            <dd>{selectedLead.email || "No email"}</dd>
-                          </div>
-                          <div>
-                            <dt>Address</dt>
-                            <dd>{selectedLead.address}</dd>
-                          </div>
-                          <div>
-                            <dt>Source</dt>
-                            <dd>{selectedLead.source}</dd>
-                          </div>
-                          <div>
-                            <dt>Created by</dt>
-                            <dd>{selectedLead.createdBy} · {selectedLead.createdAt}</dd>
-                          </div>
+                          <div><dt>Name</dt><dd>{selectedLead.customerName}</dd></div>
+                          <div><dt>Contact</dt><dd>{selectedLead.mainContact?.name || selectedLead.customerName}</dd></div>
+                          <div><dt>Phone</dt><dd>{selectedLead.phone || "No phone"}</dd></div>
+                          <div><dt>Email</dt><dd>{selectedLead.email || "No email"}</dd></div>
                         </dl>
-                      </article>
-
-                      <article className="client-info-card">
-                        <span className="permission-heading">Description of work</span>
-                        <p>{selectedLead.description}</p>
-                        <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
-                          Create quote
-                        </button>
-                      </article>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Site</h3>
+                          {selectedLeadClient ? (
+                            <button
+                              className="record-text-link"
+                              type="button"
+                              onClick={() => openClientSiteRecordView(selectedLeadClient.id, selectedLeadSite?.name)}
+                            >
+                              {selectedLeadSite ? "Edit site" : "Add site"}
+                            </button>
+                          ) : null}
+                        </div>
+                        {selectedLeadClient ? (
+                          <label className="full-field">
+                            Linked site
+                            <select
+                              value={siteSelectionValueForForm(
+                                selectedLeadClient,
+                                clientSites,
+                                selectedLead.siteId,
+                                selectedLeadSite?.address ?? selectedLead.address,
+                              )}
+                              onChange={(event) => {
+                                void saveSelectedLeadLinking(selectedLeadClient.id, event.target.value);
+                              }}
+                            >
+                              {selectedLeadClient.billingAddress?.trim() ? (
+                                <option value={CLIENT_SITE_BILLING}>
+                                  Customer address — {selectedLeadClient.billingAddress}
+                                </option>
+                              ) : null}
+                              {clientSites
+                                .filter((site) => site.clientId === selectedLeadClient.id)
+                                .map((site) => (
+                                  <option key={site.id} value={site.id}>
+                                    {site.name} - {site.address}
+                                  </option>
+                                ))}
+                              <option value={CLIENT_SITE_NEW}>+ New site address</option>
+                            </select>
+                          </label>
+                        ) : null}
+                        <dl>
+                          <div><dt>Site</dt><dd>{selectedLeadSite?.name ?? (selectedLead.addressParts?.line1 || "Site to confirm")}</dd></div>
+                          <div><dt>Address</dt><dd>{selectedLeadSite?.address ?? selectedLead.addressParts?.line1 ?? selectedLead.address}</dd></div>
+                          <div><dt>Town / Suburb</dt><dd>{selectedLead.addressParts?.town || "—"}</dd></div>
+                          <div><dt>County / State</dt><dd>{selectedLead.addressParts?.county || "—"}</dd></div>
+                          <div><dt>Postal code</dt><dd>{selectedLead.addressParts?.postcode || "—"}</dd></div>
+                        </dl>
+                      </section>
+                      <section className="simpro-summary-block">
+                        <div className="simpro-summary-block-head">
+                          <h3>Lead</h3>
+                        </div>
+                        <dl>
+                          <div><dt>Description</dt><dd>{selectedLead.description}</dd></div>
+                          <div><dt>Status</dt><dd>{selectedLead.status}</dd></div>
+                          <div><dt>Source</dt><dd>{selectedLead.source}</dd></div>
+                          <div><dt>Created by</dt><dd>{selectedLead.createdBy} · {selectedLead.createdAt}</dd></div>
+                        </dl>
+                        <div className="simpro-summary-actions">
+                          <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
+                            Create quote
+                          </button>
+                        </div>
+                      </section>
                     </div>
                   ) : null}
 
                   {activeLeadTab === "survey" ? (
+
                     <div className="client-overview-grid">
                       <article className="client-info-card">
                         <span className="permission-heading">Survey appointment</span>
@@ -28264,6 +37937,28 @@ export default function Dashboard() {
               </div>
 
               <section className="scheduler-create-panel" aria-label="Schedule a job">
+                {unassignedProgressJobs.length ? (
+                  <div className="scheduler-unassigned-rail" aria-label="Unassigned progress jobs">
+                    <div className="scheduler-unassigned-head">
+                      <strong>{unassignedProgressJobs.length} unassigned</strong>
+                      <span>Pick a job, then drag onto an engineer</span>
+                    </div>
+                    <div className="scheduler-unassigned-list">
+                      {unassignedProgressJobs.slice(0, 12).map((job) => (
+                        <button
+                          key={job.id}
+                          type="button"
+                          className={schedulerSelectedJobId === job.id ? "active" : ""}
+                          onClick={() => selectSchedulerJob(job)}
+                        >
+                          <strong>{job.ref}</strong>
+                          <span>{job.customer}</span>
+                          <small>{job.status}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="scheduler-job-picker">
                   <span>Search job</span>
                   <div className="scheduler-job-search-control">
@@ -28621,6 +38316,8 @@ export default function Dashboard() {
                     </section>
                   ) : null}
 
+                  {activeSetupCategory === "integrations" ? <OpenAiKeyCard /> : null}
+
                   {activeSetupCategory === "overview" ? (
                     <section className="setup-panel setup-readiness">
                       <div className="documents-toolbar">
@@ -28711,12 +38408,33 @@ export default function Dashboard() {
                           Client portal brand line
                           <input value={businessSettings.clientPortalBrandLine} onChange={(event) => updateBusinessSettings({ clientPortalBrandLine: event.target.value })} />
                         </label>
+                        <label>
+                          Brand primary colour
+                          <input value={businessSettings.brandPrimaryColor} onChange={(event) => updateBusinessSettings({ brandPrimaryColor: event.target.value })} placeholder="#157fa8" />
+                        </label>
+                        <label>
+                          Brand accent colour
+                          <input value={businessSettings.brandAccentColor} onChange={(event) => updateBusinessSettings({ brandAccentColor: event.target.value })} placeholder="#0f5f7d" />
+                        </label>
+                        <label className="span-2">
+                          Logo URL
+                          <input value={businessSettings.logoUrl} onChange={(event) => updateBusinessSettings({ logoUrl: event.target.value })} placeholder="/ewg-logo.png" />
+                        </label>
+                        <label className="span-2">
+                          Portal welcome text
+                          <textarea value={businessSettings.portalWelcomeText} onChange={(event) => updateBusinessSettings({ portalWelcomeText: event.target.value })} rows={3} />
+                        </label>
+                        <label className="span-2">
+                          Portal acceptance wording
+                          <textarea value={businessSettings.portalAcceptanceText} onChange={(event) => updateBusinessSettings({ portalAcceptanceText: event.target.value })} rows={3} />
+                        </label>
                       </div>
 
-                      <div className="setup-preview-card">
-                        <span>Form header preview</span>
+                      <div className="setup-preview-card" style={{ borderTop: `4px solid ${businessSettings.brandPrimaryColor || "#157fa8"}` }}>
+                        <span>Form / portal preview</span>
                         <strong>{businessSettings.companyName}</strong>
                         <p>{businessSettings.clientPortalBrandLine}</p>
+                        <small>{businessSettings.portalWelcomeText}</small>
                         <small>{businessSettings.address} · {businessSettings.contactEmail} · VAT {businessSettings.vatNumber}</small>
                       </div>
                     </section>
@@ -29033,12 +38751,13 @@ export default function Dashboard() {
                                 Assigned engineer checklist
                                 <select
                                   value={assignedFlow.id}
-                                  onChange={(event) =>
+                                  onChange={(event) => {
+                                    markSetupEdited();
                                     setCostCentreFlowAssignmentDrafts((current) => ({
                                       ...current,
                                       [templateName]: event.target.value,
-                                    }))
-                                  }
+                                    }));
+                                  }}
                                 >
                                   {engineerFlowLibrary.map((template) => (
                                     <option key={template.id} value={template.id}>
@@ -29166,22 +38885,40 @@ export default function Dashboard() {
                         <div>
                           <span className="permission-heading">Catalogue import</span>
                           <h2>Reusable priced items</h2>
-                          <p>Import supplier or office price lists, then search these items inside quote and job cost centres.</p>
+                          <p>
+                            Import a supplier CSV price list into a folder (e.g. Radiators), set the supplier,
+                            then confirm Import. Items then appear in quote and job catalogues.
+                          </p>
                         </div>
-                        <span className="setup-status-label">{customQuoteCatalog.length} imported item(s)</span>
+                        <span className="setup-status-label">{customQuoteCatalog.length} catalogue item(s)</span>
                       </div>
 
                       <div className="setup-form-grid">
                         <label>
-                          Default folder
+                          Folder / group
                           <select
                             value={catalogImportDraft.folder}
                             onChange={(event) => setCatalogImportDraft((current) => ({ ...current, folder: event.target.value }))}
                           >
-                            {quoteCatalogFolders.map((folder) => (
+                            {catalogFolders.map((folder) => (
                               <option key={folder} value={folder}>{folder}</option>
                             ))}
                           </select>
+                        </label>
+                        <label>
+                          Supplier
+                          <select
+                            value={catalogImportDraft.supplierId}
+                            onChange={(event) => setCatalogImportDraft((current) => ({ ...current, supplierId: event.target.value }))}
+                          >
+                            <option value="">No supplier / mixed list</option>
+                            {suppliers.filter((supplier) => !supplier.archived).map((supplier) => (
+                              <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                            ))}
+                          </select>
+                          {!suppliers.filter((supplier) => !supplier.archived).length ? (
+                            <small>Add suppliers under People → Suppliers first, then they appear here.</small>
+                          ) : null}
                         </label>
                         <label>
                           Default item type
@@ -29196,53 +38933,221 @@ export default function Dashboard() {
                           </select>
                         </label>
                         <label className="full-field">
-                          Import CSV / TSV / TXT
-                          <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
+                          Add folder
+                          <span className="setup-add-folder">
+                            <input
+                              aria-label="New catalogue folder"
+                              placeholder="e.g. Radiators"
+                              value={newCatalogFolderName}
+                              onChange={(event) => setNewCatalogFolderName(event.target.value)}
+                            />
+                            <button className="secondary-button" type="button" onClick={() => addCatalogFolder()}>
+                              <Plus size={15} />
+                              Create folder
+                            </button>
+                          </span>
                         </label>
+                        <label className="full-field">
+                          Upload supplier price list (CSV / TSV / TXT)
+                          <input accept=".csv,.tsv,.txt" type="file" onChange={importCatalogFile} />
+                          <small>Need columns like Description/Name, Cost/Trade price, and optionally SKU / Part number. Excel .xlsx is not supported yet — save as CSV first.</small>
+                        </label>
+                      </div>
+
+                      {catalogImportPreview ? (
+                        <div className="setup-import-preview">
+                          <div className="documents-toolbar">
+                            <div>
+                              <strong>Ready to import: {catalogImportPreview.fileName}</strong>
+                              <p>
+                                {catalogImportPreview.items.length} item(s) detected
+                                {catalogImportPreview.skippedBlank ? ` · ${catalogImportPreview.skippedBlank} blank row(s) ignored` : ""}
+                                {catalogImportDraft.supplierId
+                                  ? ` · supplier ${suppliers.find((item) => item.id === catalogImportDraft.supplierId)?.name || ""}`
+                                  : ""}
+                                {" · folder "}{catalogImportDraft.folder}
+                              </p>
+                            </div>
+                            <div className="setup-add-folder">
+                              <button className="secondary-button" type="button" onClick={clearCatalogImportPreview}>
+                                Cancel
+                              </button>
+                              <button className="primary-button" type="button" onClick={() => void commitCatalogImport()}>
+                                Import {catalogImportPreview.items.length} item{catalogImportPreview.items.length === 1 ? "" : "s"}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="setup-rate-table setup-catalog-table">
+                            <div className="setup-rate-row table-head">
+                              <span>Item</span>
+                              <span>SKU</span>
+                              <span>Folder</span>
+                              <span>Supplier</span>
+                              <span>Cost</span>
+                              <span>Sell</span>
+                            </div>
+                            {catalogImportPreview.items.slice(0, 20).map((item) => (
+                              <div className="setup-rate-row" key={item.id}>
+                                <span>{item.name}</span>
+                                <span>{item.sku || "—"}</span>
+                                <span>{item.category}</span>
+                                <span>{item.supplierName || "—"}</span>
+                                <span>{currency(item.costRate)}</span>
+                                <span>{currency(item.sellRate)}</span>
+                              </div>
+                            ))}
+                            {catalogImportPreview.items.length > 20 ? (
+                              <div className="setup-rate-row">
+                                <span>+{catalogImportPreview.items.length > 20 ? catalogImportPreview.items.length - 20 : 0} more will import…</span>
+                                <span /><span /><span /><span /><span />
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {catalogImportResult ? (
+                        <div className={catalogImportResult.errors.length ? "setup-import-result warning" : "setup-import-result"}>
+                          <strong>{catalogImportResult.imported} imported · {catalogImportResult.skipped} skipped</strong>
+                          {catalogImportResult.errors.map((error) => <span key={error}>{error}</span>)}
+                        </div>
+                      ) : null}
+
+                      <div className="setup-form-grid" style={{ marginTop: 18 }}>
+                        <label className="full-field">
+                          <span className="permission-heading">Add one item</span>
+                        </label>
+                        <label>
+                          Name
+                          <input
+                            value={newCatalogItemDraft.name}
+                            placeholder="e.g. Compact K2 600x1000"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, name: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          SKU / part no.
+                          <input
+                            value={newCatalogItemDraft.sku}
+                            placeholder="e.g. RAD-K2-600"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, sku: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Unit
+                          <input
+                            value={newCatalogItemDraft.unit}
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, unit: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Cost
+                          <input
+                            value={newCatalogItemDraft.costRate}
+                            placeholder="0.00"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, costRate: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          Sell
+                          <input
+                            value={newCatalogItemDraft.sellRate}
+                            placeholder="auto from markup"
+                            onChange={(event) => setNewCatalogItemDraft((current) => ({ ...current, sellRate: event.target.value }))}
+                          />
+                        </label>
+                        <div className="full-field">
+                          <button className="primary-button" type="button" onClick={addCatalogItemFromDraft}>
+                            <Plus size={15} />
+                            Add item to {catalogImportDraft.folder}
+                          </button>
+                        </div>
                       </div>
 
                       <div className="setup-rate-table setup-catalog-table">
                         <div className="setup-rate-row table-head">
                           <span>Item</span>
+                          <span>SKU</span>
                           <span>Folder</span>
-                          <span>Type</span>
+                          <span>Supplier</span>
                           <span>Cost</span>
                           <span>Sell</span>
+                          <span>Stock</span>
                         </div>
-                        {customQuoteCatalog.slice(0, 12).map((item) => (
+                        {customQuoteCatalog.map((item) => (
                           <div className="setup-rate-row" key={item.id}>
                             <input
                               value={item.name}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                markSetupEdited();
                                 setCustomQuoteCatalog((current) =>
                                   current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, name: event.target.value } : catalogItem),
-                                )
-                              }
+                                );
+                              }}
+                            />
+                            <input
+                              value={item.sku || ""}
+                              placeholder="SKU"
+                              onChange={(event) => {
+                                markSetupEdited();
+                                setCustomQuoteCatalog((current) =>
+                                  current.map((catalogItem) =>
+                                    catalogItem.id === item.id ? { ...catalogItem, sku: event.target.value || undefined } : catalogItem,
+                                  ),
+                                );
+                              }}
                             />
                             <select
                               value={inferCatalogFolder(item)}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                markSetupEdited();
                                 setCustomQuoteCatalog((current) =>
                                   current.map((catalogItem) => catalogItem.id === item.id ? { ...catalogItem, category: event.target.value } : catalogItem),
-                                )
-                              }
+                                );
+                              }}
                             >
-                              {quoteCatalogFolders.map((folder) => (
+                              {catalogFolders.map((folder) => (
                                 <option key={folder} value={folder}>{folder}</option>
                               ))}
                             </select>
-                            <span>{item.type}</span>
+                            <select
+                              value={item.supplierId || ""}
+                              onChange={(event) => {
+                                const supplier = suppliers.find((entry) => entry.id === event.target.value);
+                                markSetupEdited();
+                                setCustomQuoteCatalog((current) =>
+                                  current.map((catalogItem) =>
+                                    catalogItem.id === item.id
+                                      ? { ...catalogItem, supplierId: supplier?.id, supplierName: supplier?.name }
+                                      : catalogItem,
+                                  ),
+                                );
+                              }}
+                            >
+                              <option value="">No supplier</option>
+                              {suppliers.filter((supplier) => !supplier.archived).map((supplier) => (
+                                <option key={supplier.id} value={supplier.id}>{supplier.name}</option>
+                              ))}
+                            </select>
                             <span>{currency(item.costRate)}</span>
                             <span>{currency(item.sellRate)}</span>
+                            {item.type === "Labour" ? (
+                              <span className="muted">—</span>
+                            ) : (
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => void bindCatalogItemToStock(item)}
+                              >
+                                {item.stockItemId ? "Rebind stock" : "Bind stock"}
+                              </button>
+                            )}
                           </div>
                         ))}
                         {customQuoteCatalog.length === 0 ? (
                           <div className="setup-rate-row">
-                            <span>No imported catalogue items yet.</span>
-                            <span />
-                            <span />
-                            <span />
-                            <span />
+                            <span>No catalogue items yet — upload a CSV or add one above.</span>
+                            <span /><span /><span /><span /><span /><span />
                           </div>
                         ) : null}
                       </div>
@@ -29433,6 +39338,25 @@ export default function Dashboard() {
                         <label>
                           <input
                             type="checkbox"
+                            checked={workflowRules.autoCreateDepositOnAcceptance}
+                            onChange={(event) => updateWorkflowRules({ autoCreateDepositOnAcceptance: event.target.checked })}
+                          />
+                          Auto-create deposit invoice when quote converts to a job
+                        </label>
+                        <label>
+                          Default deposit %
+                          <input
+                            type="number"
+                            min="1"
+                            max="100"
+                            value={workflowRules.defaultDepositPercent}
+                            onChange={(event) => updateWorkflowRules({ defaultDepositPercent: event.target.value })}
+                            disabled={!workflowRules.autoCreateDepositOnAcceptance}
+                          />
+                        </label>
+                        <label>
+                          <input
+                            type="checkbox"
                             checked={workflowRules.requireCommercialReviewBeforeInvoice}
                             onChange={(event) => updateWorkflowRules({ requireCommercialReviewBeforeInvoice: event.target.checked })}
                           />
@@ -29574,20 +39498,42 @@ export default function Dashboard() {
 	                    </section>
 	                  ) : null}
 
+                  {activeSetupCategory === "stock-setup" ? (
+                    <SetupStockLocationsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
+                  ) : null}
+                  {activeSetupCategory === "prebuilds" ? (
+                    <SetupPrebuildsPanel requestHeaders={requestHeaders} onNotice={showNotice} />
+                  ) : null}
+                  {activeSetupCategory === "asset-types" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="assets" />
+                  ) : null}
+                  {activeSetupCategory === "statuses" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="statuses" />
+                  ) : null}
+                  {activeSetupCategory === "tax-codes" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="tax" />
+                  ) : null}
+                  {activeSetupCategory === "email-templates" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="email-templates" />
+                  ) : null}
+                  {activeSetupCategory === "security" ? (
+                    <SetupConfigPanel requestHeaders={requestHeaders} onNotice={showNotice} mode="security" />
+                  ) : null}
+
 	                  {activeSetupCategory === "integrations" ? (
 	                    <section className="setup-panel">
 	                      <div className="documents-toolbar">
 	                        <div>
 	                          <span className="permission-heading">Live connections</span>
 	                          <h2>simPRO and Xero</h2>
-	                          <p>Use this before day-to-day work to check connections, import existing records and prepare accounts export.</p>
+	                          <p>Use this before day-to-day work to check connections, keep one-way simPRO handoffs healthy and prepare accounts export.</p>
 	                        </div>
 	                        <div className="setup-template-actions">
 	                          <button className="secondary-button" type="button" onClick={() => void refreshIntegrationConnectionStatus()}>
 	                            Refresh status
 	                          </button>
 	                          <span className="setup-status-label">
-	                            simPRO {simproSyncStatus?.configured ? "ready" : "needs setup"} · Xero {xeroConnectionStatus?.configured ? "ready" : "needs setup"}
+	                            simPRO {simproBridgeStatus.configured ? `push ready (${simproBridgeStatus.mode})` : "needs setup"} · Xero {xeroModeLabel(xeroConnectionStatus)}
 	                          </span>
 	                        </div>
 	                      </div>
@@ -29597,13 +39543,21 @@ export default function Dashboard() {
 	                          <header>
 	                            <div>
 	                              <span>simPRO</span>
-	                              <strong>{simproSyncStatus?.configured ? "Direct two-way sync ready" : "Connection not complete"}</strong>
+	                              <strong>{simproBridgeStatus.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : `One-way push ready · ${simproBridgeStatus.mode}`) : "Connection not complete"}</strong>
 	                            </div>
 	                            <div className="setup-sync-actions">
 	                              <button
 	                                className="secondary-button"
 	                                type="button"
-	                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+	                                disabled={isTestingSimproConnection}
+	                                onClick={() => void testSimproConnection()}
+	                              >
+	                                {isTestingSimproConnection ? "Testing..." : "Test connection"}
+	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
 	                                onClick={() => runSimproSync("preview")}
 	                              >
 	                                {isRunningSimproPreview ? "Previewing..." : "Preview import"}
@@ -29611,7 +39565,7 @@ export default function Dashboard() {
 	                              <button
 	                                className="primary-button"
 	                                type="button"
-	                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+	                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
 	                                onClick={() => runSimproSync("apply")}
 	                              >
 	                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
@@ -29648,15 +39602,107 @@ export default function Dashboard() {
 	                            </label>
 	                          </div>
 	                          <small>
-	                            {simproSyncStatus?.configured
-	                              ? `Direct API is ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
-	                              : `Missing ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_API_BASE_URL, SIMPRO_ACCESS_TOKEN and SIMPRO_COMPANY_ID"}.`}
+	                            {simproBridgeStatus.configured
+	                              ? integrationSettings.simproMode === "Two-way sync"
+	                                ? `Outbound and inbound are available via ${simproBridgeStatus.mode}${simproBridgeStatus.endpoint ? ` at ${simproBridgeStatus.endpoint}` : ""}. Preview imports before applying anything live.`
+	                                : `${simproBridgeStatus.guidance || `Outbound push is ready via ${simproBridgeStatus.mode}.`} Open a quote and use Send to Simpro.`
+	                              : `Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_BASE_URL, SIMPRO_COMPANY_ID, SIMPRO_CLIENT_ID, SIMPRO_CLIENT_SECRET and SIMPRO_REFRESH_TOKEN"}. ${simproBridgeStatus.guidance || ""}`}
 	                          </small>
+	                          {integrationSettings.simproMode === "Two-way sync" ? (
+	                          <div className="setup-sync-entity-picker">
+	                            <div className="setup-sync-entity-copy">
+	                              <span>Import selection</span>
+	                              <strong>Choose exactly what NeXa should pull in</strong>
+	                              <small>Default is Clients + Sites to stop dual typing. Tick quotes/jobs/invoices only when you need them.</small>
+	                              <div className="setup-sync-entity-shortcuts">
+	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
+	                                  Customers &amp; sites
+	                                </button>
+	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(simproImportEntityOptions.map((item) => item.key))}>
+	                                  Select all
+	                                </button>
+	                              </div>
+	                            </div>
+	                            <div className="setup-sync-entity-list" role="group" aria-label="simPRO import record types">
+	                              {simproImportEntityOptions.map((option) => {
+	                                const checked = selectedSimproImportEntities.includes(option.key);
+	                                return (
+	                                  <label
+	                                    key={option.key}
+	                                    className={checked ? "setup-sync-entity-option active" : "setup-sync-entity-option"}
+	                                  >
+	                                    <input
+	                                      type="checkbox"
+	                                      checked={checked}
+	                                      onChange={() => toggleSimproImportEntity(option.key)}
+	                                    />
+	                                    <span>{option.label}</span>
+	                                  </label>
+	                                );
+	                              })}
+	                            </div>
+	                          </div>
+	                          ) : (
+	                            <div className="setup-readiness-grid setup-sync-grid">
+	                              <article>
+	                                <span>Operating mode</span>
+	                                <strong>NeXa is the front end</strong>
+	                                <small>Create leads, quotes, jobs and schedules here, then push them down to simPRO.</small>
+	                              </article>
+	                              <article>
+	                                <span>Inbound imports</span>
+	                                <strong>Paused</strong>
+	                                <small>Switch to Two-way sync only when you deliberately want to preview or apply inbound records.</small>
+	                              </article>
+	                              <article>
+	                                <span>Outbound bridge</span>
+	                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
+	                                <small>
+	                                  {simproBridgeStatus.configured
+	                                    ? `Quotes ${simproBridgeStatus.quotePushReady === false ? "blocked" : "ready"} · Jobs ${simproBridgeStatus.jobPushReady === false ? "blocked" : "ready"}. ${simproBridgeStatus.guidance || ""}`
+	                                    : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}
+	                                </small>
+	                              </article>
+	                            </div>
+	                          )}
+	                          <div className="setup-integration-reconnect">
+	                            <div className="setup-integration-reconnect-copy">
+	                              <span>simPRO reconnect</span>
+	                              <strong>{simproReconnectStatus?.ready ? "Exchange a fresh code inside NeXa" : "OAuth settings still need checked in Render"}</strong>
+	                              <small>
+	                                {simproReconnectStatus?.ready
+	                                  ? "Open simPRO, generate a fresh authorisation code, then paste the code or full redirect URL here."
+	                                  : `Missing ${simproReconnectStatus?.missing.join(", ") || "SIMPRO_BASE_URL, SIMPRO_CLIENT_ID and SIMPRO_CLIENT_SECRET"}.`}
+	                              </small>
+	                            </div>
+	                            <div className="setup-integration-reconnect-actions">
+	                              {simproReconnectStatus?.authUrl ? (
+	                                <a className="secondary-button" href={simproReconnectStatus.authUrl} rel="noreferrer" target="_blank">
+	                                  Open simPRO authorisation
+	                                </a>
+	                              ) : null}
+	                              <div className="setup-integration-reconnect-form">
+	                                <input
+	                                  value={simproReconnectDraft}
+	                                  onChange={(event) => setSimproReconnectDraft(event.target.value)}
+	                                  placeholder="Paste simPRO code or full redirect URL"
+	                                />
+	                                <button
+	                                  className="primary-button"
+	                                  type="button"
+	                                  disabled={!simproReconnectStatus?.ready || isSubmittingSimproReconnect}
+	                                  onClick={() => void submitSimproReconnect()}
+	                                >
+	                                  {isSubmittingSimproReconnect ? "Reconnecting..." : "Reconnect simPRO"}
+	                                </button>
+	                              </div>
+	                            </div>
+	                          </div>
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
-	                              <span>Can import</span>
-	                              <strong>Clients, sites, quotes, jobs, invoices</strong>
-	                              <small>Preview first, then apply safe creates and links.</small>
+	                              <span>{integrationSettings.simproMode === "Two-way sync" ? "Can import" : "Primary direction"}</span>
+	                              <strong>{integrationSettings.simproMode === "Two-way sync" ? "Clients, sites, quotes, jobs, invoices" : "NeXa to simPRO"}</strong>
+	                              <small>{integrationSettings.simproMode === "Two-way sync" ? "Preview first, then apply safe creates and links." : "Use NeXa day to day, with simPRO kept downstream during cutover."}</small>
 	                            </article>
 	                            <article>
 	                              <span>Linked records</span>
@@ -29669,7 +39715,7 @@ export default function Dashboard() {
 	                              <small>
 	                                {simproSyncStatus?.lastRun
 	                                  ? `${simproSyncStatus.lastRun.totals.created} created · ${simproSyncStatus.lastRun.totals.linked} linked · ${simproSyncStatus.lastRun.totals.conflicts} conflict`
-	                                  : "Use Preview import before any live import."}
+	                                  : integrationSettings.simproMode === "Two-way sync" ? "Use Preview import before any live import." : "No inbound import has been run in this workspace."}
 	                              </small>
 	                            </article>
 	                          </div>
@@ -29679,12 +39725,46 @@ export default function Dashboard() {
 	                                <span>Action</span>
 	                                <span>Record</span>
 	                                <span>Result</span>
+	                                <span>Resolve</span>
 	                              </div>
-	                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
+	                              {simproSyncStatus.lastRun.operations.slice(0, 12).map((item) => (
 	                                <div className="setup-rate-row" key={item.id}>
 	                                  <strong>{item.action}</strong>
 	                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
 	                                  <span>{item.summary}</span>
+	                                  <span>
+	                                    {item.action === "conflict" ? (
+	                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
+	                                        {item.candidates?.length ? (
+	                                          <select
+	                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
+	                                            onChange={(event) =>
+	                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
+	                                            }
+	                                          >
+	                                            {item.candidates.map((candidate) => (
+	                                              <option key={candidate.nexaId} value={candidate.nexaId}>
+	                                                {candidate.nexaName}
+	                                              </option>
+	                                            ))}
+	                                          </select>
+	                                        ) : null}
+	                                        {item.candidates?.length || item.simproId ? (
+	                                          <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
+	                                            Link
+	                                          </button>
+	                                        ) : null}
+	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
+	                                          Create
+	                                        </button>
+	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
+	                                          Skip
+	                                        </button>
+	                                      </div>
+	                                    ) : (
+	                                      "—"
+	                                    )}
+	                                  </span>
 	                                </div>
 	                              ))}
 	                            </div>
@@ -29695,15 +39775,34 @@ export default function Dashboard() {
 	                          <header>
 	                            <div>
 	                              <span>Xero</span>
-	                              <strong>{xeroConnectionStatus?.configured ? "Accounts connection ready" : "Accounts setup required"}</strong>
+	                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
 	                            </div>
-	                            <button
-	                              className="secondary-button"
-	                              type="button"
-	                              onClick={() => updateIntegrationSettings({ xeroLastSync: new Date().toISOString() })}
-	                            >
-	                              Mark sync checked
-	                            </button>
+	                            <div className="setup-inline-actions">
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={isConnectingXero || !xeroConnectionStatus?.authUrl}
+	                                onClick={() => void connectXeroOAuth()}
+	                                title={
+	                                  xeroConnectionStatus?.authUrl
+	                                    ? "Open Xero authorisation"
+	                                    : "Set XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_REDIRECT_URI on Render first"
+	                                }
+	                              >
+	                                {isConnectingXero
+	                                  ? "Opening Xero…"
+	                                  : xeroConnectionStatus?.hasRefreshToken
+	                                    ? "Reconnect Xero"
+	                                    : "Connect Xero"}
+	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                onClick={() => void recheckXeroConfiguration()}
+	                              >
+	                                Recheck configuration
+	                              </button>
+	                            </div>
 	                          </header>
 	                          <div className="setup-form-grid">
 	                            <label>
@@ -29736,8 +39835,10 @@ export default function Dashboard() {
 	                          </div>
 	                          <small>
 	                            {xeroConnectionStatus?.configured
-	                              ? "Render can see the required Xero OAuth settings. Invoice export and payment reconciliation can be wired next."
-	                              : `Missing ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET and XERO_TENANT_ID"}.`}
+	                              ? `Live export mode: ${xeroConnectionStatus.mode}. Use the Xero module in the left bar for the export queue (sales + bills), or open a single invoice for a one-off push.`
+	                              : xeroConnectionStatus?.authUrl
+	                                ? "OAuth app env is present. Click Connect Xero to authorise, then use the Xero module export queues."
+	                                : `CSV export always works from the Xero module. For live OAuth set ${xeroConnectionStatus?.missing.join(", ") || "XERO_CLIENT_ID, XERO_CLIENT_SECRET, XERO_REDIRECT_URI"} (and XERO_TENANT_ID if not discovered).`}
 	                          </small>
 	                          <div className="setup-readiness-grid setup-sync-grid">
 	                            <article>
@@ -29751,9 +39852,24 @@ export default function Dashboard() {
 	                              <small>Needed before invoices can be sent to the correct Xero organisation.</small>
 	                            </article>
 	                            <article>
+	                              <span>OAuth</span>
+	                              <strong>
+	                                {xeroConnectionStatus?.hasRefreshToken
+	                                  ? "Refresh token stored"
+	                                  : xeroConnectionStatus?.redirectUriPresent
+	                                    ? "Ready to connect"
+	                                    : "Redirect URI missing"}
+	                              </strong>
+	                              <small>
+	                                {xeroConnectionStatus?.accessTokenExpiresAt
+	                                  ? `Access token refreshes around ${xeroConnectionStatus.accessTokenExpiresAt.slice(0, 16).replace("T", " ")}`
+	                                  : "Connect once; NeXa stores the refresh token on the server."}
+	                              </small>
+	                            </article>
+	                            <article>
 	                              <span>Next use</span>
 	                              <strong>Invoices and valuations</strong>
-	                              <small>Approved valuations generate invoices, then the Xero connector will export them.</small>
+	                              <small>Approved valuations generate invoices, then the Xero connector exports them.</small>
 	                            </article>
 	                          </div>
 	                        </article>
@@ -29766,28 +39882,173 @@ export default function Dashboard() {
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Communications</span>
-                          <h2>Outlook, WhatsApp and supplier doorways</h2>
+                          <h2>Email, WhatsApp and supplier doorways</h2>
                         </div>
-                        <span className="setup-status-label">Next integration layer</span>
+                        <span className="setup-status-label">
+                          {emailIntegrationStatus?.lastTestMessageId
+                            ? `${emailIntegrationStatus.provider} test sent`
+                            : emailIntegrationStatus?.lastError
+                              ? `${emailIntegrationStatus.provider} test failed`
+                            : emailIntegrationStatus?.configured
+                              ? `${emailIntegrationStatus.provider} saved, not tested`
+                              : "Setup required"}
+                        </span>
                       </div>
-                      <div className="setup-readiness-grid">
-                        <article>
-                          <span>Outlook</span>
-                          <strong>Quote, invoice and job emails send from HubFlo/NeXa</strong>
-                          <small>Captured against the lead, quote, job or invoice record.</small>
+                      <div className="setup-integration-grid">
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>Email provider</span>
+                              <strong>{emailIntegrationDraft.provider}</strong>
+                            </div>
+                            <div className="setup-sync-actions">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isTestingEmailIntegration}
+                                onClick={() => void testEmailIntegrationSettings()}
+                              >
+                                {isTestingEmailIntegration ? "Testing..." : "Test connection"}
+                              </button>
+                              <button
+                                className="primary-button"
+                                type="button"
+                                disabled={isSavingEmailIntegration}
+                                onClick={() => void saveEmailIntegrationSettings()}
+                              >
+                                {isSavingEmailIntegration ? "Saving..." : "Save settings"}
+                              </button>
+                            </div>
+                          </header>
+                          <div className="setup-form-grid">
+                            <label>
+                              Provider
+                              <select
+                                value={emailIntegrationDraft.provider}
+                                onChange={(event) =>
+                                  setEmailIntegrationDraft((current) => ({
+                                    ...current,
+                                    provider: event.target.value as EmailIntegrationDraft["provider"],
+                                    smtpHost: event.target.value === "Gmail" ? "smtp.gmail.com" : "smtp.office365.com",
+                                    smtpPort: event.target.value === "Gmail" ? "465" : "587",
+                                    secure: event.target.value === "Gmail",
+                                  }))
+                                }
+                              >
+                                <option value="Outlook">Outlook</option>
+                                <option value="Gmail">Gmail</option>
+                              </select>
+                            </label>
+                            <label>
+                              Sender email
+                              <input
+                                value={emailIntegrationDraft.senderEmail}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, senderEmail: event.target.value }))}
+                                placeholder="quotes@yourcompany.co.uk"
+                              />
+                            </label>
+                            <label>
+                              Username
+                              <input
+                                value={emailIntegrationDraft.username}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, username: event.target.value }))}
+                                placeholder="smtp username"
+                              />
+                            </label>
+                            <label>
+                              App password / secret
+                              <input
+                                type="password"
+                                value={emailIntegrationDraft.secret}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secret: event.target.value }))}
+                                placeholder={emailIntegrationStatus?.secretStored ? "Stored securely - paste only to change it" : "Paste provider secret"}
+                              />
+                            </label>
+                            <label>
+                              SMTP host
+                              <input
+                                value={emailIntegrationDraft.smtpHost}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, smtpHost: event.target.value }))}
+                              />
+                            </label>
+                            <label>
+                              SMTP port
+                              <input
+                                inputMode="numeric"
+                                value={emailIntegrationDraft.smtpPort}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, smtpPort: event.target.value.replace(/[^\d]/g, "") }))}
+                              />
+                            </label>
+                          </div>
+                          <div className="setup-switch-grid">
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={emailIntegrationDraft.secure}
+                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secure: event.target.checked }))}
+                              />
+                              Use secure SMTP / TLS
+                            </label>
+                          </div>
+                          <small>
+                            Credentials are stored on the server side only. Test connection authenticates with the provider and sends a real test message to the sender address.
+                          </small>
+                          <div className="setup-readiness-grid setup-sync-grid">
+                            <article>
+                              <span>Status</span>
+                              <strong>{emailIntegrationStatus?.lastTestMessageId ? "Test email sent" : emailIntegrationStatus?.configured ? "Saved, not proven" : "Not configured"}</strong>
+                              <small>{emailIntegrationStatus?.lastError || (emailIntegrationStatus?.lastTestRecipient ? `Sent to ${emailIntegrationStatus.lastTestRecipient}` : "Save settings, then send a test email.")}</small>
+                            </article>
+                            <article>
+                              <span>Secret</span>
+                              <strong>{emailIntegrationStatus?.secretStored ? "Stored securely" : "Not stored"}</strong>
+                              <small>The secret never comes back to the browser after saving.</small>
+                            </article>
+                            <article>
+                              <span>Last test</span>
+                              <strong>{emailIntegrationStatus?.lastTestedAt ? emailIntegrationStatus.lastTestedAt.replace("T", " ").slice(0, 16) : "Not tested yet"}</strong>
+                              <small>Use this before switching live customer emails across to NeXa.</small>
+                            </article>
+                          </div>
                         </article>
-                        <article>
-                          <span>WhatsApp</span>
-                          <strong>Engineer confirmations and site updates can feed the job</strong>
-                          <small>Live Meta keys are still needed before production messaging.</small>
+
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>WhatsApp</span>
+                              <strong>Engineer confirmations and site updates</strong>
+                            </div>
+                          </header>
+                          <div className="setup-readiness-grid setup-sync-grid">
+                            <article>
+                              <span>Current state</span>
+                              <strong>Connector scaffolded</strong>
+                              <small>Live Meta credentials are still needed before production messaging can go out.</small>
+                            </article>
+                            <article>
+                              <span>Use case</span>
+                              <strong>Timesheets, updates, approvals</strong>
+                              <small>Messages still capture back into the related job or quote record.</small>
+                            </article>
+                            <article>
+                              <span>Next step</span>
+                              <strong>Verify live send</strong>
+                              <small>Once Meta is connected we can test a real field update loop.</small>
+                            </article>
+                          </div>
                         </article>
-                        <article>
-                          <span>Simpro bridge</span>
-                          <strong>
-                            {simproBridgeStatus.configured
-                              ? `Live quote handoff configured (${simproBridgeStatus.mode})`
-                              : "Quote handoffs queue in NeXa until the bridge is configured"}
-                          </strong>
+
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>simPRO bridge</span>
+                              <strong>
+                                {simproBridgeStatus.configured
+                                  ? `Live handoff configured (${simproBridgeStatus.mode})`
+                                  : "Quote and job handoffs queue until configured"}
+                              </strong>
+                            </div>
+                          </header>
                           <small>
                             {simproBridgeStatus.configured
                               ? `Posting to ${simproBridgeStatus.endpoint ?? "configured bridge endpoint"}.`
@@ -29876,9 +40137,9 @@ export default function Dashboard() {
                       <div className="setup-subsection-heading">
                         <div>
                           <span className="permission-heading">Accounts integrations</span>
-                          <h3>Xero and simPRO two-way bridge</h3>
+                          <h3>Xero and simPRO live bridge</h3>
                         </div>
-                        <p>simPRO inbound preview, safe import and webhook capture are handled by NeXa now. Outbound writes stay controlled per record so live systems do not overwrite each other without review.</p>
+                        <p>Use this area to keep NeXa as the front end, push live records downstream to simPRO, and prepare Xero export without turning day-to-day work back into an import exercise.</p>
                       </div>
 
                       <div className="setup-integration-grid">
@@ -29886,13 +40147,21 @@ export default function Dashboard() {
                           <header>
                             <div>
                               <span>simPRO</span>
-                              <strong>{simproSyncStatus?.configured ? "Two-way bridge ready" : integrationSettings.simproMode}</strong>
+                              <strong>{simproSyncStatus?.configured ? (integrationSettings.simproMode === "Two-way sync" ? "Direct sync ready" : "One-way push ready") : integrationSettings.simproMode}</strong>
                             </div>
                             <div className="setup-sync-actions">
                               <button
                                 className="secondary-button"
                                 type="button"
-                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+                                disabled={isTestingSimproConnection}
+                                onClick={() => void testSimproConnection()}
+                              >
+                                {isTestingSimproConnection ? "Testing..." : "Test connection"}
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
                                 onClick={() => runSimproSync("preview")}
                               >
                                 {isRunningSimproPreview ? "Previewing..." : "Preview import"}
@@ -29900,7 +40169,7 @@ export default function Dashboard() {
                               <button
                                 className="primary-button"
                                 type="button"
-                                disabled={!simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
+                                disabled={integrationSettings.simproMode !== "Two-way sync" || !simproSyncStatus?.configured || isRunningSimproPreview || isApplyingSimproImport}
                                 onClick={() => runSimproSync("apply")}
                               >
                                 {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
@@ -29932,7 +40201,7 @@ export default function Dashboard() {
                               <input
                                 value={integrationSettings.simproApiBaseUrl}
                                 onChange={(event) => updateIntegrationSettings({ simproApiBaseUrl: event.target.value })}
-                                placeholder="https://api.simprocloud.com"
+                                placeholder={simproSyncStatus?.endpoint ?? "Stored securely in Render environment variables"}
                               />
                             </label>
                             <label className="span-2">
@@ -29940,67 +40209,158 @@ export default function Dashboard() {
                               <input
                                 value={integrationSettings.simproWebhookUrl}
                                 onChange={(event) => updateIntegrationSettings({ simproWebhookUrl: event.target.value })}
-                                placeholder="https://.../api/simpro/sync"
+                                placeholder={simproBridgeStatus.endpoint ?? "Stored securely in Render environment variables"}
                               />
                             </label>
                           </div>
                           <small>
                             {simproSyncStatus?.configured
-                              ? `Direct API ready at ${simproSyncStatus.endpoint}.`
+                              ? integrationSettings.simproMode === "Two-way sync"
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+                                : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
-                          <div className="setup-readiness-grid setup-sync-grid">
-                            <article>
-                              <span>Linked records</span>
-                              <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
-                              <small>simPRO records tied to NeXa records.</small>
-                            </article>
-                            <article>
-                              <span>Webhook inbox</span>
-                              <strong>{simproSyncStatus?.webhookInboxCount ?? 0}</strong>
-                              <small>Inbound simPRO events waiting for sync processing.</small>
-                            </article>
-                            <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
-                              <span>Last run</span>
-                              <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
-                              <small>
-                                {simproSyncStatus?.lastRun
-                                  ? `${simproSyncStatus.lastRun.totals.created} create · ${simproSyncStatus.lastRun.totals.linked} link · ${simproSyncStatus.lastRun.totals.conflicts} conflict · ${simproSyncStatus.lastRun.totals.errors} error`
-                                  : "Run preview before applying anything live."}
-                              </small>
-                            </article>
-                          </div>
+                          {integrationSettings.simproMode === "Two-way sync" ? (
+                            <div className="setup-readiness-grid setup-sync-grid">
+                              <article>
+                                <span>Linked records</span>
+                                <strong>{simproSyncStatus?.linkCount ?? 0}</strong>
+                                <small>simPRO records tied to NeXa records.</small>
+                              </article>
+                              <article>
+                                <span>Webhook inbox</span>
+                                <strong>{simproSyncStatus?.webhookInboxCount ?? 0}</strong>
+                                <small>Inbound simPRO events waiting for sync processing.</small>
+                              </article>
+                              <article className={(simproSyncStatus?.lastRun?.totals.conflicts ?? 0) > 0 ? "attention" : ""}>
+                                <span>Last run</span>
+                                <strong>{simproSyncStatus?.lastRun ? simproSyncStatus.lastRun.mode : "No run yet"}</strong>
+                                <small>
+                                  {simproSyncStatus?.lastRun
+                                    ? `${simproSyncStatus.lastRun.totals.created} create · ${simproSyncStatus.lastRun.totals.linked} link · ${simproSyncStatus.lastRun.totals.conflicts} conflict · ${simproSyncStatus.lastRun.totals.errors} error`
+                                    : "Run preview before applying anything live."}
+                                </small>
+                              </article>
+                            </div>
+                          ) : (
+                            <div className="setup-readiness-grid setup-sync-grid">
+                              <article>
+                                <span>Primary direction</span>
+                                <strong>NeXa to simPRO</strong>
+                                <small>Quotes, jobs and planner updates are pushed downstream from NeXa.</small>
+                              </article>
+                              <article>
+                                <span>Inbound imports</span>
+                                <strong>Paused</strong>
+                                <small>Turn on Two-way sync only when you deliberately need a controlled migration or backfill.</small>
+                              </article>
+                              <article>
+                                <span>Bridge mode</span>
+                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
+                                <small>{simproBridgeStatus.configured ? "Live handoff is available from NeXa records." : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}</small>
+                              </article>
+                            </div>
+                          )}
                           {simproSyncStatus?.lastRun?.operations.length ? (
                             <div className="setup-rate-table setup-sync-log">
                               <div className="setup-rate-row table-head">
                                 <span>Action</span>
                                 <span>Record</span>
                                 <span>Result</span>
+                                <span>Resolve</span>
                               </div>
-                              {simproSyncStatus.lastRun.operations.slice(0, 8).map((item) => (
+                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
                                 <div className="setup-rate-row" key={item.id}>
                                   <strong>{item.action}</strong>
                                   <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
                                   <span>{item.summary}</span>
+                                  <span>
+                                    {item.action === "conflict" ? (
+                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
+                                        {item.candidates?.length ? (
+                                          <select
+                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
+                                            onChange={(event) =>
+                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
+                                            }
+                                          >
+                                            {item.candidates.map((candidate) => (
+                                              <option key={candidate.nexaId} value={candidate.nexaId}>
+                                                {candidate.nexaName}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        ) : null}
+                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
+                                          Link
+                                        </button>
+                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
+                                          Create
+                                        </button>
+                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
+                                          Skip
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      "—"
+                                    )}
+                                  </span>
                                 </div>
                               ))}
                             </div>
-                          ) : null}
+                          ) : integrationSettings.simproMode === "Two-way sync" ? null : (
+                            <div className="setup-rate-table setup-sync-log">
+                              <div className="setup-rate-row table-head">
+                                <span>Handoff</span>
+                                <span>What NeXa sends</span>
+                                <span>When</span>
+                              </div>
+                              <div className="setup-rate-row">
+                                <strong>Quotes</strong>
+                                <span>Customer, site, cost centres, totals and scope lines</span>
+                                <span>When you send a quote to simPRO</span>
+                              </div>
+                              <div className="setup-rate-row">
+                                <strong>Jobs</strong>
+                                <span>Job details, cost centres, totals and planner allocations</span>
+                                <span>When you send a job or update the planner</span>
+                              </div>
+                              <div className="setup-rate-row">
+                                <strong>Schedules</strong>
+                                <span>Current planner allocations attached to the pushed job</span>
+                                <span>Whenever NeXa planner assignments change</span>
+                              </div>
+                            </div>
+                          )}
                         </article>
 
                         <article className="setup-integration-card">
                           <header>
                             <div>
                               <span>Xero</span>
-                              <strong>{integrationSettings.xeroMode}</strong>
+                              <strong>{xeroModeLabel(xeroConnectionStatus)}</strong>
                             </div>
-                            <button
-                              className="secondary-button"
-                              type="button"
-                              onClick={() => updateIntegrationSettings({ xeroLastSync: new Date().toISOString() })}
-                            >
-                              Mark sync checked
-                            </button>
+                            <div className="setup-inline-actions">
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isConnectingXero || !xeroConnectionStatus?.authUrl}
+                                onClick={() => void connectXeroOAuth()}
+                              >
+                                {isConnectingXero
+                                  ? "Opening Xero…"
+                                  : xeroConnectionStatus?.hasRefreshToken
+                                    ? "Reconnect Xero"
+                                    : "Connect Xero"}
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={() => void recheckXeroConfiguration()}
+                              >
+                                Recheck configuration
+                              </button>
+                            </div>
                           </header>
                           <div className="setup-form-grid">
                             <label>
@@ -30032,7 +40392,11 @@ export default function Dashboard() {
                             </label>
                           </div>
                           <small>
-                            Last sync check: {integrationSettings.xeroLastSync ? integrationSettings.xeroLastSync.slice(0, 16).replace("T", " ") : "Not checked yet"}
+                            Mode {xeroConnectionStatus?.mode || "csv-only"} · last sync check:{" "}
+                            {integrationSettings.xeroLastSync
+                              ? integrationSettings.xeroLastSync.slice(0, 16).replace("T", " ")
+                              : "Not checked yet"}
+                            {xeroConnectionStatus?.hasRefreshToken ? " · refresh token stored" : ""}
                           </small>
                         </article>
                       </div>
@@ -30056,7 +40420,7 @@ export default function Dashboard() {
                         <article>
                           <span>Accounts connector</span>
                           <strong>Xero · {integrationSettings.xeroMode}</strong>
-                          <small>Invoices and agreed progress claims can be queued now. OAuth export and payment reconciliation are the next integration step.</small>
+                          <small>Invoices and agreed progress claims export via OAuth/live token or CSV pack. Connect Xero from Setup when credentials are on Render; payment reconciliation is the next accounts step.</small>
                         </article>
                         <article>
                           <span>simPRO bridge</span>
@@ -30154,7 +40518,7 @@ export default function Dashboard() {
                         <strong>{lead.surveyor}</strong>
                         <small>{lead.surveyDate && lead.surveyTime ? `${lead.surveyDate} at ${lead.surveyTime}` : "Not booked"}</small>
                       </div>
-                      <span className={`status-pill ${lead.status === "Lost" ? "red" : lead.status === "Survey booked" || lead.status === "Quoted" ? "green" : "amber"}`}>
+                      <span className={`status-pill ${lead.status === "Lost" ? "red" : lead.status === "Survey booked" || lead.status === "Quoted" ? "green" : "amber"}`} title={lead.lostReason || undefined}>
                         {lead.status}
                       </span>
                       <div className="next-action">
@@ -30201,6 +40565,165 @@ export default function Dashboard() {
                   </section>
               </div>
             </section>
+          ) : homeView === "directory-manager" ? (
+            (() => {
+              const query = search.trim().toLowerCase();
+              const clientNameById = new Map(clients.map((client) => [client.id, client.name]));
+              const config = activeDirectoryManager === "sites"
+                ? {
+                    title: "Sites",
+                    description: "Manage service addresses, site contacts and site-level records.",
+                    importType: "Sites",
+                    empty: "No site records yet.",
+                    scope: "site" as const,
+                    records: clientSites.map((site) => ({
+                      id: site.id,
+                      title: site.name,
+                      subtitle: clientNameById.get(site.clientId) ?? "Unlinked customer",
+                      meta: [site.address, `Contact: ${site.primaryContact}`, site.serviceLine].filter(Boolean),
+                      archived: Boolean(site.archived),
+                      matches: [site.name, site.address, site.primaryContact, site.serviceLine, clientNameById.get(site.clientId) ?? ""],
+                      actions: [
+                        {
+                          label: site.archived ? "Restore site" : "Archive site",
+                          onClick: () => updateSiteArchive(site, !site.archived),
+                        },
+                        { label: "Delete", onClick: () => void deleteSiteFromDirectory(site), danger: true },
+                      ],
+                    })),
+                  }
+                : activeDirectoryManager === "suppliers"
+                  ? {
+                      title: "Suppliers",
+                      description: "Manage supplier records used by POs and supplier requests.",
+                      importType: "Suppliers",
+                      empty: "No supplier records yet.",
+                      scope: "supplier" as const,
+                      records: suppliers.map((supplier) => ({
+                        id: supplier.id,
+                        title: supplier.name,
+                        subtitle: supplier.category || "Supplier",
+                        meta: [supplier.email, supplier.phone, supplier.account, supplier.notes].filter(Boolean),
+                        archived: Boolean(supplier.archived),
+                        matches: [supplier.name, supplier.category ?? "", supplier.email, supplier.phone ?? "", supplier.account, supplier.notes ?? ""],
+                        actions: [
+                          {
+                            label: supplier.archived ? "Restore supplier" : "Archive supplier",
+                            onClick: () => updateSupplierArchive(supplier, !supplier.archived),
+                          },
+                          { label: "Delete", onClick: () => deleteSupplierFromDirectory(supplier), danger: true },
+                        ],
+                      })),
+                    }
+                  : activeDirectoryManager === "contacts"
+                    ? {
+                        title: "Contacts",
+                        description: "Manage reusable people records for office, client and site communications.",
+                        importType: "Contacts",
+                        empty: "No contact records yet.",
+                        scope: "contact" as const,
+                        records: contacts.map((contact) => ({
+                          id: contact.id,
+                          title: contact.name,
+                          subtitle: contact.company || contact.role || "Contact",
+                          meta: [contact.role, contact.company, contact.email, contact.phone, contact.notes].filter(Boolean),
+                          archived: Boolean(contact.archived),
+                          matches: [contact.name, contact.company ?? "", contact.role ?? "", contact.email ?? "", contact.phone ?? "", contact.notes ?? ""],
+                          actions: [
+                            {
+                              label: contact.archived ? "Restore contact" : "Archive contact",
+                              onClick: () => updateContactArchive(contact, !contact.archived),
+                            },
+                            { label: "Delete", onClick: () => deleteContactFromDirectory(contact), danger: true },
+                          ],
+                        })),
+                      }
+                    : {
+                        title: "Contractors",
+                        description: "Manage subcontractors and external delivery partners.",
+                        importType: "Contractors",
+                        empty: "No contractor records yet.",
+                        scope: "contractor" as const,
+                        records: contractors.map((contractor) => ({
+                          id: contractor.id,
+                          title: contractor.name,
+                          subtitle: contractor.trade || "Contractor",
+                          meta: [contractor.primaryContact, contractor.email, contractor.phone, contractor.notes].filter(Boolean),
+                          archived: Boolean(contractor.archived),
+                          matches: [contractor.name, contractor.trade ?? "", contractor.primaryContact ?? "", contractor.email ?? "", contractor.phone ?? "", contractor.notes ?? ""],
+                          actions: [
+                            {
+                              label: contractor.archived ? "Restore contractor" : "Archive contractor",
+                              onClick: () => updateContractorArchive(contractor, !contractor.archived),
+                            },
+                            { label: "Delete", onClick: () => deleteContractorFromDirectory(contractor), danger: true },
+                          ],
+                        })),
+                      };
+
+              const filteredRecords = config.records.filter((record) =>
+                !query || record.matches.some((value) => value.toLowerCase().includes(query)),
+              );
+
+              return (
+                <section className="client-directory-panel">
+                  <div className="panel-header">
+                    <div>
+                      <h2>{config.title}</h2>
+                      <p>{config.description}</p>
+                    </div>
+                    <div className="panel-header-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setHomeView("settings");
+                          setActiveSetupCategory("imports");
+                          setActiveSetupSubItem(config.importType);
+                          scrollWorkspaceToTop();
+                        }}
+                      >
+                        Open import
+                      </button>
+                      <button className="link-button" onClick={returnToDashboard}>
+                        Back to dashboard
+                      </button>
+                    </div>
+                  </div>
+
+                  {filteredRecords.length ? (
+                    <div className="client-directory-grid">
+                      {filteredRecords.map((record) => (
+                        <article className="client-directory-card" key={`${config.scope}-${record.id}`}>
+                          <header>
+                            <div>
+                              <h3>{record.title}</h3>
+                              <small>{record.subtitle}</small>
+                            </div>
+                            <div className="directory-card-head-actions">
+                              <span className={`status-pill ${record.archived ? "amber" : "green"}`}>
+                                {record.archived ? "Archived" : "Active"}
+                              </span>
+                              {renderDirectoryActionMenu(config.scope, record.id, record.actions)}
+                            </div>
+                          </header>
+                          {record.meta.map((line) => (
+                            <p className="client-directory-meta" key={`${record.id}-${line}`}>
+                              {line}
+                            </p>
+                          ))}
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="employee-empty-panel">
+                      <strong>{config.empty}</strong>
+                      <span>Use Setup imports or day-to-day record creation to populate this directory.</span>
+                    </div>
+                  )}
+                </section>
+              );
+            })()
           ) : homeView === "clients" ? (
             <section className="client-directory-panel">
               <div className="panel-header">
@@ -30235,9 +40758,19 @@ export default function Dashboard() {
                           <h3>{client.name}</h3>
                           <small>{client.accountReference}</small>
                         </div>
-                        <span className={`status-pill ${client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
-                          {client.status}
-                        </span>
+                        <div className="directory-card-head-actions">
+                          <span className={`status-pill ${client.archived ? "amber" : client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
+                            {client.archived ? "Archived" : client.status}
+                          </span>
+                          {renderDirectoryActionMenu("client", client.id, [
+                            { label: "Open client", onClick: () => openClientRecordView(client.id) },
+                            {
+                              label: client.archived ? "Restore client" : "Archive client",
+                              onClick: () => updateClientArchive(client, !client.archived),
+                            },
+                            { label: "Delete", onClick: () => void deleteClientFromDirectory(client), danger: true },
+                          ])}
+                        </div>
                       </header>
                       <p>{client.primaryContact}</p>
                       <p className="client-directory-meta">{client.email}</p>
@@ -30308,36 +40841,97 @@ export default function Dashboard() {
                     <div className="client-overview-grid">
                       <article className="client-info-card">
                         <span className="permission-heading">Account details</span>
-                        <dl>
-                          <div>
-                            <dt>Account ref</dt>
-                            <dd>{activeClient.accountReference}</dd>
+                        <div className="form-body employee-page-form two-column-form">
+                          <label>
+                            Account ref
+                            <input value={activeClient.accountReference} onChange={(event) => updateClientRecordDraft(activeClient.id, { accountReference: event.target.value })} />
+                          </label>
+                          <label>
+                            Customer name
+                            <input value={activeClient.name} onChange={(event) => updateClientRecordDraft(activeClient.id, { name: event.target.value })} />
+                          </label>
+                          <label>
+                            Primary contact
+                            <input value={activeClient.primaryContact} onChange={(event) => updateClientRecordDraft(activeClient.id, { primaryContact: event.target.value })} />
+                          </label>
+                          <label>
+                            Email
+                            <input value={activeClient.email} onChange={(event) => updateClientRecordDraft(activeClient.id, { email: event.target.value })} />
+                          </label>
+                          <label>
+                            Phone
+                            <input value={activeClient.phone} onChange={(event) => updateClientRecordDraft(activeClient.id, { phone: event.target.value })} />
+                          </label>
+                          <label>
+                            Commercial owner
+                            <input value={activeClient.commercialOwner} onChange={(event) => updateClientRecordDraft(activeClient.id, { commercialOwner: event.target.value })} />
+                          </label>
+                          <label className="full-field">
+                            Billing address
+                            <input value={activeClient.billingAddress} onChange={(event) => updateClientRecordDraft(activeClient.id, { billingAddress: event.target.value })} />
+                          </label>
+                          <label className="full-field">
+                            Commercial notes
+                            <textarea value={activeClient.notes} onChange={(event) => updateClientRecordDraft(activeClient.id, { notes: event.target.value })} />
+                          </label>
+                        </div>
+                        <div className="quote-action-stack">
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              void persistClientRecordPatch(activeClient.id, activeClient)
+                                .then(() => showNotice(`${activeClient.name} saved.`))
+                                .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to save customer."));
+                            }}
+                          >
+                            Save customer
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            disabled={
+                              isSendingClientStatement ||
+                              !emailIntegrationStatus?.lastTestMessageId ||
+                              !activeClientOutstandingInvoices.length
+                            }
+                            title={
+                              !activeClientOutstandingInvoices.length
+                                ? "No outstanding invoices"
+                                : !emailIntegrationStatus?.lastTestMessageId
+                                  ? "Test email integration in Setup first"
+                                  : "Email outstanding invoice statement"
+                            }
+                            onClick={() => void sendActiveClientStatement()}
+                          >
+                            <Mail size={15} />
+                            {isSendingClientStatement
+                              ? "Sending statement…"
+                              : `Email statement (${activeClientOutstandingInvoices.length})`}
+                          </button>
+                        </div>
+                        {activeClient.lastStatementSentAt ? (
+                          <small>
+                            Last statement {activeClient.lastStatementSentAt} to {activeClient.lastStatementSentTo || "recipient"}
+                          </small>
+                        ) : null}
+                        {activeClientOutstandingInvoices.length ? (
+                          <div className="ops-table" style={{ marginTop: "0.75rem" }}>
+                            <div className="ops-table-head"><span>Invoice</span><span>Due</span><span>Outstanding</span><span /></div>
+                            {activeClientOutstandingInvoices.slice(0, 8).map((invoice) => (
+                              <div className="ops-table-row" key={invoice.id}>
+                                <strong>{invoice.ref}</strong>
+                                <span>{invoice.dueDate}</span>
+                                <span>{currency(invoiceOutstandingBalance(invoice))}</span>
+                                <button className="secondary-button" type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                                  Open
+                                </button>
+                              </div>
+                            ))}
                           </div>
-                          <div>
-                            <dt>Primary contact</dt>
-                            <dd>{activeClient.primaryContact}</dd>
-                          </div>
-                          <div>
-                            <dt>Email</dt>
-                            <dd>{activeClient.email}</dd>
-                          </div>
-                          <div>
-                            <dt>Phone</dt>
-                            <dd>{activeClient.phone}</dd>
-                          </div>
-                          <div>
-                            <dt>Billing address</dt>
-                            <dd>{activeClient.billingAddress}</dd>
-                          </div>
-                          <div>
-                            <dt>Commercial owner</dt>
-                            <dd>{activeClient.commercialOwner}</dd>
-                          </div>
-                          <div>
-                            <dt>VAT treatment</dt>
-                            <dd>{resolveVatProfile(financeSettings, activeClient, null).note}</dd>
-                          </div>
-                        </dl>
+                        ) : (
+                          <p className="muted" style={{ marginTop: "0.75rem" }}>No outstanding invoices on this account.</p>
+                        )}
                       </article>
 
                       <article className="client-info-card client-vat-card">
@@ -30400,6 +40994,57 @@ export default function Dashboard() {
 
                   {activeClientTab === "sites" ? (
                     <div className="client-sites-list">
+                      <article className="client-site-card">
+                        <header>
+                          <div>
+                            <h3>Add new site</h3>
+                            <small>Create a site directly under this customer</small>
+                          </div>
+                        </header>
+                        <div className="form-body employee-page-form two-column-form">
+                          <label>
+                            Site name
+                            <input value={newClientSiteDraft.name} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, name: event.target.value }))} />
+                          </label>
+                          <label>
+                            Primary contact
+                            <input value={newClientSiteDraft.primaryContact} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, primaryContact: event.target.value }))} />
+                          </label>
+                          <label className="full-field">
+                            Address
+                            <input value={newClientSiteDraft.address} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, address: event.target.value }))} />
+                          </label>
+                          <label>
+                            Service line
+                            <input value={newClientSiteDraft.serviceLine} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, serviceLine: event.target.value }))} />
+                          </label>
+                          <label>
+                            Next visit
+                            <input value={newClientSiteDraft.nextVisit} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, nextVisit: event.target.value }))} />
+                          </label>
+                          <label className="full-field">
+                            Access notes
+                            <input value={newClientSiteDraft.accessNotes} onChange={(event) => setNewClientSiteDraft((current) => ({ ...current, accessNotes: event.target.value }))} />
+                          </label>
+                        </div>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={() => {
+                            void createSiteForClient(activeClient.id, {
+                              ...newClientSiteDraft,
+                              primaryContact: newClientSiteDraft.primaryContact || activeClient.primaryContact,
+                            })
+                              .then(() => {
+                                setNewClientSiteDraft(blankClientSiteDraft);
+                                showNotice("Site created under this customer.");
+                              })
+                              .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to create site."));
+                          }}
+                        >
+                          Add site
+                        </button>
+                      </article>
                       {activeClientSites.map((site) => (
                         <article className="client-site-card" key={site.id}>
                           <header>
@@ -30407,26 +41052,41 @@ export default function Dashboard() {
                               <h3>{site.name}</h3>
                               <small>{site.serviceLine}</small>
                             </div>
-                            <button
-                              className="secondary-button"
-                              onClick={() => {
-                                logAuditEvent({
-                                  actor: activeEmployee?.name ?? "NeXa user",
-                                  action: "reviewed",
-                                  recordType: "site",
-                                  recordId: site.id,
-                                  summary: `Site record reviewed for ${site.name}.`,
-                                  source: "web",
-                                  importance: "normal",
-                                });
-                                showNotice("Site history note added.");
-                              }}
-                            >
-                              Log site check
-                            </button>
+                            <div className="directory-card-head-actions">
+                              <span className={`status-pill ${site.archived ? "amber" : "blue"}`}>
+                                {site.archived ? "Archived" : "Live"}
+                              </span>
+                              {renderDirectoryActionMenu("site", site.id, [
+                                {
+                                  label: site.archived ? "Restore site" : "Archive site",
+                                  onClick: () => updateSiteArchive(site, !site.archived),
+                                },
+                                { label: "Delete", onClick: () => void deleteSiteFromDirectory(site), danger: true },
+                              ])}
+                            </div>
                           </header>
-                          <p>{site.address}</p>
-                          <p className="client-directory-meta">Contact: {site.primaryContact}</p>
+                          <div className="form-body employee-page-form two-column-form">
+                            <label>
+                              Site name
+                              <input value={site.name} onChange={(event) => updateClientSiteDraft(site.id, { name: event.target.value })} />
+                            </label>
+                            <label>
+                              Primary contact
+                              <input value={site.primaryContact} onChange={(event) => updateClientSiteDraft(site.id, { primaryContact: event.target.value })} />
+                            </label>
+                            <label className="full-field">
+                              Address
+                              <input value={site.address} onChange={(event) => updateClientSiteDraft(site.id, { address: event.target.value })} />
+                            </label>
+                            <label>
+                              Service line
+                              <input value={site.serviceLine} onChange={(event) => updateClientSiteDraft(site.id, { serviceLine: event.target.value })} />
+                            </label>
+                            <label>
+                              Next visit
+                              <input value={site.nextVisit} onChange={(event) => updateClientSiteDraft(site.id, { nextVisit: event.target.value })} />
+                            </label>
+                          </div>
                           <p className="client-directory-meta">VAT: {resolveVatProfile(financeSettings, activeClient, site).note}</p>
                           <div className="client-vat-controls site-vat-controls">
                             <label>
@@ -30462,8 +41122,21 @@ export default function Dashboard() {
                               />
                             </label>
                           </div>
-                          <p className="client-directory-meta">Next visit: {site.nextVisit}</p>
-                          <p className="client-directory-meta">Access: {site.accessNotes}</p>
+                          <label className="full-field">
+                            Access notes
+                            <input value={site.accessNotes} onChange={(event) => updateClientSiteDraft(site.id, { accessNotes: event.target.value })} />
+                          </label>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              void persistSiteRecordPatch(site.id, site)
+                                .then(() => showNotice(`${site.name} saved.`))
+                                .catch((error) => showNotice(error instanceof Error ? error.message : "Unable to save site."));
+                            }}
+                          >
+                            Save site
+                          </button>
                         </article>
                       ))}
                     </div>
@@ -30529,8 +41202,23 @@ export default function Dashboard() {
                     tabIndex={0}
                   >
                     <header>
-                      <h3>{employee.name}</h3>
-                      <small>{employee.role}</small>
+                      <div>
+                        <h3>{employee.name}</h3>
+                        <small>{employee.role}</small>
+                      </div>
+                      <div className="directory-card-head-actions">
+                        <span className={`status-pill ${employee.archived ? "amber" : "green"}`}>
+                          {employee.archived ? "Archived" : "Active"}
+                        </span>
+                        {renderDirectoryActionMenu("employee", employee.id, [
+                          { label: "Open employee", onClick: () => openEmployeeCardView(employee.id) },
+                          {
+                            label: employee.archived ? "Restore employee" : "Archive employee",
+                            onClick: () => void updateEmployeeArchive(employee, !employee.archived),
+                          },
+                          { label: "Delete", onClick: () => void deleteEmployeeFromDirectory(employee), danger: true },
+                        ])}
+                      </div>
                     </header>
                     <p>
                       {employee.profile?.email || "No email on file"}
@@ -30571,6 +41259,29 @@ export default function Dashboard() {
                       {" · "}
                       {employeeRoleDraft}
                     </p>
+                  </div>
+                  <div className="employee-record-actions">
+                    <span className={`status-pill ${activeEditingEmployee.archived ? "amber" : "green"}`}>
+                      {activeEditingEmployee.archived ? "Archived" : "Active"}
+                    </span>
+                    <button className="secondary-button" onClick={resetEmployeeDraft}>
+                      Discard changes
+                    </button>
+                    <button
+                      className="secondary-button"
+                      onClick={() => void updateEmployeeArchive(activeEditingEmployee, !activeEditingEmployee.archived)}
+                    >
+                      {activeEditingEmployee.archived ? "Restore employee" : "Archive employee"}
+                    </button>
+                    <button
+                      className="danger-button"
+                      onClick={() => void deleteEmployeeFromDirectory(activeEditingEmployee)}
+                    >
+                      Delete employee
+                    </button>
+                    <button className="primary-button" onClick={saveEmployeeDetails}>
+                      Save employee details
+                    </button>
                   </div>
                   <div className="employee-record-stats">
                     <div>
@@ -31250,7 +41961,7 @@ export default function Dashboard() {
                           }))
                         }
                       >
-                        {quoteCatalogFolders.map((folder) => (
+                        {catalogFolders.map((folder) => (
                           <option key={folder} value={folder}>{folder}</option>
                         ))}
                       </select>
@@ -31294,7 +42005,7 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Leads</span>
-                <h2 id="create-lead-title">Create new lead</h2>
+                <h2 id="create-lead-title">New project lead</h2>
               </div>
               <button
                 aria-label="Close create lead"
@@ -31308,10 +42019,10 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-            <div className="form-body two-column-form">
-              <div className="full-field lead-match-block">
+                                    <div className="form-body simpro-setup-layout">
+              <div className="simpro-setup-form">
                 <label>
-                  Customer name
+                  <span className="simpro-required">Customer</span>
                   <input
                     value={newLead.customerName}
                     onChange={(event) =>
@@ -31319,21 +42030,21 @@ export default function Dashboard() {
                         ...current,
                         customerMode: "new",
                         clientId: undefined,
-                        siteId: undefined,
+                        siteId: CLIENT_SITE_NEW,
                         customerName: event.target.value,
                       }))
                     }
-                    placeholder="Start typing to search existing customers..."
+                    placeholder="Type customer name — pick a match or leave as a new customer"
                   />
                 </label>
                 {newLead.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Existing customer selected: <strong>{newLead.customerName}</strong>
+                      Existing customer: <strong>{newLead.customerName}</strong>
                     </span>
                     <button type="button" onClick={clearLeadCustomerMatch}>
-                      Clear
+                      Use as new instead
                     </button>
                   </div>
                 ) : leadCustomerMatches.length > 0 ? (
@@ -31344,62 +42055,129 @@ export default function Dashboard() {
                         <span>
                           {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
                         </span>
-                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
                 ) : newLead.customerName.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. This will be saved as a new customer lead.</p>
+                  <p className="lead-match-empty">New customer — will be created with this lead.</p>
                 ) : null}
-              </div>
-              {newLead.clientId ? (
-                <label className="full-field">
-                  Existing site
-                  <select value={newLead.siteId ?? ""} onChange={(event) => setLeadExistingSite(event.target.value)}>
-                    {leadClientSites.length === 0 ? <option value="">No sites saved</option> : null}
-                    {leadClientSites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name} - {site.address}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label>
-                Source
-                <select value={newLead.source} onChange={(event) => setNewLead((current) => ({ ...current, source: event.target.value as LeadSource }))}>
-                  {leadSources.map((source) => (
-                    <option key={source}>{source}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Created by
-                <input value={newLead.createdBy} onChange={(event) => setNewLead((current) => ({ ...current, createdBy: event.target.value }))} />
-              </label>
-              <div className="full-field lead-contact-panel">
-                <div className="lead-form-section-heading">
-                  <div>
-                    <span className="permission-heading">Main contact</span>
-                    <strong>Who should we speak to first?</strong>
-                  </div>
-                </div>
-                <div className="lead-contact-grid">
+
+                {newLead.clientId ? (
                   <label>
-                    Contact name
+                    Saved site
+                    <select
+                      value={siteSelectionValueForForm(
+                        clients.find((item) => item.id === newLead.clientId),
+                        clientSites,
+                        newLead.siteId,
+                        newLead.address,
+                      )}
+                      onChange={(event) => setLeadExistingSite(event.target.value)}
+                    >
+                      {clients.find((item) => item.id === newLead.clientId)?.billingAddress?.trim() ? (
+                        <option value={CLIENT_SITE_BILLING}>
+                          Customer address — {clients.find((item) => item.id === newLead.clientId)?.billingAddress}
+                        </option>
+                      ) : null}
+                      {leadClientSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name} - {site.address}
+                        </option>
+                      ))}
+                      <option value={CLIENT_SITE_NEW}>Enter a different address below</option>
+                    </select>
+                  </label>
+                ) : null}
+
+                <div className="simpro-setup-new-site">
+                  <label>
+                    Site name
                     <input
-                      value={newLead.mainContact?.name ?? ""}
-                      onChange={(event) => updateLeadMainContact({ name: event.target.value })}
-                      placeholder="Name of the main contact"
+                      value={newLead.siteName ?? ""}
+                      onChange={(event) => setNewLead((current) => ({ ...current, siteName: event.target.value }))}
+                      placeholder="Site / property name"
                     />
                   </label>
                   <label>
-                    Role
+                    <span className="simpro-required">Postcode</span>
                     <input
-                      value={newLead.mainContact?.role ?? "Main contact"}
-                      onChange={(event) => updateLeadMainContact({ role: event.target.value })}
-                      placeholder="Main contractor, tenant, site manager..."
+                      value={leadPostcodeSearch}
+                      onChange={(event) => setLeadPostcodeSearch(event.target.value)}
+                      placeholder="Type postcode to list addresses"
                     />
+                  </label>
+                  {leadAddressLookupBusy ? <p className="lead-match-empty">Looking up addresses…</p> : null}
+                  {leadAddressMatches.length > 0 ? (
+                    <div className="lead-address-results" aria-label="Address matches">
+                      {leadAddressMatches.map((match) => (
+                        <button type="button" key={match.address} onClick={() => selectLeadAddress(match.address, match.postcode)}>
+                          {match.address}
+                        </button>
+                      ))}
+                    </div>
+                  ) : leadPostcodeSearch.trim().length >= 2 && !leadAddressLookupBusy ? (
+                    <p className="lead-match-empty">
+                      {/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(leadPostcodeSearch.trim())
+                        ? "No street list for this postcode — type the house number and street below."
+                        : "Enter the full postcode to list addresses, or type the address below."}
+                    </p>
+                  ) : null}
+                  <div className="simpro-setup-grid-2">
+                    <label>
+                      Address
+                      <input value={newLead.addressParts?.line1 ?? ""} onChange={(event) => updateLeadAddressParts({ line1: event.target.value })} />
+                    </label>
+                    <label>
+                      Address 2
+                      <input value={newLead.addressParts?.line2 ?? ""} onChange={(event) => updateLeadAddressParts({ line2: event.target.value })} />
+                    </label>
+                    <label>
+                      Town / Suburb
+                      <input value={newLead.addressParts?.town ?? ""} onChange={(event) => updateLeadAddressParts({ town: event.target.value })} />
+                    </label>
+                    <label>
+                      County
+                      <input value={newLead.addressParts?.county ?? ""} onChange={(event) => updateLeadAddressParts({ county: event.target.value })} />
+                    </label>
+                    <label>
+                      Postal code
+                      <input value={newLead.addressParts?.postcode ?? ""} onChange={(event) => updateLeadAddressParts({ postcode: event.target.value })} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="simpro-setup-grid-2">
+                  <label>
+                    Primary customer contact
+                    <input value={newLead.mainContact?.name ?? ""} onChange={(event) => updateLeadMainContact({ name: event.target.value })} />
+                  </label>
+                  <label>
+                    Site contact
+                    <input value={newLead.siteContact ?? ""} onChange={(event) => setNewLead((current) => ({ ...current, siteContact: event.target.value }))} />
+                  </label>
+                  <label>
+                    Title
+                    <input value={newLead.description} onChange={(event) => setNewLead((current) => ({ ...current, description: event.target.value }))} placeholder="Lead title" />
+                  </label>
+                  <label>
+                    Salesman
+                    <input value={newLead.createdBy} onChange={(event) => setNewLead((current) => ({ ...current, createdBy: event.target.value }))} />
+                  </label>
+                  <label>
+                    Source
+                    <select value={newLead.source} onChange={(event) => setNewLead((current) => ({ ...current, source: event.target.value as LeadSource }))}>
+                      {leadSources.map((source) => (
+                        <option key={source}>{source}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Status
+                    <select value={newLead.status} onChange={(event) => setNewLead((current) => ({ ...current, status: event.target.value as LeadStatus }))}>
+                      {leadStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     Phone
@@ -31410,195 +42188,115 @@ export default function Dashboard() {
                     <input value={newLead.email} onChange={(event) => updateLeadMainContact({ email: event.target.value })} />
                   </label>
                 </div>
-              </div>
-              <div className="full-field lead-contact-panel">
-                <div className="lead-form-section-heading">
-                  <div>
-                    <span className="permission-heading">Additional contacts</span>
-                    <strong>Main contractor, site contacts or tenant contacts</strong>
+
+                <div className="simpro-setup-rates" aria-label="Rates and options">
+                  <div className="simpro-setup-rates-head">
+                    <h4>Rates &amp; options</h4>
+                    <span>Defaults from system settings — change for this record if needed</span>
                   </div>
-                  <button className="secondary-button" type="button" onClick={addLeadAdditionalContact}>
-                    <Plus size={14} />
-                    Add contact
-                  </button>
+                  <div className="simpro-setup-rates-grid">
+                    <label>
+                      Lead type
+                      <select
+                        value={(newLead.setup ?? blankRecordSetupOptions).quoteType}
+                        onChange={(event) => patchLeadSetup({ quoteType: event.target.value as RecordSetupOptions["quoteType"] })}
+                      >
+                        <option value="Project">Project</option>
+                        <option value="Service">Service</option>
+                        <option value="Recurring">Recurring</option>
+                      </select>
+                    </label>
+                    <label>
+                      Stage
+                      <select value={(newLead.setup ?? blankRecordSetupOptions).stage} onChange={(event) => patchLeadSetup({ stage: event.target.value })}>
+                        <option>Lead</option>
+                        <option>Quote</option>
+                        <option>Initial contact/enquiry</option>
+                      </select>
+                    </label>
+                    <label>
+                      Primary tech
+                      <select value={(newLead.setup ?? blankRecordSetupOptions).primaryTech} onChange={(event) => patchLeadSetup({ primaryTech: event.target.value })}>
+                        <option value="">Select…</option>
+                        {surveyorOptions.map((name) => (
+                          <option key={name}>{name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Labour estimates
+                      <div className="simpro-setup-toggle" role="group" aria-label="Labour estimates">
+                        <button type="button" className={(newLead.setup ?? blankRecordSetupOptions).labourEstimatesOn ? "" : "active"} onClick={() => patchLeadSetup({ labourEstimatesOn: false })}>Off</button>
+                        <button type="button" className={(newLead.setup ?? blankRecordSetupOptions).labourEstimatesOn ? "active" : ""} onClick={() => patchLeadSetup({ labourEstimatesOn: true })}>On</button>
+                      </div>
+                    </label>
+                    <label>
+                      Labour markup
+                      <select
+                        value={(newLead.setup ?? blankRecordSetupOptions).labourMarkupMode}
+                        onChange={(event) => patchLeadSetup({ labourMarkupMode: event.target.value as RecordSetupOptions["labourMarkupMode"] })}
+                      >
+                        <option value="system">Based on System Settings</option>
+                        <option value="custom">Custom %</option>
+                      </select>
+                    </label>
+                    <label>
+                      Labour markup %
+                      <input type="number" min="0" step="0.1" value={(newLead.setup ?? blankRecordSetupOptions).labourMarkupPercent} disabled={(newLead.setup ?? blankRecordSetupOptions).labourMarkupMode === "system"} onChange={(event) => patchLeadSetup({ labourMarkupPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Labour fit time
+                      <select value={(newLead.setup ?? blankRecordSetupOptions).labourFitTime} onChange={(event) => patchLeadSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}>
+                        <option value="Minutes (0.1)">Minutes (0.1)</option>
+                        <option value="Hours">Hours</option>
+                      </select>
+                    </label>
+                    <label>
+                      Labour tax code
+                      <select value={(newLead.setup ?? blankRecordSetupOptions).labourTaxCode} onChange={(event) => patchLeadSetup({ labourTaxCode: event.target.value })}>
+                        {vatTreatmentOptions.map((code) => (
+                          <option key={code}>{code}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Default material markup %
+                      <input type="number" min="0" step="0.1" value={(newLead.setup ?? blankRecordSetupOptions).materialMarkupPercent} onChange={(event) => patchLeadSetup({ materialMarkupPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Discount %
+                      <input type="number" min="0" step="0.1" value={(newLead.setup ?? blankRecordSetupOptions).discountPercent} onChange={(event) => patchLeadSetup({ discountPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Item tax code
+                      <select value={(newLead.setup ?? blankRecordSetupOptions).itemTaxCode} onChange={(event) => patchLeadSetup({ itemTaxCode: event.target.value })}>
+                        {vatTreatmentOptions.map((code) => (
+                          <option key={code}>{code}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
-                {(newLead.additionalContacts ?? []).length ? (
-                  <div className="lead-additional-contact-list">
-                    {(newLead.additionalContacts ?? []).map((contact) => (
-                      <article className="lead-additional-contact-row" key={contact.id}>
-                        <input
-                          value={contact.name}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { name: event.target.value })}
-                          placeholder="Contact name"
-                        />
-                        <input
-                          value={contact.role}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { role: event.target.value })}
-                          placeholder="Role"
-                        />
-                        <input
-                          value={contact.phone}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { phone: event.target.value })}
-                          placeholder="Phone"
-                        />
-                        <input
-                          value={contact.email}
-                          onChange={(event) => updateLeadAdditionalContact(contact.id, { email: event.target.value })}
-                          placeholder="Email"
-                        />
-                        <button className="simpro-options-button" type="button" onClick={() => removeLeadAdditionalContact(contact.id)}>
-                          Remove
-                        </button>
-                      </article>
-                    ))}
-                  </div>
+
+              </div>
+              <aside className="simpro-setup-map" aria-label="Site map">
+                {newLead.address ? (
+                  <>
+                    <iframe title="Lead map preview" src={leadMapEmbedUrl(newLead.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                    <a href={leadMapSearchUrl(newLead.address)} target="_blank" rel="noreferrer" className="lead-map-link">Open in maps</a>
+                  </>
                 ) : (
-                  <p className="lead-match-empty">Add extra contacts only when this lead has a contractor, tenant, site manager or multiple site contacts.</p>
-                )}
-              </div>
-              <label>
-                Status
-                <select value={newLead.status} onChange={(event) => setNewLead((current) => ({ ...current, status: event.target.value as LeadStatus }))}>
-                  {leadStatuses.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="full-field lead-address-lookup">
-                <label>
-                  Postcode lookup
-                  <input value={leadPostcodeSearch} onChange={(event) => setLeadPostcodeSearch(event.target.value)} placeholder="Type postcode, e.g. AB15 4EQ" />
-                </label>
-                {leadAddressMatches.length > 0 ? (
-                  <div className="lead-address-results" aria-label="Address matches">
-                    {leadAddressMatches.map((match) => (
-                      <button type="button" key={match.address} onClick={() => selectLeadAddress(match.address, match.postcode)}>
-                        {match.address}
-                      </button>
-                    ))}
+                  <div className="simpro-create-map-empty">
+                    <MapPin size={22} />
+                    <strong>Site map</strong>
+                    <span>Pick a postcode address to place the site</span>
                   </div>
-                ) : leadPostcodeSearch.trim().length >= 3 ? (
-                  <p className="lead-match-empty">No address match in the demo lookup. Type the address manually below.</p>
-                ) : null}
-              </div>
-              <div className="full-field lead-address-map-grid">
-                <div className="lead-address-fields">
-                  <label>
-                    Address line 1
-                    <input
-                      value={newLead.addressParts?.line1 ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ line1: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Address line 2
-                    <input
-                      value={newLead.addressParts?.line2 ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ line2: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Town / city
-                    <input
-                      value={newLead.addressParts?.town ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ town: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    County
-                    <input
-                      value={newLead.addressParts?.county ?? ""}
-                      onChange={(event) => updateLeadAddressParts({ county: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Postcode
-                    <input
-                      value={newLead.addressParts?.postcode ?? ""}
-                      onChange={(event) => {
-                        updateLeadAddressParts({ postcode: event.target.value.toUpperCase() });
-                        setLeadPostcodeSearch(event.target.value.toUpperCase());
-                      }}
-                    />
-                  </label>
-                </div>
-                <div className="lead-map-preview" aria-label="Selected address map preview">
-                  {newLead.address ? (
-                    <>
-                      <iframe
-                        title="Lead map preview"
-                        src={leadMapEmbedUrl(newLead.address)}
-                        loading="lazy"
-                        referrerPolicy="no-referrer-when-downgrade"
-                        allowFullScreen
-                      />
-                      <a
-                        href={leadMapSearchUrl(newLead.address)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="lead-map-link"
-                      >
-                        Open in maps
-                      </a>
-                    </>
-                  ) : (
-                    <>
-                      <MapPin size={22} />
-                      <strong>Select an address</strong>
-                      <span>Postcode lookup will place the lead here</span>
-                    </>
-                  )}
-                </div>
-              </div>
-              <label className="full-field">
-                Description of work
-                <textarea value={newLead.description} onChange={(event) => setNewLead((current) => ({ ...current, description: event.target.value }))} />
-              </label>
-              <label>
-                Survey date
-                <input type="date" value={newLead.surveyDate} onChange={(event) => setNewLead((current) => ({ ...current, surveyDate: event.target.value }))} />
-              </label>
-              <label>
-                Survey time
-                <input type="time" value={newLead.surveyTime} onChange={(event) => setNewLead((current) => ({ ...current, surveyTime: event.target.value }))} />
-              </label>
-              <label className="full-field">
-                Assign surveyor
-                <select value={newLead.surveyor} onChange={(event) => setNewLead((current) => ({ ...current, surveyor: event.target.value }))}>
-                  {surveyorOptions.map((surveyor) => (
-                    <option key={surveyor}>{surveyor}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="full-field lead-availability-panel">
-                <span className="permission-heading">Availability on {newLead.surveyDate || "selected date"}</span>
-                <div>
-                  {surveyorOptions.map((surveyor) => {
-                    const availability = availabilityForDate(surveyor, newLead.surveyDate);
-                    const bookedCount = leadSurveyBookings.filter((booking) => booking.surveyor === surveyor && booking.date === newLead.surveyDate).length;
-                    return (
-                      <button
-                        type="button"
-                        key={surveyor}
-                        className={newLead.surveyor === surveyor ? "active" : ""}
-                        onClick={() => setNewLead((current) => ({ ...current, surveyor }))}
-                      >
-                        <strong>{surveyor}</strong>
-                        <span>{availabilityLabel(surveyor, newLead.surveyDate)}</span>
-                        <small>{bookedCount} booked</small>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              {newLeadScheduleWarning ? (
-                <div className="full-field lead-clash-alert">
-                  <AlertTriangle size={16} />
-                  <span>{newLeadScheduleWarning}</span>
-                </div>
-              ) : null}
+                )}
+              </aside>
             </div>
-            <div className="form-footer">
+
+
+            <div className="form-footer simpro-create-footer">
               {leadFormError ? (
                 <p className="lead-form-error" role="alert">
                   {leadFormError}
@@ -31616,8 +42314,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" type="button" onClick={submitLead}>
-                <Bell size={16} />
-                Save lead and notify
+                Save lead
               </button>
             </div>
           </section>
@@ -31635,7 +42332,7 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Quotes</span>
-                <h2 id="create-quote-title">Create new quote</h2>
+                <h2 id="create-quote-title">New project quote</h2>
               </div>
               <button
                 aria-label="Close create quote"
@@ -31647,31 +42344,31 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-            <div className="form-body two-column-form">
-              <div className="full-field lead-match-block">
+                                    <div className="form-body simpro-setup-layout">
+              <div className="simpro-setup-form">
                 <label>
-                  Customer
+                  <span className="simpro-required">Customer</span>
                   <input
                     value={newQuote.customer}
                     onChange={(event) =>
                       setNewQuote((current) => ({
                         ...current,
                         clientId: "",
-                        siteId: "",
+                        siteId: CLIENT_SITE_NEW,
                         customer: event.target.value,
                       }))
                     }
-                    placeholder="Start typing to search existing customers..."
+                    placeholder="Type customer name — pick a match or leave as a new customer"
                   />
                 </label>
                 {newQuote.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Existing customer selected: <strong>{newQuote.customer}</strong>
+                      Existing customer: <strong>{newQuote.customer}</strong>
                     </span>
                     <button type="button" onClick={clearQuoteCustomerMatch}>
-                      Clear
+                      Use as new instead
                     </button>
                   </div>
                 ) : quoteCustomerMatches.length > 0 ? (
@@ -31682,17 +42379,138 @@ export default function Dashboard() {
                         <span>
                           {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
                         </span>
-                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
                 ) : newQuote.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. This quote can save a new customer record.</p>
+                  <p className="lead-match-empty">New customer — will be created with this quote.</p>
                 ) : null}
-              </div>
-              {!newQuote.clientId && newQuote.customer.trim().length >= 2 ? (
-                <div className="full-field quick-customer-fields">
-                  <span className="permission-heading">New customer details</span>
+
+                {newQuote.clientId ? (
+                  <label>
+                    Saved site
+                    <select
+                      value={siteSelectionValueForForm(
+                        clients.find((item) => item.id === newQuote.clientId),
+                        clientSites,
+                        newQuote.siteId,
+                        newQuote.address,
+                      )}
+                      onChange={(event) => setQuoteExistingSite(event.target.value)}
+                    >
+                      {clients.find((item) => item.id === newQuote.clientId)?.billingAddress?.trim() ? (
+                        <option value={CLIENT_SITE_BILLING}>
+                          Customer address — {clients.find((item) => item.id === newQuote.clientId)?.billingAddress}
+                        </option>
+                      ) : null}
+                      {quoteClientSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name} - {site.address}
+                        </option>
+                      ))}
+                      <option value={CLIENT_SITE_NEW}>Enter a different address below</option>
+                    </select>
+                  </label>
+                ) : null}
+
+                <div className="simpro-setup-new-site">
+                  <label>
+                    Site name
+                    <input
+                      value={newQuote.siteName}
+                      onChange={(event) => setNewQuote((current) => ({ ...current, siteName: event.target.value }))}
+                      placeholder="Site / property name"
+                    />
+                  </label>
+                  <label>
+                    <span className="simpro-required">Postcode</span>
+                    <input
+                      value={quotePostcodeSearch}
+                      onChange={(event) => setQuotePostcodeSearch(event.target.value)}
+                      placeholder="Type postcode to list addresses"
+                    />
+                  </label>
+                  {quoteAddressLookupBusy ? <p className="lead-match-empty">Looking up addresses…</p> : null}
+                  {quoteAddressMatches.length > 0 ? (
+                    <div className="lead-address-results" aria-label="Quote address matches">
+                      {quoteAddressMatches.map((match) => (
+                        <button type="button" key={match.address} onClick={() => selectQuoteAddress(match.address, match.postcode)}>
+                          {match.address}
+                        </button>
+                      ))}
+                    </div>
+                  ) : quotePostcodeSearch.trim().length >= 2 && !quoteAddressLookupBusy ? (
+                    <p className="lead-match-empty">
+                      {/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(quotePostcodeSearch.trim())
+                        ? "No street list for this postcode — type the house number and street below."
+                        : "Enter the full postcode to list addresses, or type the address below."}
+                    </p>
+                  ) : null}
+                  <div className="simpro-setup-grid-2">
+                    <label>
+                      Address
+                      <input value={newQuote.addressParts?.line1 ?? ""} onChange={(event) => updateQuoteAddressParts({ line1: event.target.value })} />
+                    </label>
+                    <label>
+                      Address 2
+                      <input value={newQuote.addressParts?.line2 ?? ""} onChange={(event) => updateQuoteAddressParts({ line2: event.target.value })} />
+                    </label>
+                    <label>
+                      Town / Suburb
+                      <input value={newQuote.addressParts?.town ?? ""} onChange={(event) => updateQuoteAddressParts({ town: event.target.value })} />
+                    </label>
+                    <label>
+                      County
+                      <input value={newQuote.addressParts?.county ?? ""} onChange={(event) => updateQuoteAddressParts({ county: event.target.value })} />
+                    </label>
+                    <label>
+                      Postal code
+                      <input value={newQuote.addressParts?.postcode ?? ""} onChange={(event) => updateQuoteAddressParts({ postcode: event.target.value })} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="simpro-setup-grid-2">
+                  <label>
+                    Primary customer contact
+                    <input value={newQuote.contactName} onChange={(event) => setNewQuote((current) => ({ ...current, contactName: event.target.value }))} />
+                  </label>
+                  <label>
+                    Additional customer contact
+                    <input value={newQuote.setup.additionalContactName} onChange={(event) => patchQuoteSetup({ additionalContactName: event.target.value })} />
+                  </label>
+                  <label>
+                    Site contact
+                    <input value={newQuote.setup.siteContact} onChange={(event) => patchQuoteSetup({ siteContact: event.target.value })} />
+                  </label>
+                  <label>
+                    Title
+                    <input value={newQuote.description} onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))} placeholder="Quote title" />
+                  </label>
+                  <label>
+                    Tags
+                    <input value={newQuote.setup.tags} onChange={(event) => patchQuoteSetup({ tags: event.target.value })} placeholder="Optional tags" />
+                  </label>
+                  <label>
+                    Salesman
+                    <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
+                      <option>Errol Watson</option>
+                      <option>Brian Kerr</option>
+                      <option>Chris Lawson</option>
+                    </select>
+                  </label>
+                  <label>
+                    Due date
+                    <input value={newQuote.due} onChange={(event) => setNewQuote((current) => ({ ...current, due: event.target.value }))} />
+                  </label>
+                  <label>
+                    Status
+                    <select value={newQuote.status} onChange={(event) => setNewQuote((current) => ({ ...current, status: event.target.value as QuoteStatus }))}>
+                      {quoteStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
                   <label>
                     Phone
                     <input value={newQuote.phone} onChange={(event) => setNewQuote((current) => ({ ...current, phone: event.target.value }))} />
@@ -31701,62 +42519,116 @@ export default function Dashboard() {
                     Email
                     <input value={newQuote.email} onChange={(event) => setNewQuote((current) => ({ ...current, email: event.target.value }))} />
                   </label>
-                  <label className="full-field">
-                    Site address
-                    <input value={newQuote.address} onChange={(event) => setNewQuote((current) => ({ ...current, address: event.target.value }))} />
-                  </label>
                 </div>
-              ) : null}
-              {newQuote.clientId ? (
-                <label className="full-field">
-                  Site
-                  <select value={newQuote.siteId} onChange={(event) => setQuoteExistingSite(event.target.value)}>
-                    {quoteClientSites.length === 0 ? <option value="">No sites saved</option> : null}
-                    {quoteClientSites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name} - {site.address}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label>
-                Owner
-                <select value={newQuote.owner} onChange={(event) => setNewQuote((current) => ({ ...current, owner: event.target.value }))}>
-                  <option>Errol Watson</option>
-                  <option>Brian Kerr</option>
-                  <option>Chris Lawson</option>
-                </select>
-              </label>
-              <label className="full-field">
-                Description
-                <input value={newQuote.description} onChange={(event) => setNewQuote((current) => ({ ...current, description: event.target.value }))} />
-              </label>
-              <label>
-                Status
-                <select value={newQuote.status} onChange={(event) => setNewQuote((current) => ({ ...current, status: event.target.value as QuoteStatus }))}>
-                  {quoteStatuses.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Quote value
-                <div className="money-input">
-                  <span>£</span>
-                  <input value={newQuote.value} onChange={(event) => setNewQuote((current) => ({ ...current, value: event.target.value }))} />
+
+                <div className="simpro-setup-rates" aria-label="Rates and options">
+                  <div className="simpro-setup-rates-head">
+                    <h4>Rates &amp; options</h4>
+                    <span>Defaults from system settings — change for this record if needed</span>
+                  </div>
+                  <div className="simpro-setup-rates-grid">
+                    <label>
+                      Quote type
+                      <select
+                        value={newQuote.setup.quoteType}
+                        onChange={(event) => patchQuoteSetup({ quoteType: event.target.value as RecordSetupOptions["quoteType"] })}
+                      >
+                        <option value="Project">Project</option>
+                        <option value="Service">Service</option>
+                        <option value="Recurring">Recurring</option>
+                      </select>
+                    </label>
+                    <label>
+                      Stage
+                      <select value={newQuote.setup.stage} onChange={(event) => patchQuoteSetup({ stage: event.target.value })}>
+                        <option>Quote</option>
+                        <option>Pending</option>
+                        <option>Approved</option>
+                      </select>
+                    </label>
+                    <label>
+                      Primary tech
+                      <select value={newQuote.setup.primaryTech} onChange={(event) => patchQuoteSetup({ primaryTech: event.target.value })}>
+                        <option value="">Select…</option>
+                        {surveyorOptions.map((name) => (
+                          <option key={name}>{name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Labour estimates
+                      <div className="simpro-setup-toggle" role="group" aria-label="Labour estimates">
+                        <button type="button" className={newQuote.setup.labourEstimatesOn ? "" : "active"} onClick={() => patchQuoteSetup({ labourEstimatesOn: false })}>Off</button>
+                        <button type="button" className={newQuote.setup.labourEstimatesOn ? "active" : ""} onClick={() => patchQuoteSetup({ labourEstimatesOn: true })}>On</button>
+                      </div>
+                    </label>
+                    <label>
+                      Labour markup
+                      <select
+                        value={newQuote.setup.labourMarkupMode}
+                        onChange={(event) => patchQuoteSetup({ labourMarkupMode: event.target.value as RecordSetupOptions["labourMarkupMode"] })}
+                      >
+                        <option value="system">Based on System Settings</option>
+                        <option value="custom">Custom %</option>
+                      </select>
+                    </label>
+                    <label>
+                      Labour markup %
+                      <input type="number" min="0" step="0.1" value={newQuote.setup.labourMarkupPercent} disabled={newQuote.setup.labourMarkupMode === "system"} onChange={(event) => patchQuoteSetup({ labourMarkupPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Labour fit time
+                      <select value={newQuote.setup.labourFitTime} onChange={(event) => patchQuoteSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}>
+                        <option value="Minutes (0.1)">Minutes (0.1)</option>
+                        <option value="Hours">Hours</option>
+                      </select>
+                    </label>
+                    <label>
+                      Labour tax code
+                      <select value={newQuote.setup.labourTaxCode} onChange={(event) => patchQuoteSetup({ labourTaxCode: event.target.value })}>
+                        {vatTreatmentOptions.map((code) => (
+                          <option key={code}>{code}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Default material markup %
+                      <input type="number" min="0" step="0.1" value={newQuote.setup.materialMarkupPercent} onChange={(event) => patchQuoteSetup({ materialMarkupPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Discount %
+                      <input type="number" min="0" step="0.1" value={newQuote.setup.discountPercent} onChange={(event) => patchQuoteSetup({ discountPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Item tax code
+                      <select value={newQuote.setup.itemTaxCode} onChange={(event) => patchQuoteSetup({ itemTaxCode: event.target.value })}>
+                        {vatTreatmentOptions.map((code) => (
+                          <option key={code}>{code}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
-              </label>
-              <label>
-                Due
-                <input value={newQuote.due} onChange={(event) => setNewQuote((current) => ({ ...current, due: event.target.value }))} />
-              </label>
-              <label className="full-field">
-                Next action
-                <input value={newQuote.next} onChange={(event) => setNewQuote((current) => ({ ...current, next: event.target.value }))} />
-              </label>
+
+              </div>
+              <aside className="simpro-setup-map" aria-label="Site map">
+                {newQuote.address ? (
+                  <>
+                    <iframe title="Quote map preview" src={leadMapEmbedUrl(newQuote.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                    <a href={leadMapSearchUrl(newQuote.address)} target="_blank" rel="noreferrer" className="lead-map-link">Open in maps</a>
+                  </>
+                ) : (
+                  <div className="simpro-create-map-empty">
+                    <MapPin size={22} />
+                    <strong>Site map</strong>
+                    <span>Pick a postcode address to place the site</span>
+                  </div>
+                )}
+              </aside>
             </div>
-            <div className="form-footer">
+
+
+            <div className="form-footer simpro-create-footer">
               <button
                 className="secondary-button"
                 onClick={() => {
@@ -31767,8 +42639,7 @@ export default function Dashboard() {
                 Cancel
               </button>
               <button className="primary-button" onClick={submitQuote}>
-                <Plus size={16} />
-                Create quote
+                Save quote
               </button>
             </div>
           </section>
@@ -31786,7 +42657,7 @@ export default function Dashboard() {
             <div className="form-header">
               <div>
                 <span>Jobs</span>
-                <h2 id="create-job-title">Create new job</h2>
+                <h2 id="create-job-title">New project job</h2>
               </div>
               <button
                 aria-label="Close create job"
@@ -31798,32 +42669,32 @@ export default function Dashboard() {
                 <ChevronRight size={19} />
               </button>
             </div>
-            <div className="form-body two-column-form">
-              <div className="full-field lead-match-block">
+                                    <div className="form-body simpro-setup-layout">
+              <div className="simpro-setup-form">
                 <label>
-                  Customer
+                  <span className="simpro-required">Customer</span>
                   <input
                     value={newJob.customer}
                     onChange={(event) =>
                       setNewJob((current) => ({
                         ...current,
                         clientId: "",
-                        siteId: "",
+                        siteId: CLIENT_SITE_NEW,
                         site: "",
                         customer: event.target.value,
                       }))
                     }
-                    placeholder="Start typing to search existing customers..."
+                    placeholder="Type customer name — pick a match or leave as a new customer"
                   />
                 </label>
                 {newJob.clientId ? (
                   <div className="lead-match-selected">
                     <Check size={15} />
                     <span>
-                      Existing customer selected: <strong>{newJob.customer}</strong>
+                      Existing customer: <strong>{newJob.customer}</strong>
                     </span>
                     <button type="button" onClick={clearJobCustomerMatch}>
-                      Clear
+                      Use as new instead
                     </button>
                   </div>
                 ) : jobCustomerMatches.length > 0 ? (
@@ -31834,17 +42705,138 @@ export default function Dashboard() {
                         <span>
                           {match.client.primaryContact} · {match.client.phone} · {match.client.billingAddress}
                         </span>
-                        <small>{match.matchReason || "matched by customer details"}</small>
                       </button>
                     ))}
                   </div>
                 ) : newJob.customer.trim().length >= 2 ? (
-                  <p className="lead-match-empty">No existing customer found. This job can save a new customer record.</p>
+                  <p className="lead-match-empty">New customer — will be created with this job.</p>
                 ) : null}
-              </div>
-              {!newJob.clientId && newJob.customer.trim().length >= 2 ? (
-                <div className="full-field quick-customer-fields">
-                  <span className="permission-heading">New customer details</span>
+
+                {newJob.clientId ? (
+                  <label>
+                    Saved site
+                    <select
+                      value={siteSelectionValueForForm(
+                        clients.find((item) => item.id === newJob.clientId),
+                        clientSites,
+                        newJob.siteId,
+                        newJob.address,
+                      )}
+                      onChange={(event) => setJobExistingSite(event.target.value)}
+                    >
+                      {clients.find((item) => item.id === newJob.clientId)?.billingAddress?.trim() ? (
+                        <option value={CLIENT_SITE_BILLING}>
+                          Customer address — {clients.find((item) => item.id === newJob.clientId)?.billingAddress}
+                        </option>
+                      ) : null}
+                      {jobClientSites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name} - {site.address}
+                        </option>
+                      ))}
+                      <option value={CLIENT_SITE_NEW}>Enter a different address below</option>
+                    </select>
+                  </label>
+                ) : null}
+
+                <div className="simpro-setup-new-site">
+                  <label>
+                    Site name
+                    <input
+                      value={newJob.siteName}
+                      onChange={(event) => setNewJob((current) => ({ ...current, siteName: event.target.value }))}
+                      placeholder="Site / property name"
+                    />
+                  </label>
+                  <label>
+                    <span className="simpro-required">Postcode</span>
+                    <input
+                      value={jobPostcodeSearch}
+                      onChange={(event) => setJobPostcodeSearch(event.target.value)}
+                      placeholder="Type postcode to list addresses"
+                    />
+                  </label>
+                  {jobAddressLookupBusy ? <p className="lead-match-empty">Looking up addresses…</p> : null}
+                  {jobAddressMatches.length > 0 ? (
+                    <div className="lead-address-results" aria-label="Job address matches">
+                      {jobAddressMatches.map((match) => (
+                        <button type="button" key={match.address} onClick={() => selectJobAddress(match.address, match.postcode)}>
+                          {match.address}
+                        </button>
+                      ))}
+                    </div>
+                  ) : jobPostcodeSearch.trim().length >= 2 && !jobAddressLookupBusy ? (
+                    <p className="lead-match-empty">
+                      {/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/i.test(jobPostcodeSearch.trim())
+                        ? "No street list for this postcode — type the house number and street below."
+                        : "Enter the full postcode to list addresses, or type the address below."}
+                    </p>
+                  ) : null}
+                  <div className="simpro-setup-grid-2">
+                    <label>
+                      Address
+                      <input value={newJob.addressParts?.line1 ?? ""} onChange={(event) => updateJobAddressParts({ line1: event.target.value })} />
+                    </label>
+                    <label>
+                      Address 2
+                      <input value={newJob.addressParts?.line2 ?? ""} onChange={(event) => updateJobAddressParts({ line2: event.target.value })} />
+                    </label>
+                    <label>
+                      Town / Suburb
+                      <input value={newJob.addressParts?.town ?? ""} onChange={(event) => updateJobAddressParts({ town: event.target.value })} />
+                    </label>
+                    <label>
+                      County
+                      <input value={newJob.addressParts?.county ?? ""} onChange={(event) => updateJobAddressParts({ county: event.target.value })} />
+                    </label>
+                    <label>
+                      Postal code
+                      <input value={newJob.addressParts?.postcode ?? ""} onChange={(event) => updateJobAddressParts({ postcode: event.target.value })} />
+                    </label>
+                  </div>
+                </div>
+
+                <div className="simpro-setup-grid-2">
+                  <label>
+                    Primary customer contact
+                    <input value={newJob.contactName} onChange={(event) => setNewJob((current) => ({ ...current, contactName: event.target.value }))} />
+                  </label>
+                  <label>
+                    Additional customer contact
+                    <input value={newJob.setup.additionalContactName} onChange={(event) => patchJobSetup({ additionalContactName: event.target.value })} />
+                  </label>
+                  <label>
+                    Site contact
+                    <input value={newJob.setup.siteContact} onChange={(event) => patchJobSetup({ siteContact: event.target.value })} />
+                  </label>
+                  <label>
+                    Title
+                    <input value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} placeholder="Job title" />
+                  </label>
+                  <label>
+                    Tags
+                    <input value={newJob.setup.tags} onChange={(event) => patchJobSetup({ tags: event.target.value })} placeholder="Optional tags" />
+                  </label>
+                  <label>
+                    Project manager
+                    <select value={newJob.manager} onChange={(event) => setNewJob((current) => ({ ...current, manager: event.target.value }))}>
+                      {surveyorOptions.map((manager) => (
+                        <option key={manager}>{manager}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Due date
+                    <input value={newJob.due} onChange={(event) => setNewJob((current) => ({ ...current, due: event.target.value }))} />
+                  </label>
+                  <label>
+                    Status
+                    <select value={newJob.status} onChange={(event) => setNewJob((current) => ({ ...current, status: event.target.value }))}>
+                      {jobStatuses.map((status) => (
+                        <option key={status}>{status}</option>
+                      ))}
+                    </select>
+                  </label>
                   <label>
                     Phone
                     <input value={newJob.phone} onChange={(event) => setNewJob((current) => ({ ...current, phone: event.target.value }))} />
@@ -31853,83 +42845,121 @@ export default function Dashboard() {
                     Email
                     <input value={newJob.email} onChange={(event) => setNewJob((current) => ({ ...current, email: event.target.value }))} />
                   </label>
-                  <label className="full-field">
-                    Site address
-                    <input value={newJob.address} onChange={(event) => setNewJob((current) => ({ ...current, address: event.target.value }))} />
-                  </label>
                 </div>
-              ) : null}
-              {newJob.clientId ? (
-                <label className="full-field">
-                  Site
-                  <select value={newJob.siteId} onChange={(event) => setJobExistingSite(event.target.value)}>
-                    {jobClientSites.length === 0 ? <option value="">No sites saved</option> : null}
-                    {jobClientSites.map((site) => (
-                      <option key={site.id} value={site.id}>
-                        {site.name} - {site.address}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label className="full-field">
-                Description
-                <input value={newJob.description} onChange={(event) => setNewJob((current) => ({ ...current, description: event.target.value }))} />
-              </label>
-              <label>
-                Manager
-                <select value={newJob.manager} onChange={(event) => setNewJob((current) => ({ ...current, manager: event.target.value }))}>
-                  {surveyorOptions.map((manager) => (
-                    <option key={manager}>{manager}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Status
-                <select value={newJob.status} onChange={(event) => setNewJob((current) => ({ ...current, status: event.target.value }))}>
-                  {jobStatuses.map((status) => (
-                    <option key={status}>{status}</option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Scheduled date
-                <input
-                  type="date"
-                  value={newJob.scheduledDate}
-                  onChange={(event) => setNewJob((current) => ({ ...current, scheduledDate: event.target.value }))}
-                />
-              </label>
-              <label>
-                Scheduled time
-                <input
-                  type="time"
-                  value={newJob.scheduledTime}
-                  onChange={(event) => setNewJob((current) => ({ ...current, scheduledTime: event.target.value }))}
-                />
-              </label>
-              <label>
-                Job value
-                <div className="money-input">
-                  <span>£</span>
-                  <input value={newJob.value} onChange={(event) => setNewJob((current) => ({ ...current, value: event.target.value }))} />
+
+                <div className="simpro-setup-rates" aria-label="Rates and options">
+                  <div className="simpro-setup-rates-head">
+                    <h4>Rates &amp; options</h4>
+                    <span>Defaults from system settings — change for this record if needed</span>
+                  </div>
+                  <div className="simpro-setup-rates-grid">
+                    <label>
+                      Job type
+                      <select
+                        value={newJob.setup.quoteType}
+                        onChange={(event) => patchJobSetup({ quoteType: event.target.value as RecordSetupOptions["quoteType"] })}
+                      >
+                        <option value="Project">Project</option>
+                        <option value="Service">Service</option>
+                        <option value="Recurring">Recurring</option>
+                      </select>
+                    </label>
+                    <label>
+                      Stage
+                      <select value={newJob.setup.stage} onChange={(event) => patchJobSetup({ stage: event.target.value })}>
+                        <option>Job</option>
+                        <option>Quote</option>
+                        <option>Pending</option>
+                      </select>
+                    </label>
+                    <label>
+                      Primary tech
+                      <select value={newJob.setup.primaryTech} onChange={(event) => patchJobSetup({ primaryTech: event.target.value })}>
+                        <option value="">Select…</option>
+                        {surveyorOptions.map((name) => (
+                          <option key={name}>{name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Labour estimates
+                      <div className="simpro-setup-toggle" role="group" aria-label="Labour estimates">
+                        <button type="button" className={newJob.setup.labourEstimatesOn ? "" : "active"} onClick={() => patchJobSetup({ labourEstimatesOn: false })}>Off</button>
+                        <button type="button" className={newJob.setup.labourEstimatesOn ? "active" : ""} onClick={() => patchJobSetup({ labourEstimatesOn: true })}>On</button>
+                      </div>
+                    </label>
+                    <label>
+                      Labour markup
+                      <select
+                        value={newJob.setup.labourMarkupMode}
+                        onChange={(event) => patchJobSetup({ labourMarkupMode: event.target.value as RecordSetupOptions["labourMarkupMode"] })}
+                      >
+                        <option value="system">Based on System Settings</option>
+                        <option value="custom">Custom %</option>
+                      </select>
+                    </label>
+                    <label>
+                      Labour markup %
+                      <input type="number" min="0" step="0.1" value={newJob.setup.labourMarkupPercent} disabled={newJob.setup.labourMarkupMode === "system"} onChange={(event) => patchJobSetup({ labourMarkupPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Labour fit time
+                      <select value={newJob.setup.labourFitTime} onChange={(event) => patchJobSetup({ labourFitTime: event.target.value as RecordSetupOptions["labourFitTime"] })}>
+                        <option value="Minutes (0.1)">Minutes (0.1)</option>
+                        <option value="Hours">Hours</option>
+                      </select>
+                    </label>
+                    <label>
+                      Labour tax code
+                      <select value={newJob.setup.labourTaxCode} onChange={(event) => patchJobSetup({ labourTaxCode: event.target.value })}>
+                        {vatTreatmentOptions.map((code) => (
+                          <option key={code}>{code}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Default material markup %
+                      <input type="number" min="0" step="0.1" value={newJob.setup.materialMarkupPercent} onChange={(event) => patchJobSetup({ materialMarkupPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Discount %
+                      <input type="number" min="0" step="0.1" value={newJob.setup.discountPercent} onChange={(event) => patchJobSetup({ discountPercent: event.target.value })} />
+                    </label>
+                    <label>
+                      Item tax code
+                      <select value={newJob.setup.itemTaxCode} onChange={(event) => patchJobSetup({ itemTaxCode: event.target.value })}>
+                        {vatTreatmentOptions.map((code) => (
+                          <option key={code}>{code}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
                 </div>
-              </label>
-              <label>
-                Due
-                <input value={newJob.due} onChange={(event) => setNewJob((current) => ({ ...current, due: event.target.value }))} />
-              </label>
-              <label className="full-field">
-                Next action
-                <input value={newJob.next} onChange={(event) => setNewJob((current) => ({ ...current, next: event.target.value }))} />
-              </label>
+
+              </div>
+              <aside className="simpro-setup-map" aria-label="Site map">
+                {newJob.address ? (
+                  <>
+                    <iframe title="Job map preview" src={leadMapEmbedUrl(newJob.address)} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen />
+                    <a href={leadMapSearchUrl(newJob.address)} target="_blank" rel="noreferrer" className="lead-map-link">Open in maps</a>
+                  </>
+                ) : (
+                  <div className="simpro-create-map-empty">
+                    <MapPin size={22} />
+                    <strong>Site map</strong>
+                    <span>Pick a postcode address to place the site</span>
+                  </div>
+                )}
+              </aside>
             </div>
+
+
             {newJobScheduleWarning ? (
               <p className="warning-message">
                 <AlertTriangle size={15} /> {newJobScheduleWarning}
               </p>
             ) : null}
-            <div className="form-footer">
+            <div className="form-footer simpro-create-footer">
               <button
                 className="secondary-button"
                 onClick={() => {
@@ -31939,9 +42969,8 @@ export default function Dashboard() {
               >
                 Cancel
               </button>
-              <button className="primary-button" disabled={Boolean(newJobScheduleWarning)} onClick={createJob}>
-                <Plus size={16} />
-                Create job
+              <button className="primary-button" onClick={createJob}>
+                Save job
               </button>
             </div>
           </section>
@@ -32029,6 +43058,29 @@ export default function Dashboard() {
                       <label>
                         Item {index + 1}
                         <input value={line.description} onChange={(event) => updatePurchaseLineDraft(line.id, { description: event.target.value })} />
+                      </label>
+                      <label>
+                        SKU
+                        <input
+                          list={`po-catalog-sku-${line.id}`}
+                          value={line.sku || ""}
+                          placeholder="Catalogue / stock SKU"
+                          onChange={(event) => {
+                            const sku = event.target.value;
+                            const catalog = availableQuoteCatalog.find((item) => item.sku && item.sku.toLowerCase() === sku.trim().toLowerCase());
+                            updatePurchaseLineDraft(line.id, {
+                              sku,
+                              catalogItemId: catalog?.id || line.catalogItemId,
+                              description: line.description.trim() || catalog?.name || line.description,
+                              estimatedCost: line.estimatedCost || (catalog ? String(catalog.costRate * (Number(line.quantity) || 1)) : line.estimatedCost),
+                            });
+                          }}
+                        />
+                        <datalist id={`po-catalog-sku-${line.id}`}>
+                          {availableQuoteCatalog.filter((item) => item.sku).slice(0, 80).map((item) => (
+                            <option key={item.id} value={item.sku}>{item.name}</option>
+                          ))}
+                        </datalist>
                       </label>
                       <label>
                         Qty

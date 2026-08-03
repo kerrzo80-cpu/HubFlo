@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { parseRole } from "@/lib/access";
 import { getAuthenticatedUser } from "@/lib/auth-request";
-import { updateAuthUser } from "@/lib/auth-store";
+import { deleteAuthUser, updateAuthUser } from "@/lib/auth-store";
 import { appendAuditEvent } from "@/lib/people-data";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -45,4 +45,24 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to update user." }, { status: 422 });
   }
+}
+
+export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const actor = getAuthenticatedUser(request);
+  if (actor?.role !== "Owner/Admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const { id } = await context.params;
+  const deleted = deleteAuthUser(id);
+  if (!deleted) return NextResponse.json({ error: "User not found." }, { status: 404 });
+
+  appendAuditEvent({
+    actor: actor.name,
+    action: "deleted user account",
+    recordType: "employee",
+    recordId: deleted.employeeId || deleted.id,
+    summary: `${actor.name} deleted the user account for ${deleted.name}.`,
+    source: "authentication",
+    importance: "high",
+  });
+
+  return NextResponse.json({ ok: true });
 }

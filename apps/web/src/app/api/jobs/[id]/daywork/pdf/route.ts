@@ -1,0 +1,139 @@
+import { NextResponse } from "next/server";
+
+import { getAccessProfileFromHeaders } from "@/lib/access";
+import {
+  buildDayworkAccountRecordFromEvidence,
+  ensureDayworkVariationCostCentre,
+  listDayworkSheetsForJob,
+  reconcileDayworkVariationsFromEvidence,
+} from "@/lib/engineer-flow";
+import { createDayworkAccountPdf, dayworkPdfFilename } from "@/lib/daywork-pdf";
+import { findDayworkSheetForJob, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
+import { getJobs } from "@/lib/workflow-data";
+
+export const runtime = "nodejs";
+
+type Params = { params: Promise<{ id: string }> };
+
+/** Generate Daywork Account PDF(s) for a job — used when submitting valuations.
+ *  ?format=pdf returns the first sheet as application/pdf for in-browser preview.
+ *  Default JSON includes base64 attachments for email.
+ */
+export async function GET(request: Request, { params }: Params) {
+  const access = getAccessProfileFromHeaders(request.headers);
+  if (!access.showJobs && !access.showFinance) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id: jobId } = await params;
+  const job = getJobs().find((item) => item.id === jobId);
+  if (!job) {
+    return NextResponse.json({ error: "Job not found." }, { status: 404 });
+  }
+
+  try {
+    reconcileDayworkVariationsFromEvidence();
+  } catch {
+    // Best-effort before PDF.
+  }
+
+  const url = new URL(request.url);
+  const costCentreId =
+    url.searchParams.get("costCentreId")?.trim() || ensureDayworkVariationCostCentre(jobId);
+  const format = url.searchParams.get("format")?.trim().toLowerCase();
+
+  let sheets = listDayworkSheetsForJob(jobId);
+  if (costCentreId) {
+    const matched = findDayworkSheetForJob(
+      Object.fromEntries(sheets.map((sheet) => [`${sheet.jobId}:${sheet.costCentreId}`, sheet])),
+      jobId,
+      costCentreId,
+    );
+    sheets = matched
+      ? [matched]
+      : sheets.filter(
+          (sheet) =>
+            sheet.costCentreId === costCentreId || String(sheet.costCentreId || "").includes("daywork"),
+        );
+  }
+  if (!sheets.length) {
+    try {
+      sheets = listDayworkSheetsFromStore(jobId).filter(
+        (sheet) =>
+          !costCentreId ||
+          sheet.costCentreId === costCentreId ||
+          String(sheet.costCentreId || "").includes("daywork"),
+      );
+    } catch {
+      sheets = [];
+    }
+  }
+  if (!sheets.length) {
+    const fallbackId = costCentreId || `${jobId}-daywork-account`;
+    const record = buildDayworkAccountRecordFromEvidence(jobId, fallbackId);
+    if (record) {
+      sheets = [
+        {
+          ...record,
+          jobId,
+          jobRef: job.ref,
+          costCentreId: fallbackId,
+          updatedAt: record.completedAt || new Date().toISOString(),
+        },
+      ];
+    }
+  }
+
+  if (!sheets.length) {
+    return NextResponse.json(
+      {
+        error:
+          "No Daywork Account sheet saved yet — fill materials, names and both signatures, Save and finish, then Preview PDF.",
+      },
+      { status: 404 },
+    );
+  }
+
+  if (format === "pdf") {
+    const sheet = sheets[0]!;
+    const bytes = await createDayworkAccountPdf({
+      customer: job.customer || "Client",
+      site: job.site || "",
+      engineer: sheet.labourName || sheet.plumberSignerName || "Field",
+      jobRef: job.ref,
+      contract: job.site,
+      record: sheet,
+    });
+    const filename = dayworkPdfFilename(sheet, job.ref);
+    return new NextResponse(new Uint8Array(bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
+  const attachments = [];
+  for (const sheet of sheets) {
+    const bytes = await createDayworkAccountPdf({
+      customer: job.customer || "Client",
+      site: job.site || "",
+      engineer: sheet.labourName || sheet.plumberSignerName || "Field",
+      jobRef: job.ref,
+      contract: job.site,
+      record: sheet,
+    });
+    attachments.push({
+      filename: dayworkPdfFilename(sheet, job.ref),
+      contentType: "application/pdf",
+      contentBase64: bytes.toString("base64"),
+      costCentreId: sheet.costCentreId,
+      plumberSignerName: sheet.plumberSignerName || "",
+      clientSignerName: sheet.clientSignerName || "",
+    });
+  }
+
+  return NextResponse.json({ ok: true, jobId, attachments });
+}

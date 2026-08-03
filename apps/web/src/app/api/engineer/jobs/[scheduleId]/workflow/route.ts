@@ -150,14 +150,28 @@ export async function POST(
 
   if (payload.action === "scan_paper_sheet") {
     const aiExtraction = await scanPaperSheetWithOpenAi(job, payload.payload).catch(() => null);
-    return NextResponse.json(applyEngineerWorkflowAction(scheduleId, {
-      action: "scan_paper_sheet",
-      payload: {
-        ...payload.payload,
-        aiExtraction: aiExtraction ?? payload.payload.aiExtraction,
-      },
-    }));
+    try {
+      return NextResponse.json(applyEngineerWorkflowAction(scheduleId, {
+        action: "scan_paper_sheet",
+        payload: {
+          ...payload.payload,
+          aiExtraction: aiExtraction ?? payload.payload.aiExtraction,
+        },
+      }));
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Unable to update engineer job" },
+        { status: 400 },
+      );
+    }
   }
 
-  return NextResponse.json(applyEngineerWorkflowAction(scheduleId, payload));
+  try {
+    return NextResponse.json(applyEngineerWorkflowAction(scheduleId, payload));
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Unable to update engineer job" },
+      { status: 400 },
+    );
+  }
 }

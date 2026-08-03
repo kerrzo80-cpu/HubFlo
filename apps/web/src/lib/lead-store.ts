@@ -30,6 +30,7 @@ export type LeadRecord = {
   address: string;
   description: string;
   status: LeadStatus;
+  lostReason?: string;
   surveyor: string;
   surveyDate: string;
   surveyTime: string;
@@ -66,6 +67,7 @@ export type LeadStoreApiPayload = Omit<LeadRecord, "id" | "ref" | "createdAt" | 
 
 export type LeadDraftFromClient = Omit<LeadStoreApiPayload, "source"> & {
   source: LeadSource;
+  siteName?: string;
 };
 
 export type LeadCreationResult = {
@@ -75,7 +77,7 @@ export type LeadCreationResult = {
 };
 
 export type LeadPatchPayload = Partial<
-  Pick<LeadRecord, "status" | "surveyor" | "surveyDate" | "surveyTime" | "siteId" | "next">
+  Pick<LeadRecord, "status" | "lostReason" | "surveyor" | "surveyDate" | "surveyTime" | "siteId" | "next">
 >;
 
 export const seedLeads: LeadRecord[] = [
@@ -234,7 +236,7 @@ function buildClientFromLead(draft: LeadDraftFromClient, existingClients: Client
     ? {
         id: `site-${token}`,
         clientId: newClient.id,
-        name: draft.address.split(",")[0]?.trim() || "New site",
+        name: draft.siteName?.trim() || draft.address.split(",")[0]?.trim() || "New site",
         address: draft.address,
         accessNotes: "To confirm before first visit.",
         primaryContact: draft.customerName.trim(),
@@ -246,24 +248,38 @@ function buildClientFromLead(draft: LeadDraftFromClient, existingClients: Client
   return { newClient, newSite };
 }
 
+function addressesMatch(left?: string | null, right?: string | null) {
+  const a = normalizeClientIdentity(left ?? "");
+  const b = normalizeClientIdentity(right ?? "");
+  return Boolean(a) && a === b;
+}
+
+function isSyntheticClientSiteToken(siteId?: string | null) {
+  return siteId === "__billing__" || siteId === "__new__";
+}
+
 function resolveLeadSite(draft: LeadDraftFromClient, client?: ClientRecord, sites: ClientSite[] = []) {
-  if (draft.siteId) {
+  const requestedSiteId = draft.siteId && !isSyntheticClientSiteToken(draft.siteId) ? draft.siteId : undefined;
+  if (requestedSiteId) {
     const explicitSite = sites.find(
-      (site) => site.id === draft.siteId &&
+      (site) => site.id === requestedSiteId &&
         (!client || site.clientId === client.id),
     );
-    if (explicitSite) return explicitSite;
+    // Prefer the typed site address when it no longer matches the linked site.
+    if (explicitSite && (!draft.address?.trim() || addressesMatch(explicitSite.address, draft.address))) {
+      return explicitSite;
+    }
   }
   if (!client) return undefined;
   return (
     sites.find(
-      (site) => site.clientId === client.id && normalizeClientIdentity(site.address) === normalizeClientIdentity(draft.address),
+      (site) => site.clientId === client.id && addressesMatch(site.address, draft.address),
     ) ??
     (draft.address
       ? {
           id: makeLeadSiteId(),
           clientId: client.id,
-          name: draft.address.split(",")[0]?.trim() || "New site",
+          name: draft.siteName?.trim() || draft.address.split(",")[0]?.trim() || "New site",
           address: draft.address,
           accessNotes: "To confirm before first visit.",
           primaryContact: draft.customerName.trim(),
@@ -414,9 +430,11 @@ export function updateLead(id: string, patch: LeadPatchPayload, actor = "HubFlo 
       summary:
         patch.status === "Quoted"
           ? `${next.ref} marked as quoted.`
-          : bookingDone
-            ? `${next.ref} survey booked with ${next.surveyor}.`
-            : `${next.ref} updated.`,
+          : patch.status === "Lost"
+            ? `${next.ref} archived as lost${next.lostReason ? ` · ${next.lostReason}` : ""}.`
+            : bookingDone
+              ? `${next.ref} survey booked with ${next.surveyor}.`
+              : `${next.ref} updated.`,
       source: "lead intake",
       importance: patch.status === "Quoted" ? "normal" : "high",
     });

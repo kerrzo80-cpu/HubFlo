@@ -56,6 +56,39 @@ export function getClientSites() {
   return clone(peopleStore.clientSites);
 }
 
+export function updateClientRecord(clientId: string, patch: Partial<ClientRecord>) {
+  const existing = peopleStore.clients.find((client) => client.id === clientId);
+  if (!existing) return null;
+  Object.assign(existing, patch);
+  persistPeopleStore();
+  return clone(existing);
+}
+
+export function updateClientSiteRecord(siteId: string, patch: Partial<ClientSite>) {
+  const existing = peopleStore.clientSites.find((site) => site.id === siteId);
+  if (!existing) return null;
+  Object.assign(existing, patch);
+  persistPeopleStore();
+  return clone(existing);
+}
+
+export function removeClientRecord(clientId: string) {
+  const existingClient = peopleStore.clients.find((client) => client.id === clientId);
+  if (!existingClient) return false;
+  peopleStore.clients = peopleStore.clients.filter((client) => client.id !== clientId);
+  peopleStore.clientSites = peopleStore.clientSites.filter((site) => site.clientId !== clientId);
+  persistPeopleStore();
+  return true;
+}
+
+export function removeClientSiteRecord(siteId: string) {
+  const existingSite = peopleStore.clientSites.find((site) => site.id === siteId);
+  if (!existingSite) return false;
+  peopleStore.clientSites = peopleStore.clientSites.filter((site) => site.id !== siteId);
+  persistPeopleStore();
+  return true;
+}
+
 export function addClientRecord(client: ClientRecord) {
   if (!peopleStore.clients.find((existing) => existing.id === client.id)) {
     peopleStore.clients = [client, ...peopleStore.clients];

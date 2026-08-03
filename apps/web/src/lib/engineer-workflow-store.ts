@@ -1,9 +1,25 @@
 import { randomUUID } from "node:crypto";
 
 import { getEngineerScheduleItem, type EngineerAttachment, type EngineerRequirement } from "@/lib/engineer-data";
+import {
+  buildDayworkAccountRecordFromEvidence,
+  buildGasServiceRecordFromEvidence,
+  clearFlowStepEvidence,
+  DAYWORK_COST_CENTRE_NAME,
+  DAYWORK_COST_CENTRE_TEMPLATE,
+  hasCapturedFlowEvidence,
+  purgeEmptyFlowStepCompletions,
+  requirementsFromFlowTemplate,
+  syncDayworkAccountToJobVariation,
+  syncGasServiceRecordToSiteAsset,
+  validateFlowStepEvidence,
+  writeFlowStepEvidenceToHub,
+  type EngineerFlowStepEvidenceValue,
+} from "@/lib/engineer-flow";
+import { toUkDateDisplay } from "@/lib/uk-date";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
-import { createPurchaseRequest, getPurchaseRequests, updateJob } from "@/lib/workflow-data";
+import { createPurchaseRequest, getPurchaseRequests, getJobs, updateJob } from "@/lib/workflow-data";
 
 export type EngineerWorkflowNote = {
   id: string;
@@ -111,6 +127,9 @@ export type EngineerJobWorkflow = {
   paperSheetScans: EngineerWorkflowPaperSheetScan[];
   officeReview: EngineerWorkflowReviewItem[];
   outcome?: EngineerWorkflowOutcome;
+  /** When set to daywork, Field checklist stays on the Daywork Account sheet. */
+  checklistMode?: "job" | "daywork";
+  dayworkCostCentreId?: string;
 };
 
 type EngineerWorkflowStore = {
@@ -120,6 +139,17 @@ type EngineerWorkflowStore = {
 export type EngineerWorkflowAction =
   | {
       action: "complete_requirement";
+      payload: {
+        requirementId: string;
+        createdBy?: string;
+        evidence?: EngineerFlowStepEvidenceValue;
+        photoName?: string;
+        text?: string;
+        numberValue?: string;
+      };
+    }
+  | {
+      action: "reopen_requirement";
       payload: {
         requirementId: string;
         createdBy?: string;
@@ -221,6 +251,19 @@ function saveStore() {
   writeServerStore("engineer-workflow-store", store);
 }
 
+/** Clears Field stop/go workflow for trial/schedule ids (in-memory + disk). */
+export function resetEngineerJobWorkflows(scheduleIds: string[]) {
+  let changed = false;
+  for (const key of Object.keys(store.jobs)) {
+    if (scheduleIds.includes(key) || key.includes("gas-cert-trial")) {
+      delete store.jobs[key];
+      changed = true;
+    }
+  }
+  if (changed) saveStore();
+  return changed;
+}
+
 function defaultWorkflow(scheduleId: string): EngineerJobWorkflow {
   const job = getEngineerScheduleItem(scheduleId);
   return {
@@ -316,7 +359,121 @@ function appendCoreJobDeliveryEvent(item: Record<string, unknown>) {
 
 export function getEngineerJobWorkflow(scheduleId: string) {
   const workflow = syncWorkflowPoRequestsFromCore(normaliseWorkflow(getMutableWorkflow(scheduleId)));
+  const job = getEngineerScheduleItem(scheduleId);
+
+  if (workflow.checklistMode === "daywork" && workflow.dayworkCostCentreId && job?.jobId) {
+    purgeEmptyFlowStepCompletions({
+      jobId: job.jobId,
+      costCentreId: workflow.dayworkCostCentreId,
+      templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+      costCentreName: DAYWORK_COST_CENTRE_NAME,
+    });
+    const seeds = requirementsFromFlowTemplate({
+      jobId: job.jobId,
+      costCentreId: workflow.dayworkCostCentreId,
+      costCentreName: DAYWORK_COST_CENTRE_NAME,
+      templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+    });
+    const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
+    workflow.requirements = seeds.map((seed) => {
+      const existing = byId.get(seed.id);
+      if (!existing) return seed as EngineerRequirement;
+      const value = existing.value || seed.value;
+      const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+      const hasCapturedValue = hasCapturedFlowEvidence(evidenceType, value);
+      return {
+        ...seed,
+        status: hasCapturedValue || (seed.status === "done" && evidenceType === "Checkbox")
+          ? ("done" as const)
+          : seed.required === false
+            ? ("optional" as const)
+            : ("missing" as const),
+        value: hasCapturedValue ? value : undefined,
+      } as EngineerRequirement;
+    });
+    saveStore();
+    return clone(workflow);
+  }
+
+  if (job?.jobId && job.costCentres?.[0]?.id) {
+    purgeEmptyFlowStepCompletions({
+      jobId: job.jobId,
+      costCentreId: job.costCentres[0].id,
+      templateName: job.costCentres[0].templateName || job.costCentre,
+      costCentreName: job.costCentre,
+    });
+  }
+  // Prefer live Hub stop/go templates (gas service record fields) over older boolean-only seeds.
+  if (job?.requirements?.length && job.requirements.some((item) => item.evidence || item.stepId)) {
+    const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
+    const nextRequirements = job.requirements.map((seed) => {
+      const existing = byId.get(seed.id);
+      if (!existing) return seed;
+      const value = existing.value || seed.value;
+      const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+      const hasCapturedValue = hasCapturedFlowEvidence(evidenceType, value);
+      // Ignore earlier Field taps that marked items done with no photo/reading/note.
+      const keepDone =
+        (seed.status === "done" && (evidenceType === "Checkbox" || hasCapturedValue)) ||
+        (existing.status === "done" && (evidenceType === "Checkbox" || hasCapturedValue));
+      return {
+        ...seed,
+        status: keepDone ? ("done" as const) : seed.required === false ? ("optional" as const) : ("missing" as const),
+        value: hasCapturedValue ? value : undefined,
+      };
+    });
+    const changed =
+      nextRequirements.length !== workflow.requirements.length ||
+      nextRequirements.some((item, index) => {
+        const previous = workflow.requirements[index];
+        return (
+          !previous ||
+          previous.id !== item.id ||
+          previous.status !== item.status ||
+          previous.evidence !== item.evidence ||
+          Boolean(previous.value?.text) !== Boolean(item.value?.text) ||
+          Boolean(previous.value?.numberValue) !== Boolean(item.value?.numberValue) ||
+          Boolean(previous.value?.photoName) !== Boolean(item.value?.photoName)
+        );
+      });
+    workflow.requirements = nextRequirements;
+    if (changed) saveStore();
+  }
   return clone(workflow);
+}
+
+/** Put Field checklist onto the Daywork Account variation sheet for this schedule. */
+export function activateDayworkWorkflow(scheduleId: string, costCentreId: string, requirements: EngineerRequirement[]) {
+  const workflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
+  workflow.checklistMode = "daywork";
+  workflow.dayworkCostCentreId = costCentreId;
+  const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
+  workflow.requirements = requirements.map((seed) => {
+    const existing = byId.get(seed.id);
+    if (!existing) return clone(seed);
+    const value = existing.value || seed.value;
+    const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+    const hasCapturedValue = hasCapturedFlowEvidence(evidenceType, value);
+    return {
+      ...seed,
+      status: hasCapturedValue || (seed.status === "done" && evidenceType === "Checkbox")
+        ? ("done" as const)
+        : seed.required === false
+          ? ("optional" as const)
+          : ("missing" as const),
+      value: hasCapturedValue ? value : undefined,
+    };
+  });
+  saveStore();
+  return clone(workflow);
+}
+
+export function clearDayworkWorkflowMode(scheduleId: string) {
+  const workflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
+  workflow.checklistMode = "job";
+  delete workflow.dayworkCostCentreId;
+  saveStore();
+  return getEngineerJobWorkflow(scheduleId);
 }
 
 function minutesFromTime(value: string) {
@@ -425,16 +582,135 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   const job = getEngineerScheduleItem(scheduleId);
 
   if (input.action === "complete_requirement") {
-    const requirement = workflow.requirements.find((item) => item.id === input.payload.requirementId);
+    // Refresh from live templates first so empty tap-to-done rows reopen.
+    getEngineerJobWorkflow(scheduleId);
+    const requirement = getMutableWorkflow(scheduleId).requirements.find(
+      (item) => item.id === input.payload.requirementId,
+    );
     if (requirement) {
+      const evidenceValue: EngineerFlowStepEvidenceValue = {
+        ...(requirement.value || {}),
+        ...(input.payload.evidence || {}),
+        text: input.payload.text ?? input.payload.evidence?.text ?? requirement.value?.text,
+        numberValue: input.payload.numberValue ?? input.payload.evidence?.numberValue ?? requirement.value?.numberValue,
+        photoName: input.payload.photoName ?? input.payload.evidence?.photoName ?? requirement.value?.photoName,
+        capturedAt: new Date().toISOString(),
+      };
+      const evidenceType = requirement.evidence || "Checkbox";
+      if (evidenceType !== "Checkbox" && !hasCapturedFlowEvidence(evidenceType, evidenceValue)) {
+        // Do not accept empty completions for photo/text/number/signature steps.
+        return clone(getEngineerJobWorkflow(scheduleId));
+      }
+      const validationError = validateFlowStepEvidence({
+        label: requirement.label,
+        evidence: evidenceType,
+        validation: requirement.validation,
+        value: evidenceValue,
+      });
+      if (validationError) {
+        throw new Error(validationError);
+      }
+      if (requirement.validation?.inputKind === "date" && evidenceValue.text) {
+        evidenceValue.text = toUkDateDisplay(evidenceValue.text);
+      }
       requirement.status = "done";
+      requirement.value = evidenceValue;
+
+      const costCentreId = requirement.costCentreId || job?.costCentres?.find((centre) => centre.name === job.costCentre)?.id || `${job?.jobId || "job"}-cost-centre`;
+      const stepId = requirement.stepId || requirement.id.split(":").pop() || requirement.id;
+      if (job?.jobId && requirement.evidence) {
+        writeFlowStepEvidenceToHub({
+          jobId: job.jobId,
+          costCentreId,
+          stepId,
+          evidence: requirement.evidence,
+          value: evidenceValue,
+          actor: createdBy,
+        });
+
+        const gasRecord = buildGasServiceRecordFromEvidence(job.jobId, costCentreId);
+        if (gasRecord?.nextServiceDate) {
+          const coreJob = getJobs().find((item) => item.id === job.jobId);
+          if (coreJob?.siteId) {
+            try {
+              syncGasServiceRecordToSiteAsset({
+                siteId: coreJob.siteId,
+                clientId: coreJob.clientId,
+                record: gasRecord,
+              });
+            } catch {
+              // Site asset sync is best-effort.
+            }
+          }
+        }
+
+        const dayworkRecord = buildDayworkAccountRecordFromEvidence(job.jobId, costCentreId);
+        if (dayworkRecord) {
+          try {
+            syncDayworkAccountToJobVariation({
+              jobId: job.jobId,
+              jobRef: job.jobRef,
+              costCentreId,
+              engineerName: job.engineerName || createdBy,
+              record: dayworkRecord,
+            });
+          } catch {
+            // Variation sync is best-effort.
+          }
+        }
+      }
+
+      const evidenceSummary = [
+        evidenceValue.text,
+        evidenceValue.numberValue,
+        evidenceValue.photoName,
+      ]
+        .map((part) => String(part || "").trim())
+        .filter(Boolean)
+        .join(" · ");
+
       addReviewItem(workflow, {
         type: "Checklist",
         title: requirement.label,
-        detail: `${requirement.label} supplied by engineer. Office can review before completion sign-off.`,
+        detail: evidenceSummary
+          ? `${requirement.label} captured and written to NeXa Core gas/service form: ${evidenceSummary}`
+          : `${requirement.label} completed — NeXa Core stop/go form updated.`,
         createdBy,
         createdAt,
       });
+    }
+  }
+
+  if (input.action === "reopen_requirement") {
+    getEngineerJobWorkflow(scheduleId);
+    const liveWorkflow = getMutableWorkflow(scheduleId);
+    const requirement = liveWorkflow.requirements.find((item) => item.id === input.payload.requirementId);
+    if (requirement) {
+      requirement.status = requirement.required === false ? "optional" : "missing";
+      const previousValue = requirement.value;
+      requirement.value = undefined;
+
+      const costCentreId = requirement.costCentreId || job?.costCentres?.find((centre) => centre.name === job.costCentre)?.id || `${job?.jobId || "job"}-cost-centre`;
+      const stepId = requirement.stepId || requirement.id.split(":").pop() || requirement.id;
+      if (job?.jobId && requirement.evidence) {
+        clearFlowStepEvidence({
+          jobId: job.jobId,
+          costCentreId,
+          stepId,
+        });
+      }
+
+      addReviewItem(liveWorkflow, {
+        type: "Checklist",
+        title: `${requirement.label} reopened`,
+        detail: previousValue
+          ? `Engineer reopened “${requirement.label}” to amend evidence.`
+          : `Engineer reopened “${requirement.label}”.`,
+        createdBy,
+        createdAt,
+      });
+      saveStore();
+      return clone(normaliseWorkflow(liveWorkflow));
     }
   }
 

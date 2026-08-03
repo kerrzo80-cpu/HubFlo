@@ -4,17 +4,27 @@ import { employeeHeaderName, permissionHeaderName, roleHeaderName } from "@/lib/
 import { getAuthUserForSession, isUserAuthenticationEnabled, nexaSessionCookie } from "@/lib/auth-store";
 
 const pilotPin = process.env.NEXA_PILOT_PIN;
-const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
+const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
-const publicAssetPrefixes = ["/app-icons/"];
-const userAuthPublicPaths = new Set(["/api/auth/login", "/api/health"]);
+const publicPagePrefixes = ["/ai-first", "/heat-design"];
+const publicAssetPrefixes = ["/app-icons/", "/brand/"];
+const userAuthPublicPaths = new Set([
+  "/api/auth/login",
+  "/api/health",
+  "/api/postcode-lookup",
+  "/ai-first",
+  "/heat-design",
+  "/nexa-ai-first.html",
+]);
 const publicAssetPaths = new Set([
   "/ewg-logo.png",
   "/apple-icon.png",
   "/icon.png",
+  "/nexa-ai-first.html",
   "/manifest-core.json",
   "/manifest-estimator.json",
+  "/manifest-field.json",
   "/manifest-takeoffs.json",
   "/estimator/apple-icon.png",
   "/estimator/icon.png",
@@ -54,12 +64,21 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/api/health") return NextResponse.next();
-  if (publicAssetPaths.has(pathname) || publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix))) {
+  if (
+    publicAssetPaths.has(pathname) ||
+    publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix)) ||
+    publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+  ) {
     return NextResponse.next();
   }
 
   if (isUserAuthenticationEnabled()) {
-    if (userAuthPublicPaths.has(pathname)) return NextResponse.next();
+    if (
+      userAuthPublicPaths.has(pathname) ||
+      publicPagePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
+    ) {
+      return NextResponse.next();
+    }
     const user = getAuthUserForSession(request.cookies.get(nexaSessionCookie)?.value);
     if (pathname === "/login") {
       if (!user) return NextResponse.next();
@@ -106,6 +125,18 @@ export function proxy(request: NextRequest) {
       secure: request.nextUrl.protocol === "https:",
     });
     return response;
+  }
+
+  if (pathname.startsWith("/api/")) {
+    return NextResponse.json(
+      { error: "NeXa pilot login required. Refresh the page and sign in again." },
+      {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Basic realm="NeXa pilot", charset="UTF-8"',
+        },
+      },
+    );
   }
 
   return new NextResponse("NeXa pilot login required", {
