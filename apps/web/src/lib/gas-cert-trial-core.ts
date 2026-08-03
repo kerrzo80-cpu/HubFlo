@@ -1,6 +1,7 @@
 import { addClientRecord, addClientSiteRecord, getClients, getClientSites, updateClientRecord, updateClientSiteRecord } from "@/lib/people-data";
 import {
   boilerServiceFlowTemplate,
+  ensureDayworkVariationCostCentre,
   flowEvidenceKey,
   purgeEmptyFlowStepCompletions,
   type EngineerFlowStepEvidenceValue,
@@ -157,19 +158,16 @@ function clearTrialFlowEvidence(hubState: ReturnType<typeof getHubDetailState>) 
     ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>),
   };
   let changed = false;
-  const prefixes = [
-    `${GAS_CERT_TRIAL.jobId}:${GAS_CERT_TRIAL.costCentreId}:`,
-    // Legacy keys if cost centre id ever drifted
-    `${GAS_CERT_TRIAL.jobId}:`,
-  ];
+  // Only clear boiler-service trial keys — never wipe Daywork Account evidence on the same job.
+  const prefix = `${GAS_CERT_TRIAL.jobId}:${GAS_CERT_TRIAL.costCentreId}:`;
   for (const key of Object.keys(evidenceStore)) {
-    if (prefixes.some((prefix) => key.startsWith(prefix))) {
+    if (key.startsWith(prefix)) {
       delete evidenceStore[key];
       changed = true;
     }
   }
   for (const key of Object.keys(completionStore)) {
-    if (prefixes.some((prefix) => key.startsWith(prefix))) {
+    if (key.startsWith(prefix)) {
       delete completionStore[key];
       changed = true;
     }
@@ -207,9 +205,18 @@ function ensureHubCostCentresAndResetIfNeeded() {
   const hasMatchingCentre = existingCentres.some((centre) => centre.id === GAS_CERT_TRIAL.costCentreId);
   let changed = false;
 
-  // Always keep the Boiler servicing cost centre (templateName drives LGSR questions).
-  centresByJob[GAS_CERT_TRIAL.jobId] = gasCertTrialCostCentres();
-  if (!hasMatchingCentre || JSON.stringify(existingCentres) !== JSON.stringify(gasCertTrialCostCentres())) {
+  // Keep boiler-service centre, but preserve Daywork / other variation centres on the same job.
+  const boilerCentres = gasCertTrialCostCentres() as Array<Record<string, unknown>>;
+  const preserved = existingCentres.filter((centre) => {
+    const id = String(centre.id || "");
+    return id && id !== GAS_CERT_TRIAL.costCentreId && !id.endsWith("-boiler-service");
+  });
+  const nextCentres = [
+    ...boilerCentres,
+    ...preserved.filter((centre) => !boilerCentres.some((boiler) => boiler.id === centre.id)),
+  ];
+  centresByJob[GAS_CERT_TRIAL.jobId] = nextCentres;
+  if (JSON.stringify(existingCentres) !== JSON.stringify(nextCentres)) {
     changed = true;
   }
 
@@ -268,6 +275,12 @@ export function ensureGasCertTrialInCore() {
   ensureClientAndSite();
   const job = ensureCoreJob();
   ensureHubCostCentresAndResetIfNeeded();
+  // Always keep a Daywork Account variation centre available on the trial job.
+  try {
+    ensureDayworkVariationCostCentre(GAS_CERT_TRIAL.jobId);
+  } catch {
+    // Best-effort — Field can still create it on first open.
+  }
   ensured = true;
   lastResetToken = GAS_CERT_TRIAL_RESET_TOKEN;
   return job;
@@ -275,4 +288,8 @@ export function ensureGasCertTrialInCore() {
 
 export function gasCertTrialCoreDeepLink() {
   return `/?job=${encodeURIComponent(GAS_CERT_TRIAL.jobId)}&centre=${encodeURIComponent(GAS_CERT_TRIAL.costCentreId)}&tab=engineer-flow`;
+}
+
+export function gasCertTrialDayworkDeepLink() {
+  return `/?job=${encodeURIComponent(GAS_CERT_TRIAL.jobId)}&centre=${encodeURIComponent(`${GAS_CERT_TRIAL.jobId}-daywork-account`)}&tab=engineer-flow`;
 }

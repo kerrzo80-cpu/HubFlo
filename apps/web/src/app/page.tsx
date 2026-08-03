@@ -10166,6 +10166,11 @@ export default function Dashboard() {
       const centreParam = new URLSearchParams(window.location.search).get("centre");
       const tabParam = new URLSearchParams(window.location.search).get("tab");
       if (centreParam) {
+        const isDayworkCentre = /daywork/i.test(centreParam);
+        if (isDayworkCentre) {
+          setActiveJobTab("cost-centres");
+          setActiveJobCostCentreListTab("variations");
+        }
         setSelectedCostCentreId(centreParam);
         const allowedTabs: CostCentreTab[] = [
           "summary",
@@ -10183,7 +10188,11 @@ export default function Dashboard() {
         );
         setActiveJobBuildTab("summary");
         setHomeView("cost-centre-record");
-        showNotice(`${targetJob.ref} Engineer Flow opened — gas service record / certificate preview.`);
+        showNotice(
+          isDayworkCentre
+            ? `${targetJob.ref} Daywork Account opened — Engineer Flow.`
+            : `${targetJob.ref} Engineer Flow opened — gas service record / certificate preview.`,
+        );
       } else {
         showNotice(`${targetJob.ref} opened from Blake AI intake.`);
       }
@@ -17791,6 +17800,29 @@ export default function Dashboard() {
     setActiveCostCentreTab("summary");
     setActiveJobBuildTab("summary");
     setHomeView("cost-centre-record");
+  }
+
+  function openDayworkAccountRecord(jobId: string, options?: { costCentreId?: string }) {
+    const dayworkCentreId = options?.costCentreId || `${jobId}-daywork-account`;
+    const centres = jobEstimateCostCentres[jobId] ?? [];
+    const match =
+      centres.find((centre) => centre.id === dayworkCentreId) ||
+      centres.find((centre) => /daywork/i.test(`${centre.name} ${centre.templateName || ""}`));
+    if (!match) {
+      showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
+      setActiveJobTab("cost-centres");
+      setActiveJobCostCentreListTab("variations");
+      setHomeView("job-record");
+      return;
+    }
+    setActiveJobTab("cost-centres");
+    setActiveJobCostCentreListTab("variations");
+    setSelectedCostCentreId(match.id);
+    setActiveCostCentreTab("engineer-flow");
+    setActiveJobBuildTab("summary");
+    setHomeView("cost-centre-record");
+    showNotice("Daywork Account opened in Engineer Flow.");
+    scrollWorkspaceToTop();
   }
 
   function openPurchaseOrderRegisterRow(request: PurchaseRequest) {
@@ -33625,6 +33657,23 @@ export default function Dashboard() {
                       <>
                         <h2 className="simpro-page-title">Variation Cost Centres</h2>
 
+                        {selectedJob ? (
+                          <div className="daywork-core-finder">
+                            <strong>Daywork Account</strong>
+                            <p>
+                              Field sheets land here as a variation cost centre named Daywork account. Open Engineer
+                              Flow to see the filled form and signatures.
+                            </p>
+                            <button
+                              className="simpro-blue-button"
+                              type="button"
+                              onClick={() => openDayworkAccountRecord(selectedJob.id)}
+                            >
+                              Open Daywork Account form
+                            </button>
+                          </div>
+                        ) : null}
+
                         <div className="simpro-filter-band">
                           <label>
                             Filter By Name/ID
@@ -33944,6 +33993,15 @@ export default function Dashboard() {
                                     </small>
                                   </div>
                                   <div className="variation-actions">
+                                    {(variation.id.startsWith("daywork-") || variation.reason === "Daywork account") ? (
+                                      <button
+                                        className="simpro-blue-button"
+                                        type="button"
+                                        onClick={() => selectedJob && openDayworkAccountRecord(selectedJob.id)}
+                                      >
+                                        Open Daywork form
+                                      </button>
+                                    ) : null}
                                     <button
                                       className="simpro-grey-button"
                                       type="button"

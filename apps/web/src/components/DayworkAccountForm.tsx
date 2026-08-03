@@ -1,3 +1,4 @@
+import { SignatureImage } from "@/components/SignaturePad";
 import { buildDayworkFormSections, dayworkAccountTotals, type DayworkAccountContext } from "@/lib/daywork-account-form";
 
 export function DayworkAccountForm({ context }: { context: DayworkAccountContext }) {
@@ -19,7 +20,7 @@ export function DayworkAccountForm({ context }: { context: DayworkAccountContext
           <p className="daywork-account-kicker">Errol Watson Group style sheet</p>
           <h3>Daywork Account</h3>
           <p>
-            Reactive variation daywork — labour, materials and plant from Field stop/go. Dual sign-off required
+            Reactive variation daywork — labour, materials and plant from Field. Dual drawn signatures required
             before the sheet sits in Core Variations.
           </p>
         </div>
@@ -27,9 +28,10 @@ export function DayworkAccountForm({ context }: { context: DayworkAccountContext
           <strong>{context.jobRef}</strong>
           <span>
             {filledCount}/{totalCount} fields ·{" "}
+            {totals.labourHours ? `${totals.labourHours} hrs` : "No hours yet"}
             {totals.total
-              ? totals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })
-              : "No total yet"}
+              ? ` · ${totals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}`
+              : ""}
           </span>
           <span className={bothSigned ? "daywork-sign-status ready" : "daywork-sign-status pending"}>
             {bothSigned ? "Plumber + client signed" : "Awaiting dual sign-off"}
@@ -45,7 +47,13 @@ export function DayworkAccountForm({ context }: { context: DayworkAccountContext
               {section.rows.map((row) => (
                 <tr key={row.key} className={row.filled ? "filled" : "empty"}>
                   <th>{row.label}</th>
-                  <td>{row.value}</td>
+                  <td>
+                    {section.section === "Sign-off" ? (
+                      <SignatureImage value={row.value === "—" ? "" : row.value} alt={row.label} />
+                    ) : (
+                      row.value
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -55,8 +63,8 @@ export function DayworkAccountForm({ context }: { context: DayworkAccountContext
 
       <footer className="daywork-account-footer">
         <p>
-          Values flow from the Field Daywork checklist into this sheet and into job Variations once both the
-          plumber and client have signed.
+          Open from job → Cost centres → Variations → Daywork account → Engineer Flow. Rates and markups are set
+          by the office in Core.
         </p>
       </footer>
     </article>

@@ -334,7 +334,11 @@ export function validateDayworkSheetDraft(draft: DayworkSheetDraft): string | nu
     const hours = Number(String(row.hours).replace(/[^0-9.]/g, ""));
     if (!Number.isFinite(hours) || hours <= 0) return `Enter hours for ${row.day}.`;
   }
-  if (draft.plumberSignature.trim().length < 2) return "Plumber signature is required.";
-  if (draft.clientSignature.trim().length < 2) return "Client signature is required.";
+  if (!draft.plumberSignature.trim() || (draft.plumberSignature.trim().length < 2 && !draft.plumberSignature.startsWith("data:image/"))) {
+    return "Plumber signature is required — draw it on the pad.";
+  }
+  if (!draft.clientSignature.trim() || (draft.clientSignature.trim().length < 2 && !draft.clientSignature.startsWith("data:image/"))) {
+    return "Client signature is required — draw it on the pad.";
+  }
   return null;
 }

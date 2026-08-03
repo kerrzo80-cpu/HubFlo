@@ -12478,6 +12478,67 @@ h1 {
   width: 100%;
 }
 
+.signature-pad {
+  display: grid;
+  gap: 8px;
+}
+
+.signature-pad-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.signature-pad-head span {
+  color: #1b2a4a;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.signature-pad-canvas {
+  background: #fff;
+  border: 1px dashed #8aa09a;
+  border-radius: 12px;
+  display: block;
+  height: 140px;
+  touch-action: none;
+  width: 100%;
+}
+
+.signature-pad small {
+  color: #5b6570;
+}
+
+.signature-image {
+  background: #fff;
+  border: 1px solid #d7e0e6;
+  border-radius: 8px;
+  display: block;
+  max-height: 96px;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.daywork-core-finder {
+  background: #f4f8f6;
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 14px 16px;
+}
+
+.daywork-core-finder strong {
+  color: #1f3a2e;
+}
+
+.daywork-core-finder p {
+  color: #5b6570;
+  margin: 0;
+}
+
 .engineer-flow-list {
   display: grid;
   gap: 10px;

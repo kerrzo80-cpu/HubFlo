@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SignaturePad } from "@/components/SignaturePad";
 import {
   DAYWORK_TRADE_OPTIONS,
   DAYWORK_WEEKDAY_OPTIONS,
@@ -319,25 +320,17 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
         </button>
       </section>
 
-      <label className="daywork-field">
-        <span>Plumber / contractor signature</span>
-        <input
-          type="text"
-          value={draft.plumberSignature}
-          placeholder="Signed by plumber…"
-          onChange={(event) => setDraft((current) => ({ ...current, plumberSignature: event.target.value }))}
-        />
-      </label>
+      <SignaturePad
+        label="Plumber / contractor signature"
+        value={draft.plumberSignature}
+        onChange={(dataUrl) => setDraft((current) => ({ ...current, plumberSignature: dataUrl }))}
+      />
 
-      <label className="daywork-field">
-        <span>Client / Clerk of Works signature</span>
-        <input
-          type="text"
-          value={draft.clientSignature}
-          placeholder="Signed by client…"
-          onChange={(event) => setDraft((current) => ({ ...current, clientSignature: event.target.value }))}
-        />
-      </label>
+      <SignaturePad
+        label="Client / Clerk of Works signature"
+        value={draft.clientSignature}
+        onChange={(dataUrl) => setDraft((current) => ({ ...current, clientSignature: dataUrl }))}
+      />
 
       <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
         {saving ? "Saving…" : "Save Daywork Account"}
