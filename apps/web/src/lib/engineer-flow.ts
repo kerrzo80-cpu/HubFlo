@@ -1,6 +1,10 @@
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
+import { dayworkAccountTotals, type DayworkAccountRecord } from "@/lib/daywork-account-form";
 import { isValidUkOrIsoDate, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
+
+export type { DayworkAccountRecord };
+export { dayworkAccountTotals };
 
 export type EngineerFlowEvidence = "Photo" | "Text" | "Number" | "Signature" | "Checkbox";
 
@@ -878,65 +882,6 @@ export function syncGasServiceRecordToSiteAsset(options: {
       : "Gas service record completed via engineer stop/go.",
   };
   return upsertSiteAsset(payload);
-}
-
-export type DayworkAccountRecord = {
-  description?: string;
-  weekEnding?: string;
-  voReference?: string;
-  labourName?: string;
-  labourTrade?: string;
-  labourHours?: string;
-  labourRate?: string;
-  labourExpenses?: string;
-  material1Description?: string;
-  material1Qty?: string;
-  material1UnitPrice?: string;
-  material2Description?: string;
-  material2Qty?: string;
-  material2UnitPrice?: string;
-  plantDescription?: string;
-  plantHours?: string;
-  plantRate?: string;
-  markupPercent?: string;
-  worksPhoto?: string;
-  plumberSignature?: string;
-  clientSignature?: string;
-  completedAt?: string;
-  populatedFrom: "engineer-app" | "core";
-};
-
-function parseMoney(value?: string) {
-  const n = Number(String(value || "").replace(/[^0-9.]/g, ""));
-  return Number.isFinite(n) ? n : 0;
-}
-
-export function dayworkAccountTotals(record: DayworkAccountRecord | null | undefined) {
-  const labourHours = parseMoney(record?.labourHours);
-  const labourRate = parseMoney(record?.labourRate);
-  const labourCost = labourHours * labourRate;
-  const expenses = parseMoney(record?.labourExpenses);
-  const material1 = parseMoney(record?.material1Qty) * parseMoney(record?.material1UnitPrice);
-  const material2 = parseMoney(record?.material2Qty) * parseMoney(record?.material2UnitPrice);
-  const materials = material1 + material2;
-  const plant = parseMoney(record?.plantHours) * parseMoney(record?.plantRate);
-  const markupPercent = parseMoney(record?.markupPercent);
-  const materialsWithMarkup = materials * (1 + markupPercent / 100);
-  const plantWithMarkup = plant * (1 + markupPercent / 100);
-  const expensesWithMarkup = expenses * (1 + markupPercent / 100);
-  const total = labourCost + expensesWithMarkup + materialsWithMarkup + plantWithMarkup;
-  return {
-    labourHours,
-    labourCost,
-    expenses,
-    materials,
-    plant,
-    markupPercent,
-    materialsWithMarkup,
-    plantWithMarkup,
-    expensesWithMarkup,
-    total,
-  };
 }
 
 export function buildDayworkAccountRecordFromEvidence(

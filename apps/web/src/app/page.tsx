@@ -113,8 +113,8 @@ import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from 
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
-import type { DayworkAccountRecord, GasServiceRecord } from "@/lib/engineer-flow";
-import { dayworkAccountTotals } from "@/lib/engineer-flow";
+import type { GasServiceRecord } from "@/lib/engineer-flow";
+import { dayworkAccountTotals, type DayworkAccountRecord } from "@/lib/daywork-account-form";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -5129,12 +5129,15 @@ function buildEventVariationFromDeliveryEvent(event: JobDeliveryEvent, index: nu
   return {
     id: event.id,
     reference: `V-${String(index + 1).padStart(3, "0")}`,
-    title: event.summary || "Variation raised",
+    title:
+      event.formType === "daywork"
+        ? `Daywork · ${event.summary || "Account"}`
+        : event.summary || "Variation raised",
     status: mapVariationStatusFromEvent(event),
     costValue: event.costValue ?? 0,
     sellValue: event.sellValue ?? 0,
     description: event.summary || "No variation summary captured.",
-    reason: event.reason || "Engineer raised",
+    reason: event.formType === "daywork" ? "Daywork account" : event.reason || "Engineer raised",
   labourHours: event.hours,
   materialsUsed: event.materials,
   requiresClientApproval: event.requiresClientApproval ?? true,
