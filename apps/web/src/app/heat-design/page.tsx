@@ -158,7 +158,14 @@ export default function HeatDesignLabPage() {
             <button type="button" className="hd-btn" onClick={addRoom}>
               Add room
             </button>
-            <button type="button" className="hd-btn" onClick={() => window.print()}>
+            <button
+              type="button"
+              className="hd-btn"
+              onClick={() => {
+                setTab("report");
+                window.setTimeout(() => window.print(), 150);
+              }}
+            >
               Print report
             </button>
             <button type="button" className="hd-btn hd-btn-primary" onClick={autoPickPump}>
