@@ -111,6 +111,7 @@ import { numberedReference } from "@/lib/numbering";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
+import { DashboardOverview } from "./DashboardOverview";
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
@@ -27438,6 +27439,8 @@ export default function Dashboard() {
             </div>
           </section>
         ) : null}
+
+        {!isDashboardCustomising ? <DashboardOverview /> : null}
 
         <div className="ops-dashboard-layout-grid">
           {visibleDashboardPanelIds.map((panelId) => {

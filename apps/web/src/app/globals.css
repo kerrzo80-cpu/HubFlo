@@ -36736,3 +36736,166 @@ kbd,
 .record-folder-card:hover {
   transform: translateY(-1px);
 }
+
+/* ---- Dashboard KPI overview (clean metric cards + charts) ---- */
+.nexa-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 1180px) {
+  .nexa-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .nexa-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nexa-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: transform 0.16s ease, box-shadow 0.2s ease;
+}
+
+.nexa-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 42px -22px rgba(16, 24, 40, 0.3);
+}
+
+.nexa-kpi-card > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nexa-kpi-card h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.nexa-kpi-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nexa-kpi-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nexa-kpi-donut {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 auto;
+}
+
+.nexa-kpi-donut-value {
+  font-size: 24px;
+  font-weight: 800;
+  fill: var(--ink);
+}
+
+.nexa-kpi-donut-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--subtle);
+}
+
+.nexa-kpi-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  flex: 1;
+}
+
+.nexa-kpi-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nexa-kpi-legend li span {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.nexa-kpi-legend li strong {
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.nexa-kpi-bars {
+  display: grid;
+  gap: 11px;
+}
+
+.nexa-kpi-bar-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 28px;
+  align-items: center;
+  gap: 10px;
+}
+
+.nexa-kpi-bar-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nexa-kpi-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #eef1f5;
+  overflow: hidden;
+}
+
+.nexa-kpi-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nexa-kpi-bar-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: right;
+}
+
+.nexa-kpi-empty {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 12px;
+}
