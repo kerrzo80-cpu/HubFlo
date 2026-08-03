@@ -17313,9 +17313,9 @@ export default function Dashboard() {
                   xeroInvoiceNumber: body.xeroInvoiceNumber || item.ref,
                   xeroExportedAt: body.xeroExportedAt || new Date().toISOString(),
                 }
-              : {
-                  xeroExportedAt: body.xeroExportedAt || item.xeroExportedAt || new Date().toISOString(),
-                }),
+              : body.xeroExportedAt
+                ? { xeroExportedAt: body.xeroExportedAt }
+                : {}),
           }
         : item,
       ));
