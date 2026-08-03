@@ -7,13 +7,14 @@ const pilotPin = process.env.NEXA_PILOT_PIN;
 const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
-const publicPagePrefixes = ["/ai-first"];
+const publicPagePrefixes = ["/ai-first", "/heat-design"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/"];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",
   "/api/health",
   "/api/postcode-lookup",
   "/ai-first",
+  "/heat-design",
   "/nexa-ai-first.html",
 ]);
 const publicAssetPaths = new Set([

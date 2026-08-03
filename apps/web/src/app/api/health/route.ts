@@ -12,6 +12,8 @@ export async function GET() {
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
       talkLab: "/field/talk-lab",
       talkLabBuild: "realtime-voice-picker-v1",
+      heatDesign: "/heat-design",
+      heatDesignBuild: "floor-plan-kit-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       photoCompressBuild: "shrink-v1",
