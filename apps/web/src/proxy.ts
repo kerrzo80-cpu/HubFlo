@@ -89,29 +89,15 @@ export function proxy(request: NextRequest) {
       return NextResponse.redirect(workspaceUrl);
     }
     if (!user) {
-      if (
-        request.method !== "GET" &&
-        request.method !== "HEAD" &&
-        pathname.includes("/daywork")
-      ) {
-        try {
-          const parts = pathname.split("/");
-          const scheduleIdx = parts.indexOf("jobs");
-          const scheduleId =
-            scheduleIdx >= 0 && parts[scheduleIdx + 1] ? parts[scheduleIdx + 1] : undefined;
-          recordDayworkWriteAttempt({
-            at: new Date().toISOString(),
-            source: "proxy-auth",
-            scheduleId,
-            ok: false,
-            error: "unauthenticated — sign in at /login before Field Daywork Save and finish",
-          });
-        } catch {
-          // Best-effort diagnostics only.
-        }
-      }
       if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+        return NextResponse.json(
+          {
+            error: pathname.includes("/daywork")
+              ? "Unauthenticated — sign in at /login before Field Daywork Save and finish"
+              : "Unauthenticated",
+          },
+          { status: 401 },
+        );
       }
       const loginUrl = request.nextUrl.clone();
       loginUrl.pathname = "/login";

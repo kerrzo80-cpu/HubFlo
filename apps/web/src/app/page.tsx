@@ -11299,16 +11299,21 @@ export default function Dashboard() {
 
   /** Field-signed Daywork sheets waiting for office pricing / review in Core. */
   const dashboardDayworkReviews = useMemo(() => {
-    const byJob = new Map<string, { jobId: string; jobRef: string; status: string; summary: string }>();
+    const byKey = new Map<
+      string,
+      { jobId: string; jobRef: string; costCentreId: string; status: string; summary: string }
+    >();
     for (const event of jobDeliveryEvents) {
       if (event.formType !== "daywork") continue;
       const job = jobs.find((item) => item.id === event.jobId);
       if (!job) continue;
-      const status = event.status || "Office review";
-      byJob.set(event.jobId, {
+      const costCentreId = event.costCentreId || `${event.jobId}-daywork-account`;
+      const key = `${event.jobId}:${costCentreId}`;
+      byKey.set(key, {
         jobId: event.jobId,
         jobRef: job.ref,
-        status,
+        costCentreId,
+        status: event.status || "Office review",
         summary: event.summary || event.description || "Daywork Account from Field",
       });
     }
@@ -11320,16 +11325,19 @@ export default function Dashboard() {
       if (!signed) continue;
       const job = jobs.find((item) => item.id === sheet.jobId);
       if (!job) continue;
-      if (!byJob.has(sheet.jobId)) {
-        byJob.set(sheet.jobId, {
+      const costCentreId = sheet.costCentreId || `${sheet.jobId}-daywork-account`;
+      const key = `${sheet.jobId}:${costCentreId}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
           jobId: sheet.jobId,
           jobRef: job.ref,
+          costCentreId,
           status: "Office review",
           summary: sheet.description || "Signed Daywork Account from Field",
         });
       }
     }
-    return Array.from(byJob.values());
+    return Array.from(byKey.values());
   }, [dayworkSheets, jobDeliveryEvents, jobs]);
 
   const overdueLeadQuoteFollowUps = useMemo(
@@ -18217,22 +18225,34 @@ export default function Dashboard() {
       centres.find((centre) => centre.id === dayworkCentreId) ||
       centres.find((centre) => /daywork/i.test(`${centre.name} ${centre.templateName || ""}`));
 
-    // If Field saved evidence but the variation cost centre was wiped from Core UI state, recreate it.
+    // Always select the job first — Action notifications previously scrolled nowhere without this.
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedInvoiceId(null);
+    setSelectedPurchaseRequestId(null);
+    setSelectedJobId(jobId);
+
+    // If Field saved a sheet but the variation cost centre is missing from Core UI state, recreate it.
     if (!match) {
+      const hasSheet = Object.values(dayworkSheets).some(
+        (sheet) => sheet?.jobId === jobId && (!options?.costCentreId || sheet.costCentreId === dayworkCentreId),
+      );
       const hasEvidence = Object.keys(flowStepEvidence).some(
         (key) => key.startsWith(`${jobId}:`) && key.includes(":daywork-"),
       );
-      if (hasEvidence || options?.costCentreId) {
+      if (hasEvidence || hasSheet || Boolean(options?.costCentreId) || !match) {
         const sectionId = `${jobId}-variation-section-daywork`;
         const created: EstimateCostCentre = {
           id: dayworkCentreId,
-          name: "Daywork account",
+          name: options?.costCentreId && options.costCentreId !== `${jobId}-daywork-account`
+            ? "Daywork account (additional)"
+            : "Daywork account",
           templateName: "Daywork account",
           variation: true,
           variationSectionId: sectionId,
           clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
           engineerDescription:
-            "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+            "Complete the Daywork Account on Field — labour, materials and dual sign-off populate Core Variations.",
           materials: [],
           labour: [],
         };
@@ -18253,19 +18273,19 @@ export default function Dashboard() {
             ],
           };
         });
-        setJobEstimateCostCentres((current) => ({
-          ...current,
-          [jobId]: [...(current[jobId] ?? []), created],
-        }));
+        setJobEstimateCostCentres((current) => {
+          const existing = current[jobId] ?? [];
+          if (existing.some((centre) => centre.id === created.id)) return current;
+          return { ...current, [jobId]: [...existing, created] };
+        });
         match = created;
       }
     }
 
     if (!match) {
-      // Still try server refresh — Field may have created the centre already.
       void refreshDayworkSheetFromServer(jobId, dayworkCentreId).then((found) => {
         if (!found) {
-          showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
+          showNotice("No Daywork Account on this job yet — open Add Daywork Account on Field first.");
         } else {
           setJobEstimateCostCentres((current) => {
             const existing = current[jobId] ?? [];
@@ -18284,7 +18304,7 @@ export default function Dashboard() {
                   variationSectionId: `${jobId}-variation-section-daywork`,
                   clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
                   engineerDescription:
-                    "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+                    "Complete the Daywork Account on Field — labour, materials and dual sign-off populate Core Variations.",
                   materials: [],
                   labour: [],
                 },
@@ -27061,13 +27081,20 @@ export default function Dashboard() {
               <button
                 className="notification-card amber"
                 type="button"
-                onClick={() => openDashboardQueue("dashboard-daywork")}
+                onClick={() => {
+                  const first = dashboardDayworkReviews[0];
+                  if (first) {
+                    openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
+                    return;
+                  }
+                  showNotice("No Daywork sheets from Field yet.");
+                }}
               >
                 <ClipboardCheck size={18} />
                 <span>
                   <strong>{dashboardDayworkReviews.length}</strong>
                   <b>Daywork sheets from Field</b>
-                  <small>Price labour / materials in Variations → Daywork account</small>
+                  <small>Opens Variations → Daywork account</small>
                 </span>
               </button>
               <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-lead-followups")}>
@@ -27123,8 +27150,11 @@ export default function Dashboard() {
               <strong style={{ display: "block", marginBottom: 8 }}>Daywork from Field</strong>
               {dashboardDayworkReviews.length > 0 ? (
                 dashboardDayworkReviews.slice(0, 6).map((item) => (
-                  <article className="ops-queue-item" key={item.jobId}>
-                    <button type="button" onClick={() => openDayworkAccountRecord(item.jobId)}>
+                  <article className="ops-queue-item" key={`${item.jobId}:${item.costCentreId}`}>
+                    <button
+                      type="button"
+                      onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
+                    >
                       <strong>{item.jobRef}</strong>
                       <span>{item.summary}</span>
                       <small>{item.status} · open Daywork account</small>
@@ -27133,7 +27163,7 @@ export default function Dashboard() {
                       <button
                         className="primary-button"
                         type="button"
-                        onClick={() => openDayworkAccountRecord(item.jobId)}
+                        onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
                       >
                         Open Daywork
                       </button>
