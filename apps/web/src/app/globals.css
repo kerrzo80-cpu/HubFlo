@@ -20,7 +20,7 @@
   --amber-soft: #fff4df;
   --red: #b43a3a;
   --red-soft: #fff0ef;
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px -14px rgba(16, 24, 40, 0.16);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 10px 20px -8px rgba(16, 24, 40, 0.14), 0 4px 10px -4px rgba(16, 24, 40, 0.08);
   /* Modern minimalist accent + radii */
   --nexa-accent: #006eb8;
   --nexa-accent-2: #2e8c7d;
@@ -36478,4 +36478,209 @@ body {
   .job-field-visit-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============================================================
+   NeXa UI 2.0 — trendy, slick, minimalist design layer.
+   Appended last so it refreshes the default/light look app-wide
+   (scoped theme variants keep their own styling).
+   ============================================================ */
+
+body {
+  background:
+    radial-gradient(52rem 34rem at 100% -10%, rgba(0, 110, 184, 0.07), transparent 60%),
+    radial-gradient(46rem 32rem at -8% 110%, rgba(46, 140, 125, 0.07), transparent 60%),
+    var(--canvas);
+  background-attachment: fixed;
+  letter-spacing: -0.005em;
+}
+
+/* Elevated, rounded content cards across the whole app */
+.setup-panel,
+.setup-subpage-panel,
+.setup-readiness,
+.ops-queue-panel,
+.invoice-ops-panel,
+.weekly-schedule-panel,
+.notification-panel,
+.dashboard-customise-panel,
+.flow-progress-panel,
+.profile-hero-panel,
+.profile-calendar-panel,
+.support-panel,
+.lead-schedule-panel {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.panel-header h2,
+.setup-panel h2,
+.ops-queue-panel h2 {
+  letter-spacing: -0.015em;
+  font-weight: 700;
+}
+
+/* Dashboard action cards — tactile, with a subtle lift on hover */
+.notification-card {
+  border-radius: 14px;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.18s ease,
+    border-color 0.16s ease;
+}
+
+.notification-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 34px -20px rgba(16, 24, 40, 0.32);
+}
+
+/* Schedule day tiles */
+.schedule-day-card {
+  border-radius: 14px;
+}
+
+/* Status chips — pill, tinted, minimalist */
+.status-pill {
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 0;
+}
+
+.status-pill.red {
+  background: var(--red-soft);
+  color: #b42318;
+}
+
+.status-pill.amber {
+  background: var(--amber-soft);
+  color: #b54708;
+}
+
+.status-pill.green {
+  background: var(--green-soft);
+  color: #087443;
+}
+
+/* Secondary / filter buttons — modern rounded */
+.secondary-button,
+.filter-button,
+.status-filter {
+  border-radius: 10px;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.secondary-button:hover,
+.filter-button:hover {
+  transform: translateY(-1px);
+}
+
+/* Inputs & search — modern rounded fields */
+.global-search,
+.form-body input,
+.form-body select,
+.form-body textarea,
+.status-filter select,
+.ai-form-grid input,
+.ai-form-grid select {
+  border-radius: 10px;
+}
+
+/* Left context sidebar — clean surface */
+.context-sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+/* Give the dashboard grid more breathing room */
+.ops-dashboard-layout-grid {
+  gap: 16px;
+}
+
+/* Rounded avatars/kbd for a softer, modern feel */
+kbd,
+.counter {
+  border-radius: 8px;
+}
+
+/* ---- Level-up: hierarchy, space and elevation ---- */
+
+/* Bold hero heading + muted subtitle for clear hierarchy */
+.workspace-header {
+  padding-bottom: 6px;
+}
+
+.workspace-header h1 {
+  font-size: 27px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.workspace-header > div > p,
+.workspace-header p {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.breadcrumb {
+  color: var(--subtle);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Stronger, more legible card titles */
+.panel-header h2,
+.ops-queue-panel h2,
+.notification-panel h2,
+.weekly-schedule-panel h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+/* More generous padding + breathing room in the dashboard cards */
+.ops-queue-panel,
+.invoice-ops-panel,
+.notification-panel,
+.weekly-schedule-panel {
+  padding: 20px 22px;
+}
+
+/* Big content cards lift gently on hover for a premium, tactile feel */
+.ops-queue-panel,
+.invoice-ops-panel,
+.weekly-schedule-panel {
+  transition: transform 0.16s ease, box-shadow 0.2s ease;
+}
+
+.ops-queue-panel:hover,
+.invoice-ops-panel:hover,
+.weekly-schedule-panel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 42px -22px rgba(16, 24, 40, 0.3);
+}
+
+/* Clearer active navigation pill */
+.module-link.active {
+  background: linear-gradient(135deg, rgba(0, 110, 184, 0.14), rgba(46, 140, 125, 0.14));
+  color: var(--nexa-accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 110, 184, 0.16);
+}
+
+/* Airier dashboard grid + centered on very wide screens */
+.ops-dashboard-layout-grid {
+  gap: 18px;
+}
+
+/* Softer, roomier global search */
+.global-search {
+  border-radius: 12px;
 }
