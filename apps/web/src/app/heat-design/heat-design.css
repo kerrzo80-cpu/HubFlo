@@ -596,15 +596,17 @@
 .hp-canvas-wrap {
   position: relative;
   border-radius: 1rem;
-  overflow: hidden;
+  overflow: auto;
   border: 1px solid #4a4a4a;
   background: #6d6d6d;
   min-height: 420px;
+  max-width: 100%;
 }
 
 .hp-canvas {
   display: block;
-  width: 100%;
+  width: auto;
+  max-width: none;
   height: auto;
   touch-action: none;
   cursor: default;
@@ -1462,6 +1464,37 @@
 .hp-layout-banner em {
   font-style: normal;
   font-weight: 700;
+  color: #0f172a;
+}
+
+.hp-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.15rem;
+}
+
+.hp-zoom-controls .hd-btn {
+  min-width: 2.1rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+.hp-emitter-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.hp-emitter-mode select {
+  border: 1px solid var(--hd-line);
+  border-radius: 0.45rem;
+  padding: 0.28rem 0.4rem;
+  background: #fff;
+  font: inherit;
   color: #0f172a;
 }
 

@@ -38,6 +38,7 @@ export function ReportFloorPlan({
   const floor = rooms[0]?.floorLevel ?? "ground";
   const plants = (layout?.plants ?? []).filter((plant) => (plant.floorLevel ?? "ground") === floor);
   const pipes = (layout?.pipes ?? []).filter((pipe) => (pipe.floorLevel ?? "ground") === floor);
+  const emitters = (layout?.emitters ?? []).filter((item) => (item.floorLevel ?? "ground") === floor);
   for (const plant of plants) {
     const halfW = (plant.widthM ?? 0.5) / 2;
     const halfD = (plant.depthM ?? 0.35) / 2;
@@ -45,6 +46,12 @@ export function ReportFloorPlan({
     minY = Math.min(minY, plant.y - halfD);
     maxX = Math.max(maxX, plant.x + halfW);
     maxY = Math.max(maxY, plant.y + halfD);
+  }
+  for (const emitter of emitters) {
+    minX = Math.min(minX, emitter.x - emitter.widthM / 2);
+    minY = Math.min(minY, emitter.y - emitter.depthM / 2);
+    maxX = Math.max(maxX, emitter.x + emitter.widthM / 2);
+    maxY = Math.max(maxY, emitter.y + emitter.depthM / 2);
   }
   for (const pipe of pipes) {
     for (const p of pipe.points) {
@@ -54,10 +61,17 @@ export function ReportFloorPlan({
       maxY = Math.max(maxY, p.y);
     }
   }
-  const width = Math.max(320, (maxX - minX) * SCALE + PAD * 2);
-  const height = Math.max(220, (maxY - minY) * SCALE + PAD * 2);
-  const ox = -minX;
-  const oy = -minY;
+  const ox = -minX + 0.2;
+  const oy = -minY + 0.2;
+  const width = Math.max(320, (maxX - minX + 0.4) * SCALE + PAD * 2);
+  const height = Math.max(220, (maxY - minY + 0.4) * SCALE + PAD * 2);
+
+  function px(x: number) {
+    return PAD + (x + ox) * SCALE;
+  }
+  function py(y: number) {
+    return PAD + (y + oy) * SCALE;
+  }
 
   return (
     <div className="hd-report-plan">
@@ -67,9 +81,7 @@ export function ReportFloorPlan({
         {rooms.map((room) => {
           const polygon = roomPolygon(room);
           const exterior = roomWallExterior(room, polygon.length);
-          const points = polygon
-            .map((p) => `${PAD + (p.x + ox) * SCALE},${PAD + (p.y + oy) * SCALE}`)
-            .join(" ");
+          const points = polygon.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
           const centroid = polygon.reduce(
             (acc, p) => ({ x: acc.x + p.x / polygon.length, y: acc.y + p.y / polygon.length }),
             { x: 0, y: 0 },
@@ -82,10 +94,10 @@ export function ReportFloorPlan({
                 return (
                   <line
                     key={`${room.id}-e-${i}`}
-                    x1={PAD + (p.x + ox) * SCALE}
-                    y1={PAD + (p.y + oy) * SCALE}
-                    x2={PAD + (q.x + ox) * SCALE}
-                    y2={PAD + (q.y + oy) * SCALE}
+                    x1={px(p.x)}
+                    y1={py(p.y)}
+                    x2={px(q.x)}
+                    y2={py(q.y)}
                     stroke="#111"
                     strokeWidth={exterior[i] ? 3.5 : 1.25}
                   />
@@ -99,18 +111,18 @@ export function ReportFloorPlan({
                 return (
                   <line
                     key={opening.id}
-                    x1={PAD + (geom.x1 + ox) * SCALE}
-                    y1={PAD + (geom.y1 + oy) * SCALE}
-                    x2={PAD + (geom.x2 + ox) * SCALE}
-                    y2={PAD + (geom.y2 + oy) * SCALE}
+                    x1={px(geom.x1)}
+                    y1={py(geom.y1)}
+                    x2={px(geom.x2)}
+                    y2={py(geom.y2)}
                     stroke={opening.kind === "door" ? "#be123c" : "#0369a1"}
                     strokeWidth={4}
                   />
                 );
               })}
               <text
-                x={PAD + (centroid.x + ox) * SCALE}
-                y={PAD + (centroid.y + oy) * SCALE}
+                x={px(centroid.x)}
+                y={py(centroid.y)}
                 textAnchor="middle"
                 dominantBaseline="middle"
                 fontSize={10}
@@ -123,11 +135,36 @@ export function ReportFloorPlan({
           );
         })}
 
+        {emitters.map((emitter) => {
+          const w = emitter.widthM * SCALE;
+          const d = emitter.depthM * SCALE;
+          const cx = px(emitter.x);
+          const cy = py(emitter.y);
+          if (emitter.kind === "ufh") {
+            return (
+              <rect
+                key={emitter.id}
+                x={cx - w / 2}
+                y={cy - d / 2}
+                width={w}
+                height={d}
+                fill="rgba(14, 116, 144, 0.1)"
+                stroke="#0891b2"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+              />
+            );
+          }
+          return (
+            <g key={emitter.id} transform={`rotate(${emitter.rotationDeg} ${cx} ${cy})`}>
+              <rect x={cx - w / 2} y={cy - d / 2} width={w} height={d} rx={1} fill="#f43f5e" />
+            </g>
+          );
+        })}
+
         {pipes.map((pipe) => {
           const style = pipeStroke(pipe.kind);
-          const points = pipe.points
-            .map((p) => `${PAD + (p.x + ox) * SCALE},${PAD + (p.y + oy) * SCALE}`)
-            .join(" ");
+          const points = pipe.points.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
           return (
             <polyline
               key={pipe.id}
@@ -146,8 +183,8 @@ export function ReportFloorPlan({
         {plants.map((plant) => {
           const w = (plant.widthM ?? 0.5) * SCALE;
           const d = (plant.depthM ?? 0.35) * SCALE;
-          const cx = PAD + (plant.x + ox) * SCALE;
-          const cy = PAD + (plant.y + oy) * SCALE;
+          const cx = px(plant.x);
+          const cy = py(plant.y);
           return (
             <g key={plant.id}>
               <rect
@@ -160,14 +197,7 @@ export function ReportFloorPlan({
                 stroke="#fff"
                 strokeWidth={1}
               />
-              <text
-                x={cx}
-                y={cy - d / 2 - 4}
-                textAnchor="middle"
-                fontSize={8}
-                fontWeight={700}
-                fill="#0f172a"
-              >
+              <text x={cx} y={cy - d / 2 - 4} textAnchor="middle" fontSize={8} fontWeight={700} fill="#0f172a">
                 {plant.label}
               </text>
             </g>
@@ -176,8 +206,8 @@ export function ReportFloorPlan({
       </svg>
       {layout ? (
         <p className="hd-report-plan-key">
-          Layout overlay: plant positions + pipework for the chosen system (dragged on the floor plan). Flow red ·
-          return blue · primary teal.
+          Heating design overlay: plant, {layout.emitterMode === "ufh" ? "UFH" : layout.emitterMode === "radiators" ? "radiators" : "radiators / UFH"}{" "}
+          and pipework for the chosen system. Flow red · return blue · primary teal · refrigerant purple.
         </p>
       ) : null}
     </div>

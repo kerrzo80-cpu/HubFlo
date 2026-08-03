@@ -29,6 +29,7 @@ import {
   wallTypes,
   type HeatDesignProject,
   type HeatDesignRoom,
+  type HeatingEmitterMode,
   type HeatingSystemLayout,
 } from "@/lib/heat-design";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
@@ -157,28 +158,33 @@ export default function HeatDesignLabPage() {
     setTab("system");
   }
 
-  function designSystemOnPlan(optionId: string) {
+  function designSystemOnPlan(optionId: string, mode: HeatingEmitterMode = "mixed") {
     if (!project) return;
-    const layout = seedHeatingLayout(project, optionId);
+    const layout = seedHeatingLayout(project, optionId, mode);
     const option = heatingSystemOptions.find((item) => item.id === optionId);
     patchProject({ chosenSystemId: optionId, heatingLayout: layout });
     setLayoutMode(true);
     setTab("plan");
     setNotice(
-      `Laid out ${option?.label ?? "system"} on the floor plan — drag plant and pipe bends to suit, then print the report.`,
+      `Designed ${option?.label ?? "system"} on the floor plan with ${mode === "ufh" ? "UFH" : mode === "radiators" ? "radiators" : "radiators / UFH"} — drag to suit, zoom to inspect.`,
     );
   }
 
-  function regenerateLayout() {
+  function regenerateLayout(mode?: HeatingEmitterMode) {
     if (!project?.chosenSystemId) return;
-    const layout = seedHeatingLayout(project, project.chosenSystemId);
+    const emitterMode = mode ?? project.heatingLayout?.emitterMode ?? "mixed";
+    const layout = seedHeatingLayout(project, project.chosenSystemId, emitterMode);
     patchProject({ heatingLayout: layout });
     setLayoutMode(true);
-    setNotice("Re-seeded heating layout from the chosen system.");
+    setNotice("Re-designed heating layout from the chosen system.");
   }
 
   function patchLayout(layout: HeatingSystemLayout) {
     patchProject({ heatingLayout: layout });
+  }
+
+  function changeEmitterMode(mode: HeatingEmitterMode) {
+    regenerateLayout(mode);
   }
 
   if (!project || !design) {
@@ -382,8 +388,8 @@ export default function HeatDesignLabPage() {
                 <p className="hd-lead">
                   Move walls and corners like HeatPunk — push an alcove or bay, then heat loss follows the real shape.
                   {project.heatingLayout
-                    ? " Heating layout mode overlays pipework and plant — drag to suit."
-                    : " Pick a system under Options → Design on plan to overlay pipework."}
+                    ? " Heating layout places plant, radiators or UFH, and pipe runs — drag to suit and use zoom / Fit."
+                    : " Pick a system under Options → Design on plan to overlay a full heating design."}
                 </p>
                 <FloorPlanCanvas
                   rooms={project.rooms}
@@ -398,8 +404,10 @@ export default function HeatDesignLabPage() {
                   layoutMode={layoutMode}
                   onLayoutModeChange={setLayoutMode}
                   onPatchLayout={patchLayout}
-                  onRegenerateLayout={project.chosenSystemId ? regenerateLayout : undefined}
+                  onRegenerateLayout={project.chosenSystemId ? () => regenerateLayout() : undefined}
                   layoutSystemLabel={chosenOption?.label}
+                  emitterMode={project.heatingLayout?.emitterMode ?? "mixed"}
+                  onEmitterModeChange={project.chosenSystemId ? changeEmitterMode : undefined}
                 />
               </>
             ) : null}

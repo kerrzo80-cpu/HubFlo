@@ -84,6 +84,25 @@ export type HeatingPlantItem = {
   depthM?: number;
 };
 
+export type HeatingEmitterKind = "radiator" | "ufh";
+
+/** Radiator or underfloor heating zone drawn on the floor plan. */
+export type HeatingEmitterItem = {
+  id: string;
+  kind: HeatingEmitterKind;
+  label: string;
+  roomId: string;
+  x: number;
+  y: number;
+  widthM: number;
+  depthM: number;
+  /** Degrees — radiators align to the wall they sit on. */
+  rotationDeg: number;
+  floorLevel: FloorLevel;
+  radiatorId?: string;
+  outputWatts?: number;
+};
+
 export type HeatingPipeKind = "flow" | "return" | "primary" | "gas" | "oil" | "refrigerant" | "dhw";
 
 export type HeatingPipeRun = {
@@ -94,11 +113,15 @@ export type HeatingPipeRun = {
   floorLevel: FloorLevel;
 };
 
-/** Overlay design for a chosen heating system — plant positions + pipe routes on the floor plan. */
+export type HeatingEmitterMode = "radiators" | "ufh" | "mixed";
+
+/** Overlay design for a chosen heating system — plant, emitters and pipe routes. */
 export type HeatingSystemLayout = {
   systemOptionId: string;
   plants: HeatingPlantItem[];
   pipes: HeatingPipeRun[];
+  emitters: HeatingEmitterItem[];
+  emitterMode: HeatingEmitterMode;
   updatedAt: string;
 };
 

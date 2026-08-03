@@ -7,6 +7,7 @@ import {
   edgeParam,
   insertVertexOnEdge,
   lShapePolygon,
+  moveEmitter,
   movePipePoint,
   movePlant,
   numberFromInput,
@@ -21,6 +22,7 @@ import {
   translatePolygon,
   type FloorLevel,
   type HeatDesignRoom,
+  type HeatingEmitterMode,
   type HeatingSystemLayout,
   type PlanOpening,
   type PlanPoint,
@@ -42,9 +44,11 @@ type FloorPlanCanvasProps = {
   onPatchLayout?: (layout: HeatingSystemLayout) => void;
   onRegenerateLayout?: () => void;
   layoutSystemLabel?: string;
+  emitterMode?: HeatingEmitterMode;
+  onEmitterModeChange?: (mode: HeatingEmitterMode) => void;
 };
 
-const SCALE = 90;
+const BASE_SCALE = 90;
 const PAD = 56;
 const SNAP_M = 0.08;
 
@@ -57,6 +61,7 @@ type DragState =
   | { mode: "plant"; plantId: string }
   | { mode: "pipe-point"; pipeId: string; pointIndex: number }
   | { mode: "pipe-move"; pipeId: string; origin: PlanPoint[]; grab: PlanPoint }
+  | { mode: "emitter"; emitterId: string }
   | null;
 
 function mm(metres: number) {
@@ -91,6 +96,8 @@ export function FloorPlanCanvas({
   onPatchLayout,
   onRegenerateLayout,
   layoutSystemLabel,
+  emitterMode = "mixed",
+  onEmitterModeChange,
 }: FloorPlanCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
@@ -100,6 +107,9 @@ export function FloorPlanCanvas({
   const [selectedOpeningId, setSelectedOpeningId] = useState<string | null>(null);
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(null);
   const [selectedPipeId, setSelectedPipeId] = useState<string | null>(null);
+  const [selectedEmitterId, setSelectedEmitterId] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
 
   const floorRooms = useMemo(
     () => rooms.filter((room) => (room.floorLevel ?? "ground") === activeFloor),
@@ -114,6 +124,12 @@ export function FloorPlanCanvas({
     () => (heatingLayout?.pipes ?? []).filter((pipe) => (pipe.floorLevel ?? "ground") === activeFloor),
     [heatingLayout, activeFloor],
   );
+  const floorEmitters = useMemo(
+    () => (heatingLayout?.emitters ?? []).filter((item) => (item.floorLevel ?? "ground") === activeFloor),
+    [heatingLayout, activeFloor],
+  );
+
+  const scale = BASE_SCALE * zoom;
 
   const bounds = useMemo(() => {
     let maxX = 10;
@@ -124,32 +140,53 @@ export function FloorPlanCanvas({
       const box = polygonBounds(roomPolygon(room));
       minX = Math.min(minX, box.minX);
       minY = Math.min(minY, box.minY);
-      maxX = Math.max(maxX, box.maxX + 1.5);
-      maxY = Math.max(maxY, box.maxY + 1.5);
+      maxX = Math.max(maxX, box.maxX + 1.2);
+      maxY = Math.max(maxY, box.maxY + 1.2);
     }
     for (const plant of floorPlants) {
       const halfW = (plant.widthM ?? 0.5) / 2;
       const halfD = (plant.depthM ?? 0.35) / 2;
-      minX = Math.min(minX, plant.x - halfW);
-      minY = Math.min(minY, plant.y - halfD);
-      maxX = Math.max(maxX, plant.x + halfW + 1);
-      maxY = Math.max(maxY, plant.y + halfD + 1);
+      minX = Math.min(minX, plant.x - halfW - 0.3);
+      minY = Math.min(minY, plant.y - halfD - 0.3);
+      maxX = Math.max(maxX, plant.x + halfW + 0.8);
+      maxY = Math.max(maxY, plant.y + halfD + 0.8);
+    }
+    for (const emitter of floorEmitters) {
+      const halfW = emitter.widthM / 2;
+      const halfD = emitter.depthM / 2;
+      minX = Math.min(minX, emitter.x - halfW);
+      minY = Math.min(minY, emitter.y - halfD);
+      maxX = Math.max(maxX, emitter.x + halfW);
+      maxY = Math.max(maxY, emitter.y + halfD);
     }
     for (const pipe of floorPipes) {
       for (const p of pipe.points) {
         minX = Math.min(minX, p.x);
         minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x + 0.5);
-        maxY = Math.max(maxY, p.y + 0.5);
+        maxX = Math.max(maxX, p.x + 0.4);
+        maxY = Math.max(maxY, p.y + 0.4);
       }
     }
+    const originX = minX - 0.35;
+    const originY = minY - 0.35;
+    const metresW = maxX - originX + 0.5;
+    const metresH = maxY - originY + 0.5;
     return {
-      width: Math.max(760, (maxX - Math.min(0, minX)) * SCALE + PAD * 2),
-      height: Math.max(520, (maxY - Math.min(0, minY)) * SCALE + PAD * 2),
+      width: Math.max(640, metresW * scale + PAD * 2),
+      height: Math.max(440, metresH * scale + PAD * 2),
       metresX: maxX,
       metresY: maxY,
+      originX,
+      originY,
     };
-  }, [floorRooms, floorPlants, floorPipes]);
+  }, [floorRooms, floorPlants, floorPipes, floorEmitters, scale]);
+
+  function px(x: number) {
+    return PAD + (x - bounds.originX) * scale;
+  }
+  function py(y: number) {
+    return PAD + (y - bounds.originY) * scale;
+  }
 
   function clientToMetres(clientX: number, clientY: number) {
     const svg = svgRef.current;
@@ -158,10 +195,38 @@ export function FloorPlanCanvas({
     const sx = bounds.width / rect.width;
     const sy = bounds.height / rect.height;
     return {
-      x: ((clientX - rect.left) * sx - PAD) / SCALE,
-      y: ((clientY - rect.top) * sy - PAD) / SCALE,
+      x: ((clientX - rect.left) * sx - PAD) / scale + bounds.originX,
+      y: ((clientY - rect.top) * sy - PAD) / scale + bounds.originY,
     };
   }
+
+  function fitZoom() {
+    const wrap = wrapRef.current;
+    if (!wrap) {
+      setZoom(1);
+      return;
+    }
+    const avail = Math.max(320, wrap.clientWidth - 24);
+    const natural = bounds.width / zoom;
+    const next = Math.max(0.45, Math.min(1.8, (avail / natural) * 0.96));
+    setZoom(Number(next.toFixed(2)));
+  }
+
+  useEffect(() => {
+    if (!heatingLayout?.updatedAt) return;
+    const timer = window.setTimeout(() => {
+      const wrap = wrapRef.current;
+      if (!wrap) return;
+      const avail = Math.max(320, wrap.clientWidth - 24);
+      const metresW = bounds.metresX - bounds.originX + 0.5;
+      const natural = metresW * BASE_SCALE + PAD * 2;
+      const next = Math.max(0.5, Math.min(1.35, (avail / natural) * 0.94));
+      setZoom(Number(next.toFixed(2)));
+    }, 40);
+    return () => window.clearTimeout(timer);
+    // Fit when a new layout is seeded so outdoor unit / pipes stay in view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [heatingLayout?.updatedAt]);
 
   const anchors = useMemo(() => {
     const xs: number[] = [];
@@ -181,11 +246,15 @@ export function FloorPlanCanvas({
     function onMove(event: PointerEvent) {
       const point = clientToMetres(event.clientX, event.clientY);
       if (drag?.mode === "plant" && heatingLayout && onPatchLayout) {
-        onPatchLayout(movePlant(heatingLayout, drag.plantId, Math.max(0, point.x), Math.max(0, point.y)));
+        onPatchLayout(movePlant(heatingLayout, drag.plantId, point.x, point.y));
+        return;
+      }
+      if (drag?.mode === "emitter" && heatingLayout && onPatchLayout) {
+        onPatchLayout(moveEmitter(heatingLayout, drag.emitterId, point.x, point.y));
         return;
       }
       if (drag?.mode === "pipe-point" && heatingLayout && onPatchLayout) {
-        onPatchLayout(movePipePoint(heatingLayout, drag.pipeId, drag.pointIndex, Math.max(0, point.x), Math.max(0, point.y)));
+        onPatchLayout(movePipePoint(heatingLayout, drag.pipeId, drag.pointIndex, point.x, point.y));
         return;
       }
       if (drag?.mode === "pipe-move" && heatingLayout && onPatchLayout) {
@@ -289,7 +358,10 @@ export function FloorPlanCanvas({
   const selectedPoly = selected ? roomPolygon(selected) : [];
   const selectedPlant = floorPlants.find((plant) => plant.id === selectedPlantId) ?? null;
   const selectedPipe = floorPipes.find((pipe) => pipe.id === selectedPipeId) ?? null;
-  const showLayout = Boolean(heatingLayout && (layoutMode || floorPlants.length || floorPipes.length));
+  const selectedEmitter = floorEmitters.find((item) => item.id === selectedEmitterId) ?? null;
+  const showLayout = Boolean(
+    heatingLayout && (layoutMode || floorPlants.length || floorPipes.length || floorEmitters.length),
+  );
 
   function addAlcoveOnEdge(room: HeatDesignRoom, edgeIndex: number) {
     const polygon = roomPolygon(room);
@@ -418,6 +490,33 @@ export function FloorPlanCanvas({
               Re-seed layout
             </button>
           ) : null}
+          {heatingLayout && onEmitterModeChange ? (
+            <label className="hp-emitter-mode">
+              Emitters
+              <select
+                value={emitterMode}
+                onChange={(event) => onEmitterModeChange(event.target.value as HeatingEmitterMode)}
+              >
+                <option value="mixed">Mixed rads / UFH</option>
+                <option value="radiators">Radiators only</option>
+                <option value="ufh">UFH only</option>
+              </select>
+            </label>
+          ) : null}
+          <div className="hp-zoom-controls" aria-label="Zoom">
+            <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setZoom((z) => Math.max(0.45, Number((z - 0.15).toFixed(2))))}>
+              −
+            </button>
+            <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setZoom(1)}>
+              {Math.round(zoom * 100)}%
+            </button>
+            <button type="button" className="hd-btn hd-btn-ghost" onClick={() => setZoom((z) => Math.min(2.4, Number((z + 0.15).toFixed(2))))}>
+              +
+            </button>
+            <button type="button" className="hd-btn hd-btn-ghost" onClick={fitZoom}>
+              Fit
+            </button>
+          </div>
           <button
             type="button"
             className={`hd-btn hd-btn-ghost${placeTool === "window" ? " is-on" : ""}`}
@@ -485,17 +584,20 @@ export function FloorPlanCanvas({
         <div className="hp-layout-banner">
           <strong>{layoutSystemLabel || "Heating layout"}</strong>
           <span>
-            Drag boiler / outdoor unit / cylinder / pipe bends to suit. Flow = red · return = blue · primary = teal.
+            Designed layout — drag plant, radiators / UFH and pipe bends. Flow red · return blue · refrigerant purple ·
+            primary teal. Use zoom if anything sits outside the first view.
           </span>
           {selectedPlant ? <em>Selected: {selectedPlant.label}</em> : null}
+          {selectedEmitter ? <em>Selected: {selectedEmitter.label}</em> : null}
           {selectedPipe ? <em>Selected pipe: {selectedPipe.label}</em> : null}
         </div>
       ) : null}
-      <div className="hp-canvas-wrap">
+      <div className="hp-canvas-wrap" ref={wrapRef}>
         <svg
           ref={svgRef}
           className="hp-canvas"
-          width="100%"
+          width={bounds.width}
+          height={bounds.height}
           viewBox={`0 0 ${bounds.width} ${bounds.height}`}
           role="img"
           aria-label="Floor plan canvas"
@@ -505,35 +607,41 @@ export function FloorPlanCanvas({
           }}
         >
           <rect x={0} y={0} width={bounds.width} height={bounds.height} fill="#6d6d6d" />
-          {Array.from({ length: Math.ceil(bounds.metresX) + 1 }, (_, m) => (
-            <line
-              key={`gx-${m}`}
-              x1={PAD + m * SCALE}
-              y1={PAD}
-              x2={PAD + m * SCALE}
-              y2={bounds.height - PAD}
-              stroke="rgba(0,0,0,0.08)"
-              strokeWidth={1}
-            />
-          ))}
-          {Array.from({ length: Math.ceil(bounds.metresY) + 1 }, (_, m) => (
-            <line
-              key={`gy-${m}`}
-              x1={PAD}
-              y1={PAD + m * SCALE}
-              x2={bounds.width - PAD}
-              y2={PAD + m * SCALE}
-              stroke="rgba(0,0,0,0.08)"
-              strokeWidth={1}
-            />
-          ))}
+          {Array.from({ length: Math.ceil(bounds.metresX - bounds.originX) + 2 }, (_, m) => {
+            const gx = bounds.originX + m;
+            return (
+              <line
+                key={`gx-${m}`}
+                x1={px(gx)}
+                y1={PAD}
+                x2={px(gx)}
+                y2={bounds.height - PAD}
+                stroke="rgba(0,0,0,0.08)"
+                strokeWidth={1}
+              />
+            );
+          })}
+          {Array.from({ length: Math.ceil(bounds.metresY - bounds.originY) + 2 }, (_, m) => {
+            const gy = bounds.originY + m;
+            return (
+              <line
+                key={`gy-${m}`}
+                x1={PAD}
+                y1={py(gy)}
+                x2={bounds.width - PAD}
+                y2={py(gy)}
+                stroke="rgba(0,0,0,0.08)"
+                strokeWidth={1}
+              />
+            );
+          })}
 
           {guides.x.map((x) => (
             <line
               key={`vg-${x}`}
-              x1={PAD + x * SCALE}
+              x1={px(x)}
               y1={PAD}
-              x2={PAD + x * SCALE}
+              x2={px(x)}
               y2={bounds.height - PAD}
               stroke="#e11d48"
               strokeDasharray="6 5"
@@ -544,9 +652,9 @@ export function FloorPlanCanvas({
             <line
               key={`hg-${y}`}
               x1={PAD}
-              y1={PAD + y * SCALE}
+              y1={py(y)}
               x2={bounds.width - PAD}
-              y2={PAD + y * SCALE}
+              y2={py(y)}
               stroke="#e11d48"
               strokeDasharray="6 5"
               strokeWidth={1.5}
@@ -558,7 +666,7 @@ export function FloorPlanCanvas({
             const exterior = roomWallExterior(room, polygon.length);
             const isSelected = room.id === selectedRoomId;
             const height = numberFromInput(room.height, 2.4);
-            const pointsAttr = polygon.map((p) => `${PAD + p.x * SCALE},${PAD + p.y * SCALE}`).join(" ");
+            const pointsAttr = polygon.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
             const lengths = edgeLengths(polygon);
             const centroid = polygon.reduce(
               (acc, p) => ({ x: acc.x + p.x / polygon.length, y: acc.y + p.y / polygon.length }),
@@ -589,10 +697,10 @@ export function FloorPlanCanvas({
                   return (
                     <line
                       key={`e-${i}`}
-                      x1={PAD + p.x * SCALE}
-                      y1={PAD + p.y * SCALE}
-                      x2={PAD + q.x * SCALE}
-                      y2={PAD + q.y * SCALE}
+                      x1={px(p.x)}
+                      y1={py(p.y)}
+                      x2={px(q.x)}
+                      y2={py(q.y)}
                       stroke={isSelected && selectedEdge === i ? "#0ea5e9" : "#111"}
                       strokeWidth={exterior[i] ? 10 : 3}
                       strokeLinecap="square"
@@ -614,8 +722,8 @@ export function FloorPlanCanvas({
                 })}
 
                 <text
-                  x={PAD + centroid.x * SCALE}
-                  y={PAD + centroid.y * SCALE}
+                  x={px(centroid.x)}
+                  y={py(centroid.y)}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="#8a8a8a"
@@ -633,10 +741,10 @@ export function FloorPlanCanvas({
                   return (
                     <g key={opening.id}>
                       <line
-                        x1={PAD + geom.x1 * SCALE}
-                        y1={PAD + geom.y1 * SCALE}
-                        x2={PAD + geom.x2 * SCALE}
-                        y2={PAD + geom.y2 * SCALE}
+                        x1={px(geom.x1)}
+                        y1={py(geom.y1)}
+                        x2={px(geom.x2)}
+                        y2={py(geom.y2)}
                         stroke={opening.kind === "door" ? "#fb7185" : "#38bdf8"}
                         strokeWidth={active ? 12 : 8}
                         strokeLinecap="butt"
@@ -657,8 +765,8 @@ export function FloorPlanCanvas({
                         }}
                       />
                       <text
-                        x={PAD + geom.cx * SCALE + geom.nx * 12}
-                        y={PAD + geom.cy * SCALE + geom.ny * 12}
+                        x={px(geom.cx) + geom.nx * 12}
+                        y={py(geom.cy) + geom.ny * 12}
                         textAnchor="middle"
                         fill={opening.kind === "door" ? "#9f1239" : "#0369a1"}
                         fontSize={11}
@@ -679,8 +787,8 @@ export function FloorPlanCanvas({
                       return (
                         <g key={`sel-${i}`}>
                           <text
-                            x={PAD + mid.x * SCALE}
-                            y={PAD + mid.y * SCALE - labelOffset}
+                            x={px(mid.x)}
+                            y={py(mid.y) - labelOffset}
                             textAnchor="middle"
                             fill="#e11d48"
                             fontSize={13}
@@ -690,8 +798,8 @@ export function FloorPlanCanvas({
                             {mm(lengths[i] ?? 0)}
                           </text>
                           <circle
-                            cx={PAD + mid.x * SCALE}
-                            cy={PAD + mid.y * SCALE}
+                            cx={px(mid.x)}
+                            cy={py(mid.y)}
                             r={5}
                             fill="#93c5fd"
                             stroke="#fff"
@@ -720,8 +828,8 @@ export function FloorPlanCanvas({
                             }}
                           />
                           <rect
-                            x={PAD + p.x * SCALE - 5}
-                            y={PAD + p.y * SCALE - 5}
+                            x={px(p.x) - 5}
+                            y={py(p.y) - 5}
                             width={10}
                             height={10}
                             fill="#fb7185"
@@ -748,7 +856,7 @@ export function FloorPlanCanvas({
                 const style = pipeStroke(pipe.kind);
                 const active = pipe.id === selectedPipeId;
                 const pointsAttr = pipe.points
-                  .map((p) => `${PAD + p.x * SCALE},${PAD + p.y * SCALE}`)
+                  .map((p) => `${px(p.x)},${py(p.y)}`)
                   .join(" ");
                 return (
                   <g key={pipe.id} className="hp-pipe-layer">
@@ -768,6 +876,7 @@ export function FloorPlanCanvas({
                         event.stopPropagation();
                         setSelectedPipeId(pipe.id);
                         setSelectedPlantId(null);
+                        setSelectedEmitterId(null);
                         onSelectRoom(null);
                         const grab = clientToMetres(event.clientX, event.clientY);
                         setDrag({ mode: "pipe-move", pipeId: pipe.id, origin: pipe.points, grab });
@@ -777,8 +886,8 @@ export function FloorPlanCanvas({
                       ? pipe.points.map((p, index) => (
                           <circle
                             key={`${pipe.id}-pt-${index}`}
-                            cx={PAD + p.x * SCALE}
-                            cy={PAD + p.y * SCALE}
+                            cx={px(p.x)}
+                            cy={py(p.y)}
                             r={active ? 6 : 4.5}
                             fill="#fff"
                             stroke={style.stroke}
@@ -789,6 +898,7 @@ export function FloorPlanCanvas({
                               event.stopPropagation();
                               setSelectedPipeId(pipe.id);
                               setSelectedPlantId(null);
+                              setSelectedEmitterId(null);
                               setDrag({ mode: "pipe-point", pipeId: pipe.id, pointIndex: index });
                             }}
                           />
@@ -801,10 +911,10 @@ export function FloorPlanCanvas({
 
           {showLayout
             ? floorPlants.map((plant) => {
-                const w = (plant.widthM ?? 0.5) * SCALE;
-                const d = (plant.depthM ?? 0.35) * SCALE;
-                const cx = PAD + plant.x * SCALE;
-                const cy = PAD + plant.y * SCALE;
+                const w = (plant.widthM ?? 0.5) * scale;
+                const d = (plant.depthM ?? 0.35) * scale;
+                const cx = px(plant.x);
+                const cy = py(plant.y);
                 const active = plant.id === selectedPlantId;
                 const fill = plantFill(plant.kind);
                 return (
@@ -818,6 +928,7 @@ export function FloorPlanCanvas({
                       event.stopPropagation();
                       setSelectedPlantId(plant.id);
                       setSelectedPipeId(null);
+                      setSelectedEmitterId(null);
                       onSelectRoom(null);
                       setDrag({ mode: "plant", plantId: plant.id });
                     }}
@@ -843,6 +954,112 @@ export function FloorPlanCanvas({
                       style={{ pointerEvents: "none" }}
                     >
                       {plant.label}
+                    </text>
+                  </g>
+                );
+              })
+            : null}
+
+          {showLayout
+            ? floorEmitters.map((emitter) => {
+                const w = emitter.widthM * scale;
+                const d = emitter.depthM * scale;
+                const cx = px(emitter.x);
+                const cy = py(emitter.y);
+                const active = emitter.id === selectedEmitterId;
+                if (emitter.kind === "ufh") {
+                  return (
+                    <g
+                      key={emitter.id}
+                      className="hp-emitter-layer"
+                      style={{ cursor: layoutMode ? "grab" : "default" }}
+                      onPointerDown={(event) => {
+                        if (!layoutMode || !heatingLayout) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setSelectedEmitterId(emitter.id);
+                        setSelectedPlantId(null);
+                        setSelectedPipeId(null);
+                        onSelectRoom(emitter.roomId);
+                        setDrag({ mode: "emitter", emitterId: emitter.id });
+                      }}
+                    >
+                      <rect
+                        x={cx - w / 2}
+                        y={cy - d / 2}
+                        width={w}
+                        height={d}
+                        rx={6}
+                        fill="rgba(14, 116, 144, 0.12)"
+                        stroke={active ? "#0e7490" : "#0891b2"}
+                        strokeWidth={active ? 2.5 : 1.5}
+                        strokeDasharray="6 4"
+                      />
+                      {/* simple loop hint */}
+                      <rect
+                        x={cx - w * 0.35}
+                        y={cy - d * 0.35}
+                        width={w * 0.7}
+                        height={d * 0.7}
+                        fill="none"
+                        stroke="#0891b2"
+                        strokeWidth={1}
+                        strokeDasharray="3 3"
+                        opacity={0.7}
+                        style={{ pointerEvents: "none" }}
+                      />
+                      <text
+                        x={cx}
+                        y={cy}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        fill="#0e7490"
+                        fontSize={11}
+                        fontWeight={700}
+                        style={{ pointerEvents: "none" }}
+                      >
+                        UFH
+                      </text>
+                    </g>
+                  );
+                }
+                return (
+                  <g
+                    key={emitter.id}
+                    className="hp-emitter-layer"
+                    transform={`rotate(${emitter.rotationDeg} ${cx} ${cy})`}
+                    style={{ cursor: layoutMode ? "grab" : "default" }}
+                    onPointerDown={(event) => {
+                      if (!layoutMode || !heatingLayout) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setSelectedEmitterId(emitter.id);
+                      setSelectedPlantId(null);
+                      setSelectedPipeId(null);
+                      onSelectRoom(emitter.roomId);
+                      setDrag({ mode: "emitter", emitterId: emitter.id });
+                    }}
+                  >
+                    <rect
+                      x={cx - w / 2}
+                      y={cy - d / 2}
+                      width={w}
+                      height={d}
+                      rx={2}
+                      fill={active ? "#fb7185" : "#f43f5e"}
+                      stroke="#fff"
+                      strokeWidth={active ? 2 : 1}
+                    />
+                    <text
+                      x={cx}
+                      y={cy - d / 2 - 6}
+                      textAnchor="middle"
+                      fill="#9f1239"
+                      fontSize={10}
+                      fontWeight={700}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      {emitter.outputWatts ? `${emitter.outputWatts}W` : "RAD"}
                     </text>
                   </g>
                 );
