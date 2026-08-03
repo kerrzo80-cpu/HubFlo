@@ -5137,6 +5137,99 @@ function buildEventVariationFromDeliveryEvent(event: JobDeliveryEvent, index: nu
   };
 }
 
+/** Rebuild a Daywork variation card from Core flow evidence when the delivery event was wiped. */
+function buildDayworkRecordFromFlowEvidence(
+  evidence: Record<string, EngineerFlowStepEvidenceValue>,
+  jobId: string,
+  costCentreId: string,
+): DayworkAccountRecord | null {
+  const record: DayworkAccountRecord = { populatedFrom: "core" };
+  let any = false;
+  const fieldMap: Record<string, keyof DayworkAccountRecord> = {
+    "daywork-description": "description",
+    "daywork-week-ending": "weekEnding",
+    "daywork-vo-ref": "voReference",
+    "daywork-labour-name": "labourName",
+    "daywork-labour-trade": "labourTrade",
+    "daywork-labour-days": "labourDaysJson",
+    "daywork-materials": "materialsJson",
+    "daywork-plant": "plantJson",
+    "daywork-plumber-sign": "plumberSignature",
+    "daywork-client-sign": "clientSignature",
+  };
+  for (const [stepId, field] of Object.entries(fieldMap)) {
+    const value = evidence[`${jobId}:${costCentreId}:${stepId}`];
+    const text = value?.text?.trim() || value?.numberValue?.trim() || value?.photoName?.trim();
+    if (!text) continue;
+    (record as Record<string, string | undefined>)[field] = text;
+    record.completedAt = value?.capturedAt || record.completedAt;
+    any = true;
+  }
+  if (record.labourDaysJson) {
+    record.labourHours = String(totalDayworkLabourHours(record) || "");
+  }
+  return any ? record : null;
+}
+
+function synthesiseDayworkDeliveryEventsFromEvidence(options: {
+  jobId: string;
+  jobRef: string;
+  flowStepEvidence: Record<string, EngineerFlowStepEvidenceValue>;
+  jobCostCentres: EstimateCostCentre[];
+  existingEvents: JobDeliveryEvent[];
+}): JobDeliveryEvent[] {
+  const centreIds = new Set<string>();
+  for (const centre of options.jobCostCentres) {
+    if (centre.id.includes("daywork") || /daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) {
+      centreIds.add(centre.id);
+    }
+  }
+  centreIds.add(`${options.jobId}-daywork-account`);
+  for (const key of Object.keys(options.flowStepEvidence)) {
+    if (!key.startsWith(`${options.jobId}:`) || !key.includes(":daywork-")) continue;
+    const withoutJob = key.slice(options.jobId.length + 1);
+    const stepSep = withoutJob.lastIndexOf(":");
+    if (stepSep <= 0) continue;
+    const costCentreId = withoutJob.slice(0, stepSep);
+    if (costCentreId) centreIds.add(costCentreId);
+  }
+
+  const synthesised: JobDeliveryEvent[] = [];
+  for (const costCentreId of centreIds) {
+    const eventId = `daywork-${options.jobId}-${costCentreId}`;
+    if (options.existingEvents.some((event) => event.id === eventId)) continue;
+    const record = buildDayworkRecordFromFlowEvidence(options.flowStepEvidence, options.jobId, costCentreId);
+    if (!record) continue;
+    const bothSigned = Boolean(record.plumberSignature?.trim() && record.clientSignature?.trim());
+    if (!bothSigned && !record.description?.trim()) continue;
+    const totals = dayworkAccountTotals(record);
+    const labourHours = totalDayworkLabourHours(record) || totals.labourHours;
+    synthesised.push({
+      id: eventId,
+      jobId: options.jobId,
+      jobRef: options.jobRef,
+      kind: "variation",
+      actor: record.labourName?.trim() || "Field",
+      summary: record.description?.trim() || `Daywork account${record.voReference ? ` · ${record.voReference}` : ""}`,
+      createdAt: record.completedAt || new Date().toISOString(),
+      hours: labourHours || undefined,
+      costValue: Math.round(totals.total * 100) / 100 || 0,
+      sellValue: Math.round(totals.total * 100) / 100 || 0,
+      reason: "Daywork account",
+      requiresClientApproval: true,
+      clientApprovalStatus: bothSigned ? "Viewed" : "Not sent",
+      status: bothSigned ? "Office review" : "Draft",
+      source: "Engineer app",
+      costCentreId,
+      formType: "daywork",
+      plumberSignature: record.plumberSignature,
+      clientSignature: record.clientSignature,
+      weekEnding: record.weekEnding,
+    });
+  }
+  return synthesised;
+}
+
 function sumMoney(items: Array<{ budget?: number; costValue?: number; sellValue?: number }>, key: "budget" | "costValue" | "sellValue") {
   return items.reduce((total, item) => total + (item[key] ?? 0), 0);
 }
@@ -8931,7 +9024,7 @@ export default function Dashboard() {
 
   const selectedJobVariations = useMemo(
     () => (selectedJob ? buildVariationsForJob(selectedJob) : []),
-    [jobDeliveryEvents, selectedJob],
+    [flowStepEvidence, jobDeliveryEvents, jobEstimateCostCentres, selectedJob],
   );
 
   const selectedJobBillableVariations = useMemo(
@@ -9661,6 +9754,45 @@ export default function Dashboard() {
             if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
             if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
             if (hubState.jobSections) setJobSections(hubState.jobSections);
+          } else if (hubState.jobCostCentres) {
+            // Keep local cost-centre edits, but never drop Field Daywork centres/sections.
+            setJobEstimateCostCentres((current) => {
+              const next = { ...current };
+              for (const [jobId, centres] of Object.entries(hubState.jobCostCentres || {})) {
+                if (!Array.isArray(centres)) continue;
+                const local = Array.isArray(next[jobId]) ? [...next[jobId]] : [];
+                for (const centre of centres) {
+                  const isDaywork =
+                    String(centre.id || "").includes("daywork") ||
+                    /daywork/i.test(`${centre.name || ""} ${centre.templateName || ""}`);
+                  if (!isDaywork) continue;
+                  if (!local.some((item) => item.id === centre.id)) {
+                    local.push(centre);
+                  }
+                }
+                next[jobId] = local;
+              }
+              return next;
+            });
+            if (hubState.jobVariationSections) {
+              setJobVariationSections((current) => {
+                const next = { ...current };
+                for (const [jobId, sections] of Object.entries(hubState.jobVariationSections || {})) {
+                  if (!Array.isArray(sections)) continue;
+                  const local = Array.isArray(next[jobId]) ? [...next[jobId]] : [];
+                  for (const section of sections) {
+                    if (!/daywork/i.test(String(section.name || "")) && !String(section.id || "").includes("daywork")) {
+                      continue;
+                    }
+                    if (!local.some((item) => item.id === section.id)) {
+                      local.push(section);
+                    }
+                  }
+                  next[jobId] = local;
+                }
+                return next;
+              });
+            }
           }
           if (!hasRecentLocalSetupEdit && !pendingSetupSaveRef.current && hubState.customQuoteCatalog) {
             setCustomQuoteCatalog(hubState.customQuoteCatalog);
@@ -9675,7 +9807,9 @@ export default function Dashboard() {
           }
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
-          if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
+          if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current && hubState.jobVariationSections) {
+            setJobVariationSections(hubState.jobVariationSections);
+          }
           if (hubState.communications) setCommunicationRecords(hubState.communications);
           if (hubState.suppliers) setSuppliers(hubState.suppliers);
           if (hubState.contacts) setContacts(hubState.contacts);
@@ -15932,7 +16066,14 @@ export default function Dashboard() {
   }
 
   function buildVariationsForJob(job: Job) {
-    const capturedVariations = jobDeliveryEvents
+    const synthesisedDaywork = synthesiseDayworkDeliveryEventsFromEvidence({
+      jobId: job.id,
+      jobRef: job.ref,
+      flowStepEvidence,
+      jobCostCentres: jobEstimateCostCentres[job.id] ?? [],
+      existingEvents: jobDeliveryEvents,
+    });
+    const capturedVariations = [...jobDeliveryEvents, ...synthesisedDaywork]
       .filter((event) => event.jobId === job.id && event.kind === "variation")
       .map((event, index) => buildEventVariationFromDeliveryEvent(event, index));
 
@@ -17805,9 +17946,54 @@ export default function Dashboard() {
   function openDayworkAccountRecord(jobId: string, options?: { costCentreId?: string }) {
     const dayworkCentreId = options?.costCentreId || `${jobId}-daywork-account`;
     const centres = jobEstimateCostCentres[jobId] ?? [];
-    const match =
+    let match =
       centres.find((centre) => centre.id === dayworkCentreId) ||
       centres.find((centre) => /daywork/i.test(`${centre.name} ${centre.templateName || ""}`));
+
+    // If Field saved evidence but the variation cost centre was wiped from Core UI state, recreate it.
+    if (!match) {
+      const hasEvidence = Object.keys(flowStepEvidence).some(
+        (key) => key.startsWith(`${jobId}:`) && key.includes(":daywork-"),
+      );
+      if (hasEvidence || options?.costCentreId) {
+        const sectionId = `${jobId}-variation-section-daywork`;
+        const created: EstimateCostCentre = {
+          id: dayworkCentreId,
+          name: "Daywork account",
+          templateName: "Daywork account",
+          variation: true,
+          variationSectionId: sectionId,
+          clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
+          engineerDescription:
+            "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+          materials: [],
+          labour: [],
+        };
+        setJobVariationSections((current) => {
+          const existing = current[jobId] ?? [];
+          if (existing.some((section) => section.id === sectionId || /daywork/i.test(section.name))) {
+            return current;
+          }
+          return {
+            ...current,
+            [jobId]: [
+              ...existing,
+              {
+                id: sectionId,
+                name: "Daywork / reactive variations",
+                description: "Reactive daywork sheets raised from Field.",
+              },
+            ],
+          };
+        });
+        setJobEstimateCostCentres((current) => ({
+          ...current,
+          [jobId]: [...(current[jobId] ?? []), created],
+        }));
+        match = created;
+      }
+    }
+
     if (!match) {
       showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
       setActiveJobTab("cost-centres");

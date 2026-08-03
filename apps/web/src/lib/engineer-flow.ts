@@ -944,12 +944,17 @@ export function syncDayworkAccountToJobVariation(options: {
     options.record.description?.trim() ||
     `Daywork account${options.record.voReference ? ` · ${options.record.voReference}` : ""}`;
 
+  const actorName =
+    options.engineerName?.trim() ||
+    options.record.labourName?.trim() ||
+    "Field";
+
   const nextEvent: Record<string, unknown> = {
     id: eventId,
     jobId: options.jobId,
     jobRef: options.jobRef,
     kind: "variation",
-    actor: options.record.plumberSignature || options.engineerName,
+    actor: actorName,
     summary,
     createdAt:
       existingIndex >= 0 && typeof events[existingIndex]?.createdAt === "string"
@@ -985,4 +990,92 @@ export function syncDayworkAccountToJobVariation(options: {
     jobDeliveryEvents: events,
   });
   return nextEvent;
+}
+
+function collectDayworkJobCentrePairs(hubState: HubDetailState): Array<{ jobId: string; costCentreId: string }> {
+  const pairs = new Map<string, { jobId: string; costCentreId: string }>();
+  const centresByJob = (hubState.jobCostCentres ?? {}) as Record<string, Array<Record<string, unknown>>>;
+
+  for (const [jobId, centres] of Object.entries(centresByJob)) {
+    if (!Array.isArray(centres)) continue;
+    for (const centre of centres) {
+      const costCentreId = typeof centre.id === "string" ? centre.id.trim() : "";
+      if (!costCentreId) continue;
+      const isDaywork =
+        costCentreId.includes("daywork") ||
+        /daywork/i.test(String(centre.name || "")) ||
+        /daywork/i.test(String(centre.templateName || ""));
+      if (!isDaywork) continue;
+      pairs.set(`${jobId}::${costCentreId}`, { jobId, costCentreId });
+    }
+  }
+
+  const evidenceStore = (hubState.flowStepEvidence ?? {}) as Record<string, unknown>;
+  const dayworkStepIds = new Set([
+    ...dayworkAccountFlowTemplate.steps.map((step) => step.id),
+    "daywork-labour-hours",
+    "daywork-labour-rate",
+    "daywork-markup-percent",
+  ]);
+
+  for (const key of Object.keys(evidenceStore)) {
+    const stepId = dayworkAccountFlowTemplate.steps.find((step) => key.endsWith(`:${step.id}`))?.id
+      || (key.endsWith(":daywork-labour-hours")
+        ? "daywork-labour-hours"
+        : key.endsWith(":daywork-labour-rate")
+          ? "daywork-labour-rate"
+          : key.endsWith(":daywork-markup-percent")
+            ? "daywork-markup-percent"
+            : "");
+    if (!stepId || !dayworkStepIds.has(stepId)) continue;
+    const suffix = `:${stepId}`;
+    if (!key.endsWith(suffix)) continue;
+    const withoutStep = key.slice(0, -suffix.length);
+    const separator = withoutStep.lastIndexOf(":");
+    if (separator <= 0) continue;
+    const jobId = withoutStep.slice(0, separator);
+    const costCentreId = withoutStep.slice(separator + 1);
+    if (!jobId || !costCentreId) continue;
+    pairs.set(`${jobId}::${costCentreId}`, { jobId, costCentreId });
+  }
+
+  return Array.from(pairs.values());
+}
+
+/**
+ * Rebuild Daywork variation cards from saved Field/Core evidence.
+ * Protects against stale Core PUTs wiping jobDeliveryEvents.
+ */
+export function reconcileDayworkVariationsFromEvidence() {
+  const hubState = getHubDetailState();
+  const events = Array.isArray(hubState.jobDeliveryEvents)
+    ? (hubState.jobDeliveryEvents as Array<Record<string, unknown>>)
+    : [];
+  const jobRefById = new Map<string, string>();
+  for (const event of events) {
+    if (typeof event.jobId === "string" && typeof event.jobRef === "string" && event.jobRef.trim()) {
+      jobRefById.set(event.jobId, event.jobRef.trim());
+    }
+  }
+
+  const rebuilt: Array<Record<string, unknown>> = [];
+  for (const { jobId, costCentreId } of collectDayworkJobCentrePairs(hubState)) {
+    // Ensure the variation cost centre still exists when only evidence survived.
+    try {
+      ensureDayworkVariationCostCentre(jobId);
+    } catch {
+      // Best-effort.
+    }
+    const record = buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
+    if (!record) continue;
+    const event = syncDayworkAccountToJobVariation({
+      jobId,
+      jobRef: jobRefById.get(jobId) || jobId,
+      costCentreId,
+      engineerName: record.labourName || "Field",
+      record,
+    });
+    if (event) rebuilt.push(event);
+  }
+  return rebuilt;
 }
