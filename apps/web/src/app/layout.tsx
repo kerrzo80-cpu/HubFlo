@@ -1,9 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import { EnvHostBanner } from "@/components/EnvHostBanner";
 import { PwaIconLinks } from "./pwa-icon-links";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://nexa-pilot.onrender.com"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://nexa-live.onrender.com"),
   title: "NeXa Core",
   description: "Bound into one command center for service operations.",
   applicationName: "NeXa Core",
@@ -36,6 +37,7 @@ export default function RootLayout({
     <html lang="en">
       <body>
         <PwaIconLinks />
+        <EnvHostBanner />
         {children}
       </body>
     </html>

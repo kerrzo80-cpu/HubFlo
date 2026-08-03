@@ -27,6 +27,14 @@ export async function GET() {
     deployment: {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
+      service:
+        process.env.RENDER_SERVICE_NAME ||
+        (process.env.NEXT_PUBLIC_APP_URL?.includes("nexa-live")
+          ? "nexa-live"
+          : process.env.NEXT_PUBLIC_APP_URL?.includes("nexa-pilot")
+            ? "nexa-pilot"
+            : "local"),
+      appUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
       talkLab: "/field/talk-lab",
       talkLabBuild: "realtime-voice-picker-v1",
       heatDesign: "/heat-design",
@@ -38,7 +46,7 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "daywork-dashboard-v1",
+      fieldCoreLive: "env-banner-v1",
     },
     daywork: {
       sheetCount: dayworkSheetCount,
