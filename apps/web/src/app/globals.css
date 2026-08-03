@@ -4644,10 +4644,10 @@ h1 {
 
 .record-autosave-pill {
   align-items: center;
-  background: #e8f6ee;
-  border: 1px solid #9dceb2;
+  background: #e5f4fa;
+  border: 1px solid #9cc7db;
   border-radius: 999px;
-  color: #1f6b45;
+  color: #0f5f7d;
   display: inline-flex;
   font-size: 10px;
   font-weight: 800;
@@ -7453,8 +7453,8 @@ h1 {
 }
 
 .simpro-save-button {
-  background: #3cbd52;
-  border: 1px solid #3cbd52;
+  background: #157fa8;
+  border: 1px solid #157fa8;
   color: #fff;
 }
 
@@ -12239,7 +12239,7 @@ h1 {
 
 .daywork-account-masthead {
   align-items: flex-start;
-  background: linear-gradient(135deg, #1f3a2e 0%, #2d5a45 55%, #3d7a5c 100%);
+  background: linear-gradient(135deg, #0f5f7d 0%, #157fa8 55%, #58acd5 100%);
   color: #fff;
   display: flex;
   gap: 16px;
@@ -12344,14 +12344,20 @@ h1 {
 }
 
 .daywork-account-footer {
-  background: #f4f8f6;
+  align-items: center;
+  background: #f4f8fb;
   border-top: 1px solid #e4ebf0;
   color: #5b6570;
+  display: flex;
+  flex-wrap: wrap;
   font-size: 12px;
+  gap: 12px;
+  justify-content: space-between;
   padding: 12px 20px;
 }
 
 .daywork-account-footer p {
+  flex: 1 1 220px;
   margin: 0;
 }
 
@@ -12377,7 +12383,7 @@ h1 {
 }
 
 .field-daywork-actions .primary-btn {
-  background: #1f3a2e;
+  background: #157fa8;
   color: #fff;
 }
 
@@ -21365,19 +21371,24 @@ kbd,
   }
 }
 
-/* NeXa command-center brand layer */
+/* Errol Watson Group brand layer — logo cyan + charcoal */
 :root {
-  --nexa-slate: #202a36;
-  --nexa-slate-900: #151d26;
-  --nexa-slate-800: #2b3542;
+  --nexa-slate: #262122;
+  --nexa-slate-900: #1a1718;
+  --nexa-slate-800: #3a3436;
   --nexa-brass: #8e743e;
   --nexa-brass-light: #b8a06a;
   --nexa-brass-dark: #5e4a24;
-  --nexa-porcelain: #e7ecef;
+  --nexa-porcelain: #f3f6f7;
   --nexa-white: #ffffff;
   --nexa-steel: #5d6673;
-  --nexa-verdigris: #2e8c7d;
-  --nexa-verdigris-soft: #e7f5f2;
+  /* EWG logo cyan — primary brand (replaces verdigris green) */
+  --nexa-cyan: #157fa8;
+  --nexa-cyan-light: #58acd5;
+  --nexa-cyan-deep: #0f5f7d;
+  --nexa-cyan-soft: #e5f4fa;
+  --nexa-verdigris: var(--nexa-cyan);
+  --nexa-verdigris-soft: var(--nexa-cyan-soft);
   --navy: var(--nexa-slate);
   --navy-900: var(--nexa-slate-900);
   --navy-800: var(--nexa-slate-800);
@@ -21389,23 +21400,23 @@ kbd,
   --line-soft: #edf1f4;
   --canvas: var(--nexa-porcelain);
   --surface: var(--nexa-white);
-  --blue: var(--nexa-verdigris);
-  --blue-dark: #237567;
-  --blue-deep: var(--nexa-verdigris);
-  --blue-soft: var(--nexa-verdigris-soft);
+  --blue: var(--nexa-cyan-light);
+  --blue-dark: var(--nexa-cyan);
+  --blue-deep: var(--nexa-cyan-deep);
+  --blue-soft: var(--nexa-cyan-soft);
   --champagne: var(--nexa-brass);
   --amber: #f6b23c;
   --amber-soft: #fff7e8;
-  --green: #22c55e;
-  --green-soft: #e9f9ef;
+  --green: #278459;
+  --green-soft: #e8f5ee;
   --red: #e5484d;
   --red-soft: #fff0f1;
-  --shadow: 0 12px 34px rgba(32, 42, 54, 0.09);
+  --shadow: 0 12px 34px rgba(15, 95, 125, 0.1);
 }
 
 body {
   background:
-    radial-gradient(circle at 92% -12%, rgba(46, 140, 125, 0.1), transparent 25rem),
+    radial-gradient(circle at 92% -12%, rgba(88, 172, 213, 0.14), transparent 25rem),
     linear-gradient(180deg, #ffffff 0%, var(--nexa-porcelain) 100%);
   color: var(--ink);
 }
@@ -21475,8 +21486,8 @@ body {
 }
 
 .global-search:focus-within {
-  border-color: rgba(46, 140, 125, 0.72);
-  box-shadow: 0 0 0 3px rgba(46, 140, 125, 0.1);
+  border-color: rgba(21, 127, 168, 0.72);
+  box-shadow: 0 0 0 3px rgba(88, 172, 213, 0.18);
 }
 
 .create-button,
@@ -21487,9 +21498,9 @@ body {
 .engineer-primary-action,
 .engineer-po-form button,
 .engineer-outcome-bar button {
-  background: linear-gradient(135deg, var(--nexa-slate) 0%, var(--nexa-slate-800) 100%) !important;
-  border-color: var(--nexa-slate) !important;
-  box-shadow: 0 14px 26px rgba(32, 42, 54, 0.16) !important;
+  background: linear-gradient(135deg, var(--nexa-cyan-deep) 0%, var(--nexa-cyan) 100%) !important;
+  border-color: var(--nexa-cyan-deep) !important;
+  box-shadow: 0 14px 26px rgba(15, 95, 125, 0.2) !important;
   color: #fff !important;
 }
 
@@ -21497,7 +21508,7 @@ body {
 .primary-button:hover,
 .simpro-blue-button:hover,
 .simpro-save-button:hover {
-  background: linear-gradient(135deg, var(--nexa-slate-800) 0%, var(--nexa-verdigris) 100%) !important;
+  background: linear-gradient(135deg, var(--nexa-cyan) 0%, var(--nexa-cyan-light) 100%) !important;
 }
 
 .header-icon,

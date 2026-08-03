@@ -9,7 +9,10 @@ export const runtime = "nodejs";
 
 type Params = { params: Promise<{ id: string }> };
 
-/** Generate Daywork Account PDF(s) for a job — used when submitting valuations. */
+/** Generate Daywork Account PDF(s) for a job — used when submitting valuations.
+ *  ?format=pdf returns the first sheet as application/pdf for in-browser preview.
+ *  Default JSON includes base64 attachments for email.
+ */
 export async function GET(request: Request, { params }: Params) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.showJobs && !access.showFinance) {
@@ -24,6 +27,7 @@ export async function GET(request: Request, { params }: Params) {
 
   const url = new URL(request.url);
   const costCentreId = url.searchParams.get("costCentreId")?.trim();
+  const format = url.searchParams.get("format")?.trim().toLowerCase();
   let sheets = listDayworkSheetsForJob(jobId);
   if (costCentreId) {
     sheets = sheets.filter((sheet) => sheet.costCentreId === costCentreId);
@@ -46,6 +50,27 @@ export async function GET(request: Request, { params }: Params) {
 
   if (!sheets.length) {
     return NextResponse.json({ error: "No Daywork Account sheet found for this job." }, { status: 404 });
+  }
+
+  if (format === "pdf") {
+    const sheet = sheets[0]!;
+    const bytes = await createDayworkAccountPdf({
+      customer: job.customer || "Client",
+      site: job.site || "",
+      engineer: sheet.labourName || sheet.plumberSignerName || "Field",
+      jobRef: job.ref,
+      contract: job.site,
+      record: sheet,
+    });
+    const filename = dayworkPdfFilename(sheet, job.ref);
+    return new NextResponse(new Uint8Array(bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${filename}"`,
+        "Cache-Control": "no-store",
+      },
+    });
   }
 
   const attachments = [];

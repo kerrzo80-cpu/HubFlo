@@ -21,7 +21,7 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "daywork-disk-v2",
+      fieldCoreLive: "ewg-ui-v1",
     },
     checkedAt: new Date().toISOString(),
   });

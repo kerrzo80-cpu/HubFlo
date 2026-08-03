@@ -21,13 +21,14 @@ type Props = {
   engineerName: string;
   initialRecord?: DayworkAccountRecord | null;
   onSaved?: (record: DayworkAccountRecord) => void;
+  onCancel?: () => void;
 };
 
 function updateRow<T>(rows: T[], index: number, patch: Partial<T>): T[] {
   return rows.map((row, i) => (i === index ? { ...row, ...patch } : row));
 }
 
-export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSaved }: Props) {
+export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSaved, onCancel }: Props) {
   const [draft, setDraft] = useState<DayworkSheetDraft>(() =>
     dayworkDraftFromRecord(initialRecord, { labourName: engineerName, labourTrade: "Plumber" }),
   );
@@ -363,9 +364,16 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
         />
       </section>
 
-      <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
-        {saving ? "Saving…" : "Save Daywork Account"}
-      </button>
+      <div className="daywork-form-actions">
+        {onCancel ? (
+          <button type="button" className="secondary-btn" disabled={saving} onClick={onCancel}>
+            Cancel
+          </button>
+        ) : null}
+        <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
+          {saving ? "Saving…" : "Save and finish"}
+        </button>
+      </div>
     </div>
   );
 }

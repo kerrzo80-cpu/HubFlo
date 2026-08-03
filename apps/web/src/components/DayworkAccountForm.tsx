@@ -27,6 +27,9 @@ type Props = {
   /** When set, office can price labour rate + each material/plant line before valuations. */
   onSaveOfficeCosts?: (costs: DayworkOfficeCostsPayload) => Promise<void> | void;
   savingOfficeCosts?: boolean;
+  /** Opens the valuation PDF preview (same file attached to valuations). */
+  onPreviewPdf?: () => void | Promise<void>;
+  previewingPdf?: boolean;
 };
 
 function money(value: number) {
@@ -34,7 +37,13 @@ function money(value: number) {
   return value.toLocaleString("en-GB", { style: "currency", currency: "GBP" });
 }
 
-export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCosts }: Props) {
+export function DayworkAccountForm({
+  context,
+  onSaveOfficeCosts,
+  savingOfficeCosts,
+  onPreviewPdf,
+  previewingPdf,
+}: Props) {
   const sections = buildDayworkFormSections(context);
   const totals = dayworkAccountTotals(context.record);
   const filledCount = sections.reduce(
@@ -271,6 +280,16 @@ export function DayworkAccountForm({ context, onSaveOfficeCosts, savingOfficeCos
           Signed sheets land in job → Cost centres → Variations. A Daywork PDF (with printed names + signatures)
           attaches when you submit the valuation.
         </p>
+        {onPreviewPdf ? (
+          <button
+            className="simpro-grey-button"
+            type="button"
+            disabled={Boolean(previewingPdf)}
+            onClick={() => void onPreviewPdf()}
+          >
+            {previewingPdf ? "Opening PDF…" : "Preview valuation PDF"}
+          </button>
+        ) : null}
       </footer>
     </article>
   );

@@ -421,11 +421,7 @@ export default function JobDetailPage() {
       <p className="job-lead">{job.description}</p>
 
       <div className="field-daywork-actions">
-        {checklistMode === "daywork" ? (
-          <button type="button" className="secondary-btn" disabled={dayworkBusy} onClick={() => void backToJobChecklist()}>
-            Back to job checklist
-          </button>
-        ) : (
+        {checklistMode === "daywork" ? null : (
           <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
             {dayworkBusy ? "Opening…" : "Add Daywork Account"}
           </button>
@@ -493,9 +489,11 @@ export default function JobDetailPage() {
               scheduleId={job.scheduleId}
               engineerName={job.engineerName}
               initialRecord={dayworkRecord}
+              onCancel={() => void backToJobChecklist()}
               onSaved={(record) => {
                 setDayworkRecord(record);
                 setNotice("Daywork Account saved — check Core Variations / Engineer Flow.");
+                void backToJobChecklist();
               }}
             />
           ) : (

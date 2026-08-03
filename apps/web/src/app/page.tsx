@@ -7737,6 +7737,7 @@ export default function Dashboard() {
     Record<string, DayworkAccountRecord & { jobId: string; jobRef: string; costCentreId: string; updatedAt: string }>
   >({});
   const [savingDayworkOfficeCosts, setSavingDayworkOfficeCosts] = useState(false);
+  const [previewingDayworkPdf, setPreviewingDayworkPdf] = useState(false);
   const [jobDeliveryDrafts, setJobDeliveryDrafts] = useState<Record<string, JobDeliveryDraft>>({});
   const [communicationRecords, setCommunicationRecords] = useState<CommunicationRecord[]>([]);
   const [communicationDrafts, setCommunicationDrafts] = useState<Record<string, CommunicationDraft>>({});
@@ -15524,6 +15525,17 @@ export default function Dashboard() {
         : recordSaveStatus === "error"
           ? "Save failed"
           : "All changes saved";
+    const cancelRecord = () => {
+      if (mode === "nested") {
+        if (homeView === "quote-cost-centre-record") returnToQuoteRecord();
+        else returnToJobRecord();
+        return;
+      }
+      if (homeView === "lead-record") returnToLeadsDirectory();
+      else if (homeView === "quote-record") returnToQuotesDirectory();
+      else if (homeView === "job-record") returnToJobsDirectory();
+      else if (homeView === "invoice-record") returnFromInvoiceRecord();
+    };
     const finishNested = () => {
       void saveCurrentCostCentreAndFinish(
         homeView === "quote-cost-centre-record" ? returnToQuoteRecord : returnToJobRecord,
@@ -15538,28 +15550,27 @@ export default function Dashboard() {
           {statusLabel}
         </span>
         <button
-          className="secondary-button record-save-button"
+          className="secondary-button record-cancel-button"
           type="button"
-          aria-label={recordSaveStatus === "saving" ? "Saving changes" : "Save now"}
-          title={recordSaveStatus === "saving" ? "Saving changes" : "Save now without leaving"}
+          aria-label="Cancel"
+          title="Leave without finishing this record"
           disabled={recordSaveStatus === "saving"}
-          onClick={() => void saveCurrentRecord()}
+          onClick={cancelRecord}
         >
-          <Check size={16} />
-          {recordSaveStatus === "saving" ? "Saving" : "Save now"}
+          Cancel
         </button>
         <button
           className="primary-button record-finish-button"
           type="button"
-          aria-label={mode === "nested" ? "Save and return" : "Save and finish"}
-          title={mode === "nested" ? "Save and return to the parent record" : "Save and close this record tab"}
+          aria-label="Save and finish"
+          title="Save and close this record"
           disabled={recordSaveStatus === "saving"}
           onClick={() => {
             if (mode === "nested") finishNested();
             else void saveAndFinishRecord();
           }}
         >
-          {recordSaveStatus === "saving" ? "Saving..." : mode === "nested" ? "Save and return" : "Save and finish"}
+          {recordSaveStatus === "saving" ? "Saving..." : "Save and finish"}
         </button>
       </div>
     );
@@ -26342,6 +26353,30 @@ export default function Dashboard() {
                 record: dayworkRecord,
               }}
               savingOfficeCosts={savingDayworkOfficeCosts}
+              previewingPdf={previewingDayworkPdf}
+              onPreviewPdf={async () => {
+                if (!centre) return;
+                setPreviewingDayworkPdf(true);
+                try {
+                  const response = await fetch(
+                    `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(centre.id)}&format=pdf`,
+                    { headers: requestHeaders },
+                  );
+                  if (!response.ok) {
+                    const body = (await response.json().catch(() => null)) as { error?: string } | null;
+                    throw new Error(body?.error || "Could not build Daywork PDF preview.");
+                  }
+                  const blob = await response.blob();
+                  const url = URL.createObjectURL(blob);
+                  window.open(url, "_blank", "noopener,noreferrer");
+                  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                  showNotice("Opened Daywork PDF preview — this is the file attached to valuations.");
+                } catch (error) {
+                  showNotice(error instanceof Error ? error.message : "Could not open Daywork PDF preview.");
+                } finally {
+                  setPreviewingDayworkPdf(false);
+                }
+              }}
               onSaveOfficeCosts={async (costs) => {
                 if (!centre) return;
                 setSavingDayworkOfficeCosts(true);
@@ -28065,16 +28100,10 @@ export default function Dashboard() {
                 </>
               ) : homeView === "cost-centre-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnToJobRecord}>
-                    Back to job
-                  </button>
                   {renderRecordSaveControls("nested")}
                 </>
               ) : homeView === "quote-cost-centre-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnToQuoteRecord}>
-                    Back to quote
-                  </button>
                   {renderRecordSaveControls("nested")}
                 </>
               ) : homeView === "quote-create" ? (
@@ -28217,9 +28246,6 @@ export default function Dashboard() {
                 </>
               ) : homeView === "invoice-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnFromInvoiceRecord}>
-                    Back to source
-                  </button>
                   {renderRecordSaveControls("record")}
                   <button className="secondary-button" onClick={() => setActiveInvoiceTab("preview")}>
                     Preview client form
@@ -28242,15 +28268,6 @@ export default function Dashboard() {
                 </>
               ) : homeView === "quote-record" || homeView === "job-record" ? (
                 <>
-                  <button
-                    className="secondary-button"
-                    onClick={() => {
-                      if (homeView === "quote-record") returnToQuotesDirectory();
-                      else returnToJobsDirectory();
-                    }}
-                  >
-                    {homeView === "quote-record" ? "Back to quotes" : "Back to jobs"}
-                  </button>
                   {renderRecordSaveControls("record")}
                   <button
                     className="secondary-button"
@@ -28348,9 +28365,6 @@ export default function Dashboard() {
                 </>
               ) : homeView === "lead-record" ? (
                 <>
-                  <button className="secondary-button" onClick={returnToLeadsDirectory}>
-                    Back to leads
-                  </button>
                   {renderRecordSaveControls("record")}
                   {selectedLead ? (
                     <button className="primary-button" onClick={() => markLeadQuoted(selectedLead)}>
@@ -31447,15 +31461,7 @@ export default function Dashboard() {
                     <strong>{selectedQuote.ref} - {selectedQuoteCostCentre.name}</strong>
                   </div>
                   <div className="simpro-title-actions">
-                    <button className="simpro-grey-button" type="button" onClick={returnToQuoteRecord}>CANCEL</button>
-                    <button
-                      className="simpro-save-button"
-                      type="button"
-                      disabled={recordSaveStatus === "saving"}
-                      onClick={() => void saveCurrentCostCentreAndFinish(returnToQuoteRecord)}
-                    >
-                      {recordSaveStatus === "saving" ? "SAVING..." : "SAVE AND FINISH"}
-                    </button>
+                    {/* Cancel + Save and finish live in the workspace header */}
                   </div>
                 </div>
 
@@ -34759,15 +34765,7 @@ export default function Dashboard() {
                     <strong>{selectedJob.sourceQuoteId ? selectedJobSourceQuote?.ref ?? selectedJob.ref : selectedJob.ref} - {selectedCostCentre.name}</strong>
                   </div>
                   <div className="simpro-title-actions">
-                    <button className="simpro-grey-button" type="button" onClick={returnToJobRecord}>CANCEL</button>
-                    <button
-                      className="simpro-save-button"
-                      type="button"
-                      disabled={recordSaveStatus === "saving"}
-                      onClick={() => void saveCurrentCostCentreAndFinish(returnToJobRecord)}
-                    >
-                      {recordSaveStatus === "saving" ? "SAVING..." : "SAVE AND FINISH"}
-                    </button>
+                    {/* Cancel + Save and finish live in the workspace header */}
                   </div>
                 </div>
 

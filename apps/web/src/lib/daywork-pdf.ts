@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { PDFDocument, PageSizes, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 
 import {
@@ -9,7 +11,7 @@ import {
 
 const ink = rgb(0.09, 0.18, 0.23);
 const muted = rgb(0.35, 0.44, 0.48);
-const blue = rgb(0.08, 0.52, 0.72);
+const blue = rgb(0.08, 0.5, 0.66); // EWG cyan
 const line = rgb(0.81, 0.87, 0.89);
 
 function safeText(value: unknown) {
@@ -51,6 +53,20 @@ async function embedDataUrl(pdf: PDFDocument, value?: string): Promise<PDFImage 
   }
 }
 
+async function embedEwgLogo(pdf: PDFDocument): Promise<PDFImage | undefined> {
+  const candidates = [
+    path.join(process.cwd(), "public", "ewg-logo.png"),
+    path.join(process.cwd(), "apps", "web", "public", "ewg-logo.png"),
+  ];
+  const file = candidates.find((candidate) => existsSync(candidate));
+  if (!file) return undefined;
+  try {
+    return pdf.embedPng(readFileSync(file));
+  } catch {
+    return undefined;
+  }
+}
+
 export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   const pdf = await PDFDocument.create();
   pdf.setTitle(`Daywork Account - ${context.jobRef}`);
@@ -60,6 +76,7 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
 
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const logo = await embedEwgLogo(pdf);
   const margin = 40;
   const pageWidth = PageSizes.A4[0];
   const contentWidth = pageWidth - margin * 2;
@@ -69,15 +86,40 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   function addPage() {
     page = pdf.addPage(PageSizes.A4);
     y = PageSizes.A4[1] - margin;
-    page.drawText("DAYWORK ACCOUNT", { x: margin, y: y - 14, size: 16, font: bold, color: blue });
-    page.drawText(safeText(context.jobRef), {
-      x: pageWidth - margin - bold.widthOfTextAtSize(safeText(context.jobRef), 12),
-      y: y - 14,
-      size: 12,
-      font: bold,
-      color: ink,
-    });
-    y -= 34;
+    if (logo) {
+      const size = logo.scaleToFit(110, 36);
+      page.drawImage(logo, {
+        x: margin,
+        y: y - size.height,
+        width: size.width,
+        height: size.height,
+      });
+      page.drawText("DAYWORK ACCOUNT", {
+        x: margin + size.width + 12,
+        y: y - 18,
+        size: 16,
+        font: bold,
+        color: blue,
+      });
+      page.drawText(safeText(context.jobRef), {
+        x: pageWidth - margin - bold.widthOfTextAtSize(safeText(context.jobRef), 12),
+        y: y - 18,
+        size: 12,
+        font: bold,
+        color: ink,
+      });
+      y -= Math.max(size.height, 28) + 10;
+    } else {
+      page.drawText("DAYWORK ACCOUNT", { x: margin, y: y - 14, size: 16, font: bold, color: blue });
+      page.drawText(safeText(context.jobRef), {
+        x: pageWidth - margin - bold.widthOfTextAtSize(safeText(context.jobRef), 12),
+        y: y - 14,
+        size: 12,
+        font: bold,
+        color: ink,
+      });
+      y -= 34;
+    }
     page.drawLine({ start: { x: margin, y }, end: { x: pageWidth - margin, y }, thickness: 1, color: line });
     y -= 16;
   }

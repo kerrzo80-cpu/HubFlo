@@ -48,9 +48,7 @@ export async function GET(request: Request, { params }: Params) {
     listDayworkSheetsForJob(jobId).find((item) => item.costCentreId === costCentreId) ||
     listDayworkSheetsForJob(jobId)[0] ||
     null;
-  const record =
-    sheet ||
-    buildDayworkAccountRecordFromEvidence(jobId, sheet?.costCentreId || costCentreId);
+  const record = sheet || buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
 
   return NextResponse.json({
     ok: true,
