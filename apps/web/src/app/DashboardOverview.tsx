@@ -1,8 +1,40 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type AnyRecord = Record<string, unknown>;
+
+const gbp = new Intl.NumberFormat("en-GB", {
+  style: "currency",
+  currency: "GBP",
+  maximumFractionDigits: 0,
+});
+
+function num(record: AnyRecord, key: string): number {
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function useCountUp(target: number, duration = 750): number {
+  const [value, setValue] = useState(0);
+  const fromRef = useRef(0);
+  useEffect(() => {
+    const from = fromRef.current;
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      const current = Math.round(from + (target - from) * eased);
+      setValue(current);
+      if (p < 1) raf = requestAnimationFrame(tick);
+      else fromRef.current = target;
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration]);
+  return value;
+}
 
 const HEALTH_COLORS = {
   green: "#12b76a",
@@ -35,6 +67,7 @@ function Donut({ segments, total }: { segments: Array<{ value: number; color: st
   const circumference = 2 * Math.PI * radius;
   let offset = 0;
   const drawable = total > 0 ? segments.filter((s) => s.value > 0) : [];
+  const shown = useCountUp(total);
   return (
     <svg viewBox="0 0 110 110" className="nexa-kpi-donut" role="img" aria-label="Distribution donut">
       <circle cx="55" cy="55" r={radius} fill="none" stroke="#eef1f5" strokeWidth="14" />
@@ -60,7 +93,7 @@ function Donut({ segments, total }: { segments: Array<{ value: number; color: st
         return el;
       })}
       <text x="55" y="52" textAnchor="middle" className="nexa-kpi-donut-value">
-        {total}
+        {shown}
       </text>
       <text x="55" y="68" textAnchor="middle" className="nexa-kpi-donut-label">
         total
@@ -69,7 +102,7 @@ function Donut({ segments, total }: { segments: Array<{ value: number; color: st
   );
 }
 
-function Bars({ data }: { data: Array<{ label: string; value: number }> }) {
+function Bars({ data, money = false }: { data: Array<{ label: string; value: number }>; money?: boolean }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   if (!data.length) {
     return <p className="nexa-kpi-empty">Nothing here yet.</p>;
@@ -77,7 +110,7 @@ function Bars({ data }: { data: Array<{ label: string; value: number }> }) {
   return (
     <div className="nexa-kpi-bars">
       {data.slice(0, 5).map((row, index) => (
-        <div className="nexa-kpi-bar-row" key={row.label}>
+        <div className={`nexa-kpi-bar-row ${money ? "money" : ""}`} key={row.label}>
           <span className="nexa-kpi-bar-label" title={row.label}>
             {row.label}
           </span>
@@ -90,7 +123,7 @@ function Bars({ data }: { data: Array<{ label: string; value: number }> }) {
               }}
             />
           </span>
-          <strong className="nexa-kpi-bar-value">{row.value}</strong>
+          <strong className="nexa-kpi-bar-value">{money ? gbp.format(row.value) : row.value}</strong>
         </div>
       ))}
     </div>
@@ -153,7 +186,21 @@ export function DashboardOverview() {
     return rows;
   }, [leads, quotes, jobs]);
 
+  const workload = useMemo(() => countBy(jobs, "manager"), [jobs]);
+
+  const value = useMemo(() => {
+    const jobsValue = jobs.reduce((sum, job) => sum + num(job, "value"), 0);
+    const wonValue = quotes
+      .filter((quote) => str(quote, "status") === "Accepted")
+      .reduce((sum, quote) => sum + num(quote, "value"), 0);
+    const openValue = quotes
+      .filter((quote) => !["Accepted", "Declined"].includes(str(quote, "status")))
+      .reduce((sum, quote) => sum + num(quote, "value"), 0);
+    return { jobsValue, wonValue, openValue };
+  }, [jobs, quotes]);
+
   const healthTotal = health.green + health.amber + health.red;
+  const shownJobsValue = useCountUp(value.jobsValue);
 
   if (!loaded && !jobs.length && !quotes.length && !leads.length) {
     return null;
@@ -211,6 +258,32 @@ export function DashboardOverview() {
           <span className="nexa-kpi-sub">{quotes.length} total</span>
         </header>
         <Bars data={quotesByStatus} />
+      </article>
+
+      <article className="nexa-kpi-card">
+        <header>
+          <h3>Workload</h3>
+          <span className="nexa-kpi-sub">jobs per owner</span>
+        </header>
+        <Bars data={workload} />
+      </article>
+
+      <article className="nexa-kpi-card">
+        <header>
+          <h3>Live value</h3>
+          <span className="nexa-kpi-sub">workspace</span>
+        </header>
+        <div className="nexa-kpi-metric">
+          <strong>{gbp.format(shownJobsValue)}</strong>
+          <span>across {jobs.length} jobs</span>
+        </div>
+        <Bars
+          money
+          data={[
+            { label: "Won quotes", value: value.wonValue },
+            { label: "Open quotes", value: value.openValue },
+          ]}
+        />
       </article>
     </section>
   );

@@ -36740,7 +36740,7 @@ kbd,
 /* ---- Dashboard KPI overview (clean metric cards + charts) ---- */
 .nexa-kpi-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 18px;
 }
@@ -36898,4 +36898,31 @@ kbd,
   margin: 0;
   color: var(--subtle);
   font-size: 12px;
+}
+
+.nexa-kpi-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nexa-kpi-metric strong {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1.05;
+  background: var(--nexa-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.nexa-kpi-metric span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nexa-kpi-bar-row.money {
+  grid-template-columns: 92px 1fr 64px;
 }
