@@ -1,4 +1,5 @@
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
+import { writeDayworkSheetSnapshot, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
 import {
   dayworkAccountTotals,
@@ -879,7 +880,7 @@ export function saveDayworkSheetToHub(options: {
   const previousSheet = hubState.dayworkSheets?.[sheetKey];
   const materialsJson = mergeDayworkLineUnitCosts(options.record.materialsJson, previousSheet?.materialsJson);
   const plantJson = mergeDayworkLineUnitCosts(options.record.plantJson, previousSheet?.plantJson);
-  const snapshot = withDerivedDayworkLineTotals({
+  const priced = withDerivedDayworkLineTotals({
     ...options.record,
     materialsJson,
     plantJson,
@@ -887,11 +888,14 @@ export function saveDayworkSheetToHub(options: {
     materialsCost: options.record.materialsCost || previousSheet?.materialsCost,
     plantCost: options.record.plantCost || previousSheet?.plantCost,
     markupPercent: options.record.markupPercent || previousSheet?.markupPercent,
+  });
+  const snapshot: DayworkSheetSnapshot = {
+    ...priced,
     jobId: options.jobId,
     jobRef: options.jobRef,
     costCentreId: options.costCentreId,
     updatedAt: capturedAt,
-  } as DayworkSheetSnapshot);
+  };
 
   // Keep evidence materials/plant JSON in sync with merged unit costs.
   if (materialsJson) {
@@ -914,6 +918,9 @@ export function saveDayworkSheetToHub(options: {
       [sheetKey]: snapshot,
     },
   });
+
+  // Dedicated durable store — survives concurrent Core hub PUTs that race Field saves.
+  writeDayworkSheetSnapshot(snapshot);
 
   return syncDayworkAccountToJobVariation({
     ...options,
@@ -1119,8 +1126,31 @@ export function reconcileDayworkVariationsFromEvidence() {
   const hubState = getHubDetailState() as HubDetailState & {
     dayworkSheets?: Record<string, DayworkSheetSnapshot>;
   };
-  const events = Array.isArray(hubState.jobDeliveryEvents)
-    ? (hubState.jobDeliveryEvents as Array<Record<string, unknown>>)
+  // Seed hub dayworkSheets from the dedicated durable store first.
+  const storeSheets = listDayworkSheetsFromStore();
+  if (storeSheets.length) {
+    const nextSheets = { ...(hubState.dayworkSheets ?? {}) };
+    let changed = false;
+    for (const sheet of storeSheets) {
+      const key = dayworkSheetKey(sheet.jobId, sheet.costCentreId);
+      if (!nextSheets[key] || String(nextSheets[key]?.updatedAt || "") < String(sheet.updatedAt || "")) {
+        nextSheets[key] = sheet;
+        changed = true;
+      }
+    }
+    if (changed) {
+      saveHubDetailState({
+        ...hubState,
+        dayworkSheets: nextSheets,
+      });
+    }
+  }
+
+  const fresh = getHubDetailState() as HubDetailState & {
+    dayworkSheets?: Record<string, DayworkSheetSnapshot>;
+  };
+  const events = Array.isArray(fresh.jobDeliveryEvents)
+    ? (fresh.jobDeliveryEvents as Array<Record<string, unknown>>)
     : [];
   const jobRefById = new Map<string, string>();
   for (const event of events) {
@@ -1132,15 +1162,15 @@ export function reconcileDayworkVariationsFromEvidence() {
   const rebuilt: Array<Record<string, unknown>> = [];
   const seen = new Set<string>();
 
-  for (const sheet of Object.values(hubState.dayworkSheets ?? {})) {
+  for (const sheet of Object.values(fresh.dayworkSheets ?? {})) {
     if (!sheet?.jobId || !sheet?.costCentreId) continue;
     try {
       ensureDayworkVariationCostCentre(sheet.jobId);
     } catch {
       // Best-effort.
     }
-    // Re-write evidence from durable snapshot so Core forms stay populated.
     restoreDayworkEvidenceFromSnapshot(sheet);
+    writeDayworkSheetSnapshot(sheet);
     const event = syncDayworkAccountToJobVariation({
       jobId: sheet.jobId,
       jobRef: sheet.jobRef || jobRefById.get(sheet.jobId) || sheet.jobId,
@@ -1152,7 +1182,7 @@ export function reconcileDayworkVariationsFromEvidence() {
     seen.add(`${sheet.jobId}::${sheet.costCentreId}`);
   }
 
-  for (const { jobId, costCentreId } of collectDayworkJobCentrePairs(hubState)) {
+  for (const { jobId, costCentreId } of collectDayworkJobCentrePairs(fresh)) {
     if (seen.has(`${jobId}::${costCentreId}`)) continue;
     try {
       ensureDayworkVariationCostCentre(jobId);
@@ -1297,6 +1327,7 @@ export function saveDayworkOfficePricing(options: {
       [sheetKey]: snapshot,
     },
   });
+  writeDayworkSheetSnapshot(snapshot);
 
   return syncDayworkAccountToJobVariation({
     jobId: options.jobId,
@@ -1308,8 +1339,22 @@ export function saveDayworkOfficePricing(options: {
 }
 
 export function listDayworkSheetsForJob(jobId: string): DayworkSheetSnapshot[] {
-  const hubState = getHubDetailState() as HubDetailState & {
+  const fromHub = getHubDetailState() as HubDetailState & {
     dayworkSheets?: Record<string, DayworkSheetSnapshot>;
   };
-  return Object.values(hubState.dayworkSheets ?? {}).filter((sheet) => sheet.jobId === jobId);
+  const fromStore = (() => {
+    try {
+      return listDayworkSheetsFromStore(jobId);
+    } catch {
+      return [] as DayworkSheetSnapshot[];
+    }
+  })();
+  const byKey = new Map<string, DayworkSheetSnapshot>();
+  for (const sheet of Object.values(fromHub.dayworkSheets ?? {})) {
+    if (sheet?.jobId === jobId) byKey.set(dayworkSheetKey(sheet.jobId, sheet.costCentreId), sheet);
+  }
+  for (const sheet of fromStore) {
+    byKey.set(dayworkSheetKey(sheet.jobId, sheet.costCentreId), sheet);
+  }
+  return Array.from(byKey.values());
 }

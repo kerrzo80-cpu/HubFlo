@@ -26268,10 +26268,28 @@ export default function Dashboard() {
           <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
             <strong>Daywork Account</strong>
             <span>
-              {dayworkTotals.total
-                ? `Running total ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })} · sits in Variations after dual sign-off`
-                : "Waiting for labour / materials from Field"}
+              {dayworkRecord?.description || dayworkRecord?.plumberSignature
+                ? `${dayworkTotals.labourHours || 0} hrs from Field${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
+                : "No signed Field sheet on the server yet — open Field → Add Daywork Account → fill names + signatures → Save"}
             </span>
+            {centre ? (
+              <button
+                className="simpro-grey-button"
+                type="button"
+                style={{ marginTop: 8 }}
+                onClick={() => {
+                  void refreshDayworkSheetFromServer(job.id, centre.id).then((found) => {
+                    showNotice(
+                      found
+                        ? "Pulled latest Daywork sheet from Field."
+                        : "Still no Daywork sheet on the server — save it again on Field.",
+                    );
+                  });
+                }}
+              >
+                Refresh from Field
+              </button>
+            ) : null}
           </div>
         ) : null}
 

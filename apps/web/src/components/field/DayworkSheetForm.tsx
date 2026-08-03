@@ -77,7 +77,11 @@ export function DayworkSheetForm({ scheduleId, engineerName, initialRecord, onSa
       });
       const body = (await response.json()) as { error?: string; record?: DayworkAccountRecord };
       if (!response.ok) throw new Error(body.error || "Could not save daywork sheet.");
-      setNotice("Daywork Account saved to Core Variations.");
+      setNotice(
+        body.record?.plumberSignature
+          ? "Daywork Account saved — signatures and materials are now in Core Variations."
+          : "Daywork Account saved to Core Variations.",
+      );
       if (body.record) onSaved?.(body.record);
       else onSaved?.(record);
     } catch (saveError) {
