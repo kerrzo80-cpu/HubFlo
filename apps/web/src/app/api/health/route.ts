@@ -1,8 +1,21 @@
 import { NextResponse } from "next/server";
 
 import { getServerStoreBackend } from "@/lib/server-store";
+import { readDayworkSheetsStore } from "@/lib/daywork-sheets-store";
 
 export async function GET() {
+  let dayworkSheetCount = 0;
+  let dayworkSignedCount = 0;
+  try {
+    const sheets = Object.values(readDayworkSheetsStore());
+    dayworkSheetCount = sheets.length;
+    dayworkSignedCount = sheets.filter(
+      (sheet) => Boolean(String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim()),
+    ).length;
+  } catch {
+    // Best-effort diagnostics only.
+  }
+
   return NextResponse.json({
     ok: true,
     app: "nexa",
@@ -21,7 +34,11 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "ewg-ui-v1",
+      fieldCoreLive: "daywork-proven-v1",
+    },
+    daywork: {
+      sheetCount: dayworkSheetCount,
+      signedCount: dayworkSignedCount,
     },
     checkedAt: new Date().toISOString(),
   });

@@ -1571,6 +1571,9 @@ type JobDeliveryEvent = {
   labourRate?: string;
   materialsCost?: string;
   plantCost?: string;
+  materialsJson?: string;
+  plantJson?: string;
+  description?: string;
 };
 
 type JobDeliveryDraft = {
@@ -8272,6 +8275,18 @@ export default function Dashboard() {
     }
   }, [activeRecordFingerprint, hasHydratedLocalData, hasLoadedHubDetailState]);
 
+  // Always pull the latest Field Daywork sheet when opening a Daywork cost centre.
+  useEffect(() => {
+    if (!hasLoadedHubDetailState) return;
+    if (homeView !== "cost-centre-record") return;
+    if (!selectedJobId || !selectedCostCentreId) return;
+    if (!/daywork/i.test(selectedCostCentreId)) {
+      const centre = (jobEstimateCostCentres[selectedJobId] ?? []).find((item) => item.id === selectedCostCentreId);
+      if (!centre || !/daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) return;
+    }
+    void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
+  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId]);
+
   const selectedPurchaseOrderJob = useMemo(
     () =>
       selectedPurchaseOrder
@@ -9882,7 +9897,42 @@ export default function Dashboard() {
           }
           if (hubState.jobReviews) setJobReviewApprovals(hubState.jobReviews);
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
-          if (hubState.dayworkSheets) setDayworkSheets(hubState.dayworkSheets);
+          if (hubState.dayworkSheets) {
+            // Prefer the richer sheet (Field signatures/materials) when merging poll updates.
+            setDayworkSheets((current) => {
+              const incoming = hubState.dayworkSheets || {};
+              const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
+              const merged: typeof current = { ...current };
+              for (const key of keys) {
+                const local = current[key];
+                const remote = incoming[key];
+                if (!remote) continue;
+                if (!local) {
+                  merged[key] = remote;
+                  continue;
+                }
+                const remoteSigned = Boolean(remote.plumberSignature?.trim() && remote.clientSignature?.trim());
+                const localSigned = Boolean(local.plumberSignature?.trim() && local.clientSignature?.trim());
+                if (remoteSigned && !localSigned) {
+                  merged[key] = { ...local, ...remote };
+                  continue;
+                }
+                merged[key] = {
+                  ...local,
+                  ...remote,
+                  materialsJson: remote.materialsJson || local.materialsJson,
+                  plantJson: remote.plantJson || local.plantJson,
+                  plumberSignature: remote.plumberSignature || local.plumberSignature,
+                  clientSignature: remote.clientSignature || local.clientSignature,
+                  plumberSignerName: remote.plumberSignerName || local.plumberSignerName,
+                  clientSignerName: remote.clientSignerName || local.clientSignerName,
+                  description: remote.description || local.description,
+                  labourDaysJson: remote.labourDaysJson || local.labourDaysJson,
+                };
+              }
+              return merged;
+            });
+          }
           if (!hasRecentLocalCostCentreEdit && !pendingCostCentreSaveRef.current && hubState.jobVariationSections) {
             setJobVariationSections(hubState.jobVariationSections);
           }
@@ -9968,6 +10018,10 @@ export default function Dashboard() {
     const savedEmployees = removeRetiredPilotEmployeeWhenReplaced(
       newEmployeeId ? employees.filter((employee) => employee.id !== newEmployeeId) : employees,
     );
+    // Never push an empty dayworkSheets map from Core — that races Field saves.
+    // Server merge preserves Field sheets, but omitting empty keeps the wire payload honest.
+    const dayworkSheetsPayload =
+      dayworkSheets && Object.keys(dayworkSheets).length > 0 ? dayworkSheets : undefined;
     return {
       employees: savedEmployees,
       businessSettings,
@@ -9995,7 +10049,7 @@ export default function Dashboard() {
       jobReviews: jobReviewApprovals,
       jobDeliveryEvents,
       jobVariationSections,
-      dayworkSheets,
+      ...(dayworkSheetsPayload ? { dayworkSheets: dayworkSheetsPayload } : {}),
       communications: communicationRecords,
       invoices,
       suppliers,
@@ -26186,8 +26240,39 @@ export default function Dashboard() {
             Object.values(dayworkSheets).find(
               (candidate) => String(candidate?.costCentreId || "") === String(centre?.id || ""),
             );
-          const record: DayworkAccountRecord = { populatedFrom: "core", ...(sheet || {}) };
-          let any = Boolean(sheet);
+          const eventFallback = jobDeliveryEvents.find(
+            (event) =>
+              event.jobId === job.id &&
+              event.formType === "daywork" &&
+              (!centre?.id ||
+                event.costCentreId === centre.id ||
+                String(event.costCentreId || "").includes("daywork")),
+          );
+          const record: DayworkAccountRecord = {
+            populatedFrom: "core",
+            ...(eventFallback
+              ? {
+                  description: eventFallback.description || eventFallback.summary,
+                  weekEnding: eventFallback.weekEnding,
+                  labourName: eventFallback.actor,
+                  labourTrade: eventFallback.labourTrade,
+                  labourDaysJson: eventFallback.labourDaysJson,
+                  labourHours: eventFallback.hours ? String(eventFallback.hours) : undefined,
+                  materialsJson: eventFallback.materialsJson,
+                  plantJson: eventFallback.plantJson,
+                  plumberSignature: eventFallback.plumberSignature,
+                  clientSignature: eventFallback.clientSignature,
+                  plumberSignerName: eventFallback.plumberSignerName,
+                  clientSignerName: eventFallback.clientSignerName,
+                  labourRate: eventFallback.labourRate,
+                  materialsCost: eventFallback.materialsCost,
+                  plantCost: eventFallback.plantCost,
+                  completedAt: eventFallback.createdAt,
+                }
+              : {}),
+            ...(sheet || {}),
+          };
+          let any = Boolean(sheet || eventFallback);
           const fieldMap: Record<string, keyof DayworkAccountRecord> = {
             "daywork-description": "description",
             "daywork-week-ending": "weekEnding",

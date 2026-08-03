@@ -1033,6 +1033,9 @@ export function syncDayworkAccountToJobVariation(options: {
         : new Date().toISOString(),
     hours: labourHours || undefined,
     materials: combinedMaterials || undefined,
+    materialsJson: options.record.materialsJson,
+    plantJson: options.record.plantJson,
+    description: options.record.description,
     // Cost/sell filled once office sets labour rate + materials/plant costs in Core.
     costValue: Math.round(totals.total * 100) / 100 || 0,
     sellValue: Math.round(totals.total * 100) / 100 || 0,
