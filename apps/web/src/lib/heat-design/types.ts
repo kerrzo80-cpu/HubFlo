@@ -1,5 +1,18 @@
 /** Standalone heat-pump design lab — not wired into NeXa nav yet. */
 
+export type FloorLevel = "ground" | "cellar" | "first" | "second";
+
+export type PlanOpening = {
+  id: string;
+  /** Wall index: 0=top, 1=right, 2=bottom, 3=left */
+  wall: 0 | 1 | 2 | 3;
+  /** 0–1 position along wall */
+  t: number;
+  kind: "window" | "door";
+  widthM: number;
+  heightM: number;
+};
+
 export type HeatDesignRoom = {
   id: string;
   name: string;
@@ -8,6 +21,8 @@ export type HeatDesignRoom = {
   width: string;
   height: string;
   exteriorWalls: number;
+  /** Per-wall exposure: 0=top 1=right 2=bottom 3=left — exterior true */
+  exteriorFlags: [boolean, boolean, boolean, boolean];
   wallType: string;
   glazingType: string;
   windowArea: string;
@@ -16,9 +31,27 @@ export type HeatDesignRoom = {
   meanWaterTemperature: string;
   preferredRange: string;
   selectedRadiatorId?: string;
-  /** Floor-plan canvas position (metres from origin). */
   planX: number;
   planY: number;
+  floorLevel: FloorLevel;
+  openings: PlanOpening[];
+};
+
+export type WallConstruction = {
+  id: string;
+  category: "solid" | "cavity" | "rendered" | "clad" | "other";
+  label: string;
+  uValue: number;
+  thicknessMm: number;
+  layers: string;
+};
+
+export type RadiatorTypeOption = {
+  id: string;
+  code: "K1" | "K2" | "K3" | "P+";
+  label: string;
+  panels: number;
+  fins: number;
 };
 
 export type HeatDesignProject = {
@@ -38,7 +71,10 @@ export type HeatDesignProject = {
   flowTemperature: number;
   selectedHeatPumpId: string;
   rooms: HeatDesignRoom[];
-  /** Cylinder size litres — drives DHW calc */
+  activeFloor: FloorLevel;
+  selectedWallConstructionIds: string[];
+  primaryWallConstructionId: string;
+  selectedRadiatorTypeIds: string[];
   cylinderLitres: number;
   dailyHotWaterLitres: number;
   outdoorUnitDistanceM: number;

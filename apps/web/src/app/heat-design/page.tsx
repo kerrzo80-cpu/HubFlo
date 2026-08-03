@@ -28,16 +28,20 @@ import {
   type HeatDesignRoom,
 } from "@/lib/heat-design";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
+import { MaterialsWizard } from "./MaterialsWizard";
 import "./heat-design.css";
 
-const STORAGE_KEY = "nexa-heat-design-lab-v2";
+const STORAGE_KEY = "nexa-heat-design-lab-v3";
 
-type LabTab = "project" | "plan" | "rooms" | "system" | "kit" | "forms" | "report";
+type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "kit" | "forms" | "report";
 
 function loadProject(): HeatDesignProject {
   if (typeof window === "undefined") return makeDemoProject();
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem("nexa-heat-design-lab-v1");
+    const raw =
+      window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("nexa-heat-design-lab-v2") ??
+      window.localStorage.getItem("nexa-heat-design-lab-v1");
     if (!raw) return makeDemoProject();
     return normaliseProject(JSON.parse(raw) as HeatDesignProject);
   } catch {
@@ -168,6 +172,7 @@ export default function HeatDesignLabPage() {
             [
               ["project", "Project"],
               ["plan", "Floor plan"],
+              ["materials", "Materials"],
               ["rooms", "Rooms"],
               ["system", "System"],
               ["kit", "Kit"],
@@ -312,56 +317,58 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
-                  Drag rooms on the canvas. Resize from the corner handle — length/width update the heat-loss model.
+                  HeatPunk-style canvas — drag, snap, resize in mm. Thick walls are external; pink marks are openings.
                 </p>
                 <FloorPlanCanvas
                   rooms={project.rooms}
                   selectedRoomId={selectedRoomId}
+                  activeFloor={project.activeFloor ?? "ground"}
                   onSelectRoom={setSelectedRoomId}
                   onMoveRoom={(roomId, planX, planY) => patchRoom(roomId, { planX, planY })}
-                  onResizeRoom={(roomId, length, width) => patchRoom(roomId, { length, width })}
+                  onResizeRoom={(roomId, length, width, planX, planY) =>
+                    patchRoom(roomId, {
+                      length,
+                      width,
+                      ...(typeof planX === "number" ? { planX } : {}),
+                      ...(typeof planY === "number" ? { planY } : {}),
+                    })
+                  }
+                  onPatchRoom={patchRoom}
+                  onDeleteRoom={removeRoom}
+                  onChangeFloor={(floor) => patchProject({ activeFloor: floor })}
                 />
                 {selectedRoom ? (
                   <div className="hd-selected-room">
                     <strong>{selectedRoom.name}</strong>
                     <div className="hd-grid-3" style={{ marginTop: 10 }}>
-                      <label className="hd-field">
-                        Name
-                        <input
-                          value={selectedRoom.name}
-                          onChange={(event) => patchRoom(selectedRoom.id, { name: event.target.value })}
-                        />
-                      </label>
-                      <label className="hd-field">
-                        Type
-                        <select
-                          value={selectedRoom.roomType}
-                          onChange={(event) => patchRoom(selectedRoom.id, { roomType: event.target.value })}
-                        >
-                          {roomTypes.map((item) => (
-                            <option key={item.id}>{item.id}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="hd-field">
-                        Exterior walls
-                        <select
-                          value={selectedRoom.exteriorWalls}
-                          onChange={(event) =>
-                            patchRoom(selectedRoom.id, { exteriorWalls: Number(event.target.value) })
-                          }
-                        >
-                          {[0, 1, 2, 3, 4].map((n) => (
-                            <option key={n} value={n}>
-                              {n}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      {(["Top", "Right", "Bottom", "Left"] as const).map((label, index) => {
+                        const flags = selectedRoom.exteriorFlags ?? [true, true, false, false];
+                        return (
+                          <label key={label} className="hd-check" style={{ marginTop: 0 }}>
+                            <input
+                              type="checkbox"
+                              checked={Boolean(flags[index])}
+                              onChange={() => {
+                                const next = [...flags] as [boolean, boolean, boolean, boolean];
+                                next[index] = !next[index];
+                                patchRoom(selectedRoom.id, {
+                                  exteriorFlags: next,
+                                  exteriorWalls: next.filter(Boolean).length,
+                                });
+                              }}
+                            />
+                            {label} exterior
+                          </label>
+                        );
+                      })}
                     </div>
                   </div>
                 ) : null}
               </>
+            ) : null}
+
+            {tab === "materials" ? (
+              <MaterialsWizard project={project} onChange={patchProject} />
             ) : null}
 
             {tab === "rooms" ? (

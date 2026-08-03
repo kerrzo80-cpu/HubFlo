@@ -1,4 +1,10 @@
-import type { HeatDesignRoom, HeatPumpOption, KitLine } from "./types";
+import type {
+  HeatDesignRoom,
+  HeatPumpOption,
+  KitLine,
+  RadiatorTypeOption,
+  WallConstruction,
+} from "./types";
 
 export const roomTypes = [
   { id: "Bathroom", targetTemp: 22, airChanges: 1.5 },
@@ -140,23 +146,64 @@ export const kitExtraOptions: Array<{ id: string; label: string; unitCost: numbe
 export const propertyTypes = ["Detached", "Semi-detached", "Terraced", "Bungalow", "Flat"];
 export const buildEras = ["Pre-1919", "1919–1944", "1945–1964", "1965–1990", "1991–2002", "2003–present"];
 
+/** HeatPunk-style wall constructions with U-values. */
+export const wallConstructions: WallConstruction[] = [
+  { id: "cav-mw-100-wp", category: "cavity", label: "Insulated cavity", uValue: 0.45, thicknessMm: 275, layers: "mineral wool, 100mm block, wet plaster" },
+  { id: "cav-none-100-wp", category: "cavity", label: "Uninsulated cavity", uValue: 0.87, thicknessMm: 275, layers: "No insulation, 100mm block, wet plaster" },
+  { id: "cav-none-wp", category: "cavity", label: "Cavity, plaster only", uValue: 1.37, thicknessMm: 264, layers: "No insulation, wet plaster" },
+  { id: "cav-mslab-wp", category: "cavity", label: "Mineral slab cavity", uValue: 0.56, thicknessMm: 267, layers: "mineral slab, wet plaster" },
+  { id: "solid-double-brick", category: "solid", label: "Double brick", uValue: 2.11, thicknessMm: 241, layers: "Double brick, uninsulated" },
+  { id: "cav-mw-125-pb", category: "cavity", label: "Deep cavity + PB", uValue: 0.41, thicknessMm: 300, layers: "mineral wool, 125mm block, plasterboard" },
+  { id: "solid-105", category: "solid", label: "105mm solid brick", uValue: 3.0, thicknessMm: 125, layers: "105mm brick, plaster" },
+  { id: "solid-220", category: "solid", label: "220mm solid brick", uValue: 2.1, thicknessMm: 240, layers: "220mm brick, plaster" },
+  { id: "render-insulated", category: "rendered", label: "External render + EWI", uValue: 0.3, thicknessMm: 320, layers: "render, EWI, block, plaster" },
+  { id: "clad-timber", category: "clad", label: "Timber clad frame", uValue: 0.29, thicknessMm: 280, layers: "timber clad, insulated frame, PB" },
+  { id: "other-party", category: "other", label: "Party wall", uValue: 0.0, thicknessMm: 220, layers: "shared party wall (no heat loss)" },
+];
+
+export const wallConstructionCategories = [
+  { id: "solid", label: "Solid walls" },
+  { id: "cavity", label: "Cavity" },
+  { id: "rendered", label: "Externally rendered" },
+  { id: "clad", label: "Externally clad" },
+  { id: "other", label: "Other walls" },
+] as const;
+
+export const radiatorTypeOptions: RadiatorTypeOption[] = [
+  { id: "rad-k1", code: "K1", label: "one panel, one fins", panels: 1, fins: 1 },
+  { id: "rad-k2", code: "K2", label: "two panels, two fins", panels: 2, fins: 2 },
+  { id: "rad-k3", code: "K3", label: "three panels, three fins", panels: 3, fins: 3 },
+  { id: "rad-pplus", code: "P+", label: "two panels, one fins", panels: 2, fins: 1 },
+];
+
 const ROOM_COLORS = ["#0f7a5a", "#c45c26", "#2f5d8c", "#7a4f9a", "#8a6d1d", "#1f6f6a", "#9a3b4a", "#4a6b2f"];
 
 export function roomColor(index: number) {
   return ROOM_COLORS[index % ROOM_COLORS.length];
 }
 
+export function defaultExteriorFlags(count: number): [boolean, boolean, boolean, boolean] {
+  // top, right, bottom, left
+  if (count <= 0) return [false, false, false, false];
+  if (count === 1) return [true, false, false, false];
+  if (count === 2) return [true, true, false, false];
+  if (count === 3) return [true, true, true, false];
+  return [true, true, true, true];
+}
+
 export function makeBlankRoom(index: number): HeatDesignRoom {
   const col = index % 3;
   const row = Math.floor(index / 3);
+  const exteriorFlags = defaultExteriorFlags(2);
   return {
     id: `hd-room-${Date.now()}-${index}`,
     name: `Room ${index + 1}`,
     roomType: "Living Room",
-    length: "4",
-    width: "3.5",
+    length: "3.5",
+    width: "3.2",
     height: "2.4",
     exteriorWalls: 2,
+    exteriorFlags,
     wallType: "Brick cavity wall",
     glazingType: "Wood/PVCu Double Glazed",
     windowArea: "2.2",
@@ -164,8 +211,12 @@ export function makeBlankRoom(index: number): HeatDesignRoom {
     ceilingType: "Insulated roof space",
     meanWaterTemperature: "45",
     preferredRange: "Any range",
-    planX: col * 4.5,
-    planY: row * 4,
+    planX: col * 3.8,
+    planY: row * 3.5,
+    floorLevel: "ground",
+    openings: [
+      { id: `op-${index}-0`, wall: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 },
+    ],
   };
 }
 
@@ -175,72 +226,34 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       ...makeBlankRoom(0),
       name: "Lounge",
       roomType: "Living Room",
-      length: "5.2",
-      width: "3.8",
+      length: "3.171",
+      width: "3.5",
       exteriorWalls: 2,
+      exteriorFlags: [true, false, true, true],
       windowArea: "3.6",
-      planX: 0,
-      planY: 0,
+      planX: 0.4,
+      planY: 0.4,
+      openings: [
+        { id: "op-lounge-n", wall: 0, t: 0.45, kind: "window", widthM: 1.5, heightM: 1.2 },
+        { id: "op-lounge-w", wall: 3, t: 0.5, kind: "window", widthM: 0.9, heightM: 1.2 },
+      ],
     },
     {
       ...makeBlankRoom(1),
       name: "Kitchen",
       roomType: "Kitchen",
-      length: "3.6",
-      width: "3.2",
-      exteriorWalls: 2,
-      windowArea: "1.8",
-      floorType: "Solid concrete floor",
-      planX: 5.4,
-      planY: 0,
-    },
-    {
-      ...makeBlankRoom(2),
-      name: "Hall",
-      roomType: "Hall",
-      length: "2.4",
-      width: "1.8",
-      exteriorWalls: 1,
-      windowArea: "0.6",
-      planX: 5.4,
-      planY: 3.4,
-    },
-    {
-      ...makeBlankRoom(3),
-      name: "Bedroom 1",
-      roomType: "Bedroom",
-      length: "4.0",
-      width: "3.2",
-      exteriorWalls: 2,
-      windowArea: "1.6",
-      floorType: "Heated room",
-      ceilingType: "Insulated roof space",
-      planX: 0,
-      planY: 4.0,
-    },
-    {
-      ...makeBlankRoom(4),
-      name: "Bedroom 2",
-      roomType: "Bedroom",
-      length: "3.4",
+      length: "3.2",
       width: "2.8",
       exteriorWalls: 2,
-      windowArea: "1.4",
-      floorType: "Heated room",
-      planX: 4.2,
-      planY: 5.4,
-    },
-    {
-      ...makeBlankRoom(5),
-      name: "Bathroom",
-      roomType: "Bathroom",
-      length: "2.2",
-      width: "1.8",
-      exteriorWalls: 1,
-      windowArea: "0.5",
-      floorType: "Heated room",
-      planX: 7.8,
-      planY: 5.4,
+      exteriorFlags: [true, true, false, false],
+      windowArea: "1.8",
+      floorType: "Solid concrete floor",
+      planX: 3.65,
+      planY: 0.4,
+      openings: [
+        { id: "op-kit-n", wall: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.0 },
+        { id: "op-kit-e", wall: 1, t: 0.55, kind: "door", widthM: 0.9, heightM: 2.0 },
+      ],
     },
   ];
 
@@ -261,6 +274,10 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
     flowTemperature: 45,
     selectedHeatPumpId: "",
     rooms,
+    activeFloor: "ground",
+    selectedWallConstructionIds: ["cav-mw-100-wp", "cav-none-100-wp"],
+    primaryWallConstructionId: "cav-mw-100-wp",
+    selectedRadiatorTypeIds: ["rad-k1", "rad-k2", "rad-k3"],
     cylinderLitres: 210,
     dailyHotWaterLitres: 150,
     outdoorUnitDistanceM: 3,

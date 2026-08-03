@@ -1,11 +1,13 @@
 import {
   buildKitLines,
   ceilingTypes,
+  defaultExteriorFlags,
   floorTypes,
   glazingTypes,
   heatPumpCatalogue,
   radiatorCatalogue,
   roomTypes,
+  wallConstructions,
   wallTypes,
   type RadiatorCatalogueItem,
 } from "./catalogue";
@@ -35,23 +37,38 @@ export function exteriorWallAreaForRoom(room: HeatDesignRoom) {
   const length = numberFromInput(room.length);
   const width = numberFromInput(room.width);
   const height = numberFromInput(room.height);
-  const longSide = Math.max(length, width);
-  const shortSide = Math.min(length, width);
-  const exteriorLength =
-    room.exteriorWalls <= 0
-      ? 0
-      : room.exteriorWalls === 1
+  const flags = room.exteriorFlags ?? [
+    room.exteriorWalls > 0,
+    room.exteriorWalls > 1,
+    room.exteriorWalls > 2,
+    room.exteriorWalls > 3,
+  ];
+  // walls: 0 top (length), 1 right (width), 2 bottom (length), 3 left (width)
+  const segments = [length, width, length, width];
+  let exteriorLength = 0;
+  for (let i = 0; i < 4; i += 1) {
+    if (flags[i]) exteriorLength += segments[i]!;
+  }
+  if (exteriorLength === 0 && room.exteriorWalls > 0) {
+    const longSide = Math.max(length, width);
+    const shortSide = Math.min(length, width);
+    exteriorLength =
+      room.exteriorWalls === 1
         ? longSide
         : room.exteriorWalls === 2
           ? longSide + shortSide
           : room.exteriorWalls === 3
             ? longSide + shortSide * 2
             : (length + width) * 2;
-
+  }
   return Math.max(0, exteriorLength * height);
 }
 
-export function calculateRoomHeatLoss(room: HeatDesignRoom, designExternalTemp = -3): RoomHeatLossResult {
+export function calculateRoomHeatLoss(
+  room: HeatDesignRoom,
+  designExternalTemp = -3,
+  wallUValueOverride?: number,
+): RoomHeatLossResult {
   const roomType = selectedOption(roomTypes, room.roomType);
   const wallType = selectedOption(wallTypes, room.wallType);
   const glazingType = selectedOption(glazingTypes, room.glazingType);
@@ -61,7 +78,13 @@ export function calculateRoomHeatLoss(room: HeatDesignRoom, designExternalTemp =
   const length = numberFromInput(room.length);
   const width = numberFromInput(room.width);
   const height = numberFromInput(room.height);
-  const windowArea = room.glazingType === "No External Windows Or Doors" ? 0 : numberFromInput(room.windowArea);
+  const openingArea = (room.openings ?? []).reduce((sum, opening) => sum + opening.widthM * opening.heightM, 0);
+  const windowArea =
+    room.glazingType === "No External Windows Or Doors"
+      ? 0
+      : openingArea > 0
+        ? openingArea
+        : numberFromInput(room.windowArea);
   const floorArea = Math.max(0, length * width);
   const volume = floorArea * Math.max(0, height);
   const targetTemp = roomType?.targetTemp ?? 21;
@@ -69,8 +92,9 @@ export function calculateRoomHeatLoss(room: HeatDesignRoom, designExternalTemp =
   const exteriorWallArea = exteriorWallAreaForRoom(room);
   const glazingArea = Math.min(Math.max(0, windowArea), exteriorWallArea || windowArea);
   const opaqueWallArea = Math.max(0, exteriorWallArea - Math.min(glazingArea, exteriorWallArea));
+  const wallU = wallUValueOverride ?? wallType?.uValue ?? 1.47;
 
-  const wallLoss = opaqueWallArea * (wallType?.uValue ?? 1.47) * externalDelta;
+  const wallLoss = opaqueWallArea * wallU * externalDelta;
   const glazingLoss = glazingArea * (glazingType?.uValue ?? 2.9) * externalDelta;
   const floorLoss =
     floorArea * (floorType?.uValue ?? 0.82) * Math.max(0, targetTemp - (floorType?.adjacentTemp ?? designExternalTemp));
@@ -164,11 +188,14 @@ export function assessSoundDb(soundPowerDb: number, distanceM: number) {
 }
 
 export function calculateSystemDesign(project: HeatDesignProject): SystemDesignResult {
+  const primaryWall = wallConstructions.find((item) => item.id === project.primaryWallConstructionId);
+  const wallU = primaryWall?.uValue;
   const roomResults = project.rooms.map((room) => ({
     room,
     loss: calculateRoomHeatLoss(
       { ...room, meanWaterTemperature: String(project.flowTemperature) },
       project.designExternalTemp,
+      wallU,
     ),
   }));
   const totalHeatLossW = roomResults.reduce((sum, row) => sum + row.loss.watts, 0);
@@ -279,10 +306,17 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     outdoorUnitDistanceM: project.outdoorUnitDistanceM || 3,
     nearestNeighbourDistanceM: project.nearestNeighbourDistanceM || 8,
     kitExtras: project.kitExtras ?? [],
+    activeFloor: project.activeFloor ?? "ground",
+    selectedWallConstructionIds: project.selectedWallConstructionIds ?? ["cav-mw-100-wp"],
+    primaryWallConstructionId: project.primaryWallConstructionId ?? "cav-mw-100-wp",
+    selectedRadiatorTypeIds: project.selectedRadiatorTypeIds ?? ["rad-k1", "rad-k2", "rad-k3"],
     rooms: (project.rooms ?? []).map((room, index) => ({
       ...room,
       planX: typeof room.planX === "number" ? room.planX : (index % 3) * 4.5,
       planY: typeof room.planY === "number" ? room.planY : Math.floor(index / 3) * 4,
+      floorLevel: room.floorLevel ?? "ground",
+      exteriorFlags: room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2),
+      openings: room.openings ?? [],
     })),
   };
 }
