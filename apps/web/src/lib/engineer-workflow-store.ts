@@ -2,10 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import { getEngineerScheduleItem, type EngineerAttachment, type EngineerRequirement } from "@/lib/engineer-data";
 import {
+  buildDayworkAccountRecordFromEvidence,
   buildGasServiceRecordFromEvidence,
   clearFlowStepEvidence,
+  DAYWORK_COST_CENTRE_NAME,
+  DAYWORK_COST_CENTRE_TEMPLATE,
   hasCapturedFlowEvidence,
   purgeEmptyFlowStepCompletions,
+  requirementsFromFlowTemplate,
+  syncDayworkAccountToJobVariation,
   syncGasServiceRecordToSiteAsset,
   validateFlowStepEvidence,
   writeFlowStepEvidenceToHub,
@@ -122,6 +127,9 @@ export type EngineerJobWorkflow = {
   paperSheetScans: EngineerWorkflowPaperSheetScan[];
   officeReview: EngineerWorkflowReviewItem[];
   outcome?: EngineerWorkflowOutcome;
+  /** When set to daywork, Field checklist stays on the Daywork Account sheet. */
+  checklistMode?: "job" | "daywork";
+  dayworkCostCentreId?: string;
 };
 
 type EngineerWorkflowStore = {
@@ -352,6 +360,41 @@ function appendCoreJobDeliveryEvent(item: Record<string, unknown>) {
 export function getEngineerJobWorkflow(scheduleId: string) {
   const workflow = syncWorkflowPoRequestsFromCore(normaliseWorkflow(getMutableWorkflow(scheduleId)));
   const job = getEngineerScheduleItem(scheduleId);
+
+  if (workflow.checklistMode === "daywork" && workflow.dayworkCostCentreId && job?.jobId) {
+    purgeEmptyFlowStepCompletions({
+      jobId: job.jobId,
+      costCentreId: workflow.dayworkCostCentreId,
+      templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+      costCentreName: DAYWORK_COST_CENTRE_NAME,
+    });
+    const seeds = requirementsFromFlowTemplate({
+      jobId: job.jobId,
+      costCentreId: workflow.dayworkCostCentreId,
+      costCentreName: DAYWORK_COST_CENTRE_NAME,
+      templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+    });
+    const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
+    workflow.requirements = seeds.map((seed) => {
+      const existing = byId.get(seed.id);
+      if (!existing) return seed as EngineerRequirement;
+      const value = existing.value || seed.value;
+      const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+      const hasCapturedValue = hasCapturedFlowEvidence(evidenceType, value);
+      return {
+        ...seed,
+        status: hasCapturedValue || (seed.status === "done" && evidenceType === "Checkbox")
+          ? ("done" as const)
+          : seed.required === false
+            ? ("optional" as const)
+            : ("missing" as const),
+        value: hasCapturedValue ? value : undefined,
+      } as EngineerRequirement;
+    });
+    saveStore();
+    return clone(workflow);
+  }
+
   if (job?.jobId && job.costCentres?.[0]?.id) {
     purgeEmptyFlowStepCompletions({
       jobId: job.jobId,
@@ -397,6 +440,40 @@ export function getEngineerJobWorkflow(scheduleId: string) {
     if (changed) saveStore();
   }
   return clone(workflow);
+}
+
+/** Put Field checklist onto the Daywork Account variation sheet for this schedule. */
+export function activateDayworkWorkflow(scheduleId: string, costCentreId: string, requirements: EngineerRequirement[]) {
+  const workflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
+  workflow.checklistMode = "daywork";
+  workflow.dayworkCostCentreId = costCentreId;
+  const byId = new Map(workflow.requirements.map((item) => [item.id, item]));
+  workflow.requirements = requirements.map((seed) => {
+    const existing = byId.get(seed.id);
+    if (!existing) return clone(seed);
+    const value = existing.value || seed.value;
+    const evidenceType = seed.evidence || existing.evidence || "Checkbox";
+    const hasCapturedValue = hasCapturedFlowEvidence(evidenceType, value);
+    return {
+      ...seed,
+      status: hasCapturedValue || (seed.status === "done" && evidenceType === "Checkbox")
+        ? ("done" as const)
+        : seed.required === false
+          ? ("optional" as const)
+          : ("missing" as const),
+      value: hasCapturedValue ? value : undefined,
+    };
+  });
+  saveStore();
+  return clone(workflow);
+}
+
+export function clearDayworkWorkflowMode(scheduleId: string) {
+  const workflow = normaliseWorkflow(getMutableWorkflow(scheduleId));
+  workflow.checklistMode = "job";
+  delete workflow.dayworkCostCentreId;
+  saveStore();
+  return getEngineerJobWorkflow(scheduleId);
 }
 
 function minutesFromTime(value: string) {
@@ -564,6 +641,21 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
             } catch {
               // Site asset sync is best-effort.
             }
+          }
+        }
+
+        const dayworkRecord = buildDayworkAccountRecordFromEvidence(job.jobId, costCentreId);
+        if (dayworkRecord) {
+          try {
+            syncDayworkAccountToJobVariation({
+              jobId: job.jobId,
+              jobRef: job.jobRef,
+              costCentreId,
+              engineerName: job.engineerName || createdBy,
+              record: dayworkRecord,
+            });
+          } catch {
+            // Variation sync is best-effort.
           }
         }
       }

@@ -12230,6 +12230,166 @@ h1 {
   margin: 0;
 }
 
+.daywork-account-form {
+  background: #fff;
+  border: 1px solid #c9d2da;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.daywork-account-masthead {
+  align-items: flex-start;
+  background: linear-gradient(135deg, #1f3a2e 0%, #2d5a45 55%, #3d7a5c 100%);
+  color: #fff;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.daywork-account-kicker {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  margin: 0;
+  opacity: 0.8;
+  text-transform: uppercase;
+}
+
+.daywork-account-masthead h3 {
+  font-size: 1.35rem;
+  margin: 6px 0 8px;
+}
+
+.daywork-account-masthead p {
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0;
+  max-width: 42rem;
+  opacity: 0.92;
+}
+
+.daywork-account-ref {
+  display: grid;
+  gap: 6px;
+  min-width: 160px;
+  text-align: right;
+}
+
+.daywork-account-ref strong {
+  font-size: 1.05rem;
+}
+
+.daywork-account-ref span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.daywork-sign-status {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  justify-self: end;
+  padding: 4px 10px;
+}
+
+.daywork-sign-status.ready {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.daywork-sign-status.pending {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.daywork-account-section {
+  border-top: 1px solid #e4ebf0;
+  padding: 14px 20px;
+}
+
+.daywork-account-section h4 {
+  color: #1f3a2e;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.daywork-account-section table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.daywork-account-section th,
+.daywork-account-section td {
+  border-bottom: 1px solid #eef2f5;
+  font-size: 13px;
+  padding: 8px 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.daywork-account-section th {
+  color: #5b6570;
+  font-weight: 500;
+  width: 42%;
+}
+
+.daywork-account-section td {
+  font-weight: 600;
+}
+
+.daywork-account-section tr.empty td {
+  color: #9aa5b1;
+  font-weight: 400;
+}
+
+.daywork-account-footer {
+  background: #f4f8f6;
+  border-top: 1px solid #e4ebf0;
+  color: #5b6570;
+  font-size: 12px;
+  padding: 12px 20px;
+}
+
+.daywork-account-footer p {
+  margin: 0;
+}
+
+.field-daywork-actions {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+
+.field-daywork-actions .primary-btn,
+.field-daywork-actions .secondary-btn {
+  align-items: center;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 600;
+  gap: 8px;
+  justify-content: center;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.field-daywork-actions .primary-btn {
+  background: #1f3a2e;
+  color: #fff;
+}
+
+.field-daywork-actions .secondary-btn {
+  background: #e8eef2;
+  color: #1b2a4a;
+}
+
+.field-daywork-actions button:disabled {
+  opacity: 0.65;
+}
+
 .engineer-flow-list {
   display: grid;
   gap: 10px;

@@ -104,6 +104,8 @@ export default function JobDetailPage() {
   const [savingId, setSavingId] = useState("");
   const initialTab = (searchParams.get("tab") as Tab | null) ?? "pack";
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [checklistMode, setChecklistMode] = useState<"job" | "daywork">("job");
+  const [dayworkBusy, setDayworkBusy] = useState(false);
 
   useEffect(() => {
     setTab(initialTab);
@@ -161,6 +163,71 @@ export default function JobDetailPage() {
     }));
     setError("");
     setNotice("");
+  }
+
+  async function openDayworkSheet() {
+    if (!job) return;
+    setDayworkBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate" }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        requirements?: FieldRequirement[];
+        costCentreName?: string;
+      };
+      if (!response.ok) throw new Error(body.error || "Could not open daywork sheet.");
+      setChecklistMode("daywork");
+      setTab("checklist");
+      if (body.requirements) {
+        setJob((current) =>
+          current
+            ? {
+                ...current,
+                requirements: body.requirements!,
+                costCentre: body.costCentreName || "Daywork account",
+              }
+            : current,
+        );
+      }
+      setNotice("Daywork Account open — add labour, materials, then plumber and client sign-off.");
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "Could not open daywork sheet.");
+    } finally {
+      setDayworkBusy(false);
+    }
+  }
+
+  async function backToJobChecklist() {
+    if (!job) return;
+    setDayworkBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear" }),
+      });
+      const body = (await response.json()) as { requirements?: FieldRequirement[]; error?: string };
+      if (!response.ok) throw new Error(body.error || "Could not leave daywork sheet.");
+      setChecklistMode("job");
+      if (body.requirements) {
+        setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
+      } else {
+        const item = await client.getJob(job.scheduleId);
+        if (item) setJob(item);
+      }
+      setNotice("Back on the job checklist.");
+    } catch (leaveError) {
+      setError(leaveError instanceof Error ? leaveError.message : "Could not leave daywork sheet.");
+    } finally {
+      setDayworkBusy(false);
+    }
   }
 
   async function reopenRequirement(requirementId: string) {
@@ -340,10 +407,24 @@ export default function JobDetailPage() {
           {job.start}–{job.end} · {formatDuration(job.durationHours)} · {job.jobRef}
         </p>
         <h1>{job.customer}</h1>
-        <p className="field-page-sub">{job.costCentre}</p>
+        <p className="field-page-sub">
+          {checklistMode === "daywork" ? "Daywork account · variation sheet" : job.costCentre}
+        </p>
       </header>
 
       <p className="job-lead">{job.description}</p>
+
+      <div className="field-daywork-actions">
+        {checklistMode === "daywork" ? (
+          <button type="button" className="secondary-btn" disabled={dayworkBusy} onClick={() => void backToJobChecklist()}>
+            Back to job checklist
+          </button>
+        ) : (
+          <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
+            {dayworkBusy ? "Opening…" : "Add Daywork Account"}
+          </button>
+        )}
+      </div>
 
       <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
         Ask Blake about this job
@@ -402,7 +483,9 @@ export default function JobDetailPage() {
       {tab === "checklist" ? (
         <div className="stack checklist-stack">
           <p className="checklist-intro muted">
-            Questions match the Landlord Gas Safety Record. Values must be complete and valid before Save — e.g. a 12-digit Gas Safe ID will not save with only 11.
+            {checklistMode === "daywork"
+              ? "Daywork Account — add labour hours and materials, then plumber and client both sign. Values populate the Core daywork form and Variations."
+              : "Stop/go checklist for this cost centre. Values save to Core — open Daywork Account for reactive variation sheets."}
           </p>
           {error ? <div className="feedback error">{error}</div> : null}
           {notice ? <div className="feedback">{notice}</div> : null}

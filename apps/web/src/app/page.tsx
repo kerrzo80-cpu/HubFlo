@@ -112,7 +112,9 @@ import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPane
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
-import type { GasServiceRecord } from "@/lib/engineer-flow";
+import { DayworkAccountForm } from "@/components/DayworkAccountForm";
+import type { DayworkAccountRecord, GasServiceRecord } from "@/lib/engineer-flow";
+import { dayworkAccountTotals } from "@/lib/engineer-flow";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -1492,7 +1494,7 @@ type EngineerFlowStepEvidenceValue = {
 
 type EngineerFlowStep = {
   id: string;
-  stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover" | "Gas certificate";
+  stage: "Existing Boiler" | "New Boiler" | "Commissioning" | "Handover" | "Gas certificate" | "Daywork";
   label: string;
   evidence: EngineerFlowEvidence;
   required: boolean;
@@ -1556,6 +1558,11 @@ type JobDeliveryEvent = {
   status?: string;
   portalToken?: string;
   source: "NeXa" | "WhatsApp" | "Engineer app";
+  costCentreId?: string;
+  formType?: string;
+  plumberSignature?: string;
+  clientSignature?: string;
+  weekEnding?: string;
 };
 
 type JobDeliveryDraft = {
@@ -2934,6 +2941,7 @@ const costCentreTemplates = [
   "Bathroom refurbishment",
   "Boiler servicing",
   "Boiler replacement",
+  "Daywork account",
   "General plumbing",
   "Heating remedials",
   "Reactive maintenance",
@@ -3344,9 +3352,39 @@ const generalWorksFlowTemplate: EngineerFlowTemplate = {
   ],
 };
 
+const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
+  id: "daywork-account-flow",
+  name: "Daywork account stop/go",
+  appliesTo: ["Daywork account", "Daywork"],
+  steps: [
+    { id: "daywork-description", stage: "Daywork", label: "Description of works", evidence: "Text", required: true },
+    { id: "daywork-week-ending", stage: "Daywork", label: "Week ending", evidence: "Text", required: true },
+    { id: "daywork-vo-ref", stage: "Daywork", label: "V.O. / variation reference", evidence: "Text", required: false },
+    { id: "daywork-labour-name", stage: "Daywork", label: "Labour — operative name", evidence: "Text", required: true },
+    { id: "daywork-labour-trade", stage: "Daywork", label: "Labour — trade", evidence: "Text", required: true },
+    { id: "daywork-labour-hours", stage: "Daywork", label: "Labour — hours", evidence: "Number", required: true },
+    { id: "daywork-labour-rate", stage: "Daywork", label: "Labour — hourly rate (£)", evidence: "Number", required: true },
+    { id: "daywork-labour-expenses", stage: "Daywork", label: "Labour — expenses (£)", evidence: "Number", required: false },
+    { id: "daywork-material-1-desc", stage: "Daywork", label: "Material 1 — description", evidence: "Text", required: false },
+    { id: "daywork-material-1-qty", stage: "Daywork", label: "Material 1 — quantity", evidence: "Number", required: false },
+    { id: "daywork-material-1-price", stage: "Daywork", label: "Material 1 — unit price (£)", evidence: "Number", required: false },
+    { id: "daywork-material-2-desc", stage: "Daywork", label: "Material 2 — description", evidence: "Text", required: false },
+    { id: "daywork-material-2-qty", stage: "Daywork", label: "Material 2 — quantity", evidence: "Number", required: false },
+    { id: "daywork-material-2-price", stage: "Daywork", label: "Material 2 — unit price (£)", evidence: "Number", required: false },
+    { id: "daywork-plant-desc", stage: "Daywork", label: "Plant — description", evidence: "Text", required: false },
+    { id: "daywork-plant-hours", stage: "Daywork", label: "Plant — hours", evidence: "Number", required: false },
+    { id: "daywork-plant-rate", stage: "Daywork", label: "Plant — rate (£/hr)", evidence: "Number", required: false },
+    { id: "daywork-markup-percent", stage: "Daywork", label: "Materials / plant add %", evidence: "Number", required: false },
+    { id: "daywork-works-photo", stage: "Daywork", label: "Works photo", evidence: "Photo", required: false },
+    { id: "daywork-plumber-sign", stage: "Handover", label: "Plumber / contractor signature", evidence: "Signature", required: true },
+    { id: "daywork-client-sign", stage: "Handover", label: "Client / Clerk of Works signature", evidence: "Signature", required: true },
+  ],
+};
+
 const defaultEngineerFlowTemplates = [
   defaultBoilerFlowTemplate,
   boilerServiceFlowTemplate,
+  dayworkAccountFlowTemplate,
   generalWorksFlowTemplate,
 ];
 
@@ -25671,6 +25709,7 @@ export default function Dashboard() {
       (step) => !isFlowStepEvidenceSatisfied(step, flowCompletionKey(completionRecordId, step.id)),
     );
     const isGasServiceFlow = flowTemplate.id === "boiler-service-flow";
+    const isDayworkFlow = flowTemplate.id === "daywork-account-flow";
     const gasRecord: GasServiceRecord | null = isGasServiceFlow
       ? (() => {
           const record: GasServiceRecord = { populatedFrom: "core" };
@@ -25721,6 +25760,50 @@ export default function Dashboard() {
           return any ? record : null;
         })()
       : null;
+    const dayworkRecord: DayworkAccountRecord | null = isDayworkFlow
+      ? (() => {
+          const record: DayworkAccountRecord = { populatedFrom: "core" };
+          let any = false;
+          const fieldMap: Record<string, keyof DayworkAccountRecord> = {
+            "daywork-description": "description",
+            "daywork-week-ending": "weekEnding",
+            "daywork-vo-ref": "voReference",
+            "daywork-labour-name": "labourName",
+            "daywork-labour-trade": "labourTrade",
+            "daywork-labour-hours": "labourHours",
+            "daywork-labour-rate": "labourRate",
+            "daywork-labour-expenses": "labourExpenses",
+            "daywork-material-1-desc": "material1Description",
+            "daywork-material-1-qty": "material1Qty",
+            "daywork-material-1-price": "material1UnitPrice",
+            "daywork-material-2-desc": "material2Description",
+            "daywork-material-2-qty": "material2Qty",
+            "daywork-material-2-price": "material2UnitPrice",
+            "daywork-plant-desc": "plantDescription",
+            "daywork-plant-hours": "plantHours",
+            "daywork-plant-rate": "plantRate",
+            "daywork-markup-percent": "markupPercent",
+            "daywork-works-photo": "worksPhoto",
+            "daywork-plumber-sign": "plumberSignature",
+            "daywork-client-sign": "clientSignature",
+          };
+          for (const step of dayworkAccountFlowTemplate.steps) {
+            const field = fieldMap[step.id];
+            if (!field) continue;
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, step.id)] || {};
+            const value =
+              step.evidence === "Number"
+                ? evidence.numberValue?.trim()
+                : evidence.text?.trim() || evidence.photoName?.trim();
+            if (!value) continue;
+            (record as Record<string, string | undefined>)[field] = value;
+            record.completedAt = evidence.capturedAt || record.completedAt;
+            any = true;
+          }
+          return any ? record : null;
+        })()
+      : null;
+    const dayworkTotals = dayworkAccountTotals(dayworkRecord);
     const gasFields = gasRecord
       ? [
           { label: "Location", value: gasRecord.location },
@@ -25744,7 +25827,11 @@ export default function Dashboard() {
             <h2>{flowTemplate.name}</h2>
             {centre ? <small>Assigned from cost centre type: {centre.templateName ?? "General plumbing"}</small> : null}
             <small style={{ display: "block", marginTop: 4 }}>
-              Engineer fills this on the app — values appear here on the NeXa Landlord Gas Safety Record automatically.
+              {isDayworkFlow
+                ? "Plumber fills labour, materials and dual sign-off on Field — the Daywork Account populates here and lands in Variations."
+                : isGasServiceFlow
+                  ? "Engineer fills this on the app — values appear here on the NeXa Landlord Gas Safety Record automatically."
+                  : "Engineer fills this on the app — values appear here automatically."}
             </small>
           </div>
           <span className={nextBlockedStep ? "flow-status blocked" : "flow-status ready"}>
@@ -25782,6 +25869,32 @@ export default function Dashboard() {
                 inspectionDate: gasRecord?.completedAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
                 applianceType: "Central heating boiler",
                 record: gasRecord,
+              }}
+            />
+          </div>
+        ) : null}
+
+        {isDayworkFlow ? (
+          <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
+            <strong>Daywork Account</strong>
+            <span>
+              {dayworkTotals.total
+                ? `Running total ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })} · sits in Variations after dual sign-off`
+                : "Waiting for labour / materials from Field"}
+            </span>
+          </div>
+        ) : null}
+
+        {isDayworkFlow ? (
+          <div style={{ marginBottom: 16 }}>
+            <DayworkAccountForm
+              context={{
+                customer: job.customer,
+                site: job.site,
+                engineer: job.manager || "Field engineer",
+                jobRef: job.ref,
+                contract: job.site,
+                record: dayworkRecord,
               }}
             />
           </div>
