@@ -1,6 +1,13 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import { PwaIconLinks } from "./pwa-icon-links";
 import "./globals.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-nexa",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://nexa-pilot.onrender.com"),
@@ -33,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.variable}>
       <body>
         <PwaIconLinks />
         {children}
