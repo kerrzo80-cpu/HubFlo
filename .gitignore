@@ -9,6 +9,14 @@ coverage
 *.log
 .DS_Store
 .hubflo-runtime
+# NeXa runtime store files (normally written to .hubflo-runtime/; ignored here as
+# defense in depth so a misconfigured store dir never commits local data)
+/apps/web/*-store.json
+/apps/web/nexa-*.json
+/apps/web/simpro-*.json
+/apps/web/survey-estimator-*.json
+/apps/web/daywork-*.json
+/apps/web/email-integration.json
 *.swp
 *.swo
 *.xcodeproj/project.xcworkspace/

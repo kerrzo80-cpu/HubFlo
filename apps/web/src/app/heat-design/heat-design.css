@@ -654,6 +654,68 @@
   color: #9f1239;
 }
 
+.hp-edit-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(3, 12, 24, 0.45);
+  z-index: 40;
+}
+
+.hp-edit-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  width: min(360px, 100%);
+  padding: 1.1rem;
+  background: #fff;
+  border-radius: 0.9rem;
+  box-shadow: 0 24px 60px rgba(3, 12, 24, 0.3);
+}
+
+.hp-edit-modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 650;
+  color: #0f172a;
+}
+
+.hp-edit-modal input {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.6rem;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.hp-edit-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.hp-edit-modal-actions button {
+  appearance: none;
+  padding: 0.55rem 1rem;
+  border: 1px solid #cbd5f5;
+  border-radius: 0.6rem;
+  background: #f1f5f9;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.hp-edit-modal-actions button.is-primary {
+  background: #006eb8;
+  border-color: #006eb8;
+  color: #fff;
+}
+
 .hp-floor-switcher {
   position: absolute;
   right: 0.75rem;

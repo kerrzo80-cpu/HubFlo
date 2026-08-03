@@ -444,7 +444,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const access = getAccessProfileFromHeaders(request.headers);
-  if (!access.canEditInvoice && !access.showFinance) {
+  // Creating/updating live Xero invoices is a mutation — require invoice-edit
+  // permission. Finance *visibility* (showFinance, e.g. Read-only) is not enough.
+  if (!access.canEditInvoice) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -501,7 +503,10 @@ export async function POST(request: NextRequest) {
       id: `xero-exp-${Date.now()}`,
       invoiceId: invoice.id,
       invoiceRef: invoice.ref,
-      status: "Sent",
+      // The invoice is NOT in Xero yet — only a CSV awaiting manual import (or
+      // the live push failed). Keep it queued so a transient failure can't make
+      // an invoice look posted to Xero.
+      status: "Queued",
       mode: "csv-pack",
       createdAt,
       actor,
@@ -518,7 +523,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     export: record,
-    accountsStatus: "Sent" as const,
+    accountsStatus: live.ok ? ("Sent" as const) : ("Queued" as const),
     csv: live.ok ? null : buildInvoiceCsv(invoice),
     xeroInvoiceId: live.ok ? live.xeroInvoiceId || null : null,
     xeroInvoiceNumber: live.ok ? live.xeroInvoiceNumber || invoice.ref : null,

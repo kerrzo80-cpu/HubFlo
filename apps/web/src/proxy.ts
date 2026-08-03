@@ -4,7 +4,7 @@ import { employeeHeaderName, permissionHeaderName, roleHeaderName } from "@/lib/
 import { getAuthUserForSession, isUserAuthenticationEnabled, nexaSessionCookie } from "@/lib/auth-store";
 
 const pilotPin = process.env.NEXA_PILOT_PIN;
-const pilotUser = process.env.NEXA_PILOT_USER ?? "nexa";
+const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const publicPagePrefixes = ["/ai-first", "/heat-design"];

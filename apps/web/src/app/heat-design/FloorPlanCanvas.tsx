@@ -110,6 +110,19 @@ export function FloorPlanCanvas({
   const [selectedEmitterId, setSelectedEmitterId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [roomEdit, setRoomEdit] = useState<{ roomId: string; field: "name" | "height"; value: string } | null>(null);
+
+  function submitRoomEdit() {
+    if (!roomEdit) return;
+    const raw = roomEdit.value.trim();
+    if (roomEdit.field === "name") {
+      if (raw) onPatchRoom(roomEdit.roomId, { name: raw });
+    } else {
+      const metres = Number(raw) / 1000;
+      if (Number.isFinite(metres) && metres > 1) onPatchRoom(roomEdit.roomId, { height: String(metres) });
+    }
+    setRoomEdit(null);
+  }
 
   const floorRooms = useMemo(
     () => rooms.filter((room) => (room.floorLevel ?? "ground") === activeFloor),
@@ -710,11 +723,23 @@ export function FloorPlanCanvas({
 
                 <text
                   x={px(centroid.x)}
-                  y={py(centroid.y)}
+                  y={py(centroid.y) - 9}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="#334155"
+                  fontSize={13}
+                  fontWeight={700}
+                  style={{ pointerEvents: "none" }}
+                >
+                  {room.name?.trim() || room.roomType}
+                </text>
+                <text
+                  x={px(centroid.x)}
+                  y={py(centroid.y) + 9}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="#8a8a8a"
-                  fontSize={13}
+                  fontSize={12}
                   fontWeight={600}
                   style={{ pointerEvents: "none" }}
                 >
@@ -1059,25 +1084,20 @@ export function FloorPlanCanvas({
             <button
               type="button"
               title="Ceiling height"
-              onClick={() => {
-                const next = window.prompt(
-                  "Ceiling height (mm)",
-                  String(Math.round(numberFromInput(selected.height, 2.4) * 1000)),
-                );
-                if (!next) return;
-                const metres = Number(next) / 1000;
-                if (Number.isFinite(metres) && metres > 1) onPatchRoom(selected.id, { height: String(metres) });
-              }}
+              onClick={() =>
+                setRoomEdit({
+                  roomId: selected.id,
+                  field: "height",
+                  value: String(Math.round(numberFromInput(selected.height, 2.4) * 1000)),
+                })
+              }
             >
               ↕
             </button>
             <button
               type="button"
               title="Rename"
-              onClick={() => {
-                const next = window.prompt("Room name", selected.name);
-                if (next) onPatchRoom(selected.id, { name: next });
-              }}
+              onClick={() => setRoomEdit({ roomId: selected.id, field: "name", value: selected.name })}
             >
               ✎
             </button>
@@ -1108,6 +1128,53 @@ export function FloorPlanCanvas({
             >
               Remove room
             </button>
+          </div>
+        ) : null}
+
+        {roomEdit ? (
+          <div
+            className="hp-edit-modal-backdrop"
+            role="presentation"
+            onPointerDown={(event) => {
+              if (event.target === event.currentTarget) setRoomEdit(null);
+            }}
+          >
+            <div
+              className="hp-edit-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={roomEdit.field === "name" ? "Rename room" : "Ceiling height"}
+            >
+              <label>
+                {roomEdit.field === "name" ? "Room name" : "Ceiling height (mm)"}
+                <input
+                  autoFocus
+                  type={roomEdit.field === "name" ? "text" : "number"}
+                  value={roomEdit.value}
+                  onChange={(event) =>
+                    setRoomEdit((current) => (current ? { ...current, value: event.target.value } : current))
+                  }
+                  onFocus={(event) => event.target.select()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitRoomEdit();
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      setRoomEdit(null);
+                    }
+                  }}
+                />
+              </label>
+              <div className="hp-edit-modal-actions">
+                <button type="button" onClick={() => setRoomEdit(null)}>
+                  Cancel
+                </button>
+                <button type="button" className="is-primary" onClick={submitRoomEdit}>
+                  Save
+                </button>
+              </div>
+            </div>
           </div>
         ) : null}
 

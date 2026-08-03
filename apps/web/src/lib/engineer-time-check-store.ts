@@ -146,11 +146,15 @@ function pickEngineerJobs(date?: string, engineerId?: string) {
     const engineerMatch = !engineerId || job.engineerId === targetEngineer;
     return dateMatch && engineerMatch;
   });
+  // When an engineer is explicitly targeted, never fall back to every
+  // engineer's jobs — that would leak/aggregate other diaries into this
+  // engineer's time check. Fail closed to an empty set instead.
+  const scopedJobs = filtered.length ? filtered : engineerId ? [] : jobs;
   return {
     date: targetDate,
     engineerId: filtered[0]?.engineerId || targetEngineer,
     engineerName: filtered[0]?.engineerName || "Field engineer",
-    jobs: filtered.length ? filtered : jobs,
+    jobs: scopedJobs,
   };
 }
 

@@ -274,7 +274,7 @@ function normaliseName(value: string) {
   return value.toLowerCase().replace(/[^a-z]+/g, " ").trim();
 }
 
-function engineerIdForName(name: string) {
+export function engineerIdForName(name: string) {
   const normalised = normaliseName(name);
   if (normalised.includes("brian")) return "eng-brian";
   if (normalised.includes("errol")) return "eng-errol";

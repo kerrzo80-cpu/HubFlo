@@ -3,24 +3,31 @@
   --charcoal-900: #252326;
   --charcoal-800: #333034;
   --charcoal-700: #474348;
-  --ink: #20262b;
-  --muted: #667680;
-  --subtle: #89959c;
-  --line: #d9e1e5;
-  --line-soft: #e9eef0;
-  --canvas: #f3f6f7;
+  --ink: #101828;
+  --muted: #667085;
+  --subtle: #98a2b3;
+  --line: #eaecf0;
+  --line-soft: #f2f4f7;
+  --canvas: #f7f8fa;
   --surface: #ffffff;
-  --blue: #58acd5;
-  --blue-dark: #287ea8;
-  --blue-deep: #17698f;
-  --blue-soft: #eaf6fb;
+  --blue: #3b9fd6;
+  --blue-dark: #1f7fb0;
+  --blue-deep: #14618c;
+  --blue-soft: #eef7fc;
   --green: #278459;
   --green-soft: #e8f5ee;
   --amber: #b36a16;
   --amber-soft: #fff4df;
   --red: #b43a3a;
   --red-soft: #fff0ef;
-  --shadow: 0 8px 28px rgba(27, 38, 45, 0.07);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 10px 20px -8px rgba(16, 24, 40, 0.14), 0 4px 10px -4px rgba(16, 24, 40, 0.08);
+  /* Modern minimalist accent + radii */
+  --nexa-accent: #006eb8;
+  --nexa-accent-2: #2e8c7d;
+  --nexa-grad: linear-gradient(135deg, #006eb8 0%, #2e8c7d 100%);
+  --radius-lg: 18px;
+  --radius: 13px;
+  --radius-sm: 10px;
 }
 
 /* Takeoffs plan renderer and route key. */
@@ -393,53 +400,99 @@
 
 .nexa-secure-login {
   align-items: center;
-  background: #eef7fa;
-  color: #17212b;
+  color: var(--ink);
   display: flex;
   min-height: 100vh;
   padding: 24px;
+  background:
+    radial-gradient(60% 55% at 12% 8%, rgba(0, 110, 184, 0.14), transparent 60%),
+    radial-gradient(55% 55% at 92% 96%, rgba(46, 140, 125, 0.16), transparent 60%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2f6 100%);
 }
 
 .nexa-secure-login > section {
-  background: #fff;
-  border: 1px solid #d5e3e9;
-  border-radius: 8px;
-  box-shadow: 0 18px 55px rgba(23, 69, 88, 0.12);
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 24px;
+  box-shadow: 0 30px 70px -30px rgba(16, 40, 64, 0.4);
   display: grid;
   gap: 26px;
   margin: auto;
-  max-width: 460px;
-  padding: 30px;
+  max-width: 430px;
+  padding: 40px 38px;
   width: 100%;
 }
 
 .nexa-secure-login-brand {
   align-items: center;
-  border-bottom: 1px solid #e5edf1;
   display: flex;
-  gap: 16px;
-  padding-bottom: 20px;
+  gap: 14px;
 }
 
-.nexa-secure-login-brand img { height: 54px; object-fit: contain; width: 150px; }
-.nexa-secure-login-brand span { border-left: 1px solid #d5e3e9; display: grid; gap: 2px; padding-left: 16px; }
-.nexa-secure-login-brand strong { font-size: 20px; }
-.nexa-secure-login-brand small { color: #667680; font-size: 11px; }
-.nexa-secure-login-heading { align-items: flex-start; display: flex; gap: 12px; }
-.nexa-secure-login-heading > span { align-items: center; background: #e7f5f2; border-radius: 6px; color: #237567; display: flex; height: 36px; justify-content: center; width: 36px; }
-.nexa-secure-login-heading h1 { font-size: 25px; margin: 0 0 5px; }
-.nexa-secure-login-heading p { color: #667680; line-height: 1.5; margin: 0; }
-.nexa-secure-login form { display: grid; gap: 16px; }
-.nexa-secure-login label { color: #44545e; display: grid; font-size: 12px; font-weight: 700; gap: 7px; }
-.nexa-secure-login input { border: 1px solid #bfcfd7; border-radius: 6px; color: #17212b; font: inherit; min-height: 44px; padding: 0 12px; }
-.nexa-secure-login input:focus { border-color: #2e8c7d; box-shadow: 0 0 0 3px rgba(46, 140, 125, 0.12); outline: 0; }
-.nexa-secure-login button { align-items: center; background: #087eac; border: 1px solid #087eac; border-radius: 6px; color: #fff; display: flex; font: inherit; font-weight: 700; gap: 8px; justify-content: center; min-height: 44px; }
-.nexa-secure-login-error { background: #fff0f1; border: 1px solid #efc7ca; border-radius: 6px; color: #a53036; font-size: 12px; margin: 0; padding: 10px 12px; }
+.nexa-secure-login-brand img { height: 44px; object-fit: contain; width: 124px; }
+.nexa-secure-login-brand span { display: grid; gap: 1px; padding-left: 14px; border-left: 1px solid var(--line); }
+.nexa-secure-login-brand strong { font-size: 19px; letter-spacing: -0.01em; }
+.nexa-secure-login-brand small { color: var(--muted); font-size: 11px; letter-spacing: 0.02em; }
+.nexa-secure-login-heading { display: grid; gap: 10px; }
+.nexa-secure-login-heading > span {
+  align-items: center;
+  background: var(--nexa-grad);
+  border-radius: 14px;
+  color: #fff;
+  display: flex;
+  height: 46px;
+  justify-content: center;
+  width: 46px;
+  box-shadow: 0 10px 22px -10px rgba(0, 110, 184, 0.75);
+}
+.nexa-secure-login-heading h1 { font-size: 30px; margin: 6px 0 4px; letter-spacing: -0.02em; }
+.nexa-secure-login-heading p { color: var(--muted); line-height: 1.55; margin: 0; }
+.nexa-secure-login form { display: grid; gap: 15px; }
+.nexa-secure-login label { color: #344054; display: grid; font-size: 12px; font-weight: 650; gap: 7px; }
+.nexa-secure-login input {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfcfd;
+  color: var(--ink);
+  font: inherit;
+  min-height: 48px;
+  padding: 0 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.nexa-secure-login input:focus {
+  background: #fff;
+  border-color: var(--nexa-accent);
+  box-shadow: 0 0 0 4px rgba(0, 110, 184, 0.12);
+  outline: 0;
+}
+.nexa-secure-login button {
+  align-items: center;
+  background: var(--nexa-grad);
+  border: 0;
+  border-radius: 12px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 50px;
+  margin-top: 4px;
+  box-shadow: 0 16px 30px -14px rgba(0, 110, 184, 0.8);
+  transition: transform 0.12s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+.nexa-secure-login button:hover { transform: translateY(-1px); filter: brightness(1.03); }
+.nexa-secure-login button:active { transform: translateY(0); }
+.nexa-secure-login button:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+.nexa-secure-login-error { background: var(--red-soft); border: 1px solid #efc7ca; border-radius: 12px; color: #a53036; font-size: 12px; margin: 0; padding: 11px 13px; }
 
 @media (max-width: 520px) {
   .nexa-secure-login { align-items: stretch; padding: 0; }
-  .nexa-secure-login > section { border: 0; border-radius: 0; box-shadow: none; max-width: none; min-height: 100vh; padding: 28px 22px; }
-  .nexa-secure-login-brand img { width: 130px; }
+  .nexa-secure-login > section { border: 0; border-radius: 0; box-shadow: none; backdrop-filter: none; background: #fff; max-width: none; min-height: 100vh; padding: 34px 24px; }
+  .nexa-secure-login-brand img { width: 120px; }
 }
 
 .estimator-modal-backdrop { align-items: center; background: rgb(11 32 43 / 54%); display: flex; inset: 0; justify-content: center; padding: 20px; position: fixed; z-index: 100; }
@@ -2268,7 +2321,7 @@ body {
   background: var(--canvas);
   color: var(--ink);
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    var(--font-nexa), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
     sans-serif;
   font-size: 13px;
   font-synthesis: none;
@@ -3132,20 +3185,21 @@ kbd {
 
 .create-button {
   align-items: center;
-  background: #fff;
-  border: 1px solid rgba(29, 92, 121, 0.22);
-  border-radius: 4px;
-  color: var(--blue-deep);
+  background: var(--nexa-grad);
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
   display: flex;
-  font-weight: 750;
+  font-weight: 700;
   gap: 7px;
   height: 38px;
-  margin-left: 6px;
-  padding: 0 13px;
+  margin-left: 8px;
+  padding: 0 15px;
+  box-shadow: 0 10px 22px -12px rgba(0, 110, 184, 0.8);
 }
 
 .create-button:hover {
-  background: #edf8fc;
+  filter: brightness(1.04);
 }
 
 .role-switch {
@@ -3251,9 +3305,9 @@ kbd {
 
 .account-avatar {
   align-items: center;
-  background: #fff;
+  background: var(--nexa-grad);
   border-radius: 50%;
-  color: var(--blue-deep);
+  color: #fff;
   display: flex;
   font-size: 10px;
   font-weight: 800;
@@ -3280,6 +3334,235 @@ kbd {
 
 .sign-out-button {
   margin-left: 2px;
+  width: auto;
+  gap: 6px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+
+.sign-out-label {
+  white-space: nowrap;
+}
+
+/* ---- Modern refresh layer (additive, opt-in classes + safe globals) ---- */
+
+/* Smooth, springy interactions and a crisp accessible focus ring everywhere. */
+button,
+a,
+.module-link,
+.header-icon,
+.create-button,
+.account-button {
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.12s ease;
+}
+
+:where(button, a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--nexa-verdigris, #2e8c7d);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.create-button:hover,
+.primary-button:hover {
+  transform: translateY(-1px);
+}
+
+.create-button:active,
+.primary-button:active {
+  transform: translateY(0);
+}
+
+/* NeXa AI key card (Core Setup -> Integrations) */
+.ai-key-card {
+  position: relative;
+  overflow: hidden;
+  margin-top: 14px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(46, 140, 125, 0.22);
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgba(0, 110, 184, 0.1), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, #f7fbfd 100%);
+  box-shadow: 0 18px 44px -28px rgba(3, 40, 64, 0.45);
+}
+
+.ai-key-card__glow {
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle, rgba(46, 140, 125, 0.28), transparent 70%);
+  filter: blur(8px);
+  pointer-events: none;
+}
+
+.ai-key-card__head {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.ai-key-card__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  color: #fff;
+  background: linear-gradient(135deg, #006eb8 0%, #2e8c7d 100%);
+  box-shadow: 0 8px 20px -8px rgba(0, 110, 184, 0.7);
+}
+
+.ai-key-card__eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nexa-verdigris, #2e8c7d);
+}
+
+.ai-key-card__head h2 {
+  margin: 2px 0 4px;
+  font-size: 1.05rem;
+}
+
+.ai-key-card__head p {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--nexa-slate, #4a5b66);
+}
+
+.ai-key-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 5px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.ai-key-card__status.is-on {
+  background: rgba(46, 140, 125, 0.14);
+  color: #1f7a5f;
+}
+
+.ai-key-card__status.is-off {
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+
+.ai-key-card__body {
+  position: relative;
+  margin-top: 14px;
+}
+
+.ai-key-card__note {
+  margin: 0 0 12px;
+  color: var(--nexa-slate, #4a5b66);
+}
+
+.ai-key-card__row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-key-card__input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 240px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #64748b;
+}
+
+.ai-key-card__input input {
+  flex: 1;
+  border: 0;
+  outline: none;
+  padding: 11px 0;
+  background: transparent;
+  color: #0f172a;
+  letter-spacing: 0.04em;
+}
+
+.ai-key-card__save {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #006eb8 0%, #2e8c7d 100%);
+  box-shadow: 0 12px 26px -12px rgba(0, 110, 184, 0.75);
+}
+
+.ai-key-card__save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.ai-key-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--nexa-slate, #4a5b66);
+}
+
+.ai-key-card__remove {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #b91c1c;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ai-key-card__ok {
+  margin: 12px 0 0;
+  color: #1f7a5f;
+  font-weight: 600;
+}
+
+.ai-key-card__err {
+  margin: 12px 0 0;
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.ai-key-card .spin {
+  animation: nexa-spin 0.9s linear infinite;
+}
+
+@keyframes nexa-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .employee-login-shell {
@@ -3470,16 +3753,18 @@ kbd {
 }
 
 .module-bar {
-  align-items: stretch;
-  background: #fff;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: saturate(160%) blur(12px);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--line);
-  box-shadow: 0 2px 8px rgba(25, 35, 40, 0.04);
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
   display: flex;
   flex-wrap: nowrap;
-  gap: 0;
+  gap: 3px;
   height: 49px;
   overflow: visible;
-  padding: 0 12px;
+  padding: 0 14px;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -3569,14 +3854,15 @@ kbd {
 
 .module-link {
   align-items: center;
-  border-bottom: 3px solid transparent;
-  color: #536169;
+  border-radius: 10px;
+  color: var(--muted);
   display: flex;
   flex: 0 0 auto;
-  font-size: 12px;
-  font-weight: 650;
-  gap: 6px;
-  padding: 0 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  gap: 7px;
+  height: 34px;
+  padding: 0 13px;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -3603,13 +3889,14 @@ kbd {
 }
 
 .module-link:hover {
-  background: #f7f9fa;
+  background: var(--line-soft);
   color: var(--ink);
 }
 
 .module-link.active {
-  border-bottom-color: var(--blue);
-  color: var(--blue-deep);
+  background: var(--blue-soft);
+  color: var(--nexa-accent);
+  font-weight: 700;
 }
 
 .module-submenu {
@@ -4690,9 +4977,11 @@ h1 {
 }
 
 .primary-button {
-  background: var(--blue-deep);
-  border: 1px solid var(--blue-deep);
+  background: var(--nexa-grad);
+  border: 0;
+  border-radius: 10px;
   color: #fff;
+  box-shadow: 0 10px 22px -12px rgba(0, 110, 184, 0.75);
 }
 
 .secondary-button,
@@ -36225,4 +36514,488 @@ body {
   .job-field-visit-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============================================================
+   NeXa UI 2.0 — trendy, slick, minimalist design layer.
+   Appended last so it refreshes the default/light look app-wide
+   (scoped theme variants keep their own styling).
+   ============================================================ */
+
+body {
+  background:
+    radial-gradient(52rem 34rem at 100% -10%, rgba(0, 110, 184, 0.07), transparent 60%),
+    radial-gradient(46rem 32rem at -8% 110%, rgba(46, 140, 125, 0.07), transparent 60%),
+    var(--canvas);
+  background-attachment: fixed;
+  letter-spacing: -0.005em;
+}
+
+/* Elevated, rounded content cards across the whole app */
+.setup-panel,
+.setup-subpage-panel,
+.setup-readiness,
+.ops-queue-panel,
+.invoice-ops-panel,
+.weekly-schedule-panel,
+.notification-panel,
+.dashboard-customise-panel,
+.flow-progress-panel,
+.profile-hero-panel,
+.profile-calendar-panel,
+.support-panel,
+.lead-schedule-panel {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.panel-header h2,
+.setup-panel h2,
+.ops-queue-panel h2 {
+  letter-spacing: -0.015em;
+  font-weight: 700;
+}
+
+/* Dashboard action cards — tactile, with a subtle lift on hover */
+.notification-card {
+  border-radius: 14px;
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.18s ease,
+    border-color 0.16s ease;
+}
+
+.notification-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 18px 34px -20px rgba(16, 24, 40, 0.32);
+}
+
+/* Schedule day tiles */
+.schedule-day-card {
+  border-radius: 14px;
+}
+
+/* Status chips — pill, tinted, minimalist */
+.status-pill {
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 0;
+}
+
+.status-pill.red {
+  background: var(--red-soft);
+  color: #b42318;
+}
+
+.status-pill.amber {
+  background: var(--amber-soft);
+  color: #b54708;
+}
+
+.status-pill.green {
+  background: var(--green-soft);
+  color: #087443;
+}
+
+/* Secondary / filter buttons — modern rounded */
+.secondary-button,
+.filter-button,
+.status-filter {
+  border-radius: 10px;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.secondary-button:hover,
+.filter-button:hover {
+  transform: translateY(-1px);
+}
+
+/* Inputs & search — modern rounded fields */
+.global-search,
+.form-body input,
+.form-body select,
+.form-body textarea,
+.status-filter select,
+.ai-form-grid input,
+.ai-form-grid select {
+  border-radius: 10px;
+}
+
+/* Left context sidebar — clean surface */
+.context-sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+/* Give the dashboard grid more breathing room */
+.ops-dashboard-layout-grid {
+  gap: 16px;
+}
+
+/* Rounded avatars/kbd for a softer, modern feel */
+kbd,
+.counter {
+  border-radius: 8px;
+}
+
+/* ---- Level-up: hierarchy, space and elevation ---- */
+
+/* Bold hero heading + muted subtitle for clear hierarchy */
+.workspace-header {
+  padding-bottom: 6px;
+}
+
+.workspace-header h1 {
+  font-size: 27px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.workspace-header > div > p,
+.workspace-header p {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.breadcrumb {
+  color: var(--subtle);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Stronger, more legible card titles */
+.panel-header h2,
+.ops-queue-panel h2,
+.notification-panel h2,
+.weekly-schedule-panel h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+/* More generous padding + breathing room in the dashboard cards */
+.ops-queue-panel,
+.invoice-ops-panel,
+.notification-panel,
+.weekly-schedule-panel {
+  padding: 20px 22px;
+}
+
+/* Big content cards lift gently on hover for a premium, tactile feel */
+.ops-queue-panel,
+.invoice-ops-panel,
+.weekly-schedule-panel {
+  transition: transform 0.16s ease, box-shadow 0.2s ease;
+}
+
+.ops-queue-panel:hover,
+.invoice-ops-panel:hover,
+.weekly-schedule-panel:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 42px -22px rgba(16, 24, 40, 0.3);
+}
+
+/* Clearer active navigation pill */
+.module-link.active {
+  background: linear-gradient(135deg, rgba(0, 110, 184, 0.14), rgba(46, 140, 125, 0.14));
+  color: var(--nexa-accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 110, 184, 0.16);
+}
+
+/* Airier dashboard grid + centered on very wide screens */
+.ops-dashboard-layout-grid {
+  gap: 18px;
+}
+
+/* Softer, roomier global search */
+.global-search {
+  border-radius: 12px;
+}
+
+/* ---- Content screens: modern empty states + clearer folder tabs ---- */
+
+/* Friendlier, designed empty states instead of plain grey text */
+.ops-queue-empty,
+.schedule-empty,
+.record-directory .record-folder-empty,
+.record-folder-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 88px;
+  margin: 12px 16px;
+  padding: 22px;
+  border: 1.5px dashed #c3ccd9;
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 140% at 50% 0%, rgba(0, 110, 184, 0.06), transparent 62%),
+    #f8fafc;
+  color: #5b6675;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.schedule-empty {
+  min-height: 48px;
+  margin: 6px 0 0;
+  padding: 10px;
+}
+
+/* Active folder/tab gets a clear branded highlight */
+.record-directory .record-folder-card.active,
+.record-folder-card.active {
+  border-color: rgba(0, 110, 184, 0.5) !important;
+  box-shadow: 0 0 0 1px rgba(0, 110, 184, 0.35) inset, var(--shadow) !important;
+}
+
+.record-directory .record-folder-card.active strong,
+.record-folder-card.active strong {
+  color: var(--nexa-accent);
+}
+
+/* Folder count tiles: gentle hover affordance */
+.record-folder-card {
+  transition: border-color 0.15s ease, box-shadow 0.16s ease, transform 0.12s ease;
+}
+
+.record-folder-card:hover {
+  transform: translateY(-1px);
+}
+
+/* ---- Dashboard KPI overview (clean metric cards + charts) ---- */
+.nexa-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(255px, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+@media (max-width: 620px) {
+  .nexa-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Staggered entrance for a premium first impression */
+.nexa-kpi-card {
+  animation: nexa-kpi-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.nexa-kpi-card:nth-child(2) { animation-delay: 0.05s; }
+.nexa-kpi-card:nth-child(3) { animation-delay: 0.1s; }
+.nexa-kpi-card:nth-child(4) { animation-delay: 0.15s; }
+.nexa-kpi-card:nth-child(5) { animation-delay: 0.2s; }
+.nexa-kpi-card:nth-child(6) { animation-delay: 0.25s; }
+.nexa-kpi-card:nth-child(7) { animation-delay: 0.3s; }
+
+@keyframes nexa-kpi-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nexa-kpi-card {
+    animation: none;
+  }
+}
+
+.nexa-kpi-ring-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.nexa-kpi-ring-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.nexa-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition: transform 0.16s ease, box-shadow 0.2s ease;
+}
+
+.nexa-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 42px -22px rgba(16, 24, 40, 0.3);
+}
+
+.nexa-kpi-card > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nexa-kpi-card h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.nexa-kpi-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nexa-kpi-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nexa-kpi-donut {
+  width: 96px;
+  height: 96px;
+  flex: 0 0 auto;
+}
+
+.nexa-kpi-donut-value {
+  font-size: 24px;
+  font-weight: 800;
+  fill: var(--ink);
+}
+
+.nexa-kpi-donut-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--subtle);
+}
+
+.nexa-kpi-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  flex: 1;
+}
+
+.nexa-kpi-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nexa-kpi-legend li span {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.nexa-kpi-legend li strong {
+  margin-left: auto;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.nexa-kpi-bars {
+  display: grid;
+  gap: 11px;
+}
+
+.nexa-kpi-bar-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 28px;
+  align-items: center;
+  gap: 10px;
+}
+
+.nexa-kpi-bar-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nexa-kpi-bar-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #eef1f5;
+  overflow: hidden;
+}
+
+.nexa-kpi-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.nexa-kpi-bar-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: right;
+}
+
+.nexa-kpi-empty {
+  margin: 0;
+  color: var(--subtle);
+  font-size: 12px;
+}
+
+.nexa-kpi-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nexa-kpi-metric strong {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  line-height: 1.05;
+  background: var(--nexa-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.nexa-kpi-metric span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nexa-kpi-bar-row.money {
+  grid-template-columns: 92px 1fr 64px;
 }

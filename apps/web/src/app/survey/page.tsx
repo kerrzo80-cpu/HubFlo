@@ -488,7 +488,9 @@ export default function SurveyDirectoryPage() {
                   ? "Creating…"
                   : selectedChoice
                     ? `Create survey for ${selectedChoice.reference}`
-                    : "Create blank survey"}
+                    : linkType
+                      ? `Select a ${linkType.toLowerCase()} to link`
+                      : "Create blank survey"}
               </button>
               <button type="button" onClick={() => setShowCreate(false)} disabled={creating}>
                 Cancel
