@@ -18061,19 +18061,27 @@ export default function Dashboard() {
         flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
         jobDeliveryEvents?: JobDeliveryEvent[];
       };
-      if (body.dayworkSheets) setDayworkSheets(body.dayworkSheets);
-      else if (body.sheet) {
-        setDayworkSheets((current) => ({ ...current, [`${jobId}:${costCentreId}`]: body.sheet! }));
-      } else if (body.record) {
+      if (body.dayworkSheets) {
+        setDayworkSheets(body.dayworkSheets);
+      } else if (body.sheet) {
+        const resolvedCentreId = body.sheet.costCentreId || costCentreId;
         setDayworkSheets((current) => ({
           ...current,
-          [`${jobId}:${body.sheet?.costCentreId || costCentreId}`]: {
-            ...body.record!,
-            jobId,
-            jobRef: jobs.find((item) => item.id === jobId)?.ref || jobId,
-            costCentreId: body.sheet?.costCentreId || costCentreId,
-            updatedAt: body.record!.completedAt || new Date().toISOString(),
-          },
+          [`${jobId}:${resolvedCentreId}`]: body.sheet!,
+          [`${jobId}:${costCentreId}`]: body.sheet!,
+        }));
+      } else if (body.record) {
+        const resolvedCentreId = costCentreId;
+        const snapshot = {
+          ...body.record,
+          jobId,
+          jobRef: jobs.find((item) => item.id === jobId)?.ref || jobId,
+          costCentreId: resolvedCentreId,
+          updatedAt: body.record.completedAt || new Date().toISOString(),
+        };
+        setDayworkSheets((current) => ({
+          ...current,
+          [`${jobId}:${resolvedCentreId}`]: snapshot,
         }));
       }
       if (body.flowStepEvidence) {
