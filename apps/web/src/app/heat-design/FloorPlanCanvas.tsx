@@ -1,37 +1,40 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { numberFromInput, roomTypes, type FloorLevel, type HeatDesignRoom } from "@/lib/heat-design";
+import {
+  dist,
+  edgeLengths,
+  insertVertexOnEdge,
+  numberFromInput,
+  openingOnEdge,
+  polygonBounds,
+  roomPolygon,
+  roomTypes,
+  roomWallExterior,
+  syncRoomFromPolygon,
+  translatePolygon,
+  type FloorLevel,
+  type HeatDesignRoom,
+  type PlanPoint,
+} from "@/lib/heat-design";
 
 type FloorPlanCanvasProps = {
   rooms: HeatDesignRoom[];
   selectedRoomId: string | null;
   activeFloor: FloorLevel;
   onSelectRoom: (roomId: string | null) => void;
-  onMoveRoom: (roomId: string, planX: number, planY: number) => void;
-  onResizeRoom: (roomId: string, length: string, width: string, planX?: number, planY?: number) => void;
   onPatchRoom: (roomId: string, patch: Partial<HeatDesignRoom>) => void;
   onDeleteRoom: (roomId: string) => void;
   onChangeFloor: (floor: FloorLevel) => void;
 };
 
-const SCALE = 90; // px per metre — HeatPunk-like zoom
-const PAD = 48;
+const SCALE = 90;
+const PAD = 56;
 const SNAP_M = 0.08;
 
 type DragState =
-  | { mode: "move"; roomId: string; offsetX: number; offsetY: number }
-  | {
-      mode: "resize";
-      roomId: string;
-      corner: "nw" | "ne" | "sw" | "se";
-      startX: number;
-      startY: number;
-      originX: number;
-      originY: number;
-      startL: number;
-      startW: number;
-    }
+  | { mode: "move"; roomId: string; origin: PlanPoint[]; grab: PlanPoint }
+  | { mode: "vertex"; roomId: string; index: number; polygon: PlanPoint[] }
   | null;
 
 function mm(metres: number) {
@@ -42,10 +45,10 @@ function snap(value: number, anchors: number[]) {
   let best = value;
   let bestDist = SNAP_M;
   for (const anchor of anchors) {
-    const dist = Math.abs(value - anchor);
-    if (dist < bestDist) {
+    const d = Math.abs(value - anchor);
+    if (d < bestDist) {
       best = anchor;
-      bestDist = dist;
+      bestDist = d;
     }
   }
   return best;
@@ -56,8 +59,6 @@ export function FloorPlanCanvas({
   selectedRoomId,
   activeFloor,
   onSelectRoom,
-  onMoveRoom,
-  onResizeRoom,
   onPatchRoom,
   onDeleteRoom,
   onChangeFloor,
@@ -65,6 +66,7 @@ export function FloorPlanCanvas({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const [guides, setGuides] = useState<{ x: number[]; y: number[] }>({ x: [], y: [] });
+  const [selectedEdge, setSelectedEdge] = useState<number | null>(null);
 
   const floorRooms = useMemo(
     () => rooms.filter((room) => (room.floorLevel ?? "ground") === activeFloor),
@@ -74,15 +76,18 @@ export function FloorPlanCanvas({
   const bounds = useMemo(() => {
     let maxX = 10;
     let maxY = 8;
+    let minX = 0;
+    let minY = 0;
     for (const room of floorRooms) {
-      const l = numberFromInput(room.length, 3.5);
-      const w = numberFromInput(room.width, 3);
-      maxX = Math.max(maxX, (room.planX ?? 0) + l + 2);
-      maxY = Math.max(maxY, (room.planY ?? 0) + w + 2);
+      const box = polygonBounds(roomPolygon(room));
+      minX = Math.min(minX, box.minX);
+      minY = Math.min(minY, box.minY);
+      maxX = Math.max(maxX, box.maxX + 1.5);
+      maxY = Math.max(maxY, box.maxY + 1.5);
     }
     return {
-      width: Math.max(720, maxX * SCALE + PAD * 2),
-      height: Math.max(480, maxY * SCALE + PAD * 2),
+      width: Math.max(760, (maxX - Math.min(0, minX)) * SCALE + PAD * 2),
+      height: Math.max(520, (maxY - Math.min(0, minY)) * SCALE + PAD * 2),
       metresX: maxX,
       metresY: maxY,
     };
@@ -101,13 +106,13 @@ export function FloorPlanCanvas({
   }
 
   const anchors = useMemo(() => {
-    const xs: number[] = [0];
-    const ys: number[] = [0];
+    const xs: number[] = [];
+    const ys: number[] = [];
     for (const room of floorRooms) {
-      const l = numberFromInput(room.length, 3.5);
-      const w = numberFromInput(room.width, 3);
-      xs.push(room.planX, room.planX + l);
-      ys.push(room.planY, room.planY + w);
+      for (const p of roomPolygon(room)) {
+        xs.push(p.x);
+        ys.push(p.y);
+      }
     }
     return { xs, ys };
   }, [floorRooms]);
@@ -118,65 +123,60 @@ export function FloorPlanCanvas({
     function onMove(event: PointerEvent) {
       const point = clientToMetres(event.clientX, event.clientY);
       if (drag?.mode === "move") {
-        let nextX = Math.max(0, point.x - drag.offsetX);
-        let nextY = Math.max(0, point.y - drag.offsetY);
-        const room = floorRooms.find((r) => r.id === drag.roomId);
-        const l = numberFromInput(room?.length, 3.5);
-        const w = numberFromInput(room?.width, 3);
-        const otherX = anchors.xs.filter((v) => {
-          const r = floorRooms.find((item) => item.id === drag.roomId);
-          return r ? v !== r.planX && v !== r.planX + l : true;
-        });
-        const otherY = anchors.ys.filter((v) => {
-          const r = floorRooms.find((item) => item.id === drag.roomId);
-          return r ? v !== r.planY && v !== r.planY + w : true;
-        });
-        const snappedX = snap(nextX, otherX);
-        const snappedRight = snap(nextX + l, otherX) - l;
-        const snappedY = snap(nextY, otherY);
-        const snappedBottom = snap(nextY + w, otherY) - w;
+        let dx = point.x - drag.grab.x;
+        let dy = point.y - drag.grab.y;
+        const moved = translatePolygon(drag.origin, dx, dy);
         const guideX: number[] = [];
         const guideY: number[] = [];
-        if (Math.abs(snappedX - nextX) < SNAP_M) {
-          nextX = snappedX;
-          guideX.push(nextX);
-        } else if (Math.abs(snappedRight - nextX) < SNAP_M) {
-          nextX = snappedRight;
-          guideX.push(nextX + l);
+        const snapped = moved.map((p) => {
+          const sx = snap(
+            p.x,
+            anchors.xs.filter((v) => !drag.origin.some((o) => Math.abs(o.x - v) < 0.001)),
+          );
+          const sy = snap(
+            p.y,
+            anchors.ys.filter((v) => !drag.origin.some((o) => Math.abs(o.y - v) < 0.001)),
+          );
+          if (Math.abs(sx - p.x) < SNAP_M) guideX.push(sx);
+          if (Math.abs(sy - p.y) < SNAP_M) guideY.push(sy);
+          return {
+            x: Math.abs(sx - p.x) < SNAP_M ? sx : p.x,
+            y: Math.abs(sy - p.y) < SNAP_M ? sy : p.y,
+          };
+        });
+        // Keep relative shape if only some snapped — use uniform translate instead when any snap
+        const first = drag.origin[0]!;
+        const firstSnapped = snapped[0]!;
+        dx = firstSnapped.x - first.x;
+        dy = firstSnapped.y - first.y;
+        const uniform = translatePolygon(drag.origin, dx, dy);
+        setGuides({ x: [...new Set(guideX)], y: [...new Set(guideY)] });
+        const room = floorRooms.find((r) => r.id === drag.roomId);
+        if (!room) return;
+        onPatchRoom(drag.roomId, syncRoomFromPolygon(room, uniform));
+      } else if (drag?.mode === "vertex") {
+        let x = Math.max(0, point.x);
+        let y = Math.max(0, point.y);
+        const sx = snap(
+          x,
+          anchors.xs.filter((_, i) => true),
+        );
+        const sy = snap(y, anchors.ys);
+        const guideX: number[] = [];
+        const guideY: number[] = [];
+        if (Math.abs(sx - x) < SNAP_M) {
+          x = sx;
+          guideX.push(x);
         }
-        if (Math.abs(snappedY - nextY) < SNAP_M) {
-          nextY = snappedY;
-          guideY.push(nextY);
-        } else if (Math.abs(snappedBottom - nextY) < SNAP_M) {
-          nextY = snappedBottom;
-          guideY.push(nextY + w);
+        if (Math.abs(sy - y) < SNAP_M) {
+          y = sy;
+          guideY.push(y);
         }
         setGuides({ x: guideX, y: guideY });
-        onMoveRoom(drag.roomId, nextX, nextY);
-      } else if (drag?.mode === "resize") {
-        const min = 1.5;
-        let planX = drag.originX;
-        let planY = drag.originY;
-        let length = drag.startL;
-        let width = drag.startW;
-        if (drag.corner.includes("e")) {
-          length = Math.max(min, point.x - drag.originX);
-        }
-        if (drag.corner.includes("w")) {
-          const right = drag.originX + drag.startL;
-          planX = Math.min(point.x, right - min);
-          length = right - planX;
-        }
-        if (drag.corner.includes("s")) {
-          width = Math.max(min, point.y - drag.originY);
-        }
-        if (drag.corner.includes("n")) {
-          const bottom = drag.originY + drag.startW;
-          planY = Math.min(point.y, bottom - min);
-          width = bottom - planY;
-        }
-        setGuides({ x: [], y: [] });
-        onResizeRoom(drag.roomId, length.toFixed(3), width.toFixed(3), planX, planY);
+        const next = drag.polygon.map((p, i) => (i === drag.index ? { x, y } : p));
+        const room = floorRooms.find((r) => r.id === drag.roomId);
+        if (!room) return;
+        onPatchRoom(drag.roomId, syncRoomFromPolygon(room, next));
       }
     }
 
@@ -191,9 +191,58 @@ export function FloorPlanCanvas({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [drag, floorRooms, anchors, onMoveRoom, onResizeRoom, bounds.width, bounds.height]);
+  }, [drag, floorRooms, anchors, onPatchRoom, bounds.width, bounds.height]);
 
   const selected = floorRooms.find((room) => room.id === selectedRoomId) ?? null;
+  const selectedPoly = selected ? roomPolygon(selected) : [];
+
+  function addAlcoveOnEdge(room: HeatDesignRoom, edgeIndex: number) {
+    const polygon = roomPolygon(room);
+    const a = polygon[edgeIndex]!;
+    const b = polygon[(edgeIndex + 1) % polygon.length]!;
+    const len = dist(a, b) || 1;
+    const ux = (b.x - a.x) / len;
+    const uy = (b.y - a.y) / len;
+    const nx = -uy;
+    const ny = ux;
+    // outward normal roughly — push alcove "outside" using exterior flag
+    const exterior = roomWallExterior(room, polygon.length);
+    const sign = exterior[edgeIndex] ? -1 : 1;
+    const depth = 0.55;
+    const inset = 0.28;
+    const p1 = { x: a.x + ux * len * inset, y: a.y + uy * len * inset };
+    const p2 = { x: p1.x + nx * depth * sign, y: p1.y + ny * depth * sign };
+    const p4 = { x: a.x + ux * len * (1 - inset), y: a.y + uy * len * (1 - inset) };
+    const p3 = { x: p4.x + nx * depth * sign, y: p4.y + ny * depth * sign };
+    const next = [...polygon];
+    next.splice(edgeIndex + 1, 0, p1, p2, p3, p4);
+    const wallExterior = roomWallExterior(room, polygon.length);
+    const inserted = [true, true, true, true];
+    const newExterior = [
+      ...wallExterior.slice(0, edgeIndex),
+      wallExterior[edgeIndex] ?? true,
+      ...inserted,
+      ...wallExterior.slice(edgeIndex + 1),
+    ];
+    // edge split: original edge becomes first stub + alcove sides + last stub — mark alcove exterior
+    newExterior[edgeIndex] = wallExterior[edgeIndex] ?? true;
+    onPatchRoom(room.id, syncRoomFromPolygon({ ...room, wallExterior: newExterior }, next));
+    setSelectedEdge(edgeIndex + 1);
+  }
+
+  function toggleEdgeExterior(room: HeatDesignRoom, edgeIndex: number) {
+    const polygon = roomPolygon(room);
+    const wallExterior = [...roomWallExterior(room, polygon.length)];
+    wallExterior[edgeIndex] = !wallExterior[edgeIndex];
+    onPatchRoom(room.id, {
+      wallExterior,
+      exteriorWalls: wallExterior.filter(Boolean).length,
+      exteriorFlags:
+        polygon.length === 4
+          ? [wallExterior[0]!, wallExterior[1]!, wallExterior[2]!, wallExterior[3]!]
+          : room.exteriorFlags,
+    });
+  }
 
   return (
     <div className="hp-canvas-shell">
@@ -205,10 +254,12 @@ export function FloorPlanCanvas({
           viewBox={`0 0 ${bounds.width} ${bounds.height}`}
           role="img"
           aria-label="Floor plan canvas"
-          onPointerDown={() => onSelectRoom(null)}
+          onPointerDown={() => {
+            onSelectRoom(null);
+            setSelectedEdge(null);
+          }}
         >
           <rect x={0} y={0} width={bounds.width} height={bounds.height} fill="#6d6d6d" />
-          {/* subtle grid */}
           {Array.from({ length: Math.ceil(bounds.metresX) + 1 }, (_, m) => (
             <line
               key={`gx-${m}`}
@@ -258,24 +309,21 @@ export function FloorPlanCanvas({
           ))}
 
           {floorRooms.map((room) => {
-            const length = numberFromInput(room.length, 3.5);
-            const width = numberFromInput(room.width, 3);
-            const height = numberFromInput(room.height, 2.4);
-            const x = PAD + (room.planX ?? 0) * SCALE;
-            const y = PAD + (room.planY ?? 0) * SCALE;
-            const w = length * SCALE;
-            const h = width * SCALE;
+            const polygon = roomPolygon(room);
+            const exterior = roomWallExterior(room, polygon.length);
             const isSelected = room.id === selectedRoomId;
-            const flags = room.exteriorFlags ?? [true, true, false, false];
-            const wallStroke = (exterior: boolean) => (exterior ? 10 : 3);
+            const height = numberFromInput(room.height, 2.4);
+            const pointsAttr = polygon.map((p) => `${PAD + p.x * SCALE},${PAD + p.y * SCALE}`).join(" ");
+            const lengths = edgeLengths(polygon);
+            const centroid = polygon.reduce(
+              (acc, p) => ({ x: acc.x + p.x / polygon.length, y: acc.y + p.y / polygon.length }),
+              { x: 0, y: 0 },
+            );
 
             return (
               <g key={room.id}>
-                <rect
-                  x={x}
-                  y={y}
-                  width={w}
-                  height={h}
+                <polygon
+                  points={pointsAttr}
                   fill="#f4f4f2"
                   stroke="none"
                   style={{ cursor: "grab" }}
@@ -283,24 +331,38 @@ export function FloorPlanCanvas({
                     event.preventDefault();
                     event.stopPropagation();
                     onSelectRoom(room.id);
-                    const point = clientToMetres(event.clientX, event.clientY);
-                    setDrag({
-                      mode: "move",
-                      roomId: room.id,
-                      offsetX: point.x - (room.planX ?? 0),
-                      offsetY: point.y - (room.planY ?? 0),
-                    });
+                    setSelectedEdge(null);
+                    const grab = clientToMetres(event.clientX, event.clientY);
+                    setDrag({ mode: "move", roomId: room.id, origin: polygon, grab });
                   }}
                 />
-                {/* exterior / internal wall strokes */}
-                <line x1={x} y1={y} x2={x + w} y2={y} stroke="#111" strokeWidth={wallStroke(flags[0])} strokeLinecap="square" />
-                <line x1={x + w} y1={y} x2={x + w} y2={y + h} stroke="#111" strokeWidth={wallStroke(flags[1])} strokeLinecap="square" />
-                <line x1={x} y1={y + h} x2={x + w} y2={y + h} stroke="#111" strokeWidth={wallStroke(flags[2])} strokeLinecap="square" />
-                <line x1={x} y1={y} x2={x} y2={y + h} stroke="#111" strokeWidth={wallStroke(flags[3])} strokeLinecap="square" />
+                {polygon.map((p, i) => {
+                  const q = polygon[(i + 1) % polygon.length]!;
+                  return (
+                    <line
+                      key={`e-${i}`}
+                      x1={PAD + p.x * SCALE}
+                      y1={PAD + p.y * SCALE}
+                      x2={PAD + q.x * SCALE}
+                      y2={PAD + q.y * SCALE}
+                      stroke="#111"
+                      strokeWidth={exterior[i] ? 10 : 3}
+                      strokeLinecap="square"
+                      style={{ cursor: "pointer" }}
+                      onPointerDown={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        onSelectRoom(room.id);
+                        setSelectedEdge(i);
+                        if (event.detail >= 2) toggleEdgeExterior(room, i);
+                      }}
+                    />
+                  );
+                })}
 
                 <text
-                  x={x + w / 2}
-                  y={y + h / 2}
+                  x={PAD + centroid.x * SCALE}
+                  y={PAD + centroid.y * SCALE}
                   textAnchor="middle"
                   dominantBaseline="middle"
                   fill="#8a8a8a"
@@ -311,133 +373,109 @@ export function FloorPlanCanvas({
                   {mm(height)}
                 </text>
 
-                {/* openings */}
                 {(room.openings ?? []).map((opening) => {
-                  const t = Math.min(0.85, Math.max(0.15, opening.t));
-                  const ow = Math.min(opening.widthM * SCALE, (opening.wall === 0 || opening.wall === 2 ? w : h) * 0.45);
-                  let ox = x;
-                  let oy = y;
-                  let rw = ow;
-                  let rh = 8;
-                  if (opening.wall === 0) {
-                    ox = x + t * w - ow / 2;
-                    oy = y - 4;
-                  } else if (opening.wall === 2) {
-                    ox = x + t * w - ow / 2;
-                    oy = y + h - 4;
-                  } else if (opening.wall === 1) {
-                    ox = x + w - 4;
-                    oy = y + t * h - ow / 2;
-                    rw = 8;
-                    rh = ow;
-                  } else {
-                    ox = x - 4;
-                    oy = y + t * h - ow / 2;
-                    rw = 8;
-                    rh = ow;
-                  }
+                  const geom = openingOnEdge(polygon, {
+                    ...opening,
+                    wallIndex: opening.wallIndex ?? opening.wall ?? 0,
+                  });
                   return (
-                    <rect
+                    <line
                       key={opening.id}
-                      x={ox}
-                      y={oy}
-                      width={rw}
-                      height={rh}
-                      fill={opening.kind === "door" ? "#fb7185" : "#fda4af"}
-                      stroke="#be123c"
-                      strokeWidth={1}
-                      rx={2}
+                      x1={PAD + geom.x1 * SCALE}
+                      y1={PAD + geom.y1 * SCALE}
+                      x2={PAD + geom.x2 * SCALE}
+                      y2={PAD + geom.y2 * SCALE}
+                      stroke={opening.kind === "door" ? "#fb7185" : "#fda4af"}
+                      strokeWidth={8}
+                      strokeLinecap="butt"
                       style={{ pointerEvents: "none" }}
                     />
                   );
                 })}
 
-                {isSelected ? (
-                  <>
-                    <text x={x + w / 2} y={y + h + 22} textAnchor="middle" fill="#e11d48" fontSize={15} fontWeight={800}>
-                      {mm(length)}
-                    </text>
-                    <text
-                      x={x + w + 10}
-                      y={y + h / 2}
-                      textAnchor="start"
-                      dominantBaseline="middle"
-                      fill="#e11d48"
-                      fontSize={15}
-                      fontWeight={800}
-                    >
-                      {mm(width)}
-                    </text>
-                    {(
-                      [
-                        ["nw", x, y],
-                        ["ne", x + w, y],
-                        ["sw", x, y + h],
-                        ["se", x + w, y + h],
-                      ] as const
-                    ).map(([corner, cx, cy]) => (
-                      <rect
-                        key={corner}
-                        x={cx - 5}
-                        y={cy - 5}
-                        width={10}
-                        height={10}
-                        fill="#fb7185"
-                        stroke="#fff"
-                        strokeWidth={1.5}
-                        style={{ cursor: `${corner}-resize` }}
-                        onPointerDown={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onSelectRoom(room.id);
-                          const point = clientToMetres(event.clientX, event.clientY);
-                          setDrag({
-                            mode: "resize",
-                            roomId: room.id,
-                            corner,
-                            startX: point.x,
-                            startY: point.y,
-                            originX: room.planX ?? 0,
-                            originY: room.planY ?? 0,
-                            startL: length,
-                            startW: width,
-                          });
-                        }}
-                      />
-                    ))}
-                    {/* mid-edge blue nodes */}
-                    {[
-                      [x + w * 0.33, y],
-                      [x + w * 0.66, y],
-                      [x + w, y + h * 0.33],
-                      [x + w, y + h * 0.66],
-                      [x + w * 0.33, y + h],
-                      [x + w * 0.66, y + h],
-                      [x, y + h * 0.33],
-                      [x, y + h * 0.66],
-                    ].map(([nx, ny], index) => (
-                      <circle key={`n-${index}`} cx={nx} cy={ny} r={4.5} fill="#93c5fd" stroke="#fff" strokeWidth={1.5} />
-                    ))}
-                  </>
-                ) : null}
+                {isSelected
+                  ? polygon.map((p, i) => {
+                      const q = polygon[(i + 1) % polygon.length]!;
+                      const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+                      const labelOffset = 14;
+                      return (
+                        <g key={`sel-${i}`}>
+                          <text
+                            x={PAD + mid.x * SCALE}
+                            y={PAD + mid.y * SCALE - labelOffset}
+                            textAnchor="middle"
+                            fill="#e11d48"
+                            fontSize={13}
+                            fontWeight={800}
+                            style={{ pointerEvents: "none" }}
+                          >
+                            {mm(lengths[i] ?? 0)}
+                          </text>
+                          <circle
+                            cx={PAD + mid.x * SCALE}
+                            cy={PAD + mid.y * SCALE}
+                            r={5}
+                            fill="#93c5fd"
+                            stroke="#fff"
+                            strokeWidth={1.5}
+                            style={{ cursor: "copy" }}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              // Insert vertex then start dragging it
+                              const next = insertVertexOnEdge(polygon, i, 0.5);
+                              const wallExterior = roomWallExterior(room, polygon.length);
+                              const newExterior = [
+                                ...wallExterior.slice(0, i + 1),
+                                wallExterior[i] ?? true,
+                                ...wallExterior.slice(i + 1),
+                              ];
+                              const patched = syncRoomFromPolygon({ ...room, wallExterior: newExterior }, next);
+                              onPatchRoom(room.id, patched);
+                              setSelectedEdge(i);
+                              setDrag({
+                                mode: "vertex",
+                                roomId: room.id,
+                                index: i + 1,
+                                polygon: next,
+                              });
+                            }}
+                          />
+                          <rect
+                            x={PAD + p.x * SCALE - 5}
+                            y={PAD + p.y * SCALE - 5}
+                            width={10}
+                            height={10}
+                            fill="#fb7185"
+                            stroke="#fff"
+                            strokeWidth={1.5}
+                            style={{ cursor: "move" }}
+                            onPointerDown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              onSelectRoom(room.id);
+                              setDrag({ mode: "vertex", roomId: room.id, index: i, polygon });
+                            }}
+                          />
+                        </g>
+                      );
+                    })
+                  : null}
               </g>
             );
           })}
         </svg>
 
         {selected ? (
-          <div
-            className="hp-room-toolbar"
-            style={{
-              left: `calc(${((PAD + selected.planX * SCALE + (numberFromInput(selected.length) * SCALE) / 2) / bounds.width) * 100}%)`,
-              top: `calc(${((PAD + selected.planY * SCALE) / bounds.height) * 100}% - 52px)`,
-            }}
-          >
+          <div className="hp-room-toolbar" style={{ left: "50%", top: 12, transform: "translateX(-50%)" }}>
             <button
               type="button"
               title="Ceiling height"
               onClick={() => {
-                const next = window.prompt("Ceiling height (mm)", String(Math.round(numberFromInput(selected.height, 2.4) * 1000)));
+                const next = window.prompt(
+                  "Ceiling height (mm)",
+                  String(Math.round(numberFromInput(selected.height, 2.4) * 1000)),
+                );
                 if (!next) return;
                 const metres = Number(next) / 1000;
                 if (Number.isFinite(metres) && metres > 1) onPatchRoom(selected.id, { height: String(metres) });
@@ -465,6 +503,21 @@ export function FloorPlanCanvas({
                 ))}
               </select>
             </label>
+            <button
+              type="button"
+              title="Push an alcove / bay on the selected wall (or first exterior wall)"
+              onClick={() => {
+                const polygon = roomPolygon(selected);
+                const exterior = roomWallExterior(selected, polygon.length);
+                const edge =
+                  selectedEdge ??
+                  exterior.findIndex(Boolean) ??
+                  0;
+                addAlcoveOnEdge(selected, edge < 0 ? 0 : edge);
+              }}
+            >
+              Alcove / bay
+            </button>
             <button type="button" title="Delete room" className="is-danger" onClick={() => onDeleteRoom(selected.id)}>
               🗑
             </button>
@@ -493,9 +546,15 @@ export function FloorPlanCanvas({
         </div>
       </div>
       <p className="hp-canvas-hint">
-        Drag rooms to move · corner handles resize (mm live) · edges snap · thick walls = external · pink marks =
-        windows/doors
+        Drag room to move · pink corners move walls · blue dots insert a vertex (alcove) · <strong>Alcove / bay</strong>{" "}
+        pushes a bay on the selected edge · double-click a wall to toggle exterior · heat loss follows the polygon
       </p>
+      {selected && selectedEdge != null ? (
+        <p className="hp-canvas-hint">
+          Selected wall {selectedEdge + 1} · {mm(edgeLengths(selectedPoly)[selectedEdge] ?? 0)} ·{" "}
+          {(roomWallExterior(selected, selectedPoly.length)[selectedEdge] ? "exterior" : "internal")}
+        </p>
+      ) : null}
     </div>
   );
 }

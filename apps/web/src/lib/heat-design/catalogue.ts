@@ -5,6 +5,7 @@ import type {
   RadiatorTypeOption,
   WallConstruction,
 } from "./types";
+import { bayWindowPolygon, rectPolygon } from "./geometry";
 
 export const roomTypes = [
   { id: "Bathroom", targetTemp: 22, airChanges: 1.5 },
@@ -194,16 +195,23 @@ export function defaultExteriorFlags(count: number): [boolean, boolean, boolean,
 export function makeBlankRoom(index: number): HeatDesignRoom {
   const col = index % 3;
   const row = Math.floor(index / 3);
+  const planX = col * 3.8;
+  const planY = row * 3.5 + 0.8;
+  const length = 3.5;
+  const width = 3.2;
   const exteriorFlags = defaultExteriorFlags(2);
+  const polygon = rectPolygon(planX, planY, length, width);
   return {
     id: `hd-room-${Date.now()}-${index}`,
     name: `Room ${index + 1}`,
     roomType: "Living Room",
-    length: "3.5",
-    width: "3.2",
+    length: String(length),
+    width: String(width),
     height: "2.4",
     exteriorWalls: 2,
     exteriorFlags,
+    wallExterior: [true, true, false, false],
+    polygon,
     wallType: "Brick cavity wall",
     glazingType: "Wood/PVCu Double Glazed",
     windowArea: "2.2",
@@ -211,31 +219,33 @@ export function makeBlankRoom(index: number): HeatDesignRoom {
     ceilingType: "Insulated roof space",
     meanWaterTemperature: "45",
     preferredRange: "Any range",
-    planX: col * 3.8,
-    planY: row * 3.5,
+    planX,
+    planY,
     floorLevel: "ground",
-    openings: [
-      { id: `op-${index}-0`, wall: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 },
-    ],
+    openings: [{ id: `op-${index}-0`, wallIndex: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 }],
   };
 }
 
 export function makeDemoProject(): import("./types").HeatDesignProject {
+  const loungePoly = bayWindowPolygon(0.8, 1.2, 3.171, 3.5, 0.55, 0.42);
+  const kitchenPoly = rectPolygon(4.1, 1.2, 3.2, 2.8);
   const rooms: HeatDesignRoom[] = [
     {
       ...makeBlankRoom(0),
       name: "Lounge",
       roomType: "Living Room",
       length: "3.171",
-      width: "3.5",
-      exteriorWalls: 2,
-      exteriorFlags: [true, false, true, true],
+      width: "4.05",
+      exteriorWalls: 5,
+      exteriorFlags: [true, true, true, true],
+      wallExterior: [true, true, true, true, true, true, false, true],
+      polygon: loungePoly,
       windowArea: "3.6",
-      planX: 0.4,
-      planY: 0.4,
+      planX: 0.8,
+      planY: 0.65,
       openings: [
-        { id: "op-lounge-n", wall: 0, t: 0.45, kind: "window", widthM: 1.5, heightM: 1.2 },
-        { id: "op-lounge-w", wall: 3, t: 0.5, kind: "window", widthM: 0.9, heightM: 1.2 },
+        { id: "op-lounge-bay", wallIndex: 2, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 },
+        { id: "op-lounge-w", wallIndex: 7, t: 0.5, kind: "window", widthM: 0.9, heightM: 1.2 },
       ],
     },
     {
@@ -246,13 +256,15 @@ export function makeDemoProject(): import("./types").HeatDesignProject {
       width: "2.8",
       exteriorWalls: 2,
       exteriorFlags: [true, true, false, false],
+      wallExterior: [true, true, false, false],
+      polygon: kitchenPoly,
       windowArea: "1.8",
       floorType: "Solid concrete floor",
-      planX: 3.65,
-      planY: 0.4,
+      planX: 4.1,
+      planY: 1.2,
       openings: [
-        { id: "op-kit-n", wall: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.0 },
-        { id: "op-kit-e", wall: 1, t: 0.55, kind: "door", widthM: 0.9, heightM: 2.0 },
+        { id: "op-kit-n", wallIndex: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.0 },
+        { id: "op-kit-e", wallIndex: 1, t: 0.55, kind: "door", widthM: 0.9, heightM: 2.0 },
       ],
     },
   ];
@@ -293,7 +305,16 @@ export function buildKitLines(input: {
   flowTemperature: number;
   emitterUpgradeCount: number;
   extras: string[];
+  floorAreaM2?: number;
+  exteriorWallAreaM2?: number;
+  openingCount?: number;
+  pipeRunM?: number;
+  wallConstructionLabel?: string;
+  radiatorLines?: Array<{ description: string; qty: number; unitCost: number }>;
 }): KitLine[] {
+  const floorArea = input.floorAreaM2 ?? 0;
+  const exteriorWallArea = input.exteriorWallAreaM2 ?? 0;
+  const pipeRunM = Math.max(12, Math.round(input.pipeRunM ?? floorArea * 1.1));
   const lines: KitLine[] = [
     {
       id: "kit-ashp",
@@ -330,9 +351,10 @@ export function buildKitLines(input: {
     {
       id: "kit-pipe",
       category: "Pipework",
-      description: "Primary / secondary pipework & insulation allowance",
-      qty: 1,
-      unitCost: 480,
+      description: `Flow/return pipework & insulation (~${pipeRunM} m)`,
+      qty: pipeRunM,
+      unitCost: 18,
+      unit: "m",
       required: true,
     },
     {
@@ -353,7 +375,40 @@ export function buildKitLines(input: {
     },
   ];
 
-  if (input.emitterUpgradeCount > 0) {
+  if (input.wallConstructionLabel && exteriorWallArea > 0) {
+    lines.push({
+      id: "kit-wall-note",
+      category: "Fabric",
+      description: `External wall construction: ${input.wallConstructionLabel} (~${exteriorWallArea.toFixed(1)} m² heat-loss area)`,
+      qty: 1,
+      unitCost: 0,
+      required: true,
+    });
+  }
+
+  if ((input.openingCount ?? 0) > 0) {
+    lines.push({
+      id: "kit-openings",
+      category: "Openings",
+      description: "Window / door openings from floor plan",
+      qty: input.openingCount!,
+      unitCost: 0,
+      required: true,
+    });
+  }
+
+  if (input.radiatorLines?.length) {
+    input.radiatorLines.forEach((line, index) => {
+      lines.push({
+        id: `kit-rad-${index}`,
+        category: "Emitters",
+        description: line.description,
+        qty: line.qty,
+        unitCost: line.unitCost,
+        required: true,
+      });
+    });
+  } else if (input.emitterUpgradeCount > 0) {
     lines.push({
       id: "kit-rads",
       category: "Emitters",

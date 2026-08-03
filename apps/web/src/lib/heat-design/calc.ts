@@ -11,6 +11,15 @@ import {
   wallTypes,
   type RadiatorCatalogueItem,
 } from "./catalogue";
+import { numberFromInput } from "./calc-number";
+import {
+  exteriorPerimeter,
+  polygonArea,
+  rectPolygon,
+  roomPolygon,
+  roomWallExterior,
+  syncRoomFromPolygon,
+} from "./geometry";
 import type {
   HeatDesignProject,
   HeatDesignRoom,
@@ -19,47 +28,32 @@ import type {
   SystemDesignResult,
 } from "./types";
 
+export { numberFromInput, isDecimalDraft } from "./calc-number";
+
 function selectedOption<T extends { id: string }>(items: readonly T[], id: string, fallbackIndex = 0) {
   return items.find((item) => item.id === id) ?? items[fallbackIndex];
 }
 
-export function numberFromInput(value: string | number | undefined, fallback = 0) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
-  const parsed = Number.parseFloat(String(value ?? "").replace(",", "."));
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-export function isDecimalDraft(value: string) {
-  return /^(\d+)?([.,]\d*)?$/.test(value);
-}
-
 export function exteriorWallAreaForRoom(room: HeatDesignRoom) {
+  const height = numberFromInput(room.height, 2.4);
+  const polygon = roomPolygon(room);
+  const exterior = roomWallExterior(room, polygon.length);
+  const perimeter = exteriorPerimeter(polygon, exterior);
+  if (perimeter > 0) return perimeter * height;
+
+  // Legacy rectangular fallback
   const length = numberFromInput(room.length);
   const width = numberFromInput(room.width);
-  const height = numberFromInput(room.height);
   const flags = room.exteriorFlags ?? [
     room.exteriorWalls > 0,
     room.exteriorWalls > 1,
     room.exteriorWalls > 2,
     room.exteriorWalls > 3,
   ];
-  // walls: 0 top (length), 1 right (width), 2 bottom (length), 3 left (width)
   const segments = [length, width, length, width];
   let exteriorLength = 0;
   for (let i = 0; i < 4; i += 1) {
     if (flags[i]) exteriorLength += segments[i]!;
-  }
-  if (exteriorLength === 0 && room.exteriorWalls > 0) {
-    const longSide = Math.max(length, width);
-    const shortSide = Math.min(length, width);
-    exteriorLength =
-      room.exteriorWalls === 1
-        ? longSide
-        : room.exteriorWalls === 2
-          ? longSide + shortSide
-          : room.exteriorWalls === 3
-            ? longSide + shortSide * 2
-            : (length + width) * 2;
   }
   return Math.max(0, exteriorLength * height);
 }
@@ -75,17 +69,19 @@ export function calculateRoomHeatLoss(
   const floorType = selectedOption(floorTypes, room.floorType);
   const ceilingType = selectedOption(ceilingTypes, room.ceilingType);
 
-  const length = numberFromInput(room.length);
-  const width = numberFromInput(room.width);
-  const height = numberFromInput(room.height);
-  const openingArea = (room.openings ?? []).reduce((sum, opening) => sum + opening.widthM * opening.heightM, 0);
+  const polygon = roomPolygon(room);
+  const height = numberFromInput(room.height, 2.4);
+  const openingArea = (room.openings ?? []).reduce((sum, opening) => {
+    const wallIndex = opening.wallIndex ?? opening.wall ?? 0;
+    return sum + opening.widthM * opening.heightM;
+  }, 0);
   const windowArea =
     room.glazingType === "No External Windows Or Doors"
       ? 0
       : openingArea > 0
         ? openingArea
         : numberFromInput(room.windowArea);
-  const floorArea = Math.max(0, length * width);
+  const floorArea = Math.max(0, polygonArea(polygon) || numberFromInput(room.length) * numberFromInput(room.width));
   const volume = floorArea * Math.max(0, height);
   const targetTemp = roomType?.targetTemp ?? 21;
   const externalDelta = Math.max(0, targetTemp - designExternalTemp);
@@ -181,7 +177,6 @@ export function suggestHeatPump(designLoadKw: number, flowTemp: number): HeatPum
   return ranked[0]?.pump ?? heatPumpCatalogue[heatPumpCatalogue.length - 1]!;
 }
 
-/** Simplified outdoor sound fall-off for planning-style check. */
 export function assessSoundDb(soundPowerDb: number, distanceM: number) {
   const distance = Math.max(1, distanceM);
   return Math.round(soundPowerDb - 20 * Math.log10(distance) - 8);
@@ -200,13 +195,14 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   }));
   const totalHeatLossW = roomResults.reduce((sum, row) => sum + row.loss.watts, 0);
   const totalHeatLossKw = totalHeatLossW / 1000;
+  const totalFloorArea = roomResults.reduce((sum, row) => sum + row.loss.floorArea, 0);
+  const totalExteriorWallArea = project.rooms.reduce((sum, room) => sum + exteriorWallAreaForRoom(room), 0);
+  const openingCount = project.rooms.reduce((sum, room) => sum + (room.openings?.length ?? 0), 0);
 
   const dailyHotWaterLitres = project.dailyHotWaterLitres || Math.max(80, project.occupants * 50);
   const cylinderLitres = project.cylinderLitres || 210;
-  // Energy to raise cylinder 40K (approx) — 1.16 Wh/L·K
   const dhwDailyKwh = (dailyHotWaterLitres * 40 * 1.16) / 1000;
   const dhwPeakKw = Math.min(6, cylinderLitres / 70);
-
   const designLoadKw = totalHeatLossKw + dhwPeakKw * 0.2;
 
   const selectedPump =
@@ -235,15 +231,21 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   const co2SavingKg = Math.max(0, project.currentAnnualKwh * co2Factor - estimatedHpElectricityKwh * 0.15);
 
   let emitterUpgradeCount = 0;
+  const radiatorLines: Array<{ description: string; qty: number; unitCost: number }> = [];
   for (const row of roomResults) {
     const rad = pickRadiatorForRoom(
       { ...row.room, meanWaterTemperature: String(project.flowTemperature) },
       project.designExternalTemp,
     );
     if (!rad || rad.outputWatts < row.loss.radiatorOutputAtDeltaT50) emitterUpgradeCount += 1;
-    else {
-      const k1Like = radiatorCatalogue.find((item) => item.model.startsWith("K1"));
-      if (k1Like && row.loss.radiatorOutputAtDeltaT50 > k1Like.outputWatts) emitterUpgradeCount += 1;
+    if (rad) {
+      radiatorLines.push({
+        description: `${row.room.name}: ${rad.range} ${rad.model} (${rad.outputWatts} W)`,
+        qty: 1,
+        unitCost: rad.costRate,
+      });
+    } else {
+      emitterUpgradeCount += 1;
     }
   }
 
@@ -252,14 +254,31 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     project.nearestNeighbourDistanceM || project.outdoorUnitDistanceM || 3,
   );
 
+  const materialsNotes: string[] = [];
+  if (!project.primaryWallConstructionId) materialsNotes.push("Pick a primary external wall construction.");
+  if ((project.selectedRadiatorTypeIds?.length ?? 0) === 0) materialsNotes.push("Select allowed radiator types.");
+  if (project.rooms.length === 0) materialsNotes.push("Add rooms on the floor plan.");
+  if (openingCount === 0) materialsNotes.push("Add windows/doors on walls for glazing takeoff.");
+
   const kit = buildKitLines({
     pump: selectedPump,
     cylinderLitres,
     flowTemperature: project.flowTemperature,
     emitterUpgradeCount,
     extras: project.kitExtras ?? [],
+    floorAreaM2: totalFloorArea,
+    exteriorWallAreaM2: totalExteriorWallArea,
+    openingCount,
+    pipeRunM: Math.round(totalFloorArea * 1.15 + project.rooms.length * 4),
+    wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
+    radiatorLines,
   });
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
+  const materialsComplete =
+    materialsNotes.length === 0 &&
+    Boolean(project.primaryWallConstructionId) &&
+    (project.selectedRadiatorTypeIds?.length ?? 0) > 0 &&
+    project.rooms.length > 0;
 
   return {
     totalHeatLossW,
@@ -282,6 +301,8 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     soundAssessmentDb,
     kit,
     kitTotal,
+    materialsComplete,
+    materialsNotes,
   };
 }
 
@@ -310,13 +331,31 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     selectedWallConstructionIds: project.selectedWallConstructionIds ?? ["cav-mw-100-wp"],
     primaryWallConstructionId: project.primaryWallConstructionId ?? "cav-mw-100-wp",
     selectedRadiatorTypeIds: project.selectedRadiatorTypeIds ?? ["rad-k1", "rad-k2", "rad-k3"],
-    rooms: (project.rooms ?? []).map((room, index) => ({
-      ...room,
-      planX: typeof room.planX === "number" ? room.planX : (index % 3) * 4.5,
-      planY: typeof room.planY === "number" ? room.planY : Math.floor(index / 3) * 4,
-      floorLevel: room.floorLevel ?? "ground",
-      exteriorFlags: room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2),
-      openings: room.openings ?? [],
-    })),
+    rooms: (project.rooms ?? []).map((room, index) => {
+      const exteriorFlags = room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2);
+      const polygon =
+        room.polygon && room.polygon.length >= 3
+          ? room.polygon
+          : rectPolygon(
+              typeof room.planX === "number" ? room.planX : (index % 3) * 4.5,
+              typeof room.planY === "number" ? room.planY : Math.floor(index / 3) * 4,
+              numberFromInput(room.length, 3.5),
+              numberFromInput(room.width, 3.2),
+            );
+      const openings = (room.openings ?? []).map((opening) => ({
+        ...opening,
+        wallIndex: opening.wallIndex ?? opening.wall ?? 0,
+      }));
+      return syncRoomFromPolygon(
+        {
+          ...room,
+          exteriorFlags,
+          floorLevel: room.floorLevel ?? "ground",
+          openings,
+          wallExterior: room.wallExterior ?? Array.from({ length: polygon.length }, (_, i) => exteriorFlags[i] ?? true),
+        },
+        polygon,
+      );
+    }),
   };
 }

@@ -31,7 +31,7 @@ import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
 import "./heat-design.css";
 
-const STORAGE_KEY = "nexa-heat-design-lab-v3";
+const STORAGE_KEY = "nexa-heat-design-lab-v4";
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "kit" | "forms" | "report";
 
@@ -40,6 +40,7 @@ function loadProject(): HeatDesignProject {
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("nexa-heat-design-lab-v3") ??
       window.localStorage.getItem("nexa-heat-design-lab-v2") ??
       window.localStorage.getItem("nexa-heat-design-lab-v1");
     if (!raw) return makeDemoProject();
@@ -317,53 +318,17 @@ export default function HeatDesignLabPage() {
               <>
                 <h2>Floor plan</h2>
                 <p className="hd-lead">
-                  HeatPunk-style canvas — drag, snap, resize in mm. Thick walls are external; pink marks are openings.
+                  Move walls and corners like HeatPunk — push an alcove or bay, then heat loss follows the real shape.
                 </p>
                 <FloorPlanCanvas
                   rooms={project.rooms}
                   selectedRoomId={selectedRoomId}
                   activeFloor={project.activeFloor ?? "ground"}
                   onSelectRoom={setSelectedRoomId}
-                  onMoveRoom={(roomId, planX, planY) => patchRoom(roomId, { planX, planY })}
-                  onResizeRoom={(roomId, length, width, planX, planY) =>
-                    patchRoom(roomId, {
-                      length,
-                      width,
-                      ...(typeof planX === "number" ? { planX } : {}),
-                      ...(typeof planY === "number" ? { planY } : {}),
-                    })
-                  }
                   onPatchRoom={patchRoom}
                   onDeleteRoom={removeRoom}
                   onChangeFloor={(floor) => patchProject({ activeFloor: floor })}
                 />
-                {selectedRoom ? (
-                  <div className="hd-selected-room">
-                    <strong>{selectedRoom.name}</strong>
-                    <div className="hd-grid-3" style={{ marginTop: 10 }}>
-                      {(["Top", "Right", "Bottom", "Left"] as const).map((label, index) => {
-                        const flags = selectedRoom.exteriorFlags ?? [true, true, false, false];
-                        return (
-                          <label key={label} className="hd-check" style={{ marginTop: 0 }}>
-                            <input
-                              type="checkbox"
-                              checked={Boolean(flags[index])}
-                              onChange={() => {
-                                const next = [...flags] as [boolean, boolean, boolean, boolean];
-                                next[index] = !next[index];
-                                patchRoom(selectedRoom.id, {
-                                  exteriorFlags: next,
-                                  exteriorWalls: next.filter(Boolean).length,
-                                });
-                              }}
-                            />
-                            {label} exterior
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
               </>
             ) : null}
 
@@ -620,10 +585,16 @@ export default function HeatDesignLabPage() {
 
             {tab === "kit" ? (
               <>
-                <h2>Kit builder</h2>
+                <h2>Kit / materials list</h2>
                 <p className="hd-lead">
-                  Trade-style kit from the selected pump, cylinder and emitter upgrades. Demo prices for lab use.
+                  Built from the floor-plan geometry, selected wall construction, openings and radiator picks. Demo
+                  trade prices — not a full merchant BOM yet.
                 </p>
+                <div className={`hd-banner${design.materialsComplete ? "" : " warn"}`} style={{ marginBottom: 12 }}>
+                  {design.materialsComplete
+                    ? "Materials checklist complete for this lab project."
+                    : `Still needed: ${design.materialsNotes.join(" ")}`}
+                </div>
                 <div className="hd-extras">
                   {kitExtraOptions.map((extra) => {
                     const on = project.kitExtras.includes(extra.id);
@@ -657,8 +628,11 @@ export default function HeatDesignLabPage() {
                         <strong>{line.description}</strong>
                         <small>{line.category}</small>
                       </span>
-                      <span>{line.qty}</span>
-                      <span>{money(line.qty * line.unitCost)}</span>
+                      <span>
+                        {line.qty}
+                        {line.unit ? ` ${line.unit}` : ""}
+                      </span>
+                      <span>{line.unitCost === 0 ? "—" : money(line.qty * line.unitCost)}</span>
                     </div>
                   ))}
                   <div className="hd-kit-row hd-kit-total">

@@ -2,10 +2,14 @@
 
 export type FloorLevel = "ground" | "cellar" | "first" | "second";
 
+export type PlanPoint = { x: number; y: number };
+
 export type PlanOpening = {
   id: string;
-  /** Wall index: 0=top, 1=right, 2=bottom, 3=left */
-  wall: 0 | 1 | 2 | 3;
+  /** Edge index into room.polygon */
+  wallIndex: number;
+  /** @deprecated use wallIndex */
+  wall?: number;
   /** 0–1 position along wall */
   t: number;
   kind: "window" | "door";
@@ -17,12 +21,17 @@ export type HeatDesignRoom = {
   id: string;
   name: string;
   roomType: string;
+  /** Bounding-box length (derived from polygon when present). */
   length: string;
   width: string;
   height: string;
   exteriorWalls: number;
-  /** Per-wall exposure: 0=top 1=right 2=bottom 3=left — exterior true */
+  /** Legacy 4-wall flags for rectangular rooms. */
   exteriorFlags: [boolean, boolean, boolean, boolean];
+  /** Per-edge exterior flags matching polygon edges. */
+  wallExterior?: boolean[];
+  /** Floor polygon in metres (absolute plan coordinates). Enables alcoves / bay windows. */
+  polygon?: PlanPoint[];
   wallType: string;
   glazingType: string;
   windowArea: string;
@@ -119,6 +128,7 @@ export type KitLine = {
   qty: number;
   unitCost: number;
   required: boolean;
+  unit?: string;
 };
 
 export type SystemDesignResult = {
@@ -142,4 +152,6 @@ export type SystemDesignResult = {
   soundAssessmentDb: number;
   kit: KitLine[];
   kitTotal: number;
+  materialsComplete: boolean;
+  materialsNotes: string[];
 };
