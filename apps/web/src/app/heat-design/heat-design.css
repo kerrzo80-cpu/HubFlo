@@ -506,21 +506,84 @@
 
 @media print {
   .hd-lab {
-    background: #fff;
+    background: #fff !important;
   }
 
-  .hd-top-actions,
+  .hd-topbar,
   .hd-tabs,
   .hd-sticky,
+  .hd-lab-note,
+  .hd-actions,
+  .hd-top-actions,
+  .hp-plan-bar,
+  .hp-canvas-hint,
+  .hp-floor-switcher,
+  .hp-room-toolbar,
+  .hp-canvas-shell,
   .hd-canvas-wrap,
-  .hd-lab-note {
+  .no-print,
+  .hd-banner {
     display: none !important;
   }
 
+  .hd-layout,
+  .hd-panel,
+  .hd-shell,
+  .hd-lab,
+  .hd-report,
+  .hd-report * {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .hd-layout {
+    display: block !important;
+  }
+
   .hd-panel {
-    box-shadow: none;
-    border: 0;
-    padding: 0;
+    border: 0 !important;
+    background: #fff !important;
+    padding: 0 !important;
+  }
+
+  .hd-report.is-print-source {
+    position: static !important;
+    left: auto !important;
+    width: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    clip: auto !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #hd-print-report,
+  #hd-print-report * {
+    visibility: visible !important;
+  }
+
+  #hd-print-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    color: #111 !important;
+    background: #fff !important;
+  }
+
+  .hd-report-block {
+    break-inside: avoid;
+  }
+
+  .hd-report-plan,
+  .hd-report-table,
+  .hd-report-grid div {
+    break-inside: avoid;
   }
 }
 
@@ -1026,49 +1089,25 @@
   display: block;
 }
 
+.hd-report.is-print-source {
+  position: absolute;
+  left: -10000px;
+  top: 0;
+  width: 210mm;
+  pointer-events: none;
+}
+
+.no-print {
+  /* screen-only chrome */
+}
+
 @media (max-width: 900px) {
   .hd-report-grid {
     grid-template-columns: 1fr 1fr;
   }
 }
 
-@media print {
-  .hd-topbar,
-  .hd-tabs,
-  .hd-sticky,
-  .hd-lab-note,
-  .hd-actions,
-  .hd-top-actions,
-  .hp-plan-bar,
-  .hp-canvas-hint,
-  .hp-floor-switcher,
-  .hp-room-toolbar,
-  .hd-room-head .hd-btn,
-  .hd-banner {
-    display: none !important;
-  }
-
-  .hd-layout {
-    display: block !important;
-  }
-
-  .hd-panel {
-    box-shadow: none !important;
-    border: 0 !important;
-    background: #fff !important;
-    padding: 0 !important;
-  }
-
-  .hd-report-block {
-    break-inside: avoid;
-  }
-
-  .hd-report-plan,
-  .hd-report-table,
-  .hd-report-grid div {
-    break-inside: avoid;
-  }
-}
+/* second print block removed — see consolidated @media print above */
 
 .hd-btn-danger {
   background: #fff5f2;
