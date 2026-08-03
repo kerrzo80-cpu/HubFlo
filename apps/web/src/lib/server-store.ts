@@ -2,9 +2,14 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 
-const SQLITE_STORE_PATH = process.env.NEXA_STORE_PATH;
+// Treat empty/whitespace-only env values as unset. Nullish coalescing (??) keeps
+// an empty string, so `NEXA_STORE_DIR=` in a .env file would otherwise resolve the
+// store directory to "" and write every store file into the process CWD (repo root)
+// instead of the ignored .hubflo-runtime directory / configured disk.
+const SQLITE_STORE_PATH = process.env.NEXA_STORE_PATH?.trim() || undefined;
+const CONFIGURED_STORE_DIR = process.env.NEXA_STORE_DIR?.trim() || undefined;
 const STORE_DIR =
-  process.env.NEXA_STORE_DIR
+  CONFIGURED_STORE_DIR
   ?? (SQLITE_STORE_PATH ? path.dirname(SQLITE_STORE_PATH) : path.join(process.cwd(), ".hubflo-runtime"));
 const STORE_FILE_EXT = ".json";
 
