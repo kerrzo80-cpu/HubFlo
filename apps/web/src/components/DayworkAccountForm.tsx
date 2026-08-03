@@ -12,6 +12,7 @@ import {
   type DayworkAccountRecord,
   type DayworkLineItem,
 } from "@/lib/daywork-account-form";
+import { toUkDateTimeDisplay } from "@/lib/uk-date";
 
 export type DayworkOfficeCostsPayload = {
   labourRate: string;
@@ -54,6 +55,7 @@ export function DayworkAccountForm({
   const bothSigned = Boolean(
     context.record?.plumberSignature?.trim() && context.record?.clientSignature?.trim(),
   );
+  const signedAtLabel = toUkDateTimeDisplay(context.record?.completedAt || "");
 
   const [labourRate, setLabourRate] = useState(context.record?.labourRate || "");
   const [markupPercent, setMarkupPercent] = useState(context.record?.markupPercent || "");
@@ -141,7 +143,11 @@ export function DayworkAccountForm({
               : ""}
           </span>
           <span className={bothSigned ? "daywork-sign-status ready" : "daywork-sign-status pending"}>
-            {bothSigned ? "Plumber + client signed" : "Awaiting dual sign-off"}
+            {bothSigned
+              ? signedAtLabel
+                ? `Signed ${signedAtLabel}`
+                : "Plumber + client signed"
+              : "Awaiting dual sign-off"}
           </span>
         </div>
       </header>
