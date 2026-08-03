@@ -12390,6 +12390,94 @@ h1 {
   opacity: 0.65;
 }
 
+.daywork-sheet-form {
+  display: grid;
+  gap: 14px;
+}
+
+.daywork-field {
+  display: grid;
+  gap: 6px;
+}
+
+.daywork-field span,
+.daywork-repeat-head strong {
+  color: #1b2a4a;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.daywork-field input,
+.daywork-field textarea,
+.daywork-field select,
+.daywork-repeat-row input,
+.daywork-repeat-row select {
+  border: 1px solid #c9d2da;
+  border-radius: 10px;
+  font: inherit;
+  padding: 12px 12px;
+  width: 100%;
+}
+
+.daywork-field small {
+  color: #5b6570;
+}
+
+.daywork-repeat-block {
+  background: #f4f8f6;
+  border: 1px solid #d7e3dc;
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.daywork-repeat-head {
+  align-items: baseline;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.daywork-repeat-head span {
+  color: #5b6570;
+  font-size: 12px;
+}
+
+.daywork-repeat-row {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) auto;
+}
+
+.daywork-repeat-row.is-wide {
+  grid-template-columns: minmax(0, 1.6fr) minmax(72px, 0.5fr) auto;
+}
+
+.daywork-add,
+.daywork-remove {
+  background: transparent;
+  border: 0;
+  color: #1f3a2e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 8px 0;
+  text-align: left;
+}
+
+.daywork-remove {
+  color: #8a3b3b;
+  white-space: nowrap;
+}
+
+.daywork-save {
+  margin-top: 4px;
+  width: 100%;
+}
+
 .engineer-flow-list {
   display: grid;
   gap: 10px;

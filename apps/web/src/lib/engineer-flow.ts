@@ -1,6 +1,11 @@
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
-import { dayworkAccountTotals, type DayworkAccountRecord } from "@/lib/daywork-account-form";
+import {
+  dayworkAccountTotals,
+  parseDayworkLineItems,
+  totalDayworkLabourHours,
+  type DayworkAccountRecord,
+} from "@/lib/daywork-account-form";
 import { isValidUkOrIsoDate, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
 
 export type { DayworkAccountRecord };
@@ -293,16 +298,16 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
     {
       id: "daywork-vo-ref",
       stage: "Daywork",
-      label: "V.O. / variation reference",
+      label: "Variation reference",
       evidence: "Text",
       required: false,
       formField: "voReference",
-      validation: { placeholder: "Optional V.O. number" },
+      validation: { placeholder: "Optional variation / V.O. number" },
     },
     {
       id: "daywork-labour-name",
       stage: "Daywork",
-      label: "Labour — operative name",
+      label: "Operative name",
       evidence: "Text",
       required: true,
       formField: "labourName",
@@ -311,160 +316,38 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
     {
       id: "daywork-labour-trade",
       stage: "Daywork",
-      label: "Labour — trade",
+      label: "Labour trade",
       evidence: "Text",
       required: true,
       formField: "labourTrade",
-      validation: { minLength: 2, placeholder: "e.g. Plumber" },
+      validation: { minLength: 2, helpText: "Plumber, Joiner or Apprentice.", placeholder: "Plumber" },
     },
     {
-      id: "daywork-labour-hours",
+      id: "daywork-labour-days",
       stage: "Daywork",
-      label: "Labour — hours",
-      evidence: "Number",
+      label: "Labour hours by day",
+      evidence: "Text",
       required: true,
-      formField: "labourHours",
-      validation: {
-        pattern: "^\\d+(?:\\.\\d{1,2})?$",
-        inputMode: "decimal",
-        inputKind: "decimal",
-        helpText: "Total hours for this sheet.",
-        placeholder: "e.g. 3.5",
-      },
+      formField: "labourDaysJson",
+      validation: { minLength: 2, helpText: "One or more days with hours.", placeholder: "JSON labour days" },
     },
     {
-      id: "daywork-labour-rate",
+      id: "daywork-materials",
       stage: "Daywork",
-      label: "Labour — hourly rate (£)",
-      evidence: "Number",
-      required: true,
-      formField: "labourRate",
-      validation: {
-        pattern: "^\\d+(?:\\.\\d{1,2})?$",
-        inputMode: "decimal",
-        inputKind: "decimal",
-        helpText: "Cost rate per hour.",
-        placeholder: "e.g. 45.00",
-      },
-    },
-    {
-      id: "daywork-labour-expenses",
-      stage: "Daywork",
-      label: "Labour — expenses (£)",
-      evidence: "Number",
-      required: false,
-      formField: "labourExpenses",
-      validation: {
-        pattern: "^\\d+(?:\\.\\d{1,2})?$",
-        inputMode: "decimal",
-        inputKind: "decimal",
-        placeholder: "Optional",
-      },
-    },
-    {
-      id: "daywork-material-1-desc",
-      stage: "Daywork",
-      label: "Material 1 — description",
+      label: "Materials",
       evidence: "Text",
       required: false,
-      formField: "material1Description",
-      validation: { placeholder: "e.g. 15mm isolation valve" },
+      formField: "materialsJson",
+      validation: { helpText: "Multiple materials with quantities.", placeholder: "JSON materials" },
     },
     {
-      id: "daywork-material-1-qty",
+      id: "daywork-plant",
       stage: "Daywork",
-      label: "Material 1 — quantity",
-      evidence: "Number",
-      required: false,
-      formField: "material1Qty",
-      validation: { pattern: "^\\d+(?:\\.\\d{1,2})?$", inputMode: "decimal", inputKind: "decimal", placeholder: "Qty" },
-    },
-    {
-      id: "daywork-material-1-price",
-      stage: "Daywork",
-      label: "Material 1 — unit price (£)",
-      evidence: "Number",
-      required: false,
-      formField: "material1UnitPrice",
-      validation: { pattern: "^\\d+(?:\\.\\d{1,2})?$", inputMode: "decimal", inputKind: "decimal", placeholder: "Unit £" },
-    },
-    {
-      id: "daywork-material-2-desc",
-      stage: "Daywork",
-      label: "Material 2 — description",
+      label: "Plant",
       evidence: "Text",
       required: false,
-      formField: "material2Description",
-      validation: { placeholder: "Optional second material" },
-    },
-    {
-      id: "daywork-material-2-qty",
-      stage: "Daywork",
-      label: "Material 2 — quantity",
-      evidence: "Number",
-      required: false,
-      formField: "material2Qty",
-      validation: { pattern: "^\\d+(?:\\.\\d{1,2})?$", inputMode: "decimal", inputKind: "decimal", placeholder: "Qty" },
-    },
-    {
-      id: "daywork-material-2-price",
-      stage: "Daywork",
-      label: "Material 2 — unit price (£)",
-      evidence: "Number",
-      required: false,
-      formField: "material2UnitPrice",
-      validation: { pattern: "^\\d+(?:\\.\\d{1,2})?$", inputMode: "decimal", inputKind: "decimal", placeholder: "Unit £" },
-    },
-    {
-      id: "daywork-plant-desc",
-      stage: "Daywork",
-      label: "Plant — description",
-      evidence: "Text",
-      required: false,
-      formField: "plantDescription",
-      validation: { placeholder: "Optional plant / equipment" },
-    },
-    {
-      id: "daywork-plant-hours",
-      stage: "Daywork",
-      label: "Plant — hours",
-      evidence: "Number",
-      required: false,
-      formField: "plantHours",
-      validation: { pattern: "^\\d+(?:\\.\\d{1,2})?$", inputMode: "decimal", inputKind: "decimal", placeholder: "Hours" },
-    },
-    {
-      id: "daywork-plant-rate",
-      stage: "Daywork",
-      label: "Plant — rate (£/hr)",
-      evidence: "Number",
-      required: false,
-      formField: "plantRate",
-      validation: { pattern: "^\\d+(?:\\.\\d{1,2})?$", inputMode: "decimal", inputKind: "decimal", placeholder: "Rate £" },
-    },
-    {
-      id: "daywork-markup-percent",
-      stage: "Daywork",
-      label: "Materials / plant add %",
-      evidence: "Number",
-      required: false,
-      formField: "markupPercent",
-      validation: {
-        pattern: "^\\d+(?:\\.\\d{1,2})?$",
-        inputMode: "decimal",
-        inputKind: "decimal",
-        helpText: "Markup % applied to materials and plant on the daywork total.",
-        placeholder: "e.g. 20",
-      },
-    },
-    {
-      id: "daywork-works-photo",
-      stage: "Daywork",
-      label: "Works photo",
-      evidence: "Photo",
-      required: false,
-      formField: "worksPhoto",
-      validation: { helpText: "Optional photo of completed daywork.", placeholder: "Take or choose a photo" },
+      formField: "plantJson",
+      validation: { helpText: "Multiple plant items with quantities.", placeholder: "JSON plant" },
     },
     {
       id: "daywork-plumber-sign",
@@ -911,7 +794,67 @@ export function buildDayworkAccountRecordFromEvidence(
     record.completedAt = value.capturedAt || record.completedAt;
     any = true;
   }
+  for (const [stepId, field] of [
+    ["daywork-labour-rate", "labourRate"],
+    ["daywork-markup-percent", "markupPercent"],
+    ["daywork-labour-hours", "labourHours"],
+  ] as const) {
+    const value = evidenceStore[flowEvidenceKey(jobId, costCentreId, stepId)];
+    const text = value?.text?.trim() || value?.numberValue?.trim();
+    if (!text) continue;
+    record[field] = text;
+    any = true;
+  }
+  if (record.labourDaysJson) {
+    record.labourHours = String(totalDayworkLabourHours(record) || record.labourHours || "");
+  }
   return any ? record : null;
+}
+
+/** Write a full Field Daywork sheet draft into hub evidence + variation event. */
+export function saveDayworkSheetToHub(options: {
+  jobId: string;
+  jobRef: string;
+  costCentreId: string;
+  engineerName: string;
+  record: DayworkAccountRecord;
+}) {
+  const hubState = getHubDetailState() as HubDetailState & {
+    flowStepEvidence?: Record<string, EngineerFlowStepEvidenceValue>;
+  };
+  const evidenceStore = { ...(hubState.flowStepEvidence ?? {}) };
+  const completionStore = { ...((hubState.flowStepCompletion ?? {}) as Record<string, boolean>) };
+  const capturedAt = options.record.completedAt || new Date().toISOString();
+
+  for (const step of dayworkAccountFlowTemplate.steps) {
+    if (!step.formField) continue;
+    const key = flowEvidenceKey(options.jobId, options.costCentreId, step.id);
+    const raw = (options.record as Record<string, string | undefined>)[step.formField];
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (!text) {
+      delete evidenceStore[key];
+      delete completionStore[key];
+      continue;
+    }
+    evidenceStore[key] = { text, capturedAt };
+    completionStore[key] = true;
+  }
+
+  // Also store derived total hours for older readers.
+  const hoursKey = flowEvidenceKey(options.jobId, options.costCentreId, "daywork-labour-hours");
+  const hours = String(totalDayworkLabourHours(options.record) || "");
+  if (hours && hours !== "0") {
+    evidenceStore[hoursKey] = { text: hours, numberValue: hours, capturedAt };
+    completionStore[hoursKey] = true;
+  }
+
+  saveHubDetailState({
+    ...hubState,
+    flowStepEvidence: evidenceStore,
+    flowStepCompletion: completionStore,
+  });
+
+  return syncDayworkAccountToJobVariation(options);
 }
 
 export const DAYWORK_COST_CENTRE_NAME = "Daywork account";
@@ -980,16 +923,16 @@ export function syncDayworkAccountToJobVariation(options: {
   if (!bothSigned && !options.record.description?.trim()) return null;
 
   const totals = dayworkAccountTotals(options.record);
-  const materialsSummary = [
-    options.record.material1Description
-      ? `${options.record.material1Description} × ${options.record.material1Qty || "1"} @ £${options.record.material1UnitPrice || "0"}`
-      : "",
-    options.record.material2Description
-      ? `${options.record.material2Description} × ${options.record.material2Qty || "1"} @ £${options.record.material2UnitPrice || "0"}`
-      : "",
-  ]
-    .filter(Boolean)
+  const materialsSummary = parseDayworkLineItems(options.record.materialsJson)
+    .map((item) => `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}`)
     .join("; ");
+  const plantSummary = parseDayworkLineItems(options.record.plantJson)
+    .map((item) => `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}`)
+    .join("; ");
+  const combinedMaterials = [materialsSummary, plantSummary ? `Plant: ${plantSummary}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  const labourHours = totalDayworkLabourHours(options.record) || totals.labourHours;
 
   const hubState = getHubDetailState();
   const events = Array.isArray(hubState.jobDeliveryEvents)
@@ -999,7 +942,7 @@ export function syncDayworkAccountToJobVariation(options: {
   const existingIndex = events.findIndex((event) => event.id === eventId);
   const summary =
     options.record.description?.trim() ||
-    `Daywork account${options.record.voReference ? ` · V.O. ${options.record.voReference}` : ""}`;
+    `Daywork account${options.record.voReference ? ` · ${options.record.voReference}` : ""}`;
 
   const nextEvent: Record<string, unknown> = {
     id: eventId,
@@ -1012,10 +955,11 @@ export function syncDayworkAccountToJobVariation(options: {
       existingIndex >= 0 && typeof events[existingIndex]?.createdAt === "string"
         ? events[existingIndex].createdAt
         : new Date().toISOString(),
-    hours: totals.labourHours || undefined,
-    materials: materialsSummary || undefined,
-    costValue: Math.round(totals.total * 100) / 100,
-    sellValue: Math.round(totals.total * 100) / 100,
+    hours: labourHours || undefined,
+    materials: combinedMaterials || undefined,
+    // Cost/sell left for office rates in Core — Field only captures hours/qty.
+    costValue: Math.round(totals.total * 100) / 100 || 0,
+    sellValue: Math.round(totals.total * 100) / 100 || 0,
     reason: "Daywork account",
     requiresClientApproval: true,
     clientApprovalStatus: bothSigned ? "Viewed" : "Not sent",
@@ -1026,6 +970,8 @@ export function syncDayworkAccountToJobVariation(options: {
     plumberSignature: options.record.plumberSignature,
     clientSignature: options.record.clientSignature,
     weekEnding: options.record.weekEnding,
+    labourTrade: options.record.labourTrade,
+    labourDaysJson: options.record.labourDaysJson,
   };
 
   if (existingIndex >= 0) {

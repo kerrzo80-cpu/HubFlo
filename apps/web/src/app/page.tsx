@@ -114,7 +114,7 @@ import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
-import { dayworkAccountTotals, type DayworkAccountRecord } from "@/lib/daywork-account-form";
+import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -3359,23 +3359,12 @@ const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
   steps: [
     { id: "daywork-description", stage: "Daywork", label: "Description of works", evidence: "Text", required: true },
     { id: "daywork-week-ending", stage: "Daywork", label: "Week ending", evidence: "Text", required: true },
-    { id: "daywork-vo-ref", stage: "Daywork", label: "V.O. / variation reference", evidence: "Text", required: false },
-    { id: "daywork-labour-name", stage: "Daywork", label: "Labour — operative name", evidence: "Text", required: true },
-    { id: "daywork-labour-trade", stage: "Daywork", label: "Labour — trade", evidence: "Text", required: true },
-    { id: "daywork-labour-hours", stage: "Daywork", label: "Labour — hours", evidence: "Number", required: true },
-    { id: "daywork-labour-rate", stage: "Daywork", label: "Labour — hourly rate (£)", evidence: "Number", required: true },
-    { id: "daywork-labour-expenses", stage: "Daywork", label: "Labour — expenses (£)", evidence: "Number", required: false },
-    { id: "daywork-material-1-desc", stage: "Daywork", label: "Material 1 — description", evidence: "Text", required: false },
-    { id: "daywork-material-1-qty", stage: "Daywork", label: "Material 1 — quantity", evidence: "Number", required: false },
-    { id: "daywork-material-1-price", stage: "Daywork", label: "Material 1 — unit price (£)", evidence: "Number", required: false },
-    { id: "daywork-material-2-desc", stage: "Daywork", label: "Material 2 — description", evidence: "Text", required: false },
-    { id: "daywork-material-2-qty", stage: "Daywork", label: "Material 2 — quantity", evidence: "Number", required: false },
-    { id: "daywork-material-2-price", stage: "Daywork", label: "Material 2 — unit price (£)", evidence: "Number", required: false },
-    { id: "daywork-plant-desc", stage: "Daywork", label: "Plant — description", evidence: "Text", required: false },
-    { id: "daywork-plant-hours", stage: "Daywork", label: "Plant — hours", evidence: "Number", required: false },
-    { id: "daywork-plant-rate", stage: "Daywork", label: "Plant — rate (£/hr)", evidence: "Number", required: false },
-    { id: "daywork-markup-percent", stage: "Daywork", label: "Materials / plant add %", evidence: "Number", required: false },
-    { id: "daywork-works-photo", stage: "Daywork", label: "Works photo", evidence: "Photo", required: false },
+    { id: "daywork-vo-ref", stage: "Daywork", label: "Variation reference", evidence: "Text", required: false },
+    { id: "daywork-labour-name", stage: "Daywork", label: "Operative name", evidence: "Text", required: true },
+    { id: "daywork-labour-trade", stage: "Daywork", label: "Labour trade", evidence: "Text", required: true },
+    { id: "daywork-labour-days", stage: "Daywork", label: "Labour hours by day", evidence: "Text", required: true },
+    { id: "daywork-materials", stage: "Daywork", label: "Materials", evidence: "Text", required: false },
+    { id: "daywork-plant", stage: "Daywork", label: "Plant", evidence: "Text", required: false },
     { id: "daywork-plumber-sign", stage: "Handover", label: "Plumber / contractor signature", evidence: "Signature", required: true },
     { id: "daywork-client-sign", stage: "Handover", label: "Client / Clerk of Works signature", evidence: "Signature", required: true },
   ],
@@ -25773,20 +25762,12 @@ export default function Dashboard() {
             "daywork-vo-ref": "voReference",
             "daywork-labour-name": "labourName",
             "daywork-labour-trade": "labourTrade",
+            "daywork-labour-days": "labourDaysJson",
             "daywork-labour-hours": "labourHours",
+            "daywork-materials": "materialsJson",
+            "daywork-plant": "plantJson",
             "daywork-labour-rate": "labourRate",
-            "daywork-labour-expenses": "labourExpenses",
-            "daywork-material-1-desc": "material1Description",
-            "daywork-material-1-qty": "material1Qty",
-            "daywork-material-1-price": "material1UnitPrice",
-            "daywork-material-2-desc": "material2Description",
-            "daywork-material-2-qty": "material2Qty",
-            "daywork-material-2-price": "material2UnitPrice",
-            "daywork-plant-desc": "plantDescription",
-            "daywork-plant-hours": "plantHours",
-            "daywork-plant-rate": "plantRate",
             "daywork-markup-percent": "markupPercent",
-            "daywork-works-photo": "worksPhoto",
             "daywork-plumber-sign": "plumberSignature",
             "daywork-client-sign": "clientSignature",
           };
@@ -25802,6 +25783,19 @@ export default function Dashboard() {
             (record as Record<string, string | undefined>)[field] = value;
             record.completedAt = evidence.capturedAt || record.completedAt;
             any = true;
+          }
+          for (const [stepId, field] of [
+            ["daywork-labour-rate", "labourRate"],
+            ["daywork-markup-percent", "markupPercent"],
+          ] as const) {
+            const evidence = flowStepEvidence[flowCompletionKey(completionRecordId, stepId)] || {};
+            const value = evidence.numberValue?.trim() || evidence.text?.trim();
+            if (!value) continue;
+            record[field] = value;
+            any = true;
+          }
+          if (record.labourDaysJson) {
+            record.labourHours = String(totalDayworkLabourHours(record) || "");
           }
           return any ? record : null;
         })()

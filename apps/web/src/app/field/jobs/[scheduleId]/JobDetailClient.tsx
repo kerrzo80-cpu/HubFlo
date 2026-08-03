@@ -5,8 +5,10 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { ArrowLeft, Camera, ClipboardCheck, Layers, MapPin, Phone } from "lucide-react";
 import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
+import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
+import type { DayworkAccountRecord } from "@/lib/daywork-account-form";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type { FieldEvidenceType, FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
@@ -106,6 +108,7 @@ export default function JobDetailPage() {
   const [tab, setTab] = useState<Tab>(initialTab);
   const [checklistMode, setChecklistMode] = useState<"job" | "daywork">("job");
   const [dayworkBusy, setDayworkBusy] = useState(false);
+  const [dayworkRecord, setDayworkRecord] = useState<DayworkAccountRecord | null>(null);
 
   useEffect(() => {
     setTab(initialTab);
@@ -180,10 +183,12 @@ export default function JobDetailPage() {
         error?: string;
         requirements?: FieldRequirement[];
         costCentreName?: string;
+        record?: DayworkAccountRecord | null;
       };
       if (!response.ok) throw new Error(body.error || "Could not open daywork sheet.");
       setChecklistMode("daywork");
       setTab("checklist");
+      setDayworkRecord(body.record || null);
       if (body.requirements) {
         setJob((current) =>
           current
@@ -195,7 +200,7 @@ export default function JobDetailPage() {
             : current,
         );
       }
-      setNotice("Daywork Account open — add labour, materials, then plumber and client sign-off.");
+      setNotice("Daywork Account open — add labour days, materials and both signatures.");
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : "Could not open daywork sheet.");
     } finally {
@@ -216,6 +221,7 @@ export default function JobDetailPage() {
       const body = (await response.json()) as { requirements?: FieldRequirement[]; error?: string };
       if (!response.ok) throw new Error(body.error || "Could not leave daywork sheet.");
       setChecklistMode("job");
+      setDayworkRecord(null);
       if (body.requirements) {
         setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
       } else {
@@ -482,14 +488,25 @@ export default function JobDetailPage() {
 
       {tab === "checklist" ? (
         <div className="stack checklist-stack">
-          <p className="checklist-intro muted">
-            {checklistMode === "daywork"
-              ? "Daywork Account — add labour hours and materials, then plumber and client both sign. Values populate the Core daywork form and Variations."
-              : "Stop/go checklist for this cost centre. Values save to Core — open Daywork Account for reactive variation sheets."}
-          </p>
-          {error ? <div className="feedback error">{error}</div> : null}
-          {notice ? <div className="feedback">{notice}</div> : null}
-          {job.requirements.map((item) => {
+          {checklistMode === "daywork" ? (
+            <DayworkSheetForm
+              scheduleId={job.scheduleId}
+              engineerName={job.engineerName}
+              initialRecord={dayworkRecord}
+              onSaved={(record) => {
+                setDayworkRecord(record);
+                setNotice("Daywork Account saved — check Core Variations / Engineer Flow.");
+              }}
+            />
+          ) : (
+            <>
+              <p className="checklist-intro muted">
+                Stop/go checklist for this cost centre. Values save to Core — open Daywork Account for reactive
+                variation sheets.
+              </p>
+              {error ? <div className="feedback error">{error}</div> : null}
+              {notice ? <div className="feedback">{notice}</div> : null}
+              {job.requirements.map((item) => {
             const evidenceType = evidenceTypeOf(item);
             const draft = draftByRequirement[item.id] || {};
             const summary = doneSummary(item);
@@ -644,6 +661,8 @@ export default function JobDetailPage() {
               </article>
             );
           })}
+            </>
+          )}
         </div>
       ) : null}
 
