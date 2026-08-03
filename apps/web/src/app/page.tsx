@@ -110,6 +110,7 @@ import {
 import { numberedReference } from "@/lib/numbering";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
+import { OpenAiKeyCard } from "./OpenAiKeyCard";
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
@@ -2978,7 +2979,7 @@ const setupCategories: Array<{ key: SetupCategory; label: string; detail: string
   { key: "tax-codes", label: "Tax codes", detail: "VAT treatments mapped for Xero" },
   { key: "email-templates", label: "Email templates", detail: "Quote, invoice, PO and follow-up wording" },
   { key: "security", label: "Security groups", detail: "Role permission templates for employee cards" },
-  { key: "integrations", label: "Integrations", detail: "simPRO, Xero and live system sync", subItems: ["simPRO", "Xero", "Import from simPRO"] },
+  { key: "integrations", label: "Integrations", detail: "NeXa AI, simPRO, Xero and live system sync", subItems: ["NeXa AI", "simPRO", "Xero", "Import from simPRO"] },
   { key: "communications", label: "Communications", detail: "Outlook, WhatsApp and supplier doorway settings", subItems: ["Outlook", "WhatsApp", "Supplier emails"] },
   { key: "finance", label: "Finance", detail: "Invoices, VAT, payment terms and approval gates", subItems: ["Invoices", "Valuations", "PO approvals"] },
 ];
@@ -3191,6 +3192,11 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   "email-templates": {},
   security: {},
   integrations: {
+    "NeXa AI": {
+      summary: "Connect OpenAI once here to power Blake across Takeoff, Survey, the Field app and the NeXa Assistant — no redeploy needed.",
+      focus: ["Paste your OpenAI API key", "Powers every AI feature", "Environment key still takes precedence"],
+      status: "Set up in seconds",
+    },
     simPRO: {
       summary: "Check the live simPRO connection, keep the downstream bridge healthy and confirm NeXa can keep pushing records across.",
       focus: ["Connection status", "One-way quote and job push", "Scheduler handoff readiness"],
@@ -38306,6 +38312,8 @@ export default function Dashboard() {
                       </div>
                     </section>
                   ) : null}
+
+                  {activeSetupCategory === "integrations" ? <OpenAiKeyCard /> : null}
 
                   {activeSetupCategory === "overview" ? (
                     <section className="setup-panel setup-readiness">
