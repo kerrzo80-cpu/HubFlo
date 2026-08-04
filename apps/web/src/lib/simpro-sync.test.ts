@@ -62,7 +62,8 @@ describe("simpro sync preview quality", () => {
     assert.match(source, /pageSize = 250/);
     assert.match(source, /orderby", "ID"/);
     assert.match(source, /Result-Total/);
-    assert.match(source, /maxPages = entity === "clients" \|\| entity === "sites" \? 200/);
+    assert.match(source, /const maxPages = 200/);
+    assert.match(source, /limit: 5000/);
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {

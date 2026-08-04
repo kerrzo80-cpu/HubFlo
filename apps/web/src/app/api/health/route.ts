@@ -56,6 +56,7 @@ export async function GET() {
       simproImportQuality: "status-site-cc-v1",
       simproImportOrphanLinks: "prune-reimport-v1",
       simproClientsFullFetch: "orderby-id-pagesize-250-v1",
+      simproEntityFullFetch: "all-entities-50k-schedules-5k-v1",
       dashboardLayout: "pipeline-gantt-v3",
       takeoffSkill: "drawing-first-v8-routes-page",
       recurringServices: "upcoming-4w-v1",

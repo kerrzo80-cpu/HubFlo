@@ -397,7 +397,8 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
 
   const collected: UnknownRecord[] = [];
   const seenIds = new Set<string>();
-  const maxPages = entity === "clients" || entity === "sites" ? 200 : 80;
+  // Same ceiling for clients, sites, quotes, jobs, invoices (~50k records).
+  const maxPages = 200;
   let reportedTotal = 0;
   let reportedPages = 0;
 
@@ -438,6 +439,12 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     if (records.length < pageSize) break;
     if (reportedTotal > 0 && collected.length >= reportedTotal) break;
     if (reportedPages > 0 && page >= reportedPages) break;
+  }
+
+  if (reportedTotal > 0 && collected.length < reportedTotal) {
+    console.warn(
+      `[simpro-sync] ${entity} fetch stopped early: got ${collected.length} of ${reportedTotal} (page cap ${maxPages} × ${pageSize}).`,
+    );
   }
 
   return collected;
@@ -1157,7 +1164,7 @@ async function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mo
 }
 
 async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncOperation[]> {
-  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 250 });
+  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 5000 });
   return result.operations.map((item) =>
     operation(
       "schedules",
