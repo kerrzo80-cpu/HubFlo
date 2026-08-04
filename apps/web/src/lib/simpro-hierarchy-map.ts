@@ -556,19 +556,71 @@ function parseReferenceParts(reference: string) {
   return { recordId: match[1] || "", costCentreId: match[2] || "" };
 }
 
-function blockTimes(blocks: unknown): { startTime: string; endTime: string; hours: number } {
+/** True when a schedule list row belongs to this simPRO job (avoids `21` matching `210787-…`). */
+export function scheduleBelongsToSimproJob(record: UnknownRecord, simproJobId: string) {
+  const jobId = String(simproJobId || "").trim();
+  if (!jobId) return false;
+  if (String(record.JobID ?? record.JobId ?? "") === jobId) return true;
+  const reference = firstString(record, ["Reference", "Project"]);
+  if (!reference) {
+    const type = firstString(record, ["Type"]).toLowerCase();
+    return type === "job";
+  }
+  return reference === jobId || reference.startsWith(`${jobId}-`);
+}
+
+function extractClockTime(value: string) {
+  const trimmed = value.trim();
+  if (/^\d{1,2}:\d{2}/.test(trimmed)) {
+    const [hours = "0", minutes = "00"] = trimmed.split(":");
+    return `${hours.padStart(2, "0")}:${minutes.slice(0, 2)}`;
+  }
+  const iso = trimmed.match(/T(\d{2}):(\d{2})/);
+  if (iso) return `${iso[1]}:${iso[2]}`;
+  return "";
+}
+
+export function blockTimes(blocks: unknown): { startTime: string; endTime: string; hours: number } {
   if (!Array.isArray(blocks) || !blocks.length) {
     return { startTime: "08:00", endTime: "16:00", hours: 8 };
   }
   const first = asRecord(blocks[0]) ?? {};
   const last = asRecord(blocks[blocks.length - 1]) ?? first;
-  const startTime = firstString(first, ["StartTime", "ISO8601StartTime"]).slice(0, 5) || "08:00";
-  const endTime = firstString(last, ["EndTime", "ISO8601EndTime"]).slice(0, 5) || "16:00";
+  const startTime =
+    extractClockTime(firstString(first, ["StartTime", "ISO8601StartTime"])) || "08:00";
+  const endTime =
+    extractClockTime(firstString(last, ["EndTime", "ISO8601EndTime"])) || "16:00";
   const hours =
     blocks.reduce((sum, block) => sum + asNumber(asRecord(block)?.Hrs, 0), 0) ||
     asNumber(first.Hrs, 0) ||
     8;
   return { startTime, endTime, hours };
+}
+
+function resolveScheduleStaff(record: UnknownRecord): { employeeId: string; employeeName: string } {
+  const staffRaw = record.Staff;
+  if (typeof staffRaw === "number" && Number.isFinite(staffRaw) && staffRaw > 0) {
+    return {
+      employeeId: `simpro-staff-${Math.trunc(staffRaw)}`,
+      employeeName: "Engineer to confirm",
+    };
+  }
+  if (typeof staffRaw === "string" && /^\d+$/.test(staffRaw.trim())) {
+    return {
+      employeeId: `simpro-staff-${staffRaw.trim()}`,
+      employeeName: "Engineer to confirm",
+    };
+  }
+  const staff = asRecord(staffRaw) ?? {};
+  const staffId = firstString(staff, ["ID", "Id", "id"]);
+  const employeeName =
+    firstString(staff, ["Name", "DisplayName"]) ||
+    [firstString(staff, ["FirstName"]), firstString(staff, ["Surname", "LastName"])].filter(Boolean).join(" ") ||
+    "Engineer to confirm";
+  return {
+    employeeId: staffId ? `simpro-staff-${staffId}` : "",
+    employeeName,
+  };
 }
 
 export function mapSimproJobSchedules(
@@ -589,7 +641,7 @@ export function mapSimproJobSchedules(
     const date = firstString(record, ["Date"]).slice(0, 10);
     if (!date) return;
     const times = blockTimes(record.Blocks);
-    const staff = asRecord(record.Staff) ?? {};
+    const staff = resolveScheduleStaff(record);
     const scheduleId = simproRecordId(record) || `schedule-${index + 1}`;
     const plannedHours =
       asNumber(record.TotalHours, Number.NaN) ||
@@ -601,8 +653,8 @@ export function mapSimproJobSchedules(
       jobId: nexaJobId,
       costCentreId: centre?.id || `${nexaJobId}-unassigned`,
       costCentreName: centre?.name || "Imported schedule",
-      employeeId: firstString(staff, ["ID", "Id", "id"]) ? `simpro-staff-${firstString(staff, ["ID", "Id", "id"])}` : "",
-      employeeName: firstString(staff, ["Name", "DisplayName"]) || "Engineer to confirm",
+      employeeId: staff.employeeId,
+      employeeName: staff.employeeName,
       startDate: date,
       startTime: times.startTime,
       endDate: date,

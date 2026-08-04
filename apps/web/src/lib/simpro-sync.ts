@@ -268,25 +268,35 @@ function extractRecords(body: unknown) {
 
 async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
   const url = new URL(entityEndpoint(config, entity));
-  // Deep hierarchy pulls (sections/CCs/lines/schedules) are heavier — keep quote/job/invoice pages smaller.
-  const pageSize = entity === "quotes" || entity === "jobs" || entity === "invoices" ? "15" : "50";
+  const pageSize = "50";
   url.searchParams.set("pageSize", pageSize);
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: `Bearer ${config.token}`,
-    },
-    cache: "no-store",
-  });
-  const body = await response.json().catch(() => null);
+  const collected: UnknownRecord[] = [];
+  const maxPages = entity === "clients" || entity === "sites" ? 20 : 40;
+  for (let page = 1; page <= maxPages; page += 1) {
+    url.searchParams.set("page", String(page));
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: `Bearer ${config.token}`,
+      },
+      cache: "no-store",
+    });
+    const body = await response.json().catch(() => null);
 
-  if (!response.ok) {
-    const message = firstString(asRecord(body) ?? {}, ["error", "message"]) || `simPRO returned HTTP ${response.status}`;
-    throw new Error(message);
+    if (!response.ok) {
+      const message = firstString(asRecord(body) ?? {}, ["error", "message"]) || `simPRO returned HTTP ${response.status}`;
+      throw new Error(message);
+    }
+
+    const records = extractRecords(body);
+    collected.push(...records);
+    const totalPages = Number(response.headers.get("Result-Pages") || response.headers.get("result-pages") || 0);
+    if (records.length < Number(pageSize)) break;
+    if (totalPages > 0 && page >= totalPages) break;
   }
 
-  return extractRecords(body);
+  return collected;
 }
 
 function existingLink(entity: SimproSyncEntity, simproId: string) {
@@ -957,7 +967,7 @@ async function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mo
 }
 
 async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncOperation[]> {
-  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 40 });
+  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 250 });
   return result.operations.map((item) =>
     operation(
       "schedules",
