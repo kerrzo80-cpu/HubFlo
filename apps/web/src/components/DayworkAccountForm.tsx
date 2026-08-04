@@ -124,7 +124,7 @@ export function DayworkAccountForm({
     <article className="daywork-account-form">
       <header className="daywork-account-masthead">
         <div>
-          <p className="daywork-account-kicker">Errol Watson Group style sheet</p>
+          <p className="daywork-account-kicker">Company Daywork sheet</p>
           <h3>Daywork Account</h3>
           <p>
             Capture labour hours, materials used and dual sign-off on Field or in Core. Office sets labour rate and a

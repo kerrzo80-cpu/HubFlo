@@ -3,8 +3,12 @@ import { NextResponse } from "next/server";
 import { getServerStoreBackend } from "@/lib/server-store";
 import { readDayworkSheetsStore } from "@/lib/daywork-sheets-store";
 import { readDayworkWriteLog } from "@/lib/daywork-write-log";
+import { hostFromRequest } from "@/lib/tenancy/request-context";
+import { resolveTenantFromHost } from "@/lib/tenancy/resolve-tenant";
+import { migrateLegacyStoresForEwg } from "@/lib/tenancy/tenant-server-store";
+import { listTenants } from "@/lib/tenancy/tenant-store";
 
-export async function GET() {
+export async function GET(request: Request) {
   let dayworkSheetCount = 0;
   let dayworkSignedCount = 0;
   try {
@@ -19,11 +23,27 @@ export async function GET() {
 
   const writeLog = readDayworkWriteLog();
   const lastWrite = writeLog.attempts[0] || null;
+  const host = hostFromRequest(request);
+  let tenant = null;
+  try {
+    migrateLegacyStoresForEwg();
+    tenant = resolveTenantFromHost(host);
+  } catch {
+    // ignore
+  }
 
   return NextResponse.json({
     ok: true,
     app: "nexa",
     store: getServerStoreBackend(),
+    multiTenant: {
+      enabled: true,
+      rootDomain: process.env.NEXA_ROOT_DOMAIN || "nexaapp.com",
+      tenantCount: listTenants().length,
+      resolvedTenantId: tenant?.tenant.id || null,
+      resolvedTenantSlug: tenant?.tenant.slug || null,
+      host,
+    },
     deployment: {
       branch: process.env.RENDER_GIT_BRANCH ?? "local",
       commit: process.env.RENDER_GIT_COMMIT ?? "local",
@@ -46,7 +66,7 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "field-daywork-locked-v1",
+      fieldCoreLive: "multi-tenant-saas-m1",
     },
     daywork: {
       sheetCount: dayworkSheetCount,

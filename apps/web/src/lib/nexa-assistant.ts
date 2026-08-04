@@ -537,7 +537,7 @@ async function conversationalReply(
           {
             role: "system",
             content: [
-              "You are Blake, the NeXa business assistant for Errol Watson Group field-service operations.",
+              "You are Blake, the NeXa business assistant for this company's field-service operations.",
               "Answer using only the supplied NeXa workspace JSON, Blake learning notes, and the conversation.",
               "If the data does not contain the answer, say what is missing. Never invent bookings, values, customers or availability.",
               "Do not change schedules, quote values, variations or invoices yourself. Suggest and ask the user to confirm operational changes.",

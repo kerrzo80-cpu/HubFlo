@@ -11,13 +11,19 @@ import {
   recordFailedLoginAttempt,
 } from "@/lib/auth-store";
 import { appendAuditEvent } from "@/lib/people-data";
+import { hostFromRequest } from "@/lib/tenancy/request-context";
+import { resolveTenantFromHost } from "@/lib/tenancy/resolve-tenant";
+import { upsertMembership } from "@/lib/tenancy/tenant-store";
+import { toPublicTenantView } from "@/lib/tenancy/types";
 
 export async function POST(request: Request) {
   if (!isUserAuthenticationEnabled()) {
     return NextResponse.json({ error: "Individual user authentication is not enabled." }, { status: 409 });
   }
 
-  const body = await request.json().catch(() => null) as { username?: unknown; password?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as
+    | { username?: unknown; password?: unknown }
+    | null;
   const username = typeof body?.username === "string" ? body.username : "";
   const password = typeof body?.password === "string" ? body.password : "";
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
@@ -50,9 +56,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Username or password is not recognised." }, { status: 401 });
   }
 
+  const host = hostFromRequest(request);
+  const resolved = resolveTenantFromHost(host);
+  if (resolved) {
+    try {
+      upsertMembership({
+        tenantId: resolved.tenant.id,
+        userId: user.id,
+        role: user.role,
+        status: "active",
+      });
+    } catch {
+      // Best-effort membership bootstrap for legacy EWG users.
+    }
+  }
+
   clearFailedLoginAttempts(loginIdentifier);
   const session = createUserSession(user.id);
-  const response = NextResponse.json({ user });
+  const response = NextResponse.json({
+    user,
+    tenant: resolved ? toPublicTenantView(resolved.tenant, resolved.host) : null,
+  });
   response.cookies.set(nexaSessionCookie, session.token, {
     httpOnly: true,
     maxAge: nexaSessionMaxAgeSeconds,
@@ -65,7 +89,7 @@ export async function POST(request: Request) {
     action: "signed in",
     recordType: "employee",
     recordId: user.employeeId || user.id,
-    summary: `${user.name} signed in to NeXa using an individual account.`,
+    summary: `${user.name} signed in to NeXa${resolved ? ` (${resolved.tenant.slug})` : ""} using an individual account.`,
     source: "authentication",
     importance: "normal",
   });
