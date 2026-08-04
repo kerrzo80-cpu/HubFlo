@@ -113,7 +113,6 @@ import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPane
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
-import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
@@ -183,7 +182,7 @@ const STORAGE_KEYS = {
   suppliers: "hubflo:suppliers:v1",
   contacts: "hubflo:contacts:v1",
   contractors: "hubflo:contractors:v1",
-  dashboardLayouts: "hubflo:dashboard-layouts:v3",
+  dashboardLayouts: "hubflo:dashboard-layouts:v1",
   openWorkspaceTabs: "hubflo:open-workspace-tabs:v1",
 } as const;
 
@@ -194,9 +193,18 @@ const COST_CENTRE_SERVER_SYNC_HOLD_MS = 120000;
 const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 
 const dashboardPanelIds = [
-  "jobs",
+  "invoiceOps",
+  "unassignedJobs",
+  "schedule",
   "notifications",
-  "recurringServices",
+  "leadFollowups",
+  "quoteFollowups",
+  "poRequests",
+  "variations",
+  "approvedQuotes",
+  "timesheets",
+  "assetDue",
+  "overdueJobs",
 ] as const;
 
 type DashboardPanelId = (typeof dashboardPanelIds)[number];
@@ -208,9 +216,18 @@ type DashboardLayout = {
 };
 
 const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: DashboardPanelSize }> = {
-  jobs: { label: "Jobs", size: "standard" },
-  notifications: { label: "Action notifications", size: "standard" },
-  recurringServices: { label: "Upcoming services", size: "standard" },
+  invoiceOps: { label: "Invoice ops", size: "wide" },
+  unassignedJobs: { label: "Unassigned jobs", size: "standard" },
+  schedule: { label: "Weekly schedule", size: "wide" },
+  notifications: { label: "Action notifications", size: "side" },
+  leadFollowups: { label: "Lead follow-ups", size: "standard" },
+  quoteFollowups: { label: "Quote follow-ups", size: "standard" },
+  poRequests: { label: "PO requests", size: "standard" },
+  variations: { label: "Variations", size: "standard" },
+  approvedQuotes: { label: "Approved quotes", size: "standard" },
+  timesheets: { label: "Timesheets", size: "standard" },
+  assetDue: { label: "Assets due", size: "standard" },
+  overdueJobs: { label: "Overdue jobs", size: "standard" },
 };
 
 const defaultDashboardLayout: DashboardLayout = {
@@ -3315,7 +3332,6 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
     { id: "new-location", stage: "New Boiler", label: "Confirm new boiler location", evidence: "Text", required: true },
     { id: "commissioning", stage: "Commissioning", label: "Complete commissioning readings", evidence: "Number", required: true },
     { id: "benchmark", stage: "Commissioning", label: "Complete benchmark/compliance checklist", evidence: "Checkbox", required: true },
-    { id: "replacement-next-due", stage: "Handover", label: "Next boiler service due", evidence: "Text", required: true },
     { id: "customer-handover", stage: "Handover", label: "Customer handover and sign-off", evidence: "Signature", required: true },
   ],
 };
@@ -7801,17 +7817,6 @@ export default function Dashboard() {
     make?: string;
     model?: string;
   }>>([]);
-  const [upcomingRecurringJobs, setUpcomingRecurringJobs] = useState<Array<{
-    id: string;
-    name: string;
-    customer: string;
-    clientId?: string;
-    siteId?: string;
-    site?: string;
-    description: string;
-    nextDueDate: string;
-    frequency: string;
-  }>>([]);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [poSupplierPaymentDraft, setPoSupplierPaymentDraft] = useState({ amount: "", method: "Bank transfer", reference: "" });
@@ -10605,7 +10610,7 @@ export default function Dashboard() {
   }, [hasHydratedLocalData, requestHeaders, homeView]);
 
   useEffect(() => {
-    if (!hasHydratedLocalData || homeView !== "dashboard") return;
+    if (!hasHydratedLocalData) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -10625,75 +10630,6 @@ export default function Dashboard() {
         } | null;
         if (!cancelled && response.ok) {
           setDueSiteAssetRows(body?.assets || []);
-        }
-      } catch {
-        // dashboard panel is best-effort
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [hasHydratedLocalData, requestHeaders, homeView]);
-
-  useEffect(() => {
-    if (!hasHydratedLocalData || homeView !== "dashboard") return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const response = await fetch("/api/recurring?upcomingDays=28", { headers: requestHeaders });
-        const body = await response.json().catch(() => null) as {
-          windowJobs?: Array<{
-            id: string;
-            name: string;
-            customer: string;
-            clientId?: string;
-            siteId?: string;
-            site?: string;
-            description: string;
-            nextDueDate: string;
-            frequency: string;
-          }>;
-          due?: Array<{
-            id: string;
-            name: string;
-            customer: string;
-            clientId?: string;
-            siteId?: string;
-            site?: string;
-            description: string;
-            nextDueDate: string;
-            frequency: string;
-            kind?: string;
-          }>;
-          upcoming?: Array<{
-            id: string;
-            name: string;
-            customer: string;
-            clientId?: string;
-            siteId?: string;
-            site?: string;
-            description: string;
-            nextDueDate: string;
-            frequency: string;
-            kind?: string;
-          }>;
-        } | null;
-        if (!cancelled && response.ok) {
-          if (Array.isArray(body?.windowJobs)) {
-            setUpcomingRecurringJobs(body.windowJobs);
-          } else {
-            const merged = [...(body?.due || []), ...(body?.upcoming || [])]
-              .filter((plan) => !plan.kind || plan.kind === "Job")
-              .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
-            const seen = new Set<string>();
-            setUpcomingRecurringJobs(
-              merged.filter((plan) => {
-                if (seen.has(plan.id)) return false;
-                seen.add(plan.id);
-                return true;
-              }),
-            );
-          }
         }
       } catch {
         // dashboard panel is best-effort
@@ -11507,36 +11443,6 @@ export default function Dashboard() {
     [jobSchedulePlans, jobs],
   );
 
-  const pendingJobsNotBooked = useMemo(
-    () =>
-      jobs
-        .filter((job) => {
-          if (!["Accepted", "Pending"].includes(job.status)) return false;
-          const plans = jobSchedulePlans[job.id];
-          if (plans && plans.length > 0) return false;
-          return !job.scheduledDate || !job.scheduledTime;
-        })
-        .sort((left, right) => left.ref.localeCompare(right.ref)),
-    [jobSchedulePlans, jobs],
-  );
-
-  const dashboardWeekDays = useMemo(() => {
-    const weekStart = startOfScheduleWeek(currentOperatingDate);
-    return Array.from({ length: 7 }, (_, index) => shiftIsoDate(weekStart, index));
-  }, []);
-
-  const dashboardGanttNowMarker = useMemo(
-    () =>
-      computeDashboardGanttNowMarker(
-        plannerNow,
-        plannerNow ? plannerInputDate(plannerNow) : null,
-        dashboardWeekDays,
-        (day) => formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" }),
-        (now) => plannerInputTime(now),
-      ),
-    [dashboardWeekDays, plannerNow],
-  );
-
   const overdueInvoiceRows = useMemo(
     () =>
       invoices
@@ -11875,15 +11781,6 @@ export default function Dashboard() {
     () => [...leadSurveyBookings, ...scheduledJobs],
     [leadSurveyBookings, scheduledJobs],
   );
-
-  const dashboardGanttPeople = useMemo(() => {
-    const names = new Set<string>(surveyorOptions);
-    for (const booking of allScheduleBookings) {
-      const person = (booking.surveyor || "").trim();
-      if (person) names.add(person);
-    }
-    return Array.from(names).sort((first, second) => first.localeCompare(second));
-  }, [allScheduleBookings]);
 
   const schedulerSelectedJob = useMemo(
     () => jobs.find((job) => job.id === schedulerSelectedJobId) ?? null,
@@ -14771,70 +14668,6 @@ export default function Dashboard() {
           ? String(patch.numberValue ?? merged.numberValue ?? "").trim() !== ""
           : Boolean((patch.text ?? merged.text)?.trim());
     setFlowStepCompletion((current) => ({ ...current, [key]: satisfied }));
-
-    const nextDueRaw = String(patch.text ?? merged.text ?? "").trim();
-    if (
-      satisfied &&
-      nextDueRaw &&
-      (step.id === "service-next-due" || step.id === "replacement-next-due") &&
-      selectedJob?.siteId
-    ) {
-      void syncNextServiceDueRecurringPlan(selectedJob, nextDueRaw);
-    }
-  }
-
-  async function syncNextServiceDueRecurringPlan(
-    job: Job,
-    nextDueRaw: string,
-  ) {
-    if (!job.siteId) return;
-    const isoMatch = nextDueRaw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    const ukMatch = nextDueRaw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-    const nextDueDate = isoMatch
-      ? nextDueRaw
-      : ukMatch
-        ? `${ukMatch[3]}-${ukMatch[2]}-${ukMatch[1]}`
-        : "";
-    if (!nextDueDate) return;
-    try {
-      await fetch("/api/site-assets", {
-        method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "upsert",
-          siteId: job.siteId,
-          clientId: job.clientId,
-          type: "Gas appliance",
-          name: "Gas appliance",
-          nextServiceDate: nextDueDate,
-          lastServiceDate: currentOperatingDate,
-          certificateExpiresAt: nextDueDate,
-          notes: `Next service due from ${job.ref}`,
-        }),
-      });
-      await fetch("/api/recurring", {
-        method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "upsert",
-          id: `recur-boiler-${job.siteId}`,
-          kind: "Job",
-          name: "Annual boiler service",
-          customer: job.customer,
-          clientId: job.clientId,
-          siteId: job.siteId,
-          site: job.site,
-          description: `Annual boiler service / gas safety check at ${job.site || "site"} (from ${job.ref})`,
-          frequency: "Yearly",
-          nextDueDate,
-          notes: `Created from next service due on ${job.ref}`,
-          active: true,
-        }),
-      });
-      showNotice(`Recurring annual service set for ${nextDueDate}. Carol will see it in Upcoming services.`);
-    } catch {
-      // best-effort
-    }
   }
 
   function clearFlowStepEvidence(recordId: string, stepId: string) {
@@ -27030,315 +26863,656 @@ export default function Dashboard() {
   }
 
   function renderOperationsDashboard() {
-    const pendingJobs = jobDirectoryGroups.find((group) => group.key === "pending")?.items ?? [];
-    const progressJobs = jobDirectoryGroups.find((group) => group.key === "progress")?.items ?? [];
-    const completeJobs = jobDirectoryGroups.find((group) => group.key === "review")?.items ?? [];
-    const jobStageBars = [
-      { label: "Pending", value: pendingJobs.length, key: "pending" as const },
-      { label: "In progress", value: progressJobs.length, key: "progress" as const },
-      { label: "Complete", value: completeJobs.length, key: "review" as const },
-    ];
-    const jobStageMax = Math.max(1, ...jobStageBars.map((row) => row.value));
-    const jobStageTotal = pendingJobs.length + progressJobs.length + completeJobs.length;
+    const actionTotal =
+      overdueLeadQuoteFollowUps.length +
+      quoteResponseFollowUps.length +
+      pendingPORequests.length +
+      dashboardVariationApprovals.length +
+      dashboardDayworkReviews.length +
+      approvedQuotesAwaitingScheduling.length +
+      overdueTimesheetJobs.length +
+      overdueInvoiceRows.length +
+      uninvoicedCompletedJobs.length +
+      unassignedProgressJobs.length +
+      overdueScheduledJobs.length;
 
-    const actionNotificationCards = [
-      {
-        id: "overdue-invoices",
-        tone: "red" as const,
-        count: overdueInvoiceRows.length,
-        title: "Overdue invoices",
-        detail: "Chase ageing invoices",
-        onClick: () => openInvoiceOpsPack("overdue"),
-      },
-      {
-        id: "uninvoiced",
-        tone: "amber" as const,
-        count: uninvoicedCompletedJobs.length,
-        title: "Ready to invoice",
-        detail: "Completed work to bill",
-        onClick: openUninvoicedJobsPack,
-      },
-      {
-        id: "unassigned",
-        tone: "red" as const,
-        count: unassignedProgressJobs.length,
-        title: "No technician",
-        detail: "Assign from schedule",
-        onClick: () => openUnassignedJobsOnSchedule(),
-      },
-      {
-        id: "timesheets",
-        tone: "amber" as const,
-        count: overdueTimesheetJobs.length + pendingTimesheetApprovals.length,
-        title: "Timesheets",
-        detail: `${pendingTimesheetApprovals.length} to approve · ${overdueTimesheetJobs.length} overdue`,
-        onClick: () => {
-          const firstApproval = pendingTimesheetApprovals[0];
-          if (firstApproval) {
-            openJobDrawer(firstApproval.jobId);
-            return;
-          }
-          const firstOverdue = overdueTimesheetJobs[0];
-          if (firstOverdue) openJobDrawer(firstOverdue.id);
-          else setHomeView("jobs");
-        },
-      },
-      {
-        id: "daywork",
-        tone: "amber" as const,
-        count: dashboardDayworkReviews.length,
-        title: "Daywork from Field",
-        detail: "Open Daywork account",
-        onClick: () => {
-          const first = dashboardDayworkReviews[0];
-          if (first) openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
-          else showNotice("No Daywork sheets from Field yet.");
-        },
-      },
-      {
-        id: "upcoming-services",
-        tone: "amber" as const,
-        count: upcomingRecurringJobs.length,
-        title: "Upcoming services",
-        detail: "Touch base in next 4 weeks",
-        onClick: () => setHomeView("recurring"),
-      },
-      {
-        id: "po-requests",
-        tone: "amber" as const,
-        count: pendingPORequests.length,
-        title: "PO requests",
-        detail: "Supplier approvals",
-        onClick: () => {
-          const first = pendingPORequests[0];
-          if (first) openJobDrawer(first.jobId);
-          else setHomeView("jobs");
-        },
-      },
-      {
-        id: "variations",
-        tone: "amber" as const,
-        count: dashboardVariationApprovals.length,
-        title: "Variations",
-        detail: "Awaiting approval",
-        onClick: () => {
-          const first = dashboardVariationApprovals[0];
-          if (first) openJobDrawer(first.job.id);
-          else setHomeView("jobs");
-        },
-      },
-      {
-        id: "lead-followups",
-        tone: "red" as const,
-        count: overdueLeadQuoteFollowUps.length,
-        title: "Lead follow-ups",
-        detail: "Survey leads overdue for quote",
-        onClick: () => {
-          const first = overdueLeadQuoteFollowUps[0];
-          if (first) openLeadRecord(first.lead.id);
-          else setHomeView("leads");
-        },
-      },
-      {
-        id: "quote-followups",
-        tone: "amber" as const,
-        count: quoteResponseFollowUps.length,
-        title: "Quote follow-ups",
-        detail: "Waiting on customer response",
-        onClick: () => {
-          const first = quoteResponseFollowUps[0];
-          if (first) openQuoteDrawer(first.quote.id);
-          else setHomeView("quotes");
-        },
-      },
-      {
-        id: "approved-quotes",
-        tone: "green" as const,
-        count: approvedQuotesAwaitingScheduling.length,
-        title: "Approved quotes",
-        detail: "Awaiting schedule",
-        onClick: () => {
-          const first = approvedQuotesAwaitingScheduling[0];
-          if (first) openQuoteDrawer(first.id);
-          else setHomeView("quotes");
-        },
-      },
-      {
-        id: "overdue-jobs",
-        tone: "red" as const,
-        count: overdueScheduledJobs.length,
-        title: "Overdue jobs",
-        detail: "Past booked date",
-        onClick: () => {
-          const first = overdueScheduledJobs[0];
-          if (first) openJobDrawer(first.id);
-          else setHomeView("jobs");
-        },
-      },
-    ];
-    const activeActionCards = actionNotificationCards.filter((card) => card.count > 0);
-    const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
-    const asOf = currentOperatingDate;
-    const recurringDueNow = upcomingRecurringJobs.filter((plan) => plan.nextDueDate <= asOf).length;
-    const recurringPreview = upcomingRecurringJobs.slice(0, 8);
-
-    function openJobsFolder(folderKey: "pending" | "progress" | "review") {
-      setActiveJobFolderKey(folderKey);
-      setHomeView("jobs");
-      scrollWorkspaceToTop();
-    }
-
-    const jobsCard = (
-      <button
-        className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed"
-        id="dashboard-jobs"
-        type="button"
-        onClick={() => openJobsFolder("pending")}
-      >
-        <header>
-          <h3>Jobs</h3>
-          <span className="nexa-kpi-sub">{jobStageTotal} live</span>
-        </header>
-        <div className="nexa-kpi-card-scroll">
-          <div className="nexa-kpi-bars">
-            {jobStageBars.map((row) => (
-              <div
-                className="nexa-kpi-bar-row nexa-kpi-bar-row-click"
-                key={row.key}
-                role="link"
-                tabIndex={0}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  openJobsFolder(row.key);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openJobsFolder(row.key);
-                  }
-                }}
-              >
-                <span className="nexa-kpi-bar-label">{row.label}</span>
-                <span className="nexa-kpi-bar-track">
-                  <span
-                    className="nexa-kpi-bar-fill"
-                    style={{
-                      width: `${(row.value / jobStageMax) * 100}%`,
-                      background:
-                        row.key === "pending" ? "#f79009" : row.key === "progress" ? "#006eb8" : "#12b76a",
-                    }}
-                  />
-                </span>
-                <strong className="nexa-kpi-bar-value">{row.value}</strong>
+    const renderDashboardPanel = (panelId: DashboardPanelId) => {
+      switch (panelId) {
+        case "invoiceOps":
+          return (
+            <section className="ops-queue-panel invoice-ops-panel" id="dashboard-invoice-ops">
+              <header>
+                <div>
+                  <h3>Invoice ops</h3>
+                  <p>
+                    {overdueInvoiceRows.length} overdue · {uninvoicedCompletedJobs.length} ready to invoice
+                  </p>
+                </div>
+                <PoundSterling size={18} />
+              </header>
+              <div className="invoice-ops-summary">
+                <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
+                  <AlertTriangle size={18} />
+                  <span>
+                    <strong>{overdueInvoiceRows.length}</strong>
+                    <b>Overdue invoices</b>
+                    <small>
+                      0-30: {overdueInvoiceRows.filter((row) => row.band === "0-30").length}
+                      {" · "}31-60: {overdueInvoiceRows.filter((row) => row.band === "31-60").length}
+                      {" · "}60+: {overdueInvoiceRows.filter((row) => row.band === "60+").length}
+                    </small>
+                  </span>
+                </button>
+                <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
+                  <FileText size={18} />
+                  <span>
+                    <strong>{uninvoicedCompletedJobs.length}</strong>
+                    <b>Completed, not invoiced</b>
+                    <small>Create or finish the invoice from the job</small>
+                  </span>
+                </button>
               </div>
-            ))}
-          </div>
-          <p className="nexa-kpi-card-hint">Pending · In progress · Complete</p>
-        </div>
-      </button>
-    );
+              <div className="ops-queue-list">
+                {uninvoicedCompletedJobs.slice(0, 4).map((job) => (
+                  <article className="ops-queue-item attention" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref} · {job.customer}</strong>
+                      <span>{job.description}</span>
+                      <small>{job.status} · due {job.due}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{job.status}</span>
+                      <button className="primary-button" type="button" onClick={() => openInvoiceForJob(job)}>
+                        Invoice
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {overdueInvoiceRows.slice(0, 4).map(({ invoice, daysOverdue, band }) => (
+                  <article className="ops-queue-item" key={invoice.id}>
+                    <button type="button" onClick={() => openInvoiceRecord(invoice.id)}>
+                      <strong>{invoice.ref} · {invoice.customer}</strong>
+                      <span>{invoice.title}</span>
+                      <small>
+                        {daysOverdue} day{daysOverdue === 1 ? "" : "s"} overdue · band {band}
+                        {invoice.chaseCount ? ` · chased ×${invoice.chaseCount}` : ""}
+                      </small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{currency(invoiceOutstandingBalance(invoice))}</span>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => {
+                          setPendingInvoiceChaseId(invoice.id);
+                          openInvoiceRecord(invoice.id);
+                        }}
+                      >
+                        Chase
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!uninvoicedCompletedJobs.length && !overdueInvoiceRows.length ? (
+                  <div className="ops-queue-empty">No overdue invoices or completed jobs waiting to bill.</div>
+                ) : null}
+              </div>
+            </section>
+          );
 
-    const actionsCard = (
-      <article className="nexa-kpi-card nexa-kpi-card-actions nexa-kpi-card-fixed" id="dashboard-notifications">
-        <button
-          className="nexa-kpi-card-hit"
-          type="button"
-          onClick={() => {
-            const first = activeActionCards[0];
-            if (first) first.onClick();
-          }}
-        >
-          <header>
-            <h3>Action notifications</h3>
-            <span className="nexa-kpi-sub">{actionTotal} open</span>
-          </header>
-        </button>
-        <div className="nexa-kpi-card-scroll">
-          <div className="nexa-kpi-action-list">
-            {activeActionCards.length > 0 ? (
-              activeActionCards.map((card) => (
-                <button className={`nexa-kpi-action-row ${card.tone}`} key={card.id} type="button" onClick={card.onClick}>
-                  <strong>{card.count}</strong>
-                  <span>
-                    <b>{card.title}</b>
-                    <small>{card.detail}</small>
-                  </span>
-                </button>
-              ))
-            ) : (
-              <p className="nexa-kpi-empty">Nothing needs a decision right now.</p>
-            )}
-          </div>
-          {dashboardDayworkReviews.length > 0 ? (
-            <div id="dashboard-daywork" className="nexa-kpi-action-list">
-              {dashboardDayworkReviews.slice(0, 6).map((item) => (
-                <button
-                  className="nexa-kpi-action-row amber"
-                  key={`${item.jobId}:${item.costCentreId}`}
-                  type="button"
-                  onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
-                >
-                  <strong>DW</strong>
-                  <span>
-                    <b>{item.jobRef}</b>
-                    <small>{item.summary}</small>
-                  </span>
-                </button>
+        case "unassignedJobs":
+          return (
+            <section className="ops-queue-panel" id="dashboard-unassigned-jobs">
+              <header>
+                <div>
+                  <h3>Unassigned jobs</h3>
+                  <p>{unassignedProgressJobs.length} live job{unassignedProgressJobs.length === 1 ? "" : "s"} with no technician</p>
+                </div>
+                <Users size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {unassignedProgressJobs.length > 0 ? (
+                  unassignedProgressJobs.slice(0, 6).map((job) => (
+                    <article className="ops-queue-item attention" key={job.id}>
+                      <button type="button" onClick={() => openJobDrawer(job.id)}>
+                        <strong>{job.ref} · {job.customer}</strong>
+                        <span>{job.description}</span>
+                        <small>{job.status} · {job.manager || "No engineer"}</small>
+                      </button>
+                      <div className="ops-queue-actions">
+                        <span className={`status-pill ${job.health}`}>{job.status}</span>
+                        <button className="primary-button" type="button" onClick={() => openUnassignedJobsOnSchedule(job)}>
+                          Assign
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="ops-queue-empty">Every live job has a technician or schedule booking.</div>
+                )}
+              </div>
+            </section>
+          );
+
+        case "schedule":
+          return (
+            <section className="weekly-schedule-panel">
+            <div className="panel-header">
+              <div>
+                <h2>Weekly schedule</h2>
+                <p>Everyone&apos;s surveys, site visits and jobs for the week</p>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setHomeView("schedule")}>
+                <CalendarDays size={15} />
+                Open scheduler
+              </button>
+            </div>
+
+            <div className="weekly-schedule-grid">
+              {dashboardWeekSchedule.map((day) => (
+                <article className="schedule-day-card" key={day.date}>
+                  <header>
+                    <strong>{day.label}</strong>
+                    <span>{day.entries.length} item{day.entries.length === 1 ? "" : "s"}</span>
+                  </header>
+                  <div className="schedule-day-list">
+                    {day.entries.length > 0 ? (
+                      day.entries.map((entry) => (
+                        <button className="schedule-entry" key={entry.id} type="button" onClick={entry.open}>
+                          <StatusDot tone={entry.tone} />
+                          <time>{entry.time}</time>
+                          <span>
+                            <strong>{entry.person}</strong>
+                            <b>{entry.ref} · {entry.title}</b>
+                            <small>{entry.type} · {entry.detail}</small>
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="schedule-empty">No bookings</div>
+                    )}
+                  </div>
+                </article>
               ))}
             </div>
-          ) : null}
-        </div>
-      </article>
-    );
+          </section>
+          );
 
-    const upcomingCard = (
-      <button
-        className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed"
-        id="dashboard-recurring-services"
-        type="button"
-        onClick={() => setHomeView("recurring")}
-      >
-        <header>
-          <h3>Upcoming services</h3>
-          <span className="nexa-kpi-sub">{upcomingRecurringJobs.length} / 4 wks</span>
-        </header>
-        <div className="nexa-kpi-card-scroll">
-          <div className="nexa-kpi-metric">
-            <strong>{upcomingRecurringJobs.length}</strong>
-            <span>
-              {recurringDueNow > 0
-                ? `${recurringDueNow} due now · rest in next 4 weeks`
-                : "annual boiler services to book"}
-            </span>
-          </div>
-          <div className="nexa-kpi-bars">
-            {recurringPreview.length > 0 ? (
-              recurringPreview.map((plan) => (
-                <div className="nexa-kpi-bar-row" key={plan.id}>
-                  <span className="nexa-kpi-bar-label" title={plan.customer}>
-                    {plan.customer}
-                  </span>
-                  <span className="nexa-kpi-bar-track">
-                    <span
-                      className="nexa-kpi-bar-fill"
-                      style={{
-                        width: "70%",
-                        background: plan.nextDueDate <= asOf ? "#f04438" : "#f79009",
-                      }}
-                    />
-                  </span>
-                  <strong className="nexa-kpi-bar-value">{formatUkDate(plan.nextDueDate)}</strong>
+        case "notifications":
+          return (
+            <aside className="notification-panel" id="dashboard-notifications">
+            <div className="panel-header compact">
+              <div>
+                <h2>Action notifications</h2>
+                <p>Office queues that need a decision</p>
+              </div>
+              <span className="notification-total">{actionTotal}</span>
+            </div>
+
+            <div className="notification-stack">
+              <button className="notification-card red" type="button" onClick={() => openInvoiceOpsPack("overdue")}>
+                <PoundSterling size={18} />
+                <span>
+                  <strong>{overdueInvoiceRows.length}</strong>
+                  <b>Overdue invoices</b>
+                  <small>Open ageing pack and chase</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={openUninvoicedJobsPack}>
+                <FileText size={18} />
+                <span>
+                  <strong>{uninvoicedCompletedJobs.length}</strong>
+                  <b>Completed jobs to invoice</b>
+                  <small>Bill completed / ready-to-invoice work</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openUnassignedJobsOnSchedule()}>
+                <Users size={18} />
+                <span>
+                  <strong>{unassignedProgressJobs.length}</strong>
+                  <b>Jobs with no technician</b>
+                  <small>Assign from the schedule board</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-po-requests")}>
+                <ClipboardCheck size={18} />
+                <span>
+                  <strong>{pendingPORequests.length}</strong>
+                  <b>PO requests</b>
+                  <small>Supplier and materials approvals</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-variations")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{dashboardVariationApprovals.length}</strong>
+                  <b>Variations awaiting approval</b>
+                  <small>Review before work proceeds</small>
+                </span>
+              </button>
+              <button
+                className="notification-card amber"
+                type="button"
+                onClick={() => {
+                  const first = dashboardDayworkReviews[0];
+                  if (first) {
+                    openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
+                    return;
+                  }
+                  showNotice("No Daywork sheets from Field yet.");
+                }}
+              >
+                <ClipboardCheck size={18} />
+                <span>
+                  <strong>{dashboardDayworkReviews.length}</strong>
+                  <b>Daywork sheets from Field</b>
+                  <small>Opens Variations → Daywork account</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-lead-followups")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
+                  <b>Survey leads overdue for quote</b>
+                  <small>3 days past survey with no quote</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-quote-followups")}>
+                <Mail size={18} />
+                <span>
+                  <strong>{quoteResponseFollowUps.length}</strong>
+                  <b>Quotes needing follow-up</b>
+                  <small>No customer response recorded</small>
+                </span>
+              </button>
+              <button className="notification-card green" type="button" onClick={() => openDashboardQueue("dashboard-approved-quotes")}>
+                <Check size={18} />
+                <span>
+                  <strong>{approvedQuotesAwaitingScheduling.length}</strong>
+                  <b>Quotes approved awaiting scheduling</b>
+                  <small>Ready to become booked work</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-timesheets")}>
+                <Clock3 size={18} />
+                <span>
+                  <strong>{overdueTimesheetJobs.length + pendingTimesheetApprovals.length}</strong>
+                  <b>Timesheets</b>
+                  <small>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</small>
+                </span>
+              </button>
+              <button className="notification-card amber" type="button" onClick={() => openDashboardQueue("dashboard-asset-due")}>
+                <AlertTriangle size={18} />
+                <span>
+                  <strong>{dueSiteAssetRows.length}</strong>
+                  <b>Assets due / overdue</b>
+                  <small>Service dates in the next 30 days</small>
+                </span>
+              </button>
+              <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-overdue-jobs")}>
+                <Clock3 size={18} />
+                <span>
+                  <strong>{overdueScheduledJobs.length}</strong>
+                  <b>Overdue scheduled jobs</b>
+                  <small>Booked date before today, still open</small>
+                </span>
+              </button>
+            </div>
+            <div id="dashboard-daywork" className="ops-queue-list" style={{ marginTop: 12 }}>
+              <strong style={{ display: "block", marginBottom: 8 }}>Daywork from Field</strong>
+              {dashboardDayworkReviews.length > 0 ? (
+                dashboardDayworkReviews.slice(0, 6).map((item) => (
+                  <article className="ops-queue-item" key={`${item.jobId}:${item.costCentreId}`}>
+                    <button
+                      type="button"
+                      onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
+                    >
+                      <strong>{item.jobRef}</strong>
+                      <span>{item.summary}</span>
+                      <small>{item.status} · open Daywork account</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
+                      >
+                        Open Daywork
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">
+                  No Field Daywork sheets on the server yet. On Field: Add Daywork Account → Save and finish.
                 </div>
-              ))
-            ) : (
-              <p className="nexa-kpi-empty">No services due in the next 4 weeks.</p>
-            )}
-          </div>
-          <p className="nexa-kpi-card-hint">Tap to touch base with clients</p>
-        </div>
-      </button>
-    );
+              )}
+            </div>
+          </aside>
+          );
+
+        case "leadFollowups":
+          return (
+            <section className="ops-queue-panel" id="dashboard-lead-followups">
+            <header>
+              <div>
+                <h3>Lead follow-ups</h3>
+                <p>{overdueLeadQuoteFollowUps.length} survey lead{overdueLeadQuoteFollowUps.length === 1 ? "" : "s"} overdue for quote</p>
+              </div>
+              <AlertTriangle size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {overdueLeadQuoteFollowUps.length > 0 ? (
+                overdueLeadQuoteFollowUps.slice(0, 4).map(({ lead, followUp }) => (
+                  <article className="ops-queue-item attention" key={lead.id}>
+                    <button type="button" onClick={() => openLeadRecord(lead.id)}>
+                      <strong>{lead.ref} · {lead.customerName}</strong>
+                      <span>{lead.description}</span>
+                      <small>{followUp.detail}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{followUp.label}</span>
+                      <button className="secondary-button" type="button" onClick={() => markLeadQuoted(lead)}>
+                        Create quote
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No survey leads are overdue for quoting.</div>
+              )}
+            </div>
+          </section>
+          );
+
+        case "quoteFollowups":
+          return (
+            <section className="ops-queue-panel" id="dashboard-quote-followups">
+            <header>
+              <div>
+                <h3>Quote follow-ups</h3>
+                <p>{quoteResponseFollowUps.length} sent quote{quoteResponseFollowUps.length === 1 ? "" : "s"} waiting on a response</p>
+              </div>
+              <Mail size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {quoteResponseFollowUps.length > 0 ? (
+                quoteResponseFollowUps.slice(0, 4).map(({ quote, followUp }) => (
+                  <article className={`ops-queue-item ${followUp.tone === "red" ? "attention" : ""}`} key={quote.id}>
+                    <button type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                      <strong>{quote.ref} · {quote.customer}</strong>
+                      <span>{quote.description}</span>
+                      <small>{followUp.detail}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className={`status-pill ${followUp.tone}`}>{followUp.label}</span>
+                      <button className="secondary-button" type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                        Open quote
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No sent quotes need chasing.</div>
+              )}
+            </div>
+          </section>
+          );
+
+        case "poRequests":
+          return (
+            <section className="ops-queue-panel" id="dashboard-po-requests">
+            <header>
+              <div>
+                <h3>PO Requests</h3>
+                <p>{pendingPORequests.length} awaiting approval</p>
+              </div>
+              <ClipboardCheck size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {pendingPORequests.length > 0 ? (
+                pendingPORequests.slice(0, 4).map((request) => (
+                  <article className="ops-queue-item" key={request.id}>
+                    <button type="button" onClick={() => openJobDrawer(request.jobId)}>
+                      <strong>{request.jobRef}</strong>
+                      <span>{request.supplier} · {request.costCentreName ?? "No cost centre"}</span>
+                      <small>{request.item}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <b>{currency(request.estimatedCost)}</b>
+                      <button className="secondary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Rejected")}>
+                        Reject
+                      </button>
+                      <button className="primary-button" type="button" onClick={() => markPurchaseRequestStatus(request.id, "Approved")}>
+                        Approve
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No PO requests waiting.</div>
+              )}
+            </div>
+          </section>
+          );
+
+        case "variations":
+          return (
+            <section className="ops-queue-panel" id="dashboard-variations">
+            <header>
+              <div>
+                <h3>Variations</h3>
+                <p>{dashboardVariationApprovals.length} need approval or issue</p>
+              </div>
+              <AlertTriangle size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {dashboardVariationApprovals.length > 0 ? (
+                dashboardVariationApprovals.slice(0, 4).map(({ job, variation }) => (
+                  <article className="ops-queue-item" key={`${job.id}-${variation.id}`}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{variation.reference} · {job.ref}</strong>
+                      <span>{variation.title}</span>
+                      <small>{variation.clientApprovalStatus ?? variation.status} · {variation.engineerName ?? job.manager}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <b>{currency(variation.sellValue)}</b>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Review
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No variations waiting for approval.</div>
+              )}
+            </div>
+          </section>
+          );
+
+        case "approvedQuotes":
+          return (
+            <section className="ops-queue-panel" id="dashboard-approved-quotes">
+            <header>
+              <div>
+                <h3>Approved Quotes</h3>
+                <p>{approvedQuotesAwaitingScheduling.length} awaiting schedule</p>
+              </div>
+              <CalendarDays size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {approvedQuotesAwaitingScheduling.length > 0 ? (
+                approvedQuotesAwaitingScheduling.slice(0, 4).map((quote) => (
+                  <article className="ops-queue-item" key={quote.id}>
+                    <button type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                      <strong>{quote.ref}</strong>
+                      <span>{quote.customer}</span>
+                      <small>{quote.description}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <b>{currency(quote.value)}</b>
+                      <button className="secondary-button" type="button" onClick={() => openQuoteDrawer(quote.id)}>
+                        Book
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">No approved quotes waiting to schedule.</div>
+              )}
+            </div>
+          </section>
+          );
+
+        case "timesheets":
+          return (
+            <section className="ops-queue-panel" id="dashboard-timesheets">
+            <header>
+              <div>
+                <h3>Timesheets</h3>
+                <p>{pendingTimesheetApprovals.length} awaiting approval · {overdueTimesheetJobs.length} overdue</p>
+              </div>
+              <Clock3 size={18} />
+            </header>
+            <div className="ops-queue-list">
+              {pendingTimesheetApprovals.length > 0 ? (
+                pendingTimesheetApprovals.slice(0, 6).map((event) => (
+                  <article className="ops-queue-item" key={event.id}>
+                    <button type="button" onClick={() => openJobDrawer(event.jobId)}>
+                      <strong>{event.jobRef}</strong>
+                      <span>{event.actor}</span>
+                      <small>{(event.hours ?? 0).toFixed(1)}h · {event.summary}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill amber">Submitted</span>
+                      <button className="primary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Approved")}>
+                        Approve
+                      </button>
+                      <button className="secondary-button" type="button" onClick={() => reviewJobTimesheet(event.id, "Rejected")}>
+                        Reject
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : null}
+              {overdueTimesheetJobs.length > 0 ? (
+                overdueTimesheetJobs.slice(0, 4).map((job) => (
+                  <article className="ops-queue-item" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref}</strong>
+                      <span>{job.manager}</span>
+                      <small>{job.description} · {job.due}</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className={`status-pill ${job.health}`}>{job.status}</span>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Chase
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : null}
+              {!pendingTimesheetApprovals.length && !overdueTimesheetJobs.length ? (
+                <div className="ops-queue-empty">No timesheets waiting.</div>
+              ) : null}
+            </div>
+          </section>
+          );
+
+        case "assetDue":
+          return (
+            <section className="ops-queue-panel" id="dashboard-asset-due">
+              <header>
+                <div>
+                  <h3>Assets due</h3>
+                  <p>{dueSiteAssetRows.length} service or certificate dates due in the next 30 days</p>
+                </div>
+                <AlertTriangle size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {dueSiteAssetRows.slice(0, 8).map((asset) => {
+                  const site = clientSites.find((row) => row.id === asset.siteId);
+                  const client = clients.find((row) => row.id === (asset.clientId || site?.clientId));
+                  const serviceOverdue = Boolean(asset.nextServiceDate && asset.nextServiceDate < currentOperatingDate);
+                  const certOverdue = Boolean(asset.certificateExpiresAt && asset.certificateExpiresAt < currentOperatingDate);
+                  const overdue = serviceOverdue || certOverdue;
+                  const bits = [
+                    client?.name,
+                    site?.name || site?.address,
+                    asset.nextServiceDate
+                      ? `${serviceOverdue ? "service overdue " : "service due "}${asset.nextServiceDate}`
+                      : null,
+                    asset.certificateExpiresAt
+                      ? `${certOverdue ? "cert expired " : "cert due "}${asset.certificateExpiresAt}`
+                      : null,
+                  ].filter(Boolean);
+                  return (
+                    <article className="ops-queue-item" key={asset.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (client) openClientSiteRecordView(client.id, site?.name);
+                          else showNotice("Open a job/quote for this site to manage the asset register.");
+                        }}
+                      >
+                        <strong>{asset.name}</strong>
+                        <span>{asset.type}</span>
+                        <small>{bits.join(" · ") || "Site asset"}</small>
+                      </button>
+                      <div className="ops-queue-actions">
+                        <span className={`status-pill ${overdue ? "red" : "amber"}`}>
+                          {certOverdue && !serviceOverdue ? "Cert expired" : overdue ? "Overdue" : "Due soon"}
+                        </span>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!dueSiteAssetRows.length ? <div className="ops-queue-empty">No assets due in the next 30 days.</div> : null}
+              </div>
+            </section>
+          );
+
+        case "overdueJobs":
+          return (
+            <section className="ops-queue-panel" id="dashboard-overdue-jobs">
+              <header>
+                <div>
+                  <h3>Overdue jobs</h3>
+                  <p>{overdueScheduledJobs.length} open job{overdueScheduledJobs.length === 1 ? "" : "s"} past booked date</p>
+                </div>
+                <Clock3 size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {overdueScheduledJobs.slice(0, 8).map((job) => (
+                  <article className="ops-queue-item" key={job.id}>
+                    <button type="button" onClick={() => openJobDrawer(job.id)}>
+                      <strong>{job.ref}</strong>
+                      <span>{job.customer}</span>
+                      <small>
+                        Booked {job.scheduledDate}
+                        {job.scheduledTime ? ` at ${job.scheduledTime}` : ""}
+                        {job.manager ? ` · ${job.manager}` : ""}
+                      </small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <span className="status-pill red">{job.status}</span>
+                      <button className="secondary-button" type="button" onClick={() => openJobDrawer(job.id)}>
+                        Open
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!overdueScheduledJobs.length ? (
+                  <div className="ops-queue-empty">No open jobs are past their booked date.</div>
+                ) : null}
+              </div>
+            </section>
+          );
+
+        default:
+          return null;
+      }
+    };
 
     return (
       <section className={`ops-dashboard ${isDashboardCustomising ? "customising" : ""}`} aria-label="Operations dashboard">
@@ -27376,35 +27550,45 @@ export default function Dashboard() {
           </section>
         ) : null}
 
-        {!isDashboardCustomising ? (
-          <DashboardOverview
-            onOpenJobs={() => {
-              setActiveJobFolderKey("pending");
-              setHomeView("jobs");
-            }}
-            onOpenQuotes={() => setHomeView("quotes")}
-            onOpenLeads={() => setHomeView("leads")}
-            opsCards={
-              <>
-                {(!activeDashboardLayout.hidden.includes("jobs") ? jobsCard : null)}
-                {(!activeDashboardLayout.hidden.includes("notifications") ? actionsCard : null)}
-                {(!activeDashboardLayout.hidden.includes("recurringServices") ? upcomingCard : null)}
-              </>
-            }
-          />
-        ) : null}
+        {!isDashboardCustomising ? <DashboardOverview /> : null}
 
-        {!isDashboardCustomising ? (
-          <DashboardWeeklyGantt
-            days={dashboardWeekDays}
-            people={dashboardGanttPeople}
-            bookings={allScheduleBookings}
-            nowMarker={dashboardGanttNowMarker}
-            formatDayLabel={(day) => formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}
-            onOpenBooking={(booking) => openScheduleBooking({ id: booking.id, type: booking.type, jobId: booking.jobId })}
-            onOpenScheduler={() => setHomeView("schedule")}
-          />
-        ) : null}
+        <div className="ops-dashboard-layout-grid">
+          {visibleDashboardPanelIds.map((panelId) => {
+            const index = activeDashboardLayout.order.indexOf(panelId);
+            return (
+              <div
+                className={`dashboard-panel-slot ${dashboardPanelMeta[panelId].size} ${isDashboardCustomising ? "editing" : ""}`}
+                key={panelId}
+              >
+                {isDashboardCustomising ? (
+                  <div className="dashboard-panel-tools">
+                    <strong>{dashboardPanelMeta[panelId].label}</strong>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={index <= 0}
+                        onClick={() => moveDashboardPanel(panelId, -1)}
+                      >
+                        Move up
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index >= activeDashboardLayout.order.length - 1}
+                        onClick={() => moveDashboardPanel(panelId, 1)}
+                      >
+                        Move down
+                      </button>
+                      <button type="button" onClick={() => toggleDashboardPanelVisibility(panelId)}>
+                        Hide
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+                {renderDashboardPanel(panelId)}
+              </div>
+            );
+          })}
+        </div>
       </section>
     );
   }
@@ -27986,7 +28170,7 @@ export default function Dashboard() {
             <FileText size={17} />
             <span>NeXa Takeoff</span>
           </a>
-          <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, system kit to Jobs">
+          <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, link kit to quote or job">
             <Flame size={17} />
             <span>Heat Design</span>
           </a>
