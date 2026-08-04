@@ -7577,6 +7577,14 @@ export default function Dashboard() {
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
+  type DirectoryBulkScope = "quotes" | "leads" | "jobs" | "invoices" | "purchase-orders";
+  const [directorySelectedIds, setDirectorySelectedIds] = useState<Record<DirectoryBulkScope, string[]>>({
+    quotes: [],
+    leads: [],
+    jobs: [],
+    invoices: [],
+    "purchase-orders": [],
+  });
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
@@ -7690,6 +7698,27 @@ export default function Dashboard() {
     const valid = new Set(quoteBuildTabs.map((tab) => tab.key));
     if (!valid.has(activeQuoteBuildTab)) setActiveQuoteBuildTab("summary");
   }, [activeQuoteBuildTab]);
+
+  useEffect(() => {
+    setDirectorySelectedIds({
+      quotes: [],
+      leads: [],
+      jobs: [],
+      invoices: [],
+      "purchase-orders": [],
+    });
+  }, [
+    homeView,
+    activeQuoteFolderKey,
+    activeJobFolderKey,
+    activeInvoiceFolderKey,
+    quoteStatusFilter,
+    leadStatusFilter,
+    invoiceStatusFilter,
+    purchaseOrderStatusFilter,
+    statusFilter,
+    search,
+  ]);
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
@@ -15817,6 +15846,344 @@ export default function Dashboard() {
     return window.confirm(`Delete ${label} from the pilot data? This cannot be undone from the screen.`);
   }
 
+  function toggleDirectorySelection(scope: DirectoryBulkScope, id: string) {
+    setDirectorySelectedIds((current) => {
+      const selected = current[scope];
+      const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
+      return { ...current, [scope]: next };
+    });
+  }
+
+  function selectAllDirectory(scope: DirectoryBulkScope, ids: string[]) {
+    setDirectorySelectedIds((current) => ({ ...current, [scope]: [...ids] }));
+  }
+
+  function clearDirectorySelection(scope: DirectoryBulkScope) {
+    setDirectorySelectedIds((current) => ({ ...current, [scope]: [] }));
+  }
+
+  function isDirectorySelected(scope: DirectoryBulkScope, id: string) {
+    return directorySelectedIds[scope].includes(id);
+  }
+
+  function renderDirectorySelectCell(scope: DirectoryBulkScope, id: string, label: string) {
+    return (
+      <span className="directory-select-cell" onClick={(event) => event.stopPropagation()}>
+        <input
+          aria-label={`Select ${label}`}
+          checked={isDirectorySelected(scope, id)}
+          onChange={() => toggleDirectorySelection(scope, id)}
+          type="checkbox"
+        />
+      </span>
+    );
+  }
+
+  function renderDirectoryBulkBar(
+    scope: DirectoryBulkScope,
+    visibleIds: string[],
+    options?: { mergeLabel?: string },
+  ) {
+    const selectedCount = directorySelectedIds[scope].length;
+    if (selectedCount === 0 && visibleIds.length === 0) return null;
+    return (
+      <div className="directory-bulk-action-bar quote-bulk-action-bar">
+        <span>{selectedCount} selected</span>
+        <button
+          className="simpro-options-button"
+          type="button"
+          onClick={() => selectAllDirectory(scope, visibleIds)}
+          disabled={visibleIds.length === 0}
+        >
+          Select all
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          onClick={() => clearDirectorySelection(scope)}
+          disabled={selectedCount === 0}
+        >
+          Deselect all
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedCount < 2}
+          onClick={() => void mergeDirectorySelection(scope)}
+        >
+          {options?.mergeLabel ?? "Merge"}
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedCount === 0}
+          onClick={() => void bulkDeleteDirectory(scope)}
+        >
+          Delete selected
+        </button>
+      </div>
+    );
+  }
+
+  async function bulkDeleteDirectory(scope: DirectoryBulkScope) {
+    const selectedIds = directorySelectedIds[scope];
+    if (selectedIds.length === 0) return;
+    if (typeof window !== "undefined" && !window.confirm(`Delete ${selectedIds.length} selected records?`)) {
+      return;
+    }
+
+    if (scope === "quotes") {
+      for (const id of selectedIds) {
+        const quote = quotes.find((item) => item.id === id);
+        if (quote) await deleteQuoteFromDirectory(quote, { skipConfirm: true });
+      }
+    } else if (scope === "jobs") {
+      for (const id of selectedIds) {
+        const job = jobs.find((item) => item.id === id);
+        if (job) await deleteJobFromDirectory(job, { skipConfirm: true });
+      }
+    } else if (scope === "leads") {
+      for (const id of selectedIds) {
+        const lead = leads.find((item) => item.id === id);
+        if (lead) await deleteLeadFromDirectory(lead, { skipConfirm: true });
+      }
+    } else if (scope === "invoices") {
+      for (const id of selectedIds) {
+        const invoice = invoices.find((item) => item.id === id);
+        if (invoice) deleteInvoiceFromDirectory(invoice, { skipConfirm: true });
+      }
+    } else if (scope === "purchase-orders") {
+      for (const id of selectedIds) {
+        const request = purchaseRequests.find((item) => item.id === id);
+        if (request) await deletePurchaseFromDirectory(request, { skipConfirm: true });
+      }
+    }
+    clearDirectorySelection(scope);
+  }
+
+  async function mergeDirectorySelection(scope: DirectoryBulkScope) {
+    const selectedIds = directorySelectedIds[scope];
+    if (selectedIds.length < 2) {
+      showNotice("Select at least two records to merge.");
+      return;
+    }
+
+    const partyKey = (value: string | undefined) => (value || "").trim().toLowerCase();
+
+    if (scope === "quotes") {
+      const items = selectedIds.map((id) => quotes.find((item) => item.id === id)).filter(Boolean) as Quote[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customer)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected quotes have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedDescription = [primary.description, ...others.map((item) => item.description).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNext = [primary.next, ...others.map((item) => `${item.ref}: ${item.description || item.next}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedValue = items.reduce((total, item) => total + (Number(item.value) || 0), 0);
+      await updateQuoteFromDirectory(
+        primary,
+        { description: mergedDescription, next: mergedNext, value: mergedValue },
+        `${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`,
+      );
+      for (const other of others) {
+        await deleteQuoteFromDirectory(other, { skipConfirm: true });
+      }
+    } else if (scope === "jobs") {
+      const items = selectedIds.map((id) => jobs.find((item) => item.id === id)).filter(Boolean) as Job[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customer)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected jobs have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedDescription = [primary.description, ...others.map((item) => item.description).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNext = [primary.next, ...others.map((item) => `${item.ref}: ${item.description || item.next}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedValue = items.reduce((total, item) => total + (Number(item.value) || 0), 0);
+      await updateJobFromDirectory(
+        primary,
+        { description: mergedDescription, next: mergedNext, value: mergedValue },
+        `${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`,
+      );
+      for (const other of others) {
+        await deleteJobFromDirectory(other, { skipConfirm: true });
+      }
+    } else if (scope === "leads") {
+      const items = selectedIds.map((id) => leads.find((item) => item.id === id)).filter(Boolean) as Lead[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customerName)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected leads have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedDescription = [primary.description, ...others.map((item) => item.description).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNext = [
+        primary.next,
+        ...others.map((item) => `${item.ref}: ${item.description || item.next}`),
+      ]
+        .filter(Boolean)
+        .join(" | ");
+      setLeads((current) =>
+        current.map((item) =>
+          item.id === primary.id ? { ...item, description: mergedDescription, next: mergedNext } : item,
+        ),
+      );
+      const result = await syncLead(primary.id, { next: mergedNext });
+      if (!result.ok) {
+        showNotice(result.error || `Unable to merge into ${primary.ref}.`);
+        return;
+      }
+      setLeads((current) =>
+        current.map((item) =>
+          item.id === result.lead.id
+            ? { ...result.lead, description: mergedDescription }
+            : item,
+        ),
+      );
+      for (const other of others) {
+        await deleteLeadFromDirectory(other, { skipConfirm: true });
+      }
+      showNotice(`${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`);
+    } else if (scope === "invoices") {
+      const items = selectedIds.map((id) => invoices.find((item) => item.id === id)).filter(Boolean) as Invoice[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.customer)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected invoices have different customers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedTitle = [primary.title, ...others.map((item) => item.title).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedNotes = [primary.notes, ...others.map((item) => `${item.ref}: ${item.title || item.notes}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedCharge = items.reduce((total, item) => total + (Number(item.chargeTotal) || 0), 0);
+      const mergedCost = items.reduce((total, item) => total + (Number(item.costTotal) || 0), 0);
+      markInvoiceEdited();
+      setInvoices((current) =>
+        current.map((item) =>
+          item.id === primary.id
+            ? {
+                ...item,
+                title: mergedTitle,
+                notes: mergedNotes,
+                chargeTotal: mergedCharge,
+                costTotal: mergedCost,
+              }
+            : item,
+        ),
+      );
+      for (const other of others) {
+        deleteInvoiceFromDirectory(other, { skipConfirm: true });
+      }
+      showNotice(`${primary.ref} merged with ${others.map((item) => item.ref).join(", ")}.`);
+    } else if (scope === "purchase-orders") {
+      const items = selectedIds
+        .map((id) => purchaseRequests.find((item) => item.id === id))
+        .filter(Boolean) as PurchaseRequest[];
+      if (items.length < 2) return;
+      const parties = new Set(items.map((item) => partyKey(item.supplier)));
+      if (parties.size > 1 && typeof window !== "undefined"
+        && !window.confirm("Selected purchase orders have different suppliers. Merge into the first selected anyway?")) {
+        return;
+      }
+      const [primary, ...others] = items;
+      const mergedItem = [primary.item, ...others.map((item) => item.item).filter(Boolean)]
+        .filter(Boolean)
+        .join(" · ");
+      const mergedReason = [primary.reason, ...others.map((item) => `${item.poNumber || item.id}: ${item.item || item.reason}`)]
+        .filter(Boolean)
+        .join(" | ");
+      const mergedEstimated = items.reduce((total, item) => total + (Number(item.estimatedCost) || 0), 0);
+      const previous = purchaseRequests;
+      const optimistic = {
+        ...primary,
+        item: mergedItem,
+        reason: mergedReason,
+        estimatedCost: mergedEstimated,
+      };
+      setPurchaseRequests((current) =>
+        current.map((item) => (item.id === primary.id ? optimistic : item)),
+      );
+      try {
+        const response = await fetch(`/api/purchase-requests/${primary.id}`, {
+          method: "PATCH",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            item: mergedItem,
+            reason: mergedReason,
+            estimatedCost: mergedEstimated,
+          }),
+        });
+        if (!response.ok) throw new Error("Unable to merge purchase orders");
+        const updated = (await response.json()) as PurchaseRequest;
+        setPurchaseRequests((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+        for (const other of others) {
+          await deletePurchaseFromDirectory(other, { skipConfirm: true });
+        }
+        showNotice(`${primary.poNumber || primary.id} merged with ${others.map((item) => item.poNumber || item.id).join(", ")}.`);
+      } catch {
+        setPurchaseRequests(previous);
+        showNotice(`Unable to merge ${primary.poNumber || primary.id}.`);
+        return;
+      }
+    }
+
+    clearDirectorySelection(scope);
+  }
+
+  async function deletePurchaseFromDirectory(
+    request: PurchaseRequest,
+    options?: { skipConfirm?: boolean },
+  ) {
+    closeDirectoryActionMenu();
+    const label = request.poNumber || request.item || request.id;
+    if (!options?.skipConfirm && !confirmPilotDelete(label)) return;
+    const previous = purchaseRequests;
+    setPurchaseRequests((current) => current.filter((item) => item.id !== request.id));
+    try {
+      const response = await fetch(`/api/purchase-requests/${request.id}`, {
+        method: "DELETE",
+        headers: requestHeaders,
+      });
+      if (!response.ok) throw new Error("Unable to delete purchase request");
+      if (selectedPurchaseRequestId === request.id) {
+        setSelectedPurchaseRequestId(null);
+        setHomeView("purchase-orders");
+      }
+      logAuditEvent({
+        actor: activeEmployee?.name ?? "NeXa user",
+        action: "deleted",
+        recordType: "purchase order",
+        recordId: request.id,
+        summary: `${label} deleted from the pilot purchase order list.`,
+        source: "directory actions",
+        importance: "high",
+      });
+      showNotice(`${label} deleted from pilot data.`);
+    } catch {
+      setPurchaseRequests(previous);
+      showNotice(`Unable to delete ${label}.`);
+    }
+  }
+
   function updateInvoiceStatus(invoice: Invoice, status: InvoiceStatus) {
     closeDirectoryActionMenu();
     if (invoice.status === status) return;
@@ -15836,9 +16203,9 @@ export default function Dashboard() {
     showNotice(`${invoice.ref} moved to ${status}.`);
   }
 
-  function deleteInvoiceFromDirectory(invoice: Invoice) {
+  function deleteInvoiceFromDirectory(invoice: Invoice, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(invoice.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(invoice.ref)) return;
     markInvoiceEdited();
     setInvoices((current) => current.filter((item) => item.id !== invoice.id));
     if (selectedInvoiceId === invoice.id) {
@@ -15910,9 +16277,9 @@ export default function Dashboard() {
     showNotice(`${lead.ref} moved to ${status}${status === "Lost" && lostReason ? ` · ${lostReason}` : ""}.`);
   }
 
-  async function deleteLeadFromDirectory(lead: Lead) {
+  async function deleteLeadFromDirectory(lead: Lead, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(lead.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(lead.ref)) return;
     const previous = leads;
     setLeads((current) => current.filter((item) => item.id !== lead.id));
 
@@ -15977,9 +16344,9 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteQuoteFromDirectory(quote: Quote) {
+  async function deleteQuoteFromDirectory(quote: Quote, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(quote.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(quote.ref)) return;
     const previousQuotes = quotes;
     const previousCentres = quoteCostCentres;
     setQuotes((current) => current.filter((item) => item.id !== quote.id));
@@ -16047,9 +16414,9 @@ export default function Dashboard() {
     }
   }
 
-  async function deleteJobFromDirectory(job: Job) {
+  async function deleteJobFromDirectory(job: Job, options?: { skipConfirm?: boolean }) {
     closeDirectoryActionMenu();
-    if (!confirmPilotDelete(job.ref)) return;
+    if (!options?.skipConfirm && !confirmPilotDelete(job.ref)) return;
     const previousJobs = jobs;
     const previousCentres = jobEstimateCostCentres;
     const previousSections = jobSections;
@@ -29985,6 +30352,7 @@ export default function Dashboard() {
                     ) : (
                       <>
                         <div className="quote-row table-header">
+                          <span className="directory-select-cell">Select</span>
                           <span>Quote / description</span>
                           <span>Client / address</span>
                           <span>Status</span>
@@ -30010,6 +30378,7 @@ export default function Dashboard() {
                                 }
                               }}
                             >
+                              {renderDirectorySelectCell("quotes", quote.id, quote.ref)}
                               <div className="job-identity">
                                 <div>
                                   <StatusDot tone={quote.status === "Accepted" || quote.status === "Converted" ? "green" : quote.status === "Sent" ? "blue" : quote.status === "Declined" || quote.status === "Lost" ? "red" : "amber"} />
@@ -30087,6 +30456,10 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+              {renderDirectoryBulkBar(
+                "quotes",
+                visibleQuoteDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
             </section>
           ) : homeView === "jobs" ? (
             <section className="quote-panel record-directory workflow-directory job-directory">
@@ -30140,6 +30513,7 @@ export default function Dashboard() {
                     ) : (
                       <>
                         <div className="quote-row table-header">
+                          <span className="directory-select-cell">Select</span>
                           <span>Job / description</span>
                           <span>Client / address</span>
                           <span>Status</span>
@@ -30161,6 +30535,7 @@ export default function Dashboard() {
                               }
                             }}
                           >
+                            {renderDirectorySelectCell("jobs", job.id, job.ref)}
                             <div className="job-identity">
                               <div>
                                 <StatusDot tone={job.health} />
@@ -30232,6 +30607,10 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+              {renderDirectoryBulkBar(
+                "jobs",
+                visibleJobDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
             </section>
           ) : homeView === "reports" ? (
             <section className="reports-shell">
@@ -30747,7 +31126,7 @@ export default function Dashboard() {
                 ) : (
                   <>
                     <div className="quote-row table-header">
-                      <span></span>
+                      <span className="directory-select-cell">Select</span>
                       <span>Order no.</span>
                       <span>Status</span>
                       <span>Created by</span>
@@ -30773,9 +31152,7 @@ export default function Dashboard() {
                           }
                         }}
                       >
-                        <span className="po-select-cell" onClick={(event) => event.stopPropagation()}>
-                          <input aria-label={`Select ${row.orderNo}`} type="checkbox" />
-                        </span>
+                        {renderDirectorySelectCell("purchase-orders", row.request.id, row.orderNo)}
                         <div className="job-identity">
                           <div>
                             <a href="#" onClick={(event) => { event.preventDefault(); event.stopPropagation(); openPurchaseOrderRegisterRow(row.request); }}>
@@ -30818,6 +31195,10 @@ export default function Dashboard() {
                   </>
                 )}
               </section>
+              {renderDirectoryBulkBar(
+                "purchase-orders",
+                purchaseOrderRows.map((row) => row.request.id),
+              )}
             </section>
           ) : homeView === "purchase-order-record" ? (
             selectedPurchaseOrder ? (() => {
@@ -37683,6 +38064,7 @@ export default function Dashboard() {
                     ) : (
                       <>
                         <div className="quote-row table-header">
+                          <span className="directory-select-cell">Select</span>
                           <span>Invoice / description</span>
                           <span>Client / address</span>
                           <span>Source</span>
@@ -37711,6 +38093,7 @@ export default function Dashboard() {
                                 }
                               }}
                             >
+                              {renderDirectorySelectCell("invoices", invoice.id, invoice.ref)}
                               <div className="job-identity">
                                 <div>
                                   <StatusDot tone={invoice.status === "Paid" ? "green" : invoice.status === "Partially paid" ? "amber" : invoice.status === "Cancelled" ? "red" : "blue"} />
@@ -37790,6 +38173,10 @@ export default function Dashboard() {
                   </section>
                 ))}
               </div>
+              {renderDirectoryBulkBar(
+                "invoices",
+                visibleInvoiceDirectoryGroups.flatMap((group) => group.items.map((item) => item.id)),
+              )}
             </section>
           ) : homeView === "invoice-create" ? (
             jobInvoiceDraft && jobInvoiceDraftJob ? (
@@ -41660,6 +42047,7 @@ export default function Dashboard() {
               <div className="lead-layout">
                 <section className="lead-list-panel">
                   <div className="lead-row table-header">
+                    <span className="directory-select-cell">Select</span>
                     <span>Lead / description</span>
                     <span>Address</span>
                     <span>Client</span>
@@ -41685,6 +42073,7 @@ export default function Dashboard() {
                         }
                       }}
                     >
+                      {renderDirectorySelectCell("leads", lead.id, lead.ref)}
                       <div className="job-identity">
                         <div>
                           <StatusDot tone={lead.status === "Lost" ? "red" : lead.status === "Survey booked" ? "green" : "amber"} />
@@ -41745,6 +42134,10 @@ export default function Dashboard() {
                     </article>
                     );
                   })}
+                  {renderDirectoryBulkBar(
+                    "leads",
+                    filteredLeads.map((lead) => lead.id),
+                  )}
                   </section>
               </div>
             </section>

@@ -825,3 +825,14 @@ export function updatePurchaseRequestStatus(
 ): PurchaseRequest | null {
   return updatePurchaseRequest(id, { status });
 }
+
+export function removePurchaseRequest(id: string): boolean {
+  const store = getStore();
+  const currentCount = store.purchaseRequests.length;
+  store.purchaseRequests = store.purchaseRequests.filter((request) => request.id !== id);
+  if (store.purchaseRequests.length < currentCount) {
+    persistWorkflowStore();
+    return true;
+  }
+  return false;
+}

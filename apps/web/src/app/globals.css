@@ -8318,6 +8318,26 @@ h1 {
   opacity: 0.45;
 }
 
+.directory-bulk-action-bar {
+  background: #fff;
+  border-top: 1px solid var(--line-soft);
+  bottom: 0;
+  gap: 8px;
+  padding: 10px 14px;
+  position: sticky;
+  z-index: 4;
+}
+
+.directory-select-cell {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
+
+.directory-select-cell input {
+  accent-color: var(--blue);
+}
+
 .quote-catalogue-workspace {
   background: #fff;
   border: 1px solid var(--line);
@@ -16736,16 +16756,16 @@ h1 {
   }
 
   .lead-row {
-    grid-template-columns: minmax(250px, 2fr) minmax(120px, 0.9fr) minmax(105px, 0.75fr) minmax(160px, 1fr);
+    grid-template-columns: 36px minmax(250px, 2fr) minmax(120px, 0.9fr) minmax(105px, 0.75fr) minmax(160px, 1fr);
   }
 
-  .lead-row > :nth-child(2),
-  .lead-row.table-header > :nth-child(2) {
+  .lead-row > :nth-child(3),
+  .lead-row.table-header > :nth-child(3) {
     display: none;
   }
 
-  .quote-row > :nth-child(3),
-  .quote-row.table-header > :nth-child(3) {
+  .quote-row > :nth-child(4),
+  .quote-row.table-header > :nth-child(4) {
     display: none;
   }
 
@@ -16907,10 +16927,10 @@ h1 {
   }
 
   .lead-row {
-    grid-template-columns: minmax(220px, 1fr);
+    grid-template-columns: 36px minmax(220px, 1fr);
   }
 
-  .lead-row > :not(:first-child),
+  .lead-row > :nth-child(n + 3),
   .lead-row.table-header {
     display: none;
   }
@@ -23499,7 +23519,7 @@ body:has([data-takeoff-mode="page"]) {
 
 .invoice-directory .quote-row {
   grid-template-columns:
-    minmax(300px, 2.2fr) minmax(120px, 0.82fr) minmax(132px, 0.9fr)
+    36px minmax(300px, 2.2fr) minmax(120px, 0.82fr) minmax(132px, 0.9fr)
     minmax(96px, 0.68fr) 92px minmax(158px, 1fr);
 }
 
@@ -23509,7 +23529,7 @@ body:has([data-takeoff-mode="page"]) {
 
 .lead-row {
   grid-template-columns:
-    minmax(300px, 2fr) minmax(100px, 0.62fr) minmax(132px, 0.8fr)
+    36px minmax(300px, 2fr) minmax(100px, 0.62fr) minmax(132px, 0.8fr)
     minmax(100px, 0.65fr) minmax(180px, 1fr);
   min-height: 76px;
 }
@@ -23645,26 +23665,33 @@ body:has([data-takeoff-mode="page"]) {
 
 .quote-directory .quote-row {
   grid-template-columns:
-    minmax(230px, 1.35fr) minmax(260px, 1.75fr) minmax(84px, max-content)
+    36px minmax(230px, 1.35fr) minmax(260px, 1.75fr) minmax(84px, max-content)
     88px minmax(156px, 1fr) 44px;
   min-height: 58px;
   padding: 8px 14px;
 }
 
 .quote-directory .quote-row > :nth-child(2),
-.quote-directory .quote-row.table-header > :nth-child(2) {
+.quote-directory .quote-row.table-header > :nth-child(2),
+.job-directory .quote-row > :nth-child(2),
+.job-directory .quote-row.table-header > :nth-child(2) {
   display: block;
 }
 
 .quote-directory .quote-row > :nth-child(3),
-.job-directory .quote-row > :nth-child(3) {
+.quote-directory .quote-row.table-header > :nth-child(3) {
+  display: block;
+}
+
+.quote-directory .quote-row > :nth-child(4),
+.job-directory .quote-row > :nth-child(4) {
   display: inline-flex;
 }
 
-.quote-directory .quote-row.table-header > :nth-child(3),
-.job-directory .quote-row.table-header > :nth-child(3),
-.invoice-directory .quote-row > :nth-child(3),
-.invoice-directory .quote-row.table-header > :nth-child(3) {
+.quote-directory .quote-row.table-header > :nth-child(4),
+.job-directory .quote-row.table-header > :nth-child(4),
+.invoice-directory .quote-row > :nth-child(4),
+.invoice-directory .quote-row.table-header > :nth-child(4) {
   display: block;
 }
 
@@ -23780,14 +23807,14 @@ body:has([data-takeoff-mode="page"]) {
 
 .job-directory .quote-row {
   grid-template-columns:
-    minmax(230px, 1.45fr) minmax(320px, 1.75fr) minmax(98px, 0.65fr)
+    36px minmax(230px, 1.45fr) minmax(320px, 1.75fr) minmax(98px, 0.65fr)
     88px minmax(156px, 1fr) 44px;
   min-height: 58px;
   padding: 8px 14px;
 }
 
-.job-directory .quote-row > :nth-child(2),
-.job-directory .quote-row.table-header > :nth-child(2) {
+.job-directory .quote-row > :nth-child(3),
+.job-directory .quote-row.table-header > :nth-child(3) {
   display: block;
 }
 
@@ -23829,7 +23856,7 @@ body:has([data-takeoff-mode="page"]) {
 
 .purchase-order-directory .quote-row {
   grid-template-columns:
-    24px minmax(128px, 1fr) minmax(82px, 0.65fr) minmax(92px, 0.75fr)
+    36px minmax(128px, 1fr) minmax(82px, 0.65fr) minmax(92px, 0.75fr)
     minmax(132px, 1fr) minmax(92px, 0.72fr) minmax(184px, 1.35fr)
     minmax(82px, 0.62fr) minmax(92px, 0.7fr) minmax(98px, 0.76fr) minmax(96px, 0.72fr);
   min-height: 48px;
@@ -23880,7 +23907,8 @@ body:has([data-takeoff-mode="page"]) {
   justify-content: center;
 }
 
-.po-select-cell input {
+.po-select-cell input,
+.directory-select-cell input {
   accent-color: var(--blue);
 }
 
@@ -23904,7 +23932,7 @@ body:has([data-takeoff-mode="page"]) {
 
 .invoice-directory .quote-row {
   grid-template-columns:
-    minmax(220px, 1.35fr) minmax(300px, 1.55fr) minmax(118px, 0.75fr)
+    36px minmax(220px, 1.35fr) minmax(300px, 1.55fr) minmax(118px, 0.75fr)
     minmax(98px, 0.65fr) 90px minmax(162px, 1fr) 44px;
   min-height: 58px;
   padding: 8px 14px;
@@ -23916,7 +23944,7 @@ body:has([data-takeoff-mode="page"]) {
 
 .lead-workspace .lead-row {
   grid-template-columns:
-    minmax(210px, 1.35fr) minmax(240px, 1.55fr) minmax(130px, 0.85fr)
+    36px minmax(210px, 1.35fr) minmax(240px, 1.55fr) minmax(130px, 0.85fr)
     minmax(132px, 0.85fr) minmax(104px, 0.66fr) minmax(164px, 1fr) 44px;
   min-height: 58px;
   padding: 8px 14px;
@@ -30747,23 +30775,23 @@ body {
   }
 
   .record-directory .quote-row > :nth-child(1),
-  .record-directory .quote-row > :nth-child(2),
-  .record-directory .quote-row > :nth-child(5) {
+  .record-directory .quote-row > :nth-child(3),
+  .record-directory .quote-row > :nth-child(6) {
     grid-column: 1 / -1 !important;
   }
 
-  .record-directory .quote-row > :nth-child(3),
   .record-directory .quote-row > :nth-child(4),
-  .record-directory .quote-row > :nth-child(6),
-  .record-directory .quote-row > :nth-child(7) {
-    grid-column: auto !important;
-  }
-
-  .invoice-directory .quote-row > :nth-child(5) {
+  .record-directory .quote-row > :nth-child(5),
+  .record-directory .quote-row > :nth-child(7),
+  .record-directory .quote-row > :nth-child(8) {
     grid-column: auto !important;
   }
 
   .invoice-directory .quote-row > :nth-child(6) {
+    grid-column: auto !important;
+  }
+
+  .invoice-directory .quote-row > :nth-child(7) {
     grid-column: 1 / -1 !important;
   }
 
