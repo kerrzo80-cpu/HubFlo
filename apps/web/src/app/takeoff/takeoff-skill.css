@@ -258,9 +258,17 @@
   color: white;
 }
 
+.takeoff-skill-hero-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .takeoff-skill-primary.file {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .takeoff-skill-secondary {

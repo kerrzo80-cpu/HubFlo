@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -67,6 +67,7 @@ export default function TakeoffSkillPage() {
   const [invokePrompt, setInvokePrompt] = useState(
     "Perform a quantity takeoff on the plumbing drawings — sanitary fittings and hot/cold outlets. Output Excel BOQ + marked-up PDF.",
   );
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const selected = useMemo(
     () => projects.find((project) => project.id === selectedId) ?? null,
@@ -212,22 +213,33 @@ export default function TakeoffSkillPage() {
     setBusy("upload");
     setError(null);
     try {
+      const form = new FormData();
+      form.append("kind", "Drawing");
       for (const file of files) {
-        const form = new FormData();
-        form.append("kind", "Drawing");
-        form.append("file", file);
-        const response = await apiFetch(`/api/takeoff-projects/${selected.id}/documents`, {
-          method: "POST",
-          body: form,
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null) as { error?: string } | null;
-          throw new Error(body?.error || `Upload failed for ${file.name}`);
-        }
-        const body = await response.json() as { project?: TakeoffProject };
-        if (body.project) upsertProject(body.project);
+        form.append("files", file);
       }
-      show(`Uploaded ${files.length} drawing file(s)`);
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/documents`, {
+        method: "POST",
+        body: form,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        if (response.status === 401) {
+          setAuthState("signed-out");
+          throw new Error("Sign in to Core first, then upload drawings.");
+        }
+        if (response.status === 403) {
+          throw new Error("Your login cannot upload takeoff files. Use an Office / Manager account.");
+        }
+        throw new Error(body?.error || `Upload failed (${response.status})`);
+      }
+      const body = await response.json() as { project?: TakeoffProject; parseWarnings?: string[] };
+      if (body.project) upsertProject(body.project);
+      if (body.parseWarnings?.length) {
+        show(`Uploaded ${files.length} file(s). ${body.parseWarnings[0]}`);
+      } else {
+        show(`Uploaded ${files.length} drawing file(s)`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
     } finally {
@@ -468,6 +480,30 @@ export default function TakeoffSkillPage() {
                   <p className="eyebrow">{selected.reference}</p>
                   <h1>{selected.name}</h1>
                   <p>{selected.customer} · {selected.site}</p>
+                  <div className="takeoff-skill-hero-actions">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      accept="application/pdf,image/*,.pdf,.png,.jpg,.jpeg,.webp,.dwg"
+                      onChange={(e) => void uploadDrawings(e)}
+                      hidden
+                    />
+                    <button
+                      className="takeoff-skill-primary"
+                      type="button"
+                      disabled={busy === "upload"}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      {busy === "upload" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}
+                      Upload drawings
+                    </button>
+                    <span className="takeoff-skill-note">
+                      {selected.documents.length
+                        ? `${selected.documents.length} file(s) in folder`
+                        : "PDF preferred · selectable text works best"}
+                    </span>
+                  </div>
                 </div>
                 <form
                   className="takeoff-skill-invoke"
@@ -522,11 +558,18 @@ export default function TakeoffSkillPage() {
                       <h2>1. Drawing folder</h2>
                       <p>Upload the construction set into this project. Vector PDFs with selectable text are preferred — image-only scans score lower confidence later.</p>
                     </div>
-                    <label className="takeoff-skill-primary file">
-                      <Upload size={16} />
+                    <button
+                      className="takeoff-skill-primary"
+                      type="button"
+                      disabled={busy === "upload"}
+                      onClick={() => {
+                        void runSkill("set-step", { step: "drawings" });
+                        fileInputRef.current?.click();
+                      }}
+                    >
+                      {busy === "upload" ? <Loader2 className="spin" size={16} /> : <Upload size={16} />}
                       Upload drawings
-                      <input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.dwg" onChange={(e) => void uploadDrawings(e)} hidden />
-                    </label>
+                    </button>
                   </header>
                   <div className="takeoff-skill-doc-grid">
                     {selected.documents.length ? selected.documents.map((document: TakeoffDocument) => (
