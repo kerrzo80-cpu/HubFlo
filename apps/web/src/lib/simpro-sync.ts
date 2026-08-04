@@ -309,6 +309,75 @@ export function jobStatusFromSimpro(value: string): string {
   return "Pending";
 }
 
+function simproStageOrStatus(record: UnknownRecord) {
+  return firstString(record, ["Stage", "Stage.Name", "Status.Name", "Status"]);
+}
+
+/** Open quotes only — exclude archived / lost / declined / converted / closed. */
+export function isOpenSimproQuote(record: UnknownRecord) {
+  if (record.Archived === true || record.IsArchived === true) return false;
+  const stage = normaliseText(firstString(record, ["Stage", "Stage.Name"]));
+  const status = normaliseText(firstString(record, ["Status.Name", "Status"]));
+  const combined = `${stage} ${status}`.trim();
+  if (!combined) return true;
+  if (/(archiv|closed|lost|declin|reject|convert|won)/.test(combined)) return false;
+  if (stage === "complete" || stage === "completed") return false;
+  const mapped = quoteStatusFromSimpro(simproStageOrStatus(record));
+  return mapped === "Draft" || mapped === "Sent" || mapped === "Accepted";
+}
+
+/** Pending, Progress, and Complete jobs — exclude Invoiced / Archived / Closed. */
+export function isImportableSimproJob(record: UnknownRecord) {
+  if (record.Archived === true || record.IsArchived === true) return false;
+  const stage = normaliseText(firstString(record, ["Stage", "Stage.Name"]));
+  const status = normaliseText(firstString(record, ["Status.Name", "Status"]));
+
+  if (stage === "invoiced" || stage === "archived") return false;
+  if (status === "invoiced" || status.includes("archiv") || status.includes("closed")) return false;
+
+  const value = stage || status;
+  if (!value) return true;
+
+  // Explicit allow-list for the three simPRO job folders the user wants.
+  if (/(pending|new|import|open|schedul)/.test(value)) return true;
+  if (/(progress|active|on site|wait)/.test(value)) return true;
+  if (/(complete|finish|done|ready to invoice)/.test(value)) return true;
+
+  const mapped = jobStatusFromSimpro(value);
+  return [
+    "Pending",
+    "In progress",
+    "Scheduled",
+    "Waiting on parts",
+    "Waiting on customer",
+    "Approval required",
+    "Completed",
+    "Ready to invoice",
+  ].includes(mapped);
+}
+
+/** Unpaid / part-paid invoices only — ignore paid, voided, cancelled. */
+export function isUnpaidSimproInvoice(record: UnknownRecord) {
+  if (record.IsPaid === true) return false;
+  if (record.IsVoided === true) return false;
+  const status = normaliseText(firstString(record, ["Status.Name", "Status", "Stage.Name", "Stage"]));
+  if (status.includes("cancel") || status.includes("void")) return false;
+  if (status.includes("paid") && !status.includes("part") && !status.includes("unpaid")) return false;
+  const paid = firstNumber(record, ["Total.Paid", "AmountPaid", "Paid"]);
+  const total = firstNumber(record, ["Total.IncTax", "Total.ExTax", "Amount.IncTax", "Amount", "Total"]);
+  if (total > 0 && paid >= total) return false;
+  return true;
+}
+
+function invoiceIssuedTime(record: UnknownRecord) {
+  const raw = firstString(record, ["DateIssued", "IssuedDate", "Date", "DateModified", "CreatedDate"]);
+  const time = Date.parse(raw);
+  return Number.isFinite(time) ? time : 0;
+}
+
+export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
+
+
 function matchingSiteForRecord(record: UnknownRecord, clientId?: string) {
   const externalId = simproSiteId(record);
   if (externalId) {
@@ -388,17 +457,25 @@ function extractRecords(body: unknown) {
 }
 
 async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
-  // pageSize max is 250 per simPRO docs. orderby=ID keeps pages stable (default name sort
-  // made preview lists look like “only A…” when the UI truncated the first rows).
-  const pageSize = 250;
+  // Keep ceilings modest — full history imports were crashing the app.
+  // Quotes/jobs/invoices are filtered after fetch to the live working set.
+  const pageSize = entity === "invoices" ? 100 : 250;
+  const maxPages =
+    entity === "invoices" ? 8 : entity === "quotes" || entity === "jobs" ? 40 : entity === "clients" || entity === "sites" ? 40 : 20;
+
   const url = new URL(entityEndpoint(config, entity));
   url.searchParams.set("pageSize", String(pageSize));
-  url.searchParams.set("orderby", "ID");
+  if (entity === "invoices") {
+    url.searchParams.set("orderby", "-DateIssued");
+    url.searchParams.set("IsPaid", "false");
+  } else if (entity === "quotes" || entity === "jobs") {
+    url.searchParams.set("orderby", "-DateModified");
+  } else {
+    url.searchParams.set("orderby", "ID");
+  }
 
   const collected: UnknownRecord[] = [];
   const seenIds = new Set<string>();
-  // Same ceiling for clients, sites, quotes, jobs, invoices (~50k records).
-  const maxPages = 200;
   let reportedTotal = 0;
   let reportedPages = 0;
 
@@ -414,6 +491,12 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     const body = await response.json().catch(() => null);
 
     if (!response.ok) {
+      // IsPaid filter is not supported on every build — retry invoices without it.
+      if (entity === "invoices" && page === 1 && url.searchParams.has("IsPaid")) {
+        url.searchParams.delete("IsPaid");
+        page = 0;
+        continue;
+      }
       const message = firstString(asRecord(body) ?? {}, ["error", "message"]) || `simPRO returned HTTP ${response.status}`;
       throw new Error(message);
     }
@@ -435,19 +518,35 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       response.headers.get("Result-Pages") || response.headers.get("result-pages") || reportedPages || 0,
     );
 
+    if (entity === "invoices") {
+      const unpaidSoFar = collected.filter(isUnpaidSimproInvoice).length;
+      if (unpaidSoFar >= SIMPRO_INVOICE_IMPORT_LIMIT) break;
+    }
+
     if (records.length === 0) break;
     if (records.length < pageSize) break;
     if (reportedTotal > 0 && collected.length >= reportedTotal) break;
     if (reportedPages > 0 && page >= reportedPages) break;
   }
 
-  if (reportedTotal > 0 && collected.length < reportedTotal) {
-    console.warn(
-      `[simpro-sync] ${entity} fetch stopped early: got ${collected.length} of ${reportedTotal} (page cap ${maxPages} × ${pageSize}).`,
-    );
-  }
+  return scopeSimproRecords(entity, collected);
+}
 
-  return collected;
+/** Apply live working-set rules so we don't import archive/history that crashes the app. */
+export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules">, records: UnknownRecord[]) {
+  if (entity === "quotes") {
+    return records.filter(isOpenSimproQuote);
+  }
+  if (entity === "jobs") {
+    return records.filter(isImportableSimproJob);
+  }
+  if (entity === "invoices") {
+    return records
+      .filter(isUnpaidSimproInvoice)
+      .sort((left, right) => invoiceIssuedTime(right) - invoiceIssuedTime(left))
+      .slice(0, SIMPRO_INVOICE_IMPORT_LIMIT);
+  }
+  return records;
 }
 
 function existingLink(entity: SimproSyncEntity, simproId: string) {
@@ -1164,7 +1263,7 @@ async function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mo
 }
 
 async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncOperation[]> {
-  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 5000 });
+  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 500 });
   return result.operations.map((item) =>
     operation(
       "schedules",
@@ -1487,7 +1586,16 @@ export async function runSimproImport(options: {
 
   run.finishedAt = new Date().toISOString();
   recomputeTotals(run);
-  simproSyncStore.runs = [run, ...simproSyncStore.runs].slice(0, 20);
+  // Persist a trimmed run so huge import histories don't blow memory / crash the app.
+  const persisted: SimproSyncRun = {
+    ...run,
+    operations: (() => {
+      const conflicts = run.operations.filter((item) => item.action === "conflict");
+      const rest = run.operations.filter((item) => item.action !== "conflict");
+      return [...conflicts, ...rest].slice(0, 250);
+    })(),
+  };
+  simproSyncStore.runs = [persisted, ...simproSyncStore.runs].slice(0, 8);
   persistStore();
   return clone(run);
 }

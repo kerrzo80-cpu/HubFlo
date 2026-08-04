@@ -7,11 +7,15 @@ import { fileURLToPath } from "node:url";
 import {
   buildJobInput,
   buildQuoteInput,
+  isImportableSimproJob,
+  isOpenSimproQuote,
   isPlaceholderSimproValue,
+  isUnpaidSimproInvoice,
   isUsableEmailForMatch,
   jobStatusFromSimpro,
   processClient,
   processSite,
+  scopeSimproRecords,
 } from "@/lib/simpro-sync";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
 
@@ -57,13 +61,34 @@ describe("simpro sync preview quality", () => {
     assert.equal(result.syncLinksRemoved, 0);
   });
 
-  it("paginates customers with stable ID order and larger page size", () => {
+  it("scopes import to open quotes, live jobs, and latest unpaid invoices", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
-    assert.match(source, /pageSize = 250/);
-    assert.match(source, /orderby", "ID"/);
-    assert.match(source, /Result-Total/);
-    assert.match(source, /const maxPages = 200/);
-    assert.match(source, /limit: 5000/);
+    assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
+    assert.match(source, /IsPaid/);
+    assert.match(source, /isOpenSimproQuote/);
+
+    assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
+    assert.equal(isOpenSimproQuote({ Status: { Name: "Lost" } }), false);
+    assert.equal(isOpenSimproQuote({ Stage: "Complete" }), false);
+    assert.equal(isOpenSimproQuote({ Archived: true, Status: { Name: "Draft" } }), false);
+
+    assert.equal(isImportableSimproJob({ Stage: "Pending" }), true);
+    assert.equal(isImportableSimproJob({ Stage: "Progress" }), true);
+    assert.equal(isImportableSimproJob({ Status: { Name: "Complete" } }), true);
+    assert.equal(isImportableSimproJob({ Stage: "Invoiced" }), false);
+    assert.equal(isImportableSimproJob({ Stage: "Archived" }), false);
+
+    assert.equal(isUnpaidSimproInvoice({ IsPaid: false, Status: { Name: "Sent" } }), true);
+    assert.equal(isUnpaidSimproInvoice({ IsPaid: true }), false);
+    assert.equal(isUnpaidSimproInvoice({ IsVoided: true }), false);
+
+    const invoices = scopeSimproRecords("invoices", [
+      { ID: 1, IsPaid: false, DateIssued: "2026-01-01", InvoiceNo: "OLD" },
+      { ID: 2, IsPaid: true, DateIssued: "2026-07-01", InvoiceNo: "PAID" },
+      { ID: 3, IsPaid: false, DateIssued: "2026-07-20", InvoiceNo: "NEW" },
+    ]);
+    assert.equal(invoices.length, 2);
+    assert.equal(invoices[0]?.ID, 3);
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
