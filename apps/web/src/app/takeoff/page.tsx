@@ -350,13 +350,15 @@ export default function TakeoffSkillPage() {
           </Link>
           <div>
             <strong>NeXa Takeoff</strong>
-            <span>AI quantity takeoff skill · primary / secondary · confidence scored</span>
+            <span>Blake quantity takeoff · primary / secondary · confidence scored</span>
           </div>
         </div>
         <div className="takeoff-skill-top-actions">
             <span className={`takeoff-skill-ai ${aiStatus?.connected ? "on" : "off"}`}>
               <Sparkles size={14} />
-              {aiStatus?.connected ? `AI connected · ${aiStatus.model || "model"}` : "AI offline · text-tag mode"}
+              {aiStatus?.connected
+                ? `Blake is connected · ${aiStatus.model || "ready"}`
+                : "Blake offline · text-tag mode"}
             </span>
             {authName ? <span className="takeoff-skill-ai on">{authName}</span> : null}
             <Link className="takeoff-skill-link" href="/takeoff/markup">
