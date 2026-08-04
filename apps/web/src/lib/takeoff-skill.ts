@@ -87,8 +87,9 @@ export type TakeoffMeasuredQuantity = {
     detail: string;
   };
   notes?: string;
-  /** Text-tag hits used for markup / audit (page coords in PDF space). */
+  /** Overlay markers (auto text-tags + manual pins) in PDF space. */
   tagMatches?: Array<{
+    id: string;
     documentId: string;
     fileName: string;
     pageNumber: number;
@@ -97,8 +98,12 @@ export type TakeoffMeasuredQuantity = {
     y: number;
     pageWidth?: number;
     pageHeight?: number;
-    /** Office excluded this hit on the overlay review */
+    /** Office excluded / deleted this hit on the overlay review */
     excluded?: boolean;
+    /** Placed by office on the drawing (not from PDF text) */
+    manual?: boolean;
+    /** Derived secondary pin spawned near a primary */
+    derived?: boolean;
   }>;
 };
 
@@ -160,244 +165,112 @@ const TRADE_TEMPLATES: Record<TakeoffTradeId, TradeTemplate> = {
       "Isolation valves",
     ],
     assemblies: [
+      // —— WC ——
       {
         kind: "primary",
         code: "P-WC",
-        description: "WCs (pans)",
+        description: "WC pan",
         unit: "nr",
         method: "text-tag-count",
         expectedConfidence: "High",
-        notes: "Count WC / pan tags only — not basins or baths",
+        notes: "Count WC / pan tags only",
       },
-      {
-        kind: "secondary",
-        code: "P-WC-CONN",
-        description: "WC pan connector",
-        unit: "nr",
-        derivedFromPrimaryId: "P-WC",
-        derivation: "1 pan connector per WC",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-WC-ISO",
-        description: "WC cistern isolation valve",
-        unit: "nr",
-        derivedFromPrimaryId: "P-WC",
-        derivation: "1 isolation valve per WC",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "primary",
-        code: "P-WHB",
-        description: "Wash hand basins / WHBs",
-        unit: "nr",
-        method: "text-tag-count",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-WHB-TAP",
-        description: "Basin taps / mixer (pair or mono)",
-        unit: "nr",
-        derivedFromPrimaryId: "P-WHB",
-        derivation: "1 tap set per basin",
-        method: "derived-formula",
-        expectedConfidence: "High",
-        notes: "Not a mystery kit — this is the basin tapware allowance",
-      },
-      {
-        kind: "secondary",
-        code: "P-WHB-WASTE",
-        description: "Basin waste + bottle trap",
-        unit: "nr",
-        derivedFromPrimaryId: "P-WHB",
-        derivation: "1 waste + trap per basin",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-WHB-ISO",
-        description: "Basin isolation valves",
-        unit: "nr",
-        derivedFromPrimaryId: "P-WHB",
-        derivation: "2 isolation valves per basin",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "primary",
-        code: "P-BATH",
-        description: "Baths",
-        unit: "nr",
-        method: "text-tag-count",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-BATH-TAP",
-        description: "Bath taps / mixer",
-        unit: "nr",
-        derivedFromPrimaryId: "P-BATH",
-        derivation: "1 tap set per bath",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-BATH-WASTE",
-        description: "Bath waste / trap",
-        unit: "nr",
-        derivedFromPrimaryId: "P-BATH",
-        derivation: "1 waste per bath",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-BATH-ISO",
-        description: "Bath isolation valves",
-        unit: "nr",
-        derivedFromPrimaryId: "P-BATH",
-        derivation: "2 isolation valves per bath",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "primary",
-        code: "P-SHR",
-        description: "Showers",
-        unit: "nr",
-        method: "text-tag-count",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-SHR-VALVE",
-        description: "Shower valve / mixer",
-        unit: "nr",
-        derivedFromPrimaryId: "P-SHR",
-        derivation: "1 shower valve per shower",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-SHR-TRAP",
-        description: "Shower waste / trap",
-        unit: "nr",
-        derivedFromPrimaryId: "P-SHR",
-        derivation: "1 trap per shower",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "primary",
-        code: "P-SINK",
-        description: "Kitchen / utility sinks",
-        unit: "nr",
-        method: "text-tag-count",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-SINK-TAP",
-        description: "Sink mixer tap",
-        unit: "nr",
-        derivedFromPrimaryId: "P-SINK",
-        derivation: "1 mixer per sink",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
-      {
-        kind: "secondary",
-        code: "P-SINK-WASTE",
-        description: "Sink waste + trap",
-        unit: "nr",
-        derivedFromPrimaryId: "P-SINK",
-        derivation: "1 waste + trap per sink",
-        method: "derived-formula",
-        expectedConfidence: "High",
-      },
+      { kind: "secondary", code: "P-WC-CIST", description: "WC cistern", unit: "nr", derivedFromPrimaryId: "P-WC", derivation: "1 cistern per WC", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WC-SEAT", description: "WC seat", unit: "nr", derivedFromPrimaryId: "P-WC", derivation: "1 seat per WC", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WC-CONN", description: "WC pan connector", unit: "nr", derivedFromPrimaryId: "P-WC", derivation: "1 pan connector per WC", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WC-FLUSH", description: "WC flush pipe / cistern link", unit: "nr", derivedFromPrimaryId: "P-WC", derivation: "1 flush pipe per WC", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WC-ISO", description: "WC cistern isolation valve", unit: "nr", derivedFromPrimaryId: "P-WC", derivation: "1 isolation valve per WC", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WC-FLEX", description: "WC cistern flexi fill", unit: "nr", derivedFromPrimaryId: "P-WC", derivation: "1 flexi per WC", method: "derived-formula", expectedConfidence: "High" },
+      // —— Basin ——
+      { kind: "primary", code: "P-WHB", description: "Wash hand basin / WHB", unit: "nr", method: "text-tag-count", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WHB-MIX", description: "Basin mixer tap", unit: "nr", derivedFromPrimaryId: "P-WHB", derivation: "1 mixer per basin", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WHB-WASTE", description: "Basin slotted waste", unit: "nr", derivedFromPrimaryId: "P-WHB", derivation: "1 waste per basin", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WHB-TRAP", description: "Basin bottle trap", unit: "nr", derivedFromPrimaryId: "P-WHB", derivation: "1 bottle trap per basin", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WHB-ISO-H", description: "Basin hot isolation valve", unit: "nr", derivedFromPrimaryId: "P-WHB", derivation: "1 hot isolator per basin", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WHB-ISO-C", description: "Basin cold isolation valve", unit: "nr", derivedFromPrimaryId: "P-WHB", derivation: "1 cold isolator per basin", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-WHB-FLEX", description: "Basin flexi tails (pair)", unit: "nr", derivedFromPrimaryId: "P-WHB", derivation: "1 flexi pair per basin", method: "derived-formula", expectedConfidence: "High" },
+      // —— Bath ——
+      { kind: "primary", code: "P-BATH", description: "Bath", unit: "nr", method: "text-tag-count", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-BATH-MIX", description: "Bath mixer / filler", unit: "nr", derivedFromPrimaryId: "P-BATH", derivation: "1 mixer per bath", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-BATH-WASTE", description: "Bath waste", unit: "nr", derivedFromPrimaryId: "P-BATH", derivation: "1 waste per bath", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-BATH-TRAP", description: "Bath trap", unit: "nr", derivedFromPrimaryId: "P-BATH", derivation: "1 trap per bath", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-BATH-OVF", description: "Bath overflow", unit: "nr", derivedFromPrimaryId: "P-BATH", derivation: "1 overflow per bath", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-BATH-ISO-H", description: "Bath hot isolation valve", unit: "nr", derivedFromPrimaryId: "P-BATH", derivation: "1 hot isolator per bath", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-BATH-ISO-C", description: "Bath cold isolation valve", unit: "nr", derivedFromPrimaryId: "P-BATH", derivation: "1 cold isolator per bath", method: "derived-formula", expectedConfidence: "High" },
+      // —— Shower ——
+      { kind: "primary", code: "P-SHR", description: "Shower point", unit: "nr", method: "text-tag-count", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SHR-VALVE", description: "Shower valve / mixer", unit: "nr", derivedFromPrimaryId: "P-SHR", derivation: "1 shower valve per shower", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SHR-KIT", description: "Shower kit / head / rail", unit: "nr", derivedFromPrimaryId: "P-SHR", derivation: "1 shower kit per shower", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SHR-WASTE", description: "Shower waste", unit: "nr", derivedFromPrimaryId: "P-SHR", derivation: "1 waste per shower", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SHR-TRAP", description: "Shower trap", unit: "nr", derivedFromPrimaryId: "P-SHR", derivation: "1 trap per shower", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SHR-ISO-H", description: "Shower hot isolation valve", unit: "nr", derivedFromPrimaryId: "P-SHR", derivation: "1 hot isolator per shower", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SHR-ISO-C", description: "Shower cold isolation valve", unit: "nr", derivedFromPrimaryId: "P-SHR", derivation: "1 cold isolator per shower", method: "derived-formula", expectedConfidence: "High" },
+      // —— Sink ——
+      { kind: "primary", code: "P-SINK", description: "Kitchen / utility sink", unit: "nr", method: "text-tag-count", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SINK-MIX", description: "Sink mixer tap", unit: "nr", derivedFromPrimaryId: "P-SINK", derivation: "1 mixer per sink", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SINK-WASTE", description: "Sink waste", unit: "nr", derivedFromPrimaryId: "P-SINK", derivation: "1 waste per sink", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SINK-TRAP", description: "Sink bottle trap", unit: "nr", derivedFromPrimaryId: "P-SINK", derivation: "1 trap per sink", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SINK-ISO-H", description: "Sink hot isolation valve", unit: "nr", derivedFromPrimaryId: "P-SINK", derivation: "1 hot isolator per sink", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SINK-ISO-C", description: "Sink cold isolation valve", unit: "nr", derivedFromPrimaryId: "P-SINK", derivation: "1 cold isolator per sink", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SINK-FLEX", description: "Sink flexi tails (pair)", unit: "nr", derivedFromPrimaryId: "P-SINK", derivation: "1 flexi pair per sink", method: "derived-formula", expectedConfidence: "High" },
+      // —— Appliances ——
       {
         kind: "primary",
         code: "P-APPL",
-        description: "Appliance points (WM / DW / fridge ice only)",
+        description: "Appliance point (WM / DW / fridge ice)",
         unit: "nr",
         method: "text-tag-count",
         expectedConfidence: "Medium",
-        notes: "Only tagged appliance feeds — not every hot/cold label on the drawing",
+        notes: "Only tagged appliance feeds — not every hot/cold label",
       },
+      { kind: "secondary", code: "P-APPL-ISO", description: "Appliance isolation valve", unit: "nr", derivedFromPrimaryId: "P-APPL", derivation: "1 isolator per appliance point", method: "derived-formula", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-APPL-WASTE", description: "Appliance waste connection", unit: "nr", derivedFromPrimaryId: "P-APPL", derivation: "1 waste connection per appliance point", method: "derived-formula", expectedConfidence: "Medium" },
+      // —— Hot / cold pipe (separate) ——
       {
         kind: "primary",
-        code: "P-PIPE-HC",
-        description: "Hot & cold pipework (measured / scheduled)",
+        code: "P-PIPE-H",
+        description: "Hot water pipework",
         unit: "m",
         method: "explicit-dimension",
         expectedConfidence: "Medium",
-        notes: "Prefer stated lengths. If unknown, derive from appliances + sanitary later.",
-      },
-      {
-        kind: "secondary",
-        code: "P-ELBOW",
-        description: "Elbows / bends (hot & cold)",
-        unit: "nr",
-        derivedFromPrimaryId: "P-PIPE-HC",
-        derivation: "1.4 elbows per metre of H/C pipe",
-        method: "derived-formula",
-        expectedConfidence: "Medium",
-      },
-      {
-        kind: "secondary",
-        code: "P-TEE",
-        description: "Tees (hot & cold)",
-        unit: "nr",
-        derivedFromPrimaryId: "P-PIPE-HC",
-        derivation: "0.35 tees per metre of H/C pipe",
-        method: "derived-formula",
-        expectedConfidence: "Medium",
-      },
-      {
-        kind: "secondary",
-        code: "P-COUP",
-        description: "Couplings / connectors (hot & cold)",
-        unit: "nr",
-        derivedFromPrimaryId: "P-PIPE-HC",
-        derivation: "0.5 couplings per metre of H/C pipe",
-        method: "derived-formula",
-        expectedConfidence: "Medium",
-      },
-      {
-        kind: "secondary",
-        code: "P-PIPE-FROM-PTS",
-        description: "H/C pipe allowance from sanitary + appliances",
-        unit: "m",
-        derivedFromPrimaryId: "P-WHB",
-        derivation: "8 m pipe per basin (office adjusts)",
-        method: "derived-formula",
-        expectedConfidence: "Low",
-        included: false,
-        notes: "Optional fallback when pipe metres are not on the drawing — leave off if P-PIPE-HC is measured",
+        notes: "Prefer scheduled lengths; else provisional from sanitary points",
       },
       {
         kind: "primary",
-        code: "P-SVP",
-        description: "Soil / vent stacks (SVP)",
-        unit: "nr",
-        method: "text-tag-count",
-        expectedConfidence: "High",
+        code: "P-PIPE-C",
+        description: "Cold water pipework",
+        unit: "m",
+        method: "explicit-dimension",
+        expectedConfidence: "Medium",
+        notes: "Prefer scheduled lengths; else provisional from sanitary points",
       },
+      { kind: "secondary", code: "P-ELBOW-H", description: "Hot elbows / bends", unit: "nr", derivedFromPrimaryId: "P-PIPE-H", derivation: "1.4 elbows per metre of hot pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-ELBOW-C", description: "Cold elbows / bends", unit: "nr", derivedFromPrimaryId: "P-PIPE-C", derivation: "1.4 elbows per metre of cold pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-TEE-H", description: "Hot tees", unit: "nr", derivedFromPrimaryId: "P-PIPE-H", derivation: "0.35 tees per metre of hot pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-TEE-C", description: "Cold tees", unit: "nr", derivedFromPrimaryId: "P-PIPE-C", derivation: "0.35 tees per metre of cold pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-COUP-H", description: "Hot couplings / connectors", unit: "nr", derivedFromPrimaryId: "P-PIPE-H", derivation: "0.5 couplings per metre of hot pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-COUP-C", description: "Cold couplings / connectors", unit: "nr", derivedFromPrimaryId: "P-PIPE-C", derivation: "0.5 couplings per metre of cold pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-RED-H", description: "Hot reducers", unit: "nr", derivedFromPrimaryId: "P-PIPE-H", derivation: "0.15 reducers per metre of hot pipe", method: "derived-formula", expectedConfidence: "Low" },
+      { kind: "secondary", code: "P-RED-C", description: "Cold reducers", unit: "nr", derivedFromPrimaryId: "P-PIPE-C", derivation: "0.15 reducers per metre of cold pipe", method: "derived-formula", expectedConfidence: "Low" },
+      { kind: "secondary", code: "P-CLIP-H", description: "Hot pipe clips", unit: "nr", derivedFromPrimaryId: "P-PIPE-H", derivation: "2 clips per metre of hot pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-CLIP-C", description: "Cold pipe clips", unit: "nr", derivedFromPrimaryId: "P-PIPE-C", derivation: "2 clips per metre of cold pipe", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-STOP-H", description: "Hot stop ends", unit: "nr", derivedFromPrimaryId: "P-PIPE-H", derivation: "0.1 stop ends per metre of hot pipe", method: "derived-formula", expectedConfidence: "Low" },
+      { kind: "secondary", code: "P-STOP-C", description: "Cold stop ends", unit: "nr", derivedFromPrimaryId: "P-PIPE-C", derivation: "0.1 stop ends per metre of cold pipe", method: "derived-formula", expectedConfidence: "Low" },
+      // —— Soil / waste ——
+      { kind: "primary", code: "P-SVP", description: "Soil / vent stack (SVP)", unit: "nr", method: "text-tag-count", expectedConfidence: "High" },
+      { kind: "secondary", code: "P-SVP-JUNC", description: "Soil branch junction", unit: "nr", derivedFromPrimaryId: "P-SVP", derivation: "3 junctions per SVP", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-SVP-ACCESS", description: "Soil access cap / rodding eye", unit: "nr", derivedFromPrimaryId: "P-SVP", derivation: "1 access per SVP", method: "derived-formula", expectedConfidence: "Medium" },
       {
         kind: "primary",
         code: "P-WASTE",
-        description: "Waste runs (where tagged / scheduled)",
+        description: "Waste pipe runs",
         unit: "m",
         method: "explicit-dimension",
         expectedConfidence: "Medium",
       },
+      { kind: "secondary", code: "P-WASTE-ELBOW", description: "Waste elbows / bends", unit: "nr", derivedFromPrimaryId: "P-WASTE", derivation: "1.2 elbows per metre of waste", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-WASTE-TEE", description: "Waste tees / junctions", unit: "nr", derivedFromPrimaryId: "P-WASTE", derivation: "0.4 tees per metre of waste", method: "derived-formula", expectedConfidence: "Medium" },
+      { kind: "secondary", code: "P-WASTE-CLIP", description: "Waste pipe clips", unit: "nr", derivedFromPrimaryId: "P-WASTE", derivation: "1.5 clips per metre of waste", method: "derived-formula", expectedConfidence: "Medium" },
     ],
   },
   heating: {
@@ -672,10 +545,20 @@ function focusMatchesAssembly(
     if (lower.includes("shower") && item.code.startsWith("P-SHR")) return true;
     if (lower.includes("sink") && item.code.startsWith("P-SINK")) return true;
     if ((lower.includes("pipe") || lower.includes("fitting") || lower.includes("hot")) && (
-      item.code.startsWith("P-PIPE") || item.code === "P-ELBOW" || item.code === "P-TEE" || item.code === "P-COUP" || item.code === "P-APPL"
+      item.code.startsWith("P-PIPE")
+      || item.code.includes("ELBOW")
+      || item.code.includes("TEE")
+      || item.code.includes("COUP")
+      || item.code.includes("CLIP")
+      || item.code.includes("RED")
+      || item.code.includes("STOP")
+      || item.code === "P-APPL"
+      || item.code.startsWith("P-APPL")
     )) return true;
     if ((lower.includes("waste") || lower.includes("soil") || lower.includes("isolation")) && (
-      item.code.startsWith("P-SVP") || item.code.startsWith("P-WASTE") || item.code.includes("-ISO")
+      item.code.startsWith("P-SVP")
+      || item.code.startsWith("P-WASTE")
+      || item.code.includes("-ISO")
     )) return true;
     const token = lower.split(/[^a-z0-9]+/).find((part) => part.length >= 3) || "";
     return Boolean(token) && (

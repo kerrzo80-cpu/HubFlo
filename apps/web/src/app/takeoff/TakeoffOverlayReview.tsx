@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Check, Eye, EyeOff, Loader2, MousePointer2, Plus, Trash2 } from "lucide-react";
 
+import type { TakeoffDocument } from "@/lib/takeoff-data";
 import type { TakeoffMeasuredQuantity } from "@/lib/takeoff-skill";
 
-type TagMatch = NonNullable<TakeoffMeasuredQuantity["tagMatches"]>[number] & {
+type OverlayPin = NonNullable<TakeoffMeasuredQuantity["tagMatches"]>[number] & {
   code: string;
   description: string;
-  matchKey: string;
+  quantityId: string;
 };
+
+type ToolMode = "select" | "add" | "delete";
 
 const CODE_COLOURS: Record<string, string> = {
   "P-WC": "#14618c",
@@ -19,102 +22,136 @@ const CODE_COLOURS: Record<string, string> = {
   "P-SINK": "#278459",
   "P-APPL": "#7a4f9a",
   "P-SVP": "#b43a3a",
+  "P-PIPE-H": "#c45c26",
+  "P-PIPE-C": "#1f7fb0",
+  "P-WASTE": "#5b6b7a",
 };
 
 function colourForCode(code: string) {
-  return CODE_COLOURS[code] || "#14618c";
+  if (CODE_COLOURS[code]) return CODE_COLOURS[code]!;
+  if (code.includes("ISO")) return "#8a5a00";
+  if (code.includes("TRAP") || code.includes("WASTE")) return "#5b6b7a";
+  if (code.includes("ELBOW") || code.includes("TEE") || code.includes("COUP")) return "#3d6b8a";
+  if (code.includes("CLIP")) return "#4a6a4a";
+  if (code.startsWith("P-WC")) return "#14618c";
+  if (code.startsWith("P-WHB")) return "#2e8c7d";
+  if (code.startsWith("P-BATH")) return "#b36a16";
+  if (code.startsWith("P-SHR")) return "#006eb8";
+  if (code.startsWith("P-SINK")) return "#278459";
+  return "#14618c";
 }
 
-function matchKey(code: string, match: { documentId: string; pageNumber: number; x: number; y: number; text: string }) {
-  return `${code}|${match.documentId}|${match.pageNumber}|${match.x.toFixed(1)}|${match.y.toFixed(1)}|${match.text}`;
+function newPinId() {
+  return `pin-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 type Props = {
   projectId: string;
+  documents: TakeoffDocument[];
   measured: TakeoffMeasuredQuantity[];
   busy?: boolean;
   onApply: (measured: TakeoffMeasuredQuantity[]) => Promise<void>;
 };
 
-export default function TakeoffOverlayReview({ projectId, measured, busy, onApply }: Props) {
+export default function TakeoffOverlayReview({ projectId, documents, measured, busy, onApply }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState("");
   const [pageSize, setPageSize] = useState({ width: 1, height: 1 });
   const [viewportSize, setViewportSize] = useState({ width: 1, height: 1 });
+  const [pdfPageCount, setPdfPageCount] = useState(1);
+  const [tool, setTool] = useState<ToolMode>("select");
+  const [placeCode, setPlaceCode] = useState("");
+  const [selectedPinId, setSelectedPinId] = useState<string | null>(null);
+  const dragRef = useRef<{ pinId: string; moved: boolean } | null>(null);
 
-  const primariesWithTags = useMemo(
-    () => measured.filter((row) => row.kind === "primary" && (row.tagMatches?.length || 0) > 0),
+  const placeableRows = useMemo(
+    () => measured.filter((row) => row.unit === "nr"),
     [measured],
   );
 
-  const allMatches = useMemo(() => {
-    const rows: TagMatch[] = [];
-    for (const primary of primariesWithTags) {
-      for (const match of primary.tagMatches || []) {
-        rows.push({
+  const [pins, setPins] = useState<OverlayPin[]>([]);
+
+  useEffect(() => {
+    const next: OverlayPin[] = [];
+    for (const row of measured) {
+      for (const match of row.tagMatches || []) {
+        next.push({
           ...match,
-          code: primary.code,
-          description: primary.description,
-          matchKey: matchKey(primary.code, match),
+          id: match.id || newPinId(),
+          code: row.code,
+          description: row.description,
+          quantityId: row.id,
         });
       }
     }
-    return rows;
-  }, [primariesWithTags]);
+    setPins(next);
+    if (!placeCode && placeableRows[0]) setPlaceCode(placeableRows[0].code);
+  }, [measured]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const documents = useMemo(() => {
-    const map = new Map<string, { documentId: string; fileName: string; pages: number[] }>();
-    for (const match of allMatches) {
-      const existing = map.get(match.documentId);
-      if (!existing) {
-        map.set(match.documentId, {
-          documentId: match.documentId,
-          fileName: match.fileName,
-          pages: [match.pageNumber],
-        });
-      } else if (!existing.pages.includes(match.pageNumber)) {
-        existing.pages.push(match.pageNumber);
-        existing.pages.sort((a, b) => a - b);
-      }
-    }
-    return [...map.values()];
-  }, [allMatches]);
+  const drawingDocs = useMemo(() => {
+    const fromProject = documents.filter(
+      (doc) =>
+        (doc.kind === "Drawing" || doc.kind === "Marked-up drawing")
+        && (doc.mimeType?.includes("pdf") || doc.fileName.toLowerCase().endsWith(".pdf")),
+    );
+    if (fromProject.length) return fromProject;
+    const ids = [...new Set(pins.map((pin) => pin.documentId))];
+    return ids.map((id) => ({
+      id,
+      fileName: pins.find((pin) => pin.documentId === id)?.fileName || id,
+    })) as TakeoffDocument[];
+  }, [documents, pins]);
 
-  const codes = useMemo(() => [...new Set(allMatches.map((row) => row.code))], [allMatches]);
-
-  const [docId, setDocId] = useState<string>("");
-  const [pageNumber, setPageNumber] = useState(1);
+  const codes = useMemo(() => [...new Set(pins.map((pin) => pin.code))].sort(), [pins]);
   const [visibleCodes, setVisibleCodes] = useState<Set<string>>(new Set());
-  const [excludedKeys, setExcludedKeys] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    if (!documents.length) return;
-    if (!docId || !documents.some((row) => row.documentId === docId)) {
-      setDocId(documents[0]!.documentId);
-      setPageNumber(documents[0]!.pages[0] || 1);
+    setVisibleCodes(new Set(codes.length ? codes : placeableRows.map((row) => row.code)));
+  }, [codes, placeableRows]);
+
+  const [docId, setDocId] = useState("");
+  const [pageNumber, setPageNumber] = useState(1);
+
+  useEffect(() => {
+    if (!drawingDocs.length) return;
+    if (!docId || !drawingDocs.some((doc) => doc.id === docId)) {
+      setDocId(drawingDocs[0]!.id);
+      setPageNumber(1);
     }
-  }, [documents, docId]);
+  }, [drawingDocs, docId]);
 
-  useEffect(() => {
-    setVisibleCodes(new Set(codes));
-  }, [codes]);
+  const activeDoc = drawingDocs.find((doc) => doc.id === docId) || drawingDocs[0];
+  const pagePins = pins.filter(
+    (pin) =>
+      !pin.excluded
+      && pin.documentId === (activeDoc?.id || docId)
+      && pin.pageNumber === pageNumber
+      && visibleCodes.has(pin.code),
+  );
+  const hiddenOnPage = pins.filter(
+    (pin) =>
+      pin.excluded
+      && pin.documentId === (activeDoc?.id || docId)
+      && pin.pageNumber === pageNumber
+      && visibleCodes.has(pin.code),
+  );
 
-  useEffect(() => {
-    const excluded = new Set<string>();
-    for (const match of allMatches) {
-      if (match.excluded) excluded.add(match.matchKey);
-    }
-    setExcludedKeys(excluded);
-  }, [allMatches]);
+  const toCanvas = useCallback(
+    (x: number, y: number) => ({
+      cx: (x / pageSize.width) * viewportSize.width,
+      cy: viewportSize.height - (y / pageSize.height) * viewportSize.height,
+    }),
+    [pageSize, viewportSize],
+  );
 
-  const activeDoc = documents.find((row) => row.documentId === docId) || documents[0];
-  const pageMatches = allMatches.filter(
-    (match) =>
-      match.documentId === (activeDoc?.documentId || docId) &&
-      match.pageNumber === pageNumber &&
-      visibleCodes.has(match.code),
+  const toPdf = useCallback(
+    (cx: number, cy: number) => ({
+      x: (cx / viewportSize.width) * pageSize.width,
+      y: ((viewportSize.height - cy) / viewportSize.height) * pageSize.height,
+    }),
+    [pageSize, viewportSize],
   );
 
   useEffect(() => {
@@ -135,19 +172,25 @@ export default function TakeoffOverlayReview({ projectId, measured, busy, onAppl
           "pdfjs-dist/build/pdf.worker.min.mjs",
           import.meta.url,
         ).toString();
-        const src = `/api/takeoff-projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(activeDoc!.documentId)}/file`;
+        const src = `/api/takeoff-projects/${encodeURIComponent(projectId)}/documents/${encodeURIComponent(activeDoc!.id)}/file`;
         const response = await fetch(src, { credentials: "include", cache: "no-store" });
         if (!response.ok) throw new Error(`Unable to load drawing (${response.status})`);
         const data = new Uint8Array(await response.arrayBuffer());
         const task = pdfjs.getDocument({ data, isOffscreenCanvasSupported: false });
         loadingTask = task;
         const pdf = await task.promise;
-        const page = await pdf.getPage(pageNumber);
+        setPdfPageCount(pdf.numPages);
+        const safePage = Math.min(Math.max(1, pageNumber), pdf.numPages);
+        if (safePage !== pageNumber) {
+          setPageNumber(safePage);
+          return;
+        }
+        const page = await pdf.getPage(safePage);
         if (cancelled) return;
         const base = page.getViewport({ scale: 1 });
         setPageSize({ width: base.width, height: base.height });
-        const maxWidth = Math.min(1100, window.innerWidth - 80);
-        const scale = Math.min(1.35, maxWidth / base.width);
+        const maxWidth = Math.min(1200, window.innerWidth - 64);
+        const scale = Math.min(1.4, maxWidth / base.width);
         const viewport = page.getViewport({ scale });
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -174,85 +217,113 @@ export default function TakeoffOverlayReview({ projectId, measured, busy, onAppl
     };
   }, [activeDoc, pageNumber, projectId]);
 
-  useEffect(() => {
-    const overlay = overlayRef.current;
-    if (!overlay || status !== "ready") return;
-    overlay.width = viewportSize.width;
-    overlay.height = viewportSize.height;
-    const ctx = overlay.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, overlay.width, overlay.height);
-
-    const scaleX = viewportSize.width / pageSize.width;
-    const scaleY = viewportSize.height / pageSize.height;
-
-    for (const match of pageMatches) {
-      const excluded = excludedKeys.has(match.matchKey);
-      const colour = colourForCode(match.code);
-      const cx = match.x * scaleX;
-      // PDF text y is from bottom-left; canvas y is from top-left
-      const cy = viewportSize.height - match.y * scaleY;
-      ctx.beginPath();
-      ctx.arc(cx, cy, excluded ? 7 : 10, 0, Math.PI * 2);
-      ctx.fillStyle = excluded ? "rgba(180, 58, 58, 0.25)" : `${colour}cc`;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = excluded ? "#b43a3a" : "#ffffff";
-      ctx.stroke();
-      if (excluded) {
-        ctx.beginPath();
-        ctx.moveTo(cx - 5, cy - 5);
-        ctx.lineTo(cx + 5, cy + 5);
-        ctx.moveTo(cx + 5, cy - 5);
-        ctx.lineTo(cx - 5, cy + 5);
-        ctx.strokeStyle = "#b43a3a";
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 9px IBM Plex Sans, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(match.code.replace(/^P-/, ""), cx, cy);
-      }
-    }
-  }, [excludedKeys, pageMatches, pageSize, status, viewportSize]);
-
-  function toggleMatchAt(clientX: number, clientY: number) {
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    const rect = overlay.getBoundingClientRect();
-    const x = ((clientX - rect.left) / rect.width) * overlay.width;
-    const y = ((clientY - rect.top) / rect.height) * overlay.height;
-    const scaleX = viewportSize.width / pageSize.width;
-    const scaleY = viewportSize.height / pageSize.height;
-
-    let best: TagMatch | null = null;
-    let bestDist = 18;
-    for (const match of pageMatches) {
-      const cx = match.x * scaleX;
-      const cy = viewportSize.height - match.y * scaleY;
-      const dist = Math.hypot(cx - x, cy - y);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = match;
-      }
-    }
-    if (!best) return;
-    setExcludedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(best!.matchKey)) next.delete(best!.matchKey);
-      else next.add(best!.matchKey);
-      return next;
-    });
+  function clientToCanvas(clientX: number, clientY: number) {
+    const stage = stageRef.current;
+    if (!stage) return null;
+    const rect = stage.getBoundingClientRect();
+    return {
+      cx: ((clientX - rect.left) / rect.width) * viewportSize.width,
+      cy: ((clientY - rect.top) / rect.height) * viewportSize.height,
+    };
   }
 
-  async function applyApproved() {
+  function hitTest(cx: number, cy: number, includeExcluded = false) {
+    const pool = includeExcluded
+      ? pins.filter(
+        (pin) =>
+          pin.documentId === (activeDoc?.id || docId)
+          && pin.pageNumber === pageNumber
+          && visibleCodes.has(pin.code),
+      )
+      : pagePins;
+    let best: OverlayPin | null = null;
+    let bestDist = 16;
+    for (const pin of pool) {
+      const { cx: px, cy: py } = toCanvas(pin.x, pin.y);
+      const dist = Math.hypot(px - cx, py - cy);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = pin;
+      }
+    }
+    return best;
+  }
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (status !== "ready") return;
+    const point = clientToCanvas(event.clientX, event.clientY);
+    if (!point) return;
+    const hit = hitTest(point.cx, point.cy, tool === "select");
+
+    if (tool === "delete") {
+      if (!hit) return;
+      setPins((prev) => prev.map((pin) => (pin.id === hit.id ? { ...pin, excluded: true } : pin)));
+      setSelectedPinId(null);
+      return;
+    }
+
+    if (tool === "add") {
+      const row = placeableRows.find((item) => item.code === placeCode) || placeableRows[0];
+      if (!row || !activeDoc) return;
+      const pdf = toPdf(point.cx, point.cy);
+      const pin: OverlayPin = {
+        id: newPinId(),
+        documentId: activeDoc.id,
+        fileName: activeDoc.fileName,
+        pageNumber,
+        text: row.code.replace(/^P-/, ""),
+        x: pdf.x,
+        y: pdf.y,
+        pageWidth: pageSize.width,
+        pageHeight: pageSize.height,
+        manual: true,
+        code: row.code,
+        description: row.description,
+        quantityId: row.id,
+      };
+      setPins((prev) => [...prev, pin]);
+      setSelectedPinId(pin.id);
+      return;
+    }
+
+    // select / drag
+    if (hit) {
+      if (hit.excluded) {
+        setPins((prev) => prev.map((pin) => (pin.id === hit.id ? { ...pin, excluded: false } : pin)));
+      }
+      setSelectedPinId(hit.id);
+      dragRef.current = { pinId: hit.id, moved: false };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } else {
+      setSelectedPinId(null);
+    }
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!dragRef.current || tool !== "select") return;
+    const point = clientToCanvas(event.clientX, event.clientY);
+    if (!point) return;
+    const pdf = toPdf(point.cx, point.cy);
+    dragRef.current.moved = true;
+    const pinId = dragRef.current.pinId;
+    setPins((prev) => prev.map((pin) => (pin.id === pinId ? { ...pin, x: pdf.x, y: pdf.y } : pin)));
+  }
+
+  function onPointerUp() {
+    dragRef.current = null;
+  }
+
+  async function applyEdits() {
+    const byQuantity = new Map<string, OverlayPin[]>();
+    for (const pin of pins) {
+      const list = byQuantity.get(pin.quantityId) || [];
+      list.push(pin);
+      byQuantity.set(pin.quantityId, list);
+    }
     const next = measured.map((row) => {
-      if (row.kind !== "primary" || !row.tagMatches?.length) return row;
-      const tagMatches = row.tagMatches.map((match) => ({
-        ...match,
-        excluded: excludedKeys.has(matchKey(row.code, match)),
-      }));
+      const rowPins = byQuantity.get(row.id);
+      if (!rowPins) return row;
+      const tagMatches = rowPins.map(({ code: _c, description: _d, quantityId: _q, ...match }) => match);
       const active = tagMatches.filter((match) => !match.excluded).length;
       return {
         ...row,
@@ -263,16 +334,13 @@ export default function TakeoffOverlayReview({ projectId, measured, busy, onAppl
     await onApply(next);
   }
 
-  const activeCount = allMatches.filter((match) => !excludedKeys.has(match.matchKey)).length;
-  const excludedCount = excludedKeys.size;
+  const activeCount = pins.filter((pin) => !pin.excluded).length;
+  const removedCount = pins.filter((pin) => pin.excluded).length;
 
-  if (!allMatches.length) {
+  if (!drawingDocs.length) {
     return (
       <div className="takeoff-overlay-empty">
-        <p>
-          No text-tag positions were captured for this run. Re-run measurement on selectable-text PDFs
-          to pin items on the drawing for approval.
-        </p>
+        <p>Upload PDF drawings first, then measure — the marked overlay opens here for add / move / remove.</p>
       </div>
     );
   }
@@ -283,113 +351,189 @@ export default function TakeoffOverlayReview({ projectId, measured, busy, onAppl
         <label>
           Drawing
           <select
-            value={activeDoc?.documentId || ""}
+            value={activeDoc?.id || ""}
             onChange={(event) => {
-              const next = documents.find((row) => row.documentId === event.target.value);
               setDocId(event.target.value);
-              setPageNumber(next?.pages[0] || 1);
+              setPageNumber(1);
             }}
           >
-            {documents.map((doc) => (
-              <option key={doc.documentId} value={doc.documentId}>
-                {doc.fileName}
-              </option>
+            {drawingDocs.map((doc) => (
+              <option key={doc.id} value={doc.id}>{doc.fileName}</option>
             ))}
           </select>
         </label>
         <label>
           Page
-          <select
-            value={pageNumber}
-            onChange={(event) => setPageNumber(Number(event.target.value))}
-          >
-            {(activeDoc?.pages || [1]).map((page) => (
-              <option key={page} value={page}>
-                {page}
-              </option>
+          <select value={pageNumber} onChange={(event) => setPageNumber(Number(event.target.value))}>
+            {Array.from({ length: pdfPageCount }, (_, index) => index + 1).map((page) => (
+              <option key={page} value={page}>{page}</option>
             ))}
           </select>
         </label>
-        <div className="takeoff-overlay-legend">
-          {codes.map((code) => {
-            const on = visibleCodes.has(code);
-            return (
-              <button
-                key={code}
-                type="button"
-                className={on ? "legend on" : "legend"}
-                style={{ ["--swatch" as string]: colourForCode(code) }}
-                onClick={() => {
-                  setVisibleCodes((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(code)) next.delete(code);
-                    else next.add(code);
-                    return next;
-                  });
-                }}
-              >
-                {on ? <Eye size={12} /> : <EyeOff size={12} />}
-                <span className="swatch" />
-                {code}
-              </button>
-            );
-          })}
+
+        <div className="takeoff-overlay-tools">
+          <button type="button" className={tool === "select" ? "tool on" : "tool"} onClick={() => setTool("select")}>
+            <MousePointer2 size={14} /> Move
+          </button>
+          <button type="button" className={tool === "add" ? "tool on" : "tool"} onClick={() => setTool("add")}>
+            <Plus size={14} /> Add
+          </button>
+          <button type="button" className={tool === "delete" ? "tool on" : "tool"} onClick={() => setTool("delete")}>
+            <Trash2 size={14} /> Remove
+          </button>
         </div>
+
+        {tool === "add" ? (
+          <label>
+            Place item
+            <select value={placeCode} onChange={(event) => setPlaceCode(event.target.value)}>
+              {placeableRows.map((row) => (
+                <option key={row.id} value={row.code}>
+                  {row.code} · {row.description}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
         <p className="takeoff-overlay-count">
-          {activeCount} allowed · {excludedCount} excluded — click a marker to toggle
+          {activeCount} pins · {removedCount} removed · drag to move · Add/Remove tools for manual edits
         </p>
-        <button
-          className="takeoff-skill-primary"
-          type="button"
-          disabled={Boolean(busy)}
-          onClick={() => void applyApproved()}
-        >
+        <button className="takeoff-skill-primary" type="button" disabled={Boolean(busy)} onClick={() => void applyEdits()}>
           {busy ? <Loader2 className="spin" size={16} /> : <Check size={16} />}
-          Apply approved counts
+          Save overlay & recount
         </button>
       </div>
 
+      <div className="takeoff-overlay-legend">
+        {(codes.length ? codes : placeableRows.map((row) => row.code)).map((code) => {
+          const on = visibleCodes.has(code);
+          return (
+            <button
+              key={code}
+              type="button"
+              className={on ? "legend on" : "legend"}
+              style={{ ["--swatch" as string]: colourForCode(code) }}
+              onClick={() => {
+                setVisibleCodes((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(code)) next.delete(code);
+                  else next.add(code);
+                  return next;
+                });
+              }}
+            >
+              {on ? <Eye size={12} /> : <EyeOff size={12} />}
+              <span className="swatch" />
+              {code}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="takeoff-overlay-stage">
-        {status === "loading" ? <div className="takeoff-overlay-status">Rendering drawing…</div> : null}
+        {status === "loading" ? <div className="takeoff-overlay-status">Rendering marked drawing…</div> : null}
         {status === "error" ? <div className="takeoff-overlay-status error">{errorMessage}</div> : null}
-        <div className="takeoff-overlay-canvas-wrap">
+        <div
+          ref={stageRef}
+          className={`takeoff-overlay-canvas-wrap tool-${tool}`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
           <canvas ref={canvasRef} className="takeoff-overlay-pdf" />
-          <canvas
-            ref={overlayRef}
+          <svg
             className="takeoff-overlay-hits"
-            onClick={(event) => toggleMatchAt(event.clientX, event.clientY)}
-          />
+            width={viewportSize.width}
+            height={viewportSize.height}
+            viewBox={`0 0 ${viewportSize.width} ${viewportSize.height}`}
+          >
+            {pagePins.map((pin) => {
+              const { cx, cy } = toCanvas(pin.x, pin.y);
+              const selected = selectedPinId === pin.id;
+              const colour = colourForCode(pin.code);
+              return (
+                <g key={pin.id} transform={`translate(${cx} ${cy})`} style={{ cursor: tool === "select" ? "grab" : "pointer" }}>
+                  <circle
+                    r={selected ? 13 : pin.manual ? 11 : 10}
+                    fill={`${colour}dd`}
+                    stroke={selected ? "#101828" : "#ffffff"}
+                    strokeWidth={selected ? 3 : 2}
+                  />
+                  <text
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="#ffffff"
+                    fontSize="8"
+                    fontWeight="700"
+                    style={{ pointerEvents: "none" }}
+                  >
+                    {pin.code.replace(/^P-/, "").slice(0, 6)}
+                  </text>
+                  {pin.manual ? (
+                    <circle r={3} cx={8} cy={-8} fill="#fff" stroke={colour} strokeWidth={1} />
+                  ) : null}
+                </g>
+              );
+            })}
+            {hiddenOnPage.map((pin) => {
+              const { cx, cy } = toCanvas(pin.x, pin.y);
+              return (
+                <g key={`ex-${pin.id}`} transform={`translate(${cx} ${cy})`} opacity={0.45}>
+                  <circle r={8} fill="rgba(180,58,58,0.2)" stroke="#b43a3a" strokeWidth={2} />
+                  <line x1={-5} y1={-5} x2={5} y2={5} stroke="#b43a3a" strokeWidth={2} />
+                  <line x1={5} y1={-5} x2={-5} y2={5} stroke="#b43a3a" strokeWidth={2} />
+                </g>
+              );
+            })}
+          </svg>
         </div>
       </div>
 
       <div className="takeoff-overlay-list">
-        <h3>Hits on this page</h3>
+        <h3>Pins on this page ({pagePins.length})</h3>
         <ul>
-          {pageMatches.map((match) => {
-            const excluded = excludedKeys.has(match.matchKey);
-            return (
-              <li key={match.matchKey} className={excluded ? "excluded" : ""}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExcludedKeys((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(match.matchKey)) next.delete(match.matchKey);
-                      else next.add(match.matchKey);
-                      return next;
-                    });
+          {pagePins.map((pin) => (
+            <li key={pin.id} className={selectedPinId === pin.id ? "selected" : ""}>
+              <button
+                type="button"
+                onClick={() => setSelectedPinId(pin.id)}
+              >
+                <span className="swatch" style={{ background: colourForCode(pin.code) }} />
+                <strong>{pin.code}</strong>
+                <span>{pin.description}{pin.manual ? " · manual" : pin.derived ? " · derived" : ""}</span>
+                <em
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setPins((prev) => prev.map((row) => (row.id === pin.id ? { ...row, excluded: true } : row)));
                   }}
                 >
-                  <span className="swatch" style={{ background: colourForCode(match.code) }} />
-                  <strong>{match.code}</strong>
-                  <span>“{match.text}”</span>
-                  <em>{excluded ? "excluded" : "allowed"}</em>
-                </button>
-              </li>
-            );
-          })}
-          {!pageMatches.length ? <li className="empty">No visible hits on this page for the selected codes.</li> : null}
+                  remove
+                </em>
+              </button>
+            </li>
+          ))}
+          {!pagePins.length ? (
+            <li className="empty">
+              No pins on this page yet. Use <strong>Add</strong> and click the drawing, or re-run measure after rebuilding the plan.
+            </li>
+          ) : null}
         </ul>
+        {selectedPinId ? (
+          <div className="takeoff-overlay-selected">
+            <button
+              type="button"
+              className="takeoff-skill-secondary"
+              onClick={() => {
+                setPins((prev) => prev.map((pin) => (pin.id === selectedPinId ? { ...pin, excluded: true } : pin)));
+                setSelectedPinId(null);
+              }}
+            >
+              <Trash2 size={14} /> Remove selected pin
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

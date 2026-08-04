@@ -48,7 +48,7 @@ export async function GET() {
       checklistUi: "tidy-v1",
       fieldCoreLive: "field-daywork-locked-v1",
       dashboardLayout: "pipeline-gantt-v3",
-      takeoffSkill: "primary-secondary-v6-overlay",
+      takeoffSkill: "primary-secondary-v7-full-overlay",
       recurringServices: "upcoming-4w-v1",
     },
     daywork: {

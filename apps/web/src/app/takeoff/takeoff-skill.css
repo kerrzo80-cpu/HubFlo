@@ -670,12 +670,56 @@
   height: auto;
 }
 
+.takeoff-overlay-tools {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.takeoff-overlay-tools .tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: var(--canvas);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-overlay-tools .tool.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.45);
+  color: var(--blue-deep);
+}
+
+.takeoff-overlay-canvas-wrap.tool-add {
+  cursor: crosshair;
+}
+
+.takeoff-overlay-canvas-wrap.tool-delete {
+  cursor: not-allowed;
+}
+
+.takeoff-overlay-canvas-wrap.tool-select {
+  cursor: default;
+}
+
 .takeoff-overlay-hits {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  cursor: crosshair;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.takeoff-overlay-list li.selected button {
+  background: var(--blue-soft);
+}
+
+.takeoff-overlay-selected {
+  margin-top: 10px;
 }
 
 .takeoff-overlay-status {
