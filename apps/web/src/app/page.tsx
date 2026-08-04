@@ -196,6 +196,7 @@ const INVOICE_SERVER_SYNC_HOLD_MS = 120000;
 const dashboardPanelIds = [
   "jobPipeline",
   "notifications",
+  "recurringServices",
   "unassignedJobs",
   "timesheets",
 ] as const;
@@ -211,6 +212,7 @@ type DashboardLayout = {
 const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: DashboardPanelSize }> = {
   jobPipeline: { label: "Job pipeline", size: "wide" },
   notifications: { label: "Action notifications", size: "wide" },
+  recurringServices: { label: "Upcoming services", size: "wide" },
   unassignedJobs: { label: "Unassigned jobs", size: "standard" },
   timesheets: { label: "Timesheets", size: "standard" },
 };
@@ -3317,6 +3319,7 @@ const defaultBoilerFlowTemplate: EngineerFlowTemplate = {
     { id: "new-location", stage: "New Boiler", label: "Confirm new boiler location", evidence: "Text", required: true },
     { id: "commissioning", stage: "Commissioning", label: "Complete commissioning readings", evidence: "Number", required: true },
     { id: "benchmark", stage: "Commissioning", label: "Complete benchmark/compliance checklist", evidence: "Checkbox", required: true },
+    { id: "replacement-next-due", stage: "Handover", label: "Next boiler service due", evidence: "Text", required: true },
     { id: "customer-handover", stage: "Handover", label: "Customer handover and sign-off", evidence: "Signature", required: true },
   ],
 };
@@ -7802,6 +7805,17 @@ export default function Dashboard() {
     make?: string;
     model?: string;
   }>>([]);
+  const [upcomingRecurringJobs, setUpcomingRecurringJobs] = useState<Array<{
+    id: string;
+    name: string;
+    customer: string;
+    clientId?: string;
+    siteId?: string;
+    site?: string;
+    description: string;
+    nextDueDate: string;
+    frequency: string;
+  }>>([]);
   const [pendingInvoiceChaseId, setPendingInvoiceChaseId] = useState<string | null>(null);
   const [poSupplierInvoiceDraft, setPoSupplierInvoiceDraft] = useState({ amount: "", reference: "" });
   const [poSupplierPaymentDraft, setPoSupplierPaymentDraft] = useState({ amount: "", method: "Bank transfer", reference: "" });
@@ -10615,6 +10629,75 @@ export default function Dashboard() {
         } | null;
         if (!cancelled && response.ok) {
           setDueSiteAssetRows(body?.assets || []);
+        }
+      } catch {
+        // dashboard panel is best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasHydratedLocalData, requestHeaders, homeView]);
+
+  useEffect(() => {
+    if (!hasHydratedLocalData) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/recurring?upcomingDays=28", { headers: requestHeaders });
+        const body = await response.json().catch(() => null) as {
+          windowJobs?: Array<{
+            id: string;
+            name: string;
+            customer: string;
+            clientId?: string;
+            siteId?: string;
+            site?: string;
+            description: string;
+            nextDueDate: string;
+            frequency: string;
+          }>;
+          due?: Array<{
+            id: string;
+            name: string;
+            customer: string;
+            clientId?: string;
+            siteId?: string;
+            site?: string;
+            description: string;
+            nextDueDate: string;
+            frequency: string;
+            kind?: string;
+          }>;
+          upcoming?: Array<{
+            id: string;
+            name: string;
+            customer: string;
+            clientId?: string;
+            siteId?: string;
+            site?: string;
+            description: string;
+            nextDueDate: string;
+            frequency: string;
+            kind?: string;
+          }>;
+        } | null;
+        if (!cancelled && response.ok) {
+          if (Array.isArray(body?.windowJobs)) {
+            setUpcomingRecurringJobs(body.windowJobs);
+          } else {
+            const merged = [...(body?.due || []), ...(body?.upcoming || [])]
+              .filter((plan) => !plan.kind || plan.kind === "Job")
+              .sort((a, b) => a.nextDueDate.localeCompare(b.nextDueDate));
+            const seen = new Set<string>();
+            setUpcomingRecurringJobs(
+              merged.filter((plan) => {
+                if (seen.has(plan.id)) return false;
+                seen.add(plan.id);
+                return true;
+              }),
+            );
+          }
         }
       } catch {
         // dashboard panel is best-effort
@@ -14692,6 +14775,70 @@ export default function Dashboard() {
           ? String(patch.numberValue ?? merged.numberValue ?? "").trim() !== ""
           : Boolean((patch.text ?? merged.text)?.trim());
     setFlowStepCompletion((current) => ({ ...current, [key]: satisfied }));
+
+    const nextDueRaw = String(patch.text ?? merged.text ?? "").trim();
+    if (
+      satisfied &&
+      nextDueRaw &&
+      (step.id === "service-next-due" || step.id === "replacement-next-due") &&
+      selectedJob?.siteId
+    ) {
+      void syncNextServiceDueRecurringPlan(selectedJob, nextDueRaw);
+    }
+  }
+
+  async function syncNextServiceDueRecurringPlan(
+    job: Job,
+    nextDueRaw: string,
+  ) {
+    if (!job.siteId) return;
+    const isoMatch = nextDueRaw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const ukMatch = nextDueRaw.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    const nextDueDate = isoMatch
+      ? nextDueRaw
+      : ukMatch
+        ? `${ukMatch[3]}-${ukMatch[2]}-${ukMatch[1]}`
+        : "";
+    if (!nextDueDate) return;
+    try {
+      await fetch("/api/site-assets", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsert",
+          siteId: job.siteId,
+          clientId: job.clientId,
+          type: "Gas appliance",
+          name: "Gas appliance",
+          nextServiceDate: nextDueDate,
+          lastServiceDate: currentOperatingDate,
+          certificateExpiresAt: nextDueDate,
+          notes: `Next service due from ${job.ref}`,
+        }),
+      });
+      await fetch("/api/recurring", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "upsert",
+          id: `recur-boiler-${job.siteId}`,
+          kind: "Job",
+          name: "Annual boiler service",
+          customer: job.customer,
+          clientId: job.clientId,
+          siteId: job.siteId,
+          site: job.site,
+          description: `Annual boiler service / gas safety check at ${job.site || "site"} (from ${job.ref})`,
+          frequency: "Yearly",
+          nextDueDate,
+          notes: `Created from next service due on ${job.ref}`,
+          active: true,
+        }),
+      });
+      showNotice(`Recurring annual service set for ${nextDueDate}. Carol will see it in Upcoming services.`);
+    } catch {
+      // best-effort
+    }
   }
 
   function clearFlowStepEvidence(recordId: string, stepId: string) {
@@ -26916,6 +27063,15 @@ export default function Dashboard() {
         onClick: () => openUnassignedJobsOnSchedule(),
       },
       {
+        id: "upcoming-services",
+        tone: "amber" as const,
+        count: upcomingRecurringJobs.length,
+        title: "Upcoming recurring services",
+        detail: "Next 4 weeks — touch base to book annual service",
+        icon: CalendarDays,
+        onClick: () => openDashboardQueue("dashboard-recurring-services"),
+      },
+      {
         id: "po-requests",
         tone: "amber" as const,
         count: pendingPORequests.length,
@@ -27145,6 +27301,92 @@ export default function Dashboard() {
             </aside>
           );
 
+        case "recurringServices": {
+          const asOf = currentOperatingDate;
+          return (
+            <section className="ops-queue-panel" id="dashboard-recurring-services">
+              <header>
+                <div>
+                  <h3>Upcoming services</h3>
+                  <p>
+                    {upcomingRecurringJobs.length} annual / recurring job{upcomingRecurringJobs.length === 1 ? "" : "s"} due in the next 4 weeks
+                  </p>
+                </div>
+                <CalendarDays size={18} />
+              </header>
+              <div className="ops-queue-list">
+                {upcomingRecurringJobs.length > 0 ? (
+                  upcomingRecurringJobs.slice(0, 10).map((plan) => {
+                    const overdue = plan.nextDueDate < asOf;
+                    const client = clients.find((row) => row.id === plan.clientId)
+                      || clients.find((row) => row.name.toLowerCase() === plan.customer.toLowerCase());
+                    return (
+                      <article className={`ops-queue-item ${overdue ? "attention" : ""}`} key={plan.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (client) {
+                              setActiveClientId(client.id);
+                              setHomeView("clients");
+                              return;
+                            }
+                            setHomeView("recurring");
+                          }}
+                        >
+                          <strong>
+                            {plan.customer} · {plan.name}
+                          </strong>
+                          <span>{plan.description}</span>
+                          <small>
+                            Due {formatUkDate(plan.nextDueDate)}
+                            {plan.site ? ` · ${plan.site}` : ""}
+                            {` · ${plan.frequency}`}
+                          </small>
+                        </button>
+                        <div className="ops-queue-actions">
+                          <span className={`status-pill ${overdue ? "red" : "amber"}`}>
+                            {overdue ? "Due now" : "Next 4 weeks"}
+                          </span>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => {
+                              if (client) {
+                                setActiveClientId(client.id);
+                                setHomeView("clients");
+                                showNotice(`Open ${plan.customer} to book their annual service.`);
+                                return;
+                              }
+                              setHomeView("recurring");
+                            }}
+                          >
+                            Touch base
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => {
+                              void generateRecurringJobFromPlan(plan).then((ref) => {
+                                if (ref) showNotice(`Booked-in draft job ${ref} created from recurring plan.`);
+                              });
+                            }}
+                          >
+                            Create job
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <div className="ops-queue-empty">
+                    No recurring services due in the next 4 weeks. When Field enters “next boiler service due”, it appears here for Carol.
+                  </div>
+                )}
+              </div>
+            </section>
+          );
+        }
+
         case "unassignedJobs":
           return (
             <section className="ops-queue-panel" id="dashboard-unassigned-jobs">
@@ -27253,10 +27495,6 @@ export default function Dashboard() {
 
     return (
       <section className={`ops-dashboard ${isDashboardCustomising ? "customising" : ""}`} aria-label="Operations dashboard">
-        <div className="dashboard-layout-banner" role="status">
-          <strong>Dashboard layout v2</strong>
-          <span>Job pipeline → Action notifications → Weekly Gantt (live now-line)</span>
-        </div>
         {isDashboardCustomising ? (
           <section className="dashboard-customise-panel" aria-label="Dashboard customisation">
             <div>

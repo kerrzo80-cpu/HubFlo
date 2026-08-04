@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import { EnvHostBanner } from "@/components/EnvHostBanner";
 import { PwaIconLinks } from "./pwa-icon-links";
 import "./globals.css";
 
@@ -44,7 +43,6 @@ export default function RootLayout({
     <html lang="en" className={inter.variable}>
       <body>
         <PwaIconLinks />
-        <EnvHostBanner />
         {children}
       </body>
     </html>

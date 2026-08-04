@@ -1,6 +1,7 @@
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { writeDayworkSheetSnapshot, listDayworkSheetsFromStore } from "@/lib/daywork-sheets-store";
 import { listSiteAssets, upsertSiteAsset } from "@/lib/site-assets-data";
+import { upsertAnnualServiceRecurringPlan } from "@/lib/recurring-data";
 import {
   dayworkAccountTotals,
   dayworkSheetKey,
@@ -255,6 +256,20 @@ export const boilerReplacementFlowTemplate: EngineerFlowTemplate = {
     { id: "new-location", stage: "New Boiler", label: "Confirm new boiler location", evidence: "Text", required: true },
     { id: "commissioning", stage: "Commissioning", label: "Complete commissioning readings", evidence: "Number", required: true },
     { id: "benchmark", stage: "Commissioning", label: "Complete benchmark/compliance checklist", evidence: "Checkbox", required: true },
+    {
+      id: "replacement-next-due",
+      stage: "Handover",
+      label: "Next boiler service due",
+      evidence: "Text",
+      required: true,
+      formField: "nextServiceDate",
+      validation: {
+        pattern: "^\\d{2}-\\d{2}-\\d{4}$",
+        inputKind: "date",
+        helpText: "UK date — when the next annual service is due (DD-MM-YYYY). Creates a recurring job for Carol.",
+        placeholder: "DD-MM-YYYY",
+      },
+    },
     { id: "customer-handover", stage: "Handover", label: "Customer handover and sign-off", evidence: "Signature", required: true },
   ],
 };
@@ -757,6 +772,10 @@ export function buildGasServiceRecordFromEvidence(
 export function syncGasServiceRecordToSiteAsset(options: {
   siteId?: string;
   clientId?: string;
+  customerName?: string;
+  siteLabel?: string;
+  sourceJobId?: string;
+  sourceJobRef?: string;
   record: GasServiceRecord;
 }) {
   if (!options.siteId || !options.record.nextServiceDate) return null;
@@ -789,7 +808,30 @@ export function syncGasServiceRecordToSiteAsset(options: {
       ? `Gas service record · defects: ${options.record.defects}`
       : "Gas service record completed via engineer stop/go.",
   };
-  return upsertSiteAsset(payload);
+  const updatedAssets = upsertSiteAsset(payload);
+  const saved =
+    updatedAssets.find((asset) => asset.id === match?.id) ||
+    updatedAssets.find((asset) => asset.serialNumber === payload.serialNumber && asset.nextServiceDate === nextServiceIso) ||
+    updatedAssets[0] ||
+    null;
+
+  try {
+    upsertAnnualServiceRecurringPlan({
+      siteId: options.siteId,
+      clientId: options.clientId,
+      customer: options.customerName || "Customer",
+      site: options.siteLabel,
+      assetId: saved?.id,
+      assetName: saved?.name || makeModel || "boiler",
+      nextServiceDate: nextServiceIso,
+      sourceJobId: options.sourceJobId,
+      sourceJobRef: options.sourceJobRef,
+    });
+  } catch {
+    // Recurring plan sync is best-effort.
+  }
+
+  return saved;
 }
 
 export function buildDayworkAccountRecordFromEvidence(

@@ -7,8 +7,10 @@ import {
   listRecurringPlans,
   markRecurringGenerated,
   setRecurringActive,
+  syncRecurringPlansFromSiteAssets,
   upcomingRecurringPlans,
   upsertRecurringPlan,
+  windowRecurringJobPlans,
   type RecurringFrequency,
   type RecurringKind,
 } from "@/lib/recurring-data";
@@ -22,11 +24,19 @@ export async function GET(request: NextRequest) {
   }
   const includeInactive = request.nextUrl.searchParams.get("all") === "1";
   const asOf = request.nextUrl.searchParams.get("asOf") || undefined;
-  const upcomingDays = Number(request.nextUrl.searchParams.get("upcomingDays") || "7");
+  const upcomingDays = Number(request.nextUrl.searchParams.get("upcomingDays") || "28");
+  // Keep yearly service plans aligned with site asset next-service dates.
+  try {
+    syncRecurringPlansFromSiteAssets();
+  } catch {
+    // best-effort
+  }
+  const days = Number.isFinite(upcomingDays) ? upcomingDays : 28;
   return NextResponse.json({
     plans: listRecurringPlans(includeInactive),
     due: dueRecurringPlans(asOf),
-    upcoming: upcomingRecurringPlans(Number.isFinite(upcomingDays) ? upcomingDays : 7, asOf),
+    upcoming: upcomingRecurringPlans(days, asOf),
+    windowJobs: windowRecurringJobPlans(days, asOf),
   });
 }
 

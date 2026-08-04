@@ -629,17 +629,28 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         });
 
         const gasRecord = buildGasServiceRecordFromEvidence(job.jobId, costCentreId);
-        if (gasRecord?.nextServiceDate) {
+        const nextDueText =
+          (requirement.formField === "nextServiceDate" ? evidenceValue.text : "") ||
+          gasRecord?.nextServiceDate ||
+          "";
+        if (nextDueText) {
           const coreJob = getJobs().find((item) => item.id === job.jobId);
           if (coreJob?.siteId) {
             try {
               syncGasServiceRecordToSiteAsset({
                 siteId: coreJob.siteId,
                 clientId: coreJob.clientId,
-                record: gasRecord,
+                customerName: coreJob.customer,
+                siteLabel: coreJob.site,
+                sourceJobId: coreJob.id,
+                sourceJobRef: coreJob.ref,
+                record: {
+                  ...(gasRecord || { populatedFrom: "engineer-app" }),
+                  nextServiceDate: nextDueText,
+                },
               });
             } catch {
-              // Site asset sync is best-effort.
+              // Site asset + recurring sync is best-effort.
             }
           }
         }

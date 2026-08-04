@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from "next";
-import { EnvHostBanner } from "@/components/EnvHostBanner";
 import { AppChrome } from "@/components/field/AppChrome";
 import { NexaClientProvider } from "@/lib/field/nexa";
 import "./field.css";
@@ -31,7 +30,6 @@ export const viewport: Viewport = {
 export default function FieldLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <NexaClientProvider>
-      <EnvHostBanner />
       <AppChrome>{children}</AppChrome>
     </NexaClientProvider>
   );
