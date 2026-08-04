@@ -183,7 +183,7 @@ const STORAGE_KEYS = {
   suppliers: "hubflo:suppliers:v1",
   contacts: "hubflo:contacts:v1",
   contractors: "hubflo:contractors:v1",
-  dashboardLayouts: "hubflo:dashboard-layouts:v1",
+  dashboardLayouts: "hubflo:dashboard-layouts:v2",
   openWorkspaceTabs: "hubflo:open-workspace-tabs:v1",
 } as const;
 
@@ -27253,6 +27253,10 @@ export default function Dashboard() {
 
     return (
       <section className={`ops-dashboard ${isDashboardCustomising ? "customising" : ""}`} aria-label="Operations dashboard">
+        <div className="dashboard-layout-banner" role="status">
+          <strong>Dashboard layout v2</strong>
+          <span>Job pipeline → Action notifications → Weekly Gantt (live now-line)</span>
+        </div>
         {isDashboardCustomising ? (
           <section className="dashboard-customise-panel" aria-label="Dashboard customisation">
             <div>
