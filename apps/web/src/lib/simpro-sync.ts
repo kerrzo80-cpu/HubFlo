@@ -18,6 +18,11 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
+import {
+  enrichNexaJobFromSimpro,
+  enrichNexaQuoteFromSimpro,
+  importSimproInvoiceIntoHub,
+} from "@/lib/simpro-deep-import";
 import { upsertSimproEntityLink, type SimproLinkEntityType } from "@/lib/simpro-entity-links";
 
 type UnknownRecord = Record<string, unknown>;
@@ -243,7 +248,9 @@ function extractRecords(body: unknown) {
 
 async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: SimproSyncEntity) {
   const url = new URL(entityEndpoint(config, entity));
-  url.searchParams.set("pageSize", "50");
+  // Deep hierarchy pulls (sections/CCs/lines/schedules) are heavier — keep quote/job/invoice pages smaller.
+  const pageSize = entity === "quotes" || entity === "jobs" || entity === "invoices" ? "15" : "50";
+  url.searchParams.set("pageSize", pageSize);
 
   const response = await fetch(url, {
     headers: {
@@ -582,12 +589,56 @@ function processSite(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOpe
   return operation("sites", "create", `Created NeXa site ${site.name}.`, { simproId, simproName: mapped.name, nexaId: site.id });
 }
 
-function processQuote(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOperation {
+async function withQuoteHierarchy(
+  op: SimproSyncOperation,
+  nexaQuoteId: string,
+  simproId: string,
+  mode: SimproSyncMode,
+): Promise<SimproSyncOperation> {
+  if (mode !== "apply" || !nexaQuoteId) return op;
+  const deep = await enrichNexaQuoteFromSimpro({ nexaQuoteId, simproQuoteId: simproId });
+  return {
+    ...op,
+    summary: deep.ok ? `${op.summary} ${deep.summary}.` : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+    detail: deep.ok ? deep.summary : deep.detail || deep.summary,
+  };
+}
+
+async function withJobHierarchy(
+  op: SimproSyncOperation,
+  nexaJobId: string,
+  simproId: string,
+  mode: SimproSyncMode,
+): Promise<SimproSyncOperation> {
+  if (mode !== "apply" || !nexaJobId) return op;
+  const deep = await enrichNexaJobFromSimpro({
+    nexaJobId,
+    simproJobId: simproId,
+    includeSchedules: true,
+  });
+  return {
+    ...op,
+    summary: deep.ok ? `${op.summary} ${deep.summary}.` : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+    detail: deep.ok ? deep.summary : deep.detail || deep.summary,
+  };
+}
+
+async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
   const simproId = identifier(record);
   if (!simproId) return operation("quotes", "conflict", "simPRO quote has no stable ID.");
 
   const link = existingLink("quotes", simproId);
-  if (link) return operation("quotes", "skip", `${link.simproName} is already linked to ${link.nexaRef ?? link.nexaName}.`, { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef });
+  if (link) {
+    const base = operation(
+      "quotes",
+      mode === "apply" ? "link" : "skip",
+      mode === "apply"
+        ? `Refreshing ${link.nexaRef ?? link.nexaName} from simPRO quote ${simproId}.`
+        : `${link.simproName} is already linked to ${link.nexaRef ?? link.nexaName}.`,
+      { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef },
+    );
+    return withQuoteHierarchy(base, link.nexaId, simproId, mode);
+  }
 
   const existing = getQuotes().find((quote) => quote.simproQuoteId === simproId);
   if (existing) {
@@ -603,14 +654,25 @@ function processQuote(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOp
         lastDirection: "simpro-to-nexa",
       });
     }
-    return operation("quotes", "link", `Link simPRO quote ${simproId} to ${existing.ref}.`, { simproId, simproName: existing.description, nexaId: existing.id, nexaRef: existing.ref });
+    const base = operation("quotes", "link", `Link simPRO quote ${simproId} to ${existing.ref}.`, {
+      simproId,
+      simproName: existing.description,
+      nexaId: existing.id,
+      nexaRef: existing.ref,
+    });
+    return withQuoteHierarchy(base, existing.id, simproId, mode);
   }
 
   const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
   const site = getClientSites().find((item) => item.clientId === client?.id && normaliseText(item.address) === normaliseText(addressFromRecord(record)));
   const mapped = buildQuoteInput(record, client, site);
   if (mode === "preview") {
-    return operation("quotes", "create", `Create NeXa quote for ${mapped.customer}: ${mapped.description}.`, { simproId, simproName: mapped.description });
+    return operation(
+      "quotes",
+      "create",
+      `Create NeXa quote for ${mapped.customer}: ${mapped.description} (cost centres + materials/labour on apply).`,
+      { simproId, simproName: mapped.description },
+    );
   }
 
   const quote = createQuote(mapped);
@@ -633,15 +695,31 @@ function processQuote(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOp
     source: "simPRO sync",
     importance: "normal",
   });
-  return operation("quotes", "create", `Created ${quote.ref} from simPRO quote ${simproId}.`, { simproId, simproName: mapped.description, nexaId: quote.id, nexaRef: quote.ref });
+  const base = operation("quotes", "create", `Created ${quote.ref} from simPRO quote ${simproId}.`, {
+    simproId,
+    simproName: mapped.description,
+    nexaId: quote.id,
+    nexaRef: quote.ref,
+  });
+  return withQuoteHierarchy(base, quote.id, simproId, mode);
 }
 
-function processJob(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOperation {
+async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
   const simproId = identifier(record);
   if (!simproId) return operation("jobs", "conflict", "simPRO job has no stable ID.");
 
   const link = existingLink("jobs", simproId);
-  if (link) return operation("jobs", "skip", `${link.simproName} is already linked to ${link.nexaRef ?? link.nexaName}.`, { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef });
+  if (link) {
+    const base = operation(
+      "jobs",
+      mode === "apply" ? "link" : "skip",
+      mode === "apply"
+        ? `Refreshing ${link.nexaRef ?? link.nexaName} from simPRO job ${simproId}.`
+        : `${link.simproName} is already linked to ${link.nexaRef ?? link.nexaName}.`,
+      { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef },
+    );
+    return withJobHierarchy(base, link.nexaId, simproId, mode);
+  }
 
   const existing = getJobs().find((job) => job.simproJobId === simproId);
   if (existing) {
@@ -657,14 +735,25 @@ function processJob(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOper
         lastDirection: "simpro-to-nexa",
       });
     }
-    return operation("jobs", "link", `Link simPRO job ${simproId} to ${existing.ref}.`, { simproId, simproName: existing.description, nexaId: existing.id, nexaRef: existing.ref });
+    const base = operation("jobs", "link", `Link simPRO job ${simproId} to ${existing.ref}.`, {
+      simproId,
+      simproName: existing.description,
+      nexaId: existing.id,
+      nexaRef: existing.ref,
+    });
+    return withJobHierarchy(base, existing.id, simproId, mode);
   }
 
   const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
   const site = getClientSites().find((item) => item.clientId === client?.id && normaliseText(item.address) === normaliseText(addressFromRecord(record)));
   const mapped = buildJobInput(record, client, site);
   if (mode === "preview") {
-    return operation("jobs", "create", `Create NeXa job for ${mapped.customer}: ${mapped.description}.`, { simproId, simproName: mapped.description });
+    return operation(
+      "jobs",
+      "create",
+      `Create NeXa job for ${mapped.customer}: ${mapped.description} (cost centres, materials/labour + schedules on apply).`,
+      { simproId, simproName: mapped.description },
+    );
   }
 
   const job = createJob(mapped);
@@ -687,24 +776,69 @@ function processJob(record: UnknownRecord, mode: SimproSyncMode): SimproSyncOper
     source: "simPRO sync",
     importance: "normal",
   });
-  return operation("jobs", "create", `Created ${job.ref} from simPRO job ${simproId}.`, { simproId, simproName: mapped.description, nexaId: job.id, nexaRef: job.ref });
-}
-
-function processInvoice(record: UnknownRecord): SimproSyncOperation {
-  const simproId = identifier(record);
-  const summary = firstString(record, ["InvoiceNo", "Number", "Name", "Description"]) || `simPRO invoice ${simproId || "unknown"}`;
-  return operation("invoices", "preview", `${summary} found in simPRO. Invoice import is preview-only until Xero/simPRO invoice numbering rules are approved.`, {
+  const base = operation("jobs", "create", `Created ${job.ref} from simPRO job ${simproId}.`, {
     simproId,
-    simproName: summary,
+    simproName: mapped.description,
+    nexaId: job.id,
+    nexaRef: job.ref,
   });
+  return withJobHierarchy(base, job.id, simproId, mode);
 }
 
-function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mode: SimproSyncMode) {
+async function processInvoice(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
+  const simproId = identifier(record);
+  const companyId = getSimproDirectConfigStatus().companyId || "0";
+  try {
+    const result = await importSimproInvoiceIntoHub({
+      record,
+      companyId,
+      preview: mode === "preview",
+    });
+    const action =
+      result.action === "preview"
+        ? "preview"
+        : result.action === "create"
+          ? "create"
+          : result.action === "link"
+            ? "link"
+            : result.action === "skip"
+              ? "skip"
+              : result.action === "conflict"
+                ? "conflict"
+                : "error";
+    if (action === "create") {
+      appendAuditEvent({
+        actor: "simPRO sync",
+        action: "created",
+        recordType: "invoice",
+        recordId: result.nexaId || simproId || "invoice",
+        summary: result.summary,
+        source: "simPRO sync",
+        importance: "normal",
+      });
+    }
+    return operation("invoices", action, result.summary, {
+      simproId: result.simproId || simproId,
+      simproName: firstString(record, ["InvoiceNo", "Number", "Name", "Description"]) || undefined,
+      nexaId: result.nexaId,
+      nexaRef: result.nexaRef,
+    });
+  } catch (error) {
+    return operation(
+      "invoices",
+      "error",
+      error instanceof Error ? error.message : `Unable to import simPRO invoice ${simproId || ""}.`,
+      { simproId },
+    );
+  }
+}
+
+async function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mode: SimproSyncMode) {
   if (entity === "clients") return processClient(record, mode);
   if (entity === "sites") return processSite(record, mode);
   if (entity === "quotes") return processQuote(record, mode);
   if (entity === "jobs") return processJob(record, mode);
-  return processInvoice(record);
+  return processInvoice(record, mode);
 }
 
 function recomputeTotals(run: SimproSyncRun) {
@@ -979,9 +1113,9 @@ export async function runSimproImport(options: {
     for (const entity of selectedEntities) {
       try {
         const records = await fetchSimproRecords(config, entity);
-        records.forEach((record) => {
+        for (const record of records) {
           try {
-            run.operations.push(processRecord(entity, record, options.mode));
+            run.operations.push(await processRecord(entity, record, options.mode));
           } catch (error) {
             run.operations.push(
               operation(entity, "error", error instanceof Error ? error.message : `Unable to process ${entity} record.`, {
@@ -989,7 +1123,7 @@ export async function runSimproImport(options: {
               }),
             );
           }
-        });
+        }
       } catch (error) {
         run.operations.push(
           operation(entity, "error", error instanceof Error ? error.message : `Unable to fetch ${entity} from simPRO.`, {

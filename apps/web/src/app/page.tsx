@@ -3176,7 +3176,7 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
       status: "Working import",
     },
     Quotes: {
-      summary: "Import quote headers and values. Detailed cost centres can then be built in NeXa or migrated during the Simpro reconciliation stage.",
+      summary: "Import quote/job headers plus cost centres, materials, labour and schedules. Invoices import with lines and link to NeXa jobs where possible.",
       focus: ["Quote reference", "Customer and scope", "Status, value and next action"],
       status: "Working import",
     },
@@ -40514,7 +40514,7 @@ export default function Dashboard() {
 	                          <small>
 	                            {simproBridgeStatus.configured
 	                              ? integrationSettings.simproMode === "Two-way sync"
-	                                ? `Outbound and inbound are available via ${simproBridgeStatus.mode}${simproBridgeStatus.endpoint ? ` at ${simproBridgeStatus.endpoint}` : ""}. Preview imports before applying anything live.`
+	                                ? `Outbound and inbound are available via ${simproBridgeStatus.mode}${simproBridgeStatus.endpoint ? ` at ${simproBridgeStatus.endpoint}` : ""}. Apply pulls cost centres, materials, labour, schedules and invoices.`
 	                                : `${simproBridgeStatus.guidance || `Outbound push is ready via ${simproBridgeStatus.mode}.`} Open a quote and use Send to Simpro.`
 	                              : `Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_BASE_URL, SIMPRO_COMPANY_ID, SIMPRO_CLIENT_ID, SIMPRO_CLIENT_SECRET and SIMPRO_REFRESH_TOKEN"}. ${simproBridgeStatus.guidance || ""}`}
 	                          </small>
@@ -40523,7 +40523,7 @@ export default function Dashboard() {
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
 	                              <strong>Choose exactly what NeXa should pull in</strong>
-	                              <small>Default is Clients + Sites to stop dual typing. Tick quotes/jobs/invoices only when you need them.</small>
+	                              <small>Default is Clients + Sites. Tick quotes/jobs/invoices to pull cost centres, materials, labour, schedules and invoice lines.</small>
 	                              <div className="setup-sync-entity-shortcuts">
 	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
 	                                  Customers &amp; sites
@@ -41164,7 +41164,7 @@ export default function Dashboard() {
                           <small>
                             {simproSyncStatus?.configured
                               ? integrationSettings.simproMode === "Two-way sync"
-                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Preview imports before applying anything live.`
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Apply pulls quotes/jobs with cost centres, materials, labour and job schedules, plus invoices linked to NeXa jobs where possible.`
                                 : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>
