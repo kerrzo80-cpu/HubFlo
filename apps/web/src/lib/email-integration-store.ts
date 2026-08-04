@@ -20,6 +20,8 @@ export type OutboundEmailInput = {
   cc?: string;
   subject: string;
   text: string;
+  /** Prefer this employee's connected mailbox; falls back to company SMTP. */
+  employeeId?: string;
   attachments?: Array<{
     filename: string;
     content: Buffer;
@@ -199,6 +201,22 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
   if (!input.to.trim() || !input.subject.trim() || !input.text.trim()) {
     throw new Error("Recipient, subject and message are required.");
   }
+
+  const employeeId = input.employeeId?.trim();
+  if (employeeId) {
+    const { resolveEmployeeMailboxTransport, sendViaResolvedMailbox } = await import("@/lib/employee-mailbox-store");
+    const employeeMailbox = resolveEmployeeMailboxTransport(employeeId);
+    if (employeeMailbox) {
+      return sendViaResolvedMailbox(employeeMailbox, {
+        to: input.to,
+        cc: input.cc,
+        subject: input.subject,
+        text: input.text,
+        attachments: input.attachments,
+      });
+    }
+  }
+
   const transport = configuredTransport();
   try {
     await transport.verify();
@@ -218,6 +236,8 @@ export async function sendEmailMessage(input: OutboundEmailInput) {
     return {
       provider: emailIntegrationStore.provider,
       from: emailIntegrationStore.senderEmail,
+      source: "company" as const,
+      employeeId: employeeId || undefined,
       messageId: sent.messageId,
       accepted: sent.accepted.map(String),
       rejected: sent.rejected.map(String),

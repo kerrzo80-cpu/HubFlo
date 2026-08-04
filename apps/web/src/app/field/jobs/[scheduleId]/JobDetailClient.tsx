@@ -1387,10 +1387,21 @@ export default function JobDetailPage() {
             <div className="file-list">
               {workflow.poRequests.map((request) => (
                 <div className="file-row" key={request.id}>
-                  <span>{request.poNumber ? `${request.status} · ${request.poNumber}` : request.status}</span>
+                  <span>
+                    {request.status === "Approved"
+                      ? "Approved"
+                      : request.status === "Rejected"
+                        ? "Rejected"
+                        : request.status === "Ordered"
+                          ? "Ordered"
+                          : request.poNumber
+                            ? `${request.status} · ${request.poNumber}`
+                            : request.status}
+                  </span>
                   <strong>{request.supplier}</strong>
                   <small className="muted">
-                    {request.note || "PO support requested."} · {request.createdAt}
+                    {request.note || "PO support requested."}
+                    {request.poNumber ? ` · ${request.poNumber}` : ""} · {request.createdAt}
                   </small>
                 </div>
               ))}

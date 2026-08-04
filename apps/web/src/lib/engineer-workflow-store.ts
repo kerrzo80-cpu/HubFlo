@@ -305,9 +305,13 @@ function normaliseWorkflow(workflow: EngineerJobWorkflow) {
 
 function syncWorkflowPoRequestsFromCore(workflow: EngineerJobWorkflow) {
   const coreRequests = getPurchaseRequests();
-  workflow.poRequests = workflow.poRequests.map((request) => {
-    const coreRequest = coreRequests.find((item) => item.id === request.id);
-    if (!coreRequest) return request;
+  const job = getEngineerScheduleItem(workflow.scheduleId);
+  const byId = new Map(workflow.poRequests.map((request) => [request.id, request]));
+
+  for (const coreRequest of coreRequests) {
+    if (!job) break;
+    if (coreRequest.jobId !== job.jobId && coreRequest.jobRef !== job.jobRef) continue;
+
     const status: EngineerWorkflowPoRequest["status"] =
       coreRequest.status === "Rejected"
         ? "Rejected"
@@ -316,14 +320,23 @@ function syncWorkflowPoRequestsFromCore(workflow: EngineerJobWorkflow) {
           : coreRequest.status === "Approved"
             ? "Approved"
             : "Ordered";
-    return {
-      ...request,
-      poNumber: coreRequest.poNumber || request.poNumber,
-      supplier: coreRequest.supplier || request.supplier,
-      note: coreRequest.reason || coreRequest.item || request.note,
+
+    const existing = byId.get(coreRequest.id);
+    byId.set(coreRequest.id, {
+      id: coreRequest.id,
+      poNumber: coreRequest.poNumber || existing?.poNumber,
+      supplier: coreRequest.supplier || existing?.supplier || "Supplier TBC",
+      note: coreRequest.reason || coreRequest.item || existing?.note || "",
+      jobRef: coreRequest.jobRef || existing?.jobRef || job.jobRef,
+      costCentreId: coreRequest.costCentreId || existing?.costCentreId,
+      costCentreName: coreRequest.costCentreName || existing?.costCentreName,
+      createdBy: coreRequest.requestedBy || existing?.createdBy || "Field",
+      createdAt: existing?.createdAt || coreRequest.createdAt,
       status,
-    };
-  });
+    });
+  }
+
+  workflow.poRequests = Array.from(byId.values());
   return workflow;
 }
 
