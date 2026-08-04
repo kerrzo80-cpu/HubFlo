@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   calculateRoomHeatLoss,
+  ceilingTypes,
   dist,
   edgeLengths,
   edgeParam,
+  floorTypes,
   glazingTypes,
   insertVertexOnEdge,
   lShapePolygon,
@@ -14,14 +16,18 @@ import {
   movePlant,
   numberFromInput,
   openingOnEdge,
+  pickRadiatorForRoom,
   pipeStroke,
+  placeSurveyedRadiatorOnWall,
   plantFill,
   polygonBounds,
   roomPolygon,
   roomTypes,
   roomWallExterior,
+  surveyedEmitterGeom,
   syncRoomFromPolygon,
   translatePolygon,
+  wallTypes,
   wattsLabel,
   type FloorLevel,
   type HeatDesignRoom,
@@ -36,12 +42,13 @@ type FloorPlanCanvasProps = {
   selectedRoomId: string | null;
   activeFloor: FloorLevel;
   designExternalTemp?: number;
+  summary?: { heatLossW: number; floorAreaM2: number; roomCount: number };
   onSelectRoom: (roomId: string | null) => void;
   onPatchRoom: (roomId: string, patch: Partial<HeatDesignRoom>) => void;
   onDeleteRoom: (roomId: string) => void;
   onChangeFloor: (floor: FloorLevel) => void;
   onAddRoom?: () => void;
-  onPlaceRoom?: (roomType: string, planX: number, planY: number) => void;
+  onPlaceRoom?: (roomType: string, planX: number, planY: number, lengthM?: number, widthM?: number) => void;
   onReconcileWalls?: () => void;
   /** Chosen-system plant + pipework overlay */
   heatingLayout?: HeatingSystemLayout | null;
@@ -58,12 +65,13 @@ const BASE_SCALE = 90;
 const PAD = 56;
 const SNAP_M = 0.08;
 
-type PlaceTool = "window" | "door" | "rooflight" | null;
+type PlaceTool = "window" | "door" | "rooflight" | "radiator" | null;
 
 type DragState =
   | { mode: "move"; roomId: string; origin: PlanPoint[]; grab: PlanPoint }
   | { mode: "vertex"; roomId: string; index: number; polygon: PlanPoint[] }
   | { mode: "resize-rect"; roomId: string; corner: number; origin: PlanPoint[] }
+  | { mode: "draw-room"; roomType: string; start: PlanPoint; current: PlanPoint }
   | { mode: "opening"; roomId: string; openingId: string; wallIndex: number }
   | { mode: "plant"; plantId: string }
   | { mode: "pipe-point"; pipeId: string; pointIndex: number }
@@ -93,6 +101,7 @@ export function FloorPlanCanvas({
   selectedRoomId,
   activeFloor,
   designExternalTemp = -3,
+  summary,
   onSelectRoom,
   onPatchRoom,
   onDeleteRoom,
@@ -138,6 +147,12 @@ export function FloorPlanCanvas({
   const floorRooms = useMemo(
     () => rooms.filter((room) => (room.floorLevel ?? "ground") === activeFloor),
     [rooms, activeFloor],
+  );
+  const belowFloor: FloorLevel | null =
+    activeFloor === "first" ? "ground" : activeFloor === "second" ? "first" : activeFloor === "ground" ? "cellar" : null;
+  const ghostRooms = useMemo(
+    () => (belowFloor ? rooms.filter((room) => (room.floorLevel ?? "ground") === belowFloor) : []),
+    [rooms, belowFloor],
   );
 
   const floorPlants = useMemo(
@@ -269,6 +284,11 @@ export function FloorPlanCanvas({
 
     function onMove(event: PointerEvent) {
       const point = clientToMetres(event.clientX, event.clientY);
+      if (drag?.mode === "draw-room") {
+        setGuides({ x: [drag.start.x, point.x], y: [drag.start.y, point.y] });
+        setDrag({ ...drag, current: point });
+        return;
+      }
       if (drag?.mode === "plant" && heatingLayout && onPatchLayout) {
         onPatchLayout(movePlant(heatingLayout, drag.plantId, point.x, point.y));
         return;
@@ -390,7 +410,23 @@ export function FloorPlanCanvas({
     }
 
     function onUp() {
-      const shouldReconcile = drag?.mode === "move" || drag?.mode === "vertex" || drag?.mode === "resize-rect";
+      if (drag?.mode === "draw-room" && onPlaceRoom) {
+        const minX = Math.min(drag.start.x, drag.current.x);
+        const minY = Math.min(drag.start.y, drag.current.y);
+        const length = Math.abs(drag.current.x - drag.start.x);
+        const width = Math.abs(drag.current.y - drag.start.y);
+        if (length >= 0.9 && width >= 0.9) {
+          onPlaceRoom(drag.roomType, Math.max(0, minX), Math.max(0, minY), length, width);
+        } else {
+          onPlaceRoom(drag.roomType, Math.max(0, drag.start.x), Math.max(0, drag.start.y));
+        }
+        setPlaceRoomType(null);
+      }
+      const shouldReconcile =
+        drag?.mode === "move" ||
+        drag?.mode === "vertex" ||
+        drag?.mode === "resize-rect" ||
+        drag?.mode === "draw-room";
       setDrag(null);
       setGuides({ x: [], y: [] });
       if (shouldReconcile) onReconcileWalls?.();
@@ -474,8 +510,29 @@ export function FloorPlanCanvas({
     room: HeatDesignRoom,
     edgeIndex: number,
     point: PlanPoint,
-    kind: "window" | "door" | "rooflight",
+    kind: "window" | "door" | "rooflight" | "radiator",
   ) {
+    if (kind === "radiator") {
+      const polygon = roomPolygon(room);
+      const a = polygon[edgeIndex]!;
+      const b = polygon[(edgeIndex + 1) % polygon.length]!;
+      const t = edgeParam(a, b, point);
+      const rad = pickRadiatorForRoom(
+        { ...room, meanWaterTemperature: room.meanWaterTemperature || "45" },
+        designExternalTemp,
+      );
+      onPatchRoom(
+        room.id,
+        placeSurveyedRadiatorOnWall(
+          room,
+          edgeIndex,
+          t,
+          rad ? { id: rad.id, model: rad.model, outputWatts: rad.outputWatts } : null,
+        ),
+      );
+      setPlaceTool(null);
+      return;
+    }
     const polygon = roomPolygon(room);
     const a = polygon[edgeIndex]!;
     const b = polygon[(edgeIndex + 1) % polygon.length]!;
@@ -556,13 +613,14 @@ export function FloorPlanCanvas({
               </button>
             ))}
           </div>
-          <p className="hp-palette-label">Openings</p>
+          <p className="hp-palette-label">Openings & emitters</p>
           <div className="hp-palette-list hp-palette-row">
             {(
               [
                 ["window", "Window"],
                 ["door", "Door"],
                 ["rooflight", "Roof light"],
+                ["radiator", "Radiator"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -580,8 +638,8 @@ export function FloorPlanCanvas({
             ))}
           </div>
           <p className="hp-palette-hint">
-            Select a room type, then click the canvas to drop it. Snap rooms together — shared walls become internal
-            automatically.
+            Pick a room type, then click-drag on the canvas to draw it. Snap rooms together — shared walls go internal.
+            Drop windows, doors and radiators onto walls.
           </p>
         </aside>
 
@@ -700,8 +758,7 @@ export function FloorPlanCanvas({
             if (placeRoomType && onPlaceRoom && !layoutMode) {
               event.preventDefault();
               const point = clientToMetres(event.clientX, event.clientY);
-              onPlaceRoom(placeRoomType, Math.max(0, point.x - 1.75), Math.max(0, point.y - 1.6));
-              setPlaceRoomType(null);
+              setDrag({ mode: "draw-room", roomType: placeRoomType, start: point, current: point });
               return;
             }
             onSelectRoom(null);
@@ -709,7 +766,7 @@ export function FloorPlanCanvas({
             setSelectedOpeningId(null);
           }}
         >
-          <rect x={0} y={0} width={bounds.width} height={bounds.height} fill="#6d6d6d" />
+          <rect x={0} y={0} width={bounds.width} height={bounds.height} fill="#7a7a7a" />
           {Array.from({ length: Math.ceil(bounds.metresX - bounds.originX) + 2 }, (_, m) => {
             const gx = bounds.originX + m;
             return (
@@ -719,7 +776,7 @@ export function FloorPlanCanvas({
                 y1={PAD}
                 x2={px(gx)}
                 y2={bounds.height - PAD}
-                stroke="rgba(0,0,0,0.08)"
+                stroke="rgba(0,0,0,0.07)"
                 strokeWidth={1}
               />
             );
@@ -733,11 +790,41 @@ export function FloorPlanCanvas({
                 y1={py(gy)}
                 x2={bounds.width - PAD}
                 y2={py(gy)}
-                stroke="rgba(0,0,0,0.08)"
+                stroke="rgba(0,0,0,0.07)"
                 strokeWidth={1}
               />
             );
           })}
+
+          {ghostRooms.map((room) => {
+            const polygon = roomPolygon(room);
+            const pointsAttr = polygon.map((p) => `${px(p.x)},${py(p.y)}`).join(" ");
+            return (
+              <polygon
+                key={`ghost-${room.id}`}
+                points={pointsAttr}
+                fill="rgba(255,255,255,0.18)"
+                stroke="rgba(255,255,255,0.35)"
+                strokeWidth={2}
+                strokeDasharray="6 5"
+                style={{ pointerEvents: "none" }}
+              />
+            );
+          })}
+
+          {drag?.mode === "draw-room" ? (
+            <rect
+              x={px(Math.min(drag.start.x, drag.current.x))}
+              y={py(Math.min(drag.start.y, drag.current.y))}
+              width={Math.abs(px(drag.current.x) - px(drag.start.x))}
+              height={Math.abs(py(drag.current.y) - py(drag.start.y))}
+              fill="rgba(255,255,255,0.55)"
+              stroke="#e11d48"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+              style={{ pointerEvents: "none" }}
+            />
+          ) : null}
 
           {guides.x.map((x) => (
             <line
@@ -780,12 +867,13 @@ export function FloorPlanCanvas({
               <g key={room.id}>
                 <polygon
                   points={pointsAttr}
-                  fill="#f4f4f2"
+                  fill={isSelected ? "#eef6fb" : "#f7f7f5"}
                   stroke="none"
-                  style={{ cursor: layoutMode ? "default" : "grab" }}
+                  style={{ cursor: layoutMode ? "default" : placeRoomType ? "crosshair" : "grab" }}
                   onPointerDown={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
+                    if (placeRoomType) return;
                     onSelectRoom(room.id);
                     setSelectedEdge(null);
                     setSelectedPlantId(null);
@@ -804,8 +892,10 @@ export function FloorPlanCanvas({
                       y1={py(p.y)}
                       x2={px(q.x)}
                       y2={py(q.y)}
-                      stroke={isSelected && selectedEdge === i ? "#0ea5e9" : "#111"}
-                      strokeWidth={exterior[i] ? 10 : 3}
+                      stroke={
+                        isSelected && selectedEdge === i ? "#0ea5e9" : exterior[i] ? "#2c2c2c" : "#8d8d8d"
+                      }
+                      strokeWidth={exterior[i] ? (isSelected ? 11 : 9) : isSelected && selectedEdge === i ? 5 : 3}
                       strokeLinecap="square"
                       style={{ cursor: placeTool ? "crosshair" : "pointer" }}
                       onPointerDown={(event) => {
@@ -899,6 +989,40 @@ export function FloorPlanCanvas({
                   );
                 })}
 
+                {(room.surveyedEmitters ?? []).map((emitter) => {
+                  const geom = surveyedEmitterGeom(room, emitter);
+                  const w = geom.widthM * scale;
+                  const d = geom.depthM * scale;
+                  return (
+                    <g
+                      key={emitter.id}
+                      transform={`translate(${px(geom.x)}, ${py(geom.y)}) rotate(${geom.rotationDeg})`}
+                      style={{ pointerEvents: "none" }}
+                    >
+                      <rect
+                        x={-w / 2}
+                        y={-d / 2}
+                        width={w}
+                        height={d}
+                        rx={1.5}
+                        fill="#3f3f46"
+                        stroke="#fafafa"
+                        strokeWidth={1}
+                      />
+                      <text
+                        x={0}
+                        y={-d / 2 - 5}
+                        textAnchor="middle"
+                        fill="#27272a"
+                        fontSize={9}
+                        fontWeight={700}
+                      >
+                        RAD
+                      </text>
+                    </g>
+                  );
+                })}
+
                 {isSelected && !layoutMode
                   ? polygon.map((p, i) => {
                       const q = polygon[(i + 1) % polygon.length]!;
@@ -911,7 +1035,7 @@ export function FloorPlanCanvas({
                             y={py(mid.y) - labelOffset}
                             textAnchor="middle"
                             fill="#e11d48"
-                            fontSize={13}
+                            fontSize={12}
                             fontWeight={800}
                             style={{ pointerEvents: "none" }}
                           >
@@ -1442,10 +1566,56 @@ export function FloorPlanCanvas({
                   />
                 </label>
               </div>
+              <label className="hd-field">
+                Floor construction
+                <select
+                  value={selected.floorType}
+                  onChange={(event) => onPatchRoom(selected.id, { floorType: event.target.value })}
+                >
+                  {floorTypes.map((item) => (
+                    <option key={item.id}>{item.id}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="hd-field">
+                Ceiling / roof
+                <select
+                  value={selected.ceilingType}
+                  onChange={(event) => onPatchRoom(selected.id, { ceilingType: event.target.value })}
+                >
+                  {ceilingTypes.map((item) => (
+                    <option key={item.id}>{item.id}</option>
+                  ))}
+                </select>
+              </label>
+              {selectedEdge != null ? (
+                <>
+                  <p className="hp-palette-label">Selected wall {selectedEdge + 1}</p>
+                  <label className="hd-field">
+                    Wall material
+                    <select
+                      value={selected.wallType}
+                      onChange={(event) => onPatchRoom(selected.id, { wallType: event.target.value })}
+                    >
+                      {wallTypes.map((item) => (
+                        <option key={item.id}>{item.id}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="hp-palette-hint">
+                    {roomWallExterior(selected, selectedPoly.length)[selectedEdge]
+                      ? `Exterior · design outside ${designExternalTemp}°C`
+                      : "Internal — shared with adjoining room"}
+                  </p>
+                </>
+              ) : null}
               {selectedLoss ? (
                 <div className="hp-loss-breakdown">
                   <p>
-                    <strong>{wattsLabel(selectedLoss.watts)}</strong> total · {selectedLoss.floorArea.toFixed(1)} m²
+                    <strong>{wattsLabel(selectedLoss.watts)}</strong> total · {selectedLoss.floorArea.toFixed(1)} m² ·{" "}
+                    {selectedLoss.floorArea > 0
+                      ? `${Math.round(selectedLoss.watts / selectedLoss.floorArea)} W/m²`
+                      : "—"}
                   </p>
                   <ul>
                     <li>
@@ -1468,6 +1638,28 @@ export function FloorPlanCanvas({
                       <span>Ventilation</span>
                       <b>{wattsLabel(selectedLoss.ventilationLoss)}</b>
                     </li>
+                  </ul>
+                </div>
+              ) : null}
+              {(selected.surveyedEmitters ?? []).length ? (
+                <div className="hp-emitter-mini">
+                  <p className="hp-palette-label">Surveyed emitters</p>
+                  <ul>
+                    {(selected.surveyedEmitters ?? []).map((emitter) => (
+                      <li key={emitter.id}>
+                        <span>{emitter.label || "Radiator"}</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onPatchRoom(selected.id, {
+                              surveyedEmitters: (selected.surveyedEmitters ?? []).filter((item) => item.id !== emitter.id),
+                            })
+                          }
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
                   </ul>
                 </div>
               ) : null}
@@ -1540,10 +1732,34 @@ export function FloorPlanCanvas({
             </>
           ) : (
             <p className="hp-palette-hint">
-              Select a room to edit type, ACH, design temperature, and see the heat-loss breakdown — same flow as
-              HeatPunk.
+              Select a room to edit type, ACH, design temperature, and see the heat-loss breakdown.
             </p>
           )}
+          {summary ? (
+            <div className="hp-plan-totals">
+              <p className="hp-palette-label">Plan totals</p>
+              <div className="hp-plan-totals-grid">
+                <div>
+                  <span>Heat loss</span>
+                  <strong>{wattsLabel(summary.heatLossW)}</strong>
+                </div>
+                <div>
+                  <span>Floor area</span>
+                  <strong>{summary.floorAreaM2.toFixed(1)} m²</strong>
+                </div>
+                <div>
+                  <span>W / m²</span>
+                  <strong>
+                    {summary.floorAreaM2 > 0 ? Math.round(summary.heatLossW / summary.floorAreaM2) : "—"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Rooms</span>
+                  <strong>{summary.roomCount}</strong>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </aside>
       </div>
     </div>

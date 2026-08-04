@@ -189,13 +189,15 @@ export default function HeatDesignLabPage() {
     setTab("plan");
   }
 
-  function placeRoom(roomType: string, planX: number, planY: number) {
+  function placeRoom(roomType: string, planX: number, planY: number, lengthM?: number, widthM?: number) {
     setProject((current) => {
       if (!current) return current;
       const room = makeBlankRoom(current.rooms.length, {
         roomType,
         planX,
         planY,
+        length: lengthM,
+        width: widthM,
         floorLevel: current.activeFloor ?? "ground",
         withDefaultWindow: false,
       });
@@ -386,16 +388,17 @@ export default function HeatDesignLabPage() {
   ) || chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid";
 
   return (
-    <main className="hd-lab">
+    <main className={`hd-lab${tab === "plan" ? " is-plan-mode" : ""}`}>
       <div className="hd-shell">
         <header className="hd-topbar">
           <div className="hd-brand">
-            <div className="hd-brand-kicker">Standalone · link to Core jobs</div>
+            <div className="hd-brand-kicker">NeXa Heat Design</div>
             <h1>Heat Design</h1>
-            <p>
-              HeatPunk-style floor plan: place rooms, openings and materials, then size the system and push kit to a Core
-              job.
-            </p>
+            {tab !== "plan" ? (
+              <p>
+                Room-by-room heat loss, emitters and system kit — draw the house, then size the heating.
+              </p>
+            ) : null}
           </div>
           <div className="hd-top-actions">
             <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
@@ -443,8 +446,8 @@ export default function HeatDesignLabPage() {
           ))}
         </nav>
 
-        <div className="hd-layout">
-          <section className="hd-panel">
+        <div className={`hd-layout${tab === "plan" ? " is-plan" : ""}`}>
+          <section className={`hd-panel${tab === "plan" ? " is-plan-panel" : ""}`}>
             {tab === "project" ? (
               <>
                 <h2>Project</h2>
@@ -599,6 +602,19 @@ export default function HeatDesignLabPage() {
                   selectedRoomId={selectedRoomId}
                   activeFloor={project.activeFloor ?? "ground"}
                   designExternalTemp={project.designExternalTemp}
+                  summary={{
+                    heatLossW: design.totalHeatLossW,
+                    floorAreaM2: project.rooms.reduce(
+                      (sum, room) =>
+                        sum +
+                        calculateRoomHeatLoss(
+                          { ...room, meanWaterTemperature: String(project.flowTemperature) },
+                          project.designExternalTemp,
+                        ).floorArea,
+                      0,
+                    ),
+                    roomCount: project.rooms.length,
+                  }}
                   onSelectRoom={setSelectedRoomId}
                   onPatchRoom={patchRoom}
                   onDeleteRoom={removeRoom}
@@ -1293,7 +1309,7 @@ export default function HeatDesignLabPage() {
             />
           </section>
 
-          <aside className="hd-sticky">
+          <aside className={`hd-sticky${tab === "plan" ? " is-hidden-on-plan" : ""}`}>
             <section className="hd-panel">
               <h2>Design snapshot</h2>
               <p className="hd-lead">
