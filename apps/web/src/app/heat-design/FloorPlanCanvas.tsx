@@ -1498,12 +1498,12 @@ export function FloorPlanCanvas({
       ) : null}
       {placeRoomType ? (
         <p className="hp-canvas-hint">
-          Placement mode: <strong>{placeRoomType}</strong> — click the canvas to drop the room.
+          Draw room: <strong>{placeRoomType}</strong> — click and drag on the canvas to size it.
         </p>
       ) : null}
       {placeTool ? (
         <p className="hp-canvas-hint">
-          Placement mode: <strong>{placeTool}</strong> — click any wall on the selected room.
+          Placement mode: <strong>{placeTool}</strong> — click a wall on the selected room.
         </p>
       ) : null}
       {selected && selectedEdge != null && !layoutMode ? (
