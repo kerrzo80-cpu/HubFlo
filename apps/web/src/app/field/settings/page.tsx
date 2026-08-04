@@ -57,7 +57,7 @@ export default function SettingsPage() {
           <Smartphone size={20} />
         </div>
         <p>
-          NeXa Field is a web app you can install like a real app today. Store-listed native shells (Capacitor) come next —
+          EWG Field is a web app you can install like a real app today. Store-listed native shells (Capacitor) come next —
           same Field screens, wrapped for the App Store and Play Store.
         </p>
         <ol className="settings-install-steps">
@@ -70,7 +70,7 @@ export default function SettingsPage() {
             <a href={fieldPath("/")}>/field</a> in Chrome → menu → <em>Install app</em> / <em>Add to Home screen</em>.
           </li>
           <li>
-            Use the home-screen icon for My Day, Ask Blake Talk, and Hours — it opens full-screen without browser chrome.
+            Use the home-screen icon for My Day, Ask Blake, and Hours — it opens full-screen without browser chrome.
           </li>
         </ol>
         <p className="settings-note">

@@ -50,8 +50,9 @@
 }
 
 .field-topbar img {
-  height: 34px;
-  width: 34px;
+  height: 40px;
+  width: auto;
+  max-width: 72px;
   object-fit: contain;
 }
 
@@ -76,7 +77,7 @@
   border-radius: 22px;
   bottom: 14px;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   left: 16px;
   padding: 6px;
   position: fixed;
@@ -703,6 +704,16 @@
 }
 
 .ask-blake-preview img {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: block;
+  height: 88px;
+  object-fit: cover;
+  width: 88px;
+}
+
+.ask-blake-preview video {
+  background: #111;
   border: 1px solid var(--line);
   border-radius: 14px;
   display: block;
@@ -1420,4 +1431,68 @@
 .settings-note {
   font-size: 12px !important;
   margin: 0;
+}
+
+.field-outcome-actions,
+.field-po-form {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.field-outcome-buttons,
+.field-upload-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.field-upload-row {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.ghost-btn {
+  align-items: center;
+  background: var(--mist);
+  border: 0;
+  border-radius: 14px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 700;
+  gap: 8px;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 14px;
+}
+
+.field-po-form strong {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.field-po-form textarea,
+.field-outcome-actions textarea,
+.field-po-form input {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font: inherit;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.file-row small {
+  display: block;
+  margin-top: 4px;
+}
+
+@media (max-width: 420px) {
+  .field-outcome-buttons,
+  .field-upload-row {
+    grid-template-columns: 1fr;
+  }
 }
