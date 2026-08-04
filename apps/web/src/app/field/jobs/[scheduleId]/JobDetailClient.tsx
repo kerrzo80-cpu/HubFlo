@@ -1300,7 +1300,14 @@ export default function JobDetailPage() {
               ))}
             </div>
           ) : null}
+        </div>
+      ) : null}
 
+      {tab === "po" ? (
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>
+            Request materials against this job. Pick a supplier from Core, say what you need, and office raises the PO.
+          </p>
           <form className="field-po-form" onSubmit={(event) => void submitPoRequest(event)}>
             <strong>
               <ShoppingCart size={16} /> Request PO
@@ -1388,7 +1395,9 @@ export default function JobDetailPage() {
                 </div>
               ))}
             </div>
-          ) : null}
+          ) : (
+            <p className="muted">No PO requests on this job yet.</p>
+          )}
         </div>
       ) : null}
     </main>
