@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getEngineerSchedule } from "@/lib/engineer-data";
 import { resolveFieldEngineerId } from "@/lib/field/field-scope";
 import { withLiveFieldDates } from "@/lib/field/nexa/from-core";
-import { getPurchaseRequests } from "@/lib/workflow-data";
+import { getPurchaseRequests, isoDateFromWorkflowTimestamp } from "@/lib/workflow-data";
 
 export const runtime = "nodejs";
 
@@ -19,6 +19,7 @@ export type FieldPoAlert = {
   poNumber?: string;
   createdAt: string;
   updatedAt?: string;
+  statusChangedOn: string;
   title: string;
   detail: string;
 };
@@ -33,54 +34,62 @@ function fieldStatusLabel(status: string) {
   return status;
 }
 
+function alertDayForRequest(request: {
+  statusChangedOn?: string;
+  updatedAt?: string;
+  createdAt: string;
+  status: string;
+}) {
+  if (request.statusChangedOn && /^\d{4}-\d{2}-\d{2}$/.test(request.statusChangedOn)) {
+    return request.statusChangedOn;
+  }
+  return (
+    isoDateFromWorkflowTimestamp(request.updatedAt) ||
+    isoDateFromWorkflowTimestamp(request.createdAt) ||
+    ""
+  );
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const date = url.searchParams.get("date") || undefined;
+  const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
   const engineerId = resolveFieldEngineerId(request.headers, url.searchParams.get("engineerId") ?? undefined);
-  const schedule = withLiveFieldDates(getEngineerSchedule(engineerId)).filter((item) =>
-    date ? item.date === date : true,
-  );
-  const jobIds = new Set(schedule.map((item) => item.jobId).filter(Boolean));
-  const jobRefs = new Set(schedule.map((item) => item.jobRef).filter(Boolean));
-
-  // Also include recent POs for this engineer even if not on today's diary.
   const allSchedule = withLiveFieldDates(getEngineerSchedule(engineerId));
   const engineerJobIds = new Set(allSchedule.map((item) => item.jobId).filter(Boolean));
   const engineerJobRefs = new Set(allSchedule.map((item) => item.jobRef).filter(Boolean));
 
   const alerts: FieldPoAlert[] = getPurchaseRequests()
     .filter(
-      (request) =>
-        jobIds.has(request.jobId) ||
-        jobRefs.has(request.jobRef) ||
-        engineerJobIds.has(request.jobId) ||
-        engineerJobRefs.has(request.jobRef),
+      (item) => engineerJobIds.has(item.jobId) || engineerJobRefs.has(item.jobRef),
     )
-    .filter((request) => request.status !== "Requested" && request.status !== "Draft")
-    .map((request) => {
-      const job =
-        schedule.find((item) => item.jobId === request.jobId || item.jobRef === request.jobRef) ||
-        allSchedule.find((item) => item.jobId === request.jobId || item.jobRef === request.jobRef);
-      const label = fieldStatusLabel(request.status);
+    // Only surface status changes — not open drafts / waiting requests.
+    .filter((item) => item.status !== "Requested" && item.status !== "Draft")
+    // Show on the approval / status-change day only, then drop off following days.
+    .filter((item) => alertDayForRequest(item) === date)
+    .map((item) => {
+      const job = allSchedule.find((row) => row.jobId === item.jobId || row.jobRef === item.jobRef);
+      const label = fieldStatusLabel(item.status);
+      const statusChangedOn = alertDayForRequest(item);
       return {
-        id: `po-alert-${request.id}-${request.status}`,
+        id: `po-alert-${item.id}-${item.status}-${statusChangedOn}`,
         kind: "po_status" as const,
         scheduleId: job?.scheduleId || "",
-        jobRef: request.jobRef,
-        customer: job?.customer || request.jobRef,
-        supplier: request.supplier,
-        status: request.status,
-        note: request.reason || request.item || "",
-        poNumber: request.poNumber || undefined,
-        createdAt: request.createdAt,
-        updatedAt: request.updatedAt,
+        jobRef: item.jobRef,
+        customer: job?.customer || item.jobRef,
+        supplier: item.supplier,
+        status: item.status,
+        note: item.reason || item.item || "",
+        poNumber: item.poNumber || undefined,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        statusChangedOn,
         title:
-          request.status === "Approved"
+          item.status === "Approved"
             ? "PO approved"
-            : request.status === "Rejected"
+            : item.status === "Rejected"
               ? "PO rejected"
               : `PO ${label.toLowerCase()}`,
-        detail: `${request.jobRef} · ${request.supplier}${request.poNumber ? ` · ${request.poNumber}` : ""}`,
+        detail: `${item.jobRef} · ${item.supplier}${item.poNumber ? ` · ${item.poNumber}` : ""}`,
       };
     })
     .sort((first, second) =>
@@ -88,5 +97,5 @@ export async function GET(request: Request) {
     )
     .slice(0, 12);
 
-  return NextResponse.json({ alerts });
+  return NextResponse.json({ alerts, date });
 }

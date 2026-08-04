@@ -109,6 +109,8 @@ export interface PurchaseRequest {
   supplierInvoiceRef?: string;
   receivedAt?: string;
   updatedAt?: string;
+  /** ISO date (YYYY-MM-DD) when status last changed — used for Field day alerts. */
+  statusChangedOn?: string;
   xeroBillId?: string;
   xeroBillNumber?: string;
   xeroExportedAt?: string;
@@ -390,6 +392,30 @@ function workflowStoreTimestamp() {
       minute: "2-digit",
     })
     .replace(",", "");
+}
+
+function isoDateToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** Best-effort parse of workflow timestamps like "04 Aug 2026 15:30" into YYYY-MM-DD. */
+export function isoDateFromWorkflowTimestamp(value?: string) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const match = raw.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+  if (!match) return "";
+  const day = Number(match[1]);
+  const year = Number(match[3]);
+  const months: Record<string, number> = {
+    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+  };
+  const month = months[match[2] || ""];
+  if (month === undefined || !day || !year) return "";
+  const date = new Date(Date.UTC(year, month, day));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
 }
 
 function purchaseStatusIssuesPoNumber(status: PurchaseStatus) {
@@ -772,6 +798,8 @@ export function updatePurchaseRequest(
       ? patch.estimatedCost ?? current.estimatedCost
       : current.actualCost);
   const timestamp = workflowStoreTimestamp();
+  const statusChanged =
+    patch.status !== undefined && patch.status !== current.status;
 
   store.purchaseRequests[index] = {
     ...current,
@@ -783,6 +811,9 @@ export function updatePurchaseRequest(
     invoiceReceivedAt: patch.invoiceReceivedAt ?? (status === "Received" ? current.invoiceReceivedAt ?? timestamp : current.invoiceReceivedAt),
     receivedAt: patch.receivedAt ?? (status === "Received" ? current.receivedAt ?? timestamp : current.receivedAt),
     updatedAt: patch.updatedAt ?? timestamp,
+    statusChangedOn: statusChanged
+      ? patch.statusChangedOn || isoDateToday()
+      : patch.statusChangedOn ?? current.statusChangedOn,
   };
   persistWorkflowStore();
   return clone(store.purchaseRequests[index]);
