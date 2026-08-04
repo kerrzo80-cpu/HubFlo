@@ -12026,7 +12026,6 @@ export default function Dashboard() {
     ],
     [dashboardVariationApprovals, overdueTimesheetJobs],
   );
-  const highPriorityOfficeAlerts = officeAlerts.filter((alert) => alert.priority === "High").length;
   const officeExceptionCards = useMemo(
     () => [
       {
