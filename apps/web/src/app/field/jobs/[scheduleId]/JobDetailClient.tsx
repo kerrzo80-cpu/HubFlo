@@ -944,7 +944,7 @@ export default function JobDetailPage() {
 
       <div className="tabs" role="tablist" aria-label="Job details">
         <button type="button" className={tab === "pack" ? "active" : undefined} onClick={() => setTab("pack")}>
-          <Layers size={15} /> Pack
+          <Layers size={15} /> Job info
         </button>
         <button type="button" className={tab === "checklist" ? "active" : undefined} onClick={() => setTab("checklist")}>
           <ClipboardCheck size={15} /> Checklist
