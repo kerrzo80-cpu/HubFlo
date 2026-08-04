@@ -37329,3 +37329,123 @@ kbd,
   font-size: 12px;
   font-weight: 600;
 }
+
+/* ---- Clickable KPI ops widgets (match top overview cards) ---- */
+button.nexa-kpi-card,
+.nexa-kpi-card-button {
+  appearance: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.nexa-kpi-card-button:focus-visible,
+.nexa-kpi-action-row:focus-visible,
+.nexa-kpi-bar-row-click:focus-visible {
+  outline: 2px solid #006eb8;
+  outline-offset: 2px;
+}
+
+.nexa-ops-kpi-grid {
+  margin-bottom: 18px;
+}
+
+.nexa-ops-kpi-grid > .dashboard-panel-slot {
+  display: contents;
+}
+
+.nexa-ops-kpi-grid > .dashboard-panel-slot.editing {
+  display: grid;
+  gap: 8px;
+}
+
+.nexa-kpi-card-hint {
+  color: var(--subtle);
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.nexa-kpi-card-actions {
+  gap: 12px;
+}
+
+.nexa-kpi-card-hit {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.nexa-kpi-action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.nexa-kpi-action-row {
+  align-items: center;
+  appearance: none;
+  background: #f7fafc;
+  border: 1px solid var(--line-soft);
+  border-left: 3px solid #98a2b3;
+  border-radius: 12px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  font: inherit;
+  gap: 10px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  padding: 10px 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.nexa-kpi-action-row:hover {
+  background: #eef6fb;
+}
+
+.nexa-kpi-action-row.red { border-left-color: #f04438; }
+.nexa-kpi-action-row.amber { border-left-color: #f79009; }
+.nexa-kpi-action-row.green { border-left-color: #12b76a; }
+
+.nexa-kpi-action-row > strong {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.nexa-kpi-action-row span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.nexa-kpi-action-row b {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.nexa-kpi-action-row small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.nexa-kpi-bar-row-click {
+  border-radius: 8px;
+  cursor: pointer;
+  margin: 0 -4px;
+  padding: 4px;
+}
+
+.nexa-kpi-bar-row-click:hover {
+  background: rgba(0, 110, 184, 0.06);
+}

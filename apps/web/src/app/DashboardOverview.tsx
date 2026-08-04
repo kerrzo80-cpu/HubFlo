@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type AnyRecord = Record<string, unknown>;
 
@@ -170,7 +170,13 @@ function Bars({ data, money = false }: { data: Array<{ label: string; value: num
   );
 }
 
-export function DashboardOverview() {
+type DashboardOverviewProps = {
+  onOpenJobs?: () => void;
+  onOpenQuotes?: () => void;
+  onOpenLeads?: () => void;
+};
+
+export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: DashboardOverviewProps = {}) {
   const [jobs, setJobs] = useState<AnyRecord[]>([]);
   const [quotes, setQuotes] = useState<AnyRecord[]>([]);
   const [leads, setLeads] = useState<AnyRecord[]>([]);
@@ -264,7 +270,6 @@ export function DashboardOverview() {
       };
     }
 
-    // Fall back to overall job completion when nothing is booked this week.
     const done = jobs.filter((job) => DONE_STATUSES.has(str(job, "status"))).length;
     return {
       title: "Completion",
@@ -281,9 +286,26 @@ export function DashboardOverview() {
     return null;
   }
 
+  const Card = ({
+    children,
+    onClick,
+    label,
+  }: {
+    children: ReactNode;
+    onClick?: () => void;
+    label: string;
+  }) =>
+    onClick ? (
+      <button className="nexa-kpi-card nexa-kpi-card-button" type="button" onClick={onClick} aria-label={label}>
+        {children}
+      </button>
+    ) : (
+      <article className="nexa-kpi-card">{children}</article>
+    );
+
   return (
     <section className="nexa-kpi-grid" aria-label="Workspace overview">
-      <article className="nexa-kpi-card">
+      <Card onClick={onOpenJobs} label="Open jobs">
         <header>
           <h3>Job health</h3>
           <span className="nexa-kpi-sub">{healthTotal} live</span>
@@ -309,49 +331,56 @@ export function DashboardOverview() {
             </li>
           </ul>
         </div>
-      </article>
+      </Card>
 
-      <article className="nexa-kpi-card">
+      <Card onClick={onOpenJobs} label="Open jobs this week">
         <header>
           <h3>{progress.title}</h3>
           <span className="nexa-kpi-sub">{progress.badge}</span>
         </header>
         <Ring percent={progress.percent} centerLabel={`${progress.percent}%`} sub={progress.sub} />
-      </article>
+      </Card>
 
-      <article className="nexa-kpi-card">
+      <Card
+        onClick={() => {
+          if (leads.length && onOpenLeads) onOpenLeads();
+          else if (onOpenQuotes) onOpenQuotes();
+          else onOpenJobs?.();
+        }}
+        label="Open pipeline"
+      >
         <header>
           <h3>Pipeline</h3>
           <span className="nexa-kpi-sub">lead → quote → job</span>
         </header>
         <Bars data={pipeline} />
-      </article>
+      </Card>
 
-      <article className="nexa-kpi-card">
+      <Card onClick={onOpenJobs} label="Open jobs by stage">
         <header>
           <h3>Jobs by stage</h3>
           <span className="nexa-kpi-sub">{jobs.length} total</span>
         </header>
         <Bars data={jobsByStage} />
-      </article>
+      </Card>
 
-      <article className="nexa-kpi-card">
+      <Card onClick={onOpenQuotes} label="Open quotes">
         <header>
           <h3>Quotes by status</h3>
           <span className="nexa-kpi-sub">{quotes.length} total</span>
         </header>
         <Bars data={quotesByStatus} />
-      </article>
+      </Card>
 
-      <article className="nexa-kpi-card">
+      <Card onClick={onOpenJobs} label="Open workload">
         <header>
           <h3>Workload</h3>
           <span className="nexa-kpi-sub">jobs per owner</span>
         </header>
         <Bars data={workload} />
-      </article>
+      </Card>
 
-      <article className="nexa-kpi-card">
+      <Card onClick={onOpenQuotes} label="Open live value">
         <header>
           <h3>Live value</h3>
           <span className="nexa-kpi-sub">workspace</span>
@@ -367,7 +396,7 @@ export function DashboardOverview() {
             { label: "Open quotes", value: value.openValue },
           ]}
         />
-      </article>
+      </Card>
     </section>
   );
 }
