@@ -335,7 +335,7 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       evidence: "Text",
       required: true,
       formField: "labourDaysJson",
-      validation: { minLength: 2, helpText: "One or more days with hours.", placeholder: "JSON labour days" },
+      validation: { minLength: 2, helpText: "Use the Daywork sheet Mon–Sun hours grid.", placeholder: "Mon–Sun hours" },
     },
     {
       id: "daywork-materials",
@@ -344,7 +344,7 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       evidence: "Text",
       required: false,
       formField: "materialsJson",
-      validation: { helpText: "Multiple materials with quantities.", placeholder: "JSON materials" },
+      validation: { helpText: "Use the Daywork sheet materials list (description + qty).", placeholder: "Materials list" },
     },
     {
       id: "daywork-plant",
@@ -353,7 +353,7 @@ export const dayworkAccountFlowTemplate: EngineerFlowTemplate = {
       evidence: "Text",
       required: false,
       formField: "plantJson",
-      validation: { helpText: "Multiple plant items with quantities.", placeholder: "JSON plant" },
+      validation: { helpText: "Use the Daywork sheet plant list (description + qty).", placeholder: "Plant list" },
     },
     {
       id: "daywork-plumber-name",

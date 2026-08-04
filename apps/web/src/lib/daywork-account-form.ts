@@ -264,26 +264,51 @@ function formatLabourDays(record: DayworkAccountRecord | null | undefined) {
   const days = parseDayworkLabourDays(record?.labourDaysJson);
   if (!days.length) return record?.labourHours ? `${record.labourHours} hrs` : "";
   return days
-    .filter((row) => row.day || row.hours)
+    .filter((row) => Number(String(row.hours || "").replace(/[^0-9.]/g, "")) > 0)
     .map((row) => `${row.day || "Day"} ${row.hours || "0"}h`)
     .join(" · ");
 }
 
-function formatLineItems(value?: string) {
+function formatLineItems(value?: string, options?: { includePrices?: boolean }) {
   const items = parseDayworkLineItems(value);
   if (!items.length) return "";
+  const includePrices = Boolean(options?.includePrices);
   return items
     .filter((item) => item.description || item.qty)
     .map((item) => {
+      const qtyBit = item.qty ? ` × ${item.qty}` : "";
+      if (!includePrices) return `${item.description || "Item"}${qtyBit}`;
       const amount = dayworkLineAmount(item);
       const unit = parseMoney(item.unitCost);
       const priced =
         unit > 0
           ? ` @ ${money(unit)}${amount ? ` = ${money(amount)}` : ""}`
           : "";
-      return `${item.description || "Item"}${item.qty ? ` × ${item.qty}` : ""}${priced}`;
+      return `${item.description || "Item"}${qtyBit}${priced}`;
     })
     .join("; ");
+}
+
+/** Human summary for Field checklist — never dump raw JSON or £ values. */
+export function formatFieldDayworkEvidenceSummary(label: string, raw: string): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const lower = label.toLowerCase();
+  if (text.startsWith("[") || text.startsWith("{")) {
+    if (lower.includes("labour") || lower.includes("hours")) {
+      const days = parseDayworkLabourDays(text);
+      if (days.length) {
+        const worked = days.filter((row) => Number(String(row.hours || "").replace(/[^0-9.]/g, "")) > 0);
+        if (!worked.length) return "No hours entered";
+        return worked.map((row) => `${row.day || "Day"} ${row.hours}h`).join(" · ");
+      }
+    }
+    if (lower.includes("material") || lower.includes("plant")) {
+      const summary = formatLineItems(text, { includePrices: false });
+      if (summary) return summary;
+    }
+  }
+  return text;
 }
 
 export type DayworkAccountContext = {
@@ -339,14 +364,14 @@ export function buildDayworkFormSections(context: DayworkAccountContext): Daywor
     {
       section: "Materials",
       rows: [
-        row("materials", "Materials used", formatLineItems(record?.materialsJson)),
+        row("materials", "Materials used", formatLineItems(record?.materialsJson, { includePrices: true })),
         row("materialsCost", "Materials total", money(totals.materials) || "Set unit prices in Core"),
       ],
     },
     {
       section: "Plant",
       rows: [
-        row("plant", "Plant used", formatLineItems(record?.plantJson)),
+        row("plant", "Plant used", formatLineItems(record?.plantJson, { includePrices: true })),
         row("plantCost", "Plant total", money(totals.plant) || "Set unit prices in Core"),
       ],
     },

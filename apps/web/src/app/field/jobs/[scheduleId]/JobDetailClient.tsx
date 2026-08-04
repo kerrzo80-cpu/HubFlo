@@ -10,6 +10,7 @@ import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import {
   dayworkSheetListLabel,
+  formatFieldDayworkEvidenceSummary,
   sortDayworkSheetsByNumber,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
@@ -22,6 +23,15 @@ type FieldDayworkSheet = DayworkAccountRecord & { costCentreId?: string; updated
 
 function isDayworkSigned(sheet: FieldDayworkSheet) {
   return Boolean(String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim());
+}
+
+function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
+  return requirements.some(
+    (item) =>
+      item.id.startsWith("daywork-") ||
+      item.stage === "Daywork" ||
+      /labour|materials|plant|week ending|variation/i.test(item.label),
+  );
 }
 
 type Tab = "pack" | "checklist" | "photos";
@@ -93,11 +103,11 @@ function validateRequirementDraft(item: FieldRequirement, draft: DraftValue): st
 }
 
 function doneSummary(item: FieldRequirement) {
-  const parts = [
-    item.validation?.inputKind === "date" ? toUkDateDisplay(item.value?.text) : item.value?.text,
-    item.value?.numberValue,
-    item.value?.photoName,
-  ]
+  const textRaw =
+    item.validation?.inputKind === "date"
+      ? toUkDateDisplay(item.value?.text)
+      : formatFieldDayworkEvidenceSummary(item.label, item.value?.text || "");
+  const parts = [textRaw, item.value?.numberValue, item.value?.photoName]
     .map((part) => String(part || "").trim())
     .filter(Boolean);
   return parts.join(" · ");
@@ -175,12 +185,23 @@ export default function JobDetailPage() {
         if (client.getConnection().mode === "nexa") {
           const response = await fetch(
             `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/requirements`,
+            { credentials: "include", cache: "no-store" },
           );
+          let serverChecklistMode: "job" | "daywork" = "job";
+          let serverDayworkCostCentreId = "";
           if (response.ok) {
-            const body = (await response.json()) as { requirements?: FieldRequirement[] };
+            const body = (await response.json()) as {
+              requirements?: FieldRequirement[];
+              checklistMode?: "job" | "daywork";
+              dayworkCostCentreId?: string | null;
+            };
             if (!cancelled && body.requirements?.length) {
               setJob({ ...item, requirements: body.requirements });
             }
+            if (body.checklistMode === "daywork" || requirementsLookLikeDaywork(body.requirements || [])) {
+              serverChecklistMode = "daywork";
+            }
+            serverDayworkCostCentreId = String(body.dayworkCostCentreId || "").trim();
           }
           const dayworkResponse = await fetch(
             `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/daywork?list=1`,
@@ -191,6 +212,14 @@ export default function JobDetailPage() {
             if (!cancelled && Array.isArray(dayworkBody.sheets)) {
               setDayworkSheets(dayworkBody.sheets);
             }
+          }
+          // Reloading used to drop into the raw checklist (JSON blobs). Always reopen the sheet form.
+          if (!cancelled && serverChecklistMode === "daywork") {
+            await openDayworkSheet({
+              job: item,
+              costCentreId: serverDayworkCostCentreId || undefined,
+              quiet: true,
+            });
           }
         }
       } catch (loadError) {
@@ -220,13 +249,19 @@ export default function JobDetailPage() {
     setNotice("");
   }
 
-  async function openDayworkSheet(options?: { fresh?: boolean; costCentreId?: string }) {
-    if (!job) return;
+  async function openDayworkSheet(options?: {
+    fresh?: boolean;
+    costCentreId?: string;
+    quiet?: boolean;
+    job?: FieldScheduleItem;
+  }) {
+    const activeJob = options?.job || job;
+    if (!activeJob) return;
     setDayworkBusy(true);
     setError("");
-    setNotice("");
+    if (!options?.quiet) setNotice("");
     try {
-      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(activeJob.scheduleId)}/daywork`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -253,19 +288,19 @@ export default function JobDetailPage() {
       setDayworkCostCentreId(body.costCentreId || options?.costCentreId || "");
       if (body.sheets) setDayworkSheets(body.sheets);
       if (body.requirements) {
-        setJob((current) =>
-          current
-            ? {
-                ...current,
-                requirements: body.requirements!,
-                costCentre: body.costCentreName || "Daywork account",
-              }
-            : current,
-        );
+        setJob((current) => {
+          const base = current || activeJob;
+          return {
+            ...base,
+            requirements: body.requirements!,
+            costCentre: body.costCentreName || "Daywork account",
+          };
+        });
       }
+      if (options?.quiet) return;
       const openedLabel =
         body.costCentreId || options?.costCentreId
-          ? dayworkSheetListLabel(job.jobId, body.costCentreId || options?.costCentreId || "")
+          ? dayworkSheetListLabel(activeJob.jobId, body.costCentreId || options?.costCentreId || "")
           : "Daywork";
       setNotice(
         options?.fresh
@@ -650,7 +685,24 @@ export default function JobDetailPage() {
               </p>
               {error ? <div className="feedback error">{error}</div> : null}
               {notice ? <div className="feedback">{notice}</div> : null}
-              {job.requirements.map((item) => {
+              {requirementsLookLikeDaywork(job.requirements) ? (
+                <div className="soft-block">
+                  <strong>Daywork sheet available</strong>
+                  <p className="muted">
+                    Hours and materials are edited on the Daywork form — not as raw checklist text.
+                  </p>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    disabled={dayworkBusy}
+                    onClick={() => void openDayworkSheet()}
+                    style={{ marginTop: 8 }}
+                  >
+                    Open Daywork form
+                  </button>
+                </div>
+              ) : null}
+              {job.requirements.filter((item) => !item.id.startsWith("daywork-") && item.stage !== "Daywork").map((item) => {
             const evidenceType = evidenceTypeOf(item);
             const draft = draftByRequirement[item.id] || {};
             const summary = doneSummary(item);
