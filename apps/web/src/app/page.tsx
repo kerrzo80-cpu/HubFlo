@@ -42004,7 +42004,7 @@ export default function Dashboard() {
                           <small>
                             {simproSyncStatus?.configured
                               ? integrationSettings.simproMode === "Two-way sync"
-                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Import scope: open quotes; pending/progress/complete jobs (with cost centres + schedules); latest 30 unpaid invoices only.`
+                                ? `Direct API ready at ${simproSyncStatus.endpoint}. Import scope: open quotes; pending/progress/complete jobs (with cost centres + schedules); latest 30 unpaid invoices only. Apply Quotes again to refresh headers + cost centres from simPRO detail.`
                                 : `Direct API ready at ${simproSyncStatus.endpoint}. Inbound imports are paused while NeXa stays the live front end.`
                               : `Direct API not ready: ${simproSyncStatus?.missing.join(", ") || simproBridgeStatus.missing.join(", ") || "SIMPRO_ credentials missing"}.`}
                           </small>

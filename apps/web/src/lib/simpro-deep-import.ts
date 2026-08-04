@@ -34,6 +34,8 @@ export type DeepImportResult = {
   stats?: HierarchyStats;
   scheduleCount?: number;
   detail?: string;
+  /** Full simPRO record after section/cost-centre hydration — used to patch NeXa headers. */
+  record?: UnknownRecord;
 };
 
 function cloneRecordMap(value: unknown): Record<string, unknown> {
@@ -43,6 +45,85 @@ function cloneRecordMap(value: unknown): Record<string, unknown> {
 
 function cloneList(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : [];
+}
+
+function costCentersFromSection(section: UnknownRecord): UnknownRecord[] {
+  if (Array.isArray(section.CostCenters)) {
+    return section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  }
+  if (Array.isArray(section.CostCentres)) {
+    return section.CostCentres.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  }
+  return [];
+}
+
+function centreHasLineItems(centre: UnknownRecord): boolean {
+  const items = asRecord(centre.Items) ?? centre;
+  return [
+    items.Labors,
+    items.Labours,
+    items.Labor,
+    items.Labour,
+    items.Catalogs,
+    items.Catalogues,
+    items.Catalogue,
+    items.Materials,
+    items.OneOffs,
+    items.Oneoffs,
+    items.Prebuilds,
+    items.ServiceFees,
+    items.Items,
+  ].some((bag) => Array.isArray(bag) && bag.length > 0);
+}
+
+async function fetchPagedSimproList(
+  config: Awaited<ReturnType<typeof getSimproReadConfig>>,
+  basePath: string,
+  options?: { pageSize?: number; maxPages?: number },
+) {
+  const pageSize = options?.pageSize ?? 250;
+  const maxPages = options?.maxPages ?? 40;
+  const collected: UnknownRecord[] = [];
+  const seen = new Set<string>();
+  const joiner = basePath.includes("?") ? "&" : "?";
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const result = await simproGet(config, `${basePath}${joiner}pageSize=${pageSize}&page=${page}`, {
+      maxRetries: 1,
+    });
+    if (!result.ok) break;
+    const records = extractSimproRecords(result.body);
+    for (const record of records) {
+      const id = simproRecordId(record) || JSON.stringify(record);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      collected.push(record);
+    }
+    const totalPages = Number(result.headers["result-pages"] || 0);
+    if (records.length < pageSize) break;
+    if (totalPages > 0 && page >= totalPages) break;
+  }
+
+  return collected;
+}
+
+async function fetchSectionCostCenters(
+  config: Awaited<ReturnType<typeof getSimproReadConfig>>,
+  entity: "quotes" | "jobs",
+  externalId: string,
+  sectionId: string,
+) {
+  const paths = [
+    `/${entity}/${externalId}/sections/${sectionId}/costCenters/?display=all`,
+    `/${entity}/${externalId}/sections/${sectionId}/costCenters/`,
+    `/${entity}/${externalId}/sections/${sectionId}/costCentres/?display=all`,
+    `/${entity}/${externalId}/sections/${sectionId}/costCentres/`,
+  ];
+  for (const path of paths) {
+    const listed = await fetchPagedSimproList(config, path, { pageSize: 100, maxPages: 20 });
+    if (listed.length) return listed;
+  }
+  return [];
 }
 
 async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
@@ -62,68 +143,38 @@ async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
     : [];
 
   if (!sections.length) {
-    const sectionsResult = await simproGet(config, `/${entity}/${externalId}/sections/?pageSize=50`, {
-      maxRetries: 1,
+    sections = await fetchPagedSimproList(config, `/${entity}/${externalId}/sections/`, {
+      pageSize: 100,
+      maxPages: 20,
     });
-    if (sectionsResult.ok) {
-      sections = extractSimproRecords(sectionsResult.body);
-    }
   }
 
   const hydrated: UnknownRecord[] = [];
   for (const section of sections) {
     const sectionId = simproRecordId(section);
-    let costCenters = Array.isArray(section.CostCenters)
-      ? section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
-      : Array.isArray(section.CostCentres)
-        ? section.CostCentres.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
-        : [];
+    let costCenters = costCentersFromSection(section);
 
-    const needsListFetch =
-      Boolean(sectionId) &&
-      (!costCenters.length ||
-        costCenters.every((centre) => {
-          const items = asRecord(centre.Items);
-          const hasItems = Boolean(
-            items &&
-              (Array.isArray(items.Labors) ||
-                Array.isArray(items.Labours) ||
-                Array.isArray(items.Catalogs) ||
-                Array.isArray(items.Catalogue) ||
-                Array.isArray(items.OneOffs) ||
-                Array.isArray(items.Materials)),
-          );
-          const hasDescription = Boolean(String(centre.Description || "").trim());
-          return !hasItems && !hasDescription;
-        }));
-
-    if (needsListFetch && sectionId) {
-      const ccResult = await simproGet(
-        config,
-        `/${entity}/${externalId}/sections/${sectionId}/costCenters/?pageSize=50&display=all`,
-        { maxRetries: 1 },
-      );
-      if (ccResult.ok) costCenters = extractSimproRecords(ccResult.body);
+    // Always list-fetch when nested CCs are missing/empty (matches bridge push path).
+    if (sectionId && !costCenters.length) {
+      costCenters = await fetchSectionCostCenters(config, entity, externalId, sectionId);
+    } else if (
+      sectionId &&
+      costCenters.every((centre) => !centreHasLineItems(centre) && !String(centre.Description || "").trim())
+    ) {
+      const listed = await fetchSectionCostCenters(config, entity, externalId, sectionId);
+      if (listed.length) costCenters = listed;
     }
 
     const detailedCenters: UnknownRecord[] = [];
     for (const centre of costCenters) {
       const ccId = simproRecordId(centre);
-      const items = asRecord(centre.Items);
-      const hasItems = Boolean(
-        items &&
-          (Array.isArray(items.Labors) ||
-            Array.isArray(items.Labours) ||
-            Array.isArray(items.Catalogs) ||
-            Array.isArray(items.OneOffs) ||
-            Array.isArray(items.Materials)),
-      );
-      if (!hasItems && sectionId && ccId) {
-        const detail = await simproGet(
-          config,
+      if (!centreHasLineItems(centre) && sectionId && ccId) {
+        const detail = await simproGetFirstOk(config, [
           `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/?display=all`,
-          { maxRetries: 1 },
-        );
+          `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/`,
+          `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/?display=all`,
+          `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/`,
+        ]);
         if (detail.ok) {
           const body = asRecord(detail.body);
           if (body) {
@@ -310,10 +361,19 @@ export async function enrichNexaQuoteFromSimpro(input: {
       quoteSections,
     });
 
+    const emptyHierarchy =
+      stats.costCentres === 0
+        ? stats.sections > 0
+          ? " Sections found but 0 cost centres mapped — check simPRO hierarchy."
+          : " No sections/cost centres returned from simPRO."
+        : "";
+
     return {
       ok: true,
-      summary: summariseHierarchyStats(stats),
+      summary: `${summariseHierarchyStats(stats)}${emptyHierarchy}`,
       stats,
+      detail: emptyHierarchy.trim() || undefined,
+      record,
     };
   } catch (error) {
     return {
@@ -390,11 +450,20 @@ export async function enrichNexaJobFromSimpro(input: {
           ? ` · ${scheduleCount} schedule${scheduleCount === 1 ? "" : "s"}`
           : " · no schedules found";
 
+    const emptyHierarchy =
+      stats.costCentres === 0
+        ? stats.sections > 0
+          ? " Sections found but 0 cost centres mapped — check simPRO hierarchy."
+          : " No sections/cost centres returned from simPRO."
+        : "";
+
     return {
       ok: true,
-      summary: `${summariseHierarchyStats(stats)}${scheduleNote}`,
+      summary: `${summariseHierarchyStats(stats)}${scheduleNote}${emptyHierarchy}`,
       stats,
       scheduleCount,
+      detail: emptyHierarchy.trim() || undefined,
+      record,
     };
   } catch (error) {
     return {

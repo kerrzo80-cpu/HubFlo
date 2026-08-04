@@ -372,7 +372,23 @@ function mergeKeyedArraysById(serverValue: unknown, clientValue: unknown) {
       const record = asRecord(item);
       const id = typeof record?.id === "string" ? record.id : "";
       if (!id || !record) continue;
-      byId.set(id, { ...(byId.get(id) || {}), ...record });
+      const existing = byId.get(id) || {};
+      const next = { ...existing, ...record };
+      // Prefer richer line arrays so a stale browser tab cannot strip imported materials/labour.
+      for (const field of ["lines", "materials", "labour", "labor"] as const) {
+        const serverArr = Array.isArray(existing[field]) ? (existing[field] as unknown[]) : [];
+        const clientArr = Array.isArray(record[field]) ? (record[field] as unknown[]) : [];
+        if (serverArr.length > clientArr.length) {
+          next[field] = serverArr;
+        }
+      }
+      const serverDesc = String(existing.clientDescription || existing.engineerDescription || "").trim();
+      const clientDesc = String(record.clientDescription || record.engineerDescription || "").trim();
+      if (serverDesc.length > clientDesc.length) {
+        if (existing.clientDescription) next.clientDescription = existing.clientDescription;
+        if (existing.engineerDescription) next.engineerDescription = existing.engineerDescription;
+      }
+      byId.set(id, next);
     }
     merged[key] = Array.from(byId.values());
   }
