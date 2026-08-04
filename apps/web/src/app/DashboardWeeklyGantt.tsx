@@ -105,10 +105,10 @@ export function DashboardWeeklyGantt({
     <section className="ops-queue-panel dashboard-weekly-gantt" id="dashboard-weekly-gantt" aria-label="Weekly schedule Gantt">
       <header>
         <div>
-          <h3>Weekly schedule</h3>
-          <p>
-            {bookingCount} booking{bookingCount === 1 ? "" : "s"} · overview for the week
-          </p>
+                  <h3>Weekly schedule · Gantt overview</h3>
+                  <p>
+                    {bookingCount} booking{bookingCount === 1 ? "" : "s"} this week · live now-line marks current time
+                  </p>
         </div>
         <div className="dashboard-weekly-gantt-actions">
           <button className="secondary-button" type="button" onClick={onOpenScheduler}>

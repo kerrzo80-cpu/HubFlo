@@ -47,6 +47,7 @@ export async function GET() {
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
       fieldCoreLive: "field-daywork-locked-v1",
+      dashboardLayout: "pipeline-gantt-v1",
     },
     daywork: {
       sheetCount: dayworkSheetCount,

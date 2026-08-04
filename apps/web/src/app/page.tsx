@@ -27,6 +27,7 @@ import {
   Download,
   FileText,
   FileSpreadsheet,
+  Flame,
   Gauge,
   HardHat,
   Inbox,
@@ -182,7 +183,7 @@ const STORAGE_KEYS = {
   suppliers: "hubflo:suppliers:v1",
   contacts: "hubflo:contacts:v1",
   contractors: "hubflo:contractors:v1",
-  dashboardLayouts: "hubflo:dashboard-layouts:v1",
+  dashboardLayouts: "hubflo:dashboard-layouts:v2",
   openWorkspaceTabs: "hubflo:open-workspace-tabs:v1",
 } as const;
 
@@ -27252,6 +27253,10 @@ export default function Dashboard() {
 
     return (
       <section className={`ops-dashboard ${isDashboardCustomising ? "customising" : ""}`} aria-label="Operations dashboard">
+        <div className="dashboard-layout-banner" role="status">
+          <strong>Dashboard layout v2</strong>
+          <span>Job pipeline → Action notifications → Weekly Gantt (live now-line)</span>
+        </div>
         {isDashboardCustomising ? (
           <section className="dashboard-customise-panel" aria-label="Dashboard customisation">
             <div>
@@ -27913,6 +27918,10 @@ export default function Dashboard() {
           <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />
             <span>NeXa Takeoff</span>
+          </a>
+          <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, system kit to Jobs">
+            <Flame size={17} />
+            <span>Heat Design</span>
           </a>
           <a href="/field" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
