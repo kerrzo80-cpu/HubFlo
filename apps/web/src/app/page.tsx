@@ -689,7 +689,7 @@ type OpenWorkspaceTab = {
 };
 
 type RecordSaveStatus = "saved" | "unsaved" | "saving" | "error";
-type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login";
+type EmployeeTab = "details" | "licences" | "rates" | "emergency" | "availability" | "permissions" | "login" | "mailbox";
 type ReportDateRange = "Today" | "This week" | "Last week" | "This month" | "Last month" | "Year to date" | "Last year" | "Custom" | "All time";
 type ReportTab = "executive" | "financial" | "jobs" | "wip" | "engineers" | "pipeline" | "customers" | "purchasing" | "compliance";
 type ReportTone = "blue" | "green" | "amber" | "red";
@@ -1826,6 +1826,8 @@ type EmailIntegrationStatus = {
 type LiveEmailDelivery = {
   provider: "Outlook" | "Gmail";
   from: string;
+  source?: "employee" | "company";
+  employeeId?: string;
   messageId: string;
   accepted: string[];
   rejected: string[];
@@ -1840,6 +1842,36 @@ type EmailIntegrationDraft = {
   smtpHost: string;
   smtpPort: string;
   secure: boolean;
+};
+
+type EmployeeMailboxStatus = {
+  employeeId: string;
+  configured: boolean;
+  provider: "Outlook" | "Gmail";
+  senderEmail: string;
+  username: string;
+  smtpHost: string;
+  smtpPort: number;
+  secure: boolean;
+  secretStored: boolean;
+  displayName: string;
+  lastTestedAt?: string;
+  lastTestRecipient?: string;
+  lastTestMessageId?: string;
+  lastSentAt?: string;
+  lastSentMessageId?: string;
+  lastError?: string;
+};
+
+type EmployeeMailboxDraft = {
+  provider: "Outlook" | "Gmail";
+  senderEmail: string;
+  username: string;
+  secret: string;
+  smtpHost: string;
+  smtpPort: string;
+  secure: boolean;
+  displayName: string;
 };
 
 type LabourRateSetting = {
@@ -1883,12 +1915,16 @@ type CommunicationDraft = {
   from: string;
   subject: string;
   body: string;
+  to?: string;
+  channel?: "Outlook" | "WhatsApp";
 };
 
 const blankCommunicationDraft: CommunicationDraft = {
   from: "",
   subject: "",
   body: "",
+  to: "",
+  channel: "Outlook",
 };
 
 type TakeoffBoqRow = {
@@ -2312,7 +2348,19 @@ const employeeTabs: Array<{ key: EmployeeTab; label: string }> = [
   { key: "availability", label: "Availability" },
   { key: "permissions", label: "Access" },
   { key: "login", label: "Login" },
+  { key: "mailbox", label: "Mailbox" },
 ];
+
+const blankEmployeeMailboxDraft: EmployeeMailboxDraft = {
+  provider: "Outlook",
+  senderEmail: "",
+  username: "",
+  secret: "",
+  smtpHost: "smtp.office365.com",
+  smtpPort: "587",
+  secure: false,
+  displayName: "",
+};
 
 const reportTabs: Array<{ key: ReportTab; label: string }> = [
   { key: "executive", label: "Executive" },
@@ -3199,14 +3247,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Mockup page for Outlook connection, sender defaults and email capture against leads, quotes and jobs.",
-      focus: ["Connect mailbox", "Default sender", "Email capture rules"],
-      status: "Mockup page",
+      summary: "Company fallback SMTP plus each employee's own Outlook/Gmail mailbox so job email sends as the logged-in user.",
+      focus: ["Per-user send-as", "Company fallback", "Inbound job matching"],
+      status: "Live ready",
     },
     WhatsApp: {
-      summary: "Mockup page for WhatsApp job channels, engineer prompts, timesheets and variation capture.",
-      focus: ["Job channel rules", "Engineer confirmations", "Timesheet prompts"],
-      status: "Mockup page",
+      summary: "Shared company WhatsApp Business number with per-user attribution, outbound job messages and inbound webhook capture.",
+      focus: ["Company WABA number", "Actor attribution", "Inbound job matching"],
+      status: "Live ready",
     },
     "Supplier emails": {
       summary: "Mockup page for supplier request emails, returned quote PDFs and PO issue settings.",
@@ -7531,6 +7579,11 @@ export default function Dashboard() {
   const [emailIntegrationStatus, setEmailIntegrationStatus] = useState<EmailIntegrationStatus | null>(null);
   const [isSavingEmailIntegration, setIsSavingEmailIntegration] = useState(false);
   const [isTestingEmailIntegration, setIsTestingEmailIntegration] = useState(false);
+  const [employeeMailboxDraft, setEmployeeMailboxDraft] = useState<EmployeeMailboxDraft>(blankEmployeeMailboxDraft);
+  const [employeeMailboxStatus, setEmployeeMailboxStatus] = useState<EmployeeMailboxStatus | null>(null);
+  const [isSavingEmployeeMailbox, setIsSavingEmployeeMailbox] = useState(false);
+  const [isTestingEmployeeMailbox, setIsTestingEmployeeMailbox] = useState(false);
+  const [isSendingJobMessage, setIsSendingJobMessage] = useState(false);
   const [isSendingLiveEmail, setIsSendingLiveEmail] = useState(false);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
@@ -9606,6 +9659,49 @@ export default function Dashboard() {
     const draft = makeEmployeeProfileDraft(activeEditingEmployee);
     setEmployeeProfileDraft(serverAuthMode === "users" ? { ...draft, loginPassword: "" } : draft);
   }, [editingEmployeeId, activeEditingEmployee, newEmployeeId, serverAuthMode]);
+
+  useEffect(() => {
+    if (!editingEmployeeId || editingEmployeeId === newEmployeeId) {
+      setEmployeeMailboxStatus(null);
+      setEmployeeMailboxDraft(blankEmployeeMailboxDraft);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/integrations/email/mailbox?employeeId=${encodeURIComponent(editingEmployeeId)}`, {
+      headers: requestHeaders,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load mailbox");
+        return (await response.json()) as EmployeeMailboxStatus;
+      })
+      .then((status) => {
+        if (cancelled) return;
+        setEmployeeMailboxStatus(status);
+        setEmployeeMailboxDraft({
+          provider: status.provider,
+          senderEmail: status.senderEmail || activeEditingEmployee?.profile?.email || "",
+          username: status.username || status.senderEmail || activeEditingEmployee?.profile?.email || "",
+          secret: "",
+          smtpHost: status.smtpHost,
+          smtpPort: String(status.smtpPort),
+          secure: status.secure,
+          displayName: status.displayName || activeEditingEmployee?.name || "",
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setEmployeeMailboxStatus(null);
+        setEmployeeMailboxDraft({
+          ...blankEmployeeMailboxDraft,
+          senderEmail: activeEditingEmployee?.profile?.email || "",
+          username: activeEditingEmployee?.profile?.email || "",
+          displayName: activeEditingEmployee?.name || "",
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [editingEmployeeId, newEmployeeId, activeEditingEmployee?.id, activeEditingEmployee?.name, activeEditingEmployee?.profile?.email, requestHeaders]);
 
   useEffect(() => {
     if (homeView !== "dashboard" && isDashboardCustomising) {
@@ -13306,6 +13402,177 @@ export default function Dashboard() {
     }
   }
 
+  async function saveEmployeeMailboxSettings() {
+    const targetEmployeeId = editingEmployeeId && editingEmployeeId !== newEmployeeId
+      ? editingEmployeeId
+      : (activeEmployee?.id ?? "");
+    if (!targetEmployeeId) {
+      showNotice("Select an employee before connecting a mailbox.");
+      return;
+    }
+    if (!employeeMailboxDraft.senderEmail.trim() || !employeeMailboxDraft.username.trim()) {
+      showNotice("Add the sender email and username before saving this mailbox.");
+      return;
+    }
+    setIsSavingEmployeeMailbox(true);
+    try {
+      const response = await fetch("/api/integrations/email/mailbox", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: targetEmployeeId,
+          provider: employeeMailboxDraft.provider,
+          senderEmail: employeeMailboxDraft.senderEmail,
+          username: employeeMailboxDraft.username,
+          secret: employeeMailboxDraft.secret,
+          smtpHost: employeeMailboxDraft.smtpHost,
+          smtpPort: Number(employeeMailboxDraft.smtpPort) || undefined,
+          secure: employeeMailboxDraft.secure,
+          displayName: employeeMailboxDraft.displayName || activeEditingEmployee?.name || activeEmployee?.name || "",
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as EmployeeMailboxStatus | { error?: string } | null;
+      if (!response.ok || !result || "error" in result) {
+        throw new Error(result && "error" in result ? result.error || "Unable to save mailbox." : "Unable to save mailbox.");
+      }
+      const saved = result as EmployeeMailboxStatus;
+      setEmployeeMailboxStatus(saved);
+      setEmployeeMailboxDraft((current) => ({ ...current, secret: "" }));
+      showNotice(`Mailbox saved for ${saved.senderEmail}. Job emails will send from this address when you are logged in.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to save the employee mailbox.");
+    } finally {
+      setIsSavingEmployeeMailbox(false);
+    }
+  }
+
+  async function testEmployeeMailboxSettings() {
+    const targetEmployeeId = editingEmployeeId && editingEmployeeId !== newEmployeeId
+      ? editingEmployeeId
+      : (activeEmployee?.id ?? "");
+    if (!targetEmployeeId) {
+      showNotice("Select an employee before testing a mailbox.");
+      return;
+    }
+    setIsTestingEmployeeMailbox(true);
+    try {
+      const response = await fetch("/api/integrations/email/mailbox/test", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId: targetEmployeeId }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        status?: EmployeeMailboxStatus;
+      } | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || "Unable to test the mailbox.");
+      }
+      if (result.status) setEmployeeMailboxStatus(result.status);
+      showNotice(result.message || "Mailbox connection looks reachable.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to test the employee mailbox.");
+    } finally {
+      setIsTestingEmployeeMailbox(false);
+    }
+  }
+
+  async function sendJobThreadMessage() {
+    if (!selectedJob) return;
+    const draft = selectedJobCommunicationDraft;
+    const channel = draft.channel === "WhatsApp" ? "WhatsApp" : "Outlook";
+    const to = (draft.to || "").trim()
+      || (channel === "WhatsApp"
+        ? (selectedJobClient?.phone || "")
+        : (selectedJobClient?.email || ""));
+    const subject = draft.subject.trim() || (channel === "WhatsApp" ? `WhatsApp · ${selectedJob.ref}` : `Re: ${selectedJob.ref}`);
+    const body = draft.body.trim();
+    if (!to || !body) {
+      showNotice(channel === "WhatsApp" ? "Add a phone number and message before sending." : "Add a recipient and message before sending.");
+      return;
+    }
+
+    setIsSendingJobMessage(true);
+    try {
+      if (channel === "Outlook") {
+        const delivery = await sendThroughLiveOutbox({
+          to,
+          subject,
+          text: body,
+        });
+        addCommunicationRecord({
+          recordType: "job",
+          recordId: selectedJob.id,
+          relatedJobId: selectedJob.id,
+          direction: "outbound",
+          channel: "Outlook",
+          subject,
+          body,
+          from: delivery.from,
+          to,
+          messageId: delivery.messageId,
+          status: "Sent",
+        });
+        showNotice(
+          delivery.source === "employee"
+            ? `Email sent from your mailbox (${delivery.from}).`
+            : `Email sent from company mailbox (${delivery.from}). Connect your mailbox under People → Mailbox to send as yourself.`,
+        );
+      } else {
+        const waResponse = await fetch("/api/whatsapp/send-test", {
+          method: "POST",
+          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            to,
+            message: body,
+            jobId: selectedJob.id,
+            jobRef: selectedJob.ref,
+            actorName: activeEmployee?.name,
+            recordCommunication: true,
+          }),
+        });
+        const waBody = (await waResponse.json().catch(() => null)) as {
+          status?: string;
+          missing?: string[];
+          error?: string;
+          providerMessageId?: string;
+        } | null;
+        if (!waResponse.ok || waBody?.status === "failed") {
+          throw new Error(waBody?.error || "WhatsApp send failed.");
+        }
+        if (waBody?.status === "not_configured") {
+          showNotice(`WhatsApp preview only — set ${waBody.missing?.join(", ") || "WHATSAPP credentials"} on the server.`);
+        } else {
+          addCommunicationRecord({
+            recordType: "job",
+            recordId: selectedJob.id,
+            relatedJobId: selectedJob.id,
+            direction: "outbound",
+            channel: "WhatsApp",
+            subject,
+            body,
+            from: activeEmployee?.name ?? "NeXa WhatsApp",
+            to,
+            messageId: waBody?.providerMessageId,
+            status: "Sent",
+          });
+          showNotice(`WhatsApp sent via the company number (as ${activeEmployee?.name ?? "NeXa"}).`);
+        }
+      }
+      resetCommunicationDraft("job", selectedJob.id);
+      updateCommunicationDraft("job", selectedJob.id, {
+        channel,
+        to: channel === "WhatsApp" ? (selectedJobClient?.phone || "") : (selectedJobClient?.email || ""),
+      });
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send the job message.");
+    } finally {
+      setIsSendingJobMessage(false);
+    }
+  }
+
   async function sendThroughLiveOutbox(input: {
     to: string;
     cc?: string;
@@ -15501,7 +15768,7 @@ export default function Dashboard() {
 
   function renderCommunicationThread(records: CommunicationRecord[]) {
     if (records.length === 0) {
-      return <p>No Outlook messages captured yet.</p>;
+      return <p>No email or WhatsApp messages on this record yet.</p>;
     }
 
     return records.map((record) => (
@@ -18882,7 +19149,13 @@ export default function Dashboard() {
         const waResponse = await fetch("/api/whatsapp/send-test", {
           method: "POST",
           headers: { ...requestHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+          body: JSON.stringify({
+            to: phoneTo,
+            message: whatsappMessage,
+            jobId: selectedJob.id,
+            jobRef: selectedJob.ref,
+            actorName: activeEmployee?.name,
+          }),
         });
         const waBody = (await waResponse.json().catch(() => null)) as {
           status?: string;
@@ -18899,7 +19172,7 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject: `WhatsApp confirmation · ${selectedJob.ref}`,
             body: whatsappMessage,
-            from: "NeXa Connect",
+            from: activeEmployee?.name ?? "NeXa WhatsApp",
             to: phoneTo,
             status: "Sent",
           });
@@ -19062,7 +19335,13 @@ export default function Dashboard() {
         const waResponse = await fetch("/api/whatsapp/send-test", {
           method: "POST",
           headers: { ...requestHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+          body: JSON.stringify({
+            to: phoneTo,
+            message: whatsappMessage,
+            jobId: selectedJob.id,
+            jobRef: selectedJob.ref,
+            actorName: activeEmployee?.name,
+          }),
         });
         const waBody = (await waResponse.json().catch(() => null)) as {
           status?: string;
@@ -19079,7 +19358,7 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject: `WhatsApp ETA · ${selectedJob.ref}`,
             body: whatsappMessage,
-            from: "NeXa Connect",
+            from: activeEmployee?.name ?? "NeXa WhatsApp",
             to: phoneTo,
             status: "Sent",
           });
@@ -19234,7 +19513,13 @@ export default function Dashboard() {
         const waResponse = await fetch("/api/whatsapp/send-test", {
           method: "POST",
           headers: { ...requestHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({ to: phoneTo, message: whatsappMessage }),
+          body: JSON.stringify({
+            to: phoneTo,
+            message: whatsappMessage,
+            jobId: selectedJob.id,
+            jobRef: selectedJob.ref,
+            actorName: activeEmployee?.name,
+          }),
         });
         const waBody = (await waResponse.json().catch(() => null)) as {
           status?: string;
@@ -19251,7 +19536,7 @@ export default function Dashboard() {
             channel: "WhatsApp",
             subject: `WhatsApp complete · ${selectedJob.ref}`,
             body: whatsappMessage,
-            from: "NeXa Connect",
+            from: activeEmployee?.name ?? "NeXa WhatsApp",
             to: phoneTo,
             status: "Sent",
           });
@@ -34509,7 +34794,7 @@ export default function Dashboard() {
                     </header>
                     <div className="quote-log-summary-grid">
                       <div>
-                        <span>Outlook messages</span>
+                        <span>Messages</span>
                         <strong>{selectedJobCommunications.length}</strong>
                       </div>
                       <div>
@@ -34523,12 +34808,44 @@ export default function Dashboard() {
                     </div>
                     <section className="communication-capture-panel">
                       <div>
-                        <span className="permission-heading">Outlook thread</span>
-                        <h3>Capture job email</h3>
+                        <span className="permission-heading">Job messages</span>
+                        <h3>Send or capture email & WhatsApp</h3>
                       </div>
+                      <p className="muted-copy">
+                        Outbound email uses your connected mailbox when available (otherwise the company SMTP). WhatsApp sends from the company business number and is attributed to {activeEmployee?.name ?? "you"}.
+                      </p>
                       <div className="communication-capture-grid">
                         <label>
-                          From
+                          Channel
+                          <select
+                            value={selectedJobCommunicationDraft.channel === "WhatsApp" ? "WhatsApp" : "Outlook"}
+                            onChange={(event) =>
+                              updateCommunicationDraft("job", selectedJob.id, {
+                                channel: event.target.value === "WhatsApp" ? "WhatsApp" : "Outlook",
+                                to: event.target.value === "WhatsApp"
+                                  ? (selectedJobClient?.phone ?? "")
+                                  : (selectedJobClient?.email ?? ""),
+                              })
+                            }
+                          >
+                            <option value="Outlook">Email</option>
+                            <option value="WhatsApp">WhatsApp</option>
+                          </select>
+                        </label>
+                        <label>
+                          To
+                          <input
+                            value={selectedJobCommunicationDraft.to ?? ""}
+                            onChange={(event) => updateCommunicationDraft("job", selectedJob.id, { to: event.target.value })}
+                            placeholder={
+                              selectedJobCommunicationDraft.channel === "WhatsApp"
+                                ? (selectedJobClient?.phone ?? "447700900123")
+                                : (selectedJobClient?.email ?? "client@example.com")
+                            }
+                          />
+                        </label>
+                        <label>
+                          From (inbound capture)
                           <input
                             value={selectedJobCommunicationDraft.from}
                             onChange={(event) => updateCommunicationDraft("job", selectedJob.id, { from: event.target.value })}
@@ -34548,24 +34865,34 @@ export default function Dashboard() {
                           <textarea
                             value={selectedJobCommunicationDraft.body}
                             onChange={(event) => updateCommunicationDraft("job", selectedJob.id, { body: event.target.value })}
-                            placeholder="Paste or summarise a job email here."
+                            placeholder="Write the outbound message, or paste an inbound reply to capture."
                           />
                         </label>
                       </div>
-                      <button
-                        className="secondary-button"
-                        type="button"
-                        onClick={() =>
-                          captureOutlookReply("job", selectedJob.id, selectedJobCommunicationDraft, {
-                            defaultFrom: selectedJobClient?.email ?? selectedJob.customer,
-                            to: "office@errolwatsongroup.co.uk",
-                            relatedJobId: selectedJob.id,
-                            label: selectedJob.ref,
-                          })
-                        }
-                      >
-                        Capture Outlook email
-                      </button>
+                      <div className="setup-sync-actions">
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={isSendingJobMessage}
+                          onClick={() => void sendJobThreadMessage()}
+                        >
+                          {isSendingJobMessage ? "Sending..." : selectedJobCommunicationDraft.channel === "WhatsApp" ? "Send WhatsApp" : "Send email"}
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() =>
+                            captureOutlookReply("job", selectedJob.id, selectedJobCommunicationDraft, {
+                              defaultFrom: selectedJobClient?.email ?? selectedJob.customer,
+                              to: activeEmployee?.profile?.email || employeeMailboxStatus?.senderEmail || "office@errolwatsongroup.co.uk",
+                              relatedJobId: selectedJob.id,
+                              label: selectedJob.ref,
+                            })
+                          }
+                        >
+                          Capture inbound email
+                        </button>
+                      </div>
                     </section>
                     <div className="communication-thread">
                       {renderCommunicationThread(selectedJobCommunications)}
@@ -39633,7 +39960,9 @@ export default function Dashboard() {
                             </label>
                           </div>
                           <small>
-                            Credentials are stored on the server side only. Test connection authenticates with the provider and sends a real test message to the sender address.
+                            Company fallback mailbox used when the logged-in employee has not connected their own Outlook/Gmail.
+                            Each person connects under People → employee → Mailbox so Brian sends as Brian, Errol as Errol, and so on.
+                            Credentials stay on the server. Test connection authenticates and sends a real test message to the sender address.
                           </small>
                           <div className="setup-readiness-grid setup-sync-grid">
                             <article>
@@ -39658,24 +39987,24 @@ export default function Dashboard() {
                           <header>
                             <div>
                               <span>WhatsApp</span>
-                              <strong>Engineer confirmations and site updates</strong>
+                              <strong>Company business number</strong>
                             </div>
                           </header>
                           <div className="setup-readiness-grid setup-sync-grid">
                             <article>
-                              <span>Current state</span>
-                              <strong>Connector scaffolded</strong>
-                              <small>Live Meta credentials are still needed before production messaging can go out.</small>
+                              <span>Outbound</span>
+                              <strong>Shared WABA number</strong>
+                              <small>Meta Cloud API sends from one company number. Messages are attributed to the logged-in employee in the job thread.</small>
                             </article>
                             <article>
-                              <span>Use case</span>
-                              <strong>Timesheets, updates, approvals</strong>
-                              <small>Messages still capture back into the related job or quote record.</small>
+                              <span>Inbound</span>
+                              <strong>Webhook capture</strong>
+                              <small>Point Meta to /api/whatsapp/webhook. Replies match to jobs by phone / job ref and land on the job Messages thread.</small>
                             </article>
                             <article>
-                              <span>Next step</span>
-                              <strong>Verify live send</strong>
-                              <small>Once Meta is connected we can test a real field update loop.</small>
+                              <span>Env keys</span>
+                              <strong>WHATSAPP_*</strong>
+                              <small>Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN (and optional WHATSAPP_WEBHOOK_SECRET).</small>
                             </article>
                           </div>
                         </article>
@@ -41410,6 +41739,140 @@ export default function Dashboard() {
                             ? "Secure sign-ins and account changes are recorded in the audit log."
                             : `Last sign-in: ${activeEditingEmployee.login?.lastLoginAt ?? "No login recorded yet"}`}
                         </span>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {activeEmployeeTab === "mailbox" ? (
+                    <div className="form-body employee-page-form">
+                      <div className="employee-section-heading">
+                        <span className="permission-heading">Personal mailbox</span>
+                        <span className="employee-access-note">
+                          Job and quote emails send from this address when this employee is logged in. Leave blank to use the company fallback in Setup → Communications.
+                        </span>
+                      </div>
+                      <div className="setup-form-grid">
+                        <label>
+                          Display name
+                          <input
+                            value={employeeMailboxDraft.displayName}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, displayName: event.target.value }))}
+                            placeholder={activeEditingEmployee.name}
+                          />
+                        </label>
+                        <label>
+                          Provider
+                          <select
+                            value={employeeMailboxDraft.provider}
+                            onChange={(event) =>
+                              setEmployeeMailboxDraft((current) => ({
+                                ...current,
+                                provider: event.target.value as EmployeeMailboxDraft["provider"],
+                                smtpHost: event.target.value === "Gmail" ? "smtp.gmail.com" : "smtp.office365.com",
+                                smtpPort: event.target.value === "Gmail" ? "465" : "587",
+                                secure: event.target.value === "Gmail",
+                              }))
+                            }
+                          >
+                            <option value="Outlook">Outlook</option>
+                            <option value="Gmail">Gmail</option>
+                          </select>
+                        </label>
+                        <label>
+                          Sender email
+                          <input
+                            value={employeeMailboxDraft.senderEmail}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, senderEmail: event.target.value }))}
+                            placeholder={activeEditingEmployee.profile?.email || "you@yourcompany.co.uk"}
+                          />
+                        </label>
+                        <label>
+                          Username
+                          <input
+                            value={employeeMailboxDraft.username}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, username: event.target.value }))}
+                            placeholder="Usually the same as the sender email"
+                          />
+                        </label>
+                        <label>
+                          App password / secret
+                          <input
+                            type="password"
+                            value={employeeMailboxDraft.secret}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }))}
+                            placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app password"}
+                          />
+                        </label>
+                        <label>
+                          SMTP host
+                          <input
+                            value={employeeMailboxDraft.smtpHost}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, smtpHost: event.target.value }))}
+                          />
+                        </label>
+                        <label>
+                          SMTP port
+                          <input
+                            inputMode="numeric"
+                            value={employeeMailboxDraft.smtpPort}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, smtpPort: event.target.value.replace(/[^\d]/g, "") }))}
+                          />
+                        </label>
+                      </div>
+                      <div className="setup-switch-grid">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={employeeMailboxDraft.secure}
+                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secure: event.target.checked }))}
+                          />
+                          Use secure SMTP / TLS
+                        </label>
+                      </div>
+                      <div className="setup-sync-actions">
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={isTestingEmployeeMailbox || editingEmployeeId === newEmployeeId}
+                          onClick={() => void testEmployeeMailboxSettings()}
+                        >
+                          {isTestingEmployeeMailbox ? "Testing..." : "Test mailbox"}
+                        </button>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={isSavingEmployeeMailbox || editingEmployeeId === newEmployeeId}
+                          onClick={() => void saveEmployeeMailboxSettings()}
+                        >
+                          {isSavingEmployeeMailbox ? "Saving..." : "Save mailbox"}
+                        </button>
+                      </div>
+                      <div className="setup-readiness-grid setup-sync-grid">
+                        <article>
+                          <span>Status</span>
+                          <strong>
+                            {employeeMailboxStatus?.lastTestMessageId
+                              ? "Test email sent"
+                              : employeeMailboxStatus?.configured
+                                ? "Saved, not proven"
+                                : "Not connected"}
+                          </strong>
+                          <small>
+                            {employeeMailboxStatus?.lastError
+                              || (employeeMailboxStatus?.senderEmail
+                                ? `Will send as ${employeeMailboxStatus.senderEmail}`
+                                : "Connect Outlook or Gmail SMTP with an app password.")}
+                          </small>
+                        </article>
+                        <article>
+                          <span>Last test</span>
+                          <strong>
+                            {employeeMailboxStatus?.lastTestedAt
+                              ? employeeMailboxStatus.lastTestedAt.replace("T", " ").slice(0, 16)
+                              : "Not tested yet"}
+                          </strong>
+                          <small>Sends a real test message to this mailbox.</small>
+                        </article>
                       </div>
                     </div>
                   ) : null}
