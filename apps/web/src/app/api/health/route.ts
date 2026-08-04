@@ -46,7 +46,7 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "field-daywork-locked-v1",
+      fieldCoreLive: "daywork-poll-lite-v1",
       dashboardLayout: "pipeline-gantt-v3",
       takeoffSkill: "drawing-first-v8-routes-page",
       recurringServices: "upcoming-4w-v1",

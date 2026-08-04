@@ -122,7 +122,14 @@ import { DayworkAccountForm } from "@/components/DayworkAccountForm";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { SignatureImage } from "@/components/SignaturePad";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
-import { dayworkAccountTotals, totalDayworkLabourHours, type DayworkAccountRecord } from "@/lib/daywork-account-form";
+import {
+  dayworkAccountTotals,
+  dayworkSheetListLabel,
+  isDayworkSubmittedToCore,
+  sortDayworkSheetsByNumber,
+  totalDayworkLabourHours,
+  type DayworkAccountRecord,
+} from "@/lib/daywork-account-form";
 
 const invoiceReadiness = checkInvoiceReadiness({
   requiredTasks: { complete: 7, total: 8 },
@@ -8400,8 +8407,7 @@ export default function Dashboard() {
     }
   }, [activeRecordFingerprint, hasHydratedLocalData, hasLoadedHubDetailState]);
 
-  // Always pull the latest Field Daywork sheet when opening a Daywork cost centre.
-  // Keep polling briefly so a Field Save and finish appears in Core without a manual refresh.
+  // Pull Daywork while unsigned only — completed sheets are locked and listed without signature blobs.
   useEffect(() => {
     if (!hasLoadedHubDetailState) return;
     if (homeView !== "cost-centre-record") return;
@@ -8410,12 +8416,16 @@ export default function Dashboard() {
       const centre = (jobEstimateCostCentres[selectedJobId] ?? []).find((item) => item.id === selectedCostCentreId);
       if (!centre || !/daywork/i.test(`${centre.name} ${centre.templateName || ""}`)) return;
     }
+    const key = `${selectedJobId}:${selectedCostCentreId}`;
+    if (isDayworkSubmittedToCore(dayworkSheets[key])) {
+      return;
+    }
     void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
     const timer = window.setInterval(() => {
       void refreshDayworkSheetFromServer(selectedJobId, selectedCostCentreId);
-    }, 4000);
+    }, 15_000);
     return () => window.clearInterval(timer);
-  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId, jobEstimateCostCentres]);
+  }, [hasLoadedHubDetailState, homeView, selectedJobId, selectedCostCentreId, jobEstimateCostCentres, dayworkSheets]);
 
   const selectedPurchaseOrderJob = useMemo(
     () =>
@@ -10335,6 +10345,7 @@ export default function Dashboard() {
           if (hubState.jobDeliveryEvents) setJobDeliveryEvents(hubState.jobDeliveryEvents);
           if (hubState.dayworkSheets) {
             // Prefer the richer sheet (Field signatures/materials) when merging poll updates.
+            // Poll payloads may omit base64 signatures (hasSignatures flag only) — never wipe local sigs.
             setDayworkSheets((current) => {
               const incoming = hubState.dayworkSheets || {};
               const keys = new Set([...Object.keys(current), ...Object.keys(incoming)]);
@@ -10347,10 +10358,19 @@ export default function Dashboard() {
                   merged[key] = remote;
                   continue;
                 }
-                const remoteSigned = Boolean(remote.plumberSignature?.trim() && remote.clientSignature?.trim());
-                const localSigned = Boolean(local.plumberSignature?.trim() && local.clientSignature?.trim());
+                const remoteSigned = isDayworkSubmittedToCore(remote);
+                const localSigned = isDayworkSubmittedToCore(local);
+                const remoteSig =
+                  String(remote.plumberSignature || "").trim() || String(remote.clientSignature || "").trim();
+                const localSig =
+                  String(local.plumberSignature || "").trim() || String(local.clientSignature || "").trim();
                 if (remoteSigned && !localSigned) {
-                  merged[key] = { ...local, ...remote };
+                  merged[key] = {
+                    ...local,
+                    ...remote,
+                    plumberSignature: remoteSig ? remote.plumberSignature : local.plumberSignature,
+                    clientSignature: remoteSig ? remote.clientSignature : local.clientSignature,
+                  };
                   continue;
                 }
                 merged[key] = {
@@ -10358,8 +10378,8 @@ export default function Dashboard() {
                   ...remote,
                   materialsJson: remote.materialsJson || local.materialsJson,
                   plantJson: remote.plantJson || local.plantJson,
-                  plumberSignature: remote.plumberSignature || local.plumberSignature,
-                  clientSignature: remote.clientSignature || local.clientSignature,
+                  plumberSignature: remoteSig ? remote.plumberSignature : local.plumberSignature,
+                  clientSignature: remoteSig ? remote.clientSignature : local.clientSignature,
                   plumberSignerName: remote.plumberSignerName || local.plumberSignerName,
                   clientSignerName: remote.clientSignerName || local.clientSignerName,
                   description: remote.description || local.description,
@@ -10442,7 +10462,7 @@ export default function Dashboard() {
       if (!stopped) {
         loadLiveData().catch(() => {});
       }
-    }, 20000);
+    }, 60_000);
 
     return () => {
       stopped = true;
@@ -27435,6 +27455,18 @@ export default function Dashboard() {
         })()
       : null;
     const dayworkTotals = dayworkAccountTotals(dayworkRecord);
+    const dayworkSigned = isDayworkSubmittedToCore(dayworkRecord);
+    const completedDayworkSheets = isDayworkFlow
+      ? sortDayworkSheetsByNumber(
+          job.id,
+          Object.values(dayworkSheets).filter(
+            (sheet) =>
+              sheet
+              && sheet.jobId === job.id
+              && isDayworkSubmittedToCore(sheet),
+          ),
+        )
+      : [];
     const gasFields = gasRecord
       ? [
           { label: "Location", value: gasRecord.location },
@@ -27509,12 +27541,80 @@ export default function Dashboard() {
           <div className="flow-progress-panel" style={{ marginBottom: 16 }}>
             <strong>Daywork Account</strong>
             <span>
-              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature
-                ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
+              {dayworkSigned
+                ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"} · signed on Field (locked)`
                 : "No signed sheet on the server yet — on Field tap Add Daywork Account (not the boiler checklist), fill materials + both signatures, then Save and finish. Or enter the sheet below in Core."}
             </span>
+            {completedDayworkSheets.length ? (
+              <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                <small style={{ color: "var(--muted, #667085)" }}>
+                  Completed dayworks — open the client PDF for signatures; sheets stay locked in Core
+                </small>
+                {completedDayworkSheets.map((sheet) => {
+                  const label = dayworkSheetListLabel(job.id, sheet.costCentreId);
+                  return (
+                    <div
+                      key={`${sheet.jobId}:${sheet.costCentreId}`}
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        padding: "8px 10px",
+                        border: "1px solid var(--line, #eaecf0)",
+                        borderRadius: 10,
+                        background: "var(--canvas, #f7f8fa)",
+                      }}
+                    >
+                      <div>
+                        <strong>{label}</strong>
+                        <small style={{ display: "block", color: "var(--muted, #667085)" }}>
+                          {[sheet.weekEnding ? `Week ending ${sheet.weekEnding}` : null, sheet.plumberSignerName || sheet.labourName]
+                            .filter(Boolean)
+                            .join(" · ") || "Signed on Field"}
+                        </small>
+                      </div>
+                      <button
+                        className="simpro-grey-button"
+                        type="button"
+                        disabled={previewingDayworkPdf}
+                        onClick={() => {
+                          void (async () => {
+                            setPreviewingDayworkPdf(true);
+                            try {
+                              const response = await fetch(
+                                `/api/jobs/${encodeURIComponent(job.id)}/daywork/pdf?costCentreId=${encodeURIComponent(sheet.costCentreId)}&format=pdf`,
+                                { credentials: "include", headers: requestHeaders },
+                              );
+                              if (!response.ok) {
+                                const body = (await response.json().catch(() => null)) as { error?: string } | null;
+                                throw new Error(body?.error || "Could not open Daywork PDF.");
+                              }
+                              const blob = await response.blob();
+                              if (!blob.size) throw new Error("PDF response was empty.");
+                              const url = URL.createObjectURL(blob);
+                              const opened = window.open(url, "_blank", "noopener,noreferrer");
+                              if (!opened) window.location.assign(url);
+                              window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                              showNotice(`Opened ${label} PDF (signatures included).`);
+                            } catch (error) {
+                              showNotice(error instanceof Error ? error.message : "Could not open Daywork PDF.");
+                            } finally {
+                              setPreviewingDayworkPdf(false);
+                            }
+                          })();
+                        }}
+                      >
+                        {previewingDayworkPdf ? "Opening…" : "Client PDF"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-              {centre ? (
+              {centre && !dayworkSigned ? (
                 <button
                   className="simpro-grey-button"
                   type="button"
@@ -27553,13 +27653,11 @@ export default function Dashboard() {
                         }
                         const blob = await response.blob();
                         if (!blob.size || !/pdf/i.test(blob.type) && blob.type !== "application/octet-stream") {
-                          // Some browsers report empty type for application/pdf — still open if bytes exist.
                           if (!blob.size) throw new Error("PDF response was empty.");
                         }
                         const url = URL.createObjectURL(blob);
                         const opened = window.open(url, "_blank", "noopener,noreferrer");
                         if (!opened) {
-                          // Popup blocked — fall back to same-tab navigation.
                           window.location.assign(url);
                         }
                         window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
@@ -27578,29 +27676,11 @@ export default function Dashboard() {
                   {previewingDayworkPdf ? "Opening PDF…" : "Preview valuation PDF"}
                 </button>
               ) : null}
-              {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
-                <button
-                  className="simpro-blue-button"
-                  type="button"
-                  onClick={() => setEditingDayworkInCore(true)}
-                >
-                  Edit sheet in Core
-                </button>
-              ) : null}
-              {editingDayworkInCore && dayworkRecord?.plumberSignature ? (
-                <button
-                  className="simpro-grey-button"
-                  type="button"
-                  onClick={() => setEditingDayworkInCore(false)}
-                >
-                  Cancel edit
-                </button>
-              ) : null}
             </div>
           </div>
         ) : null}
 
-        {isDayworkFlow && centre && (editingDayworkInCore || !dayworkRecord?.plumberSignature || !dayworkRecord?.clientSignature) ? (
+        {isDayworkFlow && centre && !dayworkSigned ? (
           <div style={{ marginBottom: 16 }}>
             <DayworkSheetForm
               key={`core-daywork-${job.id}-${centre.id}-${dayworkRecord?.completedAt || "new"}`}
@@ -27609,11 +27689,7 @@ export default function Dashboard() {
               engineerName={activeEmployee?.name || job.manager || "Office"}
               initialRecord={dayworkRecord}
               requestHeaders={requestHeaders}
-              onCancel={
-                dayworkRecord?.plumberSignature
-                  ? () => setEditingDayworkInCore(false)
-                  : undefined
-              }
+              onCancel={undefined}
               onSaved={(record) => {
                 const snapshot = {
                   ...record,
@@ -27635,7 +27711,7 @@ export default function Dashboard() {
           </div>
         ) : null}
 
-        {isDayworkFlow && dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature && !editingDayworkInCore ? (
+        {isDayworkFlow && dayworkSigned ? (
           <div style={{ marginBottom: 16 }}>
             <DayworkAccountForm
               context={{

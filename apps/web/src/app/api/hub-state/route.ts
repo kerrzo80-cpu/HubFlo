@@ -6,6 +6,7 @@ import { reconcileDayworkVariationsFromEvidence } from "@/lib/engineer-flow";
 import { getHubDetailState, saveHubDetailState, type HubDetailState } from "@/lib/hub-detail-store";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
 import { parseJsonRequestBody } from "@/lib/http";
+import { stripDayworkBlobsForPoll } from "@/lib/daywork-poll-strip";
 
 export async function GET(request: Request) {
   const access = getAccessProfileFromHeaders(request.headers);
@@ -19,7 +20,8 @@ export async function GET(request: Request) {
   } catch {
     // Best-effort backfill of Daywork variation cards from Field evidence.
   }
-  return NextResponse.json(getHubDetailState());
+  // Poll responses omit base64 signatures — PDF/valuation routes still load full sheets from disk.
+  return NextResponse.json(stripDayworkBlobsForPoll(getHubDetailState()));
 }
 
 export async function PUT(request: Request) {
@@ -41,5 +43,5 @@ export async function PUT(request: Request) {
   } catch {
     // Best-effort: rebuild Daywork variation cards if Core omitted them.
   }
-  return NextResponse.json(getHubDetailState());
+  return NextResponse.json(stripDayworkBlobsForPoll(getHubDetailState()));
 }

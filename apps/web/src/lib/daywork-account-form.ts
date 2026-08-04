@@ -69,9 +69,43 @@ export function dayworkSheetKey(jobId: string, costCentreId: string) {
 
 /** Dual signatures = submitted to Core; Field must treat as locked read-only. */
 export function isDayworkSubmittedToCore(record?: DayworkAccountRecord | null): boolean {
+  if (!record) return false;
+  if ((record as DayworkAccountRecord & { hasSignatures?: boolean }).hasSignatures === true) return true;
   return Boolean(
-    String(record?.plumberSignature || "").trim() && String(record?.clientSignature || "").trim(),
+    String(record.plumberSignature || "").trim() && String(record.clientSignature || "").trim(),
   );
+}
+
+/**
+ * Poll/list payload without base64 signature images (keeps bandwidth down).
+ * Full signatures stay on disk and are only loaded for PDF / valuation export.
+ */
+export function summarizeDayworkSheetForPoll<T extends DayworkAccountRecord>(
+  sheet: T,
+): T & { hasSignatures: boolean } {
+  const hasSignatures = isDayworkSubmittedToCore(sheet);
+  const {
+    plumberSignature: _plumberSignature,
+    clientSignature: _clientSignature,
+    ...rest
+  } = sheet as T & { plumberSignature?: string; clientSignature?: string };
+  return {
+    ...(rest as T),
+    plumberSignature: "",
+    clientSignature: "",
+    hasSignatures,
+  };
+}
+
+export function summarizeDayworkSheetsMapForPoll(
+  sheets: Record<string, DayworkAccountRecord> | null | undefined,
+): Record<string, DayworkAccountRecord & { hasSignatures: boolean }> {
+  const out: Record<string, DayworkAccountRecord & { hasSignatures: boolean }> = {};
+  for (const [key, sheet] of Object.entries(sheets || {})) {
+    if (!sheet || typeof sheet !== "object") continue;
+    out[key] = summarizeDayworkSheetForPoll(sheet);
+  }
+  return out;
 }
 
 /** Stable ordinal from cost-centre id (`…-daywork-account` → 1, `…-daywork-account-2` → 2). */
