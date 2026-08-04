@@ -143,11 +143,21 @@ type DashboardOverviewProps = {
   onOpenJobs?: () => void;
   onOpenQuotes?: () => void;
   onOpenLeads?: () => void;
+  onOpenInvoices?: () => void;
   /** Ops widgets rendered in the same aligned grid (Jobs / Actions / Upcoming). */
   opsCards?: ReactNode;
+  /** Invoices KPI card (replaces Workload). */
+  invoicesCard?: ReactNode;
 };
 
-export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads, opsCards }: DashboardOverviewProps = {}) {
+export function DashboardOverview({
+  onOpenJobs,
+  onOpenQuotes,
+  onOpenLeads,
+  onOpenInvoices,
+  opsCards,
+  invoicesCard,
+}: DashboardOverviewProps = {}) {
   const [jobs, setJobs] = useState<AnyRecord[]>([]);
   const [quotes, setQuotes] = useState<AnyRecord[]>([]);
   const [leads, setLeads] = useState<AnyRecord[]>([]);
@@ -201,8 +211,6 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads, opsCa
     ];
     return rows;
   }, [leads, quotes, jobs]);
-
-  const workload = useMemo(() => countBy(jobs, "manager"), [jobs]);
 
   const value = useMemo(() => {
     const jobsValue = jobs.reduce((sum, job) => sum + num(job, "value"), 0);
@@ -267,7 +275,7 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads, opsCa
         </div>
       </Card>
 
-      {/* Jobs / Actions / Upcoming sit beside Job health (Completion removed — covered by Jobs). */}
+      {/* Jobs / Actions / Upcoming */}
       {opsCards}
 
       <Card
@@ -297,15 +305,17 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads, opsCa
         </div>
       </Card>
 
-      <Card onClick={onOpenJobs} label="Open workload">
-        <header>
-          <h3>Workload</h3>
-          <span className="nexa-kpi-sub">jobs per owner</span>
-        </header>
-        <div className="nexa-kpi-card-scroll">
-          <Bars data={workload} />
-        </div>
-      </Card>
+      {invoicesCard ?? (
+        <Card onClick={onOpenInvoices} label="Open invoices">
+          <header>
+            <h3>Invoices</h3>
+            <span className="nexa-kpi-sub">ops</span>
+          </header>
+          <div className="nexa-kpi-card-scroll">
+            <p className="nexa-kpi-empty">Open invoices</p>
+          </div>
+        </Card>
+      )}
 
       <Card onClick={onOpenQuotes} label="Open live value">
         <header>
