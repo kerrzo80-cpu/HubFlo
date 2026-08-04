@@ -849,6 +849,8 @@ type JobScheduleAssignment = {
   endTime: string;
   plannedHours: number;
   notes: string;
+  /** Set when the visit has been written to (or pulled from) simPRO schedules. */
+  simproScheduleId?: string;
 };
 
 type JobScheduleDraft = {
@@ -2030,6 +2032,9 @@ type EstimateCostCentre = {
   materials: EstimateMaterialLine[];
   labour: EstimateLabourLine[];
   surveyAssets?: SurveyAsset[];
+  /** Linked simPRO job section / cost centre ids from deep import (needed for schedule push). */
+  simproSectionId?: string;
+  simproCostCentreId?: string;
 };
 
 type JobSection = {
@@ -2202,6 +2207,7 @@ type SimproBridgeStatus = {
   guidance?: string;
   quotePushReady?: boolean;
   jobPushReady?: boolean;
+  schedulePushReady?: boolean;
   checkedAt?: string;
   detectedEnvKeys?: string[];
   sync?: SimproSyncStatus;
@@ -13099,6 +13105,11 @@ export default function Dashboard() {
         silentSuccess: true,
         silentIfUnconfigured: true,
       });
+      await pushScheduleAssignmentsToSimpro(updated, {
+        assignments: nextAssignments,
+        upsertIds: [assignment.id],
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule this work package.";
       setSectionError(message);
@@ -20407,6 +20418,81 @@ export default function Dashboard() {
     return result;
   }
 
+  /**
+   * Write managers-diary visits into simPRO schedules (not the legacy scheduler app).
+   * Silent when the job is unlinked or schedule-rate env is missing.
+   */
+  async function pushScheduleAssignmentsToSimpro(
+    job: Job,
+    options: {
+      assignments: JobScheduleAssignment[];
+      upsertIds?: string[];
+      deleteIds?: string[];
+      silentIfUnconfigured?: boolean;
+    },
+  ) {
+    if (!String(job.simproJobId || "").trim()) {
+      return null;
+    }
+    if (integrationSettings.simproMode === "Not connected" || integrationSettings.simproMode === "Queued handoff") {
+      if (!options.silentIfUnconfigured) {
+        showNotice("simPRO is turned off in Setup, so schedule visits stay in NeXa only.");
+      }
+      return null;
+    }
+
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/simpro-schedule-push`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assignments: options.assignments,
+          upsertIds: options.upsertIds,
+          deleteIds: options.deleteIds,
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        skipped?: boolean;
+        reason?: string;
+        assignments?: JobScheduleAssignment[];
+        results?: Array<{ ok: boolean; error?: string; summary?: string }>;
+        error?: string;
+      } | null;
+
+      if (!result) {
+        showNotice("Could not reach the simPRO schedule push endpoint.");
+        return null;
+      }
+
+      if (Array.isArray(result.assignments)) {
+        setJobSchedulePlans((current) => ({ ...current, [job.id]: result.assignments as JobScheduleAssignment[] }));
+      }
+
+      if (result.skipped) {
+        if (!options.silentIfUnconfigured && result.reason) {
+          showNotice(result.reason);
+        }
+        return result;
+      }
+
+      if (!result.ok) {
+        const detail =
+          result.reason ||
+          result.results?.filter((item) => !item.ok).map((item) => item.error || item.summary).join(" · ") ||
+          result.error ||
+          "simPRO schedule push failed.";
+        showNotice(`${job.ref} saved in NeXa, but simPRO diary sync failed: ${detail}`);
+      }
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to push schedules to simPRO.";
+      showNotice(`${job.ref} saved in NeXa, but simPRO diary sync failed: ${message}`);
+      return null;
+    }
+  }
+
   async function sendSelectedJobToSimpro(overrides?: { schedule?: JobScheduleAssignment[]; costCentres?: EstimateCostCentre[]; silentSuccess?: boolean; silentIfUnconfigured?: boolean }) {
     if (!selectedJob) return null;
     setIsSendingJobToSimpro(true);
@@ -21474,6 +21560,11 @@ export default function Dashboard() {
         silentSuccess: true,
         silentIfUnconfigured: true,
       });
+      await pushScheduleAssignmentsToSimpro(updated, {
+        assignments: nextAssignments,
+        upsertIds: [assignment.id],
+        silentIfUnconfigured: true,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to schedule job.";
       setSectionError(message);
@@ -21559,6 +21650,11 @@ export default function Dashboard() {
         costCentres: selectedJobEstimateCostCentres,
         schedule: nextAssignments,
         silentSuccess: true,
+        silentIfUnconfigured: true,
+      });
+      await pushScheduleAssignmentsToSimpro(updated, {
+        assignments: selectedJobPlannerAssignments,
+        deleteIds: [assignmentId],
         silentIfUnconfigured: true,
       });
     } catch (error) {
@@ -40570,7 +40666,7 @@ export default function Dashboard() {
 	                                <strong>{simproBridgeStatus.configured ? `Ready via ${simproBridgeStatus.mode}` : "Needs completing"}</strong>
 	                                <small>
 	                                  {simproBridgeStatus.configured
-	                                    ? `Quotes ${simproBridgeStatus.quotePushReady === false ? "blocked" : "ready"} · Jobs ${simproBridgeStatus.jobPushReady === false ? "blocked" : "ready"}. ${simproBridgeStatus.guidance || ""}`
+	                                    ? `Quotes ${simproBridgeStatus.quotePushReady === false ? "blocked" : "ready"} · Jobs ${simproBridgeStatus.jobPushReady === false ? "blocked" : "ready"} · Schedules ${simproBridgeStatus.schedulePushReady === false ? "blocked" : "ready"}. ${simproBridgeStatus.guidance || ""}`
 	                                    : `Missing ${simproBridgeStatus.missing.join(", ") || "simPRO bridge settings"}.`}
 	                                </small>
 	                              </article>
