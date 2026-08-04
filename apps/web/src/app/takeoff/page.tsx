@@ -814,8 +814,8 @@ export default function TakeoffSkillPage() {
                 <section className="takeoff-skill-panel">
                   <header>
                     <div>
-                      <h2>6. Review · overlay, confidence & sanity</h2>
-                      <p>{skill.sanitySummary || skill.measureSummary || "Approve counted tags on the drawing, then audit confidence before the BOQ."}</p>
+                      <h2>6. Review · marked drawings & full BOQ</h2>
+                      <p>{skill.sanitySummary || skill.measureSummary || "Every fixture and fitting is listed separately. Approve / edit pins on the marked drawings, then continue."}</p>
                     </div>
                     <button className="takeoff-skill-secondary" type="button" disabled={busy === "sanity"} onClick={() => void runSkill("sanity")}>
                       Re-run sanity checks
@@ -823,21 +823,22 @@ export default function TakeoffSkillPage() {
                   </header>
 
                   <div className="takeoff-skill-callout">
-                    <strong>How to read this schedule</strong>
+                    <strong>Full breakdown + marked drawings</strong>
                     <p>
-                      <span className="kind primary">Primary</span> rows are counted from the drawing (WC, basin, bath…).
-                      <span className="kind secondary">Secondary</span> rows are <em>not</em> “18 of everything” —
-                      they are fittings derived from each primary (e.g. 1 tap set + 1 waste per basin, elbows/tees/couplings from pipe metres).
+                      <span className="kind primary">Primary</span> = counted on the drawing.
+                      <span className="kind secondary">Secondary</span> = each piece separately (cistern, seat, mixer, waste, trap, hot isolator, cold isolator, elbows…).
+                      Use Move / Add / Remove on the overlay — every pin can be dragged. Save overlay to recount.
                     </p>
                   </div>
 
                   <TakeoffOverlayReview
                     projectId={selected.id}
+                    documents={selected.documents}
                     measured={skill.measured}
                     busy={busy === "approve-overlay"}
                     onApply={async (measured) => {
                       const result = await runSkill("approve-overlay", { measured });
-                      if (result) show("Overlay counts applied — secondaries re-derived");
+                      if (result) show("Overlay saved — quantities recounted from pins");
                     }}
                   />
 

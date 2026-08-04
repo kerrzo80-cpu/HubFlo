@@ -55,20 +55,22 @@ export async function GET(
     const buffer = await buildMarkedUpPdf({
       sourcePdf,
       title: `${project.reference} · ${project.name}`,
-      quantities: skill.measured.filter((row) => row.kind === "primary").map((row) => ({
-        label: row.code,
-        quantity: row.quantity,
-        unit: row.unit,
-        confidence: row.confidence,
-        matches: (row.tagMatches || [])
-          .filter((match) => match.documentId === drawing.id)
-          .map((match) => ({
-            pageNumber: match.pageNumber,
-            text: match.text,
-            x: match.x,
-            y: match.y,
-          })),
-      })),
+      quantities: skill.measured
+        .filter((row) => (row.tagMatches || []).some((match) => match.documentId === drawing.id && !match.excluded))
+        .map((row) => ({
+          label: row.code,
+          quantity: row.quantity,
+          unit: row.unit,
+          confidence: row.confidence,
+          matches: (row.tagMatches || [])
+            .filter((match) => match.documentId === drawing.id && !match.excluded)
+            .map((match) => ({
+              pageNumber: match.pageNumber,
+              text: match.text,
+              x: match.x,
+              y: match.y,
+            })),
+        })),
     });
     return new NextResponse(new Uint8Array(buffer), {
       headers: {

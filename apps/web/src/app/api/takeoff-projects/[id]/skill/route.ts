@@ -454,6 +454,7 @@ async function textTagMeasure(
       for (const match of counted.matches) {
         const page = extracted.pages.find((row) => row.pageNumber === match.pageNumber);
         tagMatches.push({
+          id: makeId("pin"),
           documentId,
           fileName: extracted.fileName,
           pageNumber: match.pageNumber,
@@ -500,19 +501,29 @@ async function textTagMeasure(
   const anyHits = measured.some((row) => row.quantity > 0);
   if (!anyHits) return null;
 
-  // Pipe metres often aren't tagged — seed a low-confidence allowance so elbows/tees/couplings aren't blank
-  const pipeRow = measured.find((row) => row.code === "P-PIPE-HC");
-  if (pipeRow && pipeRow.quantity <= 0) {
-    const pointCodes = new Set(["P-WC", "P-WHB", "P-BATH", "P-SHR", "P-SINK", "P-APPL"]);
-    const points = measured
-      .filter((row) => pointCodes.has(row.code))
-      .reduce((sum, row) => sum + row.quantity, 0);
-    if (points > 0) {
-      pipeRow.quantity = Math.round(points * 8 * 100) / 100;
+  // Pipe metres often aren't tagged — seed provisional hot + cold so fittings aren't blank
+  const pointCodes = new Set(["P-WC", "P-WHB", "P-BATH", "P-SHR", "P-SINK", "P-APPL"]);
+  const points = measured
+    .filter((row) => pointCodes.has(row.code))
+    .reduce((sum, row) => sum + row.quantity, 0);
+  for (const code of ["P-PIPE-H", "P-PIPE-C", "P-PIPE-HC"] as const) {
+    const pipeRow = measured.find((row) => row.code === code);
+    if (pipeRow && pipeRow.quantity <= 0 && points > 0) {
+      const metresPerPoint = code === "P-PIPE-HC" ? 8 : 4;
+      pipeRow.quantity = Math.round(points * metresPerPoint * 100) / 100;
       pipeRow.method = "derived-formula";
       pipeRow.confidence = "Low";
-      pipeRow.notes = `No scheduled H/C lengths on drawings — provisional ${points} × 8 m from sanitary/appliance points (adjust after overlay / site measure)`;
+      pipeRow.notes = `No scheduled lengths — provisional ${points} × ${metresPerPoint} m from sanitary/appliance points (office adjust)`;
     }
+  }
+
+  // Waste metres provisional from sanitary points when blank
+  const wasteRow = measured.find((row) => row.code === "P-WASTE");
+  if (wasteRow && wasteRow.quantity <= 0 && points > 0) {
+    wasteRow.quantity = Math.round(points * 3 * 100) / 100;
+    wasteRow.method = "derived-formula";
+    wasteRow.confidence = "Low";
+    wasteRow.notes = `No scheduled waste lengths — provisional ${points} × 3 m (office adjust)`;
   }
 
   return measured;
@@ -561,6 +572,39 @@ function appendSecondaries(
       ? byAssembly.get(secondary.derivedFromPrimaryId)
       : undefined;
     const qty = parent ? deriveSecondaryQuantity(secondary, parent.quantity) : 0;
+    const parentPins = (parent?.tagMatches || []).filter((match) => !match.excluded);
+    const siblingIndex = secondaries
+      .filter((item) => item.derivedFromPrimaryId === secondary.derivedFromPrimaryId)
+      .findIndex((item) => item.code === secondary.code);
+    const siblingCount = Math.max(
+      1,
+      secondaries.filter((item) => item.derivedFromPrimaryId === secondary.derivedFromPrimaryId).length,
+    );
+    const perParent = parent && parent.quantity > 0
+      ? Math.max(1, Math.round(qty / parent.quantity))
+      : 1;
+    const tagMatches = parent && secondary.unit === "nr" && parentPins.length
+      ? parentPins.flatMap((pin, pinIndex) =>
+          Array.from({ length: perParent }, (_, copyIndex) => {
+            const angle = ((siblingIndex + 1) / (siblingCount + 1)) * Math.PI * 2
+              + pinIndex * 0.15
+              + copyIndex * 0.35;
+            const radius = 16 + siblingIndex * 2 + copyIndex * 4;
+            return {
+              id: makeId("pin"),
+              documentId: pin.documentId,
+              fileName: pin.fileName,
+              pageNumber: pin.pageNumber,
+              text: secondary.code.replace(/^P-/, ""),
+              x: pin.x + Math.cos(angle) * radius,
+              y: pin.y + Math.sin(angle) * radius,
+              pageWidth: pin.pageWidth,
+              pageHeight: pin.pageHeight,
+              derived: true as const,
+            };
+          }),
+        )
+      : undefined;
     out.push({
       id: makeId("qty"),
       assemblyId: secondary.id,
@@ -573,7 +617,10 @@ function appendSecondaries(
       confidence: parent?.confidence === "High" ? "High" : "Medium",
       sourceSheetIds: parent?.sourceSheetIds || [],
       derivation: secondary.derivation,
-      notes: parent ? `Derived from ${parent.code}` : "Missing primary quantity",
+      tagMatches,
+      notes: parent
+        ? `Derived from ${parent.code}${tagMatches?.length ? ` · ${tagMatches.length} overlay pin(s)` : ""}`
+        : "Missing primary quantity",
     });
   }
   return out;
@@ -727,8 +774,9 @@ export async function POST(
       updatedAt: stamp(),
     };
   } else if (action === "approve-overlay") {
-    // Office toggled tag hits on the drawing overlay — recount primaries and re-derive secondaries
+    // Office edited overlay pins (move / add / remove) — recount and re-derive where needed
     const incoming = body?.measured || skill.measured;
+    const byAssemblyId = new Map(incoming.map((row) => [row.assemblyId, row]));
     const primaries = incoming
       .filter((row) => row.kind === "primary")
       .map((row) => {
@@ -741,22 +789,58 @@ export async function POST(
           quantity,
           tagMatches: row.tagMatches,
           notes: row.tagMatches?.length
-            ? `Approved ${activeMatches.length} of ${row.tagMatches.length} text-tag hit(s) on drawing overlay`
+            ? `Overlay: ${activeMatches.length} active pin(s) of ${row.tagMatches.length}`
             : row.notes,
         };
       });
-    const measured = runSanityChecks(appendSecondaries(skill, primaries), skill);
-    const excluded = primaries.reduce(
-      (sum, row) => sum + (row.tagMatches || []).filter((match) => match.excluded).length,
+
+    // Keep secondary overlay edits when present; otherwise re-derive from primaries
+    const primaryByAssembly = new Map(primaries.map((row) => [row.assemblyId, row]));
+    const secondaries = skill.assemblies
+      .filter((item) => item.included && item.kind === "secondary")
+      .map((secondary) => {
+        const existing = byAssemblyId.get(secondary.id);
+        const parent = secondary.derivedFromPrimaryId
+          ? primaryByAssembly.get(secondary.derivedFromPrimaryId)
+          : undefined;
+        const activePins = (existing?.tagMatches || []).filter((match) => !match.excluded);
+        const derivedQty = parent ? deriveSecondaryQuantity(secondary, parent.quantity) : 0;
+        const quantity = secondary.unit === "nr" && (existing?.tagMatches?.length || 0) > 0
+          ? activePins.length
+          : derivedQty;
+        return {
+          id: existing?.id || makeId("qty"),
+          assemblyId: secondary.id,
+          kind: "secondary" as const,
+          code: secondary.code,
+          description: secondary.description,
+          quantity,
+          unit: secondary.unit,
+          method: "derived-formula" as const,
+          confidence: (parent?.confidence === "High" ? "High" : "Medium") as TakeoffMeasuredQuantity["confidence"],
+          sourceSheetIds: parent?.sourceSheetIds || existing?.sourceSheetIds || [],
+          derivation: secondary.derivation,
+          tagMatches: existing?.tagMatches,
+          notes: existing?.tagMatches?.length
+            ? `Overlay: ${activePins.length} pin(s)`
+            : parent
+              ? `Derived from ${parent.code}`
+              : "Missing primary quantity",
+        };
+      });
+
+    const measured = runSanityChecks([...primaries, ...secondaries], skill);
+    const pinCount = measured.reduce(
+      (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
       0,
     );
     skill = {
       ...skill,
       measured,
-      measureSummary: `Overlay approved — ${measured.filter((row) => row.kind === "primary").length} primaries updated${excluded ? `, ${excluded} tag hit(s) excluded` : ""}.`,
+      measureSummary: `Overlay saved — ${pinCount} active pin(s) across ${measured.length} line items.`,
       sanitySummary: measured.some((row) => row.sanityCheck && !row.sanityCheck.ok)
-        ? "Some quantities still need attention after overlay approval."
-        : "Overlay counts approved — sanity checks passed.",
+        ? "Some quantities still need attention after overlay edits."
+        : "Overlay edits saved — sanity checks passed.",
       step: "review",
       updatedAt: stamp(),
     };

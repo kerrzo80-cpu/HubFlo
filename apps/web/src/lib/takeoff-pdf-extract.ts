@@ -145,6 +145,8 @@ export function patternsForAssemblyCode(code: string, description: string): RegE
     case "P-STACK":
       return [/\bSVP\b/i, /\bS&VP\b/i, /\bsoil\s*stack\b/i, /\bvent\s*stack\b/i];
     case "P-PIPE-HC":
+    case "P-PIPE-H":
+    case "P-PIPE-C":
       return []; // metres come from dimensions / schedule, not tag spam
     case "P-WASTE":
       return [];
