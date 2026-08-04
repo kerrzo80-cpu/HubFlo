@@ -630,6 +630,10 @@ export default function HeatDesignLabPage() {
                   layoutSystemLabel={chosenOption?.label}
                   emitterMode={project.emitterMode ?? "radiators"}
                   onEmitterModeChange={changeEmitterMode}
+                  onFinishSurveyedPlan={() => {
+                    setTab("system");
+                    setNotice("Surveyed plan locked in — pick a system and design flow temperature next.");
+                  }}
                 />
               </>
             ) : null}

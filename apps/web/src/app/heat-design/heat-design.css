@@ -849,6 +849,12 @@
   font-weight: 800;
 }
 
+.hp-finish-survey {
+  width: 100%;
+  margin-top: 0.55rem;
+  justify-content: center;
+}
+
 .hd-loss-row {
   display: flex;
   flex-wrap: wrap;

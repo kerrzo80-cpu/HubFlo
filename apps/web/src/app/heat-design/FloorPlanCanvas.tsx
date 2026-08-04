@@ -59,6 +59,7 @@ type FloorPlanCanvasProps = {
   layoutSystemLabel?: string;
   emitterMode?: HeatingEmitterMode;
   onEmitterModeChange?: (mode: HeatingEmitterMode) => void;
+  onFinishSurveyedPlan?: () => void;
 };
 
 const BASE_SCALE = 90;
@@ -150,6 +151,7 @@ export function FloorPlanCanvas({
   layoutSystemLabel,
   emitterMode = "mixed",
   onEmitterModeChange,
+  onFinishSurveyedPlan,
 }: FloorPlanCanvasProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
@@ -1830,6 +1832,11 @@ export function FloorPlanCanvas({
                   <strong>{summary.roomCount}</strong>
                 </div>
               </div>
+              {onFinishSurveyedPlan ? (
+                <button type="button" className="hd-btn hd-btn-primary hp-finish-survey" onClick={onFinishSurveyedPlan}>
+                  Finish surveyed plan → System
+                </button>
+              ) : null}
             </div>
           ) : null}
         </aside>
