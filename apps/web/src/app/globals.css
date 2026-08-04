@@ -22346,12 +22346,12 @@ body:has([data-takeoff-mode="page"]) {
 }
 
 .dashboard-panel-slot.wide {
-  grid-column: span 3;
+  grid-column: 1 / -1;
 }
 
 .dashboard-panel-slot.side,
 .dashboard-panel-slot.standard {
-  grid-column: span 1;
+  grid-column: span 2;
 }
 
 .dashboard-panel-slot.editing {
@@ -37077,4 +37077,229 @@ kbd,
 
 .nexa-kpi-bar-row.money {
   grid-template-columns: 92px 1fr 64px;
+}
+
+/* ---- Dashboard action notifications + weekly Gantt ---- */
+.action-notifications-widget .notification-stack.compact {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  padding: 12px 0 4px;
+}
+
+.action-notifications-widget .notification-card {
+  min-height: 0;
+  padding: 12px;
+}
+
+.action-notifications-widget .notification-card strong {
+  font-size: 18px;
+}
+
+.action-notifications-widget header .notification-total {
+  margin-left: auto;
+}
+
+.action-daywork-list {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 8px;
+  padding-top: 12px;
+}
+
+.action-daywork-heading {
+  color: var(--nexa-slate);
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.dashboard-weekly-gantt {
+  margin-top: 16px;
+}
+
+.dashboard-weekly-gantt-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.dashboard-weekly-gantt-actions > svg {
+  color: var(--nexa-brass);
+}
+
+.dashboard-weekly-gantt-scroll {
+  overflow-x: auto;
+  padding: 4px 0 8px;
+}
+
+.dashboard-weekly-gantt-board {
+  min-width: 920px;
+}
+
+.dashboard-weekly-gantt-row {
+  display: grid;
+  gap: 0;
+  grid-template-columns: 140px minmax(0, 1fr);
+}
+
+.dashboard-weekly-gantt-row.head {
+  background: #f1f7f9;
+  border: 1px solid var(--line);
+  border-radius: 8px 8px 0 0;
+  color: #586c78;
+  font-size: 10px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.dashboard-weekly-gantt-row.head > span {
+  align-items: center;
+  display: flex;
+  padding: 10px 12px;
+}
+
+.dashboard-weekly-gantt-axis {
+  display: grid;
+  min-height: 40px;
+  position: relative;
+}
+
+.dashboard-weekly-gantt-axis time {
+  align-items: center;
+  border-left: 1px solid var(--line-soft);
+  display: flex;
+  justify-content: center;
+  padding: 8px 4px;
+  text-align: center;
+}
+
+.dashboard-weekly-gantt-row:not(.head) > header {
+  align-content: start;
+  background: #f8fafb;
+  border: 1px solid var(--line);
+  border-top: 0;
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+}
+
+.dashboard-weekly-gantt-row:not(.head) > header strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.dashboard-weekly-gantt-row:not(.head) > header span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.dashboard-weekly-gantt-track {
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  min-height: 72px;
+  position: relative;
+}
+
+.dashboard-weekly-gantt-day {
+  border-left: 1px solid var(--line-soft);
+  min-height: 72px;
+}
+
+.dashboard-weekly-gantt-scale {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  inset: 4px 0 auto;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+  z-index: 1;
+}
+
+.dashboard-weekly-gantt-scale > span {
+  color: #9aafb8;
+  display: flex;
+  font-size: 8px;
+  font-weight: 700;
+  justify-content: space-between;
+  padding: 0 6px;
+}
+
+.dashboard-weekly-gantt-bar {
+  align-items: center;
+  background: #2f9fc4;
+  border: 0;
+  border-radius: 5px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  justify-content: center;
+  max-width: 100%;
+  min-height: 34px;
+  overflow: hidden;
+  padding: 4px 6px;
+  position: absolute;
+  text-align: left;
+  top: 50%;
+  transform: translateY(-42%);
+  z-index: 2;
+}
+
+.dashboard-weekly-gantt-bar.tone-1 { background: #2377a4; }
+.dashboard-weekly-gantt-bar.tone-2 { background: #2c8f7b; }
+.dashboard-weekly-gantt-bar.tone-3 { background: #9b7b32; }
+
+.dashboard-weekly-gantt-bar strong,
+.dashboard-weekly-gantt-bar span {
+  display: block;
+  font-size: 10px;
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.dashboard-weekly-gantt-bar span {
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.dashboard-weekly-gantt-empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 11px;
+  inset: 0;
+  justify-content: center;
+  pointer-events: none;
+  position: absolute;
+}
+
+.dashboard-gantt-now {
+  z-index: 4;
+}
+
+.ops-dashboard .dashboard-weekly-gantt {
+  animation: nexa-kpi-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.12s;
+}
+
+@media (max-width: 900px) {
+  .action-notifications-widget .notification-stack.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-weekly-gantt-row {
+    grid-template-columns: 110px minmax(0, 1fr);
+  }
 }
