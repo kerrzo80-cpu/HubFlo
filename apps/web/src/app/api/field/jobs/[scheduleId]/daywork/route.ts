@@ -4,9 +4,11 @@ import {
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
   parseDayworkLineItems,
+  stripDayworkOfficePricing,
   validateDayworkSheetDraft,
   type DayworkAccountRecord,
   type DayworkSheetDraft,
+  type DayworkSheetSnapshot,
 } from "@/lib/daywork-account-form";
 import { getEngineerScheduleItem, type EngineerRequirement } from "@/lib/engineer-data";
 import {
@@ -44,6 +46,27 @@ function dayworkRequirements(jobId: string, costCentreId: string): EngineerRequi
     costCentreName: DAYWORK_COST_CENTRE_NAME,
     templateName: DAYWORK_COST_CENTRE_TEMPLATE,
   }) as EngineerRequirement[];
+}
+
+function fieldSafeRecord(record: DayworkAccountRecord | null | undefined) {
+  if (!record) return null;
+  return stripDayworkOfficePricing(record);
+}
+
+function fieldSafeSheets(sheets: DayworkSheetSnapshot[]) {
+  return sheets.map((sheet) => stripDayworkOfficePricing(sheet));
+}
+
+function resolveDayworkRecord(jobId: string, costCentreId: string): DayworkAccountRecord | null {
+  const fromList = listDayworkSheetsForJob(jobId).find((sheet) => sheet.costCentreId === costCentreId);
+  if (fromList) return fromList;
+  try {
+    const fromStore = getDayworkSheetFromStore(jobId, costCentreId);
+    if (fromStore) return fromStore;
+  } catch {
+    // Best-effort — fall through to evidence rebuild.
+  }
+  return buildDayworkAccountRecordFromEvidence(jobId, costCentreId);
 }
 
 /** Ensure / clear / save Daywork Account sheet for a Field schedule. */
@@ -98,7 +121,7 @@ export async function POST(request: Request, { params }: Params) {
       templateName: DAYWORK_COST_CENTRE_TEMPLATE,
       checklistMode: "daywork",
       record: null,
-      sheets: listDayworkSheetsForJob(schedule.jobId),
+      sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
       requirements: workflow.requirements ?? requirements,
     });
   }
@@ -234,13 +257,13 @@ export async function POST(request: Request, { params }: Params) {
       jobId: schedule.jobId,
       costCentreId,
       checklistMode: "daywork",
-      record: verified,
+      record: fieldSafeRecord(verified),
       persisted: true,
       materialsCount,
       hasClientName,
       hasSignatures,
       storeSheetCount: listDayworkSheetsFromStore().length,
-      sheets: listDayworkSheetsForJob(schedule.jobId),
+      sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
       requirements,
     });
   }
@@ -256,25 +279,34 @@ export async function POST(request: Request, { params }: Params) {
     costCentreName: DAYWORK_COST_CENTRE_NAME,
     templateName: DAYWORK_COST_CENTRE_TEMPLATE,
     checklistMode: "daywork",
-    record: buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId),
-    sheets: listDayworkSheetsForJob(schedule.jobId),
+    record: fieldSafeRecord(resolveDayworkRecord(schedule.jobId, costCentreId)),
+    sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
     requirements: workflow.requirements ?? requirements,
   });
 }
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(request: Request, { params }: Params) {
   const { scheduleId } = await params;
   const schedule = getEngineerScheduleItem(scheduleId);
   if (!schedule?.jobId) {
     return NextResponse.json({ error: "Schedule not found." }, { status: 404 });
   }
 
+  const sheets = fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId));
+  const listOnly = new URL(request.url).searchParams.get("list") === "1";
+  if (listOnly) {
+    return NextResponse.json({
+      scheduleId,
+      jobId: schedule.jobId,
+      sheets,
+    });
+  }
+
   const costCentreId = ensureDayworkVariationCostCentre(schedule.jobId);
   const requirements = dayworkRequirements(schedule.jobId, costCentreId);
-  const sheets = listDayworkSheetsForJob(schedule.jobId);
   const savedSheet =
     sheets.find((sheet) => sheet.costCentreId === costCentreId) ||
-    buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId);
+    fieldSafeRecord(buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId));
 
   return NextResponse.json({
     scheduleId,

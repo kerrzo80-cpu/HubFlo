@@ -12652,6 +12652,7 @@ h1 {
 
 .field-daywork-actions {
   display: flex;
+  flex-direction: column;
   gap: 10px;
   margin: 0 0 12px;
 }
@@ -12681,7 +12682,64 @@ h1 {
   color: #1b2a4a;
 }
 
-.field-daywork-actions button:disabled {
+.field-daywork-actions .primary-btn:disabled,
+.field-daywork-actions .secondary-btn:disabled {
+  opacity: 0.65;
+}
+
+.field-daywork-sheet-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.field-daywork-sheet-list > strong {
+  color: #1b2a4a;
+  font-size: 0.92rem;
+}
+
+.field-daywork-sheet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field-daywork-sheet-chip {
+  align-items: flex-start;
+  background: #eef4f7;
+  border: 1px solid #c9d7e0;
+  border-radius: 10px;
+  color: #1b2a4a;
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  font: inherit;
+  gap: 2px;
+  min-width: 7.5rem;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.field-daywork-sheet-chip span {
+  font-weight: 700;
+}
+
+.field-daywork-sheet-chip small {
+  color: #5b6b7c;
+  font-size: 0.78rem;
+}
+
+.field-daywork-sheet-chip.is-active {
+  background: #157fa8;
+  border-color: #157fa8;
+  color: #fff;
+}
+
+.field-daywork-sheet-chip.is-active small {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.field-daywork-sheet-chip:disabled:not(.is-active) {
   opacity: 0.65;
 }
 

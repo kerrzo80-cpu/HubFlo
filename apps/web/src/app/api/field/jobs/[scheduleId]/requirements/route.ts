@@ -24,6 +24,8 @@ export async function GET(_request: Request, { params }: Params) {
   const workflow = getEngineerJobWorkflow(scheduleId);
   return NextResponse.json({
     scheduleId,
+    checklistMode: workflow.checklistMode || "job",
+    dayworkCostCentreId: workflow.dayworkCostCentreId || null,
     requirements: workflow.requirements ?? [],
   });
 }
