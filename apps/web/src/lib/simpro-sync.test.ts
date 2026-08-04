@@ -9,9 +9,11 @@ import {
   buildQuoteInput,
   isPlaceholderSimproValue,
   isUsableEmailForMatch,
+  jobStatusFromSimpro,
   processClient,
   processSite,
 } from "@/lib/simpro-sync";
+import { mergeHubDetailState } from "@/lib/hub-state-merge";
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), "simpro-fixtures");
 
@@ -36,6 +38,35 @@ describe("simpro sync preview quality", () => {
     assert.equal(quote.customer, "Example Customer Ltd");
     assert.equal(job.customer, "Example Customer Ltd");
     assert.match(quote.description, /Replace bathroom suite|Sample Job/);
+    assert.equal(job.status, "Completed");
+    assert.equal(job.site, "Main site");
+  });
+
+  it("maps simPRO job statuses onto NeXa folder statuses", () => {
+    assert.equal(jobStatusFromSimpro("Complete"), "Completed");
+    assert.equal(jobStatusFromSimpro("Progress"), "In progress");
+    assert.equal(jobStatusFromSimpro("Scheduled"), "Scheduled");
+    assert.equal(jobStatusFromSimpro("Imported"), "Pending");
+    assert.equal(jobStatusFromSimpro(""), "Pending");
+  });
+
+  it("keeps richer server quote cost centres when the browser sends an empty map", () => {
+    const merged = mergeHubDetailState(
+      {
+        quoteCostCentres: {
+          "quote-1": [{ id: "cc-1", name: "First fix", clientDescription: "Client brief", engineerDescription: "Engineer brief", lines: [] }],
+        },
+        jobSchedulePlans: {
+          "job-1": [{ id: "sched-1", employeeName: "Alex" }],
+        },
+      },
+      {
+        quoteCostCentres: {},
+        jobSchedulePlans: {},
+      },
+    );
+    assert.equal((merged.quoteCostCentres as Record<string, unknown[]>)["quote-1"]?.length, 1);
+    assert.equal((merged.jobSchedulePlans as Record<string, unknown[]>)["job-1"]?.length, 1);
   });
 
   it("does not conflict-match customers solely on placeholder email", () => {

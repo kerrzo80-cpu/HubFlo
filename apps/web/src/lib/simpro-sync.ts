@@ -13,6 +13,8 @@ import {
   createQuote,
   getJobs,
   getQuotes,
+  removeJob,
+  removeQuote,
   type Job,
   type Quote,
   type QuoteStatus,
@@ -25,6 +27,7 @@ import {
   pullSchedulesForLinkedJobs,
 } from "@/lib/simpro-deep-import";
 import { upsertSimproEntityLink, type SimproLinkEntityType } from "@/lib/simpro-entity-links";
+import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -246,13 +249,126 @@ function joinAddress(value: unknown) {
 }
 
 function addressFromRecord(record: UnknownRecord) {
+  const site = asRecord(record.Site);
   return (
     joinAddress(record.Address) ||
     joinAddress(record.SiteAddress) ||
     joinAddress(record.BillingAddress) ||
     joinAddress(record.PostalAddress) ||
-    firstString(record, ["Address", "SiteAddress", "BillingAddress", "PostalAddress"])
+    (site
+      ? joinAddress(site.Address) ||
+        joinAddress(site.SiteAddress) ||
+        joinAddress(site) ||
+        firstString(site, ["Address", "SiteAddress", "BillingAddress"])
+      : "") ||
+    firstString(record, ["Address", "SiteAddress", "BillingAddress", "PostalAddress", "Site.Address"])
   );
+}
+
+function simproSiteId(record: UnknownRecord) {
+  const nested = asRecord(record.Site);
+  if (nested) {
+    const nestedId = firstString(nested, ["ID", "Id", "id"]);
+    if (nestedId) return nestedId;
+  }
+  return firstString(record, ["Site.ID", "Site.Id", "Site.id", "SiteID", "SiteId"]);
+}
+
+function simproSiteName(record: UnknownRecord) {
+  const nested = asRecord(record.Site);
+  if (nested) {
+    const name = firstString(nested, ["Name", "SiteName", "DisplayName"]);
+    if (name) return name;
+  }
+  return firstString(record, ["Site.Name", "SiteName"]);
+}
+
+export function jobStatusFromSimpro(value: string): string {
+  const status = normaliseText(value);
+  if (!status) return "Pending";
+  if (status.includes("ready to invoice") || status === "invoiced") return status.includes("ready") ? "Ready to invoice" : "Invoiced";
+  if (status.includes("invoice")) return "Ready to invoice";
+  if (status.includes("complete") || status.includes("finished") || status === "done") return "Completed";
+  if (status.includes("closed") || status.includes("archiv")) return "Closed";
+  if (status.includes("schedul")) return "Scheduled";
+  if (status.includes("progress") || status.includes("active") || status.includes("on site")) return "In progress";
+  if (status.includes("wait") && status.includes("part")) return "Waiting on parts";
+  if (status.includes("wait") && status.includes("customer")) return "Waiting on customer";
+  if (status.includes("approv")) return "Approval required";
+  if (status.includes("accept")) return "Accepted";
+  if (status.includes("quot")) return "Quoted";
+  if (status.includes("enquir")) return "Enquiry";
+  if (status.includes("pending") || status.includes("new") || status.includes("open") || status.includes("import")) {
+    return "Pending";
+  }
+  return "Pending";
+}
+
+function matchingSiteForRecord(record: UnknownRecord, clientId?: string) {
+  const externalId = simproSiteId(record);
+  if (externalId) {
+    const link = existingLink("sites", externalId);
+    if (link) {
+      const linked = getClientSites().find((item) => item.id === link.nexaId);
+      if (linked) return linked;
+    }
+  }
+
+  const address = addressFromRecord(record);
+  const siteName = simproSiteName(record);
+  const candidates = getClientSites().filter((item) => {
+    if (clientId && item.clientId !== clientId) return false;
+    if (address && !isPlaceholderSimproValue(address) && normaliseText(item.address) === normaliseText(address)) {
+      return true;
+    }
+    if (siteName && !isPlaceholderSimproValue(siteName) && normaliseText(item.name) === normaliseText(siteName)) {
+      return true;
+    }
+    return false;
+  });
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+function ensureSiteForRecord(record: UnknownRecord, clientId: string | undefined, mode: SimproSyncMode) {
+  const existing = matchingSiteForRecord(record, clientId);
+  if (existing) return existing;
+  if (mode !== "apply" || !clientId) return undefined;
+
+  const externalId = simproSiteId(record);
+  const nested = asRecord(record.Site) ?? {};
+  const mapped = siteFromSimpro(
+    {
+      ...nested,
+      ID: externalId || nested.ID,
+      Name: simproSiteName(record) || nested.Name,
+      Address: nested.Address || record.Address || record.SiteAddress,
+      Customer: asRecord(record.Customer) ?? { ID: simproCustomerId(record) },
+    },
+    clientId,
+  );
+
+  if (isPlaceholderSimproValue(mapped.address) && simproSiteName(record)) {
+    mapped.address = simproSiteName(record);
+  }
+
+  const site = addClientSiteRecord({
+    ...mapped,
+    id: externalId
+      ? `site-simpro-${externalId.replace(/[^a-zA-Z0-9_-]/g, "-")}`
+      : `site-simpro-auto-${crypto.randomUUID()}`,
+  });
+  if (externalId) {
+    saveLink({
+      nexaType: "sites",
+      nexaId: site.id,
+      nexaName: site.name,
+      simproType: "sites",
+      simproId: externalId,
+      simproName: site.name,
+      lastDirection: "simpro-to-nexa",
+    });
+  }
+  return site;
 }
 
 function extractRecords(body: unknown) {
@@ -499,15 +615,22 @@ export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, si
 }
 
 export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site?: ClientSite): Omit<Job, "id" | "ref" | "health"> & { simproJobId?: string } {
+  const simproStatus = firstString(record, ["Status.Name", "Status", "Stage", "Stage.Name"]);
+  const siteLabel =
+    site?.address ||
+    addressFromRecord(record) ||
+    simproSiteName(record) ||
+    firstString(record, ["Site.Name", "SiteName"]) ||
+    "Site to confirm";
   return {
     clientId: client?.id,
     siteId: site?.id,
     customer: client?.name || simproCustomerName(record) || firstString(record, ["CustomerName"]) || "simPRO customer",
-    site: site?.address || addressFromRecord(record) || firstString(record, ["Site.Name", "SiteName"]) || "Site to confirm",
+    site: siteLabel,
     description:
       firstString(record, ["Description", "Name", "Title", "Subject", "JobName"]) || "Imported simPRO job",
     manager: firstString(record, ["ProjectManager.Name", "Owner.Name", "Salesperson.Name"]) || "Imported from simPRO",
-    status: firstString(record, ["Status.Name", "Status", "Stage", "Stage.Name"]) || "Imported",
+    status: jobStatusFromSimpro(simproStatus),
     value: firstNumber(record, [
       "Total.ExTax",
       "Total.IncTax",
@@ -786,7 +909,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
   }
 
   const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
-  const site = getClientSites().find((item) => item.clientId === client?.id && normaliseText(item.address) === normaliseText(addressFromRecord(record)));
+  const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
   const mapped = buildQuoteInput(record, client, site);
   if (mode === "preview") {
     return operation(
@@ -867,7 +990,7 @@ async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<
   }
 
   const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
-  const site = getClientSites().find((item) => item.clientId === client?.id && normaliseText(item.address) === normaliseText(addressFromRecord(record)));
+  const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
   const mapped = buildJobInput(record, client, site);
   if (mode === "preview") {
     return operation(
@@ -1329,4 +1452,76 @@ export function isValidWebhookSecret(headers: Headers) {
     headers.get("x-webhook-secret") ||
     headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   return headerSecret === expected;
+}
+
+/**
+ * Remove NeXa jobs/quotes that were created from simPRO imports so a clean re-import can run.
+ * Does not delete customers/sites (those stay linked).
+ */
+export function cleanupImportedSimproRecords(input?: {
+  entities?: Array<"jobs" | "quotes">;
+  actor?: string;
+}) {
+  const entities = input?.entities?.length ? input.entities : (["jobs", "quotes"] as const);
+  const actor = input?.actor?.trim() || "simPRO sync";
+  const hub = getHubDetailState();
+  const jobCostCentres = { ...(hub.jobCostCentres || {}) } as Record<string, unknown>;
+  const jobSections = { ...(hub.jobSections || {}) } as Record<string, unknown>;
+  const jobSchedulePlans = { ...(hub.jobSchedulePlans || {}) } as Record<string, unknown>;
+  const quoteCostCentres = { ...(hub.quoteCostCentres || {}) } as Record<string, unknown>;
+  const quoteSections = { ...(hub.quoteSections || {}) } as Record<string, unknown>;
+  const quoteSchedulePlans = { ...(hub.quoteSchedulePlans || {}) } as Record<string, unknown>;
+
+  let deletedJobs = 0;
+  let deletedQuotes = 0;
+
+  if (entities.includes("jobs")) {
+    for (const job of getJobs()) {
+      if (!String(job.simproJobId || "").trim()) continue;
+      if (!removeJob(job.id)) continue;
+      deletedJobs += 1;
+      delete jobCostCentres[job.id];
+      delete jobSections[job.id];
+      delete jobSchedulePlans[job.id];
+      simproSyncStore.links = simproSyncStore.links.filter(
+        (link) => !(link.nexaType === "jobs" && link.nexaId === job.id),
+      );
+    }
+  }
+
+  if (entities.includes("quotes")) {
+    for (const quote of getQuotes()) {
+      if (!String(quote.simproQuoteId || "").trim()) continue;
+      if (!removeQuote(quote.id)) continue;
+      deletedQuotes += 1;
+      delete quoteCostCentres[quote.id];
+      delete quoteSections[quote.id];
+      delete quoteSchedulePlans[quote.id];
+      simproSyncStore.links = simproSyncStore.links.filter(
+        (link) => !(link.nexaType === "quotes" && link.nexaId === quote.id),
+      );
+    }
+  }
+
+  saveHubDetailState({
+    ...hub,
+    jobCostCentres,
+    jobSections,
+    jobSchedulePlans,
+    quoteCostCentres,
+    quoteSections,
+    quoteSchedulePlans,
+  });
+  persistStore();
+  appendAuditEvent({
+    actor,
+    action: "deleted",
+    recordType: "integration",
+    recordId: "simpro-import-cleanup",
+    summary: `Removed ${deletedJobs} imported simPRO job(s) and ${deletedQuotes} imported simPRO quote(s) for a clean re-import.`,
+    source: "simPRO sync",
+    importance: "high",
+  });
+
+  return { deletedJobs, deletedQuotes };
 }
