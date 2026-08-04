@@ -11,6 +11,7 @@ import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import {
   dayworkSheetListLabel,
   formatFieldDayworkEvidenceSummary,
+  isDayworkSubmittedToCore,
   sortDayworkSheetsByNumber,
   type DayworkAccountRecord,
 } from "@/lib/daywork-account-form";
@@ -21,9 +22,6 @@ import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
 
 type FieldDayworkSheet = DayworkAccountRecord & { costCentreId?: string; updatedAt?: string };
 
-function isDayworkSigned(sheet: FieldDayworkSheet) {
-  return Boolean(String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim());
-}
 
 function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
   return requirements.some(
@@ -306,7 +304,9 @@ export default function JobDetailPage() {
         options?.fresh
           ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish."
           : options?.costCentreId
-            ? `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish.`
+            ? isDayworkSubmittedToCore(body.record)
+              ? `${openedLabel} is locked (submitted to Core) — view only on Field.`
+              : `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish.`
             : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
       );
     } catch (openError) {
@@ -556,7 +556,7 @@ export default function JobDetailPage() {
                 : "Daywork open"}
               {orderedDayworkSheets.length
                 ? ` · ${orderedDayworkSheets.length} on this job`
-                : ""}. Save and finish sends it to Core. Tap a previous Daywork below to reopen it.
+                : ""}. Save and finish sends it to Core and locks it on Field. Tap a Daywork below to view it.
             </p>
           </>
         ) : (
@@ -578,17 +578,23 @@ export default function JobDetailPage() {
                 const costCentreId = sheet.costCentreId!;
                 const label = dayworkSheetListLabel(job.jobId, costCentreId);
                 const active = checklistMode === "daywork" && dayworkCostCentreId === costCentreId;
-                const signed = isDayworkSigned(sheet);
+                const locked = isDayworkSubmittedToCore(sheet);
                 return (
                   <button
                     key={costCentreId}
                     type="button"
-                    className={active ? "field-daywork-sheet-chip is-active" : "field-daywork-sheet-chip"}
+                    className={
+                      active
+                        ? "field-daywork-sheet-chip is-active"
+                        : locked
+                          ? "field-daywork-sheet-chip is-locked"
+                          : "field-daywork-sheet-chip"
+                    }
                     disabled={dayworkBusy || active}
                     onClick={() => void openDayworkSheet({ costCentreId })}
                   >
                     <span>{label}</span>
-                    <small>{signed ? "Signed" : "In progress"}</small>
+                    <small>{locked ? "Locked · view only" : "In progress"}</small>
                   </button>
                 );
               })}
@@ -660,6 +666,7 @@ export default function JobDetailPage() {
               costCentreId={dayworkCostCentreId || undefined}
               engineerName={job.engineerName}
               initialRecord={dayworkRecord}
+              locked={isDayworkSubmittedToCore(dayworkRecord)}
               onCancel={() => void backToJobChecklist()}
               onSaved={(record) => {
                 setDayworkRecord(record);
@@ -672,7 +679,9 @@ export default function JobDetailPage() {
                   ];
                 });
                 setNotice(
-                  "Saved to Core — open this job → Cost centres → Variations → Daywork account. Tap New Daywork sheet for another.",
+                  isDayworkSubmittedToCore(record)
+                    ? "Submitted to Core and locked on Field. Office can edit in Core → Variations → Daywork account. Tap New Daywork sheet for another."
+                    : "Saved to Core — open this job → Cost centres → Variations → Daywork account.",
                 );
               }}
             />
