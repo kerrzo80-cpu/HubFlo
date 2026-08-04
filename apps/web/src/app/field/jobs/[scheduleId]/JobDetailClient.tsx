@@ -84,7 +84,7 @@ function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
   );
 }
 
-type Tab = "pack" | "checklist" | "photos";
+type Tab = "pack" | "checklist" | "photos" | "po";
 
 type DraftValue = {
   text?: string;
@@ -951,6 +951,9 @@ export default function JobDetailPage() {
         </button>
         <button type="button" className={tab === "photos" ? "active" : undefined} onClick={() => setTab("photos")}>
           <Camera size={15} /> Photos
+        </button>
+        <button type="button" className={tab === "po" ? "active" : undefined} onClick={() => setTab("po")}>
+          <ShoppingCart size={15} /> POs
         </button>
       </div>
 
