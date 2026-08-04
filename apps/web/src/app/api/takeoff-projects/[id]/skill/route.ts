@@ -45,6 +45,7 @@ type SkillAction =
   | "approve-plan"
   | "measure"
   | "sanity"
+  | "approve-overlay"
   | "set-step"
   | "apply-boq"
   | "invoke";
@@ -451,6 +452,7 @@ async function textTagMeasure(
       const counted = countTextTagMatches(extracted.pages, patterns);
       total += counted.count;
       for (const match of counted.matches) {
+        const page = extracted.pages.find((row) => row.pageNumber === match.pageNumber);
         tagMatches.push({
           documentId,
           fileName: extracted.fileName,
@@ -458,6 +460,8 @@ async function textTagMeasure(
           text: match.text,
           x: match.x,
           y: match.y,
+          pageWidth: page?.width,
+          pageHeight: page?.height,
         });
         const sheet = skill.drawingIndex.sheets.find(
           (row) => row.documentId === documentId && row.page === match.pageNumber,
@@ -495,6 +499,22 @@ async function textTagMeasure(
   // If nothing found at all for nr items, fall back so UI isn't empty zeros only
   const anyHits = measured.some((row) => row.quantity > 0);
   if (!anyHits) return null;
+
+  // Pipe metres often aren't tagged — seed a low-confidence allowance so elbows/tees/couplings aren't blank
+  const pipeRow = measured.find((row) => row.code === "P-PIPE-HC");
+  if (pipeRow && pipeRow.quantity <= 0) {
+    const pointCodes = new Set(["P-WC", "P-WHB", "P-BATH", "P-SHR", "P-SINK", "P-APPL"]);
+    const points = measured
+      .filter((row) => pointCodes.has(row.code))
+      .reduce((sum, row) => sum + row.quantity, 0);
+    if (points > 0) {
+      pipeRow.quantity = Math.round(points * 8 * 100) / 100;
+      pipeRow.method = "derived-formula";
+      pipeRow.confidence = "Low";
+      pipeRow.notes = `No scheduled H/C lengths on drawings — provisional ${points} × 8 m from sanitary/appliance points (adjust after overlay / site measure)`;
+    }
+  }
+
   return measured;
 }
 
@@ -515,12 +535,17 @@ function parseInvokePrompt(prompt: string): { trade: TakeoffTradeId; focusLabels
 
   const options = focusOptionsForTrade(trade);
   const focusLabels = options.filter((label) => {
-    const token = label.toLowerCase().split(/\s+/)[0] || "";
-    return token && lower.includes(token);
+    const lowerLabel = label.toLowerCase();
+    if (/sanitary|fittings|fixtures/.test(lower) && /wc|basin|bath|shower|sink|whb/.test(lowerLabel)) return true;
+    if (/hot.?cold|pipe|outlet/.test(lower) && /pipe|fitting|hot|appliance|isolation/.test(lowerLabel)) return true;
+    if (/waste|soil|svp/.test(lower) && /waste|soil/.test(lowerLabel)) return true;
+    const token = lowerLabel.split(/[^a-z0-9]+/).find((part) => part.length >= 3) || "";
+    return Boolean(token) && lower.includes(token);
   });
   return {
     trade,
-    focusLabels: focusLabels.length ? focusLabels : options.slice(0, 3),
+    // Full trade schedule by default — never silently drop baths/showers/fittings
+    focusLabels: focusLabels.length ? focusLabels : options,
   };
 }
 
@@ -698,6 +723,40 @@ export async function POST(
       sanitySummary: failed
         ? `${failed} quantity(ies) failed sanity checks — audit before BOQ.`
         : "Sanity checks passed for measured quantities.",
+      step: "review",
+      updatedAt: stamp(),
+    };
+  } else if (action === "approve-overlay") {
+    // Office toggled tag hits on the drawing overlay — recount primaries and re-derive secondaries
+    const incoming = body?.measured || skill.measured;
+    const primaries = incoming
+      .filter((row) => row.kind === "primary")
+      .map((row) => {
+        const activeMatches = (row.tagMatches || []).filter((match) => !match.excluded);
+        const quantity = row.unit === "nr" && (row.tagMatches?.length || 0) > 0
+          ? activeMatches.length
+          : row.quantity;
+        return {
+          ...row,
+          quantity,
+          tagMatches: row.tagMatches,
+          notes: row.tagMatches?.length
+            ? `Approved ${activeMatches.length} of ${row.tagMatches.length} text-tag hit(s) on drawing overlay`
+            : row.notes,
+        };
+      });
+    const measured = runSanityChecks(appendSecondaries(skill, primaries), skill);
+    const excluded = primaries.reduce(
+      (sum, row) => sum + (row.tagMatches || []).filter((match) => match.excluded).length,
+      0,
+    );
+    skill = {
+      ...skill,
+      measured,
+      measureSummary: `Overlay approved — ${measured.filter((row) => row.kind === "primary").length} primaries updated${excluded ? `, ${excluded} tag hit(s) excluded` : ""}.`,
+      sanitySummary: measured.some((row) => row.sanityCheck && !row.sanityCheck.ok)
+        ? "Some quantities still need attention after overlay approval."
+        : "Overlay counts approved — sanity checks passed.",
       step: "review",
       updatedAt: stamp(),
     };

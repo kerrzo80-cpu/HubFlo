@@ -125,22 +125,59 @@ export function inferDisciplineFromText(fileName: string, sampleText: string): s
 }
 
 export function patternsForAssemblyCode(code: string, description: string): RegExp[] {
+  const codeKey = code.toUpperCase();
+  // Code-specific patterns first — avoid matching every "hot"/"cold" label on a plumbing sheet.
+  switch (codeKey) {
+    case "P-WC":
+      return [/\bWC\b/i, /\bW\.?C\.?\b/i, /\btoilet\b/i, /\bpan\b/i];
+    case "P-WHB":
+      return [/\bWHB\b/i, /\bWB\b/i, /\bbasin\b/i, /\bwash\s*hand\b/i, /\bhand\s*basin\b/i];
+    case "P-BATH":
+      return [/\bBTH\b/i, /\bbath\b/i, /\bbathtub\b/i];
+    case "P-SHR":
+      // Avoid bare SH — clashes with sheet refs; prefer SHR / shower
+      return [/\bSHR\b/i, /\bSHWR\b/i, /\bshower\b/i];
+    case "P-SINK":
+      return [/\bSK\b/i, /\bsink\b/i, /\bKS\b/i, /\bkitchen\s*sink\b/i];
+    case "P-APPL":
+      return [/\bWM\b/i, /\bWashing\s*Machine\b/i, /\bDW\b/i, /\bDish\s*Washer\b/i, /\bAPPL\b/i, /\bfridge\s*ice\b/i];
+    case "P-SVP":
+    case "P-STACK":
+      return [/\bSVP\b/i, /\bS&VP\b/i, /\bsoil\s*stack\b/i, /\bvent\s*stack\b/i];
+    case "P-PIPE-HC":
+      return []; // metres come from dimensions / schedule, not tag spam
+    case "P-WASTE":
+      return [];
+    case "H-RAD":
+      return [/\bR\d+\b/i, /\brad(iator)?\b/i, /\bTRV\b/i, /\bemitter\b/i];
+    case "H-BOILER":
+      return [/\bboiler\b/i, /\bASHP\b/i, /\bheat\s*pump\b/i];
+    case "E-SOCKET":
+      return [/\bSSO\b/i, /\bGPO\b/i, /\bsocket\b/i, /\b13A\b/i];
+    case "E-LIGHT":
+      return [/\bL\d+\b/i, /\bLED\b/i, /\bluminaire\b/i, /\blight\s*fitting\b/i];
+    case "S-FOOT":
+      return [/\bF\d+\b/i, /\bPAD\b/i, /\bFTG\b/i, /\bfooting\b/i];
+    case "C-MH":
+      return [/\bMH\d*\b/i, /\bIC\d*\b/i, /\bmanhole\b/i];
+    default:
+      break;
+  }
+
   const patterns: RegExp[] = [];
   const lower = `${code} ${description}`.toLowerCase();
   if (/rad|emitter/.test(lower)) patterns.push(/\bR\d+\b/i, /\brad(iator)?\b/i, /\bTRV\b/i);
-  if (/sanit|basin|wc|bath|shower/.test(lower)) patterns.push(/\bWC\b/i, /\bWHB\b/i, /\bbasin\b/i, /\bbath\b/i, /\bSHR\b/i);
-  if (/outlet|socket|power/.test(lower)) patterns.push(/\bSSO\b/i, /\bGPO\b/i, /\bsocket\b/i, /\b13A\b/i);
-  if (/light|fitting|luminaire/.test(lower)) patterns.push(/\bL\d+\b/i, /\bLED\b/i, /\bluminaire\b/i);
-  if (/footing|pad|pile/.test(lower)) patterns.push(/\bF\d+\b/i, /\bPAD\b/i, /\bFTG\b/i, /\bfooting\b/i);
   if (/boiler|plant/.test(lower)) patterns.push(/\bboiler\b/i, /\bASHP\b/i, /\bplant\b/i);
-  if (/stack|soil/.test(lower)) patterns.push(/\bSVP\b/i, /\bstack\b/i, /\bsoil\b/i);
-  if (/manhole|ic\b|chamber/.test(lower)) patterns.push(/\bMH\d*\b/i, /\bIC\d*\b/i, /\bmanhole\b/i);
+  if (/footing|pad|pile/.test(lower)) patterns.push(/\bF\d+\b/i, /\bPAD\b/i, /\bFTG\b/i, /\bfooting\b/i);
+  if (/manhole|chamber/.test(lower)) patterns.push(/\bMH\d*\b/i, /\bIC\d*\b/i, /\bmanhole\b/i);
   if (!patterns.length) {
+    // Last resort: only use distinctive tokens, never generic hot/cold/pipe words.
+    const banned = new Set(["hot", "cold", "pipe", "and", "the", "for", "with", "from", "outlet", "points", "point", "appliance", "fittings"]);
     const tokens = description
       .split(/[^a-zA-Z0-9]+/)
       .map((token) => token.trim())
-      .filter((token) => token.length >= 3)
-      .slice(0, 3);
+      .filter((token) => token.length >= 3 && !banned.has(token.toLowerCase()))
+      .slice(0, 2);
     for (const token of tokens) {
       patterns.push(new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"));
     }

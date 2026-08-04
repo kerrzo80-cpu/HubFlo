@@ -26,6 +26,7 @@ import {
   type TakeoffTradeId,
 } from "@/lib/takeoff-skill";
 
+import TakeoffOverlayReview from "./TakeoffOverlayReview";
 import "./takeoff-skill.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
@@ -65,7 +66,7 @@ export default function TakeoffSkillPage() {
   const [draft, setDraft] = useState({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
   const [focusOptions, setFocusOptions] = useState<string[]>([]);
   const [invokePrompt, setInvokePrompt] = useState(
-    "Perform a quantity takeoff on the plumbing drawings — sanitary fittings and hot/cold outlets. Output Excel BOQ + marked-up PDF.",
+    "Perform a quantity takeoff on the plumbing drawings — WCs, basins, baths, showers, sinks, hot & cold pipe + fittings, waste / soil. Output Excel BOQ + marked-up PDF.",
   );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -722,7 +723,7 @@ export default function TakeoffSkillPage() {
                   <header>
                     <div>
                       <h2>4. Assembly plan</h2>
-                      <p>{skill.planSummary || "Review what will be measured (primary) vs derived (secondary). Toggle anything you do not want."}</p>
+                      <p>{skill.planSummary || "Primaries are counted on the drawing. Secondaries (taps, traps, elbows, couplings) are derived from those counts — not counted separately as duplicates."}</p>
                     </div>
                   </header>
                   <div className="takeoff-skill-table-wrap">
@@ -813,14 +814,34 @@ export default function TakeoffSkillPage() {
                 <section className="takeoff-skill-panel">
                   <header>
                     <div>
-                      <h2>6. Review · confidence & sanity</h2>
-                      <p>{skill.sanitySummary || skill.measureSummary || "Audit low-confidence and failed sanity rows before the BOQ."}</p>
+                      <h2>6. Review · overlay, confidence & sanity</h2>
+                      <p>{skill.sanitySummary || skill.measureSummary || "Approve counted tags on the drawing, then audit confidence before the BOQ."}</p>
                     </div>
                     <button className="takeoff-skill-secondary" type="button" disabled={busy === "sanity"} onClick={() => void runSkill("sanity")}>
                       Re-run sanity checks
                     </button>
                   </header>
-                  <div className="takeoff-skill-table-wrap">
+
+                  <div className="takeoff-skill-callout">
+                    <strong>How to read this schedule</strong>
+                    <p>
+                      <span className="kind primary">Primary</span> rows are counted from the drawing (WC, basin, bath…).
+                      <span className="kind secondary">Secondary</span> rows are <em>not</em> “18 of everything” —
+                      they are fittings derived from each primary (e.g. 1 tap set + 1 waste per basin, elbows/tees/couplings from pipe metres).
+                    </p>
+                  </div>
+
+                  <TakeoffOverlayReview
+                    projectId={selected.id}
+                    measured={skill.measured}
+                    busy={busy === "approve-overlay"}
+                    onApply={async (measured) => {
+                      const result = await runSkill("approve-overlay", { measured });
+                      if (result) show("Overlay counts applied — secondaries re-derived");
+                    }}
+                  />
+
+                  <div className="takeoff-skill-table-wrap" style={{ marginTop: 16 }}>
                     <table>
                       <thead>
                         <tr>

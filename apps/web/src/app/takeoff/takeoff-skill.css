@@ -553,6 +553,218 @@
   font-size: 13px;
 }
 
+.takeoff-skill-callout {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 110, 184, 0.2);
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-callout strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.takeoff-skill-callout p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.takeoff-skill-callout .kind {
+  margin: 0 4px;
+}
+
+.takeoff-overlay {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.takeoff-overlay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+
+.takeoff-overlay-toolbar label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-overlay-toolbar select {
+  min-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.takeoff-overlay-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.takeoff-overlay-legend .legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--canvas);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-overlay-legend .legend.on {
+  border-color: rgba(0, 110, 184, 0.35);
+  background: var(--surface);
+}
+
+.takeoff-overlay-legend .swatch,
+.takeoff-overlay-list .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--swatch, var(--blue));
+  display: inline-block;
+}
+
+.takeoff-overlay-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1 1 180px;
+}
+
+.takeoff-overlay-stage {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #dfe5ec;
+  overflow: auto;
+  max-height: min(70vh, 820px);
+}
+
+.takeoff-overlay-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  min-width: 100%;
+}
+
+.takeoff-overlay-pdf,
+.takeoff-overlay-hits {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.takeoff-overlay-hits {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+}
+
+.takeoff-overlay-status {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.takeoff-overlay-status.error {
+  color: var(--red);
+}
+
+.takeoff-overlay-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.takeoff-overlay-list h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-overlay-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.takeoff-overlay-list li.empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px;
+}
+
+.takeoff-overlay-list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.takeoff-overlay-list button:hover {
+  background: var(--canvas);
+}
+
+.takeoff-overlay-list li.excluded button {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.takeoff-overlay-list em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.takeoff-overlay-empty {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: var(--canvas);
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .takeoff-skill-empty-state {
   padding: 48px 28px;
   max-width: 720px;
