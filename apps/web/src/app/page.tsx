@@ -15917,12 +15917,116 @@ export default function Dashboard() {
           className="simpro-options-button"
           type="button"
           disabled={selectedCount === 0}
+          onClick={() => void bulkArchiveDirectory(scope)}
+        >
+          Archive selected
+        </button>
+        <button
+          className="simpro-options-button"
+          type="button"
+          disabled={selectedCount === 0}
           onClick={() => void bulkDeleteDirectory(scope)}
         >
           Delete selected
         </button>
       </div>
     );
+  }
+
+  async function bulkArchiveDirectory(scope: DirectoryBulkScope) {
+    const selectedIds = directorySelectedIds[scope];
+    if (selectedIds.length === 0) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Archive ${selectedIds.length} selected records?`)
+    ) {
+      return;
+    }
+
+    if (scope === "quotes") {
+      for (const id of selectedIds) {
+        const quote = quotes.find((item) => item.id === id);
+        if (quote && quote.status !== "Lost") {
+          await updateQuoteFromDirectory(
+            quote,
+            { status: "Lost", next: "Archived as lost." },
+            `${quote.ref} archived as lost.`,
+          );
+        }
+      }
+    } else if (scope === "jobs") {
+      for (const id of selectedIds) {
+        const job = jobs.find((item) => item.id === id);
+        if (job && job.status !== "Closed") {
+          await updateJobFromDirectory(
+            job,
+            { status: "Closed", next: "Archived in complete folder.", due: "Complete", health: "green" },
+            `${job.ref} closed.`,
+          );
+        }
+      }
+    } else if (scope === "leads") {
+      const items = selectedIds
+        .map((id) => leads.find((item) => item.id === id))
+        .filter((lead): lead is Lead => Boolean(lead && lead.status !== "Lost"));
+      if (items.length === 0) {
+        clearDirectorySelection(scope);
+        showNotice("Selected leads are already archived.");
+        return;
+      }
+      let lostReason = "Unspecified";
+      try {
+        const response = await fetch("/api/setup-config", { headers: requestHeaders });
+        const body = (await response.json().catch(() => null)) as { lostReasons?: Array<{ label: string }> } | null;
+        const reasons = (body?.lostReasons || []).map((row) => row.label).filter(Boolean);
+        const promptText = reasons.length
+          ? `Lost reason for ${items.length} leads:\n${reasons.map((reason, index) => `${index + 1}. ${reason}`).join("\n")}\n\nType the reason (or number):`
+          : `Lost reason for ${items.length} leads:`;
+        const typed = window.prompt(promptText, reasons[0] || "Price");
+        if (typed === null) return;
+        const asNumber = Number(typed.trim());
+        if (Number.isFinite(asNumber) && asNumber >= 1 && asNumber <= reasons.length) {
+          lostReason = reasons[asNumber - 1];
+        } else {
+          lostReason = typed.trim() || reasons[0] || "Unspecified";
+        }
+      } catch {
+        const typed = window.prompt(`Lost reason for ${items.length} leads:`, "Price");
+        if (typed === null) return;
+        lostReason = typed.trim() || "Unspecified";
+      }
+      for (const lead of items) {
+        const next = `Archived as lost · ${lostReason}.`;
+        const previous = lead;
+        setLeads((current) =>
+          current.map((item) =>
+            item.id === lead.id ? { ...item, status: "Lost" as LeadStatus, lostReason, next } : item,
+          ),
+        );
+        const result = await syncLead(lead.id, { status: "Lost", next, lostReason });
+        if (!result.ok) {
+          setLeads((current) => current.map((item) => (item.id === lead.id ? previous : item)));
+        } else {
+          setLeads((current) => current.map((item) => (item.id === result.lead.id ? result.lead : item)));
+        }
+      }
+    } else if (scope === "invoices") {
+      for (const id of selectedIds) {
+        const invoice = invoices.find((item) => item.id === id);
+        if (invoice && invoice.status !== "Cancelled") {
+          updateInvoiceStatus(invoice, "Cancelled");
+        }
+      }
+    } else if (scope === "purchase-orders") {
+      for (const id of selectedIds) {
+        const request = purchaseRequests.find((item) => item.id === id);
+        if (request && request.status !== "Rejected") {
+          await markPurchaseRequestStatus(request.id, "Rejected");
+        }
+      }
+    }
+    clearDirectorySelection(scope);
+    showNotice(`Archived ${selectedIds.length} selected record${selectedIds.length === 1 ? "" : "s"}.`);
   }
 
   async function bulkDeleteDirectory(scope: DirectoryBulkScope) {

@@ -11,6 +11,7 @@ import { getLeads, type LeadRecord } from "@/lib/lead-store";
 import { getAccessProfileFromHeaders } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
+import { clearSimproLinksForNexaRecord } from "@/lib/simpro-sync";
 
 const defaultJobScheduleDurationMinutes = 60;
 
@@ -198,5 +199,6 @@ export async function DELETE(
   if (!removed) {
     return NextResponse.json({ error: "Job not found" }, { status: 404 });
   }
+  clearSimproLinksForNexaRecord("jobs", id);
   return NextResponse.json({ success: true });
 }

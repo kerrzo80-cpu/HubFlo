@@ -50,6 +50,13 @@ describe("simpro sync preview quality", () => {
     assert.equal(jobStatusFromSimpro(""), "Pending");
   });
 
+  it("exposes clearSimproLinksForNexaRecord for delete/re-import", async () => {
+    const { clearSimproLinksForNexaRecord } = await import("@/lib/simpro-sync");
+    assert.equal(typeof clearSimproLinksForNexaRecord, "function");
+    const result = clearSimproLinksForNexaRecord("jobs", "missing-nexa-id");
+    assert.equal(result.syncLinksRemoved, 0);
+  });
+
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
     const merged = mergeHubDetailState(
       {
