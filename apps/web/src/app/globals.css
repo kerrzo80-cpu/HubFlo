@@ -4059,6 +4059,69 @@ a,
   max-width: 1540px;
 }
 
+.people-directory-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.people-directory-search {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  max-width: 360px;
+  padding: 0.55rem 0.75rem;
+  width: 100%;
+}
+
+.people-directory-alphabet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.people-directory-alphabet button {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-width: 1.85rem;
+  padding: 0.28rem 0.35rem;
+}
+
+.people-directory-alphabet button:hover {
+  border-color: #94a3b8;
+}
+
+.people-directory-alphabet button.active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #fff;
+}
+
+.people-directory-filter-meta {
+  color: #64748b;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .people-directory-search {
+    max-width: none;
+  }
+
+  .people-directory-alphabet button {
+    min-width: 1.65rem;
+    padding: 0.35rem 0.3rem;
+  }
+}
+
 .client-directory-grid {
   display: grid;
   gap: 11px;
