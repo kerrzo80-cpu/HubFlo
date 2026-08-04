@@ -6,13 +6,15 @@ type Props = {
   label: string;
   value?: string;
   onChange: (dataUrl: string) => void;
+  /** When true, show the signature but block drawing / clear. */
+  readOnly?: boolean;
 };
 
 function isSignatureImage(value?: string) {
   return Boolean(value?.startsWith("data:image/"));
 }
 
-export function SignaturePad({ label, value, onChange }: Props) {
+export function SignaturePad({ label, value, onChange, readOnly = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [hasInk, setHasInk] = useState(isSignatureImage(value));
@@ -58,6 +60,7 @@ export function SignaturePad({ label, value, onChange }: Props) {
   }
 
   function startDraw(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (readOnly) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     const point = pointFromEvent(event);
@@ -69,7 +72,7 @@ export function SignaturePad({ label, value, onChange }: Props) {
   }
 
   function moveDraw(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) return;
+    if (readOnly || !drawing.current) return;
     const ctx = canvasRef.current?.getContext("2d");
     const point = pointFromEvent(event);
     if (!ctx || !point) return;
@@ -79,7 +82,7 @@ export function SignaturePad({ label, value, onChange }: Props) {
   }
 
   function endDraw(event: React.PointerEvent<HTMLCanvasElement>) {
-    if (!drawing.current) return;
+    if (readOnly || !drawing.current) return;
     drawing.current = false;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -92,6 +95,7 @@ export function SignaturePad({ label, value, onChange }: Props) {
   }
 
   function clearPad() {
+    if (readOnly) return;
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
@@ -102,23 +106,27 @@ export function SignaturePad({ label, value, onChange }: Props) {
   }
 
   return (
-    <div className="signature-pad">
+    <div className={readOnly ? "signature-pad is-readonly" : "signature-pad"}>
       <div className="signature-pad-head">
         <span>{label}</span>
-        <button type="button" className="daywork-remove" onClick={clearPad}>
-          Clear
-        </button>
+        {readOnly ? null : (
+          <button type="button" className="daywork-remove" onClick={clearPad}>
+            Clear
+          </button>
+        )}
       </div>
       <canvas
         ref={canvasRef}
         className="signature-pad-canvas"
         aria-label={label}
+        aria-readonly={readOnly || undefined}
+        style={readOnly ? { pointerEvents: "none", touchAction: "none" } : undefined}
         onPointerDown={startDraw}
         onPointerMove={moveDraw}
         onPointerUp={endDraw}
         onPointerCancel={endDraw}
       />
-      <small>{hasInk ? "Signature captured" : "Sign with finger or stylus"}</small>
+      <small>{readOnly ? "Locked signature" : hasInk ? "Signature captured" : "Sign with finger or stylus"}</small>
     </div>
   );
 }

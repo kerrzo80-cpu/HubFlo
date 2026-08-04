@@ -8,6 +8,7 @@ import {
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
   defaultDayworkWeekEndingUk,
+  isDayworkSubmittedToCore,
   totalDayworkLabourHours,
   validateDayworkSheetDraft,
   type DayworkAccountRecord,
@@ -15,7 +16,7 @@ import {
   type DayworkLineItem,
   type DayworkSheetDraft,
 } from "@/lib/daywork-account-form";
-import { isoDateToUk, toUkDateDisplay, ukDateToIso } from "@/lib/uk-date";
+import { isoDateToUk, toUkDateDisplay, toUkDateTimeDisplay, ukDateToIso } from "@/lib/uk-date";
 
 type Props = {
   /** Field schedule id — saves via /api/field/jobs/.../daywork */
@@ -28,6 +29,11 @@ type Props = {
   requestHeaders?: HeadersInit;
   onSaved?: (record: DayworkAccountRecord) => void;
   onCancel?: () => void;
+  /**
+   * Force locked view. Field sheets auto-lock after dual sign-off / submit to Core.
+   * Core edit path should leave this unset (office can still amend).
+   */
+  locked?: boolean;
 };
 
 function updateRow<T>(rows: T[], index: number, patch: Partial<T>): T[] {
@@ -49,6 +55,7 @@ export function DayworkSheetForm({
   requestHeaders,
   onSaved,
   onCancel,
+  locked: lockedProp,
 }: Props) {
   const [draft, setDraft] = useState<DayworkSheetDraft>(() => {
     const base = dayworkDraftFromRecord(initialRecord, {
@@ -69,7 +76,16 @@ export function DayworkSheetForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [submittedRecord, setSubmittedRecord] = useState<DayworkAccountRecord | null>(
+    isDayworkSubmittedToCore(initialRecord) ? initialRecord || null : null,
+  );
   const errorRef = useRef<HTMLDivElement | null>(null);
+
+  const saveViaCore = !scheduleId && Boolean(jobId);
+  // Field: lock after submit. Core office edit stays open unless locked is forced.
+  const locked =
+    lockedProp === true ||
+    (Boolean(scheduleId) && (isDayworkSubmittedToCore(submittedRecord) || isDayworkSubmittedToCore(initialRecord)));
 
   const totalHours = useMemo(
     () =>
@@ -81,17 +97,22 @@ export function DayworkSheetForm({
   );
 
   const weekEndingIso = ukDateToIso(draft.weekEnding) || "";
-  const saveViaCore = !scheduleId && Boolean(jobId);
+  const signedAtLabel = toUkDateTimeDisplay(
+    submittedRecord?.completedAt || initialRecord?.completedAt || "",
+  );
 
   function setLabourDay(index: number, patch: Partial<DayworkLabourDay>) {
+    if (locked) return;
     setDraft((current) => ({ ...current, labourDays: updateRow(current.labourDays, index, patch) }));
   }
 
   function setMaterial(index: number, patch: Partial<DayworkLineItem>) {
+    if (locked) return;
     setDraft((current) => ({ ...current, materials: updateRow(current.materials, index, patch) }));
   }
 
   function setPlant(index: number, patch: Partial<DayworkLineItem>) {
+    if (locked) return;
     setDraft((current) => ({ ...current, plant: updateRow(current.plant, index, patch) }));
   }
 
@@ -103,6 +124,10 @@ export function DayworkSheetForm({
   }
 
   async function saveSheet() {
+    if (locked) {
+      showFailure("This Daywork is locked — it was already submitted to Core. Office can edit it in Core.");
+      return;
+    }
     const validationError = validateDayworkSheetDraft(draft);
     if (validationError) {
       showFailure(validationError);
@@ -151,9 +176,24 @@ export function DayworkSheetForm({
         storeSheetCount?: number;
         jobId?: string;
         costCentreId?: string;
+        locked?: boolean;
       };
       if (response.status === 401) {
         throw new Error("Not signed in — open /login on this same site, sign in, then Save and finish again.");
+      }
+      if (response.status === 409 || body.locked) {
+        const lockedRecord = body.record || record;
+        setSubmittedRecord(lockedRecord);
+        setDraft(
+          dayworkDraftFromRecord(lockedRecord, {
+            labourName: engineerName,
+            labourTrade: "Plumber",
+          }),
+        );
+        throw new Error(
+          body.error ||
+            "This Daywork is locked — already submitted to Core. Only office can edit it in Core.",
+        );
       }
       if (!response.ok) throw new Error(body.error || "Could not save daywork sheet.");
       if (!body.persisted || !body.hasSignatures) {
@@ -162,15 +202,20 @@ export function DayworkSheetForm({
             "Save did not stick on the live store — try again. If it keeps failing, sign out/in and retry.",
         );
       }
-      const okMessage = `Saved to Core · ${body.materialsCount ?? 0} materials · client ${
-        body.hasClientName ? "named" : "missing"
-      } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}. Open Core → Variations → Daywork account.`;
+      const saved = body.record || record;
+      setSubmittedRecord(saved);
+      const okMessage = scheduleId
+        ? `Submitted to Core and locked on Field · ${body.materialsCount ?? 0} materials. Office can edit in Core → Variations → Daywork account.`
+        : `Saved to Core · ${body.materialsCount ?? 0} materials · client ${
+            body.hasClientName ? "named" : "missing"
+          } · signatures OK · sheets on server: ${body.storeSheetCount ?? "?"}.`;
       setNotice(okMessage);
       shoutError(
-        `Daywork saved to Core.\n\nMaterials: ${body.materialsCount ?? 0}\nOpen Core → this job → Cost centres → Variations → Daywork account.`,
+        scheduleId
+          ? "Daywork submitted to Core.\n\nThis sheet is now locked on Field.\nOffice can edit it in Core → Variations → Daywork account."
+          : `Daywork saved to Core.\n\nMaterials: ${body.materialsCount ?? 0}\nOpen Core → this job → Cost centres → Variations → Daywork account.`,
       );
-      if (body.record) onSaved?.(body.record);
-      else onSaved?.(record);
+      onSaved?.(saved);
     } catch (saveError) {
       showFailure(saveError instanceof Error ? saveError.message : "Could not save daywork sheet.");
     } finally {
@@ -179,12 +224,19 @@ export function DayworkSheetForm({
   }
 
   return (
-    <div className="daywork-sheet-form stack">
-      <p className="checklist-intro muted">
-        {saveViaCore
-          ? "Enter the Daywork Account in Core — materials, printed names and both signatures. This writes to the same live store Field uses."
-          : "This Field sheet saves straight into Core → Variations → Daywork account. Tap Save and finish when both signatures are drawn."}
-      </p>
+    <div className={locked ? "daywork-sheet-form stack is-locked" : "daywork-sheet-form stack"}>
+      {locked ? (
+        <div className="feedback daywork-locked-banner" role="status">
+          Locked — submitted to Core
+          {signedAtLabel ? ` · ${signedAtLabel}` : ""}. View only on Field; office can edit in Core.
+        </div>
+      ) : (
+        <p className="checklist-intro muted">
+          {saveViaCore
+            ? "Enter the Daywork Account in Core — materials, printed names and both signatures. This writes to the same live store Field uses."
+            : "This Field sheet saves straight into Core → Variations → Daywork account. After Save and finish it locks on Field; office can still edit in Core."}
+        </p>
+      )}
       {error ? (
         <div className="feedback error" ref={errorRef} role="alert">
           {error}
@@ -198,6 +250,8 @@ export function DayworkSheetForm({
           rows={3}
           value={draft.description}
           placeholder="Describe the reactive / variation works…"
+          readOnly={locked}
+          disabled={locked}
           onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
         />
       </label>
@@ -207,6 +261,8 @@ export function DayworkSheetForm({
         <input
           type="date"
           value={weekEndingIso}
+          readOnly={locked}
+          disabled={locked}
           onChange={(event) =>
             setDraft((current) => ({
               ...current,
@@ -223,6 +279,8 @@ export function DayworkSheetForm({
           type="text"
           value={draft.voReference}
           placeholder="Optional V.O. / variation ref"
+          readOnly={locked}
+          disabled={locked}
           onChange={(event) => setDraft((current) => ({ ...current, voReference: event.target.value }))}
         />
       </label>
@@ -233,6 +291,8 @@ export function DayworkSheetForm({
           type="text"
           value={draft.labourName}
           placeholder="e.g. Chris Lawson"
+          readOnly={locked}
+          disabled={locked}
           onChange={(event) => setDraft((current) => ({ ...current, labourName: event.target.value }))}
         />
       </label>
@@ -241,6 +301,7 @@ export function DayworkSheetForm({
         <span>Labour trade</span>
         <select
           value={draft.labourTrade}
+          disabled={locked}
           onChange={(event) => setDraft((current) => ({ ...current, labourTrade: event.target.value }))}
         >
           {DAYWORK_TRADE_OPTIONS.map((trade) => (
@@ -271,6 +332,8 @@ export function DayworkSheetForm({
                   placeholder="0"
                   aria-label={`Hours for ${label}`}
                   value={row.hours}
+                  readOnly={locked}
+                  disabled={locked}
                   onChange={(event) => setLabourDay(index, { hours: event.target.value })}
                 />
               </label>
@@ -291,6 +354,8 @@ export function DayworkSheetForm({
               placeholder="Material description"
               aria-label={`Material ${index + 1} description`}
               value={row.description}
+              readOnly={locked}
+              disabled={locked}
               onChange={(event) => setMaterial(index, { description: event.target.value })}
             />
             <input
@@ -301,9 +366,11 @@ export function DayworkSheetForm({
               placeholder="Qty"
               aria-label={`Material ${index + 1} quantity`}
               value={row.qty}
+              readOnly={locked}
+              disabled={locked}
               onChange={(event) => setMaterial(index, { qty: event.target.value })}
             />
-            {draft.materials.length > 1 ? (
+            {!locked && draft.materials.length > 1 ? (
               <button
                 type="button"
                 className="daywork-remove"
@@ -319,18 +386,20 @@ export function DayworkSheetForm({
             ) : null}
           </div>
         ))}
-        <button
-          type="button"
-          className="daywork-add"
-          onClick={() =>
-            setDraft((current) => ({
-              ...current,
-              materials: [...current.materials, { description: "", qty: "" }],
-            }))
-          }
-        >
-          + Add material
-        </button>
+        {!locked ? (
+          <button
+            type="button"
+            className="daywork-add"
+            onClick={() =>
+              setDraft((current) => ({
+                ...current,
+                materials: [...current.materials, { description: "", qty: "" }],
+              }))
+            }
+          >
+            + Add material
+          </button>
+        ) : null}
       </section>
 
       <section className="daywork-repeat-block">
@@ -345,6 +414,8 @@ export function DayworkSheetForm({
               placeholder="Plant description"
               aria-label={`Plant ${index + 1} description`}
               value={row.description}
+              readOnly={locked}
+              disabled={locked}
               onChange={(event) => setPlant(index, { description: event.target.value })}
             />
             <input
@@ -355,9 +426,11 @@ export function DayworkSheetForm({
               placeholder="Qty"
               aria-label={`Plant ${index + 1} quantity`}
               value={row.qty}
+              readOnly={locked}
+              disabled={locked}
               onChange={(event) => setPlant(index, { qty: event.target.value })}
             />
-            {draft.plant.length > 1 ? (
+            {!locked && draft.plant.length > 1 ? (
               <button
                 type="button"
                 className="daywork-remove"
@@ -373,29 +446,37 @@ export function DayworkSheetForm({
             ) : null}
           </div>
         ))}
-        <button
-          type="button"
-          className="daywork-add"
-          onClick={() =>
-            setDraft((current) => ({
-              ...current,
-              plant: [...current.plant, { description: "", qty: "" }],
-            }))
-          }
-        >
-          + Add plant
-        </button>
+        {!locked ? (
+          <button
+            type="button"
+            className="daywork-add"
+            onClick={() =>
+              setDraft((current) => ({
+                ...current,
+                plant: [...current.plant, { description: "", qty: "" }],
+              }))
+            }
+          >
+            + Add plant
+          </button>
+        ) : null}
       </section>
 
       <section className="daywork-signoff-block">
         <strong>Sign-off</strong>
-        <p className="muted">Draw the signature and type the printed name — names are needed because signatures can be hard to read.</p>
+        <p className="muted">
+          {locked
+            ? "Signatures locked with the submitted sheet."
+            : "Draw the signature and type the printed name — names are needed because signatures can be hard to read."}
+        </p>
         <label className="daywork-field">
           <span>Plumber / contractor printed name</span>
           <input
             type="text"
             value={draft.plumberSignerName}
             placeholder="Full name"
+            readOnly={locked}
+            disabled={locked}
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
@@ -408,6 +489,7 @@ export function DayworkSheetForm({
         <SignaturePad
           label="Plumber / contractor signature"
           value={draft.plumberSignature}
+          readOnly={locked}
           onChange={(dataUrl) => setDraft((current) => ({ ...current, plumberSignature: dataUrl }))}
         />
         <label className="daywork-field">
@@ -416,12 +498,15 @@ export function DayworkSheetForm({
             type="text"
             value={draft.clientSignerName}
             placeholder="Full name"
+            readOnly={locked}
+            disabled={locked}
             onChange={(event) => setDraft((current) => ({ ...current, clientSignerName: event.target.value }))}
           />
         </label>
         <SignaturePad
           label="Client / Clerk of Works signature"
           value={draft.clientSignature}
+          readOnly={locked}
           onChange={(dataUrl) => setDraft((current) => ({ ...current, clientSignature: dataUrl }))}
         />
       </section>
@@ -429,12 +514,14 @@ export function DayworkSheetForm({
       <div className="daywork-form-actions">
         {onCancel ? (
           <button type="button" className="secondary-btn" disabled={saving} onClick={onCancel}>
-            Cancel
+            {locked ? "Back" : "Cancel"}
           </button>
         ) : null}
-        <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
-          {saving ? "Saving…" : "Save and finish"}
-        </button>
+        {locked ? null : (
+          <button type="button" className="primary-btn daywork-save" disabled={saving} onClick={() => void saveSheet()}>
+            {saving ? "Saving…" : "Save and finish"}
+          </button>
+        )}
       </div>
     </div>
   );
