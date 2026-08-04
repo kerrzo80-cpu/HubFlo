@@ -8,11 +8,21 @@ import { ProgrammeBoard } from "@/components/field/ProgrammeBoard";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { useNexaClient } from "@/lib/field/nexa";
 import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
-import type { DayworkAccountRecord } from "@/lib/daywork-account-form";
+import {
+  dayworkSheetListLabel,
+  sortDayworkSheetsByNumber,
+  type DayworkAccountRecord,
+} from "@/lib/daywork-account-form";
 import { formatDuration, mapsUrl } from "@/lib/field/format";
 import { fieldPath } from "@/lib/field/routes";
 import type { FieldEvidenceType, FieldRequirement, FieldScheduleItem } from "@/lib/field/types";
 import { isoDateToUk, toDateInputValue, toUkDateDisplay } from "@/lib/uk-date";
+
+type FieldDayworkSheet = DayworkAccountRecord & { costCentreId?: string; updatedAt?: string };
+
+function isDayworkSigned(sheet: FieldDayworkSheet) {
+  return Boolean(String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim());
+}
 
 type Tab = "pack" | "checklist" | "photos";
 
@@ -110,10 +120,18 @@ export default function JobDetailPage() {
   const [dayworkBusy, setDayworkBusy] = useState(false);
   const [dayworkRecord, setDayworkRecord] = useState<DayworkAccountRecord | null>(null);
   const [dayworkCostCentreId, setDayworkCostCentreId] = useState("");
-  const [dayworkSheets, setDayworkSheets] = useState<
-    Array<DayworkAccountRecord & { costCentreId?: string; updatedAt?: string }>
-  >([]);
+  const [dayworkSheets, setDayworkSheets] = useState<FieldDayworkSheet[]>([]);
   const [sessionError, setSessionError] = useState("");
+
+  const orderedDayworkSheets = useMemo(() => {
+    if (!job?.jobId) return dayworkSheets;
+    return sortDayworkSheetsByNumber(
+      job.jobId,
+      dayworkSheets.filter((sheet): sheet is FieldDayworkSheet & { costCentreId: string } =>
+        Boolean(sheet.costCentreId),
+      ),
+    );
+  }, [dayworkSheets, job?.jobId]);
 
   useEffect(() => {
     setTab(initialTab);
@@ -164,6 +182,16 @@ export default function JobDetailPage() {
               setJob({ ...item, requirements: body.requirements });
             }
           }
+          const dayworkResponse = await fetch(
+            `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/daywork?list=1`,
+            { credentials: "include", cache: "no-store" },
+          );
+          if (dayworkResponse.ok) {
+            const dayworkBody = (await dayworkResponse.json()) as { sheets?: FieldDayworkSheet[] };
+            if (!cancelled && Array.isArray(dayworkBody.sheets)) {
+              setDayworkSheets(dayworkBody.sheets);
+            }
+          }
         }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load job.");
@@ -192,7 +220,7 @@ export default function JobDetailPage() {
     setNotice("");
   }
 
-  async function openDayworkSheet(options?: { fresh?: boolean }) {
+  async function openDayworkSheet(options?: { fresh?: boolean; costCentreId?: string }) {
     if (!job) return;
     setDayworkBusy(true);
     setError("");
@@ -202,7 +230,10 @@ export default function JobDetailPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: options?.fresh ? "new" : "activate" }),
+        body: JSON.stringify({
+          action: options?.fresh ? "new" : "activate",
+          ...(options?.costCentreId && !options.fresh ? { costCentreId: options.costCentreId } : {}),
+        }),
       });
       const body = (await response.json()) as {
         error?: string;
@@ -210,7 +241,7 @@ export default function JobDetailPage() {
         costCentreName?: string;
         costCentreId?: string;
         record?: DayworkAccountRecord | null;
-        sheets?: Array<DayworkAccountRecord & { costCentreId?: string; updatedAt?: string }>;
+        sheets?: FieldDayworkSheet[];
       };
       if (response.status === 401) {
         throw new Error("Not signed in — open /login, sign in, then try Add Daywork Account again.");
@@ -219,7 +250,7 @@ export default function JobDetailPage() {
       setChecklistMode("daywork");
       setTab("checklist");
       setDayworkRecord(options?.fresh ? null : body.record || null);
-      setDayworkCostCentreId(body.costCentreId || "");
+      setDayworkCostCentreId(body.costCentreId || options?.costCentreId || "");
       if (body.sheets) setDayworkSheets(body.sheets);
       if (body.requirements) {
         setJob((current) =>
@@ -232,10 +263,16 @@ export default function JobDetailPage() {
             : current,
         );
       }
+      const openedLabel =
+        body.costCentreId || options?.costCentreId
+          ? dayworkSheetListLabel(job.jobId, body.costCentreId || options?.costCentreId || "")
+          : "Daywork";
       setNotice(
         options?.fresh
           ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish."
-          : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
+          : options?.costCentreId
+            ? `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish.`
+            : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
       );
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : "Could not open daywork sheet.");
@@ -479,9 +516,12 @@ export default function JobDetailPage() {
               {dayworkBusy ? "Opening…" : "New Daywork sheet"}
             </button>
             <p className="muted" style={{ margin: "8px 0 0" }}>
-              Sheet {Math.max(1, dayworkSheets.length || 1)}
-              {dayworkSheets.length > 1 ? ` of ${dayworkSheets.length} on this job` : ""}. Save and finish sends it to
-              Core → Variations → Daywork account. Tap New Daywork sheet for another variation on the same job.
+              {dayworkCostCentreId
+                ? `${dayworkSheetListLabel(job.jobId, dayworkCostCentreId)} open`
+                : "Daywork open"}
+              {orderedDayworkSheets.length
+                ? ` · ${orderedDayworkSheets.length} on this job`
+                : ""}. Save and finish sends it to Core. Tap a previous Daywork below to reopen it.
             </p>
           </>
         ) : (
@@ -495,6 +535,31 @@ export default function JobDetailPage() {
             </p>
           </>
         )}
+        {orderedDayworkSheets.length ? (
+          <div className="field-daywork-sheet-list" aria-label="Daywork sheets on this job">
+            <strong>Dayworks on this job</strong>
+            <div className="field-daywork-sheet-chips">
+              {orderedDayworkSheets.map((sheet) => {
+                const costCentreId = sheet.costCentreId!;
+                const label = dayworkSheetListLabel(job.jobId, costCentreId);
+                const active = checklistMode === "daywork" && dayworkCostCentreId === costCentreId;
+                const signed = isDayworkSigned(sheet);
+                return (
+                  <button
+                    key={costCentreId}
+                    type="button"
+                    className={active ? "field-daywork-sheet-chip is-active" : "field-daywork-sheet-chip"}
+                    disabled={dayworkBusy || active}
+                    onClick={() => void openDayworkSheet({ costCentreId })}
+                  >
+                    <span>{label}</span>
+                    <small>{signed ? "Signed" : "In progress"}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">

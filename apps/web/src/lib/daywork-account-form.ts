@@ -67,6 +67,55 @@ export function dayworkSheetKey(jobId: string, costCentreId: string) {
   return `${jobId}:${costCentreId}`;
 }
 
+/** Stable ordinal from cost-centre id (`…-daywork-account` → 1, `…-daywork-account-2` → 2). */
+export function dayworkSheetNumber(jobId: string, costCentreId: string): number {
+  const prefix = `${jobId}-daywork-account`;
+  const trimmed = String(costCentreId || "").trim();
+  if (!trimmed) return Number.MAX_SAFE_INTEGER;
+  if (trimmed === prefix) return 1;
+  if (trimmed.startsWith(`${prefix}-`)) {
+    const suffix = trimmed.slice(prefix.length + 1);
+    const n = Number(suffix);
+    if (Number.isInteger(n) && n > 0) return n;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+export function dayworkSheetListLabel(jobId: string, costCentreId: string): string {
+  const n = dayworkSheetNumber(jobId, costCentreId);
+  return n < Number.MAX_SAFE_INTEGER ? `Daywork ${n}` : "Daywork";
+}
+
+export function sortDayworkSheetsByNumber<T extends { costCentreId: string; updatedAt?: string; completedAt?: string }>(
+  jobId: string,
+  sheets: T[],
+): T[] {
+  return [...sheets].sort((left, right) => {
+    const leftN = dayworkSheetNumber(jobId, left.costCentreId);
+    const rightN = dayworkSheetNumber(jobId, right.costCentreId);
+    if (leftN !== rightN) return leftN - rightN;
+    const leftAt = String(left.completedAt || left.updatedAt || "");
+    const rightAt = String(right.completedAt || right.updatedAt || "");
+    return leftAt.localeCompare(rightAt);
+  });
+}
+
+/** Drop office pricing so Field never displays Daywork £ values. */
+export function stripDayworkOfficePricing<T extends DayworkAccountRecord>(record: T): T {
+  const {
+    labourRate: _labourRate,
+    materialsCost: _materialsCost,
+    plantCost: _plantCost,
+    markupPercent: _markupPercent,
+    ...rest
+  } = record;
+  void _labourRate;
+  void _materialsCost;
+  void _plantCost;
+  void _markupPercent;
+  return rest as T;
+}
+
 export function parseDayworkLabourDays(value?: string): DayworkLabourDay[] {
   if (!value?.trim()) return [];
   try {

@@ -6,6 +6,7 @@ import {
   dayworkSheetKey,
   mergeDayworkLineUnitCosts,
   parseDayworkLineItems,
+  sortDayworkSheetsByNumber,
   totalDayworkLabourHours,
   withDerivedDayworkLineTotals,
   type DayworkAccountRecord,
@@ -1424,5 +1425,5 @@ export function listDayworkSheetsForJob(jobId: string): DayworkSheetSnapshot[] {
   for (const sheet of fromStore) {
     byKey.set(dayworkSheetKey(sheet.jobId, sheet.costCentreId), sheet);
   }
-  return Array.from(byKey.values());
+  return sortDayworkSheetsByNumber(jobId, Array.from(byKey.values()));
 }
