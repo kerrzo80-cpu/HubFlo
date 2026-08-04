@@ -251,9 +251,33 @@
   text-transform: uppercase;
 }
 
-.takeoff-skill-hero p {
-  margin: 6px 0 0;
+.takeoff-skill-invoke {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--skill-line);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.takeoff-skill-invoke label {
+  display: grid;
+  gap: 6px;
   color: var(--skill-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.takeoff-skill-invoke textarea {
+  width: 100%;
+  border: 1px solid var(--skill-line);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--skill-text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  resize: vertical;
+  font: inherit;
 }
 
 .takeoff-skill-steps {

@@ -49,6 +49,9 @@ export default function TakeoffSkillPage() {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
   const [focusOptions, setFocusOptions] = useState<string[]>([]);
+  const [invokePrompt, setInvokePrompt] = useState(
+    "Perform a quantity takeoff on the plumbing drawings — sanitary fittings and hot/cold outlets. Output Excel BOQ + marked-up PDF.",
+  );
 
   const selected = useMemo(
     () => projects.find((project) => project.id === selectedId) ?? null,
@@ -206,6 +209,35 @@ export default function TakeoffSkillPage() {
     show("Plan approved — ready to measure");
   }
 
+  async function downloadExport(format: "xlsx" | "marked-pdf") {
+    if (!selected) return;
+    setBusy(`export-${format}`);
+    setError(null);
+    try {
+      const response = await fetch(`/api/takeoff-projects/${selected.id}/skill/export?format=${format}`, {
+        headers: requestHeaders,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        throw new Error(body?.error || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = format === "xlsx"
+        ? `${selected.reference}-takeoff-boq.xlsx`
+        : `${selected.reference}-marked-takeoff.pdf`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      show(format === "xlsx" ? "Excel BOQ downloaded" : "Marked-up PDF downloaded");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function pushToQuote() {
     if (!selected?.linkedQuoteId) {
       setError("Link a Core quote on the project before pushing the BOQ.");
@@ -353,6 +385,30 @@ export default function TakeoffSkillPage() {
                   <h1>{selected.name}</h1>
                   <p>{selected.customer} · {selected.site}</p>
                 </div>
+                <form
+                  className="takeoff-skill-invoke"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void (async () => {
+                      const result = await runSkill("invoke", { prompt: invokePrompt });
+                      if (result) show("Skill invoked — review the assembly plan, then approve to measure");
+                    })();
+                  }}
+                >
+                  <label>
+                    <span>Skill invoke</span>
+                    <textarea
+                      value={invokePrompt}
+                      onChange={(event) => setInvokePrompt(event.target.value)}
+                      rows={2}
+                      placeholder='e.g. "Perform a quantity takeoff on the architectural drawings — slab and floor area"'
+                    />
+                  </label>
+                  <button className="takeoff-skill-primary" type="submit" disabled={busy === "invoke" || !selected.documents.length}>
+                    {busy === "invoke" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+                    Run takeoff skill
+                  </button>
+                </form>
                 <div className="takeoff-skill-steps" aria-label="Takeoff skill steps">
                   {TAKEOFF_SKILL_STEPS.map((step, index) => {
                     const active = step.id === currentStep;
@@ -735,6 +791,24 @@ export default function TakeoffSkillPage() {
                         ))}
                       </select>
                     </label>
+                    <button
+                      className="takeoff-skill-secondary"
+                      type="button"
+                      onClick={() => void downloadExport("xlsx")}
+                      disabled={!skill.measured.length || busy === "export-xlsx"}
+                    >
+                      {busy === "export-xlsx" ? <Loader2 className="spin" size={16} /> : null}
+                      Download Excel BOQ
+                    </button>
+                    <button
+                      className="takeoff-skill-secondary"
+                      type="button"
+                      onClick={() => void downloadExport("marked-pdf")}
+                      disabled={!skill.measured.length || busy === "export-marked-pdf"}
+                    >
+                      {busy === "export-marked-pdf" ? <Loader2 className="spin" size={16} /> : null}
+                      Download marked PDF
+                    </button>
                     <button
                       className="takeoff-skill-secondary"
                       type="button"

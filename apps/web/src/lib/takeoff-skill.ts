@@ -87,6 +87,15 @@ export type TakeoffMeasuredQuantity = {
     detail: string;
   };
   notes?: string;
+  /** Text-tag hits used for markup / audit (page coords). */
+  tagMatches?: Array<{
+    documentId: string;
+    fileName: string;
+    pageNumber: number;
+    text: string;
+    x: number;
+    y: number;
+  }>;
 };
 
 export type TakeoffSkillScope = {

@@ -19,6 +19,7 @@ import {
   createDefaultTakeoffSkill,
   deriveSecondaryQuantity,
   focusOptionsForTrade,
+  TAKEOFF_TRADES,
   type TakeoffAssemblyItem,
   type TakeoffDrawingSheet,
   type TakeoffMeasuredQuantity,
@@ -27,6 +28,12 @@ import {
   type TakeoffSkillWorkflow,
   type TakeoffTradeId,
 } from "@/lib/takeoff-skill";
+import {
+  countTextTagMatches,
+  extractPdfDocument,
+  inferDisciplineFromText,
+  patternsForAssemblyCode,
+} from "@/lib/takeoff-pdf-extract";
 
 export const runtime = "nodejs";
 
@@ -39,7 +46,8 @@ type SkillAction =
   | "measure"
   | "sanity"
   | "set-step"
-  | "apply-boq";
+  | "apply-boq"
+  | "invoke";
 
 type SkillPayload = {
   action?: SkillAction;
@@ -51,6 +59,7 @@ type SkillPayload = {
   assemblies?: TakeoffAssemblyItem[];
   step?: TakeoffSkillStep;
   measured?: TakeoffMeasuredQuantity[];
+  prompt?: string;
 };
 
 function ensureSkill(project: TakeoffProject): TakeoffSkillWorkflow {
@@ -75,42 +84,90 @@ async function readDocumentBytes(document: TakeoffDocument): Promise<Buffer | nu
   }
 }
 
-function heuristicDrawingIndex(project: TakeoffProject): TakeoffSkillWorkflow["drawingIndex"] {
-  const sheets: TakeoffDrawingSheet[] = project.documents
-    .filter((document) => document.kind === "Drawing" || document.kind === "Marked-up drawing" || document.kind === "Specification")
-    .map((document, index) => {
-      const lower = document.fileName.toLowerCase();
-      const discipline =
-        /elec|el-|e-/.test(lower) ? "Electrical"
-          : /mech|m-|hvac/.test(lower) ? "Mechanical"
-            : /plumb|p-|sanit|drain/.test(lower) ? "Plumbing"
-              : /struct|s-|conc|steel/.test(lower) ? "Structural"
-                : /arch|a-|ga/.test(lower) ? "Architectural"
-                  : "General";
-      const hasSelectableText = !/\.jpe?g|\.png|\.tif/.test(lower);
-      return {
-        id: `sheet-${document.id}-${index}`,
-        documentId: document.id,
-        fileName: document.fileName,
-        title: document.fileName.replace(/\.[^.]+$/, ""),
-        discipline,
-        notes: document.notes?.length ? document.notes : ["Indexed from filename / upload metadata"],
-        hasSelectableText,
-        reliability: hasSelectableText ? "High" as const : "Low" as const,
-      };
+async function pdfDrawingIndex(project: TakeoffProject): Promise<TakeoffSkillWorkflow["drawingIndex"]> {
+  const sheets: TakeoffDrawingSheet[] = [];
+  const objectHints = [
+    "Prefer counting selectable text tags over vision/scaled measure",
+    "Image-only / scanned PDFs are marked Low reliability",
+    "Primary quantities first; derive secondary with formulas",
+  ];
+
+  for (const document of project.documents.filter((row) =>
+    ["Drawing", "Marked-up drawing", "Specification"].includes(row.kind),
+  )) {
+    const bytes = await readDocumentBytes(document);
+    const isPdf = (document.mimeType || "").includes("pdf") || document.fileName.toLowerCase().endsWith(".pdf");
+    if (bytes && isPdf) {
+      try {
+        const extracted = await extractPdfDocument(bytes, document.fileName);
+        for (const page of extracted.pages) {
+          const discipline = inferDisciplineFromText(document.fileName, page.fullText.slice(0, 1200));
+          sheets.push({
+            id: `sheet-${document.id}-p${page.pageNumber}`,
+            documentId: document.id,
+            fileName: document.fileName,
+            page: page.pageNumber,
+            title: `${document.fileName.replace(/\.[^.]+$/, "")} · p${page.pageNumber}`,
+            discipline,
+            notes: [
+              page.hasSelectableText
+                ? `${page.textItems.length} text items extracted (vector/text layer)`
+                : "Little/no selectable text — vision methods only",
+            ],
+            hasSelectableText: page.hasSelectableText,
+            reliability: page.hasSelectableText ? "High" : "Low",
+          });
+        }
+        continue;
+      } catch {
+        // fall through to metadata sheet
+      }
+    }
+
+    const lower = document.fileName.toLowerCase();
+    const hasSelectableText = !/\.jpe?g|\.png|\.tif/.test(lower);
+    sheets.push({
+      id: `sheet-${document.id}-1`,
+      documentId: document.id,
+      fileName: document.fileName,
+      page: 1,
+      title: document.fileName.replace(/\.[^.]+$/, ""),
+      discipline: inferDisciplineFromText(document.fileName, ""),
+      notes: ["Indexed from upload metadata (PDF text extract unavailable)"],
+      hasSelectableText,
+      reliability: hasSelectableText ? "Medium" : "Low",
     });
+  }
 
   return {
     status: "ready",
     summary: sheets.length
-      ? `Indexed ${sheets.length} sheet(s). Prefer text-tag counts on vector PDFs; flag image-only sheets as low reliability.`
+      ? `Indexed ${sheets.length} sheet(s) from ${project.documents.length} file(s). Text-layer pages scored High for tag counting.`
       : "No drawings uploaded yet.",
     sheets,
-    objectHints: [
-      "Schedules and tagged symbols are preferred primary sources",
-      "Image-only PDFs force vision methods (lower confidence)",
-      "Build a map of sheet discipline before measuring",
-    ],
+    objectHints,
+    completedAt: stamp(),
+  };
+}
+
+function heuristicDrawingIndex(project: TakeoffProject): TakeoffSkillWorkflow["drawingIndex"] {
+  // Kept as sync fallback if pdf extract path is not used.
+  return {
+    status: "ready",
+    summary: "Metadata index only.",
+    sheets: project.documents
+      .filter((document) => ["Drawing", "Marked-up drawing", "Specification"].includes(document.kind))
+      .map((document, index) => ({
+        id: `sheet-${document.id}-${index}`,
+        documentId: document.id,
+        fileName: document.fileName,
+        title: document.fileName.replace(/\.[^.]+$/, ""),
+        discipline: inferDisciplineFromText(document.fileName, ""),
+        notes: ["Indexed from filename / upload metadata"],
+        hasSelectableText: !/\.jpe?g|\.png|\.tif/.test(document.fileName.toLowerCase()),
+        reliability: (!/\.jpe?g|\.png|\.tif/.test(document.fileName.toLowerCase()) ? "Medium" : "Low") as "Medium" | "Low",
+      })),
+    objectHints: [],
     completedAt: stamp(),
   };
 }
@@ -335,10 +392,7 @@ function heuristicMeasure(skill: TakeoffSkillWorkflow): TakeoffMeasuredQuantity[
   const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
 
   for (const primary of primaries) {
-    const method = primary.method === "vision-area" || primary.method === "vision-count"
-      ? primary.method
-      : primary.method;
-    // Deterministic demo-ish seed from code + sheet count so UI is usable offline
+    const method = primary.method;
     const seed = primary.code.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
     const quantity =
       primary.unit === "m2" ? Math.round((80 + (seed % 40) * sheetCount) * 10) / 10
@@ -359,10 +413,115 @@ function heuristicMeasure(skill: TakeoffSkillWorkflow): TakeoffMeasuredQuantity[
         ? "Low"
         : confidenceRank(method),
       sourceSheetIds: skill.drawingIndex.sheets.slice(0, 2).map((sheet) => sheet.id),
-      notes: "Heuristic measure — connect OpenAI and re-run for drawing-backed counts",
+      notes: "Heuristic measure — connect OpenAI / upload vector PDFs for text-tag counts",
     });
   }
   return measured;
+}
+
+async function textTagMeasure(
+  project: TakeoffProject,
+  skill: TakeoffSkillWorkflow,
+): Promise<TakeoffMeasuredQuantity[] | null> {
+  const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
+  if (!primaries.length) return [];
+
+  const docs = project.documents.filter((document) => document.kind === "Drawing" || document.kind === "Marked-up drawing");
+  const extractedByDoc = new Map<string, Awaited<ReturnType<typeof extractPdfDocument>>>();
+  for (const document of docs) {
+    const bytes = await readDocumentBytes(document);
+    if (!bytes) continue;
+    if (!(document.mimeType || "").includes("pdf") && !document.fileName.toLowerCase().endsWith(".pdf")) continue;
+    try {
+      extractedByDoc.set(document.id, await extractPdfDocument(bytes, document.fileName));
+    } catch {
+      // skip unreadable pdf
+    }
+  }
+  if (!extractedByDoc.size) return null;
+
+  const measured: TakeoffMeasuredQuantity[] = [];
+  for (const primary of primaries) {
+    const patterns = patternsForAssemblyCode(primary.code, primary.description);
+    let total = 0;
+    const tagMatches: NonNullable<TakeoffMeasuredQuantity["tagMatches"]> = [];
+    const sourceSheetIds: string[] = [];
+
+    for (const [documentId, extracted] of extractedByDoc.entries()) {
+      const counted = countTextTagMatches(extracted.pages, patterns);
+      total += counted.count;
+      for (const match of counted.matches) {
+        tagMatches.push({
+          documentId,
+          fileName: extracted.fileName,
+          pageNumber: match.pageNumber,
+          text: match.text,
+          x: match.x,
+          y: match.y,
+        });
+        const sheet = skill.drawingIndex.sheets.find(
+          (row) => row.documentId === documentId && row.page === match.pageNumber,
+        );
+        if (sheet && !sourceSheetIds.includes(sheet.id)) sourceSheetIds.push(sheet.id);
+      }
+    }
+
+    const usedText = total > 0 && (
+      primary.method === "text-tag-count"
+      || primary.method === "schedule-extract"
+      || primary.unit === "nr"
+    );
+
+    measured.push({
+      id: makeId("qty"),
+      assemblyId: primary.id,
+      kind: "primary",
+      code: primary.code,
+      description: primary.description,
+      quantity: usedText ? total : total || 0,
+      unit: primary.unit,
+      method: usedText ? "text-tag-count" : primary.method,
+      confidence: usedText ? "High" : total > 0 ? "Medium" : "Low",
+      sourceSheetIds,
+      tagMatches,
+      notes: usedText
+        ? `Counted ${total} matching text tag(s) from PDF text layer`
+        : total
+          ? `Found ${total} weak text hits; method left as ${primary.method}`
+          : "No matching text tags found — needs schedule extract, explicit dimensions, or AI vision",
+    });
+  }
+
+  // If nothing found at all for nr items, fall back so UI isn't empty zeros only
+  const anyHits = measured.some((row) => row.quantity > 0);
+  if (!anyHits) return null;
+  return measured;
+}
+
+function parseInvokePrompt(prompt: string): { trade: TakeoffTradeId; focusLabels: string[] } {
+  const lower = prompt.toLowerCase();
+  let trade: TakeoffTradeId = "plumbing";
+  for (const row of TAKEOFF_TRADES) {
+    if (lower.includes(row.id) || lower.includes(row.label.toLowerCase().split(" ")[0]!)) {
+      trade = row.id;
+      break;
+    }
+  }
+  if (/architect|floor area|slab area|room schedule/.test(lower)) trade = "architectural";
+  if (/struct|footing|concrete|steel/.test(lower)) trade = "structural";
+  if (/electric|lighting|socket|cable/.test(lower)) trade = "electrical";
+  if (/heat|radiator|boiler/.test(lower)) trade = "heating";
+  if (/plumb|sanitary|waste|hot.?cold/.test(lower)) trade = "plumbing";
+
+  const options = focusOptionsForTrade(trade);
+  const focusLabels = options.filter((label) => {
+    const token = label.toLowerCase().split(/\s+/)[0] || "";
+    return token && lower.includes(token);
+  });
+  return {
+    trade,
+    focusLabels: focusLabels.length ? focusLabels : options.slice(0, 3),
+  };
 }
 
 function appendSecondaries(
@@ -458,7 +617,7 @@ export async function POST(
       updatedAt: stamp(),
     };
     updateTakeoffProject(id, { skill });
-    const indexed = (await openAiDrawingIndex(project)) || heuristicDrawingIndex(project);
+    const indexed = (await pdfDrawingIndex(project)) || (await openAiDrawingIndex(project)) || heuristicDrawingIndex(project);
     skill = {
       ...skill,
       drawingIndex: indexed,
@@ -518,7 +677,10 @@ export async function POST(
     if (!skill.planApproved) {
       return NextResponse.json({ error: "Approve the assembly plan before measuring" }, { status: 409 });
     }
-    const primaryMeasured = (await openAiMeasurePrimaries(project, skill)) || heuristicMeasure(skill);
+    const primaryMeasured =
+      (await textTagMeasure(project, skill))
+      || (await openAiMeasurePrimaries(project, skill))
+      || heuristicMeasure(skill);
     const measured = appendSecondaries(skill, primaryMeasured);
     skill = {
       ...skill,
@@ -571,6 +733,31 @@ export async function POST(
       status: project.status === "Draft" ? "In review" : project.status,
     });
     return NextResponse.json({ project: updated, skill: updated?.skill, actor });
+  } else if (action === "invoke") {
+    const prompt = (body?.prompt || "").trim();
+    if (!prompt) return NextResponse.json({ error: "prompt is required" }, { status: 400 });
+    const parsed = parseInvokePrompt(prompt);
+    const indexed = await pdfDrawingIndex(project);
+    const scope: TakeoffSkillScope = {
+      trade: parsed.trade,
+      focusLabels: parsed.focusLabels,
+      outputFormats: ["excel-boq", "marked-pdf", "quote-push"],
+      notes: prompt,
+    };
+    const assemblies = buildAssembliesForScope(scope);
+    skill = {
+      ...skill,
+      drawingIndex: indexed,
+      scope,
+      assemblies,
+      planApproved: false,
+      planSummary: `Invoked: “${prompt}”. Planned ${assemblies.filter((row) => row.included && row.kind === "primary").length} primary / ${assemblies.filter((row) => row.included && row.kind === "secondary").length} secondary for ${parsed.trade}. Approve before measuring.`,
+      measured: [],
+      measureSummary: "",
+      sanitySummary: "",
+      step: "plan",
+      updatedAt: stamp(),
+    };
   } else {
     return NextResponse.json({ error: `Unknown action ${action}` }, { status: 400 });
   }
