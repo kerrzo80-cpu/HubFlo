@@ -348,6 +348,38 @@ function mergeLineJsonPreferringUnitCosts(serverValue: unknown, clientValue: unk
   }
 }
 
+function mergeKeyedArraysById(serverValue: unknown, clientValue: unknown) {
+  const server = asRecord(serverValue) || {};
+  const client = asRecord(clientValue) || {};
+  const keys = new Set([...Object.keys(server), ...Object.keys(client)]);
+  const merged: Record<string, unknown[]> = {};
+
+  for (const key of keys) {
+    const serverRows = Array.isArray(server[key]) ? (server[key] as unknown[]) : [];
+    const clientRows = Array.isArray(client[key]) ? (client[key] as unknown[]) : [];
+    // Never let an empty browser payload wipe richer server import data.
+    if (!clientRows.length && serverRows.length) {
+      merged[key] = serverRows;
+      continue;
+    }
+    const byId = new Map<string, Record<string, unknown>>();
+    for (const item of serverRows) {
+      const record = asRecord(item);
+      const id = typeof record?.id === "string" ? record.id : "";
+      if (id && record) byId.set(id, record);
+    }
+    for (const item of clientRows) {
+      const record = asRecord(item);
+      const id = typeof record?.id === "string" ? record.id : "";
+      if (!id || !record) continue;
+      byId.set(id, { ...(byId.get(id) || {}), ...record });
+    }
+    merged[key] = Array.from(byId.values());
+  }
+
+  return merged;
+}
+
 /**
  * Merge a Core client hub PUT onto the live server hub so Field/daywork writes
  * are not wiped by a stale browser tab.
@@ -361,6 +393,11 @@ export function mergeHubDetailState(serverState: HubDetailState, clientState: Hu
     jobDeliveryEvents: mergeJobDeliveryEvents(serverState.jobDeliveryEvents, clientState.jobDeliveryEvents),
     jobCostCentres: mergeJobCostCentres(serverState.jobCostCentres, clientState.jobCostCentres),
     jobVariationSections: mergeJobVariationSections(serverState.jobVariationSections, clientState.jobVariationSections),
+    quoteCostCentres: mergeKeyedArraysById(serverState.quoteCostCentres, clientState.quoteCostCentres),
+    quoteSections: mergeKeyedArraysById(serverState.quoteSections, clientState.quoteSections),
+    jobSections: mergeKeyedArraysById(serverState.jobSections, clientState.jobSections),
+    jobSchedulePlans: mergeKeyedArraysById(serverState.jobSchedulePlans, clientState.jobSchedulePlans),
+    quoteSchedulePlans: mergeKeyedArraysById(serverState.quoteSchedulePlans, clientState.quoteSchedulePlans),
     dayworkSheets: mergeDayworkSheets(
       (serverState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,
       (clientState as HubDetailState & { dayworkSheets?: unknown }).dayworkSheets,

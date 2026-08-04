@@ -57,32 +57,88 @@ async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
   const record = asRecord(result.body);
   if (!record) throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} returned an empty body.`);
 
-  // Some builds need nested section/cost-centre fetches when display=all omits Items.
-  if (!Array.isArray(record.Sections) || !record.Sections.length) {
+  let sections = Array.isArray(record.Sections)
+    ? record.Sections.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+    : [];
+
+  if (!sections.length) {
     const sectionsResult = await simproGet(config, `/${entity}/${externalId}/sections/?pageSize=50`, {
       maxRetries: 1,
     });
     if (sectionsResult.ok) {
-      const sections = extractSimproRecords(sectionsResult.body);
-      const hydrated: UnknownRecord[] = [];
-      for (const section of sections) {
-        const sectionId = simproRecordId(section);
-        if (!sectionId) {
-          hydrated.push(section);
-          continue;
-        }
-        const ccResult = await simproGet(
-          config,
-          `/${entity}/${externalId}/sections/${sectionId}/costCenters/?pageSize=50&display=all`,
-          { maxRetries: 1 },
-        );
-        const costCenters = ccResult.ok ? extractSimproRecords(ccResult.body) : [];
-        hydrated.push({ ...section, CostCenters: costCenters });
-      }
-      record.Sections = hydrated;
+      sections = extractSimproRecords(sectionsResult.body);
     }
   }
 
+  const hydrated: UnknownRecord[] = [];
+  for (const section of sections) {
+    const sectionId = simproRecordId(section);
+    let costCenters = Array.isArray(section.CostCenters)
+      ? section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+      : Array.isArray(section.CostCentres)
+        ? section.CostCentres.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+        : [];
+
+    const needsListFetch =
+      Boolean(sectionId) &&
+      (!costCenters.length ||
+        costCenters.every((centre) => {
+          const items = asRecord(centre.Items);
+          const hasItems = Boolean(
+            items &&
+              (Array.isArray(items.Labors) ||
+                Array.isArray(items.Labours) ||
+                Array.isArray(items.Catalogs) ||
+                Array.isArray(items.Catalogue) ||
+                Array.isArray(items.OneOffs) ||
+                Array.isArray(items.Materials)),
+          );
+          const hasDescription = Boolean(String(centre.Description || "").trim());
+          return !hasItems && !hasDescription;
+        }));
+
+    if (needsListFetch && sectionId) {
+      const ccResult = await simproGet(
+        config,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/?pageSize=50&display=all`,
+        { maxRetries: 1 },
+      );
+      if (ccResult.ok) costCenters = extractSimproRecords(ccResult.body);
+    }
+
+    const detailedCenters: UnknownRecord[] = [];
+    for (const centre of costCenters) {
+      const ccId = simproRecordId(centre);
+      const items = asRecord(centre.Items);
+      const hasItems = Boolean(
+        items &&
+          (Array.isArray(items.Labors) ||
+            Array.isArray(items.Labours) ||
+            Array.isArray(items.Catalogs) ||
+            Array.isArray(items.OneOffs) ||
+            Array.isArray(items.Materials)),
+      );
+      if (!hasItems && sectionId && ccId) {
+        const detail = await simproGet(
+          config,
+          `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/?display=all`,
+          { maxRetries: 1 },
+        );
+        if (detail.ok) {
+          const body = asRecord(detail.body);
+          if (body) {
+            detailedCenters.push({ ...centre, ...body });
+            continue;
+          }
+        }
+      }
+      detailedCenters.push(centre);
+    }
+
+    hydrated.push({ ...section, CostCenters: detailedCenters });
+  }
+
+  record.Sections = hydrated;
   return { config, record };
 }
 

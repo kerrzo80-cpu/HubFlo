@@ -7578,7 +7578,7 @@ export default function Dashboard() {
   const [invoiceStatusFilter, setInvoiceStatusFilter] = useState("All invoices");
   const [purchaseOrderStatusFilter, setPurchaseOrderStatusFilter] = useState("All POs");
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
-  const [activeJobFolderKey, setActiveJobFolderKey] = useState("pending");
+  const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
@@ -11490,53 +11490,80 @@ export default function Dashboard() {
   );
 
   const jobDirectoryGroups = useMemo(
-    () => [
-      {
-        key: "pending",
-        label: "Pending jobs",
-        detail: "Accepted work needing schedule or final start checks",
-        tone: "amber",
-        items: filteredJobs.filter((job) => ["Accepted", "Pending"].includes(job.status)),
-      },
-      {
-        key: "progress",
-        label: "Jobs in progress",
-        detail: "Live work, blocked work and active site control",
-        tone: "blue",
-        items: filteredJobs.filter((job) =>
-          ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
-        ),
-      },
-      {
-        key: "uninvoiced",
-        label: "Ready to invoice",
-        detail: "Completed work waiting for an invoice",
-        tone: "red",
-        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status)),
-      },
-      {
-        key: "review",
-        label: "Complete",
-        detail: "Completed, reviewed or moved into finance",
-        tone: "green",
-        items: filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced"].includes(job.status)),
-      },
-      {
-        key: "archived",
-        label: "Archived",
-        detail: "Closed jobs kept for history",
-        tone: "green",
-        items: filteredJobs.filter((job) => job.status === "Closed"),
-      },
-    ],
+    () => {
+      const pending = filteredJobs.filter((job) => ["Accepted", "Pending", "Enquiry", "Quoted"].includes(job.status));
+      const progress = filteredJobs.filter((job) =>
+        ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
+      );
+      const uninvoiced = filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status));
+      const review = filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced"].includes(job.status));
+      const archived = filteredJobs.filter((job) => job.status === "Closed");
+      const groupedIds = new Set([...pending, ...progress, ...uninvoiced, ...review, ...archived].map((job) => job.id));
+      const other = filteredJobs.filter((job) => !groupedIds.has(job.id));
+      return [
+        {
+          key: "pending",
+          label: "Pending jobs",
+          detail: "Accepted work needing schedule or final start checks",
+          tone: "amber",
+          items: pending,
+        },
+        {
+          key: "progress",
+          label: "Jobs in progress",
+          detail: "Live work, blocked work and active site control",
+          tone: "blue",
+          items: progress,
+        },
+        {
+          key: "uninvoiced",
+          label: "Ready to invoice",
+          detail: "Completed work waiting for an invoice",
+          tone: "red",
+          items: uninvoiced,
+        },
+        {
+          key: "review",
+          label: "Complete",
+          detail: "Completed, reviewed or moved into finance",
+          tone: "green",
+          items: review,
+        },
+        {
+          key: "archived",
+          label: "Archived",
+          detail: "Closed jobs kept for history",
+          tone: "green",
+          items: archived,
+        },
+        ...(other.length
+          ? [{
+              key: "other",
+              label: "Other statuses",
+              detail: "Imported or custom statuses outside the standard folders",
+              tone: "amber",
+              items: other,
+            }]
+          : []),
+      ];
+    },
     [filteredJobs],
   );
 
   const visibleJobDirectoryGroups = useMemo(
-    () => activeJobFolderKey === "all"
-      ? jobDirectoryGroups
-      : jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey),
-    [activeJobFolderKey, jobDirectoryGroups],
+    () =>
+      activeJobFolderKey === "all"
+        ? [
+            {
+              key: "all",
+              label: "All jobs",
+              detail: "Every job matching the current search and status filter",
+              tone: "blue",
+              items: filteredJobs,
+            },
+          ]
+        : jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey),
+    [activeJobFolderKey, filteredJobs, jobDirectoryGroups],
   );
 
   const invoiceDirectoryGroups = useMemo(() => {
@@ -13670,13 +13697,29 @@ export default function Dashboard() {
   }
 
   async function refreshCoreWorkflowRecords() {
-    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse] = await Promise.all([
+    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse, hubStateResponse] = await Promise.all([
       fetch("/api/clients", { headers: requestHeaders }),
       fetch("/api/client-sites", { headers: requestHeaders }),
       fetch("/api/jobs", { headers: requestHeaders }),
       fetch("/api/quotes", { headers: requestHeaders }),
       fetch("/api/audit", { headers: requestHeaders }),
+      fetch("/api/hub-state", { headers: requestHeaders }),
     ]);
+
+    // Apply hub hierarchy BEFORE jobs/quotes so autosave cannot wipe a fresh import with empty client maps.
+    if (hubStateResponse.ok) {
+      const hubState = (await hubStateResponse.json()) as HubDetailStatePayload;
+      if (hubState.quoteCostCentres) {
+        setQuoteCostCentres(hubState.quoteCostCentres);
+        quoteCostCentresRef.current = hubState.quoteCostCentres;
+      }
+      if (hubState.quoteSections) setQuoteSections(hubState.quoteSections);
+      if (hubState.quoteSchedulePlans) setQuoteSchedulePlans(hubState.quoteSchedulePlans);
+      if (hubState.jobCostCentres) setJobEstimateCostCentres(hubState.jobCostCentres);
+      if (hubState.jobSections) setJobSections(hubState.jobSections);
+      if (hubState.jobSchedulePlans) setJobSchedulePlans(hubState.jobSchedulePlans);
+      if (hubState.jobVariationSections) setJobVariationSections(hubState.jobVariationSections);
+    }
 
     if (clientsResponse.ok) setClients((await clientsResponse.json()) as ClientRecord[]);
     if (clientSitesResponse.ok) setClientSites((await clientSitesResponse.json()) as ClientSite[]);
@@ -14214,6 +14257,9 @@ export default function Dashboard() {
       setIsRunningSimproPreview(true);
     } else {
       setIsApplyingSimproImport(true);
+      // Hold hub autosave so an empty browser map cannot wipe cost centres just pulled from simPRO.
+      lastLocalCostCentreEditAt.current = Date.now();
+      pendingCostCentreSaveRef.current = true;
     }
 
     try {
@@ -14235,7 +14281,11 @@ export default function Dashboard() {
       }
 
       if (result.status) setSimproSyncStatus(result.status);
-      if (mode === "apply") await refreshCoreWorkflowRecords();
+      if (mode === "apply") {
+        await refreshCoreWorkflowRecords();
+        setActiveJobFolderKey("all");
+        pendingCostCentreSaveRef.current = false;
+      }
 
       showNotice(
         mode === "preview"
@@ -14244,8 +14294,51 @@ export default function Dashboard() {
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
+      pendingCostCentreSaveRef.current = false;
     } finally {
       setIsRunningSimproPreview(false);
+      setIsApplyingSimproImport(false);
+    }
+  }
+
+  async function cleanupImportedSimproRecords() {
+    if (
+      !window.confirm(
+        "Delete all NeXa jobs and quotes that were imported from simPRO (including their cost centres and schedules)? Customers and sites stay. You can Apply import again afterwards.",
+      )
+    ) {
+      return;
+    }
+    setIsApplyingSimproImport(true);
+    try {
+      const response = await fetch("/api/integrations/simpro/cleanup-imports", {
+        method: "POST",
+        headers: {
+          ...requestHeaders,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          actor: activeEmployee?.name ?? "NeXa user",
+          entities: ["jobs", "quotes"],
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        deletedJobs?: number;
+        deletedQuotes?: number;
+        status?: SimproSyncStatus;
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        throw new Error(result?.error || `Cleanup returned HTTP ${response.status}`);
+      }
+      if (result?.status) setSimproSyncStatus(result.status);
+      await refreshCoreWorkflowRecords();
+      showNotice(
+        `Removed ${result?.deletedJobs ?? 0} imported job(s) and ${result?.deletedQuotes ?? 0} imported quote(s). Re-run Apply safe imports when ready.`,
+      );
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to clean up imported simPRO records.");
+    } finally {
       setIsApplyingSimproImport(false);
     }
   }
@@ -40603,6 +40696,14 @@ export default function Dashboard() {
 	                              >
 	                                {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
 	                              </button>
+	                              <button
+	                                className="secondary-button"
+	                                type="button"
+	                                disabled={isRunningSimproPreview || isApplyingSimproImport}
+	                                onClick={() => void cleanupImportedSimproRecords()}
+	                              >
+	                                Delete imported jobs/quotes
+	                              </button>
 	                            </div>
 	                          </header>
 	                          <div className="setup-form-grid">
@@ -41247,6 +41348,14 @@ export default function Dashboard() {
                                 onClick={() => runSimproSync("apply")}
                               >
                                 {isApplyingSimproImport ? "Applying..." : "Apply safe imports"}
+                              </button>
+                              <button
+                                className="secondary-button"
+                                type="button"
+                                disabled={isRunningSimproPreview || isApplyingSimproImport}
+                                onClick={() => void cleanupImportedSimproRecords()}
+                              >
+                                Delete imported jobs/quotes
                               </button>
                             </div>
                           </header>
