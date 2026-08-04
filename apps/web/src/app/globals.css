@@ -12739,8 +12739,29 @@ h1 {
   color: rgba(255, 255, 255, 0.85);
 }
 
+.field-daywork-sheet-chip.is-locked:not(.is-active) {
+  background: #f3f5f7;
+  border-color: #c5ced6;
+  border-style: dashed;
+}
+
 .field-daywork-sheet-chip:disabled:not(.is-active) {
   opacity: 0.65;
+}
+
+.daywork-sheet-form.is-locked input:disabled,
+.daywork-sheet-form.is-locked textarea:disabled,
+.daywork-sheet-form.is-locked select:disabled {
+  background: #f3f5f7;
+  color: #1b2a4a;
+  opacity: 1;
+}
+
+.daywork-locked-banner {
+  background: #eef4f7 !important;
+  border: 1px solid #c9d7e0;
+  color: #1b2a4a !important;
+  font-weight: 600;
 }
 
 .daywork-sheet-form {

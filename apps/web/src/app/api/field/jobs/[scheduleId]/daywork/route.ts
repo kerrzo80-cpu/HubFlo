@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   dayworkDraftFromRecord,
   dayworkRecordFromDraft,
+  isDayworkSubmittedToCore,
   parseDayworkLineItems,
   stripDayworkOfficePricing,
   validateDayworkSheetDraft,
@@ -138,6 +139,33 @@ export async function POST(request: Request, { params }: Params) {
       ok: false,
       error: "save-received",
     });
+
+    const existingSubmitted =
+      resolveDayworkRecord(schedule.jobId, costCentreId) ||
+      getDayworkSheetFromStore(schedule.jobId, costCentreId);
+    if (isDayworkSubmittedToCore(existingSubmitted)) {
+      recordDayworkWriteAttempt({
+        at: new Date().toISOString(),
+        source: "field-daywork",
+        scheduleId,
+        jobId: schedule.jobId,
+        costCentreId,
+        ok: false,
+        error: "locked-already-submitted",
+        hasSignatures: true,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This Daywork is locked — already submitted to Core. Only office can edit it in Core.",
+          locked: true,
+          persisted: false,
+          record: fieldSafeRecord(existingSubmitted),
+          sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
+        },
+        { status: 409 },
+      );
+    }
 
     let record = body.record;
     if (!record && body.draft) {

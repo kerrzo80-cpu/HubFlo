@@ -42,6 +42,21 @@ export function toUkDateDisplay(value?: string | null) {
   return trimmed;
 }
 
+/** UK date + time for signed Daywork / action alerts (DD-MM-YYYY HH:MM). */
+export function toUkDateTimeDisplay(value?: string | null) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  const parsed = Date.parse(trimmed);
+  if (!Number.isFinite(parsed)) return toUkDateDisplay(trimmed);
+  const date = new Date(parsed);
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  return `${dd}-${mm}-${yyyy} ${hh}:${min}`;
+}
+
 /** Calendar inputs need ISO; accept UK or ISO stored values. */
 export function toDateInputValue(value?: string | null) {
   const trimmed = String(value || "").trim();

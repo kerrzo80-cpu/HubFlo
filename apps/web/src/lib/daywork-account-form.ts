@@ -67,6 +67,13 @@ export function dayworkSheetKey(jobId: string, costCentreId: string) {
   return `${jobId}:${costCentreId}`;
 }
 
+/** Dual signatures = submitted to Core; Field must treat as locked read-only. */
+export function isDayworkSubmittedToCore(record?: DayworkAccountRecord | null): boolean {
+  return Boolean(
+    String(record?.plumberSignature || "").trim() && String(record?.clientSignature || "").trim(),
+  );
+}
+
 /** Stable ordinal from cost-centre id (`…-daywork-account` → 1, `…-daywork-account-2` → 2). */
 export function dayworkSheetNumber(jobId: string, costCentreId: string): number {
   const prefix = `${jobId}-daywork-account`;
