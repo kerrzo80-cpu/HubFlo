@@ -1,4 +1,4 @@
-/** Standalone heat-pump design lab — not wired into NeXa nav yet. */
+/** Standalone heat-pump / heating design lab (HeatPunk-style floor plan workflow). */
 
 export type FloorLevel = "ground" | "cellar" | "first" | "second";
 
@@ -12,9 +12,11 @@ export type PlanOpening = {
   wall?: number;
   /** 0–1 position along wall */
   t: number;
-  kind: "window" | "door";
+  kind: "window" | "door" | "rooflight";
   widthM: number;
   heightM: number;
+  /** Override room glazing / door material for this opening. */
+  materialId?: string;
 };
 
 export type HeatDesignRoom = {
@@ -44,6 +46,10 @@ export type HeatDesignRoom = {
   planY: number;
   floorLevel: FloorLevel;
   openings: PlanOpening[];
+  /** Override room-type default ACH (air changes per hour). */
+  airChanges?: number;
+  /** Override room-type default design temperature °C. */
+  targetTemp?: number;
 };
 
 export type WallConstruction = {
