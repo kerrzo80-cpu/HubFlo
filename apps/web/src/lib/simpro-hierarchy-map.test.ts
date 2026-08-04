@@ -112,6 +112,33 @@ describe("simpro hierarchy map", () => {
     assert.equal(assignments[0]?.plannedHours, 8);
   });
 
+  it("splits client and engineer descriptions from simPRO cost centre Description", () => {
+    const { centres } = mapSimproQuoteCostCentres(
+      {
+        ID: 1,
+        Sections: [
+          {
+            ID: 2,
+            Name: "Works",
+            CostCenters: [
+              {
+                ID: 3,
+                Name: "Bathroom first fix",
+                CostCenter: { ID: 3, Name: "Plumbing" },
+                Description:
+                  "Bathroom first fix\n\nClient: strip out and first fix hot/cold.\n\nEngineer: isolate, run pipework, pressure test.",
+              },
+            ],
+          },
+        ],
+      },
+      "quote-desc",
+    );
+    assert.equal(centres[0]?.name, "Bathroom first fix");
+    assert.match(centres[0]?.clientDescription || "", /Client: strip out/);
+    assert.match(centres[0]?.engineerDescription || "", /Engineer: isolate/);
+  });
+
   it("maps invoices with line totals and job linkage", () => {
     const mapped = mapSimproInvoice({
       ID: 88,

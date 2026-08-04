@@ -2133,7 +2133,7 @@ type SimproExportRecord = {
 
 type SimproSyncOperation = {
   id: string;
-  entity: "clients" | "sites" | "quotes" | "jobs" | "invoices";
+  entity: "clients" | "sites" | "quotes" | "jobs" | "invoices" | "schedules";
   action: "create" | "link" | "skip" | "conflict" | "error" | "preview";
   simproId?: string;
   simproName?: string;
@@ -2182,6 +2182,7 @@ const simproImportEntityOptions: Array<{ key: SimproSyncEntity; label: string }>
   { key: "sites", label: "Sites" },
   { key: "quotes", label: "Quotes" },
   { key: "jobs", label: "Jobs" },
+  { key: "schedules", label: "Schedules" },
   { key: "invoices", label: "Invoices" },
 ];
 
@@ -40523,7 +40524,7 @@ export default function Dashboard() {
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
 	                              <strong>Choose exactly what NeXa should pull in</strong>
-	                              <small>Default is Clients + Sites. Tick quotes/jobs/invoices to pull cost centres, materials, labour, schedules and invoice lines.</small>
+	                              <small>Default is Clients + Sites. Tick Quotes/Jobs for cost centres + descriptions, Schedules for diary pull, Invoices for invoice lines.</small>
 	                              <div className="setup-sync-entity-shortcuts">
 	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
 	                                  Customers &amp; sites

@@ -11,7 +11,7 @@ import {
   type SimproSyncMode,
 } from "@/lib/simpro-sync";
 
-const allowedEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices"];
+const allowedEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices", "schedules"];
 
 type SyncRequestBody = {
   mode?: SimproSyncMode;

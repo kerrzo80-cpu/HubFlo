@@ -22,12 +22,13 @@ import {
   enrichNexaJobFromSimpro,
   enrichNexaQuoteFromSimpro,
   importSimproInvoiceIntoHub,
+  pullSchedulesForLinkedJobs,
 } from "@/lib/simpro-deep-import";
 import { upsertSimproEntityLink, type SimproLinkEntityType } from "@/lib/simpro-entity-links";
 
 type UnknownRecord = Record<string, unknown>;
 
-export type SimproSyncEntity = "clients" | "sites" | "quotes" | "jobs" | "invoices";
+export type SimproSyncEntity = "clients" | "sites" | "quotes" | "jobs" | "invoices" | "schedules";
 export type SimproSyncMode = "preview" | "apply";
 export type SimproSyncOperationAction = "create" | "link" | "skip" | "conflict" | "error" | "preview";
 export type SimproConflictResolveAction = "link" | "create" | "skip";
@@ -116,9 +117,9 @@ type SimproSyncStore = {
   webhooks: SimproWebhookEvent[];
 };
 
-const simproEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices"];
+const simproEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices", "schedules"];
 
-const endpointByEntity: Record<SimproSyncEntity, string> = {
+const endpointByEntity: Record<Exclude<SimproSyncEntity, "schedules">, string> = {
   clients: "customers",
   sites: "sites",
   quotes: "quotes",
@@ -170,7 +171,7 @@ function detectedSimproEnvKeys() {
     .sort();
 }
 
-function entityEndpoint(config: ResolvedSimproDirectConfig, entity: SimproSyncEntity) {
+function entityEndpoint(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
   return `${config.baseUrl}/companies/${config.companyId}/${endpointByEntity[entity]}/`;
 }
 
@@ -246,7 +247,7 @@ function extractRecords(body: unknown) {
   return [];
 }
 
-async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: SimproSyncEntity) {
+async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
   const url = new URL(entityEndpoint(config, entity));
   // Deep hierarchy pulls (sections/CCs/lines/schedules) are heavier — keep quote/job/invoice pages smaller.
   const pageSize = entity === "quotes" || entity === "jobs" || entity === "invoices" ? "15" : "50";
@@ -838,7 +839,27 @@ async function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mo
   if (entity === "sites") return processSite(record, mode);
   if (entity === "quotes") return processQuote(record, mode);
   if (entity === "jobs") return processJob(record, mode);
+  if (entity === "schedules") {
+    return operation("schedules", "skip", "Schedules are pulled for linked jobs as a batch, not per list record.");
+  }
   return processInvoice(record, mode);
+}
+
+async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncOperation[]> {
+  const result = await pullSchedulesForLinkedJobs({ preview: mode === "preview", limit: 40 });
+  return result.operations.map((item) =>
+    operation(
+      "schedules",
+      item.action === "create" ? "create" : item.action === "preview" ? "preview" : item.action === "error" ? "error" : "skip",
+      item.summary,
+      {
+        nexaId: item.nexaId,
+        nexaRef: item.nexaRef,
+        simproId: item.simproId,
+        simproName: item.nexaRef,
+      },
+    ),
+  );
 }
 
 function recomputeTotals(run: SimproSyncRun) {
@@ -1112,6 +1133,11 @@ export async function runSimproImport(options: {
     const config = await resolveSimproDirectConfig();
     for (const entity of selectedEntities) {
       try {
+        if (entity === "schedules") {
+          const scheduleOps = await processSchedulesEntity(options.mode);
+          run.operations.push(...scheduleOps);
+          continue;
+        }
         const records = await fetchSimproRecords(config, entity);
         for (const record of records) {
           try {
@@ -1127,7 +1153,7 @@ export async function runSimproImport(options: {
       } catch (error) {
         run.operations.push(
           operation(entity, "error", error instanceof Error ? error.message : `Unable to fetch ${entity} from simPRO.`, {
-            detail: entityEndpoint(config, entity),
+            detail: entity === "schedules" ? "schedules" : entityEndpoint(config, entity),
           }),
         );
       }

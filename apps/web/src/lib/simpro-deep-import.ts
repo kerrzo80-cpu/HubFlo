@@ -22,6 +22,7 @@ import {
   summariseHierarchyStats,
   type HierarchyStats,
   type MappedInvoice,
+  type MappedJobCostCentre,
 } from "@/lib/simpro-hierarchy-map";
 import { findSimproEntityLink, upsertSimproEntityLink } from "@/lib/simpro-entity-links";
 import { getJobs, getQuotes } from "@/lib/workflow-data";
@@ -141,8 +142,8 @@ export async function enrichNexaQuoteFromSimpro(input: {
       if (centre.sectionId) {
         sectionMap.set(centre.sectionId, {
           id: centre.sectionId,
-          name: centre.sectionName || "Imported section",
-          description: "Imported from simPRO",
+          name: centre.sectionName || centre.name || "Imported section",
+          description: centre.clientDescription || centre.engineerDescription || "Imported from simPRO",
         });
       }
       if (companyId && centre.simproCostCentreId) {
@@ -210,7 +211,7 @@ export async function enrichNexaJobFromSimpro(input: {
         sectionMap.set(centre.sectionId, {
           id: centre.sectionId,
           name: centre.name,
-          description: "Imported from simPRO",
+          description: centre.clientDescription || centre.engineerDescription || "Imported from simPRO",
         });
       }
       if (companyId && centre.simproCostCentreId) {
@@ -259,6 +260,119 @@ export async function enrichNexaJobFromSimpro(input: {
       detail: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function centresFromHub(jobId: string): MappedJobCostCentre[] {
+  const hub = getHubDetailState();
+  const raw = cloneRecordMap(hub.jobCostCentres)[jobId];
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => asRecord(item))
+    .filter((item): item is UnknownRecord => Boolean(item))
+    .map((centre) => ({
+      id: String(centre.id || ""),
+      name: String(centre.name || "Cost centre"),
+      sectionId: typeof centre.sectionId === "string" ? centre.sectionId : undefined,
+      templateName: typeof centre.templateName === "string" ? centre.templateName : undefined,
+      clientDescription: String(centre.clientDescription || ""),
+      engineerDescription: String(centre.engineerDescription || ""),
+      materials: Array.isArray(centre.materials) ? (centre.materials as MappedJobCostCentre["materials"]) : [],
+      labour: Array.isArray(centre.labour) ? (centre.labour as MappedJobCostCentre["labour"]) : [],
+      simproSectionId: typeof centre.simproSectionId === "string" ? centre.simproSectionId : undefined,
+      simproCostCentreId: typeof centre.simproCostCentreId === "string" ? centre.simproCostCentreId : undefined,
+    }))
+    .filter((centre) => centre.id);
+}
+
+/**
+ * Pull simPRO diary schedules into NeXa planner for every linked job.
+ * Use when you only need schedules (jobs already exist in NeXa).
+ */
+export async function pullSchedulesForLinkedJobs(input?: {
+  preview?: boolean;
+  limit?: number;
+}): Promise<{
+  operations: Array<{
+    action: "create" | "preview" | "skip" | "error";
+    summary: string;
+    nexaId?: string;
+    nexaRef?: string;
+    simproId?: string;
+  }>;
+  scheduleCount: number;
+  jobCount: number;
+}> {
+  const preview = Boolean(input?.preview);
+  const limit = Math.max(1, input?.limit ?? 40);
+  const linkedJobs = getJobs()
+    .filter((job) => Boolean(job.simproJobId?.trim()))
+    .slice(0, limit);
+
+  const operations: Array<{
+    action: "create" | "preview" | "skip" | "error";
+    summary: string;
+    nexaId?: string;
+    nexaRef?: string;
+    simproId?: string;
+  }> = [];
+  let scheduleCount = 0;
+
+  if (!linkedJobs.length) {
+    operations.push({
+      action: "skip",
+      summary: "No NeXa jobs linked to simPRO yet. Import jobs first, then pull schedules.",
+    });
+    return { operations, scheduleCount: 0, jobCount: 0 };
+  }
+
+  const hub = getHubDetailState();
+  const jobSchedulePlans = cloneRecordMap(hub.jobSchedulePlans);
+
+  for (const job of linkedJobs) {
+    const simproJobId = String(job.simproJobId || "").trim();
+    if (!simproJobId) continue;
+    try {
+      const scheduleRecords = await fetchJobSchedules(simproJobId);
+      const centres = centresFromHub(job.id);
+      const assignments = mapSimproJobSchedules(scheduleRecords, job.id, centres);
+      if (preview) {
+        operations.push({
+          action: "preview",
+          summary: `Would pull ${assignments.length} schedule${assignments.length === 1 ? "" : "s"} onto ${job.ref}.`,
+          nexaId: job.id,
+          nexaRef: job.ref,
+          simproId: simproJobId,
+        });
+      } else {
+        jobSchedulePlans[job.id] = assignments;
+        operations.push({
+          action: "create",
+          summary: `Pulled ${assignments.length} schedule${assignments.length === 1 ? "" : "s"} onto ${job.ref}.`,
+          nexaId: job.id,
+          nexaRef: job.ref,
+          simproId: simproJobId,
+        });
+      }
+      scheduleCount += assignments.length;
+    } catch (error) {
+      operations.push({
+        action: "error",
+        summary: error instanceof Error ? error.message : `Unable to pull schedules for ${job.ref}.`,
+        nexaId: job.id,
+        nexaRef: job.ref,
+        simproId: simproJobId,
+      });
+    }
+  }
+
+  if (!preview) {
+    saveHubDetailState({
+      ...hub,
+      jobSchedulePlans,
+    });
+  }
+
+  return { operations, scheduleCount, jobCount: linkedJobs.length };
 }
 
 function resolveInvoiceSource(mapped: MappedInvoice) {

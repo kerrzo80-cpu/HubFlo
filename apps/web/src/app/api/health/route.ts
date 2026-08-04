@@ -47,7 +47,7 @@ export async function GET() {
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
       fieldCoreLive: "simpro-deep-pull-v1",
-      simproDeepPull: "quotes-jobs-invoices-cc-schedules-v1",
+      simproDeepPull: "quotes-jobs-invoices-cc-schedules-v2",
       dashboardLayout: "pipeline-gantt-v3",
       takeoffSkill: "drawing-first-v8-routes-page",
       recurringServices: "upcoming-4w-v1",

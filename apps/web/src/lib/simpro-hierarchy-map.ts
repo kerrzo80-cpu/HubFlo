@@ -334,15 +334,88 @@ function mapJobLabour(record: UnknownRecord, centreId: string, index: number): M
 }
 
 function costCentreName(costCenter: UnknownRecord, sectionName: string, index: number) {
+  // Prefer the slot/setup name — Description is the brief, not the label.
   return (
-    firstString(costCenter, ["Name", "CostCenter.Name", "Description", "CostCentre.Name"]) ||
+    firstString(costCenter, ["Name", "CostCenter.Name", "CostCentre.Name"]) ||
     sectionName ||
     `Cost centre ${index + 1}`
   );
 }
 
-function costCentreDescription(costCenter: UnknownRecord) {
-  return stripHtml(firstString(costCenter, ["Description", "Notes", "ClientDescription"])) || "";
+function normaliseBrief(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Simpro stores one Description on the cost centre. When NeXa pushed the centre,
+ * that field is usually `name\n\nclientDescription\n\nengineerDescription`.
+ * Native Simpro centres usually have a single free-text Description.
+ */
+export function splitCostCentreDescriptions(
+  costCenter: UnknownRecord,
+  centreName: string,
+  sectionDescription = "",
+): { clientDescription: string; engineerDescription: string } {
+  const dedicatedClient = stripHtml(
+    firstString(costCenter, ["ClientDescription", "CustomerDescription", "ClientNotes"]),
+  );
+  const dedicatedEngineer = stripHtml(
+    firstString(costCenter, ["EngineerDescription", "TechnicianNotes", "InternalNotes"]),
+  );
+  const raw = stripHtml(firstString(costCenter, ["Description", "Notes", "LongDescription"]));
+  const sectionBrief = stripHtml(sectionDescription);
+
+  if (dedicatedClient || dedicatedEngineer) {
+    return {
+      clientDescription: dedicatedClient || raw || sectionBrief,
+      engineerDescription: dedicatedEngineer || dedicatedClient || raw || sectionBrief,
+    };
+  }
+
+  if (!raw) {
+    return {
+      clientDescription: sectionBrief,
+      engineerDescription: sectionBrief,
+    };
+  }
+
+  const parts = raw
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length >= 3 && normaliseBrief(parts[0] || "") === normaliseBrief(centreName)) {
+    return {
+      clientDescription: parts[1] || "",
+      engineerDescription: parts.slice(2).join("\n\n"),
+    };
+  }
+
+  if (parts.length >= 2) {
+    // First block often repeats the centre name when pushed from NeXa.
+    if (normaliseBrief(parts[0] || "") === normaliseBrief(centreName)) {
+      const rest = parts.slice(1);
+      if (rest.length >= 2) {
+        return {
+          clientDescription: rest[0] || "",
+          engineerDescription: rest.slice(1).join("\n\n"),
+        };
+      }
+      return {
+        clientDescription: rest[0] || "",
+        engineerDescription: rest[0] || "",
+      };
+    }
+    return {
+      clientDescription: parts[0] || "",
+      engineerDescription: parts.slice(1).join("\n\n"),
+    };
+  }
+
+  return {
+    clientDescription: raw,
+    engineerDescription: raw,
+  };
 }
 
 export function extractSimproSections(record: UnknownRecord): UnknownRecord[] {
@@ -371,7 +444,11 @@ export function mapSimproQuoteCostCentres(
     costCenters.forEach((costCenter, ccIndex) => {
       const ccId = simproRecordId(costCenter) || `${sectionId}-cc-${ccIndex + 1}`;
       const name = costCentreName(costCenter, sectionName, ccIndex);
-      const description = costCentreDescription(costCenter);
+      const briefs = splitCostCentreDescriptions(
+        costCenter,
+        name,
+        firstString(section, ["Description", "Notes"]),
+      );
       const items = itemCollections(costCenter);
       const lines: MappedQuoteCostLine[] = [];
 
@@ -388,8 +465,8 @@ export function mapSimproQuoteCostCentres(
         sectionId: `${nexaQuoteId}-simpro-section-${sectionId}`,
         sectionName,
         templateName: firstString(costCenter, ["CostCenter.Name", "CostCentre.Name"]) || undefined,
-        clientDescription: description,
-        engineerDescription: description,
+        clientDescription: briefs.clientDescription,
+        engineerDescription: briefs.engineerDescription,
         lines,
         simproSectionId: sectionId,
         simproCostCentreId: ccId,
@@ -427,7 +504,11 @@ export function mapSimproJobCostCentres(
     costCenters.forEach((costCenter, ccIndex) => {
       const ccId = simproRecordId(costCenter) || `${sectionId}-cc-${ccIndex + 1}`;
       const name = costCentreName(costCenter, sectionName, ccIndex);
-      const description = costCentreDescription(costCenter);
+      const briefs = splitCostCentreDescriptions(
+        costCenter,
+        name,
+        firstString(section, ["Description", "Notes"]),
+      );
       const items = itemCollections(costCenter);
       const materials: MappedEstimateMaterialLine[] = [];
       const labour: MappedEstimateLabourLine[] = [];
@@ -447,8 +528,8 @@ export function mapSimproJobCostCentres(
         name,
         sectionId: `${nexaJobId}-simpro-section-${sectionId}`,
         templateName: firstString(costCenter, ["CostCenter.Name", "CostCentre.Name"]) || undefined,
-        clientDescription: description,
-        engineerDescription: description,
+        clientDescription: briefs.clientDescription,
+        engineerDescription: briefs.engineerDescription,
         materials,
         labour,
         simproSectionId: sectionId,
