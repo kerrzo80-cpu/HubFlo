@@ -3,6 +3,10 @@ import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { loadServerStore, writeServerStore } from "@/lib/server-store";
 import { useDemoSeedData } from "@/lib/workspace-mode";
 import { getQuotes, updateQuote, type Quote } from "@/lib/workflow-data";
+import {
+  createDefaultTakeoffSkill,
+  type TakeoffSkillWorkflow,
+} from "@/lib/takeoff-skill";
 
 export type TakeoffStatus = "Draft" | "In review" | "Approved" | "Pushed";
 export type TakeoffDocumentKind = "Drawing" | "Marked-up drawing" | "Specification" | "Contractor BOQ" | "Survey note" | "Survey photo" | "LiDAR scan";
@@ -440,6 +444,8 @@ export type TakeoffProject = {
   surveyWorkflow?: TakeoffSurveyWorkflow;
   surveyChat?: TakeoffSurveyChatMessage[];
   servicesMarkup?: TakeoffServicesMarkup;
+  /** AI construction takeoff skill workflow (primary/secondary quantities). */
+  skill?: TakeoffSkillWorkflow;
   review: TakeoffReview;
   extraction?: TakeoffExtractionSummary;
   createdAt: string;
@@ -2412,6 +2418,7 @@ export function createTakeoffProject(payload: Partial<TakeoffProject>): TakeoffP
         : "Survey to price",
       scopeNotes: payload.description?.trim() || "",
     }),
+    skill: payload.skill ?? createDefaultTakeoffSkill(),
     review: payload.review ?? { officeNotes: "", riskFlags: [] },
     createdAt,
     updatedAt: createdAt,

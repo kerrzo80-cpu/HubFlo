@@ -1,0 +1,517 @@
+.takeoff-skill-shell {
+  --skill-bg: #0f1714;
+  --skill-panel: #17231e;
+  --skill-panel-2: #1d2c26;
+  --skill-line: rgba(214, 232, 220, 0.12);
+  --skill-text: #e8f2ec;
+  --skill-muted: #9bb5a8;
+  --skill-accent: #3d9b74;
+  --skill-accent-2: #d7a13b;
+  --skill-danger: #e35d5d;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 12% -10%, rgba(61, 155, 116, 0.22), transparent 42%),
+    radial-gradient(circle at 90% 0%, rgba(215, 161, 59, 0.12), transparent 36%),
+    var(--skill-bg);
+  color: var(--skill-text);
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+.takeoff-skill-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--skill-line);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(15, 23, 20, 0.88);
+}
+
+.takeoff-skill-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.takeoff-skill-brand strong {
+  display: block;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+
+.takeoff-skill-brand span {
+  color: var(--skill-muted);
+  font-size: 12px;
+}
+
+.takeoff-skill-back,
+.takeoff-skill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--skill-text);
+  text-decoration: none;
+  border: 1px solid var(--skill-line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.takeoff-skill-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.takeoff-skill-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 7px 11px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.takeoff-skill-ai.on {
+  background: rgba(61, 155, 116, 0.18);
+  color: #8be0b8;
+}
+
+.takeoff-skill-ai.off {
+  background: rgba(215, 161, 59, 0.16);
+  color: #f0d08a;
+}
+
+.takeoff-skill-banner {
+  margin: 12px 22px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.takeoff-skill-banner.ok {
+  background: rgba(61, 155, 116, 0.16);
+  color: #b6efd2;
+}
+
+.takeoff-skill-banner.error {
+  background: rgba(227, 93, 93, 0.16);
+  color: #ffc0c0;
+}
+
+.takeoff-skill-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 22px 40px;
+}
+
+.takeoff-skill-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.takeoff-skill-card,
+.takeoff-skill-panel,
+.takeoff-skill-hero,
+.takeoff-skill-empty-state {
+  background: linear-gradient(180deg, var(--skill-panel), var(--skill-panel-2));
+  border: 1px solid var(--skill-line);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.takeoff-skill-card header,
+.takeoff-skill-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.takeoff-skill-card h2,
+.takeoff-skill-panel h2,
+.takeoff-skill-hero h1,
+.takeoff-skill-empty-state h1 {
+  margin: 0;
+  font-family: "Fraunces", "IBM Plex Serif", Georgia, serif;
+  font-weight: 600;
+}
+
+.takeoff-skill-card label {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: var(--skill-muted);
+}
+
+.takeoff-skill-card input,
+.takeoff-skill-card select {
+  width: 100%;
+  border: 1px solid var(--skill-line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--skill-text);
+  border-radius: 10px;
+  padding: 9px 11px;
+}
+
+.takeoff-skill-project-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.takeoff-skill-project-list button {
+  text-align: left;
+  border: 1px solid var(--skill-line);
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.takeoff-skill-project-list button.active {
+  border-color: rgba(61, 155, 116, 0.55);
+  background: rgba(61, 155, 116, 0.14);
+}
+
+.takeoff-skill-project-list strong,
+.takeoff-skill-project-list span,
+.takeoff-skill-project-list small {
+  display: block;
+}
+
+.takeoff-skill-project-list small,
+.takeoff-skill-doc-grid small,
+.takeoff-skill-table-wrap small {
+  color: var(--skill-muted);
+  margin-top: 2px;
+}
+
+.takeoff-skill-primary,
+.takeoff-skill-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.takeoff-skill-primary {
+  background: linear-gradient(135deg, #3d9b74, #2e7d5d);
+  color: white;
+}
+
+.takeoff-skill-primary.file {
+  position: relative;
+  overflow: hidden;
+}
+
+.takeoff-skill-secondary {
+  background: transparent;
+  color: var(--skill-text);
+  border: 1px solid var(--skill-line);
+}
+
+.takeoff-skill-primary:disabled,
+.takeoff-skill-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.takeoff-skill-main {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.takeoff-skill-hero .eyebrow {
+  margin: 0 0 4px;
+  color: var(--skill-accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.takeoff-skill-hero p {
+  margin: 6px 0 0;
+  color: var(--skill-muted);
+}
+
+.takeoff-skill-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.takeoff-skill-steps button {
+  display: flex;
+  gap: 8px;
+  text-align: left;
+  border: 1px solid var(--skill-line);
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  border-radius: 12px;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.takeoff-skill-steps button.active {
+  border-color: rgba(61, 155, 116, 0.6);
+  background: rgba(61, 155, 116, 0.14);
+}
+
+.takeoff-skill-steps button.done b {
+  background: var(--skill-accent);
+  color: #062117;
+}
+
+.takeoff-skill-steps b {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+
+.takeoff-skill-steps strong,
+.takeoff-skill-steps small {
+  display: block;
+}
+
+.takeoff-skill-steps small {
+  color: var(--skill-muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.takeoff-skill-doc-grid,
+.takeoff-skill-trade-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.takeoff-skill-doc-grid article,
+.takeoff-skill-trade-grid button {
+  border: 1px solid var(--skill-line);
+  border-radius: 12px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+  text-align: left;
+}
+
+.takeoff-skill-trade-grid button {
+  cursor: pointer;
+}
+
+.takeoff-skill-trade-grid button.active {
+  border-color: rgba(61, 155, 116, 0.55);
+  background: rgba(61, 155, 116, 0.14);
+}
+
+.takeoff-skill-trade-grid span,
+.takeoff-skill-doc-grid span {
+  display: block;
+  color: var(--skill-muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.takeoff-skill-panel footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.takeoff-skill-inline-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--skill-muted);
+  font-size: 12px;
+}
+
+.takeoff-skill-inline-link select {
+  border: 1px solid var(--skill-line);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--skill-text);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.takeoff-skill-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--skill-line);
+  border-radius: 12px;
+}
+
+.takeoff-skill-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.takeoff-skill-table-wrap th,
+.takeoff-skill-table-wrap td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--skill-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.takeoff-skill-table-wrap th {
+  color: var(--skill-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.takeoff-skill-table-wrap td strong,
+.takeoff-skill-table-wrap td small {
+  display: block;
+}
+
+.takeoff-skill-hints {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--skill-muted);
+  font-size: 13px;
+}
+
+.takeoff-skill-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.takeoff-skill-chip-row .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--skill-line);
+  background: rgba(0, 0, 0, 0.18);
+  color: inherit;
+  padding: 7px 11px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-skill-chip-row .chip.on {
+  background: rgba(61, 155, 116, 0.18);
+  border-color: rgba(61, 155, 116, 0.5);
+}
+
+.kind {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.kind.primary {
+  background: rgba(61, 155, 116, 0.18);
+  color: #9be4c2;
+}
+
+.kind.secondary {
+  background: rgba(215, 161, 59, 0.16);
+  color: #f0d08a;
+}
+
+.conf {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.conf.high {
+  background: rgba(61, 155, 116, 0.2);
+  color: #9be4c2;
+}
+
+.conf.medium {
+  background: rgba(215, 161, 59, 0.18);
+  color: #f0d08a;
+}
+
+.conf.low {
+  background: rgba(227, 93, 93, 0.18);
+  color: #ffb4b4;
+}
+
+.takeoff-skill-table-wrap td.bad {
+  color: #ffb4b4;
+}
+
+.takeoff-skill-table-wrap td.ok {
+  color: #9be4c2;
+}
+
+.takeoff-skill-empty,
+.takeoff-skill-note {
+  color: var(--skill-muted);
+  font-size: 13px;
+}
+
+.takeoff-skill-empty-state {
+  padding: 48px 28px;
+  max-width: 720px;
+}
+
+.takeoff-skill-empty-state p {
+  color: var(--skill-muted);
+  line-height: 1.55;
+}
+
+.spin {
+  animation: takeoff-skill-spin 0.9s linear infinite;
+}
+
+@keyframes takeoff-skill-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 960px) {
+  .takeoff-skill-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .takeoff-skill-topbar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
