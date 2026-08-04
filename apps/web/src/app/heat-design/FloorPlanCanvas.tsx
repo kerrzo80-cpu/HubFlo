@@ -63,7 +63,7 @@ type FloorPlanCanvasProps = {
 
 const BASE_SCALE = 90;
 const PAD = 56;
-const SNAP_M = 0.08;
+const SNAP_M = 0.15;
 
 type PlaceTool = "window" | "door" | "rooflight" | "radiator" | null;
 
@@ -94,6 +94,39 @@ function snap(value: number, anchors: number[]) {
     }
   }
   return best;
+}
+
+/** Prefer whole-edge lock when translating a room against neighbours. */
+function snapTranslation(origin: PlanPoint[], dx: number, dy: number, anchors: { xs: number[]; ys: number[] }) {
+  let bestDx = dx;
+  let bestDy = dy;
+  let bestScore = Number.POSITIVE_INFINITY;
+  const candidatesX = [dx];
+  const candidatesY = [dy];
+  for (const p of origin) {
+    for (const ax of anchors.xs) candidatesX.push(ax - p.x);
+    for (const ay of anchors.ys) candidatesY.push(ay - p.y);
+  }
+  for (const cx of candidatesX) {
+    if (Math.abs(cx - dx) > SNAP_M * 1.4) continue;
+    for (const cy of candidatesY) {
+      if (Math.abs(cy - dy) > SNAP_M * 1.4) continue;
+      let score = Math.abs(cx - dx) + Math.abs(cy - dy);
+      const moved = translatePolygon(origin, cx, cy);
+      let hits = 0;
+      for (const p of moved) {
+        if (anchors.xs.some((v) => Math.abs(v - p.x) < 0.001)) hits += 1;
+        if (anchors.ys.some((v) => Math.abs(v - p.y) < 0.001)) hits += 1;
+      }
+      score -= hits * 0.02;
+      if (score < bestScore) {
+        bestScore = score;
+        bestDx = cx;
+        bestDy = cy;
+      }
+    }
+  }
+  return { dx: bestDx, dy: bestDy };
 }
 
 export function FloorPlanCanvas({
@@ -316,34 +349,15 @@ export function FloorPlanCanvas({
         return;
       }
       if (drag?.mode === "move") {
-        let dx = point.x - drag.grab.x;
-        let dy = point.y - drag.grab.y;
-        const moved = translatePolygon(drag.origin, dx, dy);
-        const guideX: number[] = [];
-        const guideY: number[] = [];
-        const snapped = moved.map((p) => {
-          const sx = snap(
-            p.x,
-            anchors.xs.filter((v) => !drag.origin.some((o) => Math.abs(o.x - v) < 0.001)),
-          );
-          const sy = snap(
-            p.y,
-            anchors.ys.filter((v) => !drag.origin.some((o) => Math.abs(o.y - v) < 0.001)),
-          );
-          if (Math.abs(sx - p.x) < SNAP_M) guideX.push(sx);
-          if (Math.abs(sy - p.y) < SNAP_M) guideY.push(sy);
-          return {
-            x: Math.abs(sx - p.x) < SNAP_M ? sx : p.x,
-            y: Math.abs(sy - p.y) < SNAP_M ? sy : p.y,
-          };
-        });
-        // Keep relative shape if only some snapped — use uniform translate instead when any snap
-        const first = drag.origin[0]!;
-        const firstSnapped = snapped[0]!;
-        dx = firstSnapped.x - first.x;
-        dy = firstSnapped.y - first.y;
-        const uniform = translatePolygon(drag.origin, dx, dy);
-        setGuides({ x: [...new Set(guideX)], y: [...new Set(guideY)] });
+        const rawDx = point.x - drag.grab.x;
+        const rawDy = point.y - drag.grab.y;
+        const foreignXs = anchors.xs.filter((v) => !drag.origin.some((o) => Math.abs(o.x - v) < 0.001));
+        const foreignYs = anchors.ys.filter((v) => !drag.origin.some((o) => Math.abs(o.y - v) < 0.001));
+        const locked = snapTranslation(drag.origin, rawDx, rawDy, { xs: foreignXs, ys: foreignYs });
+        const uniform = translatePolygon(drag.origin, locked.dx, locked.dy);
+        const guideX = [...new Set(uniform.map((p) => p.x).filter((x) => foreignXs.some((v) => Math.abs(v - x) < 0.001)))];
+        const guideY = [...new Set(uniform.map((p) => p.y).filter((y) => foreignYs.some((v) => Math.abs(v - y) < 0.001)))];
+        setGuides({ x: guideX, y: guideY });
         const room = floorRooms.find((r) => r.id === drag.roomId);
         if (!room) return;
         onPatchRoom(drag.roomId, syncRoomFromPolygon(room, uniform));
@@ -603,11 +617,18 @@ export function FloorPlanCanvas({
                 type="button"
                 className={`hp-palette-item${placeRoomType === item.id ? " is-on" : ""}`}
                 disabled={layoutMode}
+                draggable={!layoutMode}
+                onDragStart={(event) => {
+                  event.dataTransfer.setData("text/hd-room", item.id);
+                  event.dataTransfer.effectAllowed = "copy";
+                  setPlaceTool(null);
+                  setPlaceRoomType(item.id);
+                }}
                 onClick={() => {
                   setPlaceTool(null);
                   setPlaceRoomType((current) => (current === item.id ? null : item.id));
                 }}
-                title={`${item.id} · ${item.targetTemp}°C · ${item.airChanges} ACH`}
+                title={`${item.id} · ${item.targetTemp}°C · ${item.airChanges} ACH — drag onto plan or click then draw`}
               >
                 {item.id}
               </button>
@@ -638,8 +659,8 @@ export function FloorPlanCanvas({
             ))}
           </div>
           <p className="hp-palette-hint">
-            Pick a room type, then click-drag on the canvas to draw it. Snap rooms together — shared walls go internal.
-            Drop windows, doors and radiators onto walls.
+            Pick a room type and drag it onto the plan, or click then drag to draw. Snap rooms together — shared walls go
+          internal. Drop windows, doors and radiators onto walls.
           </p>
         </aside>
 
@@ -745,7 +766,20 @@ export function FloorPlanCanvas({
           {selectedPipe ? <em>Selected pipe: {selectedPipe.label}</em> : null}
         </div>
       ) : null}
-      <div className="hp-canvas-wrap" ref={wrapRef}>
+      <div className="hp-canvas-wrap" ref={wrapRef}
+        onDragOver={(event) => {
+          if (!layoutMode && event.dataTransfer.types.includes("text/hd-room")) event.preventDefault();
+        }}
+        onDrop={(event) => {
+          if (layoutMode || !onPlaceRoom) return;
+          const roomType = event.dataTransfer.getData("text/hd-room");
+          if (!roomType) return;
+          event.preventDefault();
+          const point = clientToMetres(event.clientX, event.clientY);
+          onPlaceRoom(roomType, Math.max(0, point.x - 1.75), Math.max(0, point.y - 1.6), 3.5, 3.2);
+          setPlaceRoomType(null);
+        }}
+      >
         <svg
           ref={svgRef}
           className="hp-canvas"
@@ -990,6 +1024,23 @@ export function FloorPlanCanvas({
                 })}
 
                 {(room.surveyedEmitters ?? []).map((emitter) => {
+                  if (emitter.kind === "ufh") {
+                    const box = polygonBounds(polygon);
+                    return (
+                      <rect
+                        key={emitter.id}
+                        x={px(box.minX + 0.35)}
+                        y={py(box.minY + 0.35)}
+                        width={Math.max(8, (box.width - 0.7) * scale)}
+                        height={Math.max(8, (box.height - 0.7) * scale)}
+                        fill="rgba(14, 116, 144, 0.12)"
+                        stroke="#0e7490"
+                        strokeWidth={1.5}
+                        strokeDasharray="5 4"
+                        style={{ pointerEvents: "none" }}
+                      />
+                    );
+                  }
                   const geom = surveyedEmitterGeom(room, emitter);
                   const w = geom.widthM * scale;
                   const d = geom.depthM * scale;
@@ -1647,7 +1698,7 @@ export function FloorPlanCanvas({
                   <ul>
                     {(selected.surveyedEmitters ?? []).map((emitter) => (
                       <li key={emitter.id}>
-                        <span>{emitter.label || "Radiator"}</span>
+                        <span>{emitter.label || (emitter.kind === "ufh" ? "UFH" : "Radiator")}</span>
                         <button
                           type="button"
                           onClick={() =>
@@ -1663,6 +1714,27 @@ export function FloorPlanCanvas({
                   </ul>
                 </div>
               ) : null}
+              <button
+                type="button"
+                className="hd-btn hd-btn-ghost"
+                onClick={() => {
+                  const box = polygonBounds(roomPolygon(selected));
+                  const emitter = {
+                    id: `sufh-${Date.now()}`,
+                    kind: "ufh" as const,
+                    wallIndex: 0,
+                    t: 0.5,
+                    widthM: Math.max(1.2, box.width - 0.7),
+                    depthM: Math.max(1, box.height - 0.7),
+                    label: `UFH · ${selected.name}`,
+                  };
+                  onPatchRoom(selected.id, {
+                    surveyedEmitters: [...(selected.surveyedEmitters ?? []), emitter],
+                  });
+                }}
+              >
+                Add underfloor heating
+              </button>
               {selectedOpening ? (
                 <>
                   <p className="hp-palette-label">Opening</p>

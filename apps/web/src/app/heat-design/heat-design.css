@@ -703,7 +703,11 @@
   font-weight: 700;
   text-align: left;
   padding: 0.42rem 0.5rem;
-  cursor: pointer;
+  cursor: grab;
+}
+
+.hp-palette-item:active {
+  cursor: grabbing;
 }
 
 .hp-palette-item:hover:not(:disabled) {
