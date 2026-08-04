@@ -387,43 +387,34 @@ Drawing index: ${JSON.stringify(skill.drawingIndex.sheets.map((sheet) => ({
   }
 }
 
-function heuristicMeasure(skill: TakeoffSkillWorkflow): TakeoffMeasuredQuantity[] {
-  const sheetCount = Math.max(1, skill.drawingIndex.sheets.length);
-  const measured: TakeoffMeasuredQuantity[] = [];
-  const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
-
-  for (const primary of primaries) {
-    const method = primary.method;
-    const seed = primary.code.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-    const quantity =
-      primary.unit === "m2" ? Math.round((80 + (seed % 40) * sheetCount) * 10) / 10
-        : primary.unit === "m" ? Math.round((25 + (seed % 20) * sheetCount) * 10) / 10
-          : primary.unit === "m3" ? Math.round((3 + (seed % 5)) * 10) / 10
-            : Math.max(1, (seed % 12) + sheetCount);
-
-    measured.push({
+function emptyPrimarySkeleton(
+  skill: TakeoffSkillWorkflow,
+  note = "Select this item, then click each instance on the drawing to count",
+): TakeoffMeasuredQuantity[] {
+  return skill.assemblies
+    .filter((item) => item.included && item.kind === "primary")
+    .map((primary) => ({
       id: makeId("qty"),
       assemblyId: primary.id,
-      kind: "primary",
+      kind: "primary" as const,
       code: primary.code,
       description: primary.description,
-      quantity,
+      quantity: 0,
       unit: primary.unit,
-      method,
-      confidence: skill.drawingIndex.sheets.some((sheet) => sheet.reliability === "Low") && method.startsWith("vision")
-        ? "Low"
-        : confidenceRank(method),
-      sourceSheetIds: skill.drawingIndex.sheets.slice(0, 2).map((sheet) => sheet.id),
-      notes: "Heuristic measure — connect OpenAI / upload vector PDFs for text-tag counts",
-    });
-  }
-  return measured;
+      method: primary.method,
+      confidence: "Low" as const,
+      sourceSheetIds: [],
+      tagMatches: [],
+      notes: primary.unit === "nr"
+        ? note
+        : "Type the measured length/area in the takeoff board, or leave for office entry",
+    }));
 }
 
 async function textTagMeasure(
   project: TakeoffProject,
   skill: TakeoffSkillWorkflow,
-): Promise<TakeoffMeasuredQuantity[] | null> {
+): Promise<TakeoffMeasuredQuantity[]> {
   const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
   if (!primaries.length) return [];
 
@@ -439,7 +430,13 @@ async function textTagMeasure(
       // skip unreadable pdf
     }
   }
-  if (!extractedByDoc.size) return null;
+
+  if (!extractedByDoc.size) {
+    return emptyPrimarySkeleton(
+      skill,
+      "No readable PDF text layer — click each fixture on the drawing to count (PlanSwift-style)",
+    );
+  }
 
   const measured: TakeoffMeasuredQuantity[] = [];
   for (const primary of primaries) {
@@ -449,6 +446,7 @@ async function textTagMeasure(
     const sourceSheetIds: string[] = [];
 
     for (const [documentId, extracted] of extractedByDoc.entries()) {
+      if (!patterns.length) continue;
       const counted = countTextTagMatches(extracted.pages, patterns);
       total += counted.count;
       for (const match of counted.matches) {
@@ -471,11 +469,7 @@ async function textTagMeasure(
       }
     }
 
-    const usedText = total > 0 && (
-      primary.method === "text-tag-count"
-      || primary.method === "schedule-extract"
-      || primary.unit === "nr"
-    );
+    const usedText = total > 0 && primary.unit === "nr";
 
     measured.push({
       id: makeId("qty"),
@@ -483,47 +477,40 @@ async function textTagMeasure(
       kind: "primary",
       code: primary.code,
       description: primary.description,
-      quantity: usedText ? total : total || 0,
+      quantity: usedText ? total : 0,
       unit: primary.unit,
       method: usedText ? "text-tag-count" : primary.method,
-      confidence: usedText ? "High" : total > 0 ? "Medium" : "Low",
+      confidence: usedText ? "High" : "Low",
       sourceSheetIds,
       tagMatches,
       notes: usedText
-        ? `Counted ${total} matching text tag(s) from PDF text layer`
-        : total
-          ? `Found ${total} weak text hits; method left as ${primary.method}`
-          : "No matching text tags found — needs schedule extract, explicit dimensions, or AI vision",
+        ? `Suggested ${total} text-tag pin(s) — verify on the drawing, then save`
+        : primary.unit === "nr"
+          ? "No tags found — select this item and click each instance on the drawing"
+          : "Enter metres / area manually in the takeoff board",
     });
   }
 
-  // If nothing found at all for nr items, fall back so UI isn't empty zeros only
-  const anyHits = measured.some((row) => row.quantity > 0);
-  if (!anyHits) return null;
-
-  // Pipe metres often aren't tagged — seed provisional hot + cold so fittings aren't blank
+  // Provisional pipe/waste metres only as editable starting points when fixtures were found
   const pointCodes = new Set(["P-WC", "P-WHB", "P-BATH", "P-SHR", "P-SINK", "P-APPL"]);
   const points = measured
     .filter((row) => pointCodes.has(row.code))
     .reduce((sum, row) => sum + row.quantity, 0);
-  for (const code of ["P-PIPE-H", "P-PIPE-C", "P-PIPE-HC"] as const) {
+  for (const code of ["P-PIPE-H", "P-PIPE-C"] as const) {
     const pipeRow = measured.find((row) => row.code === code);
     if (pipeRow && pipeRow.quantity <= 0 && points > 0) {
-      const metresPerPoint = code === "P-PIPE-HC" ? 8 : 4;
-      pipeRow.quantity = Math.round(points * metresPerPoint * 100) / 100;
+      pipeRow.quantity = Math.round(points * 4 * 100) / 100;
       pipeRow.method = "derived-formula";
       pipeRow.confidence = "Low";
-      pipeRow.notes = `No scheduled lengths — provisional ${points} × ${metresPerPoint} m from sanitary/appliance points (office adjust)`;
+      pipeRow.notes = `Provisional ${points} × 4 m — edit this number after checking the drawing`;
     }
   }
-
-  // Waste metres provisional from sanitary points when blank
   const wasteRow = measured.find((row) => row.code === "P-WASTE");
   if (wasteRow && wasteRow.quantity <= 0 && points > 0) {
     wasteRow.quantity = Math.round(points * 3 * 100) / 100;
     wasteRow.method = "derived-formula";
     wasteRow.confidence = "Low";
-    wasteRow.notes = `No scheduled waste lengths — provisional ${points} × 3 m (office adjust)`;
+    wasteRow.notes = `Provisional ${points} × 3 m waste — edit after checking the drawing`;
   }
 
   return measured;
@@ -718,7 +705,7 @@ export async function POST(
       notes: body?.notes ?? skill.scope.notes,
     };
     if (!scope.focusLabels.length) {
-      scope.focusLabels = focusOptionsForTrade(scope.trade).slice(0, 3);
+      scope.focusLabels = focusOptionsForTrade(scope.trade);
     }
     const assemblies = buildAssembliesForScope(scope);
     skill = {
@@ -749,15 +736,19 @@ export async function POST(
     if (!skill.planApproved) {
       return NextResponse.json({ error: "Approve the assembly plan before measuring" }, { status: 409 });
     }
-    const primaryMeasured =
-      (await textTagMeasure(project, skill))
-      || (await openAiMeasurePrimaries(project, skill))
-      || heuristicMeasure(skill);
+    // Drawing-first: text tags become suggested pins. Never invent fake heuristic quantities.
+    const primaryMeasured = await textTagMeasure(project, skill);
+    const pinCount = primaryMeasured.reduce(
+      (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
+      0,
+    );
     const measured = appendSecondaries(skill, primaryMeasured);
     skill = {
       ...skill,
       measured,
-      measureSummary: `Measured ${measured.filter((row) => row.kind === "primary").length} primary and ${measured.filter((row) => row.kind === "secondary").length} secondary quantities.`,
+      measureSummary: pinCount
+        ? `Takeoff board ready — ${pinCount} suggested pin(s) from PDF text. Verify on the drawing, click to add missing items, then save.`
+        : "Takeoff board ready — no text tags found. Select each fixture type and click every instance on the drawing (PlanSwift-style).",
       step: "review",
       updatedAt: stamp(),
     };

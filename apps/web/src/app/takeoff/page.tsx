@@ -279,8 +279,12 @@ export default function TakeoffSkillPage() {
   async function approveAndContinue(assemblies: TakeoffAssemblyItem[]) {
     const saved = await runSkill("save-plan", { assemblies });
     if (!saved) return;
-    await runSkill("approve-plan", { assemblies });
-    show("Plan approved — ready to measure");
+    const approved = await runSkill("approve-plan", { assemblies });
+    if (!approved) return;
+    const measured = await runSkill("measure");
+    if (measured) {
+      show("Takeoff board open — click fixtures on the drawing to count");
+    }
   }
 
   async function downloadExport(format: "xlsx" | "marked-pdf") {
@@ -782,104 +786,108 @@ export default function TakeoffSkillPage() {
                 </section>
               ) : null}
 
-              {currentStep === "measure" ? (
-                <section className="takeoff-skill-panel">
+              {currentStep === "measure" || currentStep === "review" ? (
+                <section className="takeoff-skill-panel takeoff-board-panel">
                   <header>
                     <div>
-                      <h2>5. Measure</h2>
-                      <p>Measure only approved primaries using the most reliable method (text tags / schedules / dimensions). Secondaries are derived by formula.</p>
+                      <h2>{currentStep === "measure" ? "5. Takeoff board" : "6. Takeoff board · review"}</h2>
+                      <p>
+                        {skill.measureSummary
+                          || "Work like PlanSwift / ZZ Takeoff: pick a fixture on the left, click every instance on the drawing. Fittings derive when you save."}
+                      </p>
                     </div>
-                    <button
-                      className="takeoff-skill-primary"
-                      type="button"
-                      disabled={!skill.planApproved || busy === "measure"}
-                      onClick={async () => {
-                        const result = await runSkill("measure");
-                        if (result) {
-                          await runSkill("sanity");
-                          show("Measurement complete — review confidence & sanity");
-                        }
-                      }}
-                    >
-                      {busy === "measure" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
-                      Run measurement
-                    </button>
-                  </header>
-                  {!skill.planApproved ? <p className="takeoff-skill-empty">Approve the plan first.</p> : null}
-                  <p className="takeoff-skill-note">{skill.measureSummary}</p>
-                </section>
-              ) : null}
-
-              {currentStep === "review" ? (
-                <section className="takeoff-skill-panel">
-                  <header>
-                    <div>
-                      <h2>6. Review · marked drawings & full BOQ</h2>
-                      <p>{skill.sanitySummary || skill.measureSummary || "Every fixture and fitting is listed separately. Approve / edit pins on the marked drawings, then continue."}</p>
+                    <div className="takeoff-board-header-actions">
+                      {!skill.measured.length ? (
+                        <button
+                          className="takeoff-skill-primary"
+                          type="button"
+                          disabled={!skill.planApproved || busy === "measure"}
+                          onClick={async () => {
+                            const result = await runSkill("measure");
+                            if (result) show("Takeoff board ready");
+                          }}
+                        >
+                          {busy === "measure" ? <Loader2 className="spin" size={16} /> : <Sparkles size={16} />}
+                          Open takeoff board
+                        </button>
+                      ) : (
+                        <button className="takeoff-skill-secondary" type="button" disabled={busy === "sanity"} onClick={() => void runSkill("sanity")}>
+                          Re-run sanity
+                        </button>
+                      )}
                     </div>
-                    <button className="takeoff-skill-secondary" type="button" disabled={busy === "sanity"} onClick={() => void runSkill("sanity")}>
-                      Re-run sanity checks
-                    </button>
                   </header>
 
-                  <div className="takeoff-skill-callout">
-                    <strong>Full breakdown + marked drawings</strong>
-                    <p>
-                      <span className="kind primary">Primary</span> = counted on the drawing.
-                      <span className="kind secondary">Secondary</span> = each piece separately (cistern, seat, mixer, waste, trap, hot isolator, cold isolator, elbows…).
-                      Use Move / Add / Remove on the overlay — every pin can be dragged. Save overlay to recount.
-                    </p>
-                  </div>
+                  {!skill.planApproved ? <p className="takeoff-skill-empty">Approve the assembly plan first.</p> : null}
 
-                  <TakeoffOverlayReview
-                    projectId={selected.id}
-                    documents={selected.documents}
-                    measured={skill.measured}
-                    busy={busy === "approve-overlay"}
-                    onApply={async (measured) => {
-                      const result = await runSkill("approve-overlay", { measured });
-                      if (result) show("Overlay saved — quantities recounted from pins");
-                    }}
-                  />
-
-                  <div className="takeoff-skill-table-wrap" style={{ marginTop: 16 }}>
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Kind</th>
-                          <th>Code</th>
-                          <th>Description</th>
-                          <th>Qty</th>
-                          <th>Method</th>
-                          <th>Confidence</th>
-                          <th>Sanity</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {skill.measured.map((row) => (
-                          <tr key={row.id}>
-                            <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
-                            <td>{row.code}</td>
-                            <td>
-                              {row.description}
-                              {row.derivation ? <small>{row.derivation}</small> : null}
-                            </td>
-                            <td><strong>{row.quantity}</strong> {row.unit}</td>
-                            <td>{methodLabel(row.method)}</td>
-                            <td><span className={`conf ${row.confidence.toLowerCase()}`}>{row.confidence}</span></td>
-                            <td className={row.sanityCheck && !row.sanityCheck.ok ? "bad" : "ok"}>
-                              {row.sanityCheck?.detail || "—"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <footer>
-                    <button className="takeoff-skill-primary" type="button" onClick={() => void runSkill("set-step", { step: "boq" })}>
-                      Continue to BOQ
-                    </button>
-                  </footer>
+                  {skill.measured.length ? (
+                    <>
+                      <div className="takeoff-skill-callout">
+                        <strong>How this works (same idea as PlanSwift / Bluebeam count)</strong>
+                        <p>
+                          1) Select a primary on the left · 2) Click each one on the PDF · 3) Move / remove pins as needed ·
+                          4) Save &amp; derive fittings (cistern, traps, isolators, elbows…). No invented quantities.
+                        </p>
+                      </div>
+                      <TakeoffOverlayReview
+                        projectId={selected.id}
+                        documents={selected.documents}
+                        measured={skill.measured}
+                        busy={busy === "approve-overlay" || busy === "measure"}
+                        onFindTags={async () => {
+                          const result = await runSkill("measure");
+                          if (result) show("Re-scanned PDF text tags");
+                        }}
+                        onApply={async (measured) => {
+                          const result = await runSkill("approve-overlay", { measured });
+                          if (result) {
+                            await runSkill("sanity");
+                            show("Saved — quantities recounted from pins");
+                          }
+                        }}
+                      />
+                      <div className="takeoff-skill-table-wrap" style={{ marginTop: 16 }}>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Kind</th>
+                              <th>Code</th>
+                              <th>Description</th>
+                              <th>Qty</th>
+                              <th>Method</th>
+                              <th>Confidence</th>
+                              <th>Sanity</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {skill.measured.map((row) => (
+                              <tr key={row.id}>
+                                <td><span className={`kind ${row.kind}`}>{row.kind}</span></td>
+                                <td>{row.code}</td>
+                                <td>
+                                  {row.description}
+                                  {row.derivation ? <small>{row.derivation}</small> : null}
+                                </td>
+                                <td><strong>{row.quantity}</strong> {row.unit}</td>
+                                <td>{methodLabel(row.method)}</td>
+                                <td><span className={`conf ${row.confidence.toLowerCase()}`}>{row.confidence}</span></td>
+                                <td className={row.sanityCheck && !row.sanityCheck.ok ? "bad" : "ok"}>
+                                  {row.sanityCheck?.detail || "—"}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <footer>
+                        <button className="takeoff-skill-primary" type="button" onClick={() => void runSkill("set-step", { step: "boq" })}>
+                          Continue to BOQ
+                        </button>
+                      </footer>
+                    </>
+                  ) : (
+                    <p className="takeoff-skill-note">Approve the plan (or tap Open takeoff board) to start counting on the drawings.</p>
+                  )}
                 </section>
               ) : null}
 
