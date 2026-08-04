@@ -388,12 +388,19 @@ function extractRecords(body: unknown) {
 }
 
 async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
+  // pageSize max is 250 per simPRO docs. orderby=ID keeps pages stable (default name sort
+  // made preview lists look like “only A…” when the UI truncated the first rows).
+  const pageSize = 250;
   const url = new URL(entityEndpoint(config, entity));
-  const pageSize = "50";
-  url.searchParams.set("pageSize", pageSize);
+  url.searchParams.set("pageSize", String(pageSize));
+  url.searchParams.set("orderby", "ID");
 
   const collected: UnknownRecord[] = [];
-  const maxPages = entity === "clients" || entity === "sites" ? 20 : 40;
+  const seenIds = new Set<string>();
+  const maxPages = entity === "clients" || entity === "sites" ? 200 : 80;
+  let reportedTotal = 0;
+  let reportedPages = 0;
+
   for (let page = 1; page <= maxPages; page += 1) {
     url.searchParams.set("page", String(page));
     const response = await fetch(url, {
@@ -411,10 +418,26 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     }
 
     const records = extractRecords(body);
-    collected.push(...records);
-    const totalPages = Number(response.headers.get("Result-Pages") || response.headers.get("result-pages") || 0);
-    if (records.length < Number(pageSize)) break;
-    if (totalPages > 0 && page >= totalPages) break;
+    for (const record of records) {
+      const id = identifier(record);
+      if (id) {
+        if (seenIds.has(id)) continue;
+        seenIds.add(id);
+      }
+      collected.push(record);
+    }
+
+    reportedTotal = Number(
+      response.headers.get("Result-Total") || response.headers.get("result-total") || reportedTotal || 0,
+    );
+    reportedPages = Number(
+      response.headers.get("Result-Pages") || response.headers.get("result-pages") || reportedPages || 0,
+    );
+
+    if (records.length === 0) break;
+    if (records.length < pageSize) break;
+    if (reportedTotal > 0 && collected.length >= reportedTotal) break;
+    if (reportedPages > 0 && page >= reportedPages) break;
   }
 
   return collected;

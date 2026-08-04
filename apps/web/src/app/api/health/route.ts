@@ -55,6 +55,7 @@ export async function GET() {
       schedulesDiaryOpen: "click-timeline-v1",
       simproImportQuality: "status-site-cc-v1",
       simproImportOrphanLinks: "prune-reimport-v1",
+      simproClientsFullFetch: "orderby-id-pagesize-250-v1",
       dashboardLayout: "pipeline-gantt-v3",
       takeoffSkill: "drawing-first-v8-routes-page",
       recurringServices: "upcoming-4w-v1",

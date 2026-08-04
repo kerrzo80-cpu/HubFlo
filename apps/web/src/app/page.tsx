@@ -14318,8 +14318,8 @@ export default function Dashboard() {
 
       showNotice(
         mode === "preview"
-          ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
-          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
+          ? `simPRO preview complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} create, ${result.run.totals.linked} link, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`
+          : `simPRO safe import complete for ${result.run.entities.join(", ")}: ${result.run.totals.fetched} fetched · ${result.run.totals.created} created, ${result.run.totals.linked} linked, ${result.run.totals.conflicts} conflict, ${result.run.totals.errors} error.`,
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
@@ -15862,6 +15862,98 @@ export default function Dashboard() {
 
   function clearDirectorySelection(scope: DirectoryBulkScope) {
     setDirectorySelectedIds((current) => ({ ...current, [scope]: [] }));
+  }
+
+  function renderSimproSyncLog(limit = 80) {
+    const run = simproSyncStatus?.lastRun;
+    if (!run?.operations.length) return null;
+
+    const byEntity = new Map<string, number>();
+    for (const item of run.operations) {
+      byEntity.set(item.entity, (byEntity.get(item.entity) || 0) + 1);
+    }
+    const entitySummary = [...byEntity.entries()]
+      .map(([entity, count]) => `${entity}: ${count}`)
+      .join(" · ");
+
+    const conflicts = run.operations.filter((item) => item.action === "conflict");
+    const others = run.operations.filter((item) => item.action !== "conflict");
+    const displayOps = [...conflicts, ...others].slice(0, limit);
+
+    return (
+      <div className="setup-rate-table setup-sync-log">
+        <p style={{ margin: "0 0 0.75rem", fontSize: "0.9rem", opacity: 0.85 }}>
+          Fetched {run.totals.fetched} record{run.totals.fetched === 1 ? "" : "s"}
+          {entitySummary ? ` (${entitySummary})` : ""}. Showing {displayOps.length} of {run.operations.length}
+          {run.operations.length > displayOps.length
+            ? " — Apply still processes every fetched record (A–Z), not only this sample."
+            : "."}
+        </p>
+        <div className="setup-rate-row table-head">
+          <span>Action</span>
+          <span>Record</span>
+          <span>Result</span>
+          <span>Resolve</span>
+        </div>
+        {displayOps.map((item) => (
+          <div className="setup-rate-row" key={item.id}>
+            <strong>{item.action}</strong>
+            <span>
+              {item.entity}
+              {item.simproId ? ` · ${item.simproId}` : ""}
+              {item.simproName ? ` · ${item.simproName}` : ""}
+            </span>
+            <span>
+              {item.summary}
+              {item.detail ? <small style={{ display: "block", marginTop: "0.25rem" }}>{item.detail}</small> : null}
+            </span>
+            <span>
+              {item.action === "conflict" ? (
+                <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
+                  {item.candidates?.length ? (
+                    <select
+                      value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
+                      onChange={(event) =>
+                        setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
+                      }
+                    >
+                      {item.candidates.map((candidate) => (
+                        <option key={candidate.nexaId} value={candidate.nexaId}>
+                          {candidate.nexaName}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  {item.candidates?.length || item.simproId ? (
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={() => void resolveSimproConflict(item, "link")}
+                      disabled={!item.candidates?.length}
+                    >
+                      Link
+                    </button>
+                  ) : null}
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => void resolveSimproConflict(item, "create")}
+                    disabled={!item.simproId || item.summary.includes("customer is linked")}
+                  >
+                    Create
+                  </button>
+                  <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
+                    Skip
+                  </button>
+                </div>
+              ) : (
+                "—"
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
   }
 
   function isDirectorySelected(scope: DirectoryBulkScope, id: string) {
@@ -41347,57 +41439,7 @@ export default function Dashboard() {
 	                            </article>
 	                          </div>
 	                          {simproSyncStatus?.lastRun?.operations.length ? (
-	                            <div className="setup-rate-table setup-sync-log">
-	                              <div className="setup-rate-row table-head">
-	                                <span>Action</span>
-	                                <span>Record</span>
-	                                <span>Result</span>
-	                                <span>Resolve</span>
-	                              </div>
-	                              {simproSyncStatus.lastRun.operations.slice(0, 40).map((item) => (
-	                                <div className="setup-rate-row" key={item.id}>
-	                                  <strong>{item.action}</strong>
-	                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
-	                                  <span>
-                                    {item.summary}
-                                    {item.detail ? <small style={{ display: "block", marginTop: "0.25rem" }}>{item.detail}</small> : null}
-                                  </span>
-	                                  <span>
-	                                    {item.action === "conflict" ? (
-	                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
-	                                        {item.candidates?.length ? (
-	                                          <select
-	                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
-	                                            onChange={(event) =>
-	                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
-	                                            }
-	                                          >
-	                                            {item.candidates.map((candidate) => (
-	                                              <option key={candidate.nexaId} value={candidate.nexaId}>
-	                                                {candidate.nexaName}
-	                                              </option>
-	                                            ))}
-	                                          </select>
-	                                        ) : null}
-	                                        {item.candidates?.length || item.simproId ? (
-	                                          <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
-	                                            Link
-	                                          </button>
-	                                        ) : null}
-	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
-	                                          Create
-	                                        </button>
-	                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
-	                                          Skip
-	                                        </button>
-	                                      </div>
-	                                    ) : (
-	                                      "—"
-	                                    )}
-	                                  </span>
-	                                </div>
-	                              ))}
-	                            </div>
+	                            renderSimproSyncLog(80)
 	                          ) : null}
 	                        </article>
 
@@ -41938,52 +41980,7 @@ export default function Dashboard() {
                             </div>
                           )}
                           {simproSyncStatus?.lastRun?.operations.length ? (
-                            <div className="setup-rate-table setup-sync-log">
-                              <div className="setup-rate-row table-head">
-                                <span>Action</span>
-                                <span>Record</span>
-                                <span>Result</span>
-                                <span>Resolve</span>
-                              </div>
-                              {simproSyncStatus.lastRun.operations.slice(0, 10).map((item) => (
-                                <div className="setup-rate-row" key={item.id}>
-                                  <strong>{item.action}</strong>
-                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
-                                  <span>{item.summary}</span>
-                                  <span>
-                                    {item.action === "conflict" ? (
-                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
-                                        {item.candidates?.length ? (
-                                          <select
-                                            value={simproConflictLinkChoices[item.id] || item.candidates[0]?.nexaId || ""}
-                                            onChange={(event) =>
-                                              setSimproConflictLinkChoices((current) => ({ ...current, [item.id]: event.target.value }))
-                                            }
-                                          >
-                                            {item.candidates.map((candidate) => (
-                                              <option key={candidate.nexaId} value={candidate.nexaId}>
-                                                {candidate.nexaName}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        ) : null}
-                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "link")} disabled={!item.candidates?.length}>
-                                          Link
-                                        </button>
-                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "create")} disabled={!item.simproId || item.summary.includes("customer is linked")}>
-                                          Create
-                                        </button>
-                                        <button className="secondary-button" type="button" onClick={() => void resolveSimproConflict(item, "skip")}>
-                                          Skip
-                                        </button>
-                                      </div>
-                                    ) : (
-                                      "—"
-                                    )}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
+                            renderSimproSyncLog(80)
                           ) : integrationSettings.simproMode === "Two-way sync" ? null : (
                             <div className="setup-rate-table setup-sync-log">
                               <div className="setup-rate-row table-head">

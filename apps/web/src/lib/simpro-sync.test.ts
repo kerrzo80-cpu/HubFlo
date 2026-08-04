@@ -57,6 +57,14 @@ describe("simpro sync preview quality", () => {
     assert.equal(result.syncLinksRemoved, 0);
   });
 
+  it("paginates customers with stable ID order and larger page size", () => {
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
+    assert.match(source, /pageSize = 250/);
+    assert.match(source, /orderby", "ID"/);
+    assert.match(source, /Result-Total/);
+    assert.match(source, /maxPages = entity === "clients" \|\| entity === "sites" \? 200/);
+  });
+
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
     const merged = mergeHubDetailState(
       {
