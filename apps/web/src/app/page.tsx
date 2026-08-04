@@ -14354,6 +14354,8 @@ export default function Dashboard() {
       const result = (await response.json().catch(() => null)) as {
         deletedJobs?: number;
         deletedQuotes?: number;
+        clearedSyncLinks?: number;
+        clearedEntityLinks?: number;
         status?: SimproSyncStatus;
         error?: string;
       } | null;
@@ -14363,7 +14365,7 @@ export default function Dashboard() {
       if (result?.status) setSimproSyncStatus(result.status);
       await refreshCoreWorkflowRecords();
       showNotice(
-        `Removed ${result?.deletedJobs ?? 0} imported job(s) and ${result?.deletedQuotes ?? 0} imported quote(s). Re-run Apply safe imports when ready.`,
+        `Removed ${result?.deletedJobs ?? 0} imported job(s) and ${result?.deletedQuotes ?? 0} imported quote(s); cleared ${result?.clearedSyncLinks ?? 0} sync link(s). Re-run Apply safe imports when ready.`,
       );
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to clean up imported simPRO records.");
