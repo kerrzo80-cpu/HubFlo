@@ -30,16 +30,31 @@ import "./takeoff-skill.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
 type AiStatus = { connected: boolean; model?: string; source?: string };
+type AuthState = "checking" | "signed-in" | "signed-out" | "pilot";
 
 const requestHeaders: HeadersInit = {
   [roleHeaderName]: "Office",
 };
+
+async function apiFetch(input: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers || {});
+  for (const [key, value] of Object.entries(requestHeaders)) {
+    if (!headers.has(key) && typeof value === "string") headers.set(key, value);
+  }
+  return fetch(input, {
+    ...init,
+    credentials: "include",
+    headers,
+  });
+}
 
 function stepIndex(step: TakeoffSkillStep) {
   return TAKEOFF_SKILL_STEPS.findIndex((row) => row.id === step);
 }
 
 export default function TakeoffSkillPage() {
+  const [authState, setAuthState] = useState<AuthState>("checking");
+  const [authName, setAuthName] = useState<string | null>(null);
   const [projects, setProjects] = useState<TakeoffProject[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quotes, setQuotes] = useState<QuoteOption[]>([]);
@@ -60,24 +75,31 @@ export default function TakeoffSkillPage() {
   const skill: TakeoffSkillWorkflow = selected?.skill ?? createDefaultTakeoffSkill();
 
   const refresh = useCallback(async () => {
-    const headers = requestHeaders;
     const [projectRes, quoteRes, aiRes] = await Promise.all([
-      fetch("/api/takeoff-projects", { headers }),
-      fetch("/api/quotes", { headers }),
-      fetch("/api/takeoff-ai/status", { headers }),
+      apiFetch("/api/takeoff-projects"),
+      apiFetch("/api/quotes"),
+      apiFetch("/api/takeoff-ai/status"),
     ]);
-    if (projectRes.ok) {
-      const list = (await projectRes.json()) as TakeoffProject[];
-      setProjects(list.map((project) => ({
-        ...project,
-        skill: project.skill ?? createDefaultTakeoffSkill(),
-      })));
-      setSelectedId((current) => current ?? list[0]?.id ?? null);
+    if (projectRes.status === 401 || quoteRes.status === 401) {
+      setAuthState("signed-out");
+      setError("Sign in to Core first, then open Takeoff again.");
+      return;
     }
+    if (!projectRes.ok) {
+      const body = await projectRes.json().catch(() => null) as { error?: string } | null;
+      setError(body?.error || "Unable to load takeoff projects");
+      return;
+    }
+    const list = (await projectRes.json()) as TakeoffProject[];
+    setProjects(list.map((project) => ({
+      ...project,
+      skill: project.skill ?? createDefaultTakeoffSkill(),
+    })));
+    setSelectedId((current) => current ?? list[0]?.id ?? null);
     if (quoteRes.ok) {
-      const list = (await quoteRes.json()) as Array<Record<string, unknown>>;
+      const quoteList = (await quoteRes.json()) as Array<Record<string, unknown>>;
       setQuotes(
-        list.map((quote) => ({
+        quoteList.map((quote) => ({
           id: String(quote.id || ""),
           ref: String(quote.ref || ""),
           customer: String(quote.customer || ""),
@@ -92,7 +114,40 @@ export default function TakeoffSkillPage() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    let active = true;
+    void (async () => {
+      try {
+        const response = await apiFetch("/api/auth/me", { cache: "no-store" });
+        if (!active) return;
+        if (response.status === 401) {
+          setAuthState("signed-out");
+          return;
+        }
+        const body = await response.json().catch(() => null) as {
+          mode?: string;
+          user?: { name?: string } | null;
+        } | null;
+        if (body?.mode === "pilot") {
+          setAuthState("pilot");
+          setAuthName("Pilot");
+        } else if (body?.user) {
+          setAuthState("signed-in");
+          setAuthName(body.user.name || "Signed in");
+        } else {
+          setAuthState("signed-out");
+          return;
+        }
+        await refresh();
+      } catch {
+        if (active) {
+          setAuthState("signed-out");
+          setError("Unable to reach NeXa auth. Refresh and try again.");
+        }
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -118,9 +173,9 @@ export default function TakeoffSkillPage() {
     setBusy("create");
     setError(null);
     try {
-      const response = await fetch("/api/takeoff-projects", {
+      const response = await apiFetch("/api/takeoff-projects", {
         method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: draft.name || "Construction takeoff",
           customer: draft.customer,
@@ -130,7 +185,14 @@ export default function TakeoffSkillPage() {
           skill: createDefaultTakeoffSkill(),
         }),
       });
-      if (!response.ok) throw new Error("Unable to create takeoff project");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { error?: string } | null;
+        if (response.status === 401) {
+          setAuthState("signed-out");
+          throw new Error("Sign in to Core first, then create a takeoff project.");
+        }
+        throw new Error(body?.error || "Unable to create takeoff project");
+      }
       const project = await response.json() as TakeoffProject;
       upsertProject(project);
       setDraft({ name: "", customer: "", site: "", description: "", linkedQuoteId: "" });
@@ -154,9 +216,8 @@ export default function TakeoffSkillPage() {
         const form = new FormData();
         form.append("kind", "Drawing");
         form.append("file", file);
-        const response = await fetch(`/api/takeoff-projects/${selected.id}/documents`, {
+        const response = await apiFetch(`/api/takeoff-projects/${selected.id}/documents`, {
           method: "POST",
-          headers: requestHeaders,
           body: form,
         });
         if (!response.ok) {
@@ -179,9 +240,9 @@ export default function TakeoffSkillPage() {
     setBusy(action);
     setError(null);
     try {
-      const response = await fetch(`/api/takeoff-projects/${selected.id}/skill`, {
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/skill`, {
         method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, ...payload }),
       });
       const body = await response.json().catch(() => null) as {
@@ -214,9 +275,7 @@ export default function TakeoffSkillPage() {
     setBusy(`export-${format}`);
     setError(null);
     try {
-      const response = await fetch(`/api/takeoff-projects/${selected.id}/skill/export?format=${format}`, {
-        headers: requestHeaders,
-      });
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/skill/export?format=${format}`);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(body?.error || "Export failed");
@@ -249,9 +308,9 @@ export default function TakeoffSkillPage() {
       await runSkill("apply-boq");
       // Approve if needed
       if (selected.status === "Draft" || selected.status === "In review") {
-        await fetch(`/api/takeoff-projects/${selected.id}`, {
+        await apiFetch(`/api/takeoff-projects/${selected.id}`, {
           method: "PATCH",
-          headers: { ...requestHeaders, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             status: "Approved",
             review: {
@@ -262,9 +321,9 @@ export default function TakeoffSkillPage() {
           }),
         });
       }
-      const response = await fetch(`/api/takeoff-projects/${selected.id}/push`, {
+      const response = await apiFetch(`/api/takeoff-projects/${selected.id}/push`, {
         method: "POST",
-        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ quoteId: selected.linkedQuoteId }),
       });
       const body = await response.json().catch(() => null) as { error?: string } | null;
@@ -295,13 +354,14 @@ export default function TakeoffSkillPage() {
           </div>
         </div>
         <div className="takeoff-skill-top-actions">
-          <span className={`takeoff-skill-ai ${aiStatus?.connected ? "on" : "off"}`}>
-            <Sparkles size={14} />
-            {aiStatus?.connected ? `AI connected · ${aiStatus.model || "model"}` : "AI offline · heuristic mode"}
-          </span>
-          <Link className="takeoff-skill-link" href="/takeoff/markup">
-            Classic markup
-          </Link>
+            <span className={`takeoff-skill-ai ${aiStatus?.connected ? "on" : "off"}`}>
+              <Sparkles size={14} />
+              {aiStatus?.connected ? `AI connected · ${aiStatus.model || "model"}` : "AI offline · text-tag mode"}
+            </span>
+            {authName ? <span className="takeoff-skill-ai on">{authName}</span> : null}
+            <Link className="takeoff-skill-link" href="/takeoff/markup">
+              Classic markup
+            </Link>
         </div>
       </header>
 
@@ -311,6 +371,28 @@ export default function TakeoffSkillPage() {
         </div>
       ) : null}
 
+      {authState === "checking" ? (
+        <section className="takeoff-skill-auth">
+          <h1>Opening Takeoff…</h1>
+          <p>Checking your NeXa sign-in.</p>
+        </section>
+      ) : null}
+
+      {authState === "signed-out" ? (
+        <section className="takeoff-skill-auth">
+          <h1>Sign in to use Takeoff</h1>
+          <p>
+            Takeoff uses your Core login. Sign in first, then you’ll be able to create projects,
+            upload drawings, run the skill, and push a BOQ into a quote.
+          </p>
+          <p className="takeoff-skill-note">No special AI setup is required to start — vector PDF text-tag counts work without OpenAI.</p>
+          <a className="takeoff-skill-primary" href="/login?next=/takeoff">
+            Sign in to NeXa
+          </a>
+        </section>
+      ) : null}
+
+      {authState === "signed-in" || authState === "pilot" ? (
       <div className="takeoff-skill-layout">
         <aside className="takeoff-skill-sidebar">
           <div className="takeoff-skill-card">
@@ -774,9 +856,9 @@ export default function TakeoffSkillPage() {
                         value={selected.linkedQuoteId || ""}
                         onChange={(event) => {
                           const linkedQuoteId = event.target.value || undefined;
-                          void fetch(`/api/takeoff-projects/${selected.id}`, {
+                          void apiFetch(`/api/takeoff-projects/${selected.id}`, {
                             method: "PATCH",
-                            headers: { ...requestHeaders, "Content-Type": "application/json" },
+                            headers: { "Content-Type": "application/json" },
                             body: JSON.stringify({ linkedQuoteId }),
                           }).then(async (response) => {
                             if (!response.ok) return;
@@ -839,6 +921,7 @@ export default function TakeoffSkillPage() {
           )}
         </main>
       </div>
+      ) : null}
     </div>
   );
 }
