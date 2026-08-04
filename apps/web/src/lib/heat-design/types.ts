@@ -19,6 +19,20 @@ export type PlanOpening = {
   materialId?: string;
 };
 
+export type SurveyedEmitter = {
+  id: string;
+  kind: "radiator" | "ufh";
+  wallIndex: number;
+  /** 0–1 along wall */
+  t: number;
+  widthM: number;
+  depthM: number;
+  heightM?: number;
+  radiatorId?: string;
+  outputWatts?: number;
+  label?: string;
+};
+
 export type HeatDesignRoom = {
   id: string;
   name: string;
@@ -46,6 +60,8 @@ export type HeatDesignRoom = {
   planY: number;
   floorLevel: FloorLevel;
   openings: PlanOpening[];
+  /** Existing emitters on the surveyed plan (HeatPunk-style). */
+  surveyedEmitters?: SurveyedEmitter[];
   /** Override room-type default ACH (air changes per hour). */
   airChanges?: number;
   /** Override room-type default design temperature °C. */

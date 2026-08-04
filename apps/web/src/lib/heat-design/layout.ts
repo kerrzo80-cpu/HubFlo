@@ -591,3 +591,42 @@ export function translatePipe(layout: HeatingSystemLayout, pipeId: string, dx: n
     updatedAt: new Date().toISOString(),
   };
 }
+
+/** Place a surveyed (existing) radiator on a room wall — HeatPunk-style. */
+export function placeSurveyedRadiatorOnWall(
+  room: HeatDesignRoom,
+  wallIndex: number,
+  t: number,
+  radiator?: { id: string; model: string; outputWatts: number } | null,
+): HeatDesignRoom {
+  const edges = edgesOf(room);
+  const edge = edges[wallIndex] ?? edges[0];
+  if (!edge) return room;
+  const widthM = Math.min(1.6, Math.max(0.6, edge.len * 0.32));
+  const emitter = {
+    id: uid("srad"),
+    kind: "radiator" as const,
+    wallIndex: edge.index,
+    t: Math.min(0.85, Math.max(0.15, t)),
+    widthM,
+    depthM: 0.14,
+    heightM: 0.6,
+    radiatorId: radiator?.id,
+    outputWatts: radiator?.outputWatts,
+    label: radiator ? `${radiator.model} · ${radiator.outputWatts}W` : "Radiator",
+  };
+  return {
+    ...room,
+    selectedRadiatorId: radiator?.id ?? room.selectedRadiatorId,
+    surveyedEmitters: [...(room.surveyedEmitters ?? []), emitter],
+  };
+}
+
+/** Geometry helper for drawing a surveyed radiator along a wall. */
+export function surveyedEmitterGeom(room: HeatDesignRoom, emitter: NonNullable<HeatDesignRoom["surveyedEmitters"]>[number]) {
+  const edges = edgesOf(room);
+  const edge = edges[emitter.wallIndex] ?? edges[0]!;
+  const point = pointOnEdge(edge, emitter.t, emitter.depthM / 2 + 0.04);
+  const rotationDeg = (Math.atan2(edge.uy, edge.ux) * 180) / Math.PI;
+  return { x: point.x, y: point.y, rotationDeg, widthM: emitter.widthM, depthM: emitter.depthM };
+}
