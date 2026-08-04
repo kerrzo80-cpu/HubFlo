@@ -1987,6 +1987,12 @@
   font-size: 0.9rem;
 }
 
+.hd-link-target-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin: 0 0 0.75rem;
+}
+
 @media (max-width: 700px) {
   .hd-quote-push {
     grid-template-columns: 1fr;

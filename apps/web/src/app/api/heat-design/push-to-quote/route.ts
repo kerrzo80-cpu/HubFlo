@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { kitLinesToQuoteCostLines, kitSellTotal, type KitLine } from "@/lib/heat-design";
+import {
+  kitLinesToQuoteCostLines,
+  kitSellTotal,
+  previousQuoteLinesSell,
+  type KitLine,
+} from "@/lib/heat-design";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 import { parseJsonRequestBody } from "@/lib/http";
 import { appendAuditEvent } from "@/lib/people-data";
@@ -9,7 +14,9 @@ import { surveyRequestContext } from "@/lib/survey-api";
 import { createQuote, getQuotes, updateQuote } from "@/lib/workflow-data";
 
 type PushBody = {
+  /** Existing quote id, or omit / empty to create a new quote */
   quoteId?: string;
+  createNew?: boolean;
   customerName?: string;
   projectName?: string;
   address?: string;
@@ -48,31 +55,57 @@ export async function POST(request: Request) {
     .filter(Boolean)
     .join("\n");
 
-  const existing = body.quoteId ? getQuotes().find((quote) => quote.id === body.quoteId) : undefined;
+  const createNew = Boolean(body.createNew) || !body.quoteId;
+  let quote = body.quoteId && !createNew ? getQuotes().find((row) => row.id === body.quoteId) : undefined;
+
+  if (!quote && !createNew && body.quoteId) {
+    return NextResponse.json({ error: "Selected quote was not found." }, { status: 404 });
+  }
+
   const due = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
-  const quote = existing
-    ? updateQuote(existing.id, {
-        customer: body.customerName || existing.customer,
-        description: existing.description ? `${existing.description}\n\n${description}` : description,
-        owner: actor,
-        value: Math.round((existing.value + sellTotal) * 100) / 100,
-        next: "Review heat-design materials cost centre and send quote",
-      })!
-    : createQuote({
-        ref: "",
-        customer: body.customerName || "Heat design customer",
-        description,
-        owner: actor,
-        status: "Draft",
-        value: sellTotal,
-        next: "Review heat-design materials cost centre and send quote",
-        due,
-      });
+  const centreId = quote ? `heat-design-centre-${quote.id}` : "";
+  const hubStatePreview = getHubDetailState();
+  const prevCentresPreview = quote
+    ? ((hubStatePreview.quoteCostCentres ?? {}) as Record<string, Array<{ id: string; lines?: unknown[] }>>)[
+        quote.id
+      ] ?? []
+    : [];
+  const prevCentrePreview = prevCentresPreview.find((centre) => centre.id === centreId);
+  const previousSell = previousQuoteLinesSell(
+    prevCentrePreview?.lines as Array<{ quantity?: number; unitSell?: number; unitCost?: number }> | undefined,
+  );
+
+  if (!quote) {
+    quote = createQuote({
+      ref: "",
+      customer: body.customerName || "Heat design customer",
+      description,
+      owner: actor,
+      status: "Draft",
+      value: sellTotal,
+      next: "Review heat-design materials cost centre and send quote",
+      due,
+    });
+  } else {
+    const nextValue = Math.max(0, Math.round((quote.value - previousSell + sellTotal) * 100) / 100);
+    quote = updateQuote(quote.id, {
+      customer: body.customerName || quote.customer,
+      description: quote.description?.includes("Heat design")
+        ? quote.description
+        : `${quote.description}\n\n${description}`.trim(),
+      owner: actor,
+      value: nextValue,
+      next: "Review heat-design materials cost centre and send quote",
+    })!;
+  }
 
   const sectionId = `heat-design-section-${quote.id}`;
-  const centreId = `heat-design-centre-${quote.id}`;
+  const resolvedCentreId = `heat-design-centre-${quote.id}`;
   const hubState = getHubDetailState();
-  const currentSections = (hubState.quoteSections ?? {}) as Record<string, Array<{ id: string; name: string; description: string }>>;
+  const currentSections = (hubState.quoteSections ?? {}) as Record<
+    string,
+    Array<{ id: string; name: string; description: string }>
+  >;
   const currentCentres = (hubState.quoteCostCentres ?? {}) as Record<
     string,
     Array<{
@@ -88,14 +121,14 @@ export async function POST(request: Request) {
   >;
 
   const prevCentres = currentCentres[quote.id] ?? [];
-  const withoutOld = prevCentres.filter((centre) => centre.id !== centreId);
+  const withoutOld = prevCentres.filter((centre) => centre.id !== resolvedCentreId);
   const nextCentre = {
-    id: centreId,
+    id: resolvedCentreId,
     name: "Heating design",
     sectionId,
     templateName: "Heating design",
     clientDescription: description,
-    engineerDescription: `${systemLabel} kit from /heat-design — converts to job materials with the quote.`,
+    engineerDescription: `${systemLabel} kit from Heat Design (/heat-design) — converts to job materials with the quote.`,
     lines,
     heatLossRooms: [
       {
@@ -124,19 +157,27 @@ export async function POST(request: Request) {
 
   appendAuditEvent({
     actor,
-    action: "pushed",
+    action: createNew ? "created" : "updated",
     recordType: "quote",
     recordId: quote.id,
-    summary: `Heat design pushed ${lines.length} material line(s) into ${quote.ref} (${systemLabel}).`,
+    summary: `Heat design ${createNew ? "created" : "updated"} ${quote.ref} with ${lines.length} material line(s) (${systemLabel}).`,
     source: "Heat Design",
     importance: "normal",
   });
 
   return NextResponse.json({
-    quote,
+    quote: {
+      id: quote.id,
+      ref: quote.ref,
+      customer: quote.customer,
+      status: quote.status,
+      value: quote.value,
+    },
+    created: createNew,
     costCentre: nextCentre,
     lineCount: lines.length,
     sellTotal,
-    note: "When this quote converts to a job, these materials carry across into the job cost centres.",
+    quotesAvailable: getQuotes().length,
+    note: "Open Core → Quotes → this quote → Heating design cost centre. Materials carry across when converted to a job.",
   });
 }

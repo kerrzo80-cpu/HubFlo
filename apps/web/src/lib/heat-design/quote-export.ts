@@ -73,3 +73,24 @@ export function kitLinesToJobMaterials(kit: KitLine[], markupPercent = 35): JobM
 export function jobMaterialsCostTotal(lines: JobMaterialLineExport[]): number {
   return Math.round(lines.reduce((sum, line) => sum + line.quantity * line.unitCost, 0) * 100) / 100;
 }
+
+/** Approx cost of previous heat-design materials already on a job centre (for re-link value fix). */
+export function previousJobMaterialsCost(materials: Array<{ quantity?: number; unitCost?: number }> | undefined): number {
+  if (!materials?.length) return 0;
+  return Math.round(
+    materials.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unitCost || 0), 0) * 100,
+  ) / 100;
+}
+
+/** Approx sell of previous heat-design lines already on a quote centre. */
+export function previousQuoteLinesSell(
+  lines: Array<{ quantity?: number; unitSell?: number; unitCost?: number }> | undefined,
+): number {
+  if (!lines?.length) return 0;
+  return Math.round(
+    lines.reduce(
+      (sum, line) => sum + Number(line.quantity || 0) * Number(line.unitSell ?? line.unitCost ?? 0),
+      0,
+    ) * 100,
+  ) / 100;
+}
