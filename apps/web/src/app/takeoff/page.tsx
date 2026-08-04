@@ -453,10 +453,10 @@ export default function TakeoffSkillPage() {
         <main className="takeoff-skill-main">
           {!selected ? (
             <section className="takeoff-skill-empty-state">
-              <h1>Construction quantity takeoff</h1>
+              <h1>Ready to take off</h1>
               <p>
-                Same architecture as a packaged AI takeoff skill: index the drawings, choose the trade,
-                plan primary vs secondary quantities, measure with confidence scores, sanity-check, then export a BOQ.
+                Create a project on the left, upload drawings, then run the skill prompt.
+                You can use it now — text-tag counting works without OpenAI. AI is optional for harder sheets.
               </p>
             </section>
           ) : (
