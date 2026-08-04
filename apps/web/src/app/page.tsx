@@ -7776,6 +7776,15 @@ export default function Dashboard() {
       stockItemId?: string;
     }>;
   } | null>(null);
+  const [poGoodsEditLines, setPoGoodsEditLines] = useState<Array<{
+    id: string;
+    description: string;
+    quantity: string;
+    estimatedCost: string;
+    actualCost: string;
+    receivedPercent: string;
+  }> | null>(null);
+  const [poGoodsSaving, setPoGoodsSaving] = useState(false);
   const [isExportingInvoiceToXero, setIsExportingInvoiceToXero] = useState(false);
   const [isPullingXeroPayments, setIsPullingXeroPayments] = useState(false);
   const [isExportingPoBillToXero, setIsExportingPoBillToXero] = useState(false);
@@ -8179,6 +8188,46 @@ export default function Dashboard() {
     selectedPurchaseOrder?.invoiceFileName,
     selectedPurchaseOrder?.supplierPaidAmount,
     selectedPurchaseOrder?.supplierPayments,
+  ]);
+
+  useEffect(() => {
+    if (!selectedPurchaseOrder) {
+      setPoGoodsEditLines(null);
+      return;
+    }
+    const lines = selectedPurchaseOrder.lines?.length
+      ? selectedPurchaseOrder.lines
+      : [{
+          id: `${selectedPurchaseOrder.id}-goods-line`,
+          description: selectedPurchaseOrder.item || "Materials / goods",
+          quantity: 1,
+          estimatedCost: selectedPurchaseOrder.estimatedCost || 0,
+          actualCost: selectedPurchaseOrder.actualCost,
+          receivedPercent: selectedPurchaseOrder.status === "Received" ? 100 : 0,
+        }];
+    setPoGoodsEditLines(
+      lines.map((line, index) => ({
+        id: line.id || `${selectedPurchaseOrder.id}-line-${index + 1}`,
+        description: line.description || selectedPurchaseOrder.item || "Materials / goods",
+        quantity: String(line.quantity || 1),
+        estimatedCost: String(line.estimatedCost || selectedPurchaseOrder.estimatedCost || 0),
+        actualCost:
+          line.actualCost !== undefined
+            ? String(line.actualCost)
+            : selectedPurchaseOrder.actualCost !== undefined
+              ? String(selectedPurchaseOrder.actualCost)
+              : "",
+        receivedPercent: String(line.receivedPercent ?? 0),
+      })),
+    );
+  }, [
+    selectedPurchaseOrder?.id,
+    selectedPurchaseOrder?.updatedAt,
+    selectedPurchaseOrder?.status,
+    selectedPurchaseOrder?.item,
+    selectedPurchaseOrder?.estimatedCost,
+    selectedPurchaseOrder?.actualCost,
+    selectedPurchaseOrder?.lines,
   ]);
 
   const selectedInvoice = useMemo(
@@ -25749,6 +25798,59 @@ export default function Dashboard() {
     await patchPurchaseRequest(id, { status }, `PO marked ${status}.`);
   }
 
+  async function savePurchaseOrderGoodsReceived() {
+    if (!selectedPurchaseOrder || !poGoodsEditLines?.length) return;
+    setPoGoodsSaving(true);
+    try {
+      const lines = poGoodsEditLines.map((line, index) => {
+        const receivedPercent = Math.min(100, Math.max(0, Number(line.receivedPercent) || 0));
+        const estimatedCost = Number(line.estimatedCost) || 0;
+        const actualCost = line.actualCost.trim()
+          ? Number(line.actualCost) || 0
+          : estimatedCost;
+        return {
+          id: line.id || `${selectedPurchaseOrder.id}-line-${index + 1}`,
+          description: line.description.trim() || selectedPurchaseOrder.item || "Materials / goods",
+          quantity: Math.max(1, Number(line.quantity) || 1),
+          estimatedCost,
+          actualCost,
+          receivedPercent,
+        };
+      });
+      const actualCost = lines.reduce((total, line) => {
+        const ratio = Math.min(100, Math.max(0, line.receivedPercent)) / 100;
+        return total + (line.actualCost || line.estimatedCost) * ratio;
+      }, 0);
+      const allReceived = lines.every((line) => line.receivedPercent >= 100);
+      const anyReceived = lines.some((line) => line.receivedPercent > 0);
+      const nextStatus =
+        allReceived
+          ? "Received"
+          : anyReceived
+            ? "Part received"
+            : selectedPurchaseOrder.status === "Received" || selectedPurchaseOrder.status === "Part received"
+              ? "Pending cost"
+              : selectedPurchaseOrder.status;
+      await patchPurchaseRequest(
+        selectedPurchaseOrder.id,
+        {
+          lines,
+          actualCost: Number(actualCost.toFixed(2)),
+          status: nextStatus,
+          receivedAt: anyReceived ? selectedPurchaseOrder.receivedAt || workflowTimestamp() : selectedPurchaseOrder.receivedAt,
+          updatedAt: workflowTimestamp(),
+        },
+        allReceived
+          ? `${selectedPurchaseOrder.poNumber || "PO"} marked fully received.`
+          : anyReceived
+            ? `${selectedPurchaseOrder.poNumber || "PO"} goods received / cost updated.`
+            : `${selectedPurchaseOrder.poNumber || "PO"} receipt lines saved.`,
+      );
+    } finally {
+      setPoGoodsSaving(false);
+    }
+  }
+
   async function sendPurchaseOrderToSupplier(request: PurchaseRequest) {
     await patchPurchaseRequest(
       request.id,
@@ -29696,6 +29798,132 @@ export default function Dashboard() {
                       <button className="secondary-button" type="button" onClick={openSelectedPurchaseOrderJob}>Open linked job / cost centre</button>
                     </article>
                   </div>
+
+                  <section className="accounts-handoff-panel" style={{ marginTop: "1rem" }}>
+                    <header>
+                      <div>
+                        <span className="permission-heading">Goods received</span>
+                        <h2>Edit received % and actual £</h2>
+                      </div>
+                      <span className={`status-pill ${purchaseRequestTone(selectedPurchaseOrder)}`}>
+                        {purchaseRequestReceiptPercent(selectedPurchaseOrder)}% received
+                      </span>
+                    </header>
+                    <p style={{ margin: "0 0 0.75rem", color: "var(--muted, #667)" }}>
+                      Update how much of the order has come in and the actual cost. Save to update the PO and three-way match.
+                    </p>
+                    <div className="po-line-editor-grid">
+                      {(poGoodsEditLines || []).map((line, index) => (
+                        <div className="po-line-editor-row" key={line.id}>
+                          <label>
+                            Item {index + 1}
+                            <input
+                              value={line.description}
+                              onChange={(event) =>
+                                setPoGoodsEditLines((current) =>
+                                  (current || []).map((row) =>
+                                    row.id === line.id ? { ...row, description: event.target.value } : row,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Qty
+                            <input
+                              value={line.quantity}
+                              onChange={(event) =>
+                                setPoGoodsEditLines((current) =>
+                                  (current || []).map((row) =>
+                                    row.id === line.id ? { ...row, quantity: event.target.value } : row,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                          <label>
+                            Ordered £
+                            <div className="money-input">
+                              <span>£</span>
+                              <input
+                                value={line.estimatedCost}
+                                onChange={(event) =>
+                                  setPoGoodsEditLines((current) =>
+                                    (current || []).map((row) =>
+                                      row.id === line.id ? { ...row, estimatedCost: event.target.value } : row,
+                                    ),
+                                  )
+                                }
+                              />
+                            </div>
+                          </label>
+                          <label>
+                            Actual £
+                            <div className="money-input">
+                              <span>£</span>
+                              <input
+                                value={line.actualCost}
+                                onChange={(event) =>
+                                  setPoGoodsEditLines((current) =>
+                                    (current || []).map((row) =>
+                                      row.id === line.id ? { ...row, actualCost: event.target.value } : row,
+                                    ),
+                                  )
+                                }
+                                placeholder="Invoice / received cost"
+                              />
+                            </div>
+                          </label>
+                          <label>
+                            Received %
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="1"
+                              value={line.receivedPercent}
+                              onChange={(event) =>
+                                setPoGoodsEditLines((current) =>
+                                  (current || []).map((row) =>
+                                    row.id === line.id ? { ...row, receivedPercent: event.target.value } : row,
+                                  ),
+                                )
+                              }
+                            />
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="setup-template-actions" style={{ marginTop: "0.75rem" }}>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() =>
+                          setPoGoodsEditLines((current) => [
+                            ...(current || []),
+                            {
+                              id: `po-goods-${Date.now()}`,
+                              description: "",
+                              quantity: "1",
+                              estimatedCost: "",
+                              actualCost: "",
+                              receivedPercent: "0",
+                            },
+                          ])
+                        }
+                      >
+                        Add line
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        disabled={poGoodsSaving || !poGoodsEditLines?.length}
+                        onClick={() => void savePurchaseOrderGoodsReceived()}
+                      >
+                        {poGoodsSaving ? "Saving…" : "Save received % / £"}
+                      </button>
+                    </div>
+                  </section>
 
                   {(() => {
                     const match = purchaseRequestThreeWayMatch(selectedPurchaseOrder);
@@ -35633,19 +35861,17 @@ export default function Dashboard() {
                 {activeCostCentreTab === "po" ? (
                   <section className="simpro-parts-page cost-centre-po-page">
                     {(() => {
+                      const centres = selectedJobEstimateCostCentres;
                       const costCentrePurchaseRequests = selectedJobPurchaseRequests.filter((request) => {
                         if (request.costCentreId === selectedCostCentre.id) return true;
                         if (!request.costCentreId && request.costCentreName === selectedCostCentre.name) return true;
-                        // Field often sends the schedule cost-centre label; if it doesn't match any
-                        // centre, still show the request on every centre list so office can approve.
+                        // Field may send a schedule label that doesn't match a Core centre — show
+                        // those once on the first cost centre so office can still approve.
                         if (!request.costCentreId) {
-                          const centres = selectedJobEstimateCostCentres;
                           const matchesAny = centres.some(
-                            (centre) =>
-                              centre.id === request.costCentreId ||
-                              centre.name === request.costCentreName,
+                            (centre) => centre.name === request.costCentreName,
                           );
-                          return !matchesAny;
+                          return !matchesAny && centres[0]?.id === selectedCostCentre.id;
                         }
                         return false;
                       });
