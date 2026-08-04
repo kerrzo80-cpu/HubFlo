@@ -77,6 +77,42 @@ describe("simpro hierarchy map", () => {
     assert.match(summariseHierarchyStats(stats), /1 cost centre/);
   });
 
+  it("maps British CostCentres spelling on quote sections", () => {
+    const { centres, stats } = mapSimproQuoteCostCentres(
+      {
+        ID: 99,
+        Sections: [
+          {
+            ID: 1,
+            Name: "Main",
+            CostCentres: [
+              {
+                ID: 7,
+                Name: "Heating",
+                Description: "Boiler swap",
+                Items: {
+                  Catalogues: [
+                    {
+                      ID: 1,
+                      Catalogue: { Name: "Boiler" },
+                      Total: { Qty: 1, Amount: { ExTax: 1200 } },
+                      SellPrice: { ExTax: 1200 },
+                      CostPrice: { ExTax: 900 },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "quote-uk",
+    );
+    assert.equal(stats.costCentres, 1);
+    assert.equal(centres[0]?.name, "Heating");
+    assert.equal(centres[0]?.lines.length, 1);
+  });
+
   it("maps job cost centres into separate materials and labour arrays", () => {
     const { centres, stats } = mapSimproJobCostCentres(sampleJob, "job-9");
     assert.equal(centres.length, 1);

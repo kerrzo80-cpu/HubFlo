@@ -15,6 +15,8 @@ import {
   getQuotes,
   removeJob,
   removeQuote,
+  updateJob,
+  updateQuote,
   type Job,
   type Quote,
   type QuoteStatus,
@@ -1007,6 +1009,57 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
   return operation("sites", "create", `Created NeXa site ${site.name}.`, { simproId, simproName: mapped.name, nexaId: site.id });
 }
 
+function patchQuoteHeaderFromDeepRecord(nexaQuoteId: string, record: UnknownRecord) {
+  const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
+  const site = ensureSiteForRecord(record, client?.id, "apply") || matchingSiteForRecord(record, client?.id);
+  const mapped = buildQuoteInput(record, client, site);
+  const existing = getQuotes().find((quote) => quote.id === nexaQuoteId);
+  if (!existing) return mapped;
+  updateQuote(nexaQuoteId, {
+    clientId: mapped.clientId || existing.clientId,
+    siteId: mapped.siteId || existing.siteId,
+    customer:
+      mapped.customer && mapped.customer !== "simPRO customer" ? mapped.customer : existing.customer || mapped.customer,
+    description:
+      mapped.description && mapped.description !== "Imported simPRO quote"
+        ? mapped.description
+        : existing.description || mapped.description,
+    owner: mapped.owner && mapped.owner !== "Imported from simPRO" ? mapped.owner : existing.owner || mapped.owner,
+    status: mapped.status || existing.status,
+    value: mapped.value > 0 ? mapped.value : existing.value,
+    due: mapped.due && mapped.due !== "To be reviewed" ? mapped.due : existing.due || mapped.due,
+    simproQuoteId: mapped.simproQuoteId || existing.simproQuoteId,
+  });
+  return mapped;
+}
+
+function patchJobHeaderFromDeepRecord(nexaJobId: string, record: UnknownRecord) {
+  const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
+  const site = ensureSiteForRecord(record, client?.id, "apply") || matchingSiteForRecord(record, client?.id);
+  const mapped = buildJobInput(record, client, site);
+  const existing = getJobs().find((job) => job.id === nexaJobId);
+  if (!existing) return mapped;
+  updateJob(nexaJobId, {
+    clientId: mapped.clientId || existing.clientId,
+    siteId: mapped.siteId || existing.siteId,
+    customer:
+      mapped.customer && mapped.customer !== "simPRO customer" ? mapped.customer : existing.customer || mapped.customer,
+    site:
+      mapped.site && mapped.site !== "Site to confirm" ? mapped.site : existing.site || mapped.site,
+    description:
+      mapped.description && mapped.description !== "Imported simPRO job"
+        ? mapped.description
+        : existing.description || mapped.description,
+    manager:
+      mapped.manager && mapped.manager !== "Imported from simPRO" ? mapped.manager : existing.manager || mapped.manager,
+    status: mapped.status || existing.status,
+    value: mapped.value > 0 ? mapped.value : existing.value,
+    due: mapped.due && mapped.due !== "To be reviewed" ? mapped.due : existing.due || mapped.due,
+    simproJobId: mapped.simproJobId || existing.simproJobId,
+  });
+  return mapped;
+}
+
 async function withQuoteHierarchy(
   op: SimproSyncOperation,
   nexaQuoteId: string,
@@ -1015,10 +1068,22 @@ async function withQuoteHierarchy(
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaQuoteId) return op;
   const deep = await enrichNexaQuoteFromSimpro({ nexaQuoteId, simproQuoteId: simproId });
+  let headerNote = "";
+  if (deep.ok && deep.record) {
+    try {
+      const mapped = patchQuoteHeaderFromDeepRecord(nexaQuoteId, deep.record);
+      headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
+    } catch (error) {
+      headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
+    }
+  }
+  const hierarchyDetail = deep.ok ? deep.summary : deep.detail || deep.summary;
   return {
     ...op,
-    summary: deep.ok ? `${op.summary} ${deep.summary}.` : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
-    detail: deep.ok ? deep.summary : deep.detail || deep.summary,
+    summary: deep.ok
+      ? `${op.summary} ${deep.summary}.${headerNote}`
+      : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+    detail: `${hierarchyDetail}${headerNote}`.trim(),
   };
 }
 
@@ -1034,10 +1099,22 @@ async function withJobHierarchy(
     simproJobId: simproId,
     includeSchedules: true,
   });
+  let headerNote = "";
+  if (deep.ok && deep.record) {
+    try {
+      const mapped = patchJobHeaderFromDeepRecord(nexaJobId, deep.record);
+      headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
+    } catch (error) {
+      headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
+    }
+  }
+  const hierarchyDetail = deep.ok ? deep.summary : deep.detail || deep.summary;
   return {
     ...op,
-    summary: deep.ok ? `${op.summary} ${deep.summary}.` : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
-    detail: deep.ok ? deep.summary : deep.detail || deep.summary,
+    summary: deep.ok
+      ? `${op.summary} ${deep.summary}.${headerNote}`
+      : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+    detail: `${hierarchyDetail}${headerNote}`.trim(),
   };
 }
 

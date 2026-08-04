@@ -425,6 +425,16 @@ export function extractSimproSections(record: UnknownRecord): UnknownRecord[] {
   return [];
 }
 
+function sectionCostCenters(section: UnknownRecord): UnknownRecord[] {
+  if (Array.isArray(section.CostCenters)) {
+    return section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  }
+  if (Array.isArray(section.CostCentres)) {
+    return section.CostCentres.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  }
+  return [];
+}
+
 export function mapSimproQuoteCostCentres(
   record: UnknownRecord,
   nexaQuoteId: string,
@@ -437,9 +447,7 @@ export function mapSimproQuoteCostCentres(
   sections.forEach((section, sectionIndex) => {
     const sectionId = simproRecordId(section) || `section-${sectionIndex + 1}`;
     const sectionName = firstString(section, ["Name", "Description"]) || `Section ${sectionIndex + 1}`;
-    const costCenters = Array.isArray(section.CostCenters)
-      ? section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
-      : [];
+    const costCenters = sectionCostCenters(section);
 
     costCenters.forEach((costCenter, ccIndex) => {
       const ccId = simproRecordId(costCenter) || `${sectionId}-cc-${ccIndex + 1}`;
@@ -497,9 +505,7 @@ export function mapSimproJobCostCentres(
   sections.forEach((section, sectionIndex) => {
     const sectionId = simproRecordId(section) || `section-${sectionIndex + 1}`;
     const sectionName = firstString(section, ["Name", "Description"]) || `Section ${sectionIndex + 1}`;
-    const costCenters = Array.isArray(section.CostCenters)
-      ? section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
-      : [];
+    const costCenters = sectionCostCenters(section);
 
     costCenters.forEach((costCenter, ccIndex) => {
       const ccId = simproRecordId(costCenter) || `${sectionId}-cc-${ccIndex + 1}`;

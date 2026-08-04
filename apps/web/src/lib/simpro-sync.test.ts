@@ -110,6 +110,31 @@ describe("simpro sync preview quality", () => {
     assert.equal((merged.jobSchedulePlans as Record<string, unknown[]>)["job-1"]?.length, 1);
   });
 
+  it("keeps richer imported quote lines when a stale browser tab sends empty lines", () => {
+    const merged = mergeHubDetailState(
+      {
+        quoteCostCentres: {
+          "quote-1": [
+            {
+              id: "cc-1",
+              name: "First fix",
+              clientDescription: "Full client brief from simPRO",
+              lines: [{ id: "l1", description: "Copper", quantity: 2 }],
+            },
+          ],
+        },
+      },
+      {
+        quoteCostCentres: {
+          "quote-1": [{ id: "cc-1", name: "First fix", clientDescription: "", lines: [] }],
+        },
+      },
+    );
+    const centre = (merged.quoteCostCentres as Record<string, Array<Record<string, unknown>>>)["quote-1"]?.[0];
+    assert.equal((centre?.lines as unknown[])?.length, 1);
+    assert.match(String(centre?.clientDescription || ""), /Full client brief/);
+  });
+
   it("does not conflict-match customers solely on placeholder email", () => {
     const first = processClient(
       {
