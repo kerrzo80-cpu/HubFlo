@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
-import { getAccessProfileFromHeaders } from "@/lib/access";
+import { getAccessProfileFromHeaders, employeeHeaderName } from "@/lib/access";
 import { sendEmailMessage } from "@/lib/email-integration-store";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 type DocumentRow = {
   description?: string;
@@ -15,6 +15,7 @@ type SendEmailBody = {
   cc?: string;
   subject?: string;
   text?: string;
+  employeeId?: string;
   document?: {
     filename?: string;
     title?: string;
@@ -115,6 +116,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Recipient, subject and message are required." }, { status: 422 });
   }
 
+  const headerEmployeeId = request.headers.get(employeeHeaderName)?.trim() || "";
+  const employeeId = cleanText(body.employeeId) || headerEmployeeId;
+
   try {
     const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = [];
     if (body.document) {
@@ -143,6 +147,7 @@ export async function POST(request: Request) {
       cc: body.cc,
       subject: body.subject,
       text: body.text,
+      employeeId: employeeId || undefined,
       attachments: attachments.length ? attachments : undefined,
     });
     return NextResponse.json({ ok: true, delivery });

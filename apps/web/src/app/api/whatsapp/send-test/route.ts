@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 
+import { employeeHeaderName } from "@/lib/access";
 import { parseJsonRequestBody } from "@/lib/http";
+import { appendJobCommunication } from "@/lib/job-comms-match";
+import { sendWhatsAppMessage } from "@/lib/whatsapp-client";
 
 type WhatsAppTestPayload = {
   to: string;
   message: string;
+  jobId?: string;
+  jobRef?: string;
+  actorName?: string;
+  recordCommunication?: boolean;
 };
 
 export async function POST(request: Request) {
@@ -14,60 +21,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "WhatsApp number and message are required." }, { status: 400 });
   }
 
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const missing = [
-    !accessToken ? "WHATSAPP_ACCESS_TOKEN" : null,
-    !phoneNumberId ? "WHATSAPP_PHONE_NUMBER_ID" : null,
-  ].filter(Boolean);
-
-  if (missing.length) {
-    return NextResponse.json(
-      {
-        status: "not_configured",
-        missing,
-        preview: {
-          to: payload.to,
-          message: payload.message,
-        },
-      },
-      { status: 200 },
-    );
-  }
-
-  const response = await fetch(`https://graph.facebook.com/v20.0/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to: payload.to.replace(/[^\d]/g, ""),
-      type: "text",
-      text: {
-        preview_url: false,
-        body: payload.message,
-      },
-    }),
+  const actorEmployeeId = request.headers.get(employeeHeaderName)?.trim() || undefined;
+  const result = await sendWhatsAppMessage({
+    to: payload.to,
+    message: payload.message,
+    actorEmployeeId,
+    actorName: payload.actorName,
+    jobId: payload.jobId,
+    jobRef: payload.jobRef,
   });
 
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    return NextResponse.json(
-      {
-        status: "failed",
-        providerStatus: response.status,
-        providerResponse: body,
-      },
-      { status: 502 },
-    );
+  if (result.status === "sent" && payload.recordCommunication && payload.jobId) {
+    appendJobCommunication({
+      recordType: "job",
+      recordId: payload.jobId,
+      relatedJobId: payload.jobId,
+      direction: "outbound",
+      channel: "WhatsApp",
+      subject: payload.jobRef ? `WhatsApp · ${payload.jobRef}` : "WhatsApp message",
+      body: payload.message,
+      from: payload.actorName?.trim() || "NeXa WhatsApp",
+      to: payload.to,
+      messageId: result.providerMessageId,
+      status: "Sent",
+      actorEmployeeId,
+      actorName: payload.actorName,
+    });
   }
 
-  return NextResponse.json({
-    status: "sent",
-    providerResponse: body,
-  });
+  if (result.status === "failed") {
+    return NextResponse.json(result, { status: 502 });
+  }
+
+  return NextResponse.json(result);
 }

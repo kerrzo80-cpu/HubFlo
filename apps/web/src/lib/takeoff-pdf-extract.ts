@@ -126,55 +126,54 @@ export function inferDisciplineFromText(fileName: string, sampleText: string): s
 
 export function patternsForAssemblyCode(code: string, description: string): RegExp[] {
   const codeKey = code.toUpperCase();
-  // Code-specific patterns first — avoid matching every "hot"/"cold" label on a plumbing sheet.
+  // Code-specific patterns — prefer tagged IDs like WC-1 / WHB-2 over generic words.
   switch (codeKey) {
     case "P-WC":
-      return [/\bWC\b/i, /\bW\.?C\.?\b/i, /\btoilet\b/i, /\bpan\b/i];
+      return [/\bWC[-\s]?\d*\b/i, /\bW\.C\.?\b/i, /\btoilet\b/i];
     case "P-WHB":
-      return [/\bWHB\b/i, /\bWB\b/i, /\bbasin\b/i, /\bwash\s*hand\b/i, /\bhand\s*basin\b/i];
+      return [/\bWHB[-\s]?\d*\b/i, /\bWB[-\s]?\d+\b/i, /\bLAV[-\s]?\d*\b/i, /\bbasin\b/i, /\bwash\s*hand\b/i];
     case "P-BATH":
-      return [/\bBTH\b/i, /\bbath\b/i, /\bbathtub\b/i];
+      return [/\bBTH[-\s]?\d*\b/i, /\bBT[-\s]?\d+\b/i, /\bbath(?!room)\b/i, /\bbathtub\b/i];
     case "P-SHR":
-      // Avoid bare SH — clashes with sheet refs; prefer SHR / shower
-      return [/\bSHR\b/i, /\bSHWR\b/i, /\bshower\b/i];
+      return [/\bSHR[-\s]?\d*\b/i, /\bSHWR[-\s]?\d*\b/i, /\bshower\b/i];
     case "P-SINK":
-      return [/\bSK\b/i, /\bsink\b/i, /\bKS\b/i, /\bkitchen\s*sink\b/i];
+      return [/\bSK[-\s]?\d+\b/i, /\bKS[-\s]?\d*\b/i, /\bsink\b/i, /\bkitchen\s*sink\b/i];
     case "P-APPL":
-      return [/\bWM\b/i, /\bWashing\s*Machine\b/i, /\bDW\b/i, /\bDish\s*Washer\b/i, /\bAPPL\b/i, /\bfridge\s*ice\b/i];
+      return [/\bWM[-\s]?\d*\b/i, /\bWashing\s*Machine\b/i, /\bDW[-\s]?\d*\b/i, /\bDish\s*Washer\b/i, /\bAPPL[-\s]?\d*\b/i];
     case "P-SVP":
     case "P-STACK":
-      return [/\bSVP\b/i, /\bS&VP\b/i, /\bsoil\s*stack\b/i, /\bvent\s*stack\b/i];
+      return [/\bSVP[-\s]?\d*\b/i, /\bS&VP\b/i, /\bsoil\s*stack\b/i, /\bvent\s*stack\b/i];
     case "P-PIPE-HC":
     case "P-PIPE-H":
     case "P-PIPE-C":
-      return []; // metres come from dimensions / schedule, not tag spam
+      return []; // metres: type in or measure — do not spam from "hot"/"cold" labels
     case "P-WASTE":
       return [];
     case "H-RAD":
-      return [/\bR\d+\b/i, /\brad(iator)?\b/i, /\bTRV\b/i, /\bemitter\b/i];
+      // Avoid bare R1 room refs — prefer RAD / radiator / typed radiator numbers
+      return [/\bRAD[-\s]?\d*\b/i, /\bradiator\b/i, /\bemitter\b/i];
     case "H-BOILER":
       return [/\bboiler\b/i, /\bASHP\b/i, /\bheat\s*pump\b/i];
     case "E-SOCKET":
       return [/\bSSO\b/i, /\bGPO\b/i, /\bsocket\b/i, /\b13A\b/i];
     case "E-LIGHT":
-      return [/\bL\d+\b/i, /\bLED\b/i, /\bluminaire\b/i, /\blight\s*fitting\b/i];
+      return [/\bLTG[-\s]?\d*\b/i, /\bLED\b/i, /\bluminaire\b/i, /\blight\s*fitting\b/i];
     case "S-FOOT":
-      return [/\bF\d+\b/i, /\bPAD\b/i, /\bFTG\b/i, /\bfooting\b/i];
+      return [/\bFTG[-\s]?\d*\b/i, /\bPAD[-\s]?\d*\b/i, /\bfooting\b/i];
     case "C-MH":
-      return [/\bMH\d*\b/i, /\bIC\d*\b/i, /\bmanhole\b/i];
+      return [/\bMH[-\s]?\d*\b/i, /\bIC[-\s]?\d*\b/i, /\bmanhole\b/i];
     default:
       break;
   }
 
   const patterns: RegExp[] = [];
   const lower = `${code} ${description}`.toLowerCase();
-  if (/rad|emitter/.test(lower)) patterns.push(/\bR\d+\b/i, /\brad(iator)?\b/i, /\bTRV\b/i);
-  if (/boiler|plant/.test(lower)) patterns.push(/\bboiler\b/i, /\bASHP\b/i, /\bplant\b/i);
-  if (/footing|pad|pile/.test(lower)) patterns.push(/\bF\d+\b/i, /\bPAD\b/i, /\bFTG\b/i, /\bfooting\b/i);
-  if (/manhole|chamber/.test(lower)) patterns.push(/\bMH\d*\b/i, /\bIC\d*\b/i, /\bmanhole\b/i);
+  if (/rad|emitter/.test(lower)) patterns.push(/\bRAD[-\s]?\d*\b/i, /\bradiator\b/i);
+  if (/boiler|plant/.test(lower)) patterns.push(/\bboiler\b/i, /\bASHP\b/i);
+  if (/footing|pad|pile/.test(lower)) patterns.push(/\bFTG[-\s]?\d*\b/i, /\bPAD[-\s]?\d*\b/i, /\bfooting\b/i);
+  if (/manhole|chamber/.test(lower)) patterns.push(/\bMH[-\s]?\d*\b/i, /\bmanhole\b/i);
   if (!patterns.length) {
-    // Last resort: only use distinctive tokens, never generic hot/cold/pipe words.
-    const banned = new Set(["hot", "cold", "pipe", "and", "the", "for", "with", "from", "outlet", "points", "point", "appliance", "fittings"]);
+    const banned = new Set(["hot", "cold", "pipe", "and", "the", "for", "with", "from", "outlet", "points", "point", "appliance", "fittings", "water", "work"]);
     const tokens = description
       .split(/[^a-zA-Z0-9]+/)
       .map((token) => token.trim())

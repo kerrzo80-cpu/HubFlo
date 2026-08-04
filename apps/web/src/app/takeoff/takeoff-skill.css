@@ -578,10 +578,137 @@
   margin: 0 4px;
 }
 
-.takeoff-overlay {
+.takeoff-board {
   display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
   gap: 12px;
-  margin-bottom: 8px;
+  align-items: stretch;
+  min-height: 560px;
+}
+
+.takeoff-board-sidebar {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.takeoff-board-sidebar > header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.takeoff-board-sidebar > header strong {
+  display: block;
+  font-size: 13px;
+}
+
+.takeoff-board-sidebar > header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.takeoff-board-items {
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.takeoff-board-items h4 {
+  margin: 8px 6px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-board-items .item {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.takeoff-board-items .item:hover,
+.takeoff-board-items .item.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.28);
+}
+
+.takeoff-board-items .item.derived {
+  cursor: default;
+  opacity: 0.88;
+}
+
+.takeoff-board-items .meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.takeoff-board-items .meta strong {
+  font-size: 12px;
+}
+
+.takeoff-board-items .meta small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.takeoff-board-items em {
+  font-style: normal;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--blue-deep);
+  min-width: 1.5rem;
+  text-align: right;
+}
+
+.takeoff-board-items input {
+  width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.takeoff-board-main {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.takeoff-board-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.takeoff-board-panel > header {
+  align-items: flex-start;
+}
+
+@media (max-width: 960px) {
+  .takeoff-board {
+    grid-template-columns: 1fr;
+  }
 }
 
 .takeoff-overlay-toolbar {

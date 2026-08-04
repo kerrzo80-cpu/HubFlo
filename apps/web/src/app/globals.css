@@ -37463,3 +37463,240 @@ button.nexa-kpi-card,
 .nexa-kpi-bar-row-click:hover {
   background: rgba(0, 110, 184, 0.06);
 }
+
+/* Record timeline rail (Simpro-style Activity → Timeline) */
+.record-with-timeline {
+  align-items: start;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  margin: 0 auto;
+  max-width: 1860px;
+  width: 100%;
+}
+
+.record-with-timeline-main {
+  min-width: 0;
+}
+
+.record-with-timeline-main > .quote-record-shell,
+.record-with-timeline-main > .lead-record-shell,
+.record-with-timeline-main > .simpro-record-shell {
+  margin: 0;
+  max-width: none;
+}
+
+.record-timeline-rail {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: calc(100vh - 120px);
+  overflow: hidden;
+  position: sticky;
+  top: 12px;
+}
+
+.record-timeline-rail > header {
+  align-items: center;
+  background: #f7fafc;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.record-timeline-rail > header strong {
+  color: #1478d4;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.record-timeline-rail > header small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.record-timeline-schedule {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.record-timeline-schedule > span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.record-timeline-schedule-empty {
+  align-items: flex-start;
+  background: #fff6f4;
+  border: 1px solid #f0cfc8;
+  border-radius: 6px;
+  color: #9b3b2e;
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+}
+
+.record-timeline-schedule-empty strong {
+  display: block;
+  font-size: 12px;
+}
+
+.record-timeline-schedule-empty small {
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+  opacity: 0.9;
+}
+
+.record-timeline-schedule-item {
+  background: #f4f9fb;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 10px;
+}
+
+.record-timeline-schedule-item strong {
+  font-size: 12px;
+}
+
+.record-timeline-schedule-item small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.record-timeline-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: auto;
+  padding: 8px 0 12px;
+}
+
+.record-timeline-feed-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 16px 14px;
+}
+
+.record-timeline-entry {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  padding: 10px 14px;
+  position: relative;
+}
+
+.record-timeline-entry + .record-timeline-entry::before {
+  background: #d7e4ea;
+  content: "";
+  left: 21px;
+  position: absolute;
+  top: -10px;
+  width: 2px;
+  height: 10px;
+}
+
+.record-timeline-dot {
+  align-items: center;
+  background: #e8f3f8;
+  border: 2px solid #1478d4;
+  border-radius: 999px;
+  color: #1478d4;
+  display: flex;
+  height: 18px;
+  justify-content: center;
+  margin-top: 2px;
+  width: 18px;
+}
+
+.record-timeline-dot.whatsapp {
+  background: #e8f8ef;
+  border-color: #1f9d55;
+  color: #1f9d55;
+}
+
+.record-timeline-dot.inbound {
+  background: #fff7e8;
+  border-color: #d0891a;
+  color: #d0891a;
+}
+
+.record-timeline-dot.schedule {
+  background: #eef2ff;
+  border-color: #4f6bed;
+  color: #4f6bed;
+}
+
+.record-timeline-dot.audit {
+  background: #f3f4f6;
+  border-color: #6b7280;
+  color: #6b7280;
+}
+
+.record-timeline-entry-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.record-timeline-entry-body strong {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.record-timeline-entry-body p {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.record-timeline-entry-meta {
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 4px 8px;
+}
+
+.record-timeline-stage-pill {
+  background: #eef6f8;
+  border-radius: 999px;
+  color: #1478d4;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  padding: 1px 7px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 1100px) {
+  .record-with-timeline {
+    grid-template-columns: 1fr;
+  }
+
+  .record-timeline-rail {
+    max-height: none;
+    position: static;
+  }
+}
+
