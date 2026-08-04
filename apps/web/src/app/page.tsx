@@ -3249,14 +3249,14 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   communications: {
     Outlook: {
-      summary: "Company fallback SMTP plus each employee's own Outlook/Gmail mailbox so job email sends as the logged-in user.",
-      focus: ["Per-user send-as", "Company fallback", "Inbound job matching"],
-      status: "Live ready",
+      summary: "Choose Outlook or Gmail for the signed-in employee. NeXa sends from the email on their employee card — no separate sender address to type.",
+      focus: ["Pick Outlook or Gmail", "Uses employee card email", "App password only"],
+      status: "Connect your mailbox",
     },
     WhatsApp: {
-      summary: "Shared company WhatsApp Business number with per-user attribution, outbound job messages and inbound webhook capture.",
-      focus: ["Company WABA number", "Actor attribution", "Inbound job matching"],
-      status: "Live ready",
+      summary: "Connect the company WhatsApp Business number for job messages. Replies land on the job Timeline and are attributed to whoever is signed in.",
+      focus: ["Meta Cloud API status", "Webhook URL", "Send a test message"],
+      status: "Company number setup",
     },
     "Supplier emails": {
       summary: "Mockup page for supplier request emails, returned quote PDFs and PO issue settings.",
@@ -7587,6 +7587,19 @@ export default function Dashboard() {
   const [isTestingEmployeeMailbox, setIsTestingEmployeeMailbox] = useState(false);
   const [isSendingJobMessage, setIsSendingJobMessage] = useState(false);
   const [isSendingLiveEmail, setIsSendingLiveEmail] = useState(false);
+  const [whatsAppStatus, setWhatsAppStatus] = useState<{
+    configured: boolean;
+    missing: string[];
+    phoneNumberIdPresent: boolean;
+    verifyTokenPresent: boolean;
+    webhookSecretPresent: boolean;
+    displayFrom: string;
+    webhookUrl?: string;
+    verifyTokenHint?: string;
+  } | null>(null);
+  const [whatsAppTestTo, setWhatsAppTestTo] = useState("");
+  const [whatsAppTestMessage, setWhatsAppTestMessage] = useState("NeXa WhatsApp connection test");
+  const [isTestingWhatsApp, setIsTestingWhatsApp] = useState(false);
   const [documentFolderTemplates, setDocumentFolderTemplates] = useState<DocumentFolderTemplate[]>(defaultDocumentFolderTemplates);
   const [engineerFlowTemplate, setEngineerFlowTemplate] = useState<EngineerFlowTemplate>(defaultBoilerFlowTemplate);
   const [engineerFlowTemplates, setEngineerFlowTemplates] = useState<EngineerFlowTemplate[]>(defaultEngineerFlowTemplates);
@@ -8613,11 +8626,6 @@ export default function Dashboard() {
   const selectedInvoiceCommunications = useMemo(
     () => (selectedInvoice ? communicationRecords.filter((record) => record.recordType === "invoice" && record.recordId === selectedInvoice.id) : []),
     [communicationRecords, selectedInvoice],
-  );
-
-  const selectedLeadCommunications = useMemo(
-    () => (selectedLead ? communicationRecords.filter((record) => record.recordType === "lead" && record.recordId === selectedLead.id) : []),
-    [communicationRecords, selectedLead],
   );
 
   const selectedQuoteCommunicationDraft = useMemo(
@@ -13580,11 +13588,16 @@ export default function Dashboard() {
 
   async function refreshIntegrationConnectionStatus() {
     try {
-      const [simproResponse, simproReconnectResponse, xeroResponse, emailResponse] = await Promise.all([
+      const employeeId = activeEmployee?.id ?? "";
+      const [simproResponse, simproReconnectResponse, xeroResponse, emailResponse, whatsAppResponse, mailboxResponse] = await Promise.all([
         fetch("/api/integrations/simpro/status", { headers: requestHeaders }),
         fetch("/api/integrations/simpro/reconnect", { headers: requestHeaders }),
         fetch("/api/integrations/xero/status", { headers: requestHeaders }),
         fetch("/api/integrations/email/settings", { headers: requestHeaders }),
+        fetch("/api/whatsapp/status", { headers: requestHeaders }),
+        employeeId
+          ? fetch(`/api/integrations/email/mailbox?employeeId=${encodeURIComponent(employeeId)}`, { headers: requestHeaders })
+          : Promise.resolve(null),
       ]);
       if (simproResponse.ok) {
         const status = (await simproResponse.json()) as SimproBridgeStatus;
@@ -13611,9 +13624,150 @@ export default function Dashboard() {
           secret: "",
         }));
       }
+      if (whatsAppResponse.ok) {
+        setWhatsAppStatus(await whatsAppResponse.json());
+      }
+      if (mailboxResponse && mailboxResponse.ok) {
+        const status = (await mailboxResponse.json()) as EmployeeMailboxStatus;
+        const cardEmail = activeEmployee?.profile?.email?.trim() || "";
+        setEmployeeMailboxStatus(status);
+        setEmployeeMailboxDraft({
+          provider: status.provider || "Outlook",
+          senderEmail: cardEmail || status.senderEmail,
+          username: cardEmail || status.username || status.senderEmail,
+          secret: "",
+          smtpHost: status.smtpHost || "smtp.office365.com",
+          smtpPort: String(status.smtpPort || 587),
+          secure: status.secure,
+          displayName: status.displayName || activeEmployee?.name || "",
+        });
+      }
       showNotice("Integration status refreshed.");
     } catch {
       showNotice("Unable to refresh integration status.");
+    }
+  }
+
+  async function saveSignedInMailboxSettings() {
+    const targetEmployeeId = activeEmployee?.id ?? "";
+    const cardEmail = activeEmployee?.profile?.email?.trim() || "";
+    if (!targetEmployeeId) {
+      showNotice("Sign in as an employee before connecting a mailbox.");
+      return;
+    }
+    if (!cardEmail) {
+      showNotice("Add this person's email on their employee card first, then come back to Setup.");
+      return;
+    }
+    if (!employeeMailboxDraft.secret.trim() && !employeeMailboxStatus?.secretStored) {
+      showNotice("Paste the Outlook or Gmail app password to connect this mailbox.");
+      return;
+    }
+    setIsSavingEmployeeMailbox(true);
+    try {
+      const response = await fetch("/api/integrations/email/mailbox", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: targetEmployeeId,
+          provider: employeeMailboxDraft.provider,
+          senderEmail: cardEmail,
+          username: cardEmail,
+          secret: employeeMailboxDraft.secret,
+          smtpHost: employeeMailboxDraft.smtpHost,
+          smtpPort: Number(employeeMailboxDraft.smtpPort) || undefined,
+          secure: employeeMailboxDraft.secure,
+          displayName: activeEmployee?.name || "",
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as EmployeeMailboxStatus | { error?: string } | null;
+      if (!response.ok || !result || "error" in result) {
+        throw new Error(result && "error" in result ? result.error || "Unable to save mailbox." : "Unable to save mailbox.");
+      }
+      const saved = result as EmployeeMailboxStatus;
+      setEmployeeMailboxStatus(saved);
+      setEmployeeMailboxDraft((current) => ({
+        ...current,
+        senderEmail: cardEmail,
+        username: cardEmail,
+        secret: "",
+        displayName: activeEmployee?.name || current.displayName,
+      }));
+      showNotice(`Connected ${employeeMailboxDraft.provider} for ${cardEmail}. Job emails will send as you.`);
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to save the mailbox.");
+    } finally {
+      setIsSavingEmployeeMailbox(false);
+    }
+  }
+
+  async function testSignedInMailboxSettings() {
+    const targetEmployeeId = activeEmployee?.id ?? "";
+    if (!targetEmployeeId) {
+      showNotice("Sign in as an employee before testing a mailbox.");
+      return;
+    }
+    setIsTestingEmployeeMailbox(true);
+    try {
+      const response = await fetch("/api/integrations/email/mailbox/test", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId: targetEmployeeId }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        status?: EmployeeMailboxStatus;
+      } | null;
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || "Unable to test the mailbox.");
+      }
+      if (result.status) setEmployeeMailboxStatus(result.status);
+      showNotice(result.message || "Mailbox connection looks reachable.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to test the mailbox.");
+    } finally {
+      setIsTestingEmployeeMailbox(false);
+    }
+  }
+
+  async function testWhatsAppConnection() {
+    const to = whatsAppTestTo.trim();
+    if (!to) {
+      showNotice("Enter a mobile number to send the WhatsApp test.");
+      return;
+    }
+    setIsTestingWhatsApp(true);
+    try {
+      const response = await fetch("/api/whatsapp/send-test", {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to,
+          message: whatsAppTestMessage.trim() || "NeXa WhatsApp connection test",
+          actorName: activeEmployee?.name,
+        }),
+      });
+      const result = (await response.json().catch(() => null)) as {
+        status?: string;
+        missing?: string[];
+        error?: string;
+      } | null;
+      if (result?.status === "not_configured") {
+        showNotice(`WhatsApp is not configured yet. Missing ${result.missing?.join(", ") || "WHATSAPP credentials"} on the server.`);
+        await refreshIntegrationConnectionStatus();
+        return;
+      }
+      if (!response.ok || result?.status === "failed") {
+        throw new Error(result?.error || "WhatsApp test failed.");
+      }
+      showNotice(`WhatsApp test sent to ${to}.`);
+      await refreshIntegrationConnectionStatus();
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to send WhatsApp test.");
+    } finally {
+      setIsTestingWhatsApp(false);
     }
   }
 
@@ -13676,12 +13830,22 @@ export default function Dashboard() {
     const targetEmployeeId = editingEmployeeId && editingEmployeeId !== newEmployeeId
       ? editingEmployeeId
       : (activeEmployee?.id ?? "");
+    const cardEmail = (
+      employeeProfileDraft.email.trim()
+      || activeEditingEmployee?.profile?.email
+      || activeEmployee?.profile?.email
+      || ""
+    ).trim();
     if (!targetEmployeeId) {
       showNotice("Select an employee before connecting a mailbox.");
       return;
     }
-    if (!employeeMailboxDraft.senderEmail.trim() || !employeeMailboxDraft.username.trim()) {
-      showNotice("Add the sender email and username before saving this mailbox.");
+    if (!cardEmail) {
+      showNotice("Add the email on the employee Details tab before connecting Outlook or Gmail.");
+      return;
+    }
+    if (!employeeMailboxDraft.secret.trim() && !employeeMailboxStatus?.secretStored) {
+      showNotice("Paste the Outlook or Gmail app password to connect this mailbox.");
       return;
     }
     setIsSavingEmployeeMailbox(true);
@@ -13692,13 +13856,13 @@ export default function Dashboard() {
         body: JSON.stringify({
           employeeId: targetEmployeeId,
           provider: employeeMailboxDraft.provider,
-          senderEmail: employeeMailboxDraft.senderEmail,
-          username: employeeMailboxDraft.username,
+          senderEmail: cardEmail,
+          username: cardEmail,
           secret: employeeMailboxDraft.secret,
           smtpHost: employeeMailboxDraft.smtpHost,
           smtpPort: Number(employeeMailboxDraft.smtpPort) || undefined,
           secure: employeeMailboxDraft.secure,
-          displayName: employeeMailboxDraft.displayName || activeEditingEmployee?.name || activeEmployee?.name || "",
+          displayName: activeEditingEmployee?.name || activeEmployee?.name || "",
         }),
       });
       const result = (await response.json().catch(() => null)) as EmployeeMailboxStatus | { error?: string } | null;
@@ -13707,8 +13871,13 @@ export default function Dashboard() {
       }
       const saved = result as EmployeeMailboxStatus;
       setEmployeeMailboxStatus(saved);
-      setEmployeeMailboxDraft((current) => ({ ...current, secret: "" }));
-      showNotice(`Mailbox saved for ${saved.senderEmail}. Job emails will send from this address when you are logged in.`);
+      setEmployeeMailboxDraft((current) => ({
+        ...current,
+        senderEmail: cardEmail,
+        username: cardEmail,
+        secret: "",
+      }));
+      showNotice(`Mailbox saved for ${cardEmail}. Job emails will send from this address when they are logged in.`);
     } catch (error) {
       showNotice(error instanceof Error ? error.message : "Unable to save the employee mailbox.");
     } finally {
@@ -16714,6 +16883,10 @@ export default function Dashboard() {
   function handleSetupSubItemClick(category: (typeof setupCategories)[number], item: string) {
     setActiveSetupCategory(category.key);
     setActiveSetupSubItem(item);
+
+    if (category.key === "communications") {
+      void refreshIntegrationConnectionStatus();
+    }
 
     if (category.key === "imports") {
       const importType = (Object.entries(businessImportLabels).find(([, label]) => label === item)?.[0] ?? "employees") as BusinessImportType;
@@ -38656,7 +38829,7 @@ export default function Dashboard() {
                     <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
                   </div>
 
-                  {activeSetupSubItemMeta ? (
+                  {activeSetupSubItemMeta && !(activeSetupCategory === "communications" && (activeSetupSubItem === "Outlook" || activeSetupSubItem === "WhatsApp")) ? (
                     <section className="setup-panel setup-subpage-panel">
                       <div>
                         <span className="permission-heading">{activeSetupCategoryMeta.label}</span>
@@ -40238,183 +40411,219 @@ export default function Dashboard() {
                       <div className="documents-toolbar">
                         <div>
                           <span className="permission-heading">Communications</span>
-                          <h2>Email, WhatsApp and supplier doorways</h2>
+                          <h2>
+                            {activeSetupSubItem === "WhatsApp"
+                              ? "WhatsApp Business"
+                              : activeSetupSubItem === "Outlook"
+                                ? "Email mailbox"
+                                : "Email, WhatsApp and supplier doorways"}
+                          </h2>
                         </div>
-                        <span className="setup-status-label">
-                          {emailIntegrationStatus?.lastTestMessageId
-                            ? `${emailIntegrationStatus.provider} test sent`
-                            : emailIntegrationStatus?.lastError
-                              ? `${emailIntegrationStatus.provider} test failed`
-                            : emailIntegrationStatus?.configured
-                              ? `${emailIntegrationStatus.provider} saved, not tested`
-                              : "Setup required"}
-                        </span>
+                        <div className="setup-sync-actions">
+                          <button className="secondary-button" type="button" onClick={() => void refreshIntegrationConnectionStatus()}>
+                            Refresh status
+                          </button>
+                          <span className="setup-status-label">
+                            {employeeMailboxStatus?.configured
+                              ? `${employeeMailboxStatus.provider} · ${employeeMailboxStatus.senderEmail || activeEmployee?.profile?.email || "connected"}`
+                              : "Mailbox not connected"}
+                            {" · "}
+                            {whatsAppStatus?.configured ? "WhatsApp ready" : "WhatsApp needs setup"}
+                          </span>
+                        </div>
                       </div>
                       <div className="setup-integration-grid">
+                        {!activeSetupSubItem || activeSetupSubItem === "Outlook" ? (
                         <article className="setup-integration-card">
                           <header>
                             <div>
-                              <span>Email provider</span>
-                              <strong>{emailIntegrationDraft.provider}</strong>
+                              <span>Your mailbox</span>
+                              <strong>{activeEmployee?.name ?? "Signed-in user"}</strong>
                             </div>
                             <div className="setup-sync-actions">
                               <button
                                 className="secondary-button"
                                 type="button"
-                                disabled={isTestingEmailIntegration}
-                                onClick={() => void testEmailIntegrationSettings()}
+                                disabled={isTestingEmployeeMailbox || !employeeMailboxStatus?.configured}
+                                onClick={() => void testSignedInMailboxSettings()}
                               >
-                                {isTestingEmailIntegration ? "Testing..." : "Test connection"}
+                                {isTestingEmployeeMailbox ? "Testing..." : "Test connection"}
                               </button>
                               <button
                                 className="primary-button"
                                 type="button"
-                                disabled={isSavingEmailIntegration}
-                                onClick={() => void saveEmailIntegrationSettings()}
+                                disabled={isSavingEmployeeMailbox}
+                                onClick={() => void saveSignedInMailboxSettings()}
                               >
-                                {isSavingEmailIntegration ? "Saving..." : "Save settings"}
+                                {isSavingEmployeeMailbox ? "Saving..." : "Save mailbox"}
                               </button>
                             </div>
                           </header>
+                          <small>
+                            Choose Outlook or Gmail. NeXa always sends from the email on your employee card
+                            ({activeEmployee?.profile?.email?.trim() || "no email on card yet"}). Add or change that address under People → employee → Details.
+                          </small>
                           <div className="setup-form-grid">
                             <label>
                               Provider
                               <select
-                                value={emailIntegrationDraft.provider}
+                                value={employeeMailboxDraft.provider}
                                 onChange={(event) =>
-                                  setEmailIntegrationDraft((current) => ({
+                                  setEmployeeMailboxDraft((current) => ({
                                     ...current,
-                                    provider: event.target.value as EmailIntegrationDraft["provider"],
+                                    provider: event.target.value as EmployeeMailboxDraft["provider"],
                                     smtpHost: event.target.value === "Gmail" ? "smtp.gmail.com" : "smtp.office365.com",
                                     smtpPort: event.target.value === "Gmail" ? "465" : "587",
                                     secure: event.target.value === "Gmail",
                                   }))
                                 }
                               >
-                                <option value="Outlook">Outlook</option>
+                                <option value="Outlook">Outlook / Microsoft 365</option>
                                 <option value="Gmail">Gmail</option>
                               </select>
                             </label>
                             <label>
-                              Sender email
+                              Sends as
                               <input
-                                value={emailIntegrationDraft.senderEmail}
-                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, senderEmail: event.target.value }))}
-                                placeholder="quotes@yourcompany.co.uk"
+                                value={activeEmployee?.profile?.email?.trim() || ""}
+                                readOnly
+                                placeholder="Set on employee card"
                               />
                             </label>
                             <label>
-                              Username
-                              <input
-                                value={emailIntegrationDraft.username}
-                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, username: event.target.value }))}
-                                placeholder="smtp username"
-                              />
-                            </label>
-                            <label>
-                              App password / secret
+                              App password
                               <input
                                 type="password"
-                                value={emailIntegrationDraft.secret}
-                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secret: event.target.value }))}
-                                placeholder={emailIntegrationStatus?.secretStored ? "Stored securely - paste only to change it" : "Paste provider secret"}
-                              />
-                            </label>
-                            <label>
-                              SMTP host
-                              <input
-                                value={emailIntegrationDraft.smtpHost}
-                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, smtpHost: event.target.value }))}
-                              />
-                            </label>
-                            <label>
-                              SMTP port
-                              <input
-                                inputMode="numeric"
-                                value={emailIntegrationDraft.smtpPort}
-                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, smtpPort: event.target.value.replace(/[^\d]/g, "") }))}
+                                value={employeeMailboxDraft.secret}
+                                onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }))}
+                                placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste Outlook/Gmail app password"}
                               />
                             </label>
                           </div>
-                          <div className="setup-switch-grid">
-                            <label>
-                              <input
-                                type="checkbox"
-                                checked={emailIntegrationDraft.secure}
-                                onChange={(event) => setEmailIntegrationDraft((current) => ({ ...current, secure: event.target.checked }))}
-                              />
-                              Use secure SMTP / TLS
-                            </label>
-                          </div>
-                          <small>
-                            Company fallback mailbox used when the logged-in employee has not connected their own Outlook/Gmail.
-                            Each person connects under People → employee → Mailbox so Brian sends as Brian, Errol as Errol, and so on.
-                            Credentials stay on the server. Test connection authenticates and sends a real test message to the sender address.
-                          </small>
                           <div className="setup-readiness-grid setup-sync-grid">
                             <article>
                               <span>Status</span>
-                              <strong>{emailIntegrationStatus?.lastTestMessageId ? "Test email sent" : emailIntegrationStatus?.configured ? "Saved, not proven" : "Not configured"}</strong>
-                              <small>{emailIntegrationStatus?.lastError || (emailIntegrationStatus?.lastTestRecipient ? `Sent to ${emailIntegrationStatus.lastTestRecipient}` : "Save settings, then send a test email.")}</small>
+                              <strong>
+                                {employeeMailboxStatus?.lastTestMessageId
+                                  ? "Test email sent"
+                                  : employeeMailboxStatus?.configured
+                                    ? "Saved, not proven"
+                                    : "Not connected"}
+                              </strong>
+                              <small>
+                                {employeeMailboxStatus?.lastError
+                                  || (!activeEmployee?.profile?.email?.trim()
+                                    ? "Put the work email on the employee card first."
+                                    : "Save the app password, then send a test.")}
+                              </small>
                             </article>
                             <article>
-                              <span>Secret</span>
-                              <strong>{emailIntegrationStatus?.secretStored ? "Stored securely" : "Not stored"}</strong>
-                              <small>The secret never comes back to the browser after saving.</small>
+                              <span>Provider</span>
+                              <strong>{employeeMailboxDraft.provider}</strong>
+                              <small>
+                                {employeeMailboxDraft.provider === "Gmail"
+                                  ? "Uses smtp.gmail.com with an app password."
+                                  : "Uses smtp.office365.com with an Outlook app password."}
+                              </small>
                             </article>
                             <article>
                               <span>Last test</span>
-                              <strong>{emailIntegrationStatus?.lastTestedAt ? emailIntegrationStatus.lastTestedAt.replace("T", " ").slice(0, 16) : "Not tested yet"}</strong>
-                              <small>Use this before switching live customer emails across to NeXa.</small>
+                              <strong>
+                                {employeeMailboxStatus?.lastTestedAt
+                                  ? employeeMailboxStatus.lastTestedAt.replace("T", " ").slice(0, 16)
+                                  : "Not tested yet"}
+                              </strong>
+                              <small>Test sends a real message to your employee card email.</small>
                             </article>
                           </div>
                         </article>
+                        ) : null}
 
+                        {!activeSetupSubItem || activeSetupSubItem === "WhatsApp" ? (
                         <article className="setup-integration-card">
                           <header>
                             <div>
                               <span>WhatsApp</span>
-                              <strong>Company business number</strong>
-                            </div>
-                          </header>
-                          <div className="setup-readiness-grid setup-sync-grid">
-                            <article>
-                              <span>Outbound</span>
-                              <strong>Shared WABA number</strong>
-                              <small>Meta Cloud API sends from one company number. Messages are attributed to the logged-in employee in the job thread.</small>
-                            </article>
-                            <article>
-                              <span>Inbound</span>
-                              <strong>Webhook capture</strong>
-                              <small>Point Meta to /api/whatsapp/webhook. Replies match to jobs by phone / job ref and land on the job Messages thread.</small>
-                            </article>
-                            <article>
-                              <span>Env keys</span>
-                              <strong>WHATSAPP_*</strong>
-                              <small>Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_VERIFY_TOKEN (and optional WHATSAPP_WEBHOOK_SECRET).</small>
-                            </article>
-                          </div>
-                        </article>
-
-                        <article className="setup-integration-card">
-                          <header>
-                            <div>
-                              <span>simPRO bridge</span>
-                              <strong>
-                                {simproBridgeStatus.configured
-                                  ? `Live handoff configured (${simproBridgeStatus.mode})`
-                                  : "Quote and job handoffs queue until configured"}
-                              </strong>
+                              <strong>{whatsAppStatus?.configured ? "Company number connected" : "Not connected yet"}</strong>
                             </div>
                           </header>
                           <small>
-                            {simproBridgeStatus.configured
-                              ? `Posting to ${simproBridgeStatus.endpoint ?? "configured bridge endpoint"}.`
-                              : simproBridgeStatus.detectedEnvKeys?.length
-                                ? `Render can see ${simproBridgeStatus.detectedEnvKeys.join(", ")} but still needs ${simproBridgeStatus.missing.join(", ")}.`
-                                : `No SIMPRO_ variables are visible to this service. Missing ${simproBridgeStatus.missing.join(", ") || "SIMPRO_QUOTE_PUSH_URL"}.`}
+                            WhatsApp Business uses one company number (Meta Cloud API). Messages still show as sent by the signed-in person on the job Timeline.
+                            Personal WhatsApp accounts cannot be connected one-by-one.
+                          </small>
+                          <div className="setup-readiness-grid setup-sync-grid">
+                            <article>
+                              <span>Status</span>
+                              <strong>{whatsAppStatus?.configured ? "Ready to send" : "Needs server keys"}</strong>
+                              <small>
+                                {whatsAppStatus?.configured
+                                  ? "WHATSAPP_ACCESS_TOKEN and WHATSAPP_PHONE_NUMBER_ID are present."
+                                  : `Missing ${(whatsAppStatus?.missing ?? ["WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"]).join(", ")} on Render.`}
+                              </small>
+                            </article>
+                            <article>
+                              <span>Webhook</span>
+                              <strong>{whatsAppStatus?.verifyTokenPresent ? "Verify token set" : "Verify token missing"}</strong>
+                              <small>{whatsAppStatus?.webhookUrl || "/api/whatsapp/webhook"}</small>
+                            </article>
+                            <article>
+                              <span>Inbound</span>
+                              <strong>{whatsAppStatus?.webhookSecretPresent ? "Secret optional set" : "Open webhook"}</strong>
+                              <small>Point Meta to the webhook URL so replies land on job Timelines.</small>
+                            </article>
+                          </div>
+                          <div className="setup-form-grid">
+                            <label className="span-2">
+                              Webhook URL (paste into Meta)
+                              <input
+                                readOnly
+                                value={whatsAppStatus?.webhookUrl || (typeof window !== "undefined" ? `${window.location.origin}/api/whatsapp/webhook` : "/api/whatsapp/webhook")}
+                                onFocus={(event) => event.currentTarget.select()}
+                              />
+                            </label>
+                            <label>
+                              Test mobile number
+                              <input
+                                value={whatsAppTestTo}
+                                onChange={(event) => setWhatsAppTestTo(event.target.value)}
+                                placeholder="447700900123"
+                              />
+                            </label>
+                            <label>
+                              Test message
+                              <input
+                                value={whatsAppTestMessage}
+                                onChange={(event) => setWhatsAppTestMessage(event.target.value)}
+                                placeholder="NeXa WhatsApp connection test"
+                              />
+                            </label>
+                          </div>
+                          <div className="setup-sync-actions">
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={isTestingWhatsApp}
+                              onClick={() => void testWhatsAppConnection()}
+                            >
+                              {isTestingWhatsApp ? "Sending..." : "Send WhatsApp test"}
+                            </button>
+                          </div>
+                        </article>
+                        ) : null}
+
+                        {!activeSetupSubItem || activeSetupSubItem === "Supplier emails" ? (
+                        <article className="setup-integration-card">
+                          <header>
+                            <div>
+                              <span>Supplier emails</span>
+                              <strong>Coming next</strong>
+                            </div>
+                          </header>
+                          <small>
+                            Supplier request wording and returned PDF matching will live here. Job/customer email already uses the signed-in mailbox above.
                           </small>
                         </article>
+                        ) : null}
                       </div>
                     </section>
                   ) : null}
@@ -42135,18 +42344,10 @@ export default function Dashboard() {
                       <div className="employee-section-heading">
                         <span className="permission-heading">Personal mailbox</span>
                         <span className="employee-access-note">
-                          Job and quote emails send from this address when this employee is logged in. Leave blank to use the company fallback in Setup → Communications.
+                          Choose Outlook or Gmail. NeXa sends from the email on this employee card ({activeEditingEmployee.profile?.email || employeeProfileDraft.email || "add email on Details first"}).
                         </span>
                       </div>
                       <div className="setup-form-grid">
-                        <label>
-                          Display name
-                          <input
-                            value={employeeMailboxDraft.displayName}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, displayName: event.target.value }))}
-                            placeholder={activeEditingEmployee.name}
-                          />
-                        </label>
                         <label>
                           Provider
                           <select
@@ -42161,59 +42362,26 @@ export default function Dashboard() {
                               }))
                             }
                           >
-                            <option value="Outlook">Outlook</option>
+                            <option value="Outlook">Outlook / Microsoft 365</option>
                             <option value="Gmail">Gmail</option>
                           </select>
                         </label>
                         <label>
-                          Sender email
+                          Sends as
                           <input
-                            value={employeeMailboxDraft.senderEmail}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, senderEmail: event.target.value }))}
-                            placeholder={activeEditingEmployee.profile?.email || "you@yourcompany.co.uk"}
+                            value={employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email || ""}
+                            readOnly
+                            placeholder="Set on Details tab"
                           />
                         </label>
                         <label>
-                          Username
-                          <input
-                            value={employeeMailboxDraft.username}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, username: event.target.value }))}
-                            placeholder="Usually the same as the sender email"
-                          />
-                        </label>
-                        <label>
-                          App password / secret
+                          App password
                           <input
                             type="password"
                             value={employeeMailboxDraft.secret}
                             onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secret: event.target.value }))}
                             placeholder={employeeMailboxStatus?.secretStored ? "Stored securely — paste only to change it" : "Paste app password"}
                           />
-                        </label>
-                        <label>
-                          SMTP host
-                          <input
-                            value={employeeMailboxDraft.smtpHost}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, smtpHost: event.target.value }))}
-                          />
-                        </label>
-                        <label>
-                          SMTP port
-                          <input
-                            inputMode="numeric"
-                            value={employeeMailboxDraft.smtpPort}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, smtpPort: event.target.value.replace(/[^\d]/g, "") }))}
-                          />
-                        </label>
-                      </div>
-                      <div className="setup-switch-grid">
-                        <label>
-                          <input
-                            type="checkbox"
-                            checked={employeeMailboxDraft.secure}
-                            onChange={(event) => setEmployeeMailboxDraft((current) => ({ ...current, secure: event.target.checked }))}
-                          />
-                          Use secure SMTP / TLS
                         </label>
                       </div>
                       <div className="setup-sync-actions">
@@ -42246,9 +42414,9 @@ export default function Dashboard() {
                           </strong>
                           <small>
                             {employeeMailboxStatus?.lastError
-                              || (employeeMailboxStatus?.senderEmail
-                                ? `Will send as ${employeeMailboxStatus.senderEmail}`
-                                : "Connect Outlook or Gmail SMTP with an app password.")}
+                              || (!(employeeProfileDraft.email.trim() || activeEditingEmployee.profile?.email)
+                                ? "Add the email on the Details tab first."
+                                : "Connect Outlook or Gmail with an app password.")}
                           </small>
                         </article>
                         <article>
@@ -42258,7 +42426,7 @@ export default function Dashboard() {
                               ? employeeMailboxStatus.lastTestedAt.replace("T", " ").slice(0, 16)
                               : "Not tested yet"}
                           </strong>
-                          <small>Sends a real test message to this mailbox.</small>
+                          <small>Sends a real test message to this employee card email.</small>
                         </article>
                       </div>
                     </div>
