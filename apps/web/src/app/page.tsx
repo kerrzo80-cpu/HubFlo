@@ -11830,7 +11830,7 @@ export default function Dashboard() {
           title: "PO request waiting",
           detail: `${request.jobRef} · ${request.supplier}`,
           meta: request.item,
-          open: () => openJobDrawer(request.jobId),
+          open: () => openPendingPurchaseRequest(request),
         })),
     ].slice(0, 8);
   }, [
@@ -18445,6 +18445,14 @@ export default function Dashboard() {
     scrollWorkspaceToTop();
   }
 
+  /** Office alert / KPI entry: open the PO itself so Approve is one screen away. */
+  function openPendingPurchaseRequest(request: PurchaseRequest) {
+    openPurchaseOrderRegisterRow(request);
+    if (request.status === "Requested") {
+      showNotice(`PO request from ${request.requestedBy} — approve, reject, or edit details here.`);
+    }
+  }
+
   function returnToPurchaseOrderRegister() {
     setSelectedPurchaseRequestId(null);
     setHomeView("purchase-orders");
@@ -18456,14 +18464,23 @@ export default function Dashboard() {
       showNotice(`${selectedPurchaseOrder?.poNumber || "PO"} is not linked to a live job yet.`);
       return;
     }
+    const request = selectedPurchaseOrder;
     setSelectedPurchaseRequestId(null);
     setSelectedJobId(selectedPurchaseOrderJob.id);
-    if (selectedPurchaseOrderCostCentre) {
-      setSelectedCostCentreId(selectedPurchaseOrderCostCentre.id);
+    const centres = jobEstimateCostCentres[selectedPurchaseOrderJob.id] ?? makeDefaultEstimateCostCentres(selectedPurchaseOrderJob);
+    const centre =
+      selectedPurchaseOrderCostCentre ??
+      centres[0] ??
+      null;
+    if (centre) {
+      setSelectedCostCentreId(centre.id);
       setActiveCostCentreTab("po");
       setHomeView("cost-centre-record");
+      if (request?.status === "Requested") {
+        showNotice("Opened cost centre POs — approve the engineer request in the list below.");
+      }
     } else {
-      setActiveJobTab("cost-centres");
+      setActiveJobTab("summary");
       setHomeView("job-record");
     }
     scrollWorkspaceToTop();
@@ -27034,8 +27051,8 @@ export default function Dashboard() {
         detail: "Supplier approvals",
         onClick: () => {
           const first = pendingPORequests[0];
-          if (first) openJobDrawer(first.jobId);
-          else setHomeView("jobs");
+          if (first) openPendingPurchaseRequest(first);
+          else setHomeView("purchase-orders");
         },
       },
       {
@@ -28261,7 +28278,24 @@ export default function Dashboard() {
               ) : homeView === "purchase-order-record" ? (
                 <>
                   <button className="secondary-button" onClick={returnToPurchaseOrderRegister}>Back to PO register</button>
-                  {selectedPurchaseOrder ? (
+                  {selectedPurchaseOrder?.status === "Requested" ? (
+                    <>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        onClick={() => void markPurchaseRequestStatus(selectedPurchaseOrder.id, "Rejected")}
+                      >
+                        Reject
+                      </button>
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => void markPurchaseRequestStatus(selectedPurchaseOrder.id, "Approved")}
+                      >
+                        Approve PO
+                      </button>
+                    </>
+                  ) : selectedPurchaseOrder ? (
                     <button className="primary-button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                   ) : null}
                 </>
@@ -29915,6 +29949,24 @@ export default function Dashboard() {
                       supportingNote={selectedPurchaseOrder.reason || undefined}
                     />
                     <div className="record-form-preview-actions">
+                      {selectedPurchaseOrder.status === "Requested" ? (
+                        <>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => void markPurchaseRequestStatus(selectedPurchaseOrder.id, "Rejected")}
+                          >
+                            Reject request
+                          </button>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            onClick={() => void markPurchaseRequestStatus(selectedPurchaseOrder.id, "Approved")}
+                          >
+                            Approve PO
+                          </button>
+                        </>
+                      ) : null}
                       <button className="secondary-button" type="button" onClick={() => editPurchaseOrderFromRegister(selectedPurchaseOrder)}>Edit PO</button>
                       <button
                         className="secondary-button"
@@ -33126,6 +33178,58 @@ export default function Dashboard() {
                     {selectedJob ? (
                       <JobFieldLivePanel jobId={selectedJob.id} jobRef={selectedJob.ref} />
                     ) : null}
+                    {selectedJobPurchaseRequests.some((request) => request.status === "Requested") ? (
+                      <section className="job-scheduling-panel" style={{ marginTop: "1rem" }}>
+                        <header>
+                          <div>
+                            <span className="permission-heading">Field PO requests</span>
+                            <h2>
+                              {selectedJobPurchaseRequests.filter((request) => request.status === "Requested").length} waiting for approval
+                            </h2>
+                          </div>
+                          <span className="status-pill amber">Requested</span>
+                        </header>
+                        <div className="cost-centre-po-list">
+                          {selectedJobPurchaseRequests
+                            .filter((request) => request.status === "Requested")
+                            .map((request) => (
+                              <article className="cost-centre-po-card" key={request.id}>
+                                <div>
+                                  <span>{request.status}</span>
+                                  <strong>{request.supplier}</strong>
+                                  <p>{request.item || request.reason || "Engineer PO request"}</p>
+                                  <small>
+                                    {request.requestedBy} · {request.costCentreName || "Cost centre TBC"} · {request.createdAt}
+                                  </small>
+                                </div>
+                                <div className="cost-centre-po-actions">
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={() => openPendingPurchaseRequest(request)}
+                                  >
+                                    Open
+                                  </button>
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={() => void markPurchaseRequestStatus(request.id, "Rejected")}
+                                  >
+                                    Reject
+                                  </button>
+                                  <button
+                                    className="primary-button"
+                                    type="button"
+                                    onClick={() => void markPurchaseRequestStatus(request.id, "Approved")}
+                                  >
+                                    Approve
+                                  </button>
+                                </div>
+                              </article>
+                            ))}
+                        </div>
+                      </section>
+                    ) : null}
                     <section className="quote-survey-pack-preview job-survey-pack-preview">
                       <div>
                         <span>Survey pack handover</span>
@@ -35529,10 +35633,22 @@ export default function Dashboard() {
                 {activeCostCentreTab === "po" ? (
                   <section className="simpro-parts-page cost-centre-po-page">
                     {(() => {
-                      const costCentrePurchaseRequests = selectedJobPurchaseRequests.filter((request) =>
-                        request.costCentreId === selectedCostCentre.id ||
-                        (!request.costCentreId && request.costCentreName === selectedCostCentre.name),
-                      );
+                      const costCentrePurchaseRequests = selectedJobPurchaseRequests.filter((request) => {
+                        if (request.costCentreId === selectedCostCentre.id) return true;
+                        if (!request.costCentreId && request.costCentreName === selectedCostCentre.name) return true;
+                        // Field often sends the schedule cost-centre label; if it doesn't match any
+                        // centre, still show the request on every centre list so office can approve.
+                        if (!request.costCentreId) {
+                          const centres = selectedJobEstimateCostCentres;
+                          const matchesAny = centres.some(
+                            (centre) =>
+                              centre.id === request.costCentreId ||
+                              centre.name === request.costCentreName,
+                          );
+                          return !matchesAny;
+                        }
+                        return false;
+                      });
                       const requestedCount = costCentrePurchaseRequests.filter((request) => request.status === "Requested").length;
                       const pendingCostTotal = costCentrePurchaseRequests
                         .reduce((total, request) => total + purchaseRequestPendingCost(request), 0);

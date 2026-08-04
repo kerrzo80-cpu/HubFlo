@@ -944,7 +944,7 @@ export default function JobDetailPage() {
 
       <div className="tabs" role="tablist" aria-label="Job details">
         <button type="button" className={tab === "pack" ? "active" : undefined} onClick={() => setTab("pack")}>
-          <Layers size={15} /> Pack
+          <Layers size={15} /> Job info
         </button>
         <button type="button" className={tab === "checklist" ? "active" : undefined} onClick={() => setTab("checklist")}>
           <ClipboardCheck size={15} /> Checklist
@@ -1300,7 +1300,14 @@ export default function JobDetailPage() {
               ))}
             </div>
           ) : null}
+        </div>
+      ) : null}
 
+      {tab === "po" ? (
+        <div className="stack">
+          <p className="muted" style={{ margin: 0 }}>
+            Request materials against this job. Pick a supplier from Core, say what you need, and office raises the PO.
+          </p>
           <form className="field-po-form" onSubmit={(event) => void submitPoRequest(event)}>
             <strong>
               <ShoppingCart size={16} /> Request PO
@@ -1388,7 +1395,9 @@ export default function JobDetailPage() {
                 </div>
               ))}
             </div>
-          ) : null}
+          ) : (
+            <p className="muted">No PO requests on this job yet.</p>
+          )}
         </div>
       ) : null}
     </main>
