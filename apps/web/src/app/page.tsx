@@ -40524,7 +40524,7 @@ export default function Dashboard() {
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
 	                              <strong>Choose exactly what NeXa should pull in</strong>
-	                              <small>Default is Clients + Sites. Tick Quotes/Jobs for cost centres + descriptions, Schedules for diary pull, Invoices for invoice lines.</small>
+	                              <small>Default is Clients + Sites first. Preview should mostly show create/link — not piles of conflicts. Tick Quotes/Jobs/Schedules/Invoices after customers are linked.</small>
 	                              <div className="setup-sync-entity-shortcuts">
 	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
 	                                  Customers &amp; sites
@@ -40638,11 +40638,14 @@ export default function Dashboard() {
 	                                <span>Result</span>
 	                                <span>Resolve</span>
 	                              </div>
-	                              {simproSyncStatus.lastRun.operations.slice(0, 12).map((item) => (
+	                              {simproSyncStatus.lastRun.operations.slice(0, 40).map((item) => (
 	                                <div className="setup-rate-row" key={item.id}>
 	                                  <strong>{item.action}</strong>
 	                                  <span>{item.entity}{item.simproId ? ` · ${item.simproId}` : ""}</span>
-	                                  <span>{item.summary}</span>
+	                                  <span>
+                                    {item.summary}
+                                    {item.detail ? <small style={{ display: "block", marginTop: "0.25rem" }}>{item.detail}</small> : null}
+                                  </span>
 	                                  <span>
 	                                    {item.action === "conflict" ? (
 	                                      <div className="ops-queue-actions" style={{ flexWrap: "wrap", gap: "0.35rem" }}>
