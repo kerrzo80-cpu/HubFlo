@@ -38,6 +38,7 @@ import {
   Mail,
   MapPin,
   Menu,
+  MessageCircle,
   MoreHorizontal,
   Package,
   Plus,
@@ -109,6 +110,7 @@ import {
   weekDays,
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
+import { makeTimelineEntry, sortTimelineEntries, type TimelineEntry, type TimelineStage } from "@/lib/record-timeline";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
@@ -8613,6 +8615,11 @@ export default function Dashboard() {
     [communicationRecords, selectedInvoice],
   );
 
+  const selectedLeadCommunications = useMemo(
+    () => (selectedLead ? communicationRecords.filter((record) => record.recordType === "lead" && record.recordId === selectedLead.id) : []),
+    [communicationRecords, selectedLead],
+  );
+
   const selectedQuoteCommunicationDraft = useMemo(
     () => (selectedQuote ? communicationDrafts[`quote:${selectedQuote.id}`] ?? blankCommunicationDraft : blankCommunicationDraft),
     [communicationDrafts, selectedQuote],
@@ -9474,6 +9481,269 @@ export default function Dashboard() {
     if (selectedInvoiceFromJob) relatedIds.add(selectedInvoiceFromJob.id);
     return communicationRecords.filter((record) => relatedIds.has(record.recordId) || record.relatedJobId === selectedJob.id);
   }, [communicationRecords, selectedInvoiceFromJob, selectedJob]);
+
+  const activeRecordChain = useMemo(() => {
+    let lead: Lead | null = null;
+    let quote: Quote | null = null;
+    let job: Job | null = null;
+    let invoice: Invoice | null = null;
+    let focus: TimelineStage | null = null;
+
+    if (homeView === "lead-record" && selectedLead) {
+      focus = "lead";
+      lead = selectedLead;
+      quote = getLeadQuote(selectedLead) ?? null;
+      job = getQuoteJob(quote);
+      invoice = (job ? invoiceSourceMap.byJob.get(job.id) : null)
+        ?? (quote ? invoiceSourceMap.byQuote.get(quote.id) : null)
+        ?? null;
+    } else if ((homeView === "quote-record" || homeView === "quote-cost-centre-record") && selectedQuote) {
+      focus = "quote";
+      quote = selectedQuote;
+      lead = selectedQuote.sourceLeadId
+        ? leads.find((item) => item.id === selectedQuote.sourceLeadId) ?? null
+        : null;
+      job = selectedQuoteJob;
+      invoice = selectedInvoiceFromQuote;
+    } else if ((homeView === "job-record" || homeView === "cost-centre-record") && selectedJob) {
+      focus = "job";
+      job = selectedJob;
+      quote = selectedJobSourceQuote;
+      lead = selectedJobSourceQuote?.sourceLeadId
+        ? leads.find((item) => item.id === selectedJobSourceQuote.sourceLeadId) ?? null
+        : null;
+      invoice = selectedInvoiceFromJob;
+    } else if (homeView === "invoice-record" && selectedInvoice) {
+      focus = "invoice";
+      invoice = selectedInvoice;
+      job = selectedInvoiceSourceJob;
+      quote = selectedInvoiceSourceQuote
+        ?? (selectedInvoiceSourceJob?.sourceQuoteId
+          ? quotes.find((item) => item.id === selectedInvoiceSourceJob.sourceQuoteId) ?? null
+          : null);
+      lead = quote?.sourceLeadId
+        ? leads.find((item) => item.id === quote?.sourceLeadId) ?? null
+        : null;
+    }
+
+    return { focus, lead, quote, job, invoice };
+  }, [
+    homeView,
+    invoiceSourceMap.byJob,
+    invoiceSourceMap.byQuote,
+    leads,
+    quotes,
+    selectedInvoice,
+    selectedInvoiceFromJob,
+    selectedInvoiceFromQuote,
+    selectedInvoiceSourceJob,
+    selectedInvoiceSourceQuote,
+    selectedJob,
+    selectedJobSourceQuote,
+    selectedLead,
+    selectedQuote,
+    selectedQuoteJob,
+  ]);
+
+  const activeRecordChainCommunications = useMemo(() => {
+    const { lead, quote, job, invoice } = activeRecordChain;
+    const ids = new Set<string>();
+    if (lead) ids.add(lead.id);
+    if (quote) ids.add(quote.id);
+    if (job) ids.add(job.id);
+    if (invoice) ids.add(invoice.id);
+    if (ids.size === 0) return [];
+    return communicationRecords.filter(
+      (record) => ids.has(record.recordId) || (record.relatedJobId && ids.has(record.relatedJobId)),
+    );
+  }, [activeRecordChain, communicationRecords]);
+
+  const activeRecordTimelineEntries = useMemo(() => {
+    const { lead, quote, job, invoice } = activeRecordChain;
+    const entries: TimelineEntry[] = [];
+
+    const pushComm = (record: CommunicationRecord, stage: TimelineStage, stageRef: string) => {
+      entries.push(makeTimelineEntry({
+        id: `comm-${record.id}`,
+        kind: "communication",
+        stage,
+        stageRef,
+        title: record.subject || `${record.channel} message`,
+        detail: record.body,
+        actor: record.direction === "outbound" ? record.from : record.from,
+        at: record.createdAt,
+        channel: record.channel,
+        direction: record.direction,
+        tone: record.direction === "inbound" ? "amber" : record.channel === "WhatsApp" ? "green" : "blue",
+      }));
+    };
+
+    activeRecordChainCommunications.forEach((record) => {
+      if (lead && record.recordId === lead.id) pushComm(record, "lead", lead.ref);
+      else if (quote && record.recordId === quote.id) pushComm(record, "quote", quote.ref);
+      else if (job && (record.recordId === job.id || record.relatedJobId === job.id)) pushComm(record, "job", job.ref);
+      else if (invoice && record.recordId === invoice.id) pushComm(record, "invoice", invoice.ref);
+      else if (job && record.relatedJobId === job.id) pushComm(record, "job", job.ref);
+    });
+
+    const relatedIds = new Set<string>();
+    if (lead) relatedIds.add(lead.id);
+    if (quote) relatedIds.add(quote.id);
+    if (job) relatedIds.add(job.id);
+    if (invoice) relatedIds.add(invoice.id);
+
+    auditEvents.forEach((event) => {
+      if (!relatedIds.has(event.recordId)) return;
+      const stage: TimelineStage = lead && event.recordId === lead.id
+        ? "lead"
+        : quote && event.recordId === quote.id
+          ? "quote"
+          : job && event.recordId === job.id
+            ? "job"
+            : "invoice";
+      const stageRef = stage === "lead" && lead
+        ? lead.ref
+        : stage === "quote" && quote
+          ? quote.ref
+          : stage === "job" && job
+            ? job.ref
+            : invoice?.ref ?? "";
+      entries.push(makeTimelineEntry({
+        id: `audit-${event.id}`,
+        kind: "audit",
+        stage,
+        stageRef,
+        title: event.summary,
+        detail: `${event.action} · ${event.source}`,
+        actor: event.actor,
+        at: event.createdAt,
+        tone: event.importance === "high" ? "amber" : "neutral",
+      }));
+    });
+
+    if (job) {
+      jobDeliveryEvents
+        .filter((event) => event.jobId === job.id)
+        .forEach((event) => {
+          entries.push(makeTimelineEntry({
+            id: `delivery-${event.id}`,
+            kind: "delivery",
+            stage: "job",
+            stageRef: job.ref,
+            title: event.summary,
+            detail: `${event.kind} · ${event.source}${event.status ? ` · ${event.status}` : ""}`,
+            actor: event.actor,
+            at: event.createdAt,
+            tone: "blue",
+          }));
+        });
+
+      (jobSchedulePlans[job.id] ?? []).forEach((assignment) => {
+        const at = `${assignment.startDate} ${assignment.startTime}`;
+        entries.push(makeTimelineEntry({
+          id: `sched-${assignment.id}`,
+          kind: "schedule",
+          stage: "job",
+          stageRef: job.ref,
+          title: `${assignment.employeeName} scheduled`,
+          detail: `${assignment.startDate} ${assignment.startTime}–${assignment.endDate} ${assignment.endTime} · ${assignment.costCentreName}${assignment.plannedHours ? ` · ${assignment.plannedHours}h` : ""}`,
+          actor: assignment.employeeName,
+          at,
+          sortKey: `${assignment.startDate}T${assignment.startTime}:00`,
+          tone: "blue",
+        }));
+      });
+    }
+
+    if (quote) {
+      (quoteSchedulePlans[quote.id] ?? []).forEach((assignment) => {
+        const at = `${assignment.startDate} ${assignment.startTime}`;
+        entries.push(makeTimelineEntry({
+          id: `qsched-${assignment.id}`,
+          kind: "schedule",
+          stage: "quote",
+          stageRef: quote.ref,
+          title: `${assignment.employeeName} scheduled`,
+          detail: `${assignment.startDate} ${assignment.startTime}–${assignment.endDate} ${assignment.endTime}${assignment.notes ? ` · ${assignment.notes}` : ""}`,
+          actor: assignment.employeeName,
+          at,
+          sortKey: `${assignment.startDate}T${assignment.startTime}:00`,
+          tone: "blue",
+        }));
+      });
+    }
+
+    if (lead?.surveyDate) {
+      entries.push(makeTimelineEntry({
+        id: `lead-survey-${lead.id}`,
+        kind: "schedule",
+        stage: "lead",
+        stageRef: lead.ref,
+        title: lead.surveyor ? `${lead.surveyor} survey booked` : "Survey booked",
+        detail: `${lead.surveyDate}${lead.surveyTime ? ` · ${lead.surveyTime}` : ""}`,
+        actor: lead.surveyor || lead.createdBy || "NeXa",
+        at: `${lead.surveyDate} ${lead.surveyTime || "00:00"}`,
+        sortKey: `${lead.surveyDate}T${(lead.surveyTime || "00:00")}:00`,
+        tone: "blue",
+      }));
+    }
+
+    return sortTimelineEntries(entries);
+  }, [
+    activeRecordChain,
+    activeRecordChainCommunications,
+    auditEvents,
+    jobDeliveryEvents,
+    jobSchedulePlans,
+    quoteSchedulePlans,
+  ]);
+
+  const activeRecordScheduleSummary = useMemo(() => {
+    const { lead, quote, job } = activeRecordChain;
+    const items: Array<{ id: string; title: string; detail: string }> = [];
+
+    if (job) {
+      const assignments = [...(jobSchedulePlans[job.id] ?? [])].sort((a, b) =>
+        `${a.startDate}T${a.startTime}`.localeCompare(`${b.startDate}T${b.startTime}`),
+      );
+      assignments.forEach((assignment) => {
+        items.push({
+          id: assignment.id,
+          title: assignment.employeeName,
+          detail: `${formatScheduleDate(assignment.startDate, { weekday: "short", day: "numeric", month: "short" })} ${assignment.startTime}–${assignment.endTime} · ${assignment.costCentreName}`,
+        });
+      });
+      if (!assignments.length && job.scheduledDate) {
+        items.push({
+          id: `job-fallback-${job.id}`,
+          title: job.manager || "Unassigned",
+          detail: `${formatScheduleDate(job.scheduledDate, { weekday: "short", day: "numeric", month: "short" })}${job.scheduledTime ? ` ${job.scheduledTime}` : ""}${job.scheduledDurationHours ? ` · ${job.scheduledDurationHours}h` : ""}`,
+        });
+      }
+    }
+
+    if (quote && !job) {
+      (quoteSchedulePlans[quote.id] ?? []).forEach((assignment) => {
+        items.push({
+          id: assignment.id,
+          title: assignment.employeeName,
+          detail: `${formatScheduleDate(assignment.startDate, { weekday: "short", day: "numeric", month: "short" })} ${assignment.startTime}–${assignment.endTime}`,
+        });
+      });
+    }
+
+    if (lead && !job) {
+      if (lead.surveyDate) {
+        items.push({
+          id: `survey-${lead.id}`,
+          title: lead.surveyor || "Surveyor TBC",
+          detail: `${formatScheduleDate(lead.surveyDate, { weekday: "short", day: "numeric", month: "short" })}${lead.surveyTime ? ` · ${lead.surveyTime}` : ""}`,
+        });
+      }
+    }
+
+    return items;
+  }, [activeRecordChain, jobSchedulePlans, quoteSchedulePlans]);
 
   const selectedJobCostSummary = useMemo(() => {
     if (!selectedJob) {
@@ -15783,6 +16053,103 @@ export default function Dashboard() {
         </div>
       </article>
     ));
+  }
+
+  function renderRecordTimelinePanel() {
+    if (!activeRecordChain.focus) return null;
+    const stageLabel = {
+      lead: "Lead",
+      quote: "Quote",
+      job: "Job",
+      invoice: "Invoice",
+    }[activeRecordChain.focus];
+    const chainBits = [
+      activeRecordChain.lead?.ref,
+      activeRecordChain.quote?.ref,
+      activeRecordChain.job?.ref,
+      activeRecordChain.invoice?.ref,
+    ].filter(Boolean);
+
+    return (
+      <aside className="record-timeline-rail" aria-label="Record timeline">
+        <header>
+          <div>
+            <strong>Timeline</strong>
+            <small>{stageLabel} · carries lead → invoice</small>
+          </div>
+          <small>{activeRecordTimelineEntries.length}</small>
+        </header>
+
+        <section className="record-timeline-schedule">
+          <span>Schedule</span>
+          {activeRecordScheduleSummary.length === 0 ? (
+            <div className="record-timeline-schedule-empty">
+              <AlertTriangle size={16} />
+              <div>
+                <strong>No one is scheduled</strong>
+                <small>Book a survey, quote visit or job assignment to show it here.</small>
+              </div>
+            </div>
+          ) : (
+            activeRecordScheduleSummary.map((item) => (
+              <article className="record-timeline-schedule-item" key={item.id}>
+                <strong>{item.title}</strong>
+                <small>{item.detail}</small>
+              </article>
+            ))
+          )}
+        </section>
+
+        <div className="record-timeline-feed">
+          {chainBits.length > 1 ? (
+            <small className="record-timeline-feed-empty" style={{ paddingBottom: 4 }}>
+              Linked: {chainBits.join(" → ")}
+            </small>
+          ) : null}
+          {activeRecordTimelineEntries.length === 0 ? (
+            <p className="record-timeline-feed-empty">
+              Email, WhatsApp, schedule and audit events across this lead → invoice chain will appear here.
+            </p>
+          ) : (
+            activeRecordTimelineEntries.map((entry) => {
+              const dotClass = entry.kind === "schedule"
+                ? "schedule"
+                : entry.kind === "audit" || entry.kind === "delivery"
+                  ? "audit"
+                  : entry.channel === "WhatsApp"
+                    ? "whatsapp"
+                    : entry.direction === "inbound"
+                      ? "inbound"
+                      : "";
+              const Icon = entry.kind === "schedule"
+                ? CalendarDays
+                : entry.channel === "WhatsApp"
+                  ? MessageCircle
+                  : entry.kind === "communication"
+                    ? Mail
+                    : Clock3;
+              return (
+                <article className="record-timeline-entry" key={entry.id}>
+                  <span className={`record-timeline-dot ${dotClass}`}>
+                    <Icon size={10} />
+                  </span>
+                  <div className="record-timeline-entry-body">
+                    <strong>{entry.title}</strong>
+                    {entry.detail ? <p>{entry.detail.length > 280 ? `${entry.detail.slice(0, 280)}…` : entry.detail}</p> : null}
+                    <div className="record-timeline-entry-meta">
+                      <span className="record-timeline-stage-pill">{entry.stageRef || entry.stage}</span>
+                      <span>{entry.actor}</span>
+                      <span>{entry.at}</span>
+                      {entry.channel ? <span>{entry.channel}{entry.direction ? ` · ${entry.direction}` : ""}</span> : null}
+                    </div>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+      </aside>
+    );
   }
 
   function resetEmployeeDraft() {
@@ -30329,6 +30696,8 @@ export default function Dashboard() {
             </section>
           ) : homeView === "quote-record" ? (
             selectedQuote ? (
+              <div className="record-with-timeline">
+              <div className="record-with-timeline-main">
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
                   <div>
@@ -31832,6 +32201,9 @@ export default function Dashboard() {
                 ) : null}
 
               </section>
+              </div>
+              {renderRecordTimelinePanel()}
+              </div>
             ) : null
           ) : homeView === "quote-cost-centre-record" ? (
             selectedQuote && selectedQuoteCostCentre ? (
@@ -33241,6 +33613,8 @@ export default function Dashboard() {
             ) : null
           ) : homeView === "job-record" ? (
             selectedJob ? (
+              <div className="record-with-timeline">
+              <div className="record-with-timeline-main">
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
                   <div>
@@ -34935,6 +35309,9 @@ export default function Dashboard() {
                   </section>
                 ) : null}
               </section>
+              </div>
+              {renderRecordTimelinePanel()}
+              </div>
             ) : null
           ) : homeView === "cost-centre-record" ? (
             selectedJob && selectedCostCentre ? (
@@ -36850,6 +37227,8 @@ export default function Dashboard() {
             )
           ) : homeView === "invoice-record" ? (
             selectedInvoice ? (
+              <div className="record-with-timeline">
+              <div className="record-with-timeline-main">
               <section className="quote-record-shell">
                 <div className="quote-record-banner">
                   <div>
@@ -37627,9 +38006,14 @@ export default function Dashboard() {
                   </section>
                 ) : null}
               </section>
+              </div>
+              {renderRecordTimelinePanel()}
+              </div>
             ) : null
           ) : homeView === "lead-record" ? (
             selectedLead ? (
+              <div className="record-with-timeline">
+              <div className="record-with-timeline-main">
               <section className="lead-record-shell">
                 <div className="client-record-banner">
                   <div>
@@ -37871,6 +38255,9 @@ export default function Dashboard() {
                   ) : null}
                 </section>
               </section>
+              </div>
+              {renderRecordTimelinePanel()}
+              </div>
             ) : null
           ) : homeView === "schedule" ? (
             <section className="scheduler-shell">
