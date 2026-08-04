@@ -1,3 +1,60 @@
+.takeoff-mode-nav {
+  display: flex;
+  gap: 8px;
+  padding: 10px 22px 12px;
+  border-bottom: 1px solid var(--line, #eaecf0);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.takeoff-mode-nav .mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  max-width: 320px;
+  text-decoration: none;
+  color: #667085;
+  border: 1px solid #eaecf0;
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #f7f8fa;
+}
+
+.takeoff-mode-nav .mode strong {
+  display: block;
+  color: #101828;
+  font-size: 13px;
+}
+
+.takeoff-mode-nav .mode small {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: #98a2b3;
+}
+
+.takeoff-mode-nav .mode.on {
+  border-color: rgba(0, 110, 184, 0.45);
+  background: #eef7fc;
+  color: #14618c;
+}
+
+.takeoff-mode-nav.markup {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+@media (max-width: 720px) {
+  .takeoff-mode-nav {
+    flex-direction: column;
+  }
+
+  .takeoff-mode-nav .mode {
+    max-width: none;
+  }
+}
+
 .takeoff-skill-shell {
   --ink: #101828;
   --muted: #667085;

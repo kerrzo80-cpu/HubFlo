@@ -27,6 +27,7 @@ import {
 } from "@/lib/takeoff-skill";
 
 import TakeoffOverlayReview from "./TakeoffOverlayReview";
+import TakeoffModeNav from "./TakeoffModeNav";
 import "./takeoff-skill.css";
 
 type QuoteOption = { id: string; ref: string; customer: string; site: string };
@@ -367,7 +368,7 @@ export default function TakeoffSkillPage() {
           </Link>
           <div>
             <strong>NeXa Takeoff</strong>
-            <span>Blake quantity takeoff · primary / secondary · confidence scored</span>
+            <span>Quantity takeoff · count fixtures on drawings</span>
           </div>
         </div>
         <div className="takeoff-skill-top-actions">
@@ -378,11 +379,9 @@ export default function TakeoffSkillPage() {
                 : "Blake offline · text-tag mode"}
             </span>
             {authName ? <span className="takeoff-skill-ai on">{authName}</span> : null}
-            <Link className="takeoff-skill-link" href="/takeoff/markup">
-              Classic markup
-            </Link>
         </div>
       </header>
+      <TakeoffModeNav variant="skill" />
 
       {(notice || error) ? (
         <div className={`takeoff-skill-banner ${error ? "error" : "ok"}`}>

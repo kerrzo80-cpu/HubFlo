@@ -2306,8 +2306,9 @@ const modules: ModuleItem[] = [
   { label: "Jobs", icon: Wrench },
   { label: "Schedules", icon: CalendarDays },
   { label: "Invoices", icon: PoundSterling },
+  { label: "POs", icon: Package },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
-  { label: "More", icon: MoreHorizontal, subItems: ["POs", "Stock", "Xero", "Recurring", "Reports", "Add-ons"] },
+  { label: "More", icon: MoreHorizontal, subItems: ["Stock", "Xero", "Recurring", "Reports", "Add-ons"] },
   { label: "Setup", icon: Settings },
 ];
 
@@ -2319,7 +2320,6 @@ const sideNavigation: Array<{
 }> = [
   { label: "Overview", icon: Gauge, active: true },
   { label: "My work", icon: ListChecks },
-  { label: "Operations", icon: HardHat },
   { label: "Reports", icon: BarChart3 },
 ];
 
@@ -11624,6 +11624,9 @@ export default function Dashboard() {
       if (module.label === "Schedules" && !access.showSchedule) return false;
       if (module.label === "Quotes" && !access.showQuotes) return false;
       if (module.label === "Invoices" && !access.showFinance) return false;
+      if (module.label === "POs") {
+        return access.canRequestPurchase || access.canApprovePurchase || access.showFinance;
+      }
       if (module.label === "More") {
         const canSeeAnyMore =
           access.showFinance ||
@@ -11640,7 +11643,6 @@ export default function Dashboard() {
   const visibleMoreItems = useMemo(() => {
     const more = modules.find((module) => module.label === "More");
     return (more?.subItems || []).filter((item) => {
-      if (item === "POs") return access.canRequestPurchase || access.canApprovePurchase || access.showFinance;
       if (item === "Stock") return access.showStock || access.showFinance || access.canRequestPurchase;
       if (item === "Xero" || item === "Reports") return access.showFinance;
       if (item === "Recurring") return access.showJobs || access.showFinance;
@@ -12024,7 +12026,6 @@ export default function Dashboard() {
     ],
     [dashboardVariationApprovals, overdueTimesheetJobs],
   );
-  const highPriorityOfficeAlerts = officeAlerts.filter((alert) => alert.priority === "High").length;
   const officeExceptionCards = useMemo(
     () => [
       {
@@ -16903,7 +16904,7 @@ export default function Dashboard() {
   }
 
   function handleContextNavClick(label: string) {
-    if (label === "Overview" || label === "Operations") {
+    if (label === "Overview") {
       openDashboardQueue();
       return;
     }
@@ -28427,15 +28428,6 @@ export default function Dashboard() {
         </label>
 
         <div className="header-actions">
-          <button className="header-icon" aria-label="Notifications" onClick={() => openDashboardQueue("dashboard-notifications")}>
-            <Bell size={18} />
-            <span className="alert-dot" />
-          </button>
-          <button className="create-button" aria-label="Open create menu" onClick={openCreateMenu}>
-            <Plus size={17} />
-            <span>Create</span>
-            <ChevronDown size={14} />
-          </button>
           <button
             className="account-button"
             aria-label="Open my profile diary"
@@ -28664,7 +28656,7 @@ export default function Dashboard() {
           const Icon = module.icon;
           const moreActive =
             module.label === "More" &&
-            ["purchase-orders", "purchase-order-record", "stock", "xero", "recurring", "reports", "addons"].includes(homeView);
+            ["stock", "xero", "recurring", "reports", "addons"].includes(homeView);
           const isActiveModule =
             (module.label === "Dashboard" && homeView === "dashboard") ||
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
@@ -28673,6 +28665,7 @@ export default function Dashboard() {
             (module.label === "Schedules" && homeView === "schedule") ||
             (module.label === "Setup" && homeView === "settings") ||
             (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
+            (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
             (module.label === "People" && ["employees", "employee-card", "clients", "client-record", "directory-manager"].includes(homeView)) ||
             moreActive;
 
@@ -28868,22 +28861,14 @@ export default function Dashboard() {
           </nav>
 
           <div className="sidebar-divider" />
-          <p className="sidebar-label">Quick access</p>
-          <a href="/survey" className="context-link" aria-label="NeXa Surveyor" data-tooltip="NeXa Surveyor">
+          <p className="sidebar-label">Addons</p>
+          <a href="/survey" className="context-link" aria-label="Surveyor" data-tooltip="Surveyor">
             <Sparkles size={17} />
-            <span>NeXa Surveyor</span>
+            <span>Surveyor</span>
           </a>
-          <a href="/ai-intake" className="context-link" aria-label="NeXa AI Intake" data-tooltip="AI intake — create lead & book survey">
-            <Sparkles size={17} />
-            <span>AI Intake</span>
-          </a>
-          <a href="/ai-first" className="context-link" aria-label="NeXa AI First" data-tooltip="AI-first prototype walkthrough">
-            <Sparkles size={17} />
-            <span>AI First demo</span>
-          </a>
-          <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
+          <a href="/takeoff" className="context-link" aria-label="Takeoff" data-tooltip="Takeoff">
             <FileText size={17} />
-            <span>NeXa Takeoff</span>
+            <span>Takeoff</span>
           </a>
           <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, link kit to quote or job">
             <Flame size={17} />
@@ -28893,28 +28878,6 @@ export default function Dashboard() {
             <HardHat size={17} />
             <span>NeXa Field</span>
           </a>
-          <a href="/office/alerts" className="context-link" aria-label="Office alerts" data-tooltip="Office alerts">
-            <Bell size={17} />
-            <span>Office alerts</span>
-            <b className={highPriorityOfficeAlerts ? "danger" : ""}>{officeAlerts.length}</b>
-          </a>
-          <a href="#" className="context-link" aria-label="Blocked jobs" data-tooltip="Blocked jobs" onClick={(event) => { event.preventDefault(); openBlockedJobsQuickView(); }}>
-            <ShieldAlert size={17} />
-            <span>Blocked jobs</span>
-            <b className="danger">4</b>
-          </a>
-          <a href="#" className="context-link" aria-label="Overdue tasks" data-tooltip="Overdue tasks" onClick={(event) => { event.preventDefault(); openOverdueTasksQuickView(); }}>
-            <Clock3 size={17} />
-            <span>Overdue tasks</span>
-            <b>6</b>
-          </a>
-          {access.showQuotes ? (
-            <a href="#" className="context-link" aria-label="Draft quotes" data-tooltip="Draft quotes" onClick={(event) => { event.preventDefault(); openDraftQuotesQuickView(); }}>
-              <FileText size={17} />
-              <span>Draft quotes</span>
-              <b>5</b>
-            </a>
-          ) : null}
 
           <div className="support-panel">
             <img src="/brand/nexa-command-lockup-rail.svg" alt="NeXa - Bound into one command center" />

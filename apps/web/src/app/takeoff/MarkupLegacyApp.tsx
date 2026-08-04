@@ -74,6 +74,8 @@ import {
   togglePackageChild,
 } from "@/lib/takeoff-markup-packages";
 import { sanitizeRemovalSectionTakeoffMaterials } from "@/lib/takeoff-removal-materials";
+import TakeoffModeNav from "./TakeoffModeNav";
+import "./takeoff-skill.css";
 
 type TakeoffTab = "intake" | "markup" | "surveyor" | "survey" | "rooms" | "heat" | "runs" | "boq" | "review";
 type MarkupToolMode = "pipe" | "symbol" | "select" | "calibrate" | "pan";
@@ -6753,7 +6755,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           <img src="/app-icons/nexa-takeoffs-apple-touch-icon.png" alt="NeXa Takeoffs" />
-          <span>NeXa Takeoff</span>
+          <span>Plumbing route design</span>
         </div>
         <div className="takeoff-header-actions">
           <a className="takeoff-ghost-button" href="/">
@@ -6766,6 +6768,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
           </button>
         </div>
       </header>
+      <TakeoffModeNav variant="markup" />
 
       <div className="takeoff-shell">
         <aside className="takeoff-sidebar">
@@ -6922,7 +6925,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 </div>
               ) : null}
 
-              <section className="estimate-flow-strip" aria-label="Estimate workflow">
+              <section className="estimate-flow-strip" aria-label="Route design workflow">
                 <a href="/survey">
                   <span>1</span>
                   <strong>Survey</strong>
@@ -6930,13 +6933,13 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 </a>
                 <button className={activeTab === "markup" || activeTab === "intake" ? "active" : ""} type="button" onClick={() => setActiveTab("markup")}>
                   <span>2</span>
-                  <strong>Markup</strong>
-                  <small>Mark up drawings and measured routes</small>
+                  <strong>Route design</strong>
+                  <small>Draw pipe runs, place fittings, calibrate scale</small>
                 </button>
                 <button className={activeTab === "boq" ? "active" : ""} type="button" onClick={() => setActiveTab("boq")}>
                   <span>3</span>
                   <strong>BoQ / RFQ</strong>
-                  <small>Quantities and supplier quote requests</small>
+                  <small>Route lengths + fittings into supplier requests</small>
                 </button>
                 <button className={activeTab === "review" ? "active" : ""} type="button" onClick={() => setActiveTab("review")}>
                   <span>4</span>
@@ -6949,9 +6952,9 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                 <div>
                   <Sparkles size={18} />
                   <span>
-                    <strong>AI takeoff</strong>
+                    <strong>Plumbing route design</strong>
                     <small>
-                      Upload drawings, let Blake build the BoQ, tweak what matters, then hand off to quote
+                      Calibrate the drawing, draw hot/cold/waste/soil routes, auto-add elbows at bends, then push lengths into the BoQ
                       {selectedQuote ? ` for ${selectedQuote.ref}` : ""}.
                     </small>
                   </span>
