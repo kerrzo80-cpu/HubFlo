@@ -15541,16 +15541,30 @@ h1 {
   justify-content: center;
   overflow: hidden;
   padding: 0 3px;
-  pointer-events: none;
   position: absolute;
   white-space: nowrap;
 }
 
+.scheduler-drag-selection {
+  pointer-events: none;
+}
+
 .scheduler-drag-existing {
+  appearance: none;
   background: #c7e8f4;
+  border: 0;
   color: #145170;
+  cursor: pointer;
   height: 15px;
+  pointer-events: auto;
   top: 5px;
+  z-index: 2;
+}
+
+.scheduler-drag-existing:hover,
+.scheduler-drag-existing:focus-visible {
+  background: #9fd4e8;
+  outline: 1px solid #145170;
 }
 
 .scheduler-drag-selection {

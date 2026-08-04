@@ -6911,7 +6911,11 @@ function weekdayFromDate(date: string): Weekday {
 function availabilityForDate(surveyor: string, date: string) {
   if (!date) return { active: false, from: "00:00", to: "00:00" };
   const day = weekdayFromDate(date);
-  return surveyorAvailability[surveyor]?.[day] ?? { active: false, from: "00:00", to: "00:00" };
+  const configured = surveyorAvailability[surveyor]?.[day];
+  if (configured) return configured;
+  // Imported / unlisted engineers still need a usable diary column.
+  if (day === "Sat" || day === "Sun") return { active: false, from: "00:00", to: "00:00" };
+  return { active: true, from: "08:00", to: "17:00" };
 }
 
 function availabilityLabel(surveyor: string, date: string) {
@@ -12322,6 +12326,19 @@ export default function Dashboard() {
     return Array.from(names).sort((first, second) => first.localeCompare(second));
   }, [allScheduleBookings]);
 
+  /** Day/week diary lanes — employees + anyone already booked (imported simPRO staff included). */
+  const schedulerDiaryPeople = useMemo(() => {
+    const names = new Set<string>([
+      ...surveyorOptions,
+      ...employees.map((employee) => employee.name.trim()).filter(Boolean),
+    ]);
+    for (const booking of allScheduleBookings) {
+      const person = (booking.surveyor || "").trim();
+      if (person) names.add(person);
+    }
+    return Array.from(names).sort((first, second) => first.localeCompare(second));
+  }, [allScheduleBookings, employees]);
+
   const schedulerSelectedJob = useMemo(
     () => jobs.find((job) => job.id === schedulerSelectedJobId) ?? null,
     [jobs, schedulerSelectedJobId],
@@ -12954,6 +12971,9 @@ export default function Dashboard() {
   }
 
   function beginSchedulerDrag(event: ReactPointerEvent<HTMLDivElement>, employeeName: string, date: string) {
+    if ((event.target as HTMLElement | null)?.closest?.(".scheduler-drag-existing")) {
+      return;
+    }
     if (!schedulerSelectedJob || !schedulerSelectedCostCentreId) {
       showNotice("Search for a job and choose its cost centre before dragging a time.");
       setSchedulerJobSearchOpen(true);
@@ -39040,7 +39060,7 @@ export default function Dashboard() {
 
               {scheduleView === "day" ? (
                 <div className="scheduler-grid">
-                  {surveyorOptions.map((surveyor) => {
+                  {schedulerDiaryPeople.map((surveyor) => {
                     const availability = availabilityForDate(surveyor, scheduleDate);
                     const bookings = bookingsForSelectedDate
                       .filter((booking) => booking.surveyor === surveyor)
@@ -39089,17 +39109,20 @@ export default function Dashboard() {
                               {bookings.map((booking) => {
                                 const range = schedulerBookingSlotRange(booking, scheduleDate);
                                 return (
-                                  <span
+                                  <button
+                                    type="button"
                                     className="scheduler-drag-existing"
                                     key={`timeline-${booking.id}`}
                                     style={{
                                       left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                       width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                     }}
-                                    title={`${booking.ref} · ${booking.time}`}
+                                    title={`Open ${booking.ref} · ${booking.time}`}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={() => openScheduleBooking(booking)}
                                   >
                                     {booking.ref}
-                                  </span>
+                                  </button>
                                 );
                               })}
                               {schedulerDragDraft?.employeeName === surveyor && schedulerDragDraft.date === scheduleDate ? (
@@ -39115,7 +39138,7 @@ export default function Dashboard() {
                                 </span>
                               ) : null}
                             </div>
-                            <small>{schedulerSelectedJob ? "Drag to book this engineer" : "Select a job above to enable drag booking"}</small>
+                            <small>{schedulerSelectedJob ? "Click a visit to open · drag empty time to book" : "Click a visit to open · select a job above to drag-book"}</small>
                           </div>
 
                           {bookings.map((booking) => (
@@ -39152,7 +39175,7 @@ export default function Dashboard() {
                     <span>Engineer</span>
                     {scheduleVisibleDays.map((day) => <time key={day}>{formatScheduleDate(day, { weekday: "short", day: "numeric", month: "short" })}</time>)}
                   </div>
-                  {surveyorOptions.map((surveyor) => (
+                  {schedulerDiaryPeople.map((surveyor) => (
                     <div className="scheduler-week-row" key={surveyor}>
                       <header><strong>{surveyor}</strong><span>Team diary</span></header>
                       {scheduleVisibleDays.map((day) => {
@@ -39183,17 +39206,20 @@ export default function Dashboard() {
                                 {bookings.map((booking) => {
                                   const range = schedulerBookingSlotRange(booking, day);
                                   return (
-                                    <span
+                                    <button
+                                      type="button"
                                       className="scheduler-drag-existing"
                                       key={`week-timeline-${booking.id}`}
                                       style={{
                                         left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                         width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                       }}
-                                      title={`${booking.ref} · ${booking.time}`}
+                                      title={`Open ${booking.ref} · ${booking.time}`}
+                                      onPointerDown={(event) => event.stopPropagation()}
+                                      onClick={() => openScheduleBooking(booking)}
                                     >
                                       {booking.ref}
-                                    </span>
+                                    </button>
                                   );
                                 })}
                                 {schedulerDragDraft?.employeeName === surveyor && schedulerDragDraft.date === day ? (

@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  blockTimes,
   mapSimproInvoice,
   mapSimproJobCostCentres,
   mapSimproJobSchedules,
   mapSimproQuoteCostCentres,
+  scheduleBelongsToSimproJob,
   summariseHierarchyStats,
 } from "@/lib/simpro-hierarchy-map";
 
@@ -110,6 +112,37 @@ describe("simpro hierarchy map", () => {
     assert.equal(assignments[0]?.costCentreId, centres[0]?.id);
     assert.equal(assignments[0]?.startDate, "2026-08-05");
     assert.equal(assignments[0]?.plannedHours, 8);
+  });
+
+  it("matches schedule rows to a job without short-id false positives", () => {
+    assert.equal(scheduleBelongsToSimproJob({ Reference: "210787-12006" }, "210787"), true);
+    assert.equal(scheduleBelongsToSimproJob({ Reference: "210787-12006" }, "21"), false);
+    assert.equal(scheduleBelongsToSimproJob({ JobID: 210787 }, "210787"), true);
+    assert.equal(scheduleBelongsToSimproJob({ Reference: "210787" }, "210787"), true);
+  });
+
+  it("parses ISO block times and numeric Staff ids", () => {
+    const times = blockTimes([
+      { Hrs: 4, ISO8601StartTime: "2026-08-05T08:00:00+01:00", ISO8601EndTime: "2026-08-05T12:00:00+01:00" },
+    ]);
+    assert.equal(times.startTime, "08:00");
+    assert.equal(times.endTime, "12:00");
+
+    const assignments = mapSimproJobSchedules(
+      [
+        {
+          ID: 77,
+          Reference: "9-1",
+          Date: "2026-08-06",
+          Staff: 44,
+          Blocks: [{ StartTime: "09:00", EndTime: "11:00", Hrs: 2 }],
+        },
+      ],
+      "job-x",
+      [],
+    );
+    assert.equal(assignments[0]?.employeeId, "simpro-staff-44");
+    assert.equal(assignments[0]?.startTime, "09:00");
   });
 
   it("splits client and engineer descriptions from simPRO cost centre Description", () => {

@@ -19,6 +19,7 @@ import {
   mapSimproJobCostCentres,
   mapSimproJobSchedules,
   mapSimproQuoteCostCentres,
+  scheduleBelongsToSimproJob,
   summariseHierarchyStats,
   type HierarchyStats,
   type MappedInvoice,
@@ -85,30 +86,116 @@ async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
   return { config, record };
 }
 
-async function fetchJobSchedules(simproJobId: string) {
+async function fetchSchedulePages(
+  config: Awaited<ReturnType<typeof getSimproReadConfig>>,
+  query: string,
+  options?: { maxPages?: number; pageSize?: number },
+) {
+  const pageSize = options?.pageSize ?? 250;
+  const maxPages = options?.maxPages ?? 40;
+  const collected: UnknownRecord[] = [];
+  const seen = new Set<string>();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const path = query.startsWith("/")
+      ? `${query}${query.includes("?") ? "&" : "?"}pageSize=${pageSize}&page=${page}`
+      : `/schedules/?pageSize=${pageSize}&page=${page}${query ? `&${query}` : ""}`;
+    const result = await simproGet(config, path, { maxRetries: 1 });
+    if (!result.ok) break;
+    const records = extractSimproRecords(result.body);
+    for (const record of records) {
+      const id = simproRecordId(record) || JSON.stringify(record);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      collected.push(record);
+    }
+    const totalPages = Number(result.headers["result-pages"] || 0);
+    if (records.length < pageSize) break;
+    if (totalPages > 0 && page >= totalPages) break;
+  }
+
+  return collected;
+}
+
+async function fetchSchedulesViaJobCostCentres(
+  config: Awaited<ReturnType<typeof getSimproReadConfig>>,
+  simproJobId: string,
+  centres: MappedJobCostCentre[],
+) {
+  const collected: UnknownRecord[] = [];
+  const seen = new Set<string>();
+
+  const slots: Array<{ sectionId: string; costCentreId: string }> = [];
+  for (const centre of centres) {
+    if (centre.simproSectionId && centre.simproCostCentreId) {
+      slots.push({ sectionId: centre.simproSectionId, costCentreId: centre.simproCostCentreId });
+    }
+  }
+
+  if (!slots.length) {
+    const detailed = await simproGet(config, `/jobs/${simproJobId}/?display=all`, { maxRetries: 1 });
+    if (detailed.ok) {
+      const record = asRecord(detailed.body) ?? {};
+      const sections = Array.isArray(record.Sections)
+        ? record.Sections.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+        : [];
+      for (const section of sections) {
+        const sectionId = simproRecordId(section);
+        if (!sectionId) continue;
+        const costCenters = Array.isArray(section.CostCenters)
+          ? section.CostCenters.map(asRecord).filter((item): item is UnknownRecord => Boolean(item))
+          : [];
+        for (const costCenter of costCenters) {
+          const costCentreId = simproRecordId(costCenter);
+          if (!costCentreId) continue;
+          slots.push({ sectionId, costCentreId });
+        }
+      }
+    }
+  }
+
+  for (const slot of slots) {
+    const path = `/jobs/${simproJobId}/sections/${slot.sectionId}/costCenters/${slot.costCentreId}/schedules/`;
+    const pages = await fetchSchedulePages(config, path, { pageSize: 100, maxPages: 20 });
+    for (const record of pages) {
+      const id = simproRecordId(record) || JSON.stringify(record);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      collected.push(record);
+    }
+  }
+
+  return collected;
+}
+
+async function fetchJobSchedules(simproJobId: string, centres: MappedJobCostCentre[] = []) {
   const config = await getSimproReadConfig();
   const candidates = [
-    `/schedules/?pageSize=100&Reference=${encodeURIComponent(`${simproJobId}%`)}`,
-    `/schedules/?pageSize=100&JobID=${encodeURIComponent(simproJobId)}`,
-    `/schedules/?pageSize=100&search=all&Reference=${encodeURIComponent(simproJobId)}`,
+    `Reference=${encodeURIComponent(`${simproJobId}%`)}`,
+    `JobID=${encodeURIComponent(simproJobId)}`,
+    `search=all&Reference=${encodeURIComponent(`${simproJobId}-`)}`,
   ];
 
-  for (const path of candidates) {
-    const result = await simproGet(config, path, { maxRetries: 1 });
-    if (!result.ok) continue;
-    const records = extractSimproRecords(result.body).filter((row) => {
-      const reference = String(row.Reference || row.Project || "");
-      const type = String(row.Type || "").toLowerCase();
-      if (String(row.JobID || "") === String(simproJobId)) return true;
-      if (reference.startsWith(String(simproJobId))) return true;
-      if (type === "job" && !reference) return true;
-      return false;
-    });
-    if (records.length) return records;
-    // Successful empty list is still usable — try next candidate only when HTTP failed or filter emptied everything.
-    if (result.ok && extractSimproRecords(result.body).length === 0) return [];
+  const byId = new Map<string, UnknownRecord>();
+  for (const query of candidates) {
+    const pages = await fetchSchedulePages(config, query);
+    const matched = pages.filter((row) => scheduleBelongsToSimproJob(row, simproJobId));
+    for (const record of matched) {
+      const id = simproRecordId(record) || JSON.stringify(record);
+      byId.set(id, record);
+    }
+    // Keep trying other filters — some tenants only answer one shape.
   }
-  return [];
+
+  if (byId.size === 0 || centres.length > 0) {
+    const nested = await fetchSchedulesViaJobCostCentres(config, simproJobId, centres);
+    for (const record of nested) {
+      const id = simproRecordId(record) || JSON.stringify(record);
+      byId.set(id, record);
+    }
+  }
+
+  return Array.from(byId.values());
 }
 
 async function fetchInvoiceDetail(externalId: string) {
@@ -195,7 +282,7 @@ export async function enrichNexaJobFromSimpro(input: {
     let scheduleCount = 0;
     let schedules = mapSimproJobSchedules([], input.nexaJobId, centres);
     if (input.includeSchedules !== false) {
-      const scheduleRecords = await fetchJobSchedules(input.simproJobId);
+      const scheduleRecords = await fetchJobSchedules(input.simproJobId, centres);
       schedules = mapSimproJobSchedules(scheduleRecords, input.nexaJobId, centres);
       scheduleCount = schedules.length;
     }
@@ -303,7 +390,7 @@ export async function pullSchedulesForLinkedJobs(input?: {
   jobCount: number;
 }> {
   const preview = Boolean(input?.preview);
-  const limit = Math.max(1, input?.limit ?? 40);
+  const limit = Math.max(1, input?.limit ?? 250);
   const linkedJobs = getJobs()
     .filter((job) => Boolean(job.simproJobId?.trim()))
     .slice(0, limit);
@@ -332,8 +419,8 @@ export async function pullSchedulesForLinkedJobs(input?: {
     const simproJobId = String(job.simproJobId || "").trim();
     if (!simproJobId) continue;
     try {
-      const scheduleRecords = await fetchJobSchedules(simproJobId);
       const centres = centresFromHub(job.id);
+      const scheduleRecords = await fetchJobSchedules(simproJobId, centres);
       const assignments = mapSimproJobSchedules(scheduleRecords, job.id, centres);
       if (preview) {
         operations.push({
