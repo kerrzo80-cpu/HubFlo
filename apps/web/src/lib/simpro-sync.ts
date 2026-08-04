@@ -26,7 +26,12 @@ import {
   importSimproInvoiceIntoHub,
   pullSchedulesForLinkedJobs,
 } from "@/lib/simpro-deep-import";
-import { upsertSimproEntityLink, type SimproLinkEntityType } from "@/lib/simpro-entity-links";
+import {
+  removeSimproEntityLinksByNexa,
+  removeSimproEntityLinksByTypes,
+  upsertSimproEntityLink,
+  type SimproLinkEntityType,
+} from "@/lib/simpro-entity-links";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
 type UnknownRecord = Record<string, unknown>;
@@ -462,6 +467,45 @@ export function findSimproLinkForNexa(entity: SimproSyncEntity, nexaId?: string)
   return simproSyncStore.links.find((link) => link.nexaType === entity && link.nexaId === nexaId);
 }
 
+/** Drop shallow + durable links for a deleted NeXa record so re-import can create again. */
+export function clearSimproLinksForNexaRecord(entity: SimproSyncEntity, nexaId: string) {
+  const id = nexaId.trim();
+  if (!id) return { syncLinksRemoved: 0, entityLinksRemoved: 0 };
+  const before = simproSyncStore.links.length;
+  simproSyncStore.links = simproSyncStore.links.filter(
+    (link) => !(link.nexaType === entity && link.nexaId === id),
+  );
+  const syncLinksRemoved = before - simproSyncStore.links.length;
+  const entityType = syncEntityToLinkType(entity);
+  const entityLinksRemoved = entityType
+    ? removeSimproEntityLinksByNexa({ nexaId: id, entityTypes: [entityType] })
+    : 0;
+  if (syncLinksRemoved > 0) persistStore();
+  return { syncLinksRemoved, entityLinksRemoved };
+}
+
+function nexaRecordExistsForLink(link: SimproSyncLink): boolean {
+  if (link.nexaType === "quotes") return Boolean(getQuotes().find((quote) => quote.id === link.nexaId));
+  if (link.nexaType === "jobs") return Boolean(getJobs().find((job) => job.id === link.nexaId));
+  if (link.nexaType === "clients") return Boolean(getClients().find((client) => client.id === link.nexaId));
+  if (link.nexaType === "sites") return Boolean(getClientSites().find((site) => site.id === link.nexaId));
+  return true;
+}
+
+/** If a sync link points at a deleted NeXa row, remove it so import can create fresh. */
+function pruneOrphanLink(entity: SimproSyncEntity, simproId: string): SimproSyncLink | undefined {
+  const link = existingLink(entity, simproId);
+  if (!link) return undefined;
+  if (nexaRecordExistsForLink(link)) return link;
+  clearSimproLinksForNexaRecord(link.nexaType, link.nexaId);
+  // Also drop by simPRO id in case nexaType mismatched.
+  simproSyncStore.links = simproSyncStore.links.filter(
+    (item) => !(item.simproType === entity && item.simproId === simproId),
+  );
+  persistStore();
+  return undefined;
+}
+
 export function upsertSimproLink(link: Omit<SimproSyncLink, "id" | "lastSyncedAt">) {
   const saved = saveLink(link);
   persistStore();
@@ -872,14 +916,14 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
   const simproId = identifier(record);
   if (!simproId) return operation("quotes", "conflict", "simPRO quote has no stable ID.");
 
-  const link = existingLink("quotes", simproId);
+  const link = pruneOrphanLink("quotes", simproId);
   if (link) {
     const base = operation(
       "quotes",
-      mode === "apply" ? "link" : "skip",
+      "link",
       mode === "apply"
         ? `Refreshing ${link.nexaRef ?? link.nexaName} from simPRO quote ${simproId}.`
-        : `${link.simproName} is already linked to ${link.nexaRef ?? link.nexaName}.`,
+        : `Would refresh ${link.nexaRef ?? link.nexaName} from simPRO quote ${simproId}.`,
       { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef },
     );
     return withQuoteHierarchy(base, link.nexaId, simproId, mode);
@@ -953,14 +997,14 @@ async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<
   const simproId = identifier(record);
   if (!simproId) return operation("jobs", "conflict", "simPRO job has no stable ID.");
 
-  const link = existingLink("jobs", simproId);
+  const link = pruneOrphanLink("jobs", simproId);
   if (link) {
     const base = operation(
       "jobs",
-      mode === "apply" ? "link" : "skip",
+      "link",
       mode === "apply"
         ? `Refreshing ${link.nexaRef ?? link.nexaName} from simPRO job ${simproId}.`
-        : `${link.simproName} is already linked to ${link.nexaRef ?? link.nexaName}.`,
+        : `Would refresh ${link.nexaRef ?? link.nexaName} from simPRO job ${simproId}.`,
       { simproId, simproName: link.simproName, nexaId: link.nexaId, nexaRef: link.nexaRef },
     );
     return withJobHierarchy(base, link.nexaId, simproId, mode);
@@ -1094,7 +1138,13 @@ async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncO
   return result.operations.map((item) =>
     operation(
       "schedules",
-      item.action === "create" ? "create" : item.action === "preview" ? "preview" : item.action === "error" ? "error" : "skip",
+      item.action === "create"
+        ? "create"
+        : item.action === "preview"
+          ? "preview"
+          : item.action === "error"
+            ? "error"
+            : "skip",
       item.summary,
       {
         nexaId: item.nexaId,
@@ -1109,9 +1159,9 @@ async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncO
 function recomputeTotals(run: SimproSyncRun) {
   run.totals = {
     fetched: run.operations.length,
-    created: run.operations.filter((item) => item.action === "create").length,
+    created: run.operations.filter((item) => item.action === "create" || item.action === "preview").length,
     linked: run.operations.filter((item) => item.action === "link").length,
-    skipped: run.operations.filter((item) => item.action === "skip" || item.action === "preview").length,
+    skipped: run.operations.filter((item) => item.action === "skip").length,
     conflicts: run.operations.filter((item) => item.action === "conflict").length,
     errors: run.operations.filter((item) => item.action === "error").length,
   };
@@ -1457,6 +1507,7 @@ export function isValidWebhookSecret(headers: Headers) {
 /**
  * Remove NeXa jobs/quotes that were created from simPRO imports so a clean re-import can run.
  * Does not delete customers/sites (those stay linked).
+ * Also clears ALL job/quote sync + entity links (including orphans left by directory deletes).
  */
 export function cleanupImportedSimproRecords(input?: {
   entities?: Array<"jobs" | "quotes">;
@@ -1474,6 +1525,8 @@ export function cleanupImportedSimproRecords(input?: {
 
   let deletedJobs = 0;
   let deletedQuotes = 0;
+  let clearedSyncLinks = 0;
+  let clearedEntityLinks = 0;
 
   if (entities.includes("jobs")) {
     for (const job of getJobs()) {
@@ -1483,10 +1536,15 @@ export function cleanupImportedSimproRecords(input?: {
       delete jobCostCentres[job.id];
       delete jobSections[job.id];
       delete jobSchedulePlans[job.id];
-      simproSyncStore.links = simproSyncStore.links.filter(
-        (link) => !(link.nexaType === "jobs" && link.nexaId === job.id),
-      );
     }
+    const before = simproSyncStore.links.length;
+    simproSyncStore.links = simproSyncStore.links.filter(
+      (link) => link.nexaType !== "jobs" && link.simproType !== "jobs",
+    );
+    clearedSyncLinks += before - simproSyncStore.links.length;
+    clearedEntityLinks += removeSimproEntityLinksByTypes({
+      entityTypes: ["job"],
+    });
   }
 
   if (entities.includes("quotes")) {
@@ -1497,10 +1555,13 @@ export function cleanupImportedSimproRecords(input?: {
       delete quoteCostCentres[quote.id];
       delete quoteSections[quote.id];
       delete quoteSchedulePlans[quote.id];
-      simproSyncStore.links = simproSyncStore.links.filter(
-        (link) => !(link.nexaType === "quotes" && link.nexaId === quote.id),
-      );
     }
+    const before = simproSyncStore.links.length;
+    simproSyncStore.links = simproSyncStore.links.filter(
+      (link) => link.nexaType !== "quotes" && link.simproType !== "quotes",
+    );
+    clearedSyncLinks += before - simproSyncStore.links.length;
+    clearedEntityLinks += removeSimproEntityLinksByTypes({ entityTypes: ["quote"] });
   }
 
   saveHubDetailState({
@@ -1518,10 +1579,10 @@ export function cleanupImportedSimproRecords(input?: {
     action: "deleted",
     recordType: "integration",
     recordId: "simpro-import-cleanup",
-    summary: `Removed ${deletedJobs} imported simPRO job(s) and ${deletedQuotes} imported simPRO quote(s) for a clean re-import.`,
+    summary: `Removed ${deletedJobs} imported simPRO job(s) and ${deletedQuotes} imported simPRO quote(s); cleared ${clearedSyncLinks} sync link(s) and ${clearedEntityLinks} entity link(s) for a clean re-import.`,
     source: "simPRO sync",
     importance: "high",
   });
 
-  return { deletedJobs, deletedQuotes };
+  return { deletedJobs, deletedQuotes, clearedSyncLinks, clearedEntityLinks };
 }
