@@ -446,7 +446,7 @@ export async function pullSchedulesForLinkedJobs(input?: {
   jobCount: number;
 }> {
   const preview = Boolean(input?.preview);
-  const limit = Math.max(1, input?.limit ?? 5000);
+  const limit = Math.max(1, input?.limit ?? 500);
   const linkedJobs = getJobs()
     .filter((job) => Boolean(job.simproJobId?.trim()))
     .slice(0, limit);
