@@ -204,6 +204,13 @@ export default function JobDetailPage() {
   });
   const [noteText, setNoteText] = useState("");
   const [poSupplier, setPoSupplier] = useState("");
+  const [poSupplierEmail, setPoSupplierEmail] = useState("");
+  const [poSupplierId, setPoSupplierId] = useState("");
+  const [poSupplierQuery, setPoSupplierQuery] = useState("");
+  const [poSupplierOpen, setPoSupplierOpen] = useState(false);
+  const [suppliers, setSuppliers] = useState<
+    Array<{ id: string; name: string; email?: string; account?: string; category?: string }>
+  >([]);
   const [poNote, setPoNote] = useState("");
   const [outcomeNote, setOutcomeNote] = useState("");
   const photoInputRef = useRef<HTMLInputElement | null>(null);
@@ -229,6 +236,40 @@ export default function JobDetailPage() {
         item.stage !== "Daywork",
     );
   }, [job]);
+
+  const filteredSuppliers = useMemo(() => {
+    const query = poSupplierQuery.trim().toLowerCase();
+    if (!query) return suppliers.slice(0, 8);
+    return suppliers
+      .filter((supplier) => {
+        const haystack = [supplier.name, supplier.account, supplier.category, supplier.email]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .slice(0, 8);
+  }, [poSupplierQuery, suppliers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/field/suppliers", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok || cancelled) return;
+        const body = (await response.json()) as {
+          suppliers?: Array<{ id: string; name: string; email?: string; account?: string; category?: string }>;
+        };
+        if (!cancelled && Array.isArray(body.suppliers)) {
+          setSuppliers(body.suppliers);
+        }
+      })
+      .catch(() => {
+        // Supplier directory optional until Core People → Suppliers is populated.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setTab(initialTab);
@@ -428,21 +469,47 @@ export default function JobDetailPage() {
 
   async function submitPoRequest(event: FormEvent) {
     event.preventDefault();
-    if (!job || (!poSupplier.trim() && !poNote.trim())) return;
+    if (!job || !poNote.trim()) return;
+    const selected =
+      (poSupplierId
+        ? suppliers.find((item) => item.id === poSupplierId)
+        : undefined) ||
+      suppliers.find((item) => item.name.toLowerCase() === poSupplier.trim().toLowerCase());
+    if (!selected) {
+      setError("Pick a supplier from the Core list — start typing, then tap the match.");
+      return;
+    }
     const saved = await runWorkflowAction(
       "request_po",
       {
-        supplier: poSupplier,
+        supplier: selected.name,
+        supplierEmail: selected.email || poSupplierEmail || undefined,
         note: poNote,
         jobRef: job.jobRef,
         costCentreName: job.costCentre,
       },
-      `PO request sent for ${job.jobRef}.`,
+      `PO request sent for ${job.jobRef} · ${selected.name}.`,
     );
     if (saved) {
       setPoSupplier("");
+      setPoSupplierEmail("");
+      setPoSupplierId("");
+      setPoSupplierQuery("");
       setPoNote("");
     }
+  }
+
+  function selectPoSupplier(supplier: {
+    id: string;
+    name: string;
+    email?: string;
+  }) {
+    setPoSupplier(supplier.name);
+    setPoSupplierQuery(supplier.name);
+    setPoSupplierId(supplier.id);
+    setPoSupplierEmail(supplier.email || "");
+    setPoSupplierOpen(false);
+    setError("");
   }
 
   async function setOutcome(status: FieldWorkflowOutcome["status"]) {
@@ -1235,13 +1302,58 @@ export default function JobDetailPage() {
             <strong>
               <ShoppingCart size={16} /> Request PO
             </strong>
-            <label className="check-field">
+            <label className="check-field field-supplier-picker">
               <span>Supplier</span>
               <input
-                value={poSupplier}
-                onChange={(event) => setPoSupplier(event.target.value)}
-                placeholder="Supplier name"
+                value={poSupplierQuery}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setPoSupplierQuery(value);
+                  setPoSupplier(value);
+                  setPoSupplierId("");
+                  setPoSupplierEmail("");
+                  setPoSupplierOpen(true);
+                }}
+                onFocus={() => setPoSupplierOpen(true)}
+                onBlur={() => {
+                  window.setTimeout(() => setPoSupplierOpen(false), 150);
+                }}
+                placeholder={suppliers.length ? "Start typing a Core supplier…" : "No suppliers in Core yet"}
+                autoComplete="off"
+                disabled={!suppliers.length}
               />
+              {poSupplierId ? (
+                <small className="muted">Selected from Core{poSupplierEmail ? ` · ${poSupplierEmail}` : ""}</small>
+              ) : (
+                <small className="muted">
+                  {suppliers.length
+                    ? "Linked to Core People → Suppliers — type then select."
+                    : "Add suppliers in Core (People → Suppliers) first."}
+                </small>
+              )}
+              {poSupplierOpen && suppliers.length ? (
+                <div className="field-supplier-results" role="listbox" aria-label="Core suppliers">
+                  {filteredSuppliers.length ? (
+                    filteredSuppliers.map((supplier) => (
+                      <button
+                        key={supplier.id}
+                        type="button"
+                        role="option"
+                        className={supplier.id === poSupplierId ? "is-selected" : undefined}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectPoSupplier(supplier)}
+                      >
+                        <strong>{supplier.name}</strong>
+                        <small>
+                          {[supplier.account, supplier.category].filter(Boolean).join(" · ") || "Core supplier"}
+                        </small>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="muted">No match — check the name in Core Suppliers.</p>
+                  )}
+                </div>
+              ) : null}
             </label>
             <label className="check-field">
               <span>What do you need?</span>
@@ -1255,7 +1367,7 @@ export default function JobDetailPage() {
             <button
               type="submit"
               className="primary-btn"
-              disabled={workflowBusy || (!poSupplier.trim() && !poNote.trim())}
+              disabled={workflowBusy || !poSupplierId || !poNote.trim()}
             >
               <PackagePlus size={17} /> Send PO request
             </button>

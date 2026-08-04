@@ -183,6 +183,7 @@ export type EngineerWorkflowAction =
       action: "request_po";
       payload: {
         supplier: string;
+        supplierEmail?: string;
         note: string;
         jobRef?: string;
         costCentreId?: string;
@@ -820,6 +821,7 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
 
   if (input.action === "request_po") {
     const supplier = input.payload.supplier.trim() || "Supplier TBC";
+    const supplierEmail = input.payload.supplierEmail?.trim() || undefined;
     const note = input.payload.note.trim();
     const costCentreName = input.payload.costCentreName?.trim() || job?.costCentre || "Cost centre TBC";
     let corePurchaseRequestId = "";
@@ -831,6 +833,7 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
         costCentreName,
         requestedBy: createdBy,
         supplier,
+        supplierEmail,
         item: note || "Engineer requested supplier / PO support.",
         estimatedCost: 0,
         reason: note || `Requested from engineer app for ${costCentreName}.`,
