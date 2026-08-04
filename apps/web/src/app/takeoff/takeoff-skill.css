@@ -1,19 +1,33 @@
 .takeoff-skill-shell {
-  --skill-bg: #0f1714;
-  --skill-panel: #17231e;
-  --skill-panel-2: #1d2c26;
-  --skill-line: rgba(214, 232, 220, 0.12);
-  --skill-text: #e8f2ec;
-  --skill-muted: #9bb5a8;
-  --skill-accent: #3d9b74;
-  --skill-accent-2: #d7a13b;
-  --skill-danger: #e35d5d;
+  --ink: #101828;
+  --muted: #667085;
+  --subtle: #98a2b3;
+  --line: #eaecf0;
+  --line-soft: #f2f4f7;
+  --canvas: #f7f8fa;
+  --surface: #ffffff;
+  --blue: #3b9fd6;
+  --blue-dark: #1f7fb0;
+  --blue-deep: #14618c;
+  --blue-soft: #eef7fc;
+  --green: #278459;
+  --green-soft: #e8f5ee;
+  --amber: #b36a16;
+  --amber-soft: #fff4df;
+  --red: #b43a3a;
+  --red-soft: #fff0ef;
+  --nexa-accent: #006eb8;
+  --nexa-accent-2: #2e8c7d;
+  --nexa-grad: linear-gradient(135deg, #006eb8 0%, #2e8c7d 100%);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.06), 0 10px 20px -8px rgba(16, 24, 40, 0.14);
+  --radius-lg: 18px;
+  --radius: 13px;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 12% -10%, rgba(61, 155, 116, 0.22), transparent 42%),
-    radial-gradient(circle at 90% 0%, rgba(215, 161, 59, 0.12), transparent 36%),
-    var(--skill-bg);
-  color: var(--skill-text);
+    radial-gradient(circle at 0% 0%, rgba(0, 110, 184, 0.08), transparent 42%),
+    radial-gradient(circle at 100% 0%, rgba(46, 140, 125, 0.08), transparent 38%),
+    var(--canvas);
+  color: var(--ink);
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
@@ -22,13 +36,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 22px;
-  border-bottom: 1px solid var(--skill-line);
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(10px);
   position: sticky;
   top: 0;
   z-index: 5;
-  background: rgba(15, 23, 20, 0.88);
 }
 
 .takeoff-skill-brand {
@@ -41,10 +55,11 @@
   display: block;
   font-size: 17px;
   letter-spacing: 0.01em;
+  color: var(--ink);
 }
 
 .takeoff-skill-brand span {
-  color: var(--skill-muted);
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -53,9 +68,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: var(--skill-text);
+  color: var(--blue-deep);
   text-decoration: none;
-  border: 1px solid var(--skill-line);
+  border: 1px solid var(--line);
+  background: var(--surface);
   border-radius: 999px;
   padding: 8px 12px;
   font-size: 12px;
@@ -79,13 +95,13 @@
 }
 
 .takeoff-skill-ai.on {
-  background: rgba(61, 155, 116, 0.18);
-  color: #8be0b8;
+  background: var(--green-soft);
+  color: var(--green);
 }
 
 .takeoff-skill-ai.off {
-  background: rgba(215, 161, 59, 0.16);
-  color: #f0d08a;
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .takeoff-skill-banner {
@@ -97,13 +113,13 @@
 }
 
 .takeoff-skill-banner.ok {
-  background: rgba(61, 155, 116, 0.16);
-  color: #b6efd2;
+  background: var(--green-soft);
+  color: var(--green);
 }
 
 .takeoff-skill-banner.error {
-  background: rgba(227, 93, 93, 0.16);
-  color: #ffc0c0;
+  background: var(--red-soft);
+  color: var(--red);
 }
 
 .takeoff-skill-layout {
@@ -122,11 +138,30 @@
 .takeoff-skill-card,
 .takeoff-skill-panel,
 .takeoff-skill-hero,
-.takeoff-skill-empty-state {
-  background: linear-gradient(180deg, var(--skill-panel), var(--skill-panel-2));
-  border: 1px solid var(--skill-line);
-  border-radius: 18px;
+.takeoff-skill-empty-state,
+.takeoff-skill-auth {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
   padding: 16px;
+}
+
+.takeoff-skill-auth {
+  max-width: 560px;
+  margin: 48px auto;
+  text-align: left;
+}
+
+.takeoff-skill-auth h1 {
+  margin: 0 0 8px;
+  font-family: "Fraunces", "IBM Plex Serif", Georgia, serif;
+  font-size: 28px;
+}
+
+.takeoff-skill-auth p {
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .takeoff-skill-card header,
@@ -145,6 +180,7 @@
   margin: 0;
   font-family: "Fraunces", "IBM Plex Serif", Georgia, serif;
   font-weight: 600;
+  color: var(--ink);
 }
 
 .takeoff-skill-card label {
@@ -152,15 +188,18 @@
   gap: 6px;
   margin-bottom: 10px;
   font-size: 12px;
-  color: var(--skill-muted);
+  color: var(--muted);
+  font-weight: 600;
 }
 
 .takeoff-skill-card input,
-.takeoff-skill-card select {
+.takeoff-skill-card select,
+.takeoff-skill-inline-link select,
+.takeoff-skill-invoke textarea {
   width: 100%;
-  border: 1px solid var(--skill-line);
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--skill-text);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
   border-radius: 10px;
   padding: 9px 11px;
 }
@@ -174,8 +213,8 @@
 
 .takeoff-skill-project-list button {
   text-align: left;
-  border: 1px solid var(--skill-line);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  background: var(--canvas);
   color: inherit;
   border-radius: 12px;
   padding: 10px 12px;
@@ -183,8 +222,8 @@
 }
 
 .takeoff-skill-project-list button.active {
-  border-color: rgba(61, 155, 116, 0.55);
-  background: rgba(61, 155, 116, 0.14);
+  border-color: rgba(0, 110, 184, 0.45);
+  background: var(--blue-soft);
 }
 
 .takeoff-skill-project-list strong,
@@ -196,7 +235,7 @@
 .takeoff-skill-project-list small,
 .takeoff-skill-doc-grid small,
 .takeoff-skill-table-wrap small {
-  color: var(--skill-muted);
+  color: var(--subtle);
   margin-top: 2px;
 }
 
@@ -215,19 +254,27 @@
 }
 
 .takeoff-skill-primary {
-  background: linear-gradient(135deg, #3d9b74, #2e7d5d);
+  background: var(--nexa-grad);
   color: white;
+}
+
+.takeoff-skill-hero-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
 }
 
 .takeoff-skill-primary.file {
   position: relative;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .takeoff-skill-secondary {
-  background: transparent;
-  color: var(--skill-text);
-  border: 1px solid var(--skill-line);
+  background: var(--surface);
+  color: var(--blue-deep);
+  border: 1px solid var(--line);
 }
 
 .takeoff-skill-primary:disabled,
@@ -244,11 +291,16 @@
 
 .takeoff-skill-hero .eyebrow {
   margin: 0 0 4px;
-  color: var(--skill-accent);
+  color: var(--nexa-accent);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.takeoff-skill-hero > div > p {
+  margin: 6px 0 0;
+  color: var(--muted);
 }
 
 .takeoff-skill-invoke {
@@ -256,28 +308,23 @@
   gap: 10px;
   margin: 16px 0 4px;
   padding: 12px;
-  border: 1px solid var(--skill-line);
+  border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--blue-soft);
 }
 
 .takeoff-skill-invoke label {
   display: grid;
   gap: 6px;
-  color: var(--skill-muted);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 600;
 }
 
 .takeoff-skill-invoke textarea {
-  width: 100%;
-  border: 1px solid var(--skill-line);
-  background: rgba(0, 0, 0, 0.28);
-  color: var(--skill-text);
-  border-radius: 10px;
-  padding: 10px 12px;
   resize: vertical;
   font: inherit;
+  min-height: 64px;
 }
 
 .takeoff-skill-steps {
@@ -291,8 +338,8 @@
   display: flex;
   gap: 8px;
   text-align: left;
-  border: 1px solid var(--skill-line);
-  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--line);
+  background: var(--canvas);
   color: inherit;
   border-radius: 12px;
   padding: 10px;
@@ -300,13 +347,13 @@
 }
 
 .takeoff-skill-steps button.active {
-  border-color: rgba(61, 155, 116, 0.6);
-  background: rgba(61, 155, 116, 0.14);
+  border-color: rgba(0, 110, 184, 0.5);
+  background: var(--blue-soft);
 }
 
 .takeoff-skill-steps button.done b {
-  background: var(--skill-accent);
-  color: #062117;
+  background: var(--nexa-accent);
+  color: white;
 }
 
 .takeoff-skill-steps b {
@@ -315,7 +362,8 @@
   border-radius: 999px;
   display: grid;
   place-items: center;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--line-soft);
+  color: var(--blue-deep);
   font-size: 11px;
   flex: 0 0 auto;
 }
@@ -326,7 +374,7 @@
 }
 
 .takeoff-skill-steps small {
-  color: var(--skill-muted);
+  color: var(--subtle);
   font-size: 11px;
   margin-top: 2px;
 }
@@ -340,10 +388,10 @@
 
 .takeoff-skill-doc-grid article,
 .takeoff-skill-trade-grid button {
-  border: 1px solid var(--skill-line);
+  border: 1px solid var(--line);
   border-radius: 12px;
   padding: 12px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--canvas);
   color: inherit;
   text-align: left;
 }
@@ -353,14 +401,14 @@
 }
 
 .takeoff-skill-trade-grid button.active {
-  border-color: rgba(61, 155, 116, 0.55);
-  background: rgba(61, 155, 116, 0.14);
+  border-color: rgba(0, 110, 184, 0.5);
+  background: var(--blue-soft);
 }
 
 .takeoff-skill-trade-grid span,
 .takeoff-skill-doc-grid span {
   display: block;
-  color: var(--skill-muted);
+  color: var(--muted);
   font-size: 12px;
   margin-top: 4px;
 }
@@ -379,22 +427,15 @@
   align-items: center;
   gap: 8px;
   margin-right: auto;
-  color: var(--skill-muted);
+  color: var(--muted);
   font-size: 12px;
-}
-
-.takeoff-skill-inline-link select {
-  border: 1px solid var(--skill-line);
-  background: rgba(0, 0, 0, 0.25);
-  color: var(--skill-text);
-  border-radius: 10px;
-  padding: 8px 10px;
 }
 
 .takeoff-skill-table-wrap {
   overflow: auto;
-  border: 1px solid var(--skill-line);
+  border: 1px solid var(--line);
   border-radius: 12px;
+  background: var(--surface);
 }
 
 .takeoff-skill-table-wrap table {
@@ -406,17 +447,17 @@
 .takeoff-skill-table-wrap th,
 .takeoff-skill-table-wrap td {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--skill-line);
+  border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
 }
 
 .takeoff-skill-table-wrap th {
-  color: var(--skill-muted);
+  color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--canvas);
 }
 
 .takeoff-skill-table-wrap td strong,
@@ -427,7 +468,7 @@
 .takeoff-skill-hints {
   margin: 12px 0 0;
   padding-left: 18px;
-  color: var(--skill-muted);
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -442,8 +483,8 @@
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  border: 1px solid var(--skill-line);
-  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid var(--line);
+  background: var(--canvas);
   color: inherit;
   padding: 7px 11px;
   font-size: 12px;
@@ -451,8 +492,9 @@
 }
 
 .takeoff-skill-chip-row .chip.on {
-  background: rgba(61, 155, 116, 0.18);
-  border-color: rgba(61, 155, 116, 0.5);
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.45);
+  color: var(--blue-deep);
 }
 
 .kind {
@@ -465,13 +507,13 @@
 }
 
 .kind.primary {
-  background: rgba(61, 155, 116, 0.18);
-  color: #9be4c2;
+  background: var(--blue-soft);
+  color: var(--blue-deep);
 }
 
 .kind.secondary {
-  background: rgba(215, 161, 59, 0.16);
-  color: #f0d08a;
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .conf {
@@ -483,31 +525,414 @@
 }
 
 .conf.high {
-  background: rgba(61, 155, 116, 0.2);
-  color: #9be4c2;
+  background: var(--green-soft);
+  color: var(--green);
 }
 
 .conf.medium {
-  background: rgba(215, 161, 59, 0.18);
-  color: #f0d08a;
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .conf.low {
-  background: rgba(227, 93, 93, 0.18);
-  color: #ffb4b4;
+  background: var(--red-soft);
+  color: var(--red);
 }
 
 .takeoff-skill-table-wrap td.bad {
-  color: #ffb4b4;
+  color: var(--red);
 }
 
 .takeoff-skill-table-wrap td.ok {
-  color: #9be4c2;
+  color: var(--green);
 }
 
 .takeoff-skill-empty,
 .takeoff-skill-note {
-  color: var(--skill-muted);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.takeoff-skill-callout {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 110, 184, 0.2);
+  background: var(--blue-soft);
+}
+
+.takeoff-skill-callout strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.takeoff-skill-callout p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.takeoff-skill-callout .kind {
+  margin: 0 4px;
+}
+
+.takeoff-board {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+  min-height: 560px;
+}
+
+.takeoff-board-sidebar {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.takeoff-board-sidebar > header {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.takeoff-board-sidebar > header strong {
+  display: block;
+  font-size: 13px;
+}
+
+.takeoff-board-sidebar > header span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.takeoff-board-items {
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.takeoff-board-items h4 {
+  margin: 8px 6px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-board-items .item {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.takeoff-board-items .item:hover,
+.takeoff-board-items .item.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.28);
+}
+
+.takeoff-board-items .item.derived {
+  cursor: default;
+  opacity: 0.88;
+}
+
+.takeoff-board-items .meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.takeoff-board-items .meta strong {
+  font-size: 12px;
+}
+
+.takeoff-board-items .meta small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.takeoff-board-items em {
+  font-style: normal;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--blue-deep);
+  min-width: 1.5rem;
+  text-align: right;
+}
+
+.takeoff-board-items input {
+  width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.takeoff-board-main {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.takeoff-board-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.takeoff-board-panel > header {
+  align-items: flex-start;
+}
+
+@media (max-width: 960px) {
+  .takeoff-board {
+    grid-template-columns: 1fr;
+  }
+}
+
+.takeoff-overlay-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+}
+
+.takeoff-overlay-toolbar label {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-overlay-toolbar select {
+  min-width: 160px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.takeoff-overlay-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.takeoff-overlay-legend .legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: var(--canvas);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-overlay-legend .legend.on {
+  border-color: rgba(0, 110, 184, 0.35);
+  background: var(--surface);
+}
+
+.takeoff-overlay-legend .swatch,
+.takeoff-overlay-list .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--swatch, var(--blue));
+  display: inline-block;
+}
+
+.takeoff-overlay-count {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  flex: 1 1 180px;
+}
+
+.takeoff-overlay-stage {
+  position: relative;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #dfe5ec;
+  overflow: auto;
+  max-height: min(70vh, 820px);
+}
+
+.takeoff-overlay-canvas-wrap {
+  position: relative;
+  display: inline-block;
+  min-width: 100%;
+}
+
+.takeoff-overlay-pdf,
+.takeoff-overlay-hits {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.takeoff-overlay-tools {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.takeoff-overlay-tools .tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 11px;
+  background: var(--canvas);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.takeoff-overlay-tools .tool.on {
+  background: var(--blue-soft);
+  border-color: rgba(0, 110, 184, 0.45);
+  color: var(--blue-deep);
+}
+
+.takeoff-overlay-canvas-wrap.tool-add {
+  cursor: crosshair;
+}
+
+.takeoff-overlay-canvas-wrap.tool-delete {
+  cursor: not-allowed;
+}
+
+.takeoff-overlay-canvas-wrap.tool-select {
+  cursor: default;
+}
+
+.takeoff-overlay-hits {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.takeoff-overlay-list li.selected button {
+  background: var(--blue-soft);
+}
+
+.takeoff-overlay-selected {
+  margin-top: 10px;
+}
+
+.takeoff-overlay-status {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.takeoff-overlay-status.error {
+  color: var(--red);
+}
+
+.takeoff-overlay-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.takeoff-overlay-list h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.takeoff-overlay-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.takeoff-overlay-list li.empty {
+  color: var(--muted);
+  font-size: 13px;
+  padding: 8px;
+}
+
+.takeoff-overlay-list button {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.takeoff-overlay-list button:hover {
+  background: var(--canvas);
+}
+
+.takeoff-overlay-list li.excluded button {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.takeoff-overlay-list em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.takeoff-overlay-empty {
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: var(--canvas);
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -517,7 +942,7 @@
 }
 
 .takeoff-skill-empty-state p {
-  color: var(--skill-muted);
+  color: var(--muted);
   line-height: 1.55;
 }
 

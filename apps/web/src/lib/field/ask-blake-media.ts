@@ -161,6 +161,47 @@ export async function compressAskBlakeFiles(files: File[]) {
   return next;
 }
 
+/** Grab a still frame from a short site video for Ask Blake vision. */
+export async function frameFromAskBlakeVideo(file: File): Promise<string> {
+  if (typeof window === "undefined") {
+    throw new Error("Video frame capture only runs in the browser.");
+  }
+
+  const url = URL.createObjectURL(file);
+  try {
+    const video = document.createElement("video");
+    video.preload = "auto";
+    video.muted = true;
+    video.playsInline = true;
+    video.src = url;
+
+    await new Promise<void>((resolve, reject) => {
+      video.onloadeddata = () => resolve();
+      video.onerror = () => reject(new Error("Could not read video."));
+    });
+
+    const seekTo = Math.min(0.35, Math.max(0, (video.duration || 1) * 0.1));
+    if (Number.isFinite(seekTo) && seekTo > 0) {
+      await new Promise<void>((resolve) => {
+        video.onseeked = () => resolve();
+        try {
+          video.currentTime = seekTo;
+        } catch {
+          resolve();
+        }
+      });
+    }
+
+    const canvas = drawScaled(video, video.videoWidth || 1280, video.videoHeight || 720);
+    if (!canvas) throw new Error("Could not capture video frame.");
+    const output = encodeCanvas(canvas);
+    if (!output) throw new Error("Could not encode video frame.");
+    return output;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export function askBlakeFetchTimeoutMs() {
   return 40_000;
 }

@@ -45,6 +45,7 @@ type SkillAction =
   | "approve-plan"
   | "measure"
   | "sanity"
+  | "approve-overlay"
   | "set-step"
   | "apply-boq"
   | "invoke";
@@ -386,43 +387,34 @@ Drawing index: ${JSON.stringify(skill.drawingIndex.sheets.map((sheet) => ({
   }
 }
 
-function heuristicMeasure(skill: TakeoffSkillWorkflow): TakeoffMeasuredQuantity[] {
-  const sheetCount = Math.max(1, skill.drawingIndex.sheets.length);
-  const measured: TakeoffMeasuredQuantity[] = [];
-  const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
-
-  for (const primary of primaries) {
-    const method = primary.method;
-    const seed = primary.code.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-    const quantity =
-      primary.unit === "m2" ? Math.round((80 + (seed % 40) * sheetCount) * 10) / 10
-        : primary.unit === "m" ? Math.round((25 + (seed % 20) * sheetCount) * 10) / 10
-          : primary.unit === "m3" ? Math.round((3 + (seed % 5)) * 10) / 10
-            : Math.max(1, (seed % 12) + sheetCount);
-
-    measured.push({
+function emptyPrimarySkeleton(
+  skill: TakeoffSkillWorkflow,
+  note = "Select this item, then click each instance on the drawing to count",
+): TakeoffMeasuredQuantity[] {
+  return skill.assemblies
+    .filter((item) => item.included && item.kind === "primary")
+    .map((primary) => ({
       id: makeId("qty"),
       assemblyId: primary.id,
-      kind: "primary",
+      kind: "primary" as const,
       code: primary.code,
       description: primary.description,
-      quantity,
+      quantity: 0,
       unit: primary.unit,
-      method,
-      confidence: skill.drawingIndex.sheets.some((sheet) => sheet.reliability === "Low") && method.startsWith("vision")
-        ? "Low"
-        : confidenceRank(method),
-      sourceSheetIds: skill.drawingIndex.sheets.slice(0, 2).map((sheet) => sheet.id),
-      notes: "Heuristic measure — connect OpenAI / upload vector PDFs for text-tag counts",
-    });
-  }
-  return measured;
+      method: primary.method,
+      confidence: "Low" as const,
+      sourceSheetIds: [],
+      tagMatches: [],
+      notes: primary.unit === "nr"
+        ? note
+        : "Type the measured length/area in the takeoff board, or leave for office entry",
+    }));
 }
 
 async function textTagMeasure(
   project: TakeoffProject,
   skill: TakeoffSkillWorkflow,
-): Promise<TakeoffMeasuredQuantity[] | null> {
+): Promise<TakeoffMeasuredQuantity[]> {
   const primaries = skill.assemblies.filter((item) => item.included && item.kind === "primary");
   if (!primaries.length) return [];
 
@@ -438,7 +430,13 @@ async function textTagMeasure(
       // skip unreadable pdf
     }
   }
-  if (!extractedByDoc.size) return null;
+
+  if (!extractedByDoc.size) {
+    return emptyPrimarySkeleton(
+      skill,
+      "No readable PDF text layer — click each fixture on the drawing to count (PlanSwift-style)",
+    );
+  }
 
   const measured: TakeoffMeasuredQuantity[] = [];
   for (const primary of primaries) {
@@ -448,16 +446,21 @@ async function textTagMeasure(
     const sourceSheetIds: string[] = [];
 
     for (const [documentId, extracted] of extractedByDoc.entries()) {
+      if (!patterns.length) continue;
       const counted = countTextTagMatches(extracted.pages, patterns);
       total += counted.count;
       for (const match of counted.matches) {
+        const page = extracted.pages.find((row) => row.pageNumber === match.pageNumber);
         tagMatches.push({
+          id: makeId("pin"),
           documentId,
           fileName: extracted.fileName,
           pageNumber: match.pageNumber,
           text: match.text,
           x: match.x,
           y: match.y,
+          pageWidth: page?.width,
+          pageHeight: page?.height,
         });
         const sheet = skill.drawingIndex.sheets.find(
           (row) => row.documentId === documentId && row.page === match.pageNumber,
@@ -466,11 +469,7 @@ async function textTagMeasure(
       }
     }
 
-    const usedText = total > 0 && (
-      primary.method === "text-tag-count"
-      || primary.method === "schedule-extract"
-      || primary.unit === "nr"
-    );
+    const usedText = total > 0 && primary.unit === "nr";
 
     measured.push({
       id: makeId("qty"),
@@ -478,23 +477,42 @@ async function textTagMeasure(
       kind: "primary",
       code: primary.code,
       description: primary.description,
-      quantity: usedText ? total : total || 0,
+      quantity: usedText ? total : 0,
       unit: primary.unit,
       method: usedText ? "text-tag-count" : primary.method,
-      confidence: usedText ? "High" : total > 0 ? "Medium" : "Low",
+      confidence: usedText ? "High" : "Low",
       sourceSheetIds,
       tagMatches,
       notes: usedText
-        ? `Counted ${total} matching text tag(s) from PDF text layer`
-        : total
-          ? `Found ${total} weak text hits; method left as ${primary.method}`
-          : "No matching text tags found — needs schedule extract, explicit dimensions, or AI vision",
+        ? `Suggested ${total} text-tag pin(s) — verify on the drawing, then save`
+        : primary.unit === "nr"
+          ? "No tags found — select this item and click each instance on the drawing"
+          : "Enter metres / area manually in the takeoff board",
     });
   }
 
-  // If nothing found at all for nr items, fall back so UI isn't empty zeros only
-  const anyHits = measured.some((row) => row.quantity > 0);
-  if (!anyHits) return null;
+  // Provisional pipe/waste metres only as editable starting points when fixtures were found
+  const pointCodes = new Set(["P-WC", "P-WHB", "P-BATH", "P-SHR", "P-SINK", "P-APPL"]);
+  const points = measured
+    .filter((row) => pointCodes.has(row.code))
+    .reduce((sum, row) => sum + row.quantity, 0);
+  for (const code of ["P-PIPE-H", "P-PIPE-C"] as const) {
+    const pipeRow = measured.find((row) => row.code === code);
+    if (pipeRow && pipeRow.quantity <= 0 && points > 0) {
+      pipeRow.quantity = Math.round(points * 4 * 100) / 100;
+      pipeRow.method = "derived-formula";
+      pipeRow.confidence = "Low";
+      pipeRow.notes = `Provisional ${points} × 4 m — edit this number after checking the drawing`;
+    }
+  }
+  const wasteRow = measured.find((row) => row.code === "P-WASTE");
+  if (wasteRow && wasteRow.quantity <= 0 && points > 0) {
+    wasteRow.quantity = Math.round(points * 3 * 100) / 100;
+    wasteRow.method = "derived-formula";
+    wasteRow.confidence = "Low";
+    wasteRow.notes = `Provisional ${points} × 3 m waste — edit after checking the drawing`;
+  }
+
   return measured;
 }
 
@@ -515,12 +533,17 @@ function parseInvokePrompt(prompt: string): { trade: TakeoffTradeId; focusLabels
 
   const options = focusOptionsForTrade(trade);
   const focusLabels = options.filter((label) => {
-    const token = label.toLowerCase().split(/\s+/)[0] || "";
-    return token && lower.includes(token);
+    const lowerLabel = label.toLowerCase();
+    if (/sanitary|fittings|fixtures/.test(lower) && /wc|basin|bath|shower|sink|whb/.test(lowerLabel)) return true;
+    if (/hot.?cold|pipe|outlet/.test(lower) && /pipe|fitting|hot|appliance|isolation/.test(lowerLabel)) return true;
+    if (/waste|soil|svp/.test(lower) && /waste|soil/.test(lowerLabel)) return true;
+    const token = lowerLabel.split(/[^a-z0-9]+/).find((part) => part.length >= 3) || "";
+    return Boolean(token) && lower.includes(token);
   });
   return {
     trade,
-    focusLabels: focusLabels.length ? focusLabels : options.slice(0, 3),
+    // Full trade schedule by default — never silently drop baths/showers/fittings
+    focusLabels: focusLabels.length ? focusLabels : options,
   };
 }
 
@@ -536,6 +559,39 @@ function appendSecondaries(
       ? byAssembly.get(secondary.derivedFromPrimaryId)
       : undefined;
     const qty = parent ? deriveSecondaryQuantity(secondary, parent.quantity) : 0;
+    const parentPins = (parent?.tagMatches || []).filter((match) => !match.excluded);
+    const siblingIndex = secondaries
+      .filter((item) => item.derivedFromPrimaryId === secondary.derivedFromPrimaryId)
+      .findIndex((item) => item.code === secondary.code);
+    const siblingCount = Math.max(
+      1,
+      secondaries.filter((item) => item.derivedFromPrimaryId === secondary.derivedFromPrimaryId).length,
+    );
+    const perParent = parent && parent.quantity > 0
+      ? Math.max(1, Math.round(qty / parent.quantity))
+      : 1;
+    const tagMatches = parent && secondary.unit === "nr" && parentPins.length
+      ? parentPins.flatMap((pin, pinIndex) =>
+          Array.from({ length: perParent }, (_, copyIndex) => {
+            const angle = ((siblingIndex + 1) / (siblingCount + 1)) * Math.PI * 2
+              + pinIndex * 0.15
+              + copyIndex * 0.35;
+            const radius = 16 + siblingIndex * 2 + copyIndex * 4;
+            return {
+              id: makeId("pin"),
+              documentId: pin.documentId,
+              fileName: pin.fileName,
+              pageNumber: pin.pageNumber,
+              text: secondary.code.replace(/^P-/, ""),
+              x: pin.x + Math.cos(angle) * radius,
+              y: pin.y + Math.sin(angle) * radius,
+              pageWidth: pin.pageWidth,
+              pageHeight: pin.pageHeight,
+              derived: true as const,
+            };
+          }),
+        )
+      : undefined;
     out.push({
       id: makeId("qty"),
       assemblyId: secondary.id,
@@ -548,7 +604,10 @@ function appendSecondaries(
       confidence: parent?.confidence === "High" ? "High" : "Medium",
       sourceSheetIds: parent?.sourceSheetIds || [],
       derivation: secondary.derivation,
-      notes: parent ? `Derived from ${parent.code}` : "Missing primary quantity",
+      tagMatches,
+      notes: parent
+        ? `Derived from ${parent.code}${tagMatches?.length ? ` · ${tagMatches.length} overlay pin(s)` : ""}`
+        : "Missing primary quantity",
     });
   }
   return out;
@@ -646,7 +705,7 @@ export async function POST(
       notes: body?.notes ?? skill.scope.notes,
     };
     if (!scope.focusLabels.length) {
-      scope.focusLabels = focusOptionsForTrade(scope.trade).slice(0, 3);
+      scope.focusLabels = focusOptionsForTrade(scope.trade);
     }
     const assemblies = buildAssembliesForScope(scope);
     skill = {
@@ -677,15 +736,19 @@ export async function POST(
     if (!skill.planApproved) {
       return NextResponse.json({ error: "Approve the assembly plan before measuring" }, { status: 409 });
     }
-    const primaryMeasured =
-      (await textTagMeasure(project, skill))
-      || (await openAiMeasurePrimaries(project, skill))
-      || heuristicMeasure(skill);
+    // Drawing-first: text tags become suggested pins. Never invent fake heuristic quantities.
+    const primaryMeasured = await textTagMeasure(project, skill);
+    const pinCount = primaryMeasured.reduce(
+      (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
+      0,
+    );
     const measured = appendSecondaries(skill, primaryMeasured);
     skill = {
       ...skill,
       measured,
-      measureSummary: `Measured ${measured.filter((row) => row.kind === "primary").length} primary and ${measured.filter((row) => row.kind === "secondary").length} secondary quantities.`,
+      measureSummary: pinCount
+        ? `Takeoff board ready — ${pinCount} suggested pin(s) from PDF text. Verify on the drawing, click to add missing items, then save.`
+        : "Takeoff board ready — no text tags found. Select each fixture type and click every instance on the drawing (PlanSwift-style).",
       step: "review",
       updatedAt: stamp(),
     };
@@ -698,6 +761,77 @@ export async function POST(
       sanitySummary: failed
         ? `${failed} quantity(ies) failed sanity checks — audit before BOQ.`
         : "Sanity checks passed for measured quantities.",
+      step: "review",
+      updatedAt: stamp(),
+    };
+  } else if (action === "approve-overlay") {
+    // Office edited overlay pins (move / add / remove) — recount and re-derive where needed
+    const incoming = body?.measured || skill.measured;
+    const byAssemblyId = new Map(incoming.map((row) => [row.assemblyId, row]));
+    const primaries = incoming
+      .filter((row) => row.kind === "primary")
+      .map((row) => {
+        const activeMatches = (row.tagMatches || []).filter((match) => !match.excluded);
+        const quantity = row.unit === "nr" && (row.tagMatches?.length || 0) > 0
+          ? activeMatches.length
+          : row.quantity;
+        return {
+          ...row,
+          quantity,
+          tagMatches: row.tagMatches,
+          notes: row.tagMatches?.length
+            ? `Overlay: ${activeMatches.length} active pin(s) of ${row.tagMatches.length}`
+            : row.notes,
+        };
+      });
+
+    // Keep secondary overlay edits when present; otherwise re-derive from primaries
+    const primaryByAssembly = new Map(primaries.map((row) => [row.assemblyId, row]));
+    const secondaries = skill.assemblies
+      .filter((item) => item.included && item.kind === "secondary")
+      .map((secondary) => {
+        const existing = byAssemblyId.get(secondary.id);
+        const parent = secondary.derivedFromPrimaryId
+          ? primaryByAssembly.get(secondary.derivedFromPrimaryId)
+          : undefined;
+        const activePins = (existing?.tagMatches || []).filter((match) => !match.excluded);
+        const derivedQty = parent ? deriveSecondaryQuantity(secondary, parent.quantity) : 0;
+        const quantity = secondary.unit === "nr" && (existing?.tagMatches?.length || 0) > 0
+          ? activePins.length
+          : derivedQty;
+        return {
+          id: existing?.id || makeId("qty"),
+          assemblyId: secondary.id,
+          kind: "secondary" as const,
+          code: secondary.code,
+          description: secondary.description,
+          quantity,
+          unit: secondary.unit,
+          method: "derived-formula" as const,
+          confidence: (parent?.confidence === "High" ? "High" : "Medium") as TakeoffMeasuredQuantity["confidence"],
+          sourceSheetIds: parent?.sourceSheetIds || existing?.sourceSheetIds || [],
+          derivation: secondary.derivation,
+          tagMatches: existing?.tagMatches,
+          notes: existing?.tagMatches?.length
+            ? `Overlay: ${activePins.length} pin(s)`
+            : parent
+              ? `Derived from ${parent.code}`
+              : "Missing primary quantity",
+        };
+      });
+
+    const measured = runSanityChecks([...primaries, ...secondaries], skill);
+    const pinCount = measured.reduce(
+      (sum, row) => sum + (row.tagMatches || []).filter((match) => !match.excluded).length,
+      0,
+    );
+    skill = {
+      ...skill,
+      measured,
+      measureSummary: `Overlay saved — ${pinCount} active pin(s) across ${measured.length} line items.`,
+      sanitySummary: measured.some((row) => row.sanityCheck && !row.sanityCheck.ok)
+        ? "Some quantities still need attention after overlay edits."
+        : "Overlay edits saved — sanity checks passed.",
       step: "review",
       updatedAt: stamp(),
     };

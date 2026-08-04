@@ -2,14 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Clock3, MessageCircle, Settings2 } from "lucide-react";
+import { CalendarDays, Clock3, MessageCircle } from "lucide-react";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 const links = [
   { href: fieldPath("/"), label: "My Day", icon: CalendarDays },
   { href: fieldPath("/ask"), label: "Ask Blake", icon: MessageCircle },
   { href: fieldPath("/time-check"), label: "Hours", icon: Clock3 },
-  { href: fieldPath("/settings"), label: "Connect", icon: Settings2 },
 ];
 
 export function AppChrome({ children }: { children: React.ReactNode }) {
@@ -19,10 +18,10 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
     <div className="field-app">
       <header className="field-topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/brand/nexa-command-mark.svg" alt="" aria-hidden="true" />
+        <img src="/ewg-logo.png" alt="Errol Watson Group" />
         <div>
-          <strong>NeXa Field</strong>
-          <span>Linked to Core</span>
+          <strong>EWG Field</strong>
+          <span>Errol Watson Group</span>
         </div>
       </header>
       {children}
