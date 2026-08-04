@@ -2,6 +2,25 @@
 
 import { CalendarDays } from "lucide-react";
 
+const EMPLOYEE_BAR_COLORS = [
+  "#006eb8",
+  "#2e8c7d",
+  "#f79009",
+  "#7a5af8",
+  "#f04438",
+  "#12b76a",
+  "#2e90fa",
+  "#c11574",
+  "#9b7b32",
+  "#175cd3",
+];
+
+function colorForEmployee(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return EMPLOYEE_BAR_COLORS[hash % EMPLOYEE_BAR_COLORS.length] ?? "#006eb8";
+}
+
 const SLOTS_PER_DAY = 20;
 const START_MINUTES = 8 * 60;
 const SLOT_MINUTES = 30;
@@ -141,6 +160,7 @@ export function DashboardWeeklyGantt({
 
           {people.map((person) => {
             const personBookings = weekBookings.filter((booking) => booking.surveyor === person);
+            const personColor = colorForEmployee(person);
             return (
               <article className="dashboard-weekly-gantt-row" key={person}>
                 <header>
@@ -165,7 +185,7 @@ export function DashboardWeeklyGantt({
                   {nowMarker ? (
                     <span aria-hidden="true" className="job-gantt-live-marker dashboard-gantt-now" style={{ left: nowMarker.left }} />
                   ) : null}
-                  {personBookings.map((booking, index) => {
+                  {personBookings.map((booking) => {
                     const dayIndex = days.findIndex((day) => bookingFallsOnDate(booking, day));
                     if (dayIndex < 0) return null;
                     const firstDay = days[dayIndex]!;
@@ -178,10 +198,14 @@ export function DashboardWeeklyGantt({
                     const width = (Math.max(startSlot + 1, endSlot) - startSlot) / totalSlots * 100;
                     return (
                       <button
-                        className={`dashboard-weekly-gantt-bar tone-${index % 4}`}
+                        className="dashboard-weekly-gantt-bar"
                         key={booking.id}
                         type="button"
-                        style={{ left: `${left}%`, width: `${Math.max(width, 2.2)}%` }}
+                        style={{
+                          left: `${left}%`,
+                          width: `${Math.max(width, 2.2)}%`,
+                          background: personColor,
+                        }}
                         title={`${booking.ref} · ${booking.time} · ${booking.customerName}`}
                         onClick={() => onOpenBooking(booking)}
                       >

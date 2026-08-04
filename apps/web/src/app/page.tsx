@@ -10605,7 +10605,7 @@ export default function Dashboard() {
   }, [hasHydratedLocalData, requestHeaders, homeView]);
 
   useEffect(() => {
-    if (!hasHydratedLocalData) return;
+    if (!hasHydratedLocalData || homeView !== "dashboard") return;
     let cancelled = false;
     void (async () => {
       try {
@@ -10636,7 +10636,7 @@ export default function Dashboard() {
   }, [hasHydratedLocalData, requestHeaders, homeView]);
 
   useEffect(() => {
-    if (!hasHydratedLocalData) return;
+    if (!hasHydratedLocalData || homeView !== "dashboard") return;
     let cancelled = false;
     void (async () => {
       try {
@@ -27101,7 +27101,7 @@ export default function Dashboard() {
         count: upcomingRecurringJobs.length,
         title: "Upcoming services",
         detail: "Touch base in next 4 weeks",
-        onClick: () => openDashboardQueue("dashboard-recurring-services"),
+        onClick: () => setHomeView("recurring"),
       },
       {
         id: "po-requests",
@@ -27180,7 +27180,7 @@ export default function Dashboard() {
     const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
     const asOf = currentOperatingDate;
     const recurringDueNow = upcomingRecurringJobs.filter((plan) => plan.nextDueDate <= asOf).length;
-    const recurringPreview = upcomingRecurringJobs.slice(0, 4);
+    const recurringPreview = upcomingRecurringJobs.slice(0, 8);
 
     function openJobsFolder(folderKey: "pending" | "progress" | "review") {
       setActiveJobFolderKey(folderKey);
@@ -27188,161 +27188,157 @@ export default function Dashboard() {
       scrollWorkspaceToTop();
     }
 
-    const renderDashboardPanel = (panelId: DashboardPanelId) => {
-      switch (panelId) {
-        case "jobs":
-          return (
-            <button
-              className="nexa-kpi-card nexa-kpi-card-button"
-              id="dashboard-jobs"
-              type="button"
-              onClick={() => openJobsFolder("pending")}
-            >
-              <header>
-                <h3>Jobs</h3>
-                <span className="nexa-kpi-sub">{jobStageTotal} live</span>
-              </header>
-              <div className="nexa-kpi-bars">
-                {jobStageBars.map((row) => (
-                  <div
-                    className="nexa-kpi-bar-row nexa-kpi-bar-row-click"
-                    key={row.key}
-                    role="link"
-                    tabIndex={0}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openJobsFolder(row.key);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openJobsFolder(row.key);
-                      }
-                    }}
-                  >
-                    <span className="nexa-kpi-bar-label">{row.label}</span>
-                    <span className="nexa-kpi-bar-track">
-                      <span
-                        className="nexa-kpi-bar-fill"
-                        style={{
-                          width: `${(row.value / jobStageMax) * 100}%`,
-                          background:
-                            row.key === "pending" ? "#f79009" : row.key === "progress" ? "#006eb8" : "#12b76a",
-                        }}
-                      />
-                    </span>
-                    <strong className="nexa-kpi-bar-value">{row.value}</strong>
-                  </div>
-                ))}
-              </div>
-              <p className="nexa-kpi-card-hint">Pending · In progress · Complete — tap a bar to open</p>
-            </button>
-          );
-
-        case "notifications":
-          return (
-            <article className="nexa-kpi-card nexa-kpi-card-actions" id="dashboard-notifications">
-              <button
-                className="nexa-kpi-card-hit"
-                type="button"
-                onClick={() => {
-                  const first = activeActionCards[0];
-                  if (first) first.onClick();
+    const jobsCard = (
+      <button
+        className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed"
+        id="dashboard-jobs"
+        type="button"
+        onClick={() => openJobsFolder("pending")}
+      >
+        <header>
+          <h3>Jobs</h3>
+          <span className="nexa-kpi-sub">{jobStageTotal} live</span>
+        </header>
+        <div className="nexa-kpi-card-scroll">
+          <div className="nexa-kpi-bars">
+            {jobStageBars.map((row) => (
+              <div
+                className="nexa-kpi-bar-row nexa-kpi-bar-row-click"
+                key={row.key}
+                role="link"
+                tabIndex={0}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openJobsFolder(row.key);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openJobsFolder(row.key);
+                  }
                 }}
               >
-                <header>
-                  <h3>Action notifications</h3>
-                  <span className="nexa-kpi-sub">{actionTotal} open</span>
-                </header>
-              </button>
-              <div className="nexa-kpi-action-list">
-                {activeActionCards.length > 0 ? (
-                  activeActionCards.slice(0, 6).map((card) => (
-                    <button className={`nexa-kpi-action-row ${card.tone}`} key={card.id} type="button" onClick={card.onClick}>
-                      <strong>{card.count}</strong>
-                      <span>
-                        <b>{card.title}</b>
-                        <small>{card.detail}</small>
-                      </span>
-                    </button>
-                  ))
-                ) : (
-                  <p className="nexa-kpi-empty">Nothing needs a decision right now.</p>
-                )}
-              </div>
-              {dashboardDayworkReviews.length > 0 ? (
-                <div id="dashboard-daywork" className="nexa-kpi-action-list">
-                  {dashboardDayworkReviews.slice(0, 3).map((item) => (
-                    <button
-                      className="nexa-kpi-action-row amber"
-                      key={`${item.jobId}:${item.costCentreId}`}
-                      type="button"
-                      onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
-                    >
-                      <strong>DW</strong>
-                      <span>
-                        <b>{item.jobRef}</b>
-                        <small>{item.summary}</small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </article>
-          );
-
-        case "recurringServices":
-          return (
-            <button
-              className="nexa-kpi-card nexa-kpi-card-button"
-              id="dashboard-recurring-services"
-              type="button"
-              onClick={() => setHomeView("recurring")}
-            >
-              <header>
-                <h3>Upcoming services</h3>
-                <span className="nexa-kpi-sub">{upcomingRecurringJobs.length} / 4 wks</span>
-              </header>
-              <div className="nexa-kpi-metric">
-                <strong>{upcomingRecurringJobs.length}</strong>
-                <span>
-                  {recurringDueNow > 0
-                    ? `${recurringDueNow} due now · rest in next 4 weeks`
-                    : "annual boiler services to book"}
+                <span className="nexa-kpi-bar-label">{row.label}</span>
+                <span className="nexa-kpi-bar-track">
+                  <span
+                    className="nexa-kpi-bar-fill"
+                    style={{
+                      width: `${(row.value / jobStageMax) * 100}%`,
+                      background:
+                        row.key === "pending" ? "#f79009" : row.key === "progress" ? "#006eb8" : "#12b76a",
+                    }}
+                  />
                 </span>
+                <strong className="nexa-kpi-bar-value">{row.value}</strong>
               </div>
-              <div className="nexa-kpi-bars">
-                {recurringPreview.length > 0 ? (
-                  recurringPreview.map((plan) => (
-                    <div className="nexa-kpi-bar-row" key={plan.id}>
-                      <span className="nexa-kpi-bar-label" title={plan.customer}>
-                        {plan.customer}
-                      </span>
-                      <span className="nexa-kpi-bar-track">
-                        <span
-                          className="nexa-kpi-bar-fill"
-                          style={{
-                            width: "70%",
-                            background: plan.nextDueDate <= asOf ? "#f04438" : "#f79009",
-                          }}
-                        />
-                      </span>
-                      <strong className="nexa-kpi-bar-value">{formatUkDate(plan.nextDueDate)}</strong>
-                    </div>
-                  ))
-                ) : (
-                  <p className="nexa-kpi-empty">No services due in the next 4 weeks.</p>
-                )}
-              </div>
-              <p className="nexa-kpi-card-hint">Tap to open recurring plans and touch base with clients</p>
-            </button>
-          );
+            ))}
+          </div>
+          <p className="nexa-kpi-card-hint">Pending · In progress · Complete</p>
+        </div>
+      </button>
+    );
 
-        default:
-          return null;
-      }
-    };
+    const actionsCard = (
+      <article className="nexa-kpi-card nexa-kpi-card-actions nexa-kpi-card-fixed" id="dashboard-notifications">
+        <button
+          className="nexa-kpi-card-hit"
+          type="button"
+          onClick={() => {
+            const first = activeActionCards[0];
+            if (first) first.onClick();
+          }}
+        >
+          <header>
+            <h3>Action notifications</h3>
+            <span className="nexa-kpi-sub">{actionTotal} open</span>
+          </header>
+        </button>
+        <div className="nexa-kpi-card-scroll">
+          <div className="nexa-kpi-action-list">
+            {activeActionCards.length > 0 ? (
+              activeActionCards.map((card) => (
+                <button className={`nexa-kpi-action-row ${card.tone}`} key={card.id} type="button" onClick={card.onClick}>
+                  <strong>{card.count}</strong>
+                  <span>
+                    <b>{card.title}</b>
+                    <small>{card.detail}</small>
+                  </span>
+                </button>
+              ))
+            ) : (
+              <p className="nexa-kpi-empty">Nothing needs a decision right now.</p>
+            )}
+          </div>
+          {dashboardDayworkReviews.length > 0 ? (
+            <div id="dashboard-daywork" className="nexa-kpi-action-list">
+              {dashboardDayworkReviews.slice(0, 6).map((item) => (
+                <button
+                  className="nexa-kpi-action-row amber"
+                  key={`${item.jobId}:${item.costCentreId}`}
+                  type="button"
+                  onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
+                >
+                  <strong>DW</strong>
+                  <span>
+                    <b>{item.jobRef}</b>
+                    <small>{item.summary}</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </article>
+    );
+
+    const upcomingCard = (
+      <button
+        className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed"
+        id="dashboard-recurring-services"
+        type="button"
+        onClick={() => setHomeView("recurring")}
+      >
+        <header>
+          <h3>Upcoming services</h3>
+          <span className="nexa-kpi-sub">{upcomingRecurringJobs.length} / 4 wks</span>
+        </header>
+        <div className="nexa-kpi-card-scroll">
+          <div className="nexa-kpi-metric">
+            <strong>{upcomingRecurringJobs.length}</strong>
+            <span>
+              {recurringDueNow > 0
+                ? `${recurringDueNow} due now · rest in next 4 weeks`
+                : "annual boiler services to book"}
+            </span>
+          </div>
+          <div className="nexa-kpi-bars">
+            {recurringPreview.length > 0 ? (
+              recurringPreview.map((plan) => (
+                <div className="nexa-kpi-bar-row" key={plan.id}>
+                  <span className="nexa-kpi-bar-label" title={plan.customer}>
+                    {plan.customer}
+                  </span>
+                  <span className="nexa-kpi-bar-track">
+                    <span
+                      className="nexa-kpi-bar-fill"
+                      style={{
+                        width: "70%",
+                        background: plan.nextDueDate <= asOf ? "#f04438" : "#f79009",
+                      }}
+                    />
+                  </span>
+                  <strong className="nexa-kpi-bar-value">{formatUkDate(plan.nextDueDate)}</strong>
+                </div>
+              ))
+            ) : (
+              <p className="nexa-kpi-empty">No services due in the next 4 weeks.</p>
+            )}
+          </div>
+          <p className="nexa-kpi-card-hint">Tap to touch base with clients</p>
+        </div>
+      </button>
+    );
 
     return (
       <section className={`ops-dashboard ${isDashboardCustomising ? "customising" : ""}`} aria-label="Operations dashboard">
@@ -27388,40 +27384,15 @@ export default function Dashboard() {
             }}
             onOpenQuotes={() => setHomeView("quotes")}
             onOpenLeads={() => setHomeView("leads")}
+            opsCards={
+              <>
+                {(!activeDashboardLayout.hidden.includes("jobs") ? jobsCard : null)}
+                {(!activeDashboardLayout.hidden.includes("notifications") ? actionsCard : null)}
+                {(!activeDashboardLayout.hidden.includes("recurringServices") ? upcomingCard : null)}
+              </>
+            }
           />
         ) : null}
-
-        <div className="nexa-kpi-grid nexa-ops-kpi-grid">
-          {visibleDashboardPanelIds.map((panelId) => (
-            <div className={`dashboard-panel-slot ${isDashboardCustomising ? "editing" : ""}`} key={panelId}>
-              {isDashboardCustomising ? (
-                <div className="dashboard-panel-tools">
-                  <strong>{dashboardPanelMeta[panelId].label}</strong>
-                  <div>
-                    <button
-                      type="button"
-                      disabled={activeDashboardLayout.order.indexOf(panelId) <= 0}
-                      onClick={() => moveDashboardPanel(panelId, -1)}
-                    >
-                      Move up
-                    </button>
-                    <button
-                      type="button"
-                      disabled={activeDashboardLayout.order.indexOf(panelId) >= activeDashboardLayout.order.length - 1}
-                      onClick={() => moveDashboardPanel(panelId, 1)}
-                    >
-                      Move down
-                    </button>
-                    <button type="button" onClick={() => toggleDashboardPanelVisibility(panelId)}>
-                      Hide
-                    </button>
-                  </div>
-                </div>
-              ) : null}
-              {renderDashboardPanel(panelId)}
-            </div>
-          ))}
-        </div>
 
         {!isDashboardCustomising ? (
           <DashboardWeeklyGantt

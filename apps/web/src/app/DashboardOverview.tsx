@@ -16,9 +16,18 @@ function num(record: AnyRecord, key: string): number {
 }
 
 function useCountUp(target: number, duration = 750): number {
-  const [value, setValue] = useState(0);
-  const fromRef = useRef(0);
+  const [value, setValue] = useState(target);
+  const fromRef = useRef(target);
+  const mountedRef = useRef(false);
   useEffect(() => {
+    // Skip the first mount animation reset when target is already known — avoids flicker.
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      fromRef.current = target;
+      setValue(target);
+      return;
+    }
+    if (fromRef.current === target) return;
     const from = fromRef.current;
     const start = performance.now();
     let raf = 0;
@@ -174,9 +183,11 @@ type DashboardOverviewProps = {
   onOpenJobs?: () => void;
   onOpenQuotes?: () => void;
   onOpenLeads?: () => void;
+  /** Ops widgets rendered in the same aligned grid (Jobs / Actions / Upcoming). */
+  opsCards?: ReactNode;
 };
 
-export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: DashboardOverviewProps = {}) {
+export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads, opsCards }: DashboardOverviewProps = {}) {
   const [jobs, setJobs] = useState<AnyRecord[]>([]);
   const [quotes, setQuotes] = useState<AnyRecord[]>([]);
   const [leads, setLeads] = useState<AnyRecord[]>([]);
@@ -220,7 +231,6 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
     return counts;
   }, [jobs]);
 
-  const jobsByStage = useMemo(() => countBy(jobs, "status"), [jobs]);
   const quotesByStatus = useMemo(() => countBy(quotes, "status"), [quotes]);
 
   const pipeline = useMemo(() => {
@@ -282,10 +292,6 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
   const healthTotal = health.green + health.amber + health.red;
   const shownJobsValue = useCountUp(value.jobsValue);
 
-  if (!loaded && !jobs.length && !quotes.length && !leads.length) {
-    return null;
-  }
-
   const Card = ({
     children,
     onClick,
@@ -296,40 +302,42 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
     label: string;
   }) =>
     onClick ? (
-      <button className="nexa-kpi-card nexa-kpi-card-button" type="button" onClick={onClick} aria-label={label}>
+      <button className="nexa-kpi-card nexa-kpi-card-button nexa-kpi-card-fixed" type="button" onClick={onClick} aria-label={label}>
         {children}
       </button>
     ) : (
-      <article className="nexa-kpi-card">{children}</article>
+      <article className="nexa-kpi-card nexa-kpi-card-fixed">{children}</article>
     );
 
   return (
-    <section className="nexa-kpi-grid" aria-label="Workspace overview">
+    <section className="nexa-kpi-grid nexa-kpi-grid-aligned" aria-label="Workspace overview">
       <Card onClick={onOpenJobs} label="Open jobs">
         <header>
           <h3>Job health</h3>
-          <span className="nexa-kpi-sub">{healthTotal} live</span>
+          <span className="nexa-kpi-sub">{loaded ? `${healthTotal} live` : "…"}</span>
         </header>
-        <div className="nexa-kpi-donut-wrap">
-          <Donut
-            total={healthTotal}
-            segments={[
-              { value: health.green, color: HEALTH_COLORS.green },
-              { value: health.amber, color: HEALTH_COLORS.amber },
-              { value: health.red, color: HEALTH_COLORS.red },
-            ]}
-          />
-          <ul className="nexa-kpi-legend">
-            <li>
-              <span style={{ background: HEALTH_COLORS.green }} /> On track <strong>{health.green}</strong>
-            </li>
-            <li>
-              <span style={{ background: HEALTH_COLORS.amber }} /> Attention <strong>{health.amber}</strong>
-            </li>
-            <li>
-              <span style={{ background: HEALTH_COLORS.red }} /> Blocked <strong>{health.red}</strong>
-            </li>
-          </ul>
+        <div className="nexa-kpi-card-scroll">
+          <div className="nexa-kpi-donut-wrap">
+            <Donut
+              total={healthTotal}
+              segments={[
+                { value: health.green, color: HEALTH_COLORS.green },
+                { value: health.amber, color: HEALTH_COLORS.amber },
+                { value: health.red, color: HEALTH_COLORS.red },
+              ]}
+            />
+            <ul className="nexa-kpi-legend">
+              <li>
+                <span style={{ background: HEALTH_COLORS.green }} /> On track <strong>{health.green}</strong>
+              </li>
+              <li>
+                <span style={{ background: HEALTH_COLORS.amber }} /> Attention <strong>{health.amber}</strong>
+              </li>
+              <li>
+                <span style={{ background: HEALTH_COLORS.red }} /> Blocked <strong>{health.red}</strong>
+              </li>
+            </ul>
+          </div>
         </div>
       </Card>
 
@@ -338,7 +346,9 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
           <h3>{progress.title}</h3>
           <span className="nexa-kpi-sub">{progress.badge}</span>
         </header>
-        <Ring percent={progress.percent} centerLabel={`${progress.percent}%`} sub={progress.sub} />
+        <div className="nexa-kpi-card-scroll">
+          <Ring percent={progress.percent} centerLabel={`${progress.percent}%`} sub={progress.sub} />
+        </div>
       </Card>
 
       <Card
@@ -353,15 +363,9 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
           <h3>Pipeline</h3>
           <span className="nexa-kpi-sub">lead → quote → job</span>
         </header>
-        <Bars data={pipeline} />
-      </Card>
-
-      <Card onClick={onOpenJobs} label="Open jobs by stage">
-        <header>
-          <h3>Jobs by stage</h3>
-          <span className="nexa-kpi-sub">{jobs.length} total</span>
-        </header>
-        <Bars data={jobsByStage} />
+        <div className="nexa-kpi-card-scroll">
+          <Bars data={pipeline} />
+        </div>
       </Card>
 
       <Card onClick={onOpenQuotes} label="Open quotes">
@@ -369,15 +373,21 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
           <h3>Quotes by status</h3>
           <span className="nexa-kpi-sub">{quotes.length} total</span>
         </header>
-        <Bars data={quotesByStatus} />
+        <div className="nexa-kpi-card-scroll">
+          <Bars data={quotesByStatus} />
+        </div>
       </Card>
+
+      {opsCards}
 
       <Card onClick={onOpenJobs} label="Open workload">
         <header>
           <h3>Workload</h3>
           <span className="nexa-kpi-sub">jobs per owner</span>
         </header>
-        <Bars data={workload} />
+        <div className="nexa-kpi-card-scroll">
+          <Bars data={workload} />
+        </div>
       </Card>
 
       <Card onClick={onOpenQuotes} label="Open live value">
@@ -385,17 +395,19 @@ export function DashboardOverview({ onOpenJobs, onOpenQuotes, onOpenLeads }: Das
           <h3>Live value</h3>
           <span className="nexa-kpi-sub">workspace</span>
         </header>
-        <div className="nexa-kpi-metric">
-          <strong>{gbp.format(shownJobsValue)}</strong>
-          <span>across {jobs.length} jobs</span>
+        <div className="nexa-kpi-card-scroll">
+          <div className="nexa-kpi-metric">
+            <strong>{gbp.format(shownJobsValue)}</strong>
+            <span>across {jobs.length} jobs</span>
+          </div>
+          <Bars
+            money
+            data={[
+              { label: "Won quotes", value: value.wonValue },
+              { label: "Open quotes", value: value.openValue },
+            ]}
+          />
         </div>
-        <Bars
-          money
-          data={[
-            { label: "Won quotes", value: value.wonValue },
-            { label: "Open quotes", value: value.openValue },
-          ]}
-        />
       </Card>
     </section>
   );
