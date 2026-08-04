@@ -12,6 +12,7 @@ import {
   kitExtraOptions,
   kw,
   makeBlankRoom,
+  makeBlankProject,
   makeDemoProject,
   money,
   normaliseProject,
@@ -41,15 +42,17 @@ import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
 import "./heat-design.css";
 
-const STORAGE_KEY = "nexa-heat-design-lab-v8";
+const STORAGE_KEY = "nexa-heat-design-lab-v9";
 
 type LabTab = "project" | "plan" | "materials" | "rooms" | "system" | "options" | "kit" | "forms" | "report";
+type LinkTarget = "job" | "quote";
 
 function loadProject(): HeatDesignProject {
-  if (typeof window === "undefined") return makeDemoProject();
+  if (typeof window === "undefined") return makeBlankProject();
   try {
     const raw =
       window.localStorage.getItem(STORAGE_KEY) ??
+      window.localStorage.getItem("nexa-heat-design-lab-v8") ??
       window.localStorage.getItem("nexa-heat-design-lab-v7") ??
       window.localStorage.getItem("nexa-heat-design-lab-v6") ??
       window.localStorage.getItem("nexa-heat-design-lab-v5") ??
@@ -57,10 +60,10 @@ function loadProject(): HeatDesignProject {
       window.localStorage.getItem("nexa-heat-design-lab-v3") ??
       window.localStorage.getItem("nexa-heat-design-lab-v2") ??
       window.localStorage.getItem("nexa-heat-design-lab-v1");
-    if (!raw) return makeDemoProject();
+    if (!raw) return makeBlankProject();
     return normaliseProject(JSON.parse(raw) as HeatDesignProject);
   } catch {
-    return makeDemoProject();
+    return makeBlankProject();
   }
 }
 
@@ -71,15 +74,37 @@ export default function HeatDesignLabPage() {
   const [notice, setNotice] = useState("");
   const [pendingPrint, setPendingPrint] = useState(false);
   const [layoutMode, setLayoutMode] = useState(false);
-  const [jobLinkBusy, setJobLinkBusy] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<LinkTarget>("job");
   const [jobOptions, setJobOptions] = useState<Array<{ id: string; ref: string; customer: string; site: string }>>([]);
+  const [quoteOptions, setQuoteOptions] = useState<Array<{ id: string; ref: string; customer: string; status: string }>>(
+    [],
+  );
   const [selectedJobId, setSelectedJobId] = useState("");
+  const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [, startTransition] = useTransition();
 
   useEffect(() => {
     const loaded = loadProject();
-    setProject(loaded);
-    setSelectedRoomId(loaded.rooms[0]?.id ?? null);
+    const params = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    const jobId = params?.get("jobId") || "";
+    const quoteId = params?.get("quoteId") || "";
+    const next = {
+      ...loaded,
+      linkedJobId: jobId || loaded.linkedJobId,
+      linkedQuoteId: quoteId || loaded.linkedQuoteId,
+    };
+    setProject(next);
+    setSelectedRoomId(next.rooms[0]?.id ?? null);
+    if (jobId) {
+      setLinkTarget("job");
+      setSelectedJobId(jobId);
+      setTab("kit");
+    } else if (quoteId) {
+      setLinkTarget("quote");
+      setSelectedQuoteId(quoteId);
+      setTab("kit");
+    }
   }, []);
 
   useEffect(() => {
@@ -93,21 +118,35 @@ export default function HeatDesignLabPage() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/jobs")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((rows: Array<{ id: string; ref: string; customer: string; site: string }>) => {
-        if (cancelled || !Array.isArray(rows)) return;
-        setJobOptions(
-          rows.map((row) => ({
-            id: row.id,
-            ref: row.ref,
-            customer: row.customer,
-            site: row.site,
-          })),
-        );
+    Promise.all([
+      fetch("/api/jobs").then((res) => (res.ok ? res.json() : [])),
+      fetch("/api/quotes").then((res) => (res.ok ? res.json() : [])),
+    ])
+      .then(([jobs, quotes]) => {
+        if (cancelled) return;
+        if (Array.isArray(jobs)) {
+          setJobOptions(
+            jobs.map((row: { id: string; ref: string; customer: string; site: string }) => ({
+              id: row.id,
+              ref: row.ref,
+              customer: row.customer,
+              site: row.site,
+            })),
+          );
+        }
+        if (Array.isArray(quotes)) {
+          setQuoteOptions(
+            quotes.map((row: { id: string; ref: string; customer: string; status: string }) => ({
+              id: row.id,
+              ref: row.ref,
+              customer: row.customer,
+              status: row.status,
+            })),
+          );
+        }
       })
       .catch(() => {
-        /* public lab may be logged out — link will prompt sign-in */
+        /* signed-out users can still design locally */
       });
     return () => {
       cancelled = true;
@@ -118,6 +157,11 @@ export default function HeatDesignLabPage() {
     if (!project?.linkedJobId) return;
     setSelectedJobId(project.linkedJobId);
   }, [project?.linkedJobId]);
+
+  useEffect(() => {
+    if (!project?.linkedQuoteId) return;
+    setSelectedQuoteId(project.linkedQuoteId);
+  }, [project?.linkedQuoteId]);
 
   useEffect(() => {
     if (!pendingPrint || tab !== "report") return;
@@ -221,22 +265,14 @@ export default function HeatDesignLabPage() {
 
   function startBlankPlan() {
     startTransition(() => {
-      const next = {
-        ...makeDemoProject(),
-        name: "New heat design",
-        customerName: "",
-        address: "",
-        postcode: "",
-        rooms: [],
-        heatingLayout: null,
-        chosenSystemId: undefined,
-        updatedAt: new Date().toISOString(),
-      };
+      const next = makeBlankProject();
       setProject(next);
       setSelectedRoomId(null);
+      setSelectedJobId("");
+      setSelectedQuoteId("");
       setLayoutMode(false);
       setTab("plan");
-      setNotice("Blank plan — place rooms from the left palette, HeatPunk-style.");
+      setNotice("New design — draw the floor plan, then link materials to a quote or job.");
     });
   }
 
@@ -247,7 +283,7 @@ export default function HeatDesignLabPage() {
       setSelectedRoomId(next.rooms[0]?.id ?? null);
       setLayoutMode(false);
       setTab("plan");
-      setNotice("Loaded demo project — Portlethen semi.");
+      setNotice("Loaded sample project — Portlethen semi.");
     });
   }
 
@@ -295,7 +331,7 @@ export default function HeatDesignLabPage() {
 
   async function linkKitToJob() {
     if (!project || !design) return;
-    setJobLinkBusy(true);
+    setLinkBusy(true);
     try {
       const option = heatingSystemOptions.find((item) => item.id === project.chosenSystemId);
       const createNew = !selectedJobId;
@@ -315,8 +351,12 @@ export default function HeatDesignLabPage() {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setNotice("Sign in to Core to link this design to a job.");
+        return;
+      }
       if (!res.ok) {
-        setNotice(data.error || "Could not link to job — sign in with job access.");
+        setNotice(data.error || "Could not link to job — check job permissions.");
         return;
       }
       patchProject({ linkedJobId: data.job?.id, linkedJobRef: data.job?.ref });
@@ -337,14 +377,80 @@ export default function HeatDesignLabPage() {
       }
       setNotice(
         data.created
-          ? `Created job ${data.job?.ref} and pushed ${data.lineCount} materials into Heating design. Open Core → Jobs.`
-          : `Linked to job ${data.job?.ref} with ${data.lineCount} materials in Heating design cost centre.`,
+          ? `Created job ${data.job?.ref} and pushed ${data.lineCount} materials into Heating design.`
+          : `Updated job ${data.job?.ref} with ${data.lineCount} materials in Heating design.`,
       );
     } catch {
-      setNotice("Could not reach jobs API — check you are signed in.");
+      setNotice("Could not reach jobs API — check you are signed in to Core.");
     } finally {
-      setJobLinkBusy(false);
+      setLinkBusy(false);
     }
+  }
+
+  async function linkKitToQuote() {
+    if (!project || !design) return;
+    setLinkBusy(true);
+    try {
+      const option = heatingSystemOptions.find((item) => item.id === project.chosenSystemId);
+      const createNew = !selectedQuoteId;
+      const res = await fetch("/api/heat-design/push-to-quote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          quoteId: selectedQuoteId || undefined,
+          createNew,
+          customerName: project.customerName,
+          projectName: project.name,
+          address: [project.address, project.postcode].filter(Boolean).join(", "),
+          chosenSystemLabel: option?.label,
+          flowTemperature: project.flowTemperature,
+          emitterMode: project.emitterMode,
+          kit: design.kit,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        setNotice("Sign in to Core to link this design to a quote.");
+        return;
+      }
+      if (!res.ok) {
+        setNotice(data.error || "Could not link to quote — check quote permissions.");
+        return;
+      }
+      patchProject({ linkedQuoteId: data.quote?.id, linkedQuoteRef: data.quote?.ref });
+      setSelectedQuoteId(data.quote?.id || "");
+      if (data.quote?.id) {
+        setQuoteOptions((current) => {
+          if (current.some((row) => row.id === data.quote.id)) return current;
+          return [
+            {
+              id: data.quote.id,
+              ref: data.quote.ref,
+              customer: data.quote.customer,
+              status: data.quote.status || "Draft",
+            },
+            ...current,
+          ];
+        });
+      }
+      setNotice(
+        data.created
+          ? `Created quote ${data.quote?.ref} and pushed ${data.lineCount} materials into Heating design.`
+          : `Updated quote ${data.quote?.ref} with ${data.lineCount} materials in Heating design.`,
+      );
+    } catch {
+      setNotice("Could not reach quotes API — check you are signed in to Core.");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function pushKitToCore() {
+    if (linkTarget === "quote") {
+      await linkKitToQuote();
+      return;
+    }
+    await linkKitToJob();
   }
 
   function regenerateLayout(mode?: HeatingEmitterMode) {
@@ -369,7 +475,7 @@ export default function HeatDesignLabPage() {
     return (
       <main className="hd-lab">
         <div className="hd-shell">
-          <p className="hd-lead">Loading heat design lab…</p>
+          <p className="hd-lead">Loading Heat Design…</p>
         </div>
       </main>
     );
@@ -392,20 +498,20 @@ export default function HeatDesignLabPage() {
       <div className="hd-shell">
         <header className="hd-topbar">
           <div className="hd-brand">
-            <div className="hd-brand-kicker">NeXa Heat Design</div>
+            <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
             <h1>Heat Design</h1>
             {tab !== "plan" ? (
               <p>
-                Room-by-room heat loss, emitters and system kit — draw the house, then size the heating.
+                Draw the house, size the system, then push materials into a Core quote or job — or create a new one.
               </p>
             ) : null}
           </div>
           <div className="hd-top-actions">
             <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
-              Blank plan
+              New design
             </button>
             <button type="button" className="hd-btn hd-btn-ghost" onClick={resetDemo}>
-              Reset demo
+              Load sample
             </button>
             <button type="button" className="hd-btn" onClick={addRoom}>
               Add room
@@ -430,7 +536,7 @@ export default function HeatDesignLabPage() {
               ["rooms", "Rooms"],
               ["system", "System"],
               ["options", "Options"],
-              ["kit", "Kit"],
+              ["kit", "Kit & link"],
               ["forms", "MCS / DNO"],
               ["report", "Report"],
             ] as const
@@ -1007,11 +1113,11 @@ export default function HeatDesignLabPage() {
 
             {tab === "kit" ? (
               <>
-                <h2>Kit / materials list</h2>
+                <h2>Kit & link to Core</h2>
                 <p className="hd-lead">
                   Built for{" "}
                   <strong>{chosenOption?.label || "the design system"}</strong> at {project.flowTemperature}°C flow.
-                  Heat Design stays standalone — link materials into a Core job below.
+                  Push materials into an existing Core quote or job, or create a new one.
                 </p>
                 <div className={`hd-banner${design.materialsComplete ? "" : " warn"}`} style={{ marginBottom: 12 }}>
                   {design.materialsComplete
@@ -1020,48 +1126,92 @@ export default function HeatDesignLabPage() {
                 </div>
 
                 <div className="hd-job-link-panel">
-                  <strong>Link to Core job</strong>
+                  <strong>Link to Core</strong>
                   <p>
-                    Pick an existing job or create a new one. Materials land in a <em>Heating design</em> cost centre on
-                    that job.
+                    Materials land in a <em>Heating design</em> cost centre. Quote lines convert to job materials when
+                    the quote is accepted.
                   </p>
-                  {project.linkedJobRef ? (
+                  {(project.linkedJobRef || project.linkedQuoteRef) && (
                     <div className="hd-banner" style={{ marginBottom: 10 }}>
-                      Linked to <strong>{project.linkedJobRef}</strong>
-                      {project.linkedJobId ? (
+                      {project.linkedQuoteRef ? (
                         <>
-                          {" "}
-                          · open in Core → Jobs
+                          Quote <strong>{project.linkedQuoteRef}</strong>
+                          {project.linkedJobRef ? " · " : null}
+                        </>
+                      ) : null}
+                      {project.linkedJobRef ? (
+                        <>
+                          Job <strong>{project.linkedJobRef}</strong>
                         </>
                       ) : null}
                     </div>
-                  ) : null}
-                  <div className="hd-quote-push">
-                    <label className="hd-field">
+                  )}
+                  <div className="hd-link-target-toggle" role="group" aria-label="Link target">
+                    <button
+                      type="button"
+                      className={`hd-btn${linkTarget === "quote" ? " hd-btn-primary" : " hd-btn-ghost"}`}
+                      onClick={() => setLinkTarget("quote")}
+                    >
+                      Quote
+                    </button>
+                    <button
+                      type="button"
+                      className={`hd-btn${linkTarget === "job" ? " hd-btn-primary" : " hd-btn-ghost"}`}
+                      onClick={() => setLinkTarget("job")}
+                    >
                       Job
-                      <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)}>
-                        <option value="">Create new job</option>
-                        {jobOptions.map((job) => (
-                          <option key={job.id} value={job.id}>
-                            {job.ref} — {job.customer}
-                            {job.site ? ` · ${job.site}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    </button>
+                  </div>
+                  <div className="hd-quote-push">
+                    {linkTarget === "quote" ? (
+                      <label className="hd-field">
+                        Quote
+                        <select value={selectedQuoteId} onChange={(event) => setSelectedQuoteId(event.target.value)}>
+                          <option value="">Create new quote</option>
+                          {quoteOptions.map((quote) => (
+                            <option key={quote.id} value={quote.id}>
+                              {quote.ref} — {quote.customer}
+                              {quote.status ? ` · ${quote.status}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : (
+                      <label className="hd-field">
+                        Job
+                        <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)}>
+                          <option value="">Create new job</option>
+                          {jobOptions.map((job) => (
+                            <option key={job.id} value={job.id}>
+                              {job.ref} — {job.customer}
+                              {job.site ? ` · ${job.site}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <button
                       type="button"
                       className="hd-btn hd-btn-primary"
-                      disabled={jobLinkBusy || !design.kit.length || !project.chosenSystemId}
-                      onClick={() => void linkKitToJob()}
+                      disabled={linkBusy || !design.kit.length || !project.chosenSystemId}
+                      onClick={() => void pushKitToCore()}
                     >
-                      {jobLinkBusy
+                      {linkBusy
                         ? "Linking…"
-                        : selectedJobId
-                          ? "Link materials to job"
-                          : "Create job + push materials"}
+                        : linkTarget === "quote"
+                          ? selectedQuoteId
+                            ? "Link materials to quote"
+                            : "Create quote + push materials"
+                          : selectedJobId
+                            ? "Link materials to job"
+                            : "Create job + push materials"}
                     </button>
                   </div>
+                  {!project.customerName.trim() ? (
+                    <p className="hd-lead" style={{ marginTop: 8 }}>
+                      Tip: fill customer name on the Project tab before creating a new quote or job.
+                    </p>
+                  ) : null}
                 </div>
 
                 {!project.chosenSystemId ? (
@@ -1317,9 +1467,14 @@ export default function HeatDesignLabPage() {
             <section className="hd-panel">
               <h2>Design snapshot</h2>
               <p className="hd-lead">
-                {project.linkedJobRef
-                  ? `Linked to Core job ${project.linkedJobRef}.`
-                  : "Standalone design — link to a job from Kit when ready."}
+                {project.linkedQuoteRef || project.linkedJobRef
+                  ? [
+                      project.linkedQuoteRef ? `Quote ${project.linkedQuoteRef}` : null,
+                      project.linkedJobRef ? `Job ${project.linkedJobRef}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : "Not linked yet — open Kit & link to push materials into Core."}
               </p>
               <div className="hd-stat-grid">
                 <div className="hd-stat">
@@ -1343,8 +1498,8 @@ export default function HeatDesignLabPage() {
                   <strong>{money(design.kitTotal)}</strong>
                 </div>
                 <div className="hd-stat warm">
-                  <span>Core job</span>
-                  <strong>{project.linkedJobRef || "Not linked"}</strong>
+                  <span>Core link</span>
+                  <strong>{project.linkedQuoteRef || project.linkedJobRef || "Not linked"}</strong>
                 </div>
               </div>
               {chosenOption?.kind === "ashp" || chosenOption?.kind === "hybrid" ? (
@@ -1371,8 +1526,8 @@ export default function HeatDesignLabPage() {
         </div>
 
         <p className="hd-lab-note">
-          <strong>Standalone.</strong> Open at <code>/heat-design</code>. Link materials to Core via{" "}
-          <strong>Kit → Job</strong> (existing job or create new). Materials appear on the job under{" "}
+          Open at <code>/heat-design</code> or from Core → Quick access. Push materials from{" "}
+          <strong>Kit &amp; link</strong> into a quote or job (existing or new). They appear under{" "}
           <em>Heating design</em>.
         </p>
       </div>

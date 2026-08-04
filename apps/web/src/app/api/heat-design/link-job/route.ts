@@ -4,6 +4,7 @@ import { getAccessProfileFromHeaders } from "@/lib/access";
 import {
   jobMaterialsCostTotal,
   kitLinesToJobMaterials,
+  previousJobMaterialsCost,
   type KitLine,
 } from "@/lib/heat-design";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
@@ -77,11 +78,21 @@ export async function POST(request: Request) {
       due,
     });
   } else {
+    const hubPreview = getHubDetailState();
+    const existingCentres =
+      ((hubPreview.jobCostCentres ?? {}) as Record<string, Array<{ id: string; materials?: unknown[] }>>)[job.id] ??
+      [];
+    const previousCost = previousJobMaterialsCost(
+      existingCentres.find((centre) => centre.id === `heat-design-job-centre-${job!.id}`)?.materials as
+        | Array<{ quantity?: number; unitCost?: number }>
+        | undefined,
+    );
+    const nextValue = Math.max(0, Math.round((job.value - previousCost + materialsCost) * 100) / 100);
     updateJob(job.id, {
       description: job.description?.includes("Heat design")
         ? job.description
         : `${job.description}\n${description}`.trim(),
-      value: Math.round((job.value + materialsCost) * 100) / 100,
+      value: nextValue,
       next: "Review Heating design cost centre materials",
     });
     job = getJob(job.id) ?? job;
@@ -116,7 +127,7 @@ export async function POST(request: Request) {
     sectionId,
     templateName: "Heating design",
     clientDescription: description,
-    engineerDescription: `${systemLabel} kit from standalone Heat Design (/heat-design).`,
+    engineerDescription: `${systemLabel} kit from Heat Design (/heat-design).`,
     materials,
     labour: [],
   };

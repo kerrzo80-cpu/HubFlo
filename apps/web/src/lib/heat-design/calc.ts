@@ -366,6 +366,8 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
     linkedJobId: project.linkedJobId,
     linkedJobRef: project.linkedJobRef,
+    linkedQuoteId: project.linkedQuoteId,
+    linkedQuoteRef: project.linkedQuoteRef,
     heatingLayout: project.heatingLayout
       ? {
           ...project.heatingLayout,

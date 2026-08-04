@@ -31781,11 +31781,11 @@ export default function Dashboard() {
                                   <h2>Scope summary</h2>
                                   <h3>Pull-through from catalogue, one-off items, labour and Takeoff handoff</h3>
                                   <span>
-                                    Heating design / heat loss now lives in standalone{" "}
+                                    Heating design / heat loss lives in{" "}
                                     <a href="/heat-design" target="_blank" rel="noreferrer">
                                       Heat Design
                                     </a>{" "}
-                                    — link materials to a Core job from there.
+                                    — push materials into this quote or a job from Kit &amp; link.
                                   </span>
                                 </div>
                               </div>
