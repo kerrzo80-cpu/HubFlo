@@ -27,6 +27,7 @@ import {
   Download,
   FileText,
   FileSpreadsheet,
+  Flame,
   Gauge,
   HardHat,
   Inbox,
@@ -28168,6 +28169,10 @@ export default function Dashboard() {
           <a href="/takeoff" className="context-link" aria-label="NeXa Takeoff" data-tooltip="NeXa Takeoff">
             <FileText size={17} />
             <span>NeXa Takeoff</span>
+          </a>
+          <a href="/heat-design" className="context-link" aria-label="Heat Design" data-tooltip="Heat Design — floor plan, emitters, system kit to Jobs">
+            <Flame size={17} />
+            <span>Heat Design</span>
           </a>
           <a href="/field" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
