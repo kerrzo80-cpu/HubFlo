@@ -1,7 +1,7 @@
 {
-  "name": "NeXa Field",
-  "short_name": "NeXa Field",
-  "description": "Schedule, job packs and Blake time checks for plumbers and joiners.",
+  "name": "EWG Field",
+  "short_name": "EWG Field",
+  "description": "Errol Watson Group schedule, job packs and Blake hours for plumbers and joiners.",
   "start_url": "/field",
   "scope": "/field",
   "display": "standalone",
@@ -10,9 +10,9 @@
   "lang": "en-GB",
   "icons": [
     {
-      "src": "/brand/nexa-command-mark.svg",
+      "src": "/ewg-logo.png",
       "sizes": "any",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     }
   ]

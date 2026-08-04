@@ -28,7 +28,14 @@ function mapAttachment(item: EngineerScheduleItem["attachments"][number]): Field
   return {
     id: item.id,
     name: item.name,
-    type: item.type === "Photo" ? "Photo" : item.type === "Note" ? "Note" : "PDF",
+    type:
+      item.type === "Photo"
+        ? "Photo"
+        : item.type === "Note"
+          ? "Note"
+          : item.type === "Video"
+            ? "Video"
+            : "PDF",
     uploadedBy: item.uploadedBy,
     uploadedAt: item.uploadedAt,
   };

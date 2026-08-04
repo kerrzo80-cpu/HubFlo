@@ -9,7 +9,7 @@ export type RequirementStatus = "done" | "missing" | "optional";
 export type EngineerAttachment = {
   id: string;
   name: string;
-  type: "PDF" | "Photo" | "Note";
+  type: "PDF" | "Photo" | "Note" | "Video";
   uploadedBy: string;
   uploadedAt: string;
 };

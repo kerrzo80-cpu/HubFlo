@@ -158,7 +158,8 @@ export type EngineerWorkflowAction =
   | {
       action: "add_photos";
       payload: {
-        fileNames: string[];
+        fileNames?: string[];
+        files?: Array<{ name: string; type?: "PDF" | "Photo" | "Note" | "Video" }>;
         createdBy?: string;
       };
     }
@@ -726,22 +727,47 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
   }
 
   if (input.action === "add_photos") {
-    const fileNames = input.payload.fileNames
-      .map((fileName) => fileName.trim())
+    const fromFiles = (input.payload.files ?? [])
+      .map((file) => ({
+        name: String(file.name || "").trim(),
+        type: (file.type === "PDF" || file.type === "Note" || file.type === "Video" ? file.type : "Photo") as
+          | "PDF"
+          | "Photo"
+          | "Note"
+          | "Video",
+      }))
+      .filter((file) => file.name);
+    const fromNames = (input.payload.fileNames ?? [])
+      .map((fileName) => String(fileName || "").trim())
       .filter(Boolean)
-      .slice(0, 10);
-    const photos = fileNames.map((fileName) => ({
+      .map((name) => {
+        const lower = name.toLowerCase();
+        const type: "PDF" | "Photo" | "Note" | "Video" =
+          /\.(mp4|mov|webm|m4v)$/i.test(lower)
+            ? "Video"
+            : /\.(pdf|docx?|xlsx?|txt)$/i.test(lower)
+              ? "PDF"
+              : "Photo";
+        return { name, type };
+      });
+    const photos = [...fromFiles, ...fromNames].slice(0, 10).map((file) => ({
       id: makeId("engineer-photo"),
-      name: fileName,
-      type: "Photo" as const,
+      name: file.name,
+      type: file.type,
       uploadedBy: createdBy,
       uploadedAt: createdAt,
     }));
     workflow.photos = [...photos, ...workflow.photos];
     if (photos.length) {
+      const label =
+        photos.every((item) => item.type === "Photo")
+          ? "photo"
+          : photos.every((item) => item.type === "Video")
+            ? "video"
+            : "file";
       addReviewItem(workflow, {
         type: "Photo",
-        title: `${photos.length} photo${photos.length === 1 ? "" : "s"} uploaded`,
+        title: `${photos.length} ${label}${photos.length === 1 ? "" : "s"} uploaded`,
         detail: photos.map((photo) => photo.name).join(", "),
         createdBy,
         createdAt,
@@ -1001,9 +1027,27 @@ export function applyEngineerWorkflowAction(scheduleId: string, input: EngineerW
       createdAt,
     };
     workflow.outcome = outcome;
+    if (job?.jobId) {
+      const nextStatus =
+        outcome.status === "Complete"
+          ? "Ready to invoice"
+          : outcome.status === "Needs parts"
+            ? "Waiting on parts"
+            : undefined;
+      if (nextStatus) {
+        updateJob(job.jobId, {
+          status: nextStatus,
+          next:
+            outcome.note ||
+            (outcome.status === "Complete"
+              ? `Marked complete by ${createdBy}.`
+              : `Awaiting parts — noted by ${createdBy}.`),
+        });
+      }
+    }
     addReviewItem(workflow, {
       type: "Outcome",
-      title: outcome.status,
+      title: outcome.status === "Needs parts" ? "Awaiting parts" : outcome.status,
       detail: outcome.note || `${outcome.status} outcome set by engineer.`,
       createdBy,
       createdAt,

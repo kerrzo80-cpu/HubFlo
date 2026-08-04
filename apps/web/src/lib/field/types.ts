@@ -8,7 +8,7 @@ export type FieldJobStatus =
 export type FieldAttachment = {
   id: string;
   name: string;
-  type: "PDF" | "Photo" | "Drawing" | "Note";
+  type: "PDF" | "Photo" | "Drawing" | "Note" | "Video";
   uploadedBy: string;
   uploadedAt: string;
 };
