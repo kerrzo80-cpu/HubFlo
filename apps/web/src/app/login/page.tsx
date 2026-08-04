@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import { KeyRound, LogIn } from "lucide-react";
+import { TenantBrandProvider, useTenantBrand } from "@/components/tenant/TenantBrandProvider";
 
 function safeNextPath() {
   if (typeof window === "undefined") return "/";
@@ -9,7 +10,8 @@ function safeNextPath() {
   return next.startsWith("/") && !next.startsWith("//") ? next : "/";
 }
 
-export default function LoginPage() {
+function LoginForm() {
+  const { tenant, loading } = useTenantBrand();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,7 +27,7 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const result = await response.json().catch(() => ({})) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
         setError(result.error || "Unable to sign in.");
         return;
@@ -38,21 +40,27 @@ export default function LoginPage() {
     }
   }
 
+  const companyName = tenant?.branding.tradingName || tenant?.name || "NeXa";
+  const logoUrl = tenant?.branding.logoUrl || "/app-icons/nexa-core-icon-512.png";
+
   return (
     <main className="nexa-secure-login">
       <section>
         <div className="nexa-secure-login-brand">
-          <img src="/ewg-logo.png" alt="Errol Watson Group" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoUrl} alt={companyName} />
           <span>
-            <strong>NeXa</strong>
-            <small>Secure workspace</small>
+            <strong>{loading ? "NeXa" : companyName}</strong>
+            <small>NeXa secure workspace{tenant?.slug ? ` · ${tenant.slug}` : ""}</small>
           </span>
         </div>
         <div className="nexa-secure-login-heading">
-          <span><KeyRound size={17} /></span>
+          <span>
+            <KeyRound size={17} />
+          </span>
           <div>
             <h1>Sign in</h1>
-            <p>Use your individual NeXa account. Activity is recorded against your profile.</p>
+            <p>Use your individual NeXa account for this company. Activity is recorded against your profile.</p>
           </div>
         </div>
         <form onSubmit={submit}>
@@ -78,12 +86,20 @@ export default function LoginPage() {
             />
           </label>
           {error ? <p className="nexa-secure-login-error">{error}</p> : null}
-          <button disabled={submitting} type="submit">
-            <LogIn size={17} />
-            {submitting ? "Signing in..." : "Sign in"}
+          <button type="submit" disabled={submitting}>
+            <LogIn size={16} />
+            {submitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
       </section>
     </main>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <TenantBrandProvider>
+      <LoginForm />
+    </TenantBrandProvider>
   );
 }

@@ -86,9 +86,32 @@ export const ASK_BLAKE_VOICE_PROMPT_EXTRA = [
 /** @deprecated Prefer accentTtsInstructions("scottish") from ask-blake-voice-accent. */
 export const ASK_BLAKE_SCOTTISH_VOICE_INSTRUCTIONS = accentTtsInstructions("scottish");
 
-export function askBlakeDeveloperPrompt(mode: AskBlakeRequest["mode"] = "text") {
-  if (mode === "voice") return `${ASK_BLAKE_SYSTEM_PROMPT}\n\n${ASK_BLAKE_VOICE_PROMPT_EXTRA}`;
-  return ASK_BLAKE_SYSTEM_PROMPT;
+export function askBlakeDeveloperPrompt(
+  mode: AskBlakeRequest["mode"] = "text",
+  options?: {
+    assistantName?: string;
+    companyName?: string;
+    tone?: string;
+    instructions?: string;
+    tradeType?: string;
+  },
+) {
+  const assistantName = options?.assistantName?.trim() || "Blake";
+  const companyName = options?.companyName?.trim() || "this company";
+  const tone = options?.tone?.trim() || "practical, concise, site-safe";
+  const tradeType = options?.tradeType?.trim() || "plumbing-heating";
+  const instructions = options?.instructions?.trim();
+  const tenantHeader = [
+    `You are ${assistantName} — NeXa Field’s on-site co-pilot for ${companyName}.`,
+    `Trade focus: ${tradeType}. Tone: ${tone}.`,
+    instructions ? `Company instructions: ${instructions}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const base = `${tenantHeader}\n\n${ASK_BLAKE_SYSTEM_PROMPT}`;
+  if (mode === "voice") return `${base}\n\n${ASK_BLAKE_VOICE_PROMPT_EXTRA}`;
+  return base;
 }
 
 function includesAny(text: string, words: string[]) {

@@ -9,14 +9,26 @@ import {
   type AskBlakeRequest,
 } from "@/lib/field/ask-blake";
 import { parseJsonRequestBody } from "@/lib/http";
-import { getTakeoffOpenAiConfig } from "@/lib/takeoff-ai-config";
+import { resolveTenantOpenAiApiKey } from "@/lib/tenancy/tenant-ai";
+import { withTenantFromRequest } from "@/lib/tenancy/with-tenant-request";
 
 export const runtime = "nodejs";
 
 /** Fast models for on-site Field replies — avoid heavy defaults that time out on photos. */
 const FIELD_MODELS = ["gpt-4.1-mini", "gpt-4o-mini", "gpt-4.1"] as const;
 
-async function runOpenAi(input: AskBlakeRequest, apiKey: string, preferredModel: string) {
+async function runOpenAi(
+  input: AskBlakeRequest,
+  apiKey: string,
+  preferredModel: string,
+  promptOptions: {
+    assistantName?: string;
+    companyName?: string;
+    tone?: string;
+    instructions?: string;
+    tradeType?: string;
+  },
+) {
   const images = normaliseAskBlakeImages(input)
     .filter((image) => image.length <= 900_000)
     .slice(0, 3);
@@ -54,7 +66,7 @@ async function runOpenAi(input: AskBlakeRequest, apiKey: string, preferredModel:
           input: [
             {
               role: "developer",
-              content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode) }],
+              content: [{ type: "input_text", text: askBlakeDeveloperPrompt(input.mode, promptOptions) }],
             },
             {
               role: "user",
@@ -90,60 +102,115 @@ async function runOpenAi(input: AskBlakeRequest, apiKey: string, preferredModel:
   throw lastError ?? new Error("OpenAI could not reply.");
 }
 
-export async function GET() {
-  const config = getTakeoffOpenAiConfig();
-  return NextResponse.json({
-    ok: true,
-    connected: config.connected,
-    source: config.source,
-    model: config.model,
-    keyName: config.keyName,
-    talk: {
-      whisper: config.connected,
-      browserSpeech: true,
-      speak: config.connected,
-    },
-  });
+export async function GET(request: Request) {
+  try {
+    return await withTenantFromRequest(request, async (tenant) => {
+      const ai = resolveTenantOpenAiApiKey(tenant.id);
+      return NextResponse.json({
+        ok: true,
+        connected: Boolean(ai.apiKey) && ai.settings.enabled,
+        source: ai.source,
+        model: ai.model,
+        assistantName: ai.settings.assistantName,
+        tenantId: tenant.id,
+        enabled: ai.settings.enabled && tenant.enabledModules.includes("ask-blake"),
+        talk: {
+          whisper: Boolean(ai.apiKey),
+          browserSpeech: true,
+          speak: Boolean(ai.apiKey),
+        },
+      });
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not load Ask Blake status." },
+      { status: 500 },
+    );
+  }
 }
 
 export async function POST(request: Request) {
-  const body = await parseJsonRequestBody<AskBlakeRequest>(request);
-  if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-
-  const message = body.message?.trim();
-  const images = normaliseAskBlakeImages(body);
-  if (!message && !images.length) {
-    return NextResponse.json({ error: "Ask Blake a question or attach a photo." }, { status: 400 });
-  }
-
-  const mode = body.mode === "voice" ? "voice" : "text";
-  const input: AskBlakeRequest = {
-    message: message || (images.length > 1
-      ? "What do you see in these photos, and what should I check next?"
-      : "What do you see in this photo, and what should I check next?"),
-    imageDataUrls: images,
-    history: Array.isArray(body.history) ? body.history.slice(-12) : [],
-    job: body.job ?? null,
-    mode,
-  };
-
-  const config = getTakeoffOpenAiConfig();
-  if (!config.apiKey) {
-    return NextResponse.json({
-      reply: buildAskBlakeFallback(input),
-      provider: "fallback",
-      warning: "OpenAI is not connected on this pilot — Blake replied with field fallback guidance.",
-    });
-  }
-
   try {
-    const result = await runOpenAi(input, config.apiKey, config.model);
-    return NextResponse.json({ reply: result.reply, provider: "OpenAI", model: result.model });
-  } catch (error) {
-    return NextResponse.json({
-      reply: buildAskBlakeFallback(input),
-      provider: "fallback",
-      warning: error instanceof Error ? error.message : "Ask Blake could not reach OpenAI.",
+    return await withTenantFromRequest(request, async (tenant) => {
+      if (!tenant.enabledModules.includes("ask-blake")) {
+        return NextResponse.json({ error: "Ask Blake is not enabled for this company." }, { status: 403 });
+      }
+
+      const body = await parseJsonRequestBody<AskBlakeRequest>(request);
+      if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+
+      const message = body.message?.trim();
+      const images = normaliseAskBlakeImages(body);
+      if (!message && !images.length) {
+        return NextResponse.json({ error: "Ask Blake a question or attach a photo." }, { status: 400 });
+      }
+
+      const ai = resolveTenantOpenAiApiKey(tenant.id);
+      if (!ai.settings.enabled) {
+        return NextResponse.json({ error: "Ask Blake is disabled for this company." }, { status: 403 });
+      }
+      if (!ai.settings.permissions.canAnswerTrade) {
+        return NextResponse.json({ error: "Trade answers are not permitted for this company." }, { status: 403 });
+      }
+
+      const mode = body.mode === "voice" ? "voice" : "text";
+      const input: AskBlakeRequest = {
+        message:
+          message ||
+          (images.length > 1
+            ? "What do you see in these photos, and what should I check next?"
+            : "What do you see in this photo, and what should I check next?"),
+        imageDataUrls: images,
+        history: Array.isArray(body.history) ? body.history.slice(-12) : [],
+        job: ai.settings.permissions.canUseJobContext ? body.job ?? null : null,
+        mode,
+      };
+
+      const promptOptions = {
+        assistantName: ai.settings.assistantName,
+        companyName: tenant.branding.tradingName || tenant.name,
+        tone: ai.settings.tone,
+        instructions: ai.settings.instructions,
+        tradeType: ai.settings.tradeType,
+      };
+
+      if (!ai.apiKey) {
+        return NextResponse.json({
+          reply: buildAskBlakeFallback(input),
+          provider: "fallback",
+          warning: "OpenAI is not connected — Blake replied with field fallback guidance.",
+          tenantId: tenant.id,
+          keySource: ai.source,
+        });
+      }
+
+      try {
+        const result = await runOpenAi(input, ai.apiKey, ai.model, promptOptions);
+        return NextResponse.json({
+          reply: result.reply,
+          provider: "OpenAI",
+          model: result.model,
+          tenantId: tenant.id,
+          keySource: ai.source,
+        });
+      } catch (error) {
+        return NextResponse.json({
+          reply: buildAskBlakeFallback(input),
+          provider: "fallback",
+          warning: error instanceof Error ? error.message : "Ask Blake could not reach OpenAI.",
+          tenantId: tenant.id,
+          keySource: ai.source,
+        });
+      }
     });
+  } catch (error) {
+    const status =
+      typeof error === "object" && error && "status" in error
+        ? Number((error as { status: number }).status)
+        : 500;
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Ask Blake failed." },
+      { status: status || 500 },
+    );
   }
 }
