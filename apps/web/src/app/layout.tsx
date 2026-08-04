@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { EnvHostBanner } from "@/components/EnvHostBanner";
 import { PwaIconLinks } from "./pwa-icon-links";
 import "./globals.css";
 
@@ -10,7 +11,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://nexa-pilot.onrender.com"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://nexa-live.onrender.com"),
   title: "NeXa Core",
   description: "Bound into one command center for service operations.",
   applicationName: "NeXa Core",
@@ -43,6 +44,7 @@ export default function RootLayout({
     <html lang="en" className={inter.variable}>
       <body>
         <PwaIconLinks />
+        <EnvHostBanner />
         {children}
       </body>
     </html>

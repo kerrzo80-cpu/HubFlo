@@ -982,6 +982,71 @@ export function ensureDayworkVariationCostCentre(jobId: string): string {
   return costCentreId;
 }
 
+/** Create another Daywork variation centre so Field can raise multiple sheets on one job. */
+export function createAdditionalDayworkCostCentre(jobId: string): string {
+  const primaryId = ensureDayworkVariationCostCentre(jobId);
+  const hubState = getHubDetailState();
+  const centresByJob = { ...((hubState.jobCostCentres ?? {}) as Record<string, Array<Record<string, unknown>>>) };
+  const centres = Array.isArray(centresByJob[jobId]) ? [...centresByJob[jobId]] : [];
+  const dayworkCentres = centres.filter((centre) => {
+    const templateName = String(centre.templateName || "").toLowerCase();
+    const name = String(centre.name || "").toLowerCase();
+    return templateName.includes("daywork") || name.includes("daywork");
+  });
+  const sheets = listDayworkSheetsForJob(jobId);
+  // If the primary centre has no signed sheet yet, keep using it instead of spawning empties.
+  const primarySheet = sheets.find((sheet) => sheet.costCentreId === primaryId);
+  const primarySigned = Boolean(
+    primarySheet &&
+      String(primarySheet.plumberSignature || "").trim() &&
+      String(primarySheet.clientSignature || "").trim(),
+  );
+  if (!primarySigned && dayworkCentres.length <= 1) {
+    return primaryId;
+  }
+
+  const nextIndex = dayworkCentres.length + 1;
+  const costCentreId = `${jobId}-daywork-account-${nextIndex}`;
+  if (centres.some((centre) => centre.id === costCentreId)) {
+    return costCentreId;
+  }
+
+  const sectionsByJob = { ...((hubState.jobVariationSections ?? {}) as Record<string, Array<Record<string, unknown>>>) };
+  const sections = Array.isArray(sectionsByJob[jobId]) ? [...sectionsByJob[jobId]] : [];
+  let sectionId = sections.find((section) => String(section.name || "").toLowerCase().includes("daywork"))?.id as
+    | string
+    | undefined;
+  if (!sectionId || typeof sectionId !== "string") {
+    sectionId = `${jobId}-variation-section-daywork`;
+    sections.push({
+      id: sectionId,
+      name: "Daywork / reactive variations",
+      description: "Reactive daywork sheets raised from Field.",
+    });
+    sectionsByJob[jobId] = sections;
+  }
+
+  centres.push({
+    id: costCentreId,
+    name: `Daywork account ${nextIndex}`,
+    templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+    variation: true,
+    variationSectionId: sectionId,
+    clientDescription: "Additional reactive daywork / variation sheet from Field.",
+    engineerDescription:
+      "Complete this Daywork Account on Field — labour, materials and dual sign-off populate Core Variations.",
+    materials: [],
+    labour: [],
+  });
+  centresByJob[jobId] = centres;
+  saveHubDetailState({
+    ...hubState,
+    jobCostCentres: centresByJob,
+    jobVariationSections: sectionsByJob,
+  });
+  return costCentreId;
+}
+
 /** Upsert a Core variation delivery event from a signed Daywork Account record. */
 export function syncDayworkAccountToJobVariation(options: {
   jobId: string;

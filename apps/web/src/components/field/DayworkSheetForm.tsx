@@ -116,8 +116,8 @@ export function DayworkSheetForm({
     setError("");
     setNotice("");
     try {
-      // Prove the browser session can reach Core before writing the sheet.
-      const sessionCheck = await fetch("/api/health", { credentials: "include", cache: "no-store" });
+      // /api/health is public — it never proves the session. Use /api/auth/me.
+      const sessionCheck = await fetch("/api/auth/me", { credentials: "include", cache: "no-store" });
       if (sessionCheck.status === 401) {
         throw new Error("Not signed in — open /login on this same site, sign in, then Save and finish again.");
       }
@@ -254,59 +254,29 @@ export function DayworkSheetForm({
       <section className="daywork-repeat-block">
         <div className="daywork-repeat-head">
           <strong>Labour hours</strong>
-          <span>{totalHours ? `${totalHours} hrs total` : "Add day + hours"}</span>
+          <span>{totalHours ? `${totalHours} hrs total` : "Enter hours on the days worked"}</span>
         </div>
-        {draft.labourDays.map((row, index) => (
-          <div className="daywork-repeat-row" key={`labour-${index}`}>
-            <select
-              aria-label={`Labour day ${index + 1}`}
-              value={row.day}
-              onChange={(event) => setLabourDay(index, { day: event.target.value })}
-            >
-              {DAYWORK_WEEKDAY_OPTIONS.map((day) => (
-                <option key={day.id} value={day.id}>
-                  {day.label}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.25"
-              min="0"
-              placeholder="Hours"
-              aria-label={`Hours for ${row.day || "day"}`}
-              value={row.hours}
-              onChange={(event) => setLabourDay(index, { hours: event.target.value })}
-            />
-            {draft.labourDays.length > 1 ? (
-              <button
-                type="button"
-                className="daywork-remove"
-                onClick={() =>
-                  setDraft((current) => ({
-                    ...current,
-                    labourDays: current.labourDays.filter((_, i) => i !== index),
-                  }))
-                }
-              >
-                Remove
-              </button>
-            ) : null}
-          </div>
-        ))}
-        <button
-          type="button"
-          className="daywork-add"
-          onClick={() =>
-            setDraft((current) => ({
-              ...current,
-              labourDays: [...current.labourDays, { day: "Tue", hours: "" }],
-            }))
-          }
-        >
-          + Add another day
-        </button>
+        <div className="daywork-week-grid">
+          {draft.labourDays.map((row, index) => {
+            const label =
+              DAYWORK_WEEKDAY_OPTIONS.find((day) => day.id === row.day)?.label || row.day || `Day ${index + 1}`;
+            return (
+              <label className="daywork-week-cell" key={`labour-${row.day || index}`}>
+                <span>{label.slice(0, 3)}</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.25"
+                  min="0"
+                  placeholder="0"
+                  aria-label={`Hours for ${label}`}
+                  value={row.hours}
+                  onChange={(event) => setLabourDay(index, { hours: event.target.value })}
+                />
+              </label>
+            );
+          })}
+        </div>
       </section>
 
       <section className="daywork-repeat-block">

@@ -12750,6 +12750,42 @@ h1 {
   grid-template-columns: minmax(0, 1.6fr) minmax(72px, 0.5fr) auto;
 }
 
+.daywork-week-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+}
+
+.daywork-week-cell {
+  display: grid;
+  gap: 4px;
+  text-align: center;
+}
+
+.daywork-week-cell span {
+  color: #5b6570;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.daywork-week-cell input {
+  border: 1px solid #c5d5cc;
+  border-radius: 8px;
+  font: inherit;
+  min-width: 0;
+  padding: 8px 4px;
+  text-align: center;
+  width: 100%;
+}
+
+@media (max-width: 520px) {
+  .daywork-week-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
 .daywork-add,
 .daywork-remove {
   background: transparent;

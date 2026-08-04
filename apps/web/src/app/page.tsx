@@ -717,7 +717,7 @@ type QuoteDetailTab = "setup" | "planner" | "cost-build" | "supplier-request" | 
 type InvoiceTab = "summary" | "lines" | "documents" | "preview" | "logs";
 type CostCentreTab = "summary" | "info" | "parts-labour" | "po" | "engineer-flow" | "options" | "schedule" | "assets";
 type JobCostCentreListTab = "base" | "variations";
-type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "heat-loss" | "labour";
+type QuoteBuildTab = "summary" | "survey-tools" | "takeoff" | "catalogue" | "one-off" | "labour";
 type JobBuildTab = "summary" | "catalogue" | "one-off" | "labour";
 type InvoiceStatus = "Draft" | "Sent" | "Partially paid" | "Paid" | "Cancelled";
 type WorkflowTrackerState = "done" | "current" | "waiting";
@@ -2935,7 +2935,6 @@ const quoteBuildTabs: Array<{ key: QuoteBuildTab; label: string }> = [
   { key: "summary", label: "Scope summary" },
   { key: "catalogue", label: "Catalogue" },
   { key: "one-off", label: "One-off items" },
-  { key: "heat-loss", label: "Heat loss calculator" },
   { key: "labour", label: "Labour" },
 ];
 
@@ -7616,6 +7615,11 @@ export default function Dashboard() {
   const [activeQuoteBuildScope, setActiveQuoteBuildScope] = useState<"base" | "options">("base");
   const [activeQuoteBuildTab, setActiveQuoteBuildTab] = useState<QuoteBuildTab>("summary");
   const [activeJobBuildTab, setActiveJobBuildTab] = useState<JobBuildTab>("summary");
+
+  useEffect(() => {
+    const valid = new Set(quoteBuildTabs.map((tab) => tab.key));
+    if (!valid.has(activeQuoteBuildTab)) setActiveQuoteBuildTab("summary");
+  }, [activeQuoteBuildTab]);
   const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
@@ -11303,6 +11307,49 @@ export default function Dashboard() {
       ),
     [jobs],
   );
+
+  /** Field-signed Daywork sheets waiting for office pricing / review in Core. */
+  const dashboardDayworkReviews = useMemo(() => {
+    const byKey = new Map<
+      string,
+      { jobId: string; jobRef: string; costCentreId: string; status: string; summary: string }
+    >();
+    for (const event of jobDeliveryEvents) {
+      if (event.formType !== "daywork") continue;
+      const job = jobs.find((item) => item.id === event.jobId);
+      if (!job) continue;
+      const costCentreId = event.costCentreId || `${event.jobId}-daywork-account`;
+      const key = `${event.jobId}:${costCentreId}`;
+      byKey.set(key, {
+        jobId: event.jobId,
+        jobRef: job.ref,
+        costCentreId,
+        status: event.status || "Office review",
+        summary: event.summary || event.description || "Daywork Account from Field",
+      });
+    }
+    for (const sheet of Object.values(dayworkSheets)) {
+      if (!sheet?.jobId) continue;
+      const signed = Boolean(
+        String(sheet.plumberSignature || "").trim() && String(sheet.clientSignature || "").trim(),
+      );
+      if (!signed) continue;
+      const job = jobs.find((item) => item.id === sheet.jobId);
+      if (!job) continue;
+      const costCentreId = sheet.costCentreId || `${sheet.jobId}-daywork-account`;
+      const key = `${sheet.jobId}:${costCentreId}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          jobId: sheet.jobId,
+          jobRef: job.ref,
+          costCentreId,
+          status: "Office review",
+          summary: sheet.description || "Signed Daywork Account from Field",
+        });
+      }
+    }
+    return Array.from(byKey.values());
+  }, [dayworkSheets, jobDeliveryEvents, jobs]);
 
   const overdueLeadQuoteFollowUps = useMemo(
     () =>
@@ -18189,22 +18236,34 @@ export default function Dashboard() {
       centres.find((centre) => centre.id === dayworkCentreId) ||
       centres.find((centre) => /daywork/i.test(`${centre.name} ${centre.templateName || ""}`));
 
-    // If Field saved evidence but the variation cost centre was wiped from Core UI state, recreate it.
+    // Always select the job first — Action notifications previously scrolled nowhere without this.
+    setSelectedLeadId(null);
+    setSelectedQuoteId(null);
+    setSelectedInvoiceId(null);
+    setSelectedPurchaseRequestId(null);
+    setSelectedJobId(jobId);
+
+    // If Field saved a sheet but the variation cost centre is missing from Core UI state, recreate it.
     if (!match) {
+      const hasSheet = Object.values(dayworkSheets).some(
+        (sheet) => sheet?.jobId === jobId && (!options?.costCentreId || sheet.costCentreId === dayworkCentreId),
+      );
       const hasEvidence = Object.keys(flowStepEvidence).some(
         (key) => key.startsWith(`${jobId}:`) && key.includes(":daywork-"),
       );
-      if (hasEvidence || options?.costCentreId) {
+      if (hasEvidence || hasSheet || Boolean(options?.costCentreId) || !match) {
         const sectionId = `${jobId}-variation-section-daywork`;
         const created: EstimateCostCentre = {
           id: dayworkCentreId,
-          name: "Daywork account",
+          name: options?.costCentreId && options.costCentreId !== `${jobId}-daywork-account`
+            ? "Daywork account (additional)"
+            : "Daywork account",
           templateName: "Daywork account",
           variation: true,
           variationSectionId: sectionId,
           clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
           engineerDescription:
-            "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+            "Complete the Daywork Account on Field — labour, materials and dual sign-off populate Core Variations.",
           materials: [],
           labour: [],
         };
@@ -18225,19 +18284,19 @@ export default function Dashboard() {
             ],
           };
         });
-        setJobEstimateCostCentres((current) => ({
-          ...current,
-          [jobId]: [...(current[jobId] ?? []), created],
-        }));
+        setJobEstimateCostCentres((current) => {
+          const existing = current[jobId] ?? [];
+          if (existing.some((centre) => centre.id === created.id)) return current;
+          return { ...current, [jobId]: [...existing, created] };
+        });
         match = created;
       }
     }
 
     if (!match) {
-      // Still try server refresh — Field may have created the centre already.
       void refreshDayworkSheetFromServer(jobId, dayworkCentreId).then((found) => {
         if (!found) {
-          showNotice("No Daywork Account cost centre on this job yet — open Add Daywork Account on Field first.");
+          showNotice("No Daywork Account on this job yet — open Add Daywork Account on Field first.");
         } else {
           setJobEstimateCostCentres((current) => {
             const existing = current[jobId] ?? [];
@@ -18256,7 +18315,7 @@ export default function Dashboard() {
                   variationSectionId: `${jobId}-variation-section-daywork`,
                   clientDescription: "Reactive daywork / variation works recorded on the Daywork Account sheet.",
                   engineerDescription:
-                    "Complete the Daywork Account stop/go on Field — labour, materials and dual sign-off populate Core Variations.",
+                    "Complete the Daywork Account on Field — labour, materials and dual sign-off populate Core Variations.",
                   materials: [],
                   labour: [],
                 },
@@ -26417,7 +26476,7 @@ export default function Dashboard() {
             <span>
               {dayworkRecord?.plumberSignature && dayworkRecord?.clientSignature
                 ? `${dayworkTotals.labourHours || 0} hrs${dayworkTotals.total ? ` · ${dayworkTotals.total.toLocaleString("en-GB", { style: "currency", currency: "GBP" })}` : " · awaiting office prices"}`
-                : "No signed sheet on the server yet — enter it below in Core (or on Field) and Save and finish"}
+                : "No signed sheet on the server yet — on Field tap Add Daywork Account (not the boiler checklist), fill materials + both signatures, then Save and finish. Or enter the sheet below in Core."}
             </span>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
               {centre ? (
@@ -26808,6 +26867,7 @@ export default function Dashboard() {
       quoteResponseFollowUps.length +
       pendingPORequests.length +
       dashboardVariationApprovals.length +
+      dashboardDayworkReviews.length +
       approvedQuotesAwaitingScheduling.length +
       overdueTimesheetJobs.length +
       overdueInvoiceRows.length +
@@ -27029,6 +27089,25 @@ export default function Dashboard() {
                   <small>Review before work proceeds</small>
                 </span>
               </button>
+              <button
+                className="notification-card amber"
+                type="button"
+                onClick={() => {
+                  const first = dashboardDayworkReviews[0];
+                  if (first) {
+                    openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
+                    return;
+                  }
+                  showNotice("No Daywork sheets from Field yet.");
+                }}
+              >
+                <ClipboardCheck size={18} />
+                <span>
+                  <strong>{dashboardDayworkReviews.length}</strong>
+                  <b>Daywork sheets from Field</b>
+                  <small>Opens Variations → Daywork account</small>
+                </span>
+              </button>
               <button className="notification-card red" type="button" onClick={() => openDashboardQueue("dashboard-lead-followups")}>
                 <AlertTriangle size={18} />
                 <span>
@@ -27077,6 +27156,36 @@ export default function Dashboard() {
                   <small>Booked date before today, still open</small>
                 </span>
               </button>
+            </div>
+            <div id="dashboard-daywork" className="ops-queue-list" style={{ marginTop: 12 }}>
+              <strong style={{ display: "block", marginBottom: 8 }}>Daywork from Field</strong>
+              {dashboardDayworkReviews.length > 0 ? (
+                dashboardDayworkReviews.slice(0, 6).map((item) => (
+                  <article className="ops-queue-item" key={`${item.jobId}:${item.costCentreId}`}>
+                    <button
+                      type="button"
+                      onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
+                    >
+                      <strong>{item.jobRef}</strong>
+                      <span>{item.summary}</span>
+                      <small>{item.status} · open Daywork account</small>
+                    </button>
+                    <div className="ops-queue-actions">
+                      <button
+                        className="primary-button"
+                        type="button"
+                        onClick={() => openDayworkAccountRecord(item.jobId, { costCentreId: item.costCentreId })}
+                      >
+                        Open Daywork
+                      </button>
+                    </div>
+                  </article>
+                ))
+              ) : (
+                <div className="ops-queue-empty">
+                  No Field Daywork sheets on the server yet. On Field: Add Daywork Account → Save and finish.
+                </div>
+              )}
             </div>
           </aside>
           );
@@ -30105,7 +30214,7 @@ export default function Dashboard() {
                   <span className="addon-icon"><Sparkles size={20} /></span>
                   <div>
                     <strong>NeXa Takeoff</strong>
-                    <p>Drawings, specifications, BOQs, heat loss and supplier lists.</p>
+                    <p>Drawings, specifications, BOQs and supplier lists.</p>
                     <small>Outputs quote cost centres, BOQ lines, supplier requests and documents.</small>
                   </div>
                   <ChevronRight size={17} />
@@ -30592,7 +30701,7 @@ export default function Dashboard() {
                               {quoteMaterialEntries.length === 0 ? (
                                 <div className="simpro-billable-row parts empty">
                                   <span />
-                                  <strong>No material lines yet. Add catalogue, one-off, heat loss or takeoff items first.</strong>
+                                  <strong>No material lines yet. Add catalogue, one-off or takeoff items first.</strong>
                                   <span />
                                   <span />
                                   <span />
@@ -31224,7 +31333,7 @@ export default function Dashboard() {
                               {quoteMaterialEntries.length === 0 ? (
                                 <div className="simpro-billable-row parts empty">
                                   <span />
-                                  <strong>No material lines yet. Add catalogue, one-off, heat loss or takeoff items inside the cost centres first.</strong>
+                                  <strong>No material lines yet. Add catalogue, one-off or takeoff items inside the cost centres first.</strong>
                                   <span />
                                   <span />
                                   <span />
@@ -31849,8 +31958,14 @@ export default function Dashboard() {
                               <div className="simpro-parts-header">
                                 <div>
                                   <h2>Scope summary</h2>
-                                  <h3>Pull-through from catalogue, one-off items, heat loss, labour and Takeoff handoff</h3>
-                                  <span>Takeoff and survey capture now live in NeXa Takeoff. This cost centre consumes the reviewed output.</span>
+                                  <h3>Pull-through from catalogue, one-off items, labour and Takeoff handoff</h3>
+                                  <span>
+                                    Heating design / heat loss now lives in standalone{" "}
+                                    <a href="/heat-design" target="_blank" rel="noreferrer">
+                                      Heat Design
+                                    </a>{" "}
+                                    — link materials to a Core job from there.
+                                  </span>
                                 </div>
                               </div>
                               <div className="quote-build-summary-grid">
@@ -32262,7 +32377,7 @@ export default function Dashboard() {
                           <div>
                             <h2>Survey tools</h2>
                             <h3>iPad room scans, survey photos, concept looks and takeoff outputs</h3>
-                            <span>Capture the room once, then let NeXa feed the quote, heat loss, supplier request and client-facing visuals.</span>
+                            <span>Capture the room once, then let NeXa feed the quote, supplier request and client-facing visuals.</span>
                           </div>
                           <div className="simpro-parts-actions">
                             <button className="simpro-grey-button" type="button" onClick={() => addSurveyAssetToQuoteCentre(selectedQuoteCostCentre, "Room scan")}>
@@ -32325,7 +32440,7 @@ export default function Dashboard() {
                           <ChevronRight size={16} />
                           <div>
                             <span>Build</span>
-                            <strong>Generate takeoff / heat loss rows</strong>
+                            <strong>Generate takeoff rows</strong>
                           </div>
                           <ChevronRight size={16} />
                           <div>
@@ -32684,255 +32799,6 @@ export default function Dashboard() {
                           </button>
                         </div>
                       </div>
-                    ) : null}
-
-                    {activeQuoteBuildTab === "heat-loss" ? (
-                    <div className="heat-loss-panel">
-                      <div className="heat-loss-panel-head">
-                        <div>
-                          <strong>Heat loss / radiator schedule</strong>
-                          <span>Build the room schedule, confirm the suggested radiator, then add the radiator list to materials or supplier request.</span>
-                        </div>
-                        <div className="heat-loss-actions">
-                          <button className="simpro-grey-button" type="button" onClick={() => addHeatLossRoomToQuoteCentre(selectedQuoteCostCentre.id)}>
-                            Add room
-                          </button>
-                          <button className="simpro-grey-button" type="button" onClick={() => stageHeatLossSupplierRequest(selectedQuoteCostCentre)}>
-                            Stage supplier list
-                          </button>
-                          <button className="simpro-blue-button" type="button" onClick={() => applyHeatLossRadiatorsToQuote(selectedQuoteCostCentre)}>
-                            Add radiator list
-                          </button>
-                        </div>
-                      </div>
-
-                      {(selectedQuoteCostCentre.heatLossRooms ?? []).length === 0 ? (
-                        <div className="heat-loss-empty">
-                          <strong>No rooms added yet</strong>
-                          <span>Add the first room to calculate required watts/BTU and select a radiator.</span>
-                        </div>
-                      ) : null}
-
-                      <div className="heat-loss-room-list">
-                        {(selectedQuoteCostCentre.heatLossRooms ?? []).map((room) => {
-                          const heatLoss = calculateHeatLossRoom(room);
-                          const recommendedOptions = recommendedRadiatorOptionsForRoom(room);
-                          const recommendedRadiator = recommendRadiatorForRoom(room);
-                          const selectedRadiator = recommendedRadiator;
-                          const preferredCatalogue = room.preferredRange === "Any range"
-                            ? radiatorCatalogue
-                            : radiatorCatalogue.filter((radiator) => radiator.range === room.preferredRange);
-
-                          return (
-                            <article className="heat-loss-room" key={room.id}>
-                              <div className="heat-loss-room-head">
-                                <input
-                                  aria-label="Room name"
-                                  value={room.name}
-                                  onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { name: event.target.value })}
-                                />
-                                <div>
-                                  <strong>{heatLoss.watts}W</strong>
-                                  <span>{heatLoss.btu} BTU</span>
-                                </div>
-                                <button className="simpro-options-button" type="button" onClick={() => removeHeatLossRoom(selectedQuoteCostCentre.id, room.id)}>
-                                  Remove
-                                </button>
-                              </div>
-
-                              <div className="heat-loss-grid">
-                                <label>
-                                  Room type
-                                  <select value={room.roomType} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { roomType: event.target.value })}>
-                                    {heatLossRoomTypes.map((option) => (
-                                      <option key={option.id}>{option.id}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Length m
-                                  <input
-                                    inputMode="decimal"
-                                    value={room.length}
-                                    onChange={(event) => {
-                                      if (isDecimalDraft(event.target.value)) {
-                                        updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { length: event.target.value });
-                                      }
-                                    }}
-                                  />
-                                </label>
-                                <label>
-                                  Width m
-                                  <input
-                                    inputMode="decimal"
-                                    value={room.width}
-                                    onChange={(event) => {
-                                      if (isDecimalDraft(event.target.value)) {
-                                        updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { width: event.target.value });
-                                      }
-                                    }}
-                                  />
-                                </label>
-                                <label>
-                                  Height m
-                                  <input
-                                    inputMode="decimal"
-                                    value={room.height}
-                                    onChange={(event) => {
-                                      if (isDecimalDraft(event.target.value)) {
-                                        updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { height: event.target.value });
-                                      }
-                                    }}
-                                  />
-                                </label>
-                                <label>
-                                  External walls
-                                  <select value={room.exteriorWalls ?? 2} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { exteriorWalls: Number(event.target.value) })}>
-                                    <option value={0}>No Exterior Walls</option>
-                                    {[1, 2, 3, 4].map((count) => (
-                                      <option key={count} value={count}>{count} Exterior Wall{count === 1 ? "" : "s"}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Wall type
-                                  <select value={room.wallType} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { wallType: event.target.value })}>
-                                    {heatLossWallTypes.map((option) => (
-                                      <option key={option.id}>{option.id}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Type of windows / doors
-                                  <select value={room.glazingType} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { glazingType: event.target.value })}>
-                                    {heatLossGlazingTypes.map((option) => (
-                                      <option key={option.id}>{option.id}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Glazed area m2
-                                  <input
-                                    inputMode="decimal"
-                                    value={room.glazingType === "No External Windows Or Doors" ? "0" : room.windowArea}
-                                    disabled={room.glazingType === "No External Windows Or Doors"}
-                                    onChange={(event) => {
-                                      if (isDecimalDraft(event.target.value)) {
-                                        updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { windowArea: event.target.value });
-                                      }
-                                    }}
-                                  />
-                                </label>
-                                <label>
-                                  Floor
-                                  <select value={room.floorType} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { floorType: event.target.value })}>
-                                    {heatLossFloorTypes.map((option) => (
-                                      <option key={option.id}>{option.id}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Ceiling
-                                  <select value={room.ceilingType} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { ceilingType: event.target.value })}>
-                                    {heatLossCeilingTypes.map((option) => (
-                                      <option key={option.id}>{option.id}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Heating system
-                                  <select value={room.heatingSystemType ?? "Hydronic"} onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { heatingSystemType: event.target.value as HeatLossRoom["heatingSystemType"] })}>
-                                    <option>Hydronic</option>
-                                    <option>Electric</option>
-                                  </select>
-                                </label>
-                                <label>
-                                  Mean water temp C
-                                  <input
-                                    disabled={(room.heatingSystemType ?? "Hydronic") === "Electric"}
-                                    inputMode="decimal"
-                                    value={(room.heatingSystemType ?? "Hydronic") === "Electric" ? "N/A" : (room.meanWaterTemperature ?? "70")}
-                                    onChange={(event) => {
-                                      if (isDecimalDraft(event.target.value)) {
-                                        updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { meanWaterTemperature: event.target.value });
-                                      }
-                                    }}
-                                  />
-                                </label>
-                                <label>
-                                  Preferred range
-                                  <select
-                                    value={room.preferredRange}
-                                    onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { preferredRange: event.target.value, selectedRadiatorId: undefined })}
-                                  >
-                                    {radiatorRanges.map((range) => (
-                                      <option key={range}>{range}</option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Recommended radiator
-                                  <select
-                                    value={selectedRadiator?.id ?? ""}
-                                    onChange={(event) => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { selectedRadiatorId: event.target.value })}
-                                  >
-                                    {preferredCatalogue.map((radiator) => (
-                                      <option key={radiator.id} value={radiator.id}>
-                                        {radiator.range} {radiator.model} - {radiator.outputWatts}W
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                              </div>
-
-                              <div className="heat-loss-result-strip">
-                                <div>
-                                  <span>Suggested model</span>
-                                  <strong>{selectedRadiator ? `${selectedRadiator.range} ${selectedRadiator.model}` : "No radiator found"}</strong>
-                                </div>
-                                <div>
-                                  <span>Heat required</span>
-                                  <strong>{heatLoss.watts}W / {heatLoss.btu} BTU</strong>
-                                </div>
-                                <div>
-                                  <span>Radiator output needed</span>
-                                  <strong>{heatLoss.radiatorOutputAtDeltaT50}W / {heatLoss.radiatorBtuAtDeltaT50} BTU</strong>
-                                </div>
-                                <div>
-                                  <span>Delta-T / code</span>
-                                  <strong>{(room.heatingSystemType ?? "Hydronic") === "Hydronic" ? `${Math.round(heatLoss.deltaT)}C` : "Electric"} · {selectedRadiator?.supplierSku ?? "-"}</strong>
-                                </div>
-                              </div>
-
-                              <div className="radiator-options-strip">
-                                <div className="radiator-options-head">
-                                  <strong>Recommended radiator options</strong>
-                                  <span>Pick the shape that fits the wall space.</span>
-                                </div>
-                                <div className="radiator-option-list">
-                                  {recommendedOptions.map((radiator) => {
-                                    const isSelected = selectedRadiator?.id === radiator.id;
-
-                                    return (
-                                      <button
-                                        className={`radiator-option-card${isSelected ? " selected" : ""}`}
-                                        key={radiator.id}
-                                        type="button"
-                                        onClick={() => updateHeatLossRoom(selectedQuoteCostCentre.id, room.id, { selectedRadiatorId: radiator.id })}
-                                      >
-                                        <span>{radiator.range}</span>
-                                        <strong>{radiator.model}</strong>
-                                        <small>{radiator.outputWatts}W · {radiator.orientation} · {radiator.supplierSku}</small>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </article>
-                          );
-                        })}
-                      </div>
-                    </div>
                     ) : null}
 
                     {["catalogue", "one-off"].includes(activeQuoteBuildTab) ? (

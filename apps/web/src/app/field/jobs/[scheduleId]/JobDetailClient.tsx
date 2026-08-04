@@ -109,10 +109,34 @@ export default function JobDetailPage() {
   const [checklistMode, setChecklistMode] = useState<"job" | "daywork">("job");
   const [dayworkBusy, setDayworkBusy] = useState(false);
   const [dayworkRecord, setDayworkRecord] = useState<DayworkAccountRecord | null>(null);
+  const [dayworkCostCentreId, setDayworkCostCentreId] = useState("");
+  const [dayworkSheets, setDayworkSheets] = useState<
+    Array<DayworkAccountRecord & { costCentreId?: string; updatedAt?: string }>
+  >([]);
+  const [sessionError, setSessionError] = useState("");
 
   useEffect(() => {
     setTab(initialTab);
   }, [initialTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/auth/me", { credentials: "include", cache: "no-store" })
+      .then(async (response) => {
+        if (cancelled) return;
+        if (response.status === 401) {
+          setSessionError("Not signed in — Daywork Save will not reach Core. Open /login, sign in, then come back.");
+          return;
+        }
+        setSessionError("");
+      })
+      .catch(() => {
+        if (!cancelled) setSessionError("Could not verify sign-in — Save may fail until you refresh.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.scheduleId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,7 +192,7 @@ export default function JobDetailPage() {
     setNotice("");
   }
 
-  async function openDayworkSheet() {
+  async function openDayworkSheet(options?: { fresh?: boolean }) {
     if (!job) return;
     setDayworkBusy(true);
     setError("");
@@ -178,18 +202,25 @@ export default function JobDetailPage() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "activate" }),
+        body: JSON.stringify({ action: options?.fresh ? "new" : "activate" }),
       });
       const body = (await response.json()) as {
         error?: string;
         requirements?: FieldRequirement[];
         costCentreName?: string;
+        costCentreId?: string;
         record?: DayworkAccountRecord | null;
+        sheets?: Array<DayworkAccountRecord & { costCentreId?: string; updatedAt?: string }>;
       };
+      if (response.status === 401) {
+        throw new Error("Not signed in — open /login, sign in, then try Add Daywork Account again.");
+      }
       if (!response.ok) throw new Error(body.error || "Could not open daywork sheet.");
       setChecklistMode("daywork");
       setTab("checklist");
-      setDayworkRecord(body.record || null);
+      setDayworkRecord(options?.fresh ? null : body.record || null);
+      setDayworkCostCentreId(body.costCentreId || "");
+      if (body.sheets) setDayworkSheets(body.sheets);
       if (body.requirements) {
         setJob((current) =>
           current
@@ -201,7 +232,11 @@ export default function JobDetailPage() {
             : current,
         );
       }
-      setNotice("Daywork Account open — add labour days, materials and both signatures.");
+      setNotice(
+        options?.fresh
+          ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish."
+          : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
+      );
     } catch (openError) {
       setError(openError instanceof Error ? openError.message : "Could not open daywork sheet.");
     } finally {
@@ -224,6 +259,7 @@ export default function JobDetailPage() {
       if (!response.ok) throw new Error(body.error || "Could not leave daywork sheet.");
       setChecklistMode("job");
       setDayworkRecord(null);
+      setDayworkCostCentreId("");
       if (body.requirements) {
         setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
       } else {
@@ -422,18 +458,43 @@ export default function JobDetailPage() {
 
       <p className="job-lead">{job.description}</p>
 
+      {sessionError ? (
+        <div className="feedback error" role="alert">
+          {sessionError}{" "}
+          <a href="/login" style={{ color: "inherit", fontWeight: 700 }}>
+            Sign in
+          </a>
+        </div>
+      ) : null}
+
       <div className="field-daywork-actions">
-        {checklistMode === "daywork" ? null : (
-          <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
-            {dayworkBusy ? "Opening…" : "Add Daywork Account"}
-          </button>
-        )}
         {checklistMode === "daywork" ? (
-          <p className="muted" style={{ margin: "8px 0 0" }}>
-            Fill this Daywork sheet, then Save and finish — it syncs to Core Variations → Daywork account (not the
-            boiler checklist).
-          </p>
-        ) : null}
+          <>
+            <button
+              type="button"
+              className="primary-btn"
+              disabled={dayworkBusy}
+              onClick={() => void openDayworkSheet({ fresh: true })}
+            >
+              {dayworkBusy ? "Opening…" : "New Daywork sheet"}
+            </button>
+            <p className="muted" style={{ margin: "8px 0 0" }}>
+              Sheet {Math.max(1, dayworkSheets.length || 1)}
+              {dayworkSheets.length > 1 ? ` of ${dayworkSheets.length} on this job` : ""}. Save and finish sends it to
+              Core → Variations → Daywork account. Tap New Daywork sheet for another variation on the same job.
+            </p>
+          </>
+        ) : (
+          <>
+            <button type="button" className="primary-btn" disabled={dayworkBusy} onClick={() => void openDayworkSheet()}>
+              {dayworkBusy ? "Opening…" : "Add Daywork Account"}
+            </button>
+            <p className="muted" style={{ margin: "8px 0 0" }}>
+              The normal Checklist only updates the gas / job stop-go. Daywork materials and signatures need{" "}
+              <strong>Add Daywork Account</strong> then <strong>Save and finish</strong>.
+            </p>
+          </>
+        )}
       </div>
 
       <Link href={fieldPath(`/ask?job=${encodeURIComponent(job.scheduleId)}`)} className="field-ask-blake-link">
@@ -494,22 +555,33 @@ export default function JobDetailPage() {
         <div className="stack checklist-stack">
           {checklistMode === "daywork" ? (
             <DayworkSheetForm
+              key={`daywork-${dayworkCostCentreId || "default"}-${dayworkRecord?.completedAt || "new"}`}
               scheduleId={job.scheduleId}
+              costCentreId={dayworkCostCentreId || undefined}
               engineerName={job.engineerName}
               initialRecord={dayworkRecord}
               onCancel={() => void backToJobChecklist()}
               onSaved={(record) => {
                 setDayworkRecord(record);
+                setDayworkSheets((current) => {
+                  const costCentreId = dayworkCostCentreId || `${job.jobId}-daywork-account`;
+                  const next = current.filter((sheet) => sheet.costCentreId !== costCentreId);
+                  return [
+                    ...next,
+                    { ...record, costCentreId, updatedAt: new Date().toISOString() },
+                  ];
+                });
                 setNotice(
-                  "Saved to Core — open this job → Cost centres → Variations → Daywork account (not Boiler servicing).",
+                  "Saved to Core — open this job → Cost centres → Variations → Daywork account. Tap New Daywork sheet for another.",
                 );
               }}
             />
           ) : (
             <>
               <p className="checklist-intro muted">
-                Stop/go checklist for this cost centre. Values save to Core — open Daywork Account for reactive
-                variation sheets.
+                This checklist is for the job stop/go only (e.g. boiler / gas). It does <strong>not</strong> fill the
+                Daywork Account. Tap <strong>Add Daywork Account</strong> above for materials, hours and dual
+                sign-off that appear in Core Variations.
               </p>
               {error ? <div className="feedback error">{error}</div> : null}
               {notice ? <div className="feedback">{notice}</div> : null}

@@ -340,6 +340,18 @@ export type DayworkSheetDraft = {
   clientSignerName: string;
 };
 
+export function normalizeWeekLabourDays(days: DayworkLabourDay[] | undefined | null): DayworkLabourDay[] {
+  const byDay = new Map(
+    (days || [])
+      .filter((row) => row.day.trim())
+      .map((row) => [row.day.trim(), String(row.hours ?? "").trim()] as const),
+  );
+  return DAYWORK_WEEKDAY_OPTIONS.map((day) => ({
+    day: day.id,
+    hours: byDay.get(day.id) || "",
+  }));
+}
+
 /** Upcoming Sunday as DD-MM-YYYY so Field Save is not blocked by an empty week-ending. */
 export function defaultDayworkWeekEndingUk(from: Date = new Date()): string {
   const date = new Date(from.getFullYear(), from.getMonth(), from.getDate());
@@ -353,20 +365,21 @@ export function defaultDayworkWeekEndingUk(from: Date = new Date()): string {
 }
 
 export function emptyDayworkSheetDraft(defaults?: Partial<DayworkSheetDraft>): DayworkSheetDraft {
+  const { labourDays: incomingDays, ...rest } = defaults || {};
   return {
     description: "",
     weekEnding: defaultDayworkWeekEndingUk(),
     voReference: "",
     labourName: "",
     labourTrade: "Plumber",
-    labourDays: [{ day: "Mon", hours: "" }],
     materials: [{ description: "", qty: "" }],
     plant: [{ description: "", qty: "" }],
     plumberSignature: "",
     clientSignature: "",
     plumberSignerName: "",
     clientSignerName: "",
-    ...defaults,
+    ...rest,
+    labourDays: normalizeWeekLabourDays(incomingDays),
   };
 }
 
@@ -377,13 +390,19 @@ export function dayworkDraftFromRecord(
   const labourDays = parseDayworkLabourDays(record?.labourDaysJson);
   const materials = parseDayworkLineItems(record?.materialsJson);
   const plant = parseDayworkLineItems(record?.plantJson);
+  const weekDays =
+    labourDays.length > 0
+      ? normalizeWeekLabourDays(labourDays)
+      : normalizeWeekLabourDays(
+          record?.labourHours ? [{ day: "Mon", hours: record.labourHours }] : [],
+        );
   return emptyDayworkSheetDraft({
     description: record?.description || "",
     weekEnding: toUkDateDisplay(record?.weekEnding || ""),
     voReference: record?.voReference || "",
     labourName: record?.labourName || defaults?.labourName || "",
     labourTrade: record?.labourTrade || defaults?.labourTrade || "Plumber",
-    labourDays: labourDays.length ? labourDays : [{ day: "Mon", hours: record?.labourHours || "" }],
+    labourDays: weekDays,
     materials: materials.length ? materials : [{ description: "", qty: "" }],
     plant: plant.length ? plant : [{ description: "", qty: "" }],
     plumberSignature: record?.plumberSignature || "",

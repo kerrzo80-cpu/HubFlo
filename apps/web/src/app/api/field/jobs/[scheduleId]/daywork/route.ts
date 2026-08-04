@@ -13,6 +13,7 @@ import {
   buildDayworkAccountRecordFromEvidence,
   DAYWORK_COST_CENTRE_NAME,
   DAYWORK_COST_CENTRE_TEMPLATE,
+  createAdditionalDayworkCostCentre,
   ensureDayworkVariationCostCentre,
   listDayworkSheetsForJob,
   requirementsFromFlowTemplate,
@@ -31,6 +32,7 @@ type Params = { params: Promise<{ scheduleId: string }> };
 type DayworkBody = {
   action?: string;
   createdBy?: string;
+  costCentreId?: string;
   record?: DayworkAccountRecord;
   draft?: DayworkSheetDraft;
 };
@@ -68,8 +70,38 @@ export async function POST(request: Request, { params }: Params) {
     });
   }
 
-  const costCentreId = ensureDayworkVariationCostCentre(schedule.jobId);
+  const costCentreId =
+    body.costCentreId?.trim() ||
+    (body.action === "new"
+      ? createAdditionalDayworkCostCentre(schedule.jobId)
+      : ensureDayworkVariationCostCentre(schedule.jobId));
   const coreJob = getJobs().find((job) => job.id === schedule.jobId);
+
+  if (body.action === "new") {
+    const requirements = dayworkRequirements(schedule.jobId, costCentreId);
+    const workflow = activateDayworkWorkflow(scheduleId, costCentreId, requirements);
+    recordDayworkWriteAttempt({
+      at: new Date().toISOString(),
+      source: "field-daywork",
+      scheduleId,
+      jobId: schedule.jobId,
+      costCentreId,
+      ok: true,
+      error: "new-sheet-opened",
+    });
+    return NextResponse.json({
+      scheduleId,
+      jobId: schedule.jobId,
+      jobRef: coreJob?.ref || schedule.jobRef,
+      costCentreId,
+      costCentreName: DAYWORK_COST_CENTRE_NAME,
+      templateName: DAYWORK_COST_CENTRE_TEMPLATE,
+      checklistMode: "daywork",
+      record: null,
+      sheets: listDayworkSheetsForJob(schedule.jobId),
+      requirements: workflow.requirements ?? requirements,
+    });
+  }
 
   if (body.action === "save") {
     // Log immediately so /api/health.lastWrite proves the Field POST reached the server
@@ -208,6 +240,7 @@ export async function POST(request: Request, { params }: Params) {
       hasClientName,
       hasSignatures,
       storeSheetCount: listDayworkSheetsFromStore().length,
+      sheets: listDayworkSheetsForJob(schedule.jobId),
       requirements,
     });
   }
@@ -224,6 +257,7 @@ export async function POST(request: Request, { params }: Params) {
     templateName: DAYWORK_COST_CENTRE_TEMPLATE,
     checklistMode: "daywork",
     record: buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId),
+    sheets: listDayworkSheetsForJob(schedule.jobId),
     requirements: workflow.requirements ?? requirements,
   });
 }
@@ -237,8 +271,9 @@ export async function GET(_request: Request, { params }: Params) {
 
   const costCentreId = ensureDayworkVariationCostCentre(schedule.jobId);
   const requirements = dayworkRequirements(schedule.jobId, costCentreId);
+  const sheets = listDayworkSheetsForJob(schedule.jobId);
   const savedSheet =
-    listDayworkSheetsForJob(schedule.jobId).find((sheet) => sheet.costCentreId === costCentreId) ||
+    sheets.find((sheet) => sheet.costCentreId === costCentreId) ||
     buildDayworkAccountRecordFromEvidence(schedule.jobId, costCentreId);
 
   return NextResponse.json({
@@ -248,6 +283,7 @@ export async function GET(_request: Request, { params }: Params) {
     costCentreName: DAYWORK_COST_CENTRE_NAME,
     templateName: DAYWORK_COST_CENTRE_TEMPLATE,
     record: savedSheet,
+    sheets,
     requirements,
   });
 }

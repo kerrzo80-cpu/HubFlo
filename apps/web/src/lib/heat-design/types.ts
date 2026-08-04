@@ -63,6 +63,68 @@ export type RadiatorTypeOption = {
   fins: number;
 };
 
+export type HeatingPlantKind =
+  | "boiler"
+  | "electric_boiler"
+  | "outdoor_unit"
+  | "cylinder"
+  | "buffer"
+  | "manifold"
+  | "oil_tank"
+  | "lpg_tank";
+
+export type HeatingPlantItem = {
+  id: string;
+  kind: HeatingPlantKind;
+  label: string;
+  x: number;
+  y: number;
+  floorLevel: FloorLevel;
+  widthM?: number;
+  depthM?: number;
+};
+
+export type HeatingEmitterKind = "radiator" | "ufh";
+
+/** Radiator or underfloor heating zone drawn on the floor plan. */
+export type HeatingEmitterItem = {
+  id: string;
+  kind: HeatingEmitterKind;
+  label: string;
+  roomId: string;
+  x: number;
+  y: number;
+  widthM: number;
+  depthM: number;
+  /** Degrees — radiators align to the wall they sit on. */
+  rotationDeg: number;
+  floorLevel: FloorLevel;
+  radiatorId?: string;
+  outputWatts?: number;
+};
+
+export type HeatingPipeKind = "flow" | "return" | "primary" | "gas" | "oil" | "refrigerant" | "dhw";
+
+export type HeatingPipeRun = {
+  id: string;
+  kind: HeatingPipeKind;
+  label: string;
+  points: PlanPoint[];
+  floorLevel: FloorLevel;
+};
+
+export type HeatingEmitterMode = "radiators" | "ufh" | "mixed";
+
+/** Overlay design for a chosen heating system — plant, emitters and pipe routes. */
+export type HeatingSystemLayout = {
+  systemOptionId: string;
+  plants: HeatingPlantItem[];
+  pipes: HeatingPipeRun[];
+  emitters: HeatingEmitterItem[];
+  emitterMode: HeatingEmitterMode;
+  updatedAt: string;
+};
+
 export type HeatDesignProject = {
   id: string;
   name: string;
@@ -84,6 +146,17 @@ export type HeatDesignProject = {
   selectedWallConstructionIds: string[];
   primaryWallConstructionId: string;
   selectedRadiatorTypeIds: string[];
+  /** Heating system options included in the comparison report */
+  reportOptionIds: string[];
+  /** System chosen to design plant + pipework overlay */
+  chosenSystemId?: string;
+  /** Movable plant / pipework layout for the chosen system */
+  heatingLayout?: HeatingSystemLayout | null;
+  /** Preferred emitters when designing on plan */
+  emitterMode: HeatingEmitterMode;
+  /** Linked Core job (standalone design attached to a job) */
+  linkedJobId?: string;
+  linkedJobRef?: string;
   cylinderLitres: number;
   dailyHotWaterLitres: number;
   outdoorUnitDistanceM: number;

@@ -11,6 +11,7 @@ const publicPagePrefixes = ["/ai-first", "/heat-design"];
 const publicAssetPrefixes = ["/app-icons/", "/brand/"];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",
+  "/api/auth/me",
   "/api/health",
   "/api/postcode-lookup",
   "/ai-first",
@@ -89,7 +90,14 @@ export function proxy(request: NextRequest) {
     }
     if (!user) {
       if (pathname.startsWith("/api/")) {
-        return NextResponse.json({ error: "Unauthenticated" }, { status: 401 });
+        return NextResponse.json(
+          {
+            error: pathname.includes("/daywork")
+              ? "Unauthenticated — sign in at /login before Field Daywork Save and finish"
+              : "Unauthenticated",
+          },
+          { status: 401 },
+        );
       }
       const loginUrl = request.nextUrl.clone();
       loginUrl.pathname = "/login";

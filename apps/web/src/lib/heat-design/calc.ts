@@ -20,6 +20,7 @@ import {
   roomWallExterior,
   syncRoomFromPolygon,
 } from "./geometry";
+import { heatingSystemOptions } from "./systems";
 import type {
   HeatDesignProject,
   HeatDesignRoom,
@@ -260,8 +261,15 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
   if (project.rooms.length === 0) materialsNotes.push("Add rooms on the floor plan.");
   if (openingCount === 0) materialsNotes.push("Add windows/doors on walls for glazing takeoff.");
 
+  const chosenSystem =
+    heatingSystemOptions.find((item) => item.id === project.chosenSystemId) ??
+    heatingSystemOptions.find((item) => item.id === "opt-ashp");
+  const systemKind = chosenSystem?.kind ?? "ashp";
+
   const kit = buildKitLines({
-    pump: selectedPump,
+    systemKind,
+    systemLabel: chosenSystem?.label,
+    pump: systemKind === "ashp" || systemKind === "hybrid" ? selectedPump : null,
     cylinderLitres,
     flowTemperature: project.flowTemperature,
     emitterUpgradeCount,
@@ -272,6 +280,8 @@ export function calculateSystemDesign(project: HeatDesignProject): SystemDesignR
     pipeRunM: Math.round(totalFloorArea * 1.15 + project.rooms.length * 4),
     wallConstructionLabel: primaryWall ? `${primaryWall.label} (U=${primaryWall.uValue})` : undefined,
     radiatorLines,
+    emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    designLoadKw,
   });
   const kitTotal = kit.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const materialsComplete =
@@ -331,6 +341,22 @@ export function normaliseProject(project: HeatDesignProject): HeatDesignProject 
     selectedWallConstructionIds: project.selectedWallConstructionIds ?? ["cav-mw-100-wp"],
     primaryWallConstructionId: project.primaryWallConstructionId ?? "cav-mw-100-wp",
     selectedRadiatorTypeIds: project.selectedRadiatorTypeIds ?? ["rad-k1", "rad-k2", "rad-k3"],
+    reportOptionIds:
+      project.reportOptionIds?.length
+        ? project.reportOptionIds
+        : ["opt-ashp", "opt-gas", "opt-oil"],
+    chosenSystemId: project.chosenSystemId,
+    emitterMode: project.emitterMode ?? project.heatingLayout?.emitterMode ?? "radiators",
+    linkedJobId: project.linkedJobId,
+    linkedJobRef: project.linkedJobRef,
+    heatingLayout: project.heatingLayout
+      ? {
+          ...project.heatingLayout,
+          emitters: project.heatingLayout.emitters ?? [],
+          emitterMode:
+            project.heatingLayout.emitterMode ?? project.emitterMode ?? "radiators",
+        }
+      : null,
     rooms: (project.rooms ?? []).map((room, index) => {
       const exteriorFlags = room.exteriorFlags ?? defaultExteriorFlags(room.exteriorWalls ?? 2);
       const polygon =

@@ -25,12 +25,20 @@ export async function GET() {
     app: "nexa",
     store: getServerStoreBackend(),
     deployment: {
-      branch: process.env.RENDER_GIT_BRANCH || "local",
-      commit: process.env.RENDER_GIT_COMMIT || "local",
+      branch: process.env.RENDER_GIT_BRANCH ?? "local",
+      commit: process.env.RENDER_GIT_COMMIT ?? "local",
+      service:
+        process.env.RENDER_SERVICE_NAME ||
+        (process.env.NEXT_PUBLIC_APP_URL?.includes("nexa-live")
+          ? "nexa-live"
+          : process.env.NEXT_PUBLIC_APP_URL?.includes("nexa-pilot")
+            ? "nexa-pilot"
+            : "local"),
+      appUrl: process.env.NEXT_PUBLIC_APP_URL ?? null,
       talkLab: "/field/talk-lab",
       talkLabBuild: "realtime-voice-picker-v1",
       heatDesign: "/heat-design",
-      heatDesignBuild: "print-report-fix-v1",
+      heatDesignBuild: "remove-core-heat-calc-tab-v1",
       fieldApp: "/field",
       fieldCoreLinked: true,
       photoCompressBuild: "shrink-v1",
@@ -38,7 +46,7 @@ export async function GET() {
       blakePeerEngineer: "v1",
       fieldHoursBuild: "time-check-v1",
       checklistUi: "tidy-v1",
-      fieldCoreLive: "daywork-field-sync-v1",
+      fieldCoreLive: "production-main-60-61-62",
     },
     daywork: {
       sheetCount: dayworkSheetCount,
