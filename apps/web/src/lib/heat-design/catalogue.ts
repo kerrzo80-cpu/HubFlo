@@ -192,19 +192,31 @@ export function defaultExteriorFlags(count: number): [boolean, boolean, boolean,
   return [true, true, true, true];
 }
 
-export function makeBlankRoom(index: number): HeatDesignRoom {
+export function makeBlankRoom(
+  index: number,
+  options?: {
+    roomType?: string;
+    planX?: number;
+    planY?: number;
+    length?: number;
+    width?: number;
+    floorLevel?: HeatDesignRoom["floorLevel"];
+    withDefaultWindow?: boolean;
+  },
+): HeatDesignRoom {
   const col = index % 3;
   const row = Math.floor(index / 3);
-  const planX = col * 3.8;
-  const planY = row * 3.5 + 0.8;
-  const length = 3.5;
-  const width = 3.2;
+  const planX = options?.planX ?? col * 3.8;
+  const planY = options?.planY ?? row * 3.5 + 0.8;
+  const length = options?.length ?? 3.5;
+  const width = options?.width ?? 3.2;
+  const roomType = options?.roomType ?? "Living Room";
   const exteriorFlags = defaultExteriorFlags(2);
   const polygon = rectPolygon(planX, planY, length, width);
   return {
-    id: `hd-room-${Date.now()}-${index}`,
-    name: `Room ${index + 1}`,
-    roomType: "Living Room",
+    id: `hd-room-${Date.now()}-${index}-${Math.floor(Math.random() * 1e4)}`,
+    name: roomType,
+    roomType,
     length: String(length),
     width: String(width),
     height: "2.4",
@@ -221,8 +233,11 @@ export function makeBlankRoom(index: number): HeatDesignRoom {
     preferredRange: "Any range",
     planX,
     planY,
-    floorLevel: "ground",
-    openings: [{ id: `op-${index}-0`, wallIndex: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 }],
+    floorLevel: options?.floorLevel ?? "ground",
+    openings:
+      options?.withDefaultWindow === false
+        ? []
+        : [{ id: `op-${index}-0`, wallIndex: 0, t: 0.5, kind: "window", widthM: 1.2, heightM: 1.2 }],
   };
 }
 

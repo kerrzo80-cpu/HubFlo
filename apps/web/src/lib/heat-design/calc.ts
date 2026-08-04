@@ -72,10 +72,23 @@ export function calculateRoomHeatLoss(
 
   const polygon = roomPolygon(room);
   const height = numberFromInput(room.height, 2.4);
-  const openingArea = (room.openings ?? []).reduce((sum, opening) => {
-    const wallIndex = opening.wallIndex ?? opening.wall ?? 0;
-    return sum + opening.widthM * opening.heightM;
-  }, 0);
+  const openings = room.openings ?? [];
+  let openingArea = 0;
+  let openingGlazingLoss = 0;
+  const targetTemp =
+    typeof room.targetTemp === "number" && Number.isFinite(room.targetTemp)
+      ? room.targetTemp
+      : (roomType?.targetTemp ?? 21);
+  const externalDelta = Math.max(0, targetTemp - designExternalTemp);
+
+  for (const opening of openings) {
+    const area = Math.max(0, opening.widthM * opening.heightM);
+    openingArea += area;
+    const material =
+      selectedOption(glazingTypes, opening.materialId || room.glazingType) ?? glazingType;
+    openingGlazingLoss += area * (material?.uValue ?? 2.9) * externalDelta;
+  }
+
   const windowArea =
     room.glazingType === "No External Windows Or Doors"
       ? 0
@@ -84,20 +97,24 @@ export function calculateRoomHeatLoss(
         : numberFromInput(room.windowArea);
   const floorArea = Math.max(0, polygonArea(polygon) || numberFromInput(room.length) * numberFromInput(room.width));
   const volume = floorArea * Math.max(0, height);
-  const targetTemp = roomType?.targetTemp ?? 21;
-  const externalDelta = Math.max(0, targetTemp - designExternalTemp);
   const exteriorWallArea = exteriorWallAreaForRoom(room);
   const glazingArea = Math.min(Math.max(0, windowArea), exteriorWallArea || windowArea);
   const opaqueWallArea = Math.max(0, exteriorWallArea - Math.min(glazingArea, exteriorWallArea));
   const wallU = wallUValueOverride ?? wallType?.uValue ?? 1.47;
 
   const wallLoss = opaqueWallArea * wallU * externalDelta;
-  const glazingLoss = glazingArea * (glazingType?.uValue ?? 2.9) * externalDelta;
+  const glazingLoss =
+    openingArea > 0
+      ? openingGlazingLoss
+      : glazingArea * (glazingType?.uValue ?? 2.9) * externalDelta;
   const floorLoss =
     floorArea * (floorType?.uValue ?? 0.82) * Math.max(0, targetTemp - (floorType?.adjacentTemp ?? designExternalTemp));
   const ceilingLoss =
     floorArea * (ceilingType?.uValue ?? 0.71) * Math.max(0, targetTemp - (ceilingType?.adjacentTemp ?? designExternalTemp));
-  const airChanges = roomType?.airChanges ?? 0.5;
+  const airChanges =
+    typeof room.airChanges === "number" && Number.isFinite(room.airChanges)
+      ? Math.max(0, room.airChanges)
+      : (roomType?.airChanges ?? 0.5);
   const ventilationLoss = 0.33 * airChanges * volume * externalDelta;
 
   const baseWatts = wallLoss + glazingLoss + floorLoss + ceilingLoss + ventilationLoss;

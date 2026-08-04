@@ -215,8 +215,12 @@ export function DesignReport({ project, design, options, className }: DesignRepo
               <th>Room</th>
               <th>Type</th>
               <th>Area</th>
-              <th>Heat loss</th>
-              <th>Openings</th>
+              <th>Walls</th>
+              <th>Glazing</th>
+              <th>Floor</th>
+              <th>Ceiling</th>
+              <th>Vent</th>
+              <th>Total</th>
               <th>Emitter</th>
             </tr>
           </thead>
@@ -231,7 +235,6 @@ export function DesignReport({ project, design, options, className }: DesignRepo
                 { ...room, meanWaterTemperature: String(project.flowTemperature) },
                 project.designExternalTemp,
               );
-              const openings = room.openings ?? [];
               const emitterLabel = layoutEmitter
                 ? layoutEmitter.kind === "ufh"
                   ? `UFH ${layoutEmitter.widthM.toFixed(1)}×${layoutEmitter.depthM.toFixed(1)} m`
@@ -244,8 +247,12 @@ export function DesignReport({ project, design, options, className }: DesignRepo
                   <td>{room.name}</td>
                   <td>{room.roomType}</td>
                   <td>{loss.floorArea.toFixed(1)} m²</td>
+                  <td>{wattsLabel(loss.wallLoss)}</td>
+                  <td>{wattsLabel(loss.glazingLoss)}</td>
+                  <td>{wattsLabel(loss.floorLoss)}</td>
+                  <td>{wattsLabel(loss.ceilingLoss)}</td>
+                  <td>{wattsLabel(loss.ventilationLoss)}</td>
                   <td>{wattsLabel(loss.watts)}</td>
-                  <td>{openings.length ? openings.map((o) => (o.kind === "door" ? "D" : "W")).join(" ") : "—"}</td>
                   <td>{emitterLabel}</td>
                 </tr>
               );

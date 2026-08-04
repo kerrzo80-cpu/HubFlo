@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  autoMarkExteriorWalls,
   calculateRoomHeatLoss,
   calculateSystemDesign,
   compareHeatingOptions,
@@ -160,22 +161,80 @@ export default function HeatDesignLabPage() {
     });
   }
 
+  function reconcileWalls() {
+    setProject((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        rooms: autoMarkExteriorWalls(current.rooms),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+  }
+
   function addRoom() {
     setProject((current) => {
       if (!current) return current;
-      const room = makeBlankRoom(current.rooms.length);
+      const room = makeBlankRoom(current.rooms.length, {
+        floorLevel: current.activeFloor ?? "ground",
+        withDefaultWindow: false,
+      });
       setSelectedRoomId(room.id);
-      return { ...current, rooms: [...current.rooms, room], updatedAt: new Date().toISOString() };
+      return {
+        ...current,
+        rooms: autoMarkExteriorWalls([...current.rooms, room]),
+        updatedAt: new Date().toISOString(),
+      };
     });
     setTab("plan");
+  }
+
+  function placeRoom(roomType: string, planX: number, planY: number) {
+    setProject((current) => {
+      if (!current) return current;
+      const room = makeBlankRoom(current.rooms.length, {
+        roomType,
+        planX,
+        planY,
+        floorLevel: current.activeFloor ?? "ground",
+        withDefaultWindow: false,
+      });
+      setSelectedRoomId(room.id);
+      return {
+        ...current,
+        rooms: autoMarkExteriorWalls([...current.rooms, room]),
+        updatedAt: new Date().toISOString(),
+      };
+    });
   }
 
   function removeRoom(roomId: string) {
     setProject((current) => {
       if (!current) return current;
-      const rooms = current.rooms.filter((room) => room.id !== roomId);
+      const rooms = autoMarkExteriorWalls(current.rooms.filter((room) => room.id !== roomId));
       setSelectedRoomId(rooms[0]?.id ?? null);
       return { ...current, rooms, updatedAt: new Date().toISOString() };
+    });
+  }
+
+  function startBlankPlan() {
+    startTransition(() => {
+      const next = {
+        ...makeDemoProject(),
+        name: "New heat design",
+        customerName: "",
+        address: "",
+        postcode: "",
+        rooms: [],
+        heatingLayout: null,
+        chosenSystemId: undefined,
+        updatedAt: new Date().toISOString(),
+      };
+      setProject(next);
+      setSelectedRoomId(null);
+      setLayoutMode(false);
+      setTab("plan");
+      setNotice("Blank plan — place rooms from the left palette, HeatPunk-style.");
     });
   }
 
@@ -334,11 +393,14 @@ export default function HeatDesignLabPage() {
             <div className="hd-brand-kicker">Standalone · link to Core jobs</div>
             <h1>Heat Design</h1>
             <p>
-              Floor plan, heat loss, system design and materials — standalone tool. Link the kit to an existing Core job
-              or create a new one when you are ready.
+              HeatPunk-style floor plan: place rooms, openings and materials, then size the system and push kit to a Core
+              job.
             </p>
           </div>
           <div className="hd-top-actions">
+            <button type="button" className="hd-btn hd-btn-ghost" onClick={startBlankPlan}>
+              Blank plan
+            </button>
             <button type="button" className="hd-btn hd-btn-ghost" onClick={resetDemo}>
               Reset demo
             </button>
@@ -536,11 +598,14 @@ export default function HeatDesignLabPage() {
                   rooms={project.rooms}
                   selectedRoomId={selectedRoomId}
                   activeFloor={project.activeFloor ?? "ground"}
+                  designExternalTemp={project.designExternalTemp}
                   onSelectRoom={setSelectedRoomId}
                   onPatchRoom={patchRoom}
                   onDeleteRoom={removeRoom}
                   onChangeFloor={(floor) => patchProject({ activeFloor: floor })}
                   onAddRoom={addRoom}
+                  onPlaceRoom={placeRoom}
+                  onReconcileWalls={reconcileWalls}
                   heatingLayout={project.heatingLayout}
                   layoutMode={layoutMode}
                   onLayoutModeChange={setLayoutMode}
@@ -621,6 +686,37 @@ export default function HeatDesignLabPage() {
                                 </option>
                               ))}
                             </select>
+                          </label>
+                          <label className="hd-field">
+                            Design °C
+                            <input
+                              type="number"
+                              step="0.5"
+                              value={
+                                room.targetTemp ??
+                                roomTypes.find((item) => item.id === room.roomType)?.targetTemp ??
+                                21
+                              }
+                              onChange={(event) =>
+                                patchRoom(room.id, { targetTemp: Number(event.target.value) || undefined })
+                              }
+                            />
+                          </label>
+                          <label className="hd-field">
+                            Air changes (ACH)
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              value={
+                                room.airChanges ??
+                                roomTypes.find((item) => item.id === room.roomType)?.airChanges ??
+                                0.5
+                              }
+                              onChange={(event) =>
+                                patchRoom(room.id, { airChanges: Number(event.target.value) || undefined })
+                              }
+                            />
                           </label>
                           <label className="hd-field">
                             Length m
@@ -725,6 +821,13 @@ export default function HeatDesignLabPage() {
                           <span className="hd-chip">{loss.floorArea.toFixed(1)} m²</span>
                           <span className="hd-chip">ΔT50 ~{wattsLabel(loss.radiatorOutputAtDeltaT50)}</span>
                           {picked ? <span className="hd-chip">{picked.model}</span> : <span className="hd-chip warn">Upgrade</span>}
+                        </div>
+                        <div className="hd-loss-row" aria-label="Heat loss breakdown">
+                          <span>Walls {wattsLabel(loss.wallLoss)}</span>
+                          <span>Glazing {wattsLabel(loss.glazingLoss)}</span>
+                          <span>Floor {wattsLabel(loss.floorLoss)}</span>
+                          <span>Ceiling {wattsLabel(loss.ceilingLoss)}</span>
+                          <span>Vent {wattsLabel(loss.ventilationLoss)}</span>
                         </div>
                       </article>
                     );
