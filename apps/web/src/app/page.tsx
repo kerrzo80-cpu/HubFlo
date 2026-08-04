@@ -110,6 +110,11 @@ import {
   weekDays,
 } from "@/lib/access";
 import { numberedReference } from "@/lib/numbering";
+import {
+  DIRECTORY_ALPHABET_LETTERS,
+  filterDirectoryList,
+  type DirectoryAlphabetLetter,
+} from "@/lib/directory-list-filter";
 import { makeTimelineEntry, sortTimelineEntries, type TimelineEntry, type TimelineStage } from "@/lib/record-timeline";
 import { RecurringOpsPanel, SiteAssetsPanel, StockOpsPanel } from "@/lib/OpsPanels";
 import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from "@/lib/SetupExtraPanels";
@@ -7572,6 +7577,8 @@ export default function Dashboard() {
   const [purchaseRequests, setPurchaseRequests] = useState<PurchaseRequest[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>(demoInvoices);
   const [search, setSearch] = useState("");
+  const [peopleDirectorySearch, setPeopleDirectorySearch] = useState("");
+  const [peopleDirectoryLetter, setPeopleDirectoryLetter] = useState<DirectoryAlphabetLetter>("All");
   const [statusFilter, setStatusFilter] = useState("All statuses");
   const [quoteStatusFilter, setQuoteStatusFilter] = useState("All quotes");
   const [leadStatusFilter, setLeadStatusFilter] = useState("All leads");
@@ -11688,21 +11695,41 @@ export default function Dashboard() {
     [activeInvoiceFolderKey, invoiceDirectoryGroups],
   );
 
-  const filteredClients = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return clients.filter((client) => {
-      if (!query) return true;
-      return [
-        client.name,
-        client.accountReference,
-        client.primaryContact,
-        client.email,
-        client.phone,
-        client.status,
-        client.commercialOwner,
-      ].some((value) => value.toLowerCase().includes(query));
-    });
-  }, [clients, search]);
+  const filteredClients = useMemo(
+    () =>
+      filterDirectoryList(clients, {
+        getName: (client) => client.name,
+        getSearchValues: (client) => [
+          client.name,
+          client.accountReference,
+          client.primaryContact,
+          client.email,
+          client.phone,
+          client.status,
+          client.commercialOwner,
+        ],
+        query: peopleDirectorySearch,
+        letter: peopleDirectoryLetter,
+      }),
+    [clients, peopleDirectoryLetter, peopleDirectorySearch],
+  );
+
+  const filteredEmployees = useMemo(
+    () =>
+      filterDirectoryList(employees, {
+        getName: (employee) => employee.name,
+        getSearchValues: (employee) => [
+          employee.name,
+          employee.role,
+          employee.profile?.email,
+          employee.profile?.phone,
+          employee.profile?.roleLabel,
+        ],
+        query: peopleDirectorySearch,
+        letter: peopleDirectoryLetter,
+      }),
+    [employees, peopleDirectoryLetter, peopleDirectorySearch],
+  );
 
   const visibleModules = useMemo(() => {
     return modules.filter((module) => {
@@ -17417,8 +17444,51 @@ export default function Dashboard() {
     }
   }
 
+  function resetPeopleDirectoryFilters() {
+    setPeopleDirectorySearch("");
+    setPeopleDirectoryLetter("All");
+  }
+
+  function renderPeopleDirectoryFilters(options?: { placeholder?: string; resultCount?: number; totalCount?: number }) {
+    return (
+      <div className="people-directory-filters">
+        <input
+          aria-label="Search directory"
+          className="people-directory-search"
+          onChange={(event) => setPeopleDirectorySearch(event.target.value)}
+          placeholder={options?.placeholder ?? "Search by name..."}
+          type="search"
+          value={peopleDirectorySearch}
+        />
+        <div aria-label="Filter by first name letter" className="people-directory-alphabet" role="tablist">
+          {DIRECTORY_ALPHABET_LETTERS.map((letter) => (
+            <button
+              aria-selected={peopleDirectoryLetter === letter}
+              className={peopleDirectoryLetter === letter ? "active" : ""}
+              key={letter}
+              onClick={() => setPeopleDirectoryLetter(letter)}
+              role="tab"
+              type="button"
+            >
+              {letter}
+            </button>
+          ))}
+        </div>
+        {typeof options?.resultCount === "number" && typeof options?.totalCount === "number" ? (
+          <p className="people-directory-filter-meta">
+            Showing {options.resultCount} of {options.totalCount}
+            {peopleDirectoryLetter !== "All" ? ` · ${peopleDirectoryLetter}` : ""}
+            {peopleDirectorySearch.trim() ? ` · “${peopleDirectorySearch.trim()}”` : ""}
+            {" · sorted A–Z by first name"}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   function goToPeopleSection(item: string) {
     setOpenModuleMenu(null);
+    resetPeopleDirectoryFilters();
     if (item === "Employees") {
       clearEmployeeEditingState();
       setHomeView("employees");
@@ -42246,7 +42316,6 @@ export default function Dashboard() {
             </section>
           ) : homeView === "directory-manager" ? (
             (() => {
-              const query = search.trim().toLowerCase();
               const clientNameById = new Map(clients.map((client) => [client.id, client.name]));
               const config = activeDirectoryManager === "sites"
                 ? {
@@ -42255,6 +42324,7 @@ export default function Dashboard() {
                     importType: "Sites",
                     empty: "No site records yet.",
                     scope: "site" as const,
+                    searchPlaceholder: "Search sites by name, address or contact...",
                     records: clientSites.map((site) => ({
                       id: site.id,
                       title: site.name,
@@ -42278,6 +42348,7 @@ export default function Dashboard() {
                       importType: "Suppliers",
                       empty: "No supplier records yet.",
                       scope: "supplier" as const,
+                      searchPlaceholder: "Search suppliers by name, email or account...",
                       records: suppliers.map((supplier) => ({
                         id: supplier.id,
                         title: supplier.name,
@@ -42301,6 +42372,7 @@ export default function Dashboard() {
                         importType: "Contacts",
                         empty: "No contact records yet.",
                         scope: "contact" as const,
+                        searchPlaceholder: "Search contacts by name, company or email...",
                         records: contacts.map((contact) => ({
                           id: contact.id,
                           title: contact.name,
@@ -42323,6 +42395,7 @@ export default function Dashboard() {
                         importType: "Contractors",
                         empty: "No contractor records yet.",
                         scope: "contractor" as const,
+                        searchPlaceholder: "Search contractors by name, trade or contact...",
                         records: contractors.map((contractor) => ({
                           id: contractor.id,
                           title: contractor.name,
@@ -42340,9 +42413,12 @@ export default function Dashboard() {
                         })),
                       };
 
-              const filteredRecords = config.records.filter((record) =>
-                !query || record.matches.some((value) => value.toLowerCase().includes(query)),
-              );
+              const filteredRecords = filterDirectoryList(config.records, {
+                getName: (record) => record.title,
+                getSearchValues: (record) => record.matches,
+                query: peopleDirectorySearch,
+                letter: peopleDirectoryLetter,
+              });
 
               return (
                 <section className="client-directory-panel">
@@ -42369,6 +42445,12 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
+
+                  {renderPeopleDirectoryFilters({
+                    placeholder: config.searchPlaceholder,
+                    resultCount: filteredRecords.length,
+                    totalCount: config.records.length,
+                  })}
 
                   {filteredRecords.length ? (
                     <div className="client-directory-grid">
@@ -42397,7 +42479,7 @@ export default function Dashboard() {
                   ) : (
                     <div className="employee-empty-panel">
                       <strong>{config.empty}</strong>
-                      <span>Use Setup imports or day-to-day record creation to populate this directory.</span>
+                      <span>Try another letter or search, or use Setup imports to populate this directory.</span>
                     </div>
                   )}
                 </section>
@@ -42415,62 +42497,75 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <div className="client-directory-grid">
-                {filteredClients.map((client) => {
-                  const siteCount = clientSites.filter((site) => site.clientId === client.id).length;
-                  return (
-                    <article
-                      className="client-directory-card"
-                      key={client.id}
-                      onClick={() => openClientRecordView(client.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          openClientRecordView(client.id);
-                        }
-                      }}
-                      role="button"
-                      tabIndex={0}
-                    >
-                      <header>
-                        <div>
-                          <h3>{client.name}</h3>
-                          <small>{client.accountReference}</small>
-                        </div>
-                        <div className="directory-card-head-actions">
-                          <span className={`status-pill ${client.archived ? "amber" : client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
-                            {client.archived ? "Archived" : client.status}
-                          </span>
-                          {renderDirectoryActionMenu("client", client.id, [
-                            { label: "Open client", onClick: () => openClientRecordView(client.id) },
-                            {
-                              label: client.archived ? "Restore client" : "Archive client",
-                              onClick: () => updateClientArchive(client, !client.archived),
-                            },
-                            { label: "Delete", onClick: () => void deleteClientFromDirectory(client), danger: true },
-                          ])}
-                        </div>
-                      </header>
-                      <p>{client.primaryContact}</p>
-                      <p className="client-directory-meta">{client.email}</p>
-                      <p className="client-directory-meta">{client.phone}</p>
-                      <div className="client-directory-stats">
-                        <span>{siteCount} sites</span>
-                        <span>{client.commercialOwner}</span>
-                      </div>
-                      <button
-                        className="primary-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openClientRecordView(client.id);
+              {renderPeopleDirectoryFilters({
+                placeholder: "Search clients by name, account or contact...",
+                resultCount: filteredClients.length,
+                totalCount: clients.length,
+              })}
+
+              {filteredClients.length ? (
+                <div className="client-directory-grid">
+                  {filteredClients.map((client) => {
+                    const siteCount = clientSites.filter((site) => site.clientId === client.id).length;
+                    return (
+                      <article
+                        className="client-directory-card"
+                        key={client.id}
+                        onClick={() => openClientRecordView(client.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            openClientRecordView(client.id);
+                          }
                         }}
+                        role="button"
+                        tabIndex={0}
                       >
-                        Open client record
-                      </button>
-                    </article>
-                  );
-                })}
-              </div>
+                        <header>
+                          <div>
+                            <h3>{client.name}</h3>
+                            <small>{client.accountReference}</small>
+                          </div>
+                          <div className="directory-card-head-actions">
+                            <span className={`status-pill ${client.archived ? "amber" : client.status === "Active" ? "green" : client.status === "Prospect" ? "blue" : "amber"}`}>
+                              {client.archived ? "Archived" : client.status}
+                            </span>
+                            {renderDirectoryActionMenu("client", client.id, [
+                              { label: "Open client", onClick: () => openClientRecordView(client.id) },
+                              {
+                                label: client.archived ? "Restore client" : "Archive client",
+                                onClick: () => updateClientArchive(client, !client.archived),
+                              },
+                              { label: "Delete", onClick: () => void deleteClientFromDirectory(client), danger: true },
+                            ])}
+                          </div>
+                        </header>
+                        <p>{client.primaryContact}</p>
+                        <p className="client-directory-meta">{client.email}</p>
+                        <p className="client-directory-meta">{client.phone}</p>
+                        <div className="client-directory-stats">
+                          <span>{siteCount} sites</span>
+                          <span>{client.commercialOwner}</span>
+                        </div>
+                        <button
+                          className="primary-button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openClientRecordView(client.id);
+                          }}
+                        >
+                          Open client record
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="employee-empty-panel">
+                  <strong>No clients match this filter</strong>
+                  <span>Try another letter or clear the search.</span>
+                </div>
+              )}
             </section>
           ) : homeView === "client-record" ? (
             activeClient ? (
@@ -42865,8 +42960,14 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              {renderPeopleDirectoryFilters({
+                placeholder: "Search employees by name, role or email...",
+                resultCount: filteredEmployees.length,
+                totalCount: employees.length,
+              })}
+
               <div className="employee-directory-grid">
-                {employees.map((employee) => (
+                {filteredEmployees.length ? filteredEmployees.map((employee) => (
                   <article
                     className="employee-directory-card"
                     key={employee.id}
@@ -42923,7 +43024,12 @@ export default function Dashboard() {
                       Open employee card
                     </button>
                   </article>
-                ))}
+                )) : (
+                  <div className="employee-empty-panel">
+                    <strong>No employees match this filter</strong>
+                    <span>Try another letter or clear the search.</span>
+                  </div>
+                )}
               </div>
             </section>
           ) : homeView === "employee-card" ? (
