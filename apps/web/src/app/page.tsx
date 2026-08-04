@@ -13586,7 +13586,7 @@ export default function Dashboard() {
     if (auditResponse.ok) setAuditEvents((await auditResponse.json()) as AuditEvent[]);
   }
 
-  async function refreshIntegrationConnectionStatus() {
+  async function refreshIntegrationConnectionStatus(options?: { silent?: boolean }) {
     try {
       const employeeId = activeEmployee?.id ?? "";
       const [simproResponse, simproReconnectResponse, xeroResponse, emailResponse, whatsAppResponse, mailboxResponse] = await Promise.all([
@@ -13642,9 +13642,9 @@ export default function Dashboard() {
           displayName: status.displayName || activeEmployee?.name || "",
         });
       }
-      showNotice("Integration status refreshed.");
+      if (!options?.silent) showNotice("Integration status refreshed.");
     } catch {
-      showNotice("Unable to refresh integration status.");
+      if (!options?.silent) showNotice("Unable to refresh integration status.");
     }
   }
 
@@ -16885,7 +16885,7 @@ export default function Dashboard() {
     setActiveSetupSubItem(item);
 
     if (category.key === "communications") {
-      void refreshIntegrationConnectionStatus();
+      void refreshIntegrationConnectionStatus({ silent: true });
     }
 
     if (category.key === "imports") {
