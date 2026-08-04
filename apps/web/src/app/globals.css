@@ -11812,11 +11812,13 @@ h1 {
 
   .setup-category-submenu {
     border-radius: 8px;
-    display: none;
     left: 0;
     min-width: 180px;
-    position: absolute;
     top: calc(100% + 4px);
+  }
+
+  .setup-category-item:hover .setup-category-submenu {
+    display: none;
   }
 
   .setup-category-item:focus-within .setup-category-submenu,
