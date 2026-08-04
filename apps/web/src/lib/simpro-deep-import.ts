@@ -148,7 +148,7 @@ async function fetchSchedulePages(
   options?: { maxPages?: number; pageSize?: number },
 ) {
   const pageSize = options?.pageSize ?? 250;
-  const maxPages = options?.maxPages ?? 40;
+  const maxPages = options?.maxPages ?? 80;
   const collected: UnknownRecord[] = [];
   const seen = new Set<string>();
 
@@ -212,7 +212,7 @@ async function fetchSchedulesViaJobCostCentres(
 
   for (const slot of slots) {
     const path = `/jobs/${simproJobId}/sections/${slot.sectionId}/costCenters/${slot.costCentreId}/schedules/`;
-    const pages = await fetchSchedulePages(config, path, { pageSize: 100, maxPages: 20 });
+    const pages = await fetchSchedulePages(config, path, { pageSize: 250, maxPages: 40 });
     for (const record of pages) {
       const id = simproRecordId(record) || JSON.stringify(record);
       if (seen.has(id)) continue;
@@ -446,7 +446,7 @@ export async function pullSchedulesForLinkedJobs(input?: {
   jobCount: number;
 }> {
   const preview = Boolean(input?.preview);
-  const limit = Math.max(1, input?.limit ?? 250);
+  const limit = Math.max(1, input?.limit ?? 5000);
   const linkedJobs = getJobs()
     .filter((job) => Boolean(job.simproJobId?.trim()))
     .slice(0, limit);
