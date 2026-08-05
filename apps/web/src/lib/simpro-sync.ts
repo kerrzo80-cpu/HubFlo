@@ -408,16 +408,16 @@ function invoiceIssuedTime(record: UnknownRecord) {
 
 export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
 /** Keep quote/job Apply inside Render memory/time limits. */
-export const SIMPRO_QUOTE_IMPORT_LIMIT = 40;
-export const SIMPRO_JOB_IMPORT_LIMIT = 40;
+export const SIMPRO_QUOTE_IMPORT_LIMIT = 20;
+export const SIMPRO_JOB_IMPORT_LIMIT = 20;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
 /**
  * Cost-centre hydrate per Apply. Quotes that already have centres skip the budget,
- * so re-Apply fills the rest without OOM.
+ * so re-Apply fills the rest without OOM. Kept equal to quote/job caps.
  */
-export const SIMPRO_DEEP_HIERARCHY_LIMIT = 40;
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 20;
 
 function recordModifiedTime(record: UnknownRecord) {
   const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
@@ -1014,6 +1014,10 @@ function mergeEntityDetailOntoRecord(record: UnknownRecord, detail: UnknownRecor
   };
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function hydrateQuoteOrJobRecordForImport(
   config: ResolvedSimproDirectConfig,
   entity: "quotes" | "jobs",
@@ -1023,7 +1027,13 @@ async function hydrateQuoteOrJobRecordForImport(
   if (!externalId) return record;
 
   // Always pull display=all for Apply — list payloads regularly omit Customer/Site.
-  const detail = await fetchSimproEntityDetail(config, entity, externalId);
+  let detail = await fetchSimproEntityDetail(config, entity, externalId);
+  if (!detail) {
+    // One recovery pause for rate-limit storms, then retry without a cached null.
+    await sleep(750);
+    entityDetailCache.delete(`${entity}:${externalId}`);
+    detail = await fetchSimproEntityDetail(config, entity, externalId);
+  }
   let next = detail ? mergeEntityDetailOntoRecord(record, detail) : record;
   next = await hydrateRecordCustomer(config, next);
   next = await hydrateRecordSite(config, next);
@@ -2223,6 +2233,10 @@ export async function runSimproImport(options: {
         const records = await fetchSimproRecords(config, entity);
         for (const record of records) {
           try {
+            // Pace quote/job detail+CC pulls — bursty Apply was 429'd into Customer/Address stubs.
+            if (options.mode === "apply" && (entity === "quotes" || entity === "jobs")) {
+              await sleep(300);
+            }
             run.operations.push(await processRecord(entity, record, options.mode));
           } catch (error) {
             run.operations.push(
