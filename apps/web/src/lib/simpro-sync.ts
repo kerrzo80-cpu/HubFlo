@@ -407,17 +407,17 @@ function invoiceIssuedTime(record: UnknownRecord) {
 }
 
 export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
-/** Keep quote/job Apply inside Render memory/time limits. */
-export const SIMPRO_QUOTE_IMPORT_LIMIT = 20;
-export const SIMPRO_JOB_IMPORT_LIMIT = 20;
+/** Keep quote/job Apply inside Render/proxy time limits — detail+CC pulls are heavy. */
+export const SIMPRO_QUOTE_IMPORT_LIMIT = 12;
+export const SIMPRO_JOB_IMPORT_LIMIT = 12;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
 /**
  * Cost-centre hydrate per Apply. Quotes that already have centres skip the budget,
- * so re-Apply fills the rest without OOM. Kept equal to quote/job caps.
+ * so re-Apply fills the rest without OOM.
  */
-export const SIMPRO_DEEP_HIERARCHY_LIMIT = 20;
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 12;
 
 function recordModifiedTime(record: UnknownRecord) {
   const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
@@ -2241,9 +2241,9 @@ export async function runSimproImport(options: {
         const records = await fetchSimproRecords(config, entity);
         for (const record of records) {
           try {
-            // Pace quote/job detail+CC pulls — bursty Apply was 429'd into Customer/Address stubs.
+            // Light pacing only — long sleeps were pushing Apply past proxy timeouts ("Load failed").
             if (options.mode === "apply" && (entity === "quotes" || entity === "jobs")) {
-              await sleep(300);
+              await sleep(80);
             }
             run.operations.push(await processRecord(entity, record, options.mode));
           } catch (error) {

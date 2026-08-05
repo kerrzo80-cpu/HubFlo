@@ -14335,9 +14335,21 @@ export default function Dashboard() {
           actor: activeEmployee?.name ?? "NeXa user",
         }),
       });
-      const result = (await response.json().catch(() => null)) as { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string } | null;
+      const rawText = await response.text();
+      let result: { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string } | null = null;
+      try {
+        result = rawText ? (JSON.parse(rawText) as { run?: SimproSyncRun; status?: SimproSyncStatus; error?: string }) : null;
+      } catch {
+        result = null;
+      }
       if (!response.ok || !result?.run) {
-        throw new Error(result?.error || `simPRO sync returned HTTP ${response.status}`);
+        const timedOut = response.status === 502 || response.status === 503 || response.status === 504 || response.status === 524;
+        throw new Error(
+          result?.error ||
+            (timedOut
+              ? "Import timed out before finishing. Apply Quotes only (not Clients+Sites+Quotes together) and try again."
+              : rawText?.trim()?.slice(0, 180) || `simPRO sync returned HTTP ${response.status}`),
+        );
       }
 
       if (result.status) setSimproSyncStatus(result.status);
@@ -14357,7 +14369,13 @@ export default function Dashboard() {
             }`,
       );
     } catch (error) {
-      showNotice(error instanceof Error ? error.message : "Unable to run simPRO sync.");
+      const message = error instanceof Error ? error.message : "Unable to run simPRO sync.";
+      const lower = message.toLowerCase();
+      showNotice(
+        lower.includes("failed to fetch") || lower.includes("networkerror") || lower.includes("load failed")
+          ? "Import connection dropped (often a timeout). Soft-refresh, then Apply Quotes only and leave the screen open until it finishes."
+          : message,
+      );
       pendingCostCentreSaveRef.current = false;
     } finally {
       setIsRunningSimproPreview(false);
