@@ -239,10 +239,7 @@ describe("simpro sync preview quality", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /hydrateQuoteOrJobRecordForImport/);
     assert.match(source, /fetchSimproEntityDetail/);
-    assert.match(source, /simproGetFirstOk/);
-    assert.match(source, /fetchFullEntity/);
-    assert.match(source, /prefetchedRecord: null/);
-    assert.match(source, /same path as job\/scheduler enrich/i);
+    assert.match(source, /simproGetEntityDetail/);
     assert.match(source, /never poison the Apply run with a cached null/i);
     assert.doesNotMatch(
       source.slice(source.indexOf("async function fetchSimproEntityDetail"), source.indexOf("function mergeEntityDetailOntoRecord")),
@@ -252,7 +249,13 @@ describe("simpro sync preview quality", () => {
     const deepSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-deep-import.ts"), "utf8");
     assert.match(deepSource, /export async function fetchFullEntity/);
     assert.match(deepSource, /Ignore thin\/incomplete prefetch/);
+    assert.match(deepSource, /simproGetEntityDetail/);
     assert.match(deepSource, /if \(!hasCustomer && !hasSite\)/);
+
+    const clientSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-client.ts"), "utf8");
+    assert.match(clientSource, /export async function simproGetEntityDetail/);
+    assert.match(clientSource, /simproEntityDetailPaths/);
+    assert.match(clientSource, /listSimproCompanyIds/);
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
