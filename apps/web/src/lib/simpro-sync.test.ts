@@ -88,19 +88,19 @@ describe("simpro sync preview quality", () => {
   it("scopes import to open quotes, live jobs, and latest unpaid invoices", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
-    assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 12/);
+    assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 30/);
     assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 12/);
     assert.match(source, /SIMPRO_SITE_IMPORT_LIMIT = 80/);
     assert.match(source, /SIMPRO_CLIENT_IMPORT_LIMIT = 80/);
-    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 12/);
+    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 40/);
     assert.match(source, /IsPaid/);
     assert.match(source, /isOpenSimproQuote/);
     assert.match(source, /hydrateCustomersForRecords/);
     assert.match(source, /hydrateSitesForRecords/);
     assert.match(source, /return clone\(persisted\)/);
-    assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 12);
+    assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 30);
     assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 12);
-    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 12);
+    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 40);
 
     assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
     assert.equal(isOpenSimproQuote({ Status: { Name: "Lost" } }), false);

@@ -438,16 +438,17 @@ function invoiceIssuedTime(record: UnknownRecord) {
 
 export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
 /** Keep quote/job Apply inside Render/proxy time limits — detail+CC pulls are heavy. */
-export const SIMPRO_QUOTE_IMPORT_LIMIT = 12;
+export const SIMPRO_QUOTE_IMPORT_LIMIT = 30;
 export const SIMPRO_JOB_IMPORT_LIMIT = 12;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
 /**
- * Cost-centre hydrate per Apply. Quotes that already have centres skip the budget,
- * so re-Apply fills the rest without OOM.
+ * Cost-centre hydrate per Apply. Must be >= quote import limit or headers refresh
+ * while cost centres (and BasePrice) are deferred — leaving charge-only lines.
+ * Quotes that already have complete centres skip the budget.
  */
-export const SIMPRO_DEEP_HIERARCHY_LIMIT = 12;
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 40;
 
 function recordModifiedTime(record: UnknownRecord) {
   const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
@@ -2411,7 +2412,26 @@ export async function runSimproImport(options: {
           continue;
         }
         const records = await fetchSimproRecords(config, entity);
-        for (const record of records) {
+        // Prefer quotes that still need cost-centre / BasePrice hydrate so the deep
+        // budget is not spent on already-complete rows while others stay charge-only.
+        const ordered =
+          options.mode === "apply" && entity === "quotes"
+            ? [...records].sort((left, right) => {
+                const leftId = identifier(left);
+                const rightId = identifier(right);
+                const leftLink = leftId ? existingLink("quotes", leftId) : null;
+                const rightLink = rightId ? existingLink("quotes", rightId) : null;
+                const leftNeed = leftLink
+                  ? !quoteAlreadyHasCostCentres(leftLink.nexaId) || quoteCostCentresNeedRefresh(leftLink.nexaId)
+                  : true;
+                const rightNeed = rightLink
+                  ? !quoteAlreadyHasCostCentres(rightLink.nexaId) || quoteCostCentresNeedRefresh(rightLink.nexaId)
+                  : true;
+                if (leftNeed === rightNeed) return 0;
+                return leftNeed ? -1 : 1;
+              })
+            : records;
+        for (const record of ordered) {
           try {
             // Light pacing only — long sleeps were pushing Apply past proxy timeouts ("Load failed").
             if (options.mode === "apply" && (entity === "quotes" || entity === "jobs")) {

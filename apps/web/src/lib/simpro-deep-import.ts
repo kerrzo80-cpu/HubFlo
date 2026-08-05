@@ -265,22 +265,49 @@ async function enrichCatalogLinesWithBasePrice(
       continue;
     }
     const lineId = simproRecordId(row);
-    if (!lineId) {
+    const stockId =
+      simproRecordId(asRecord(row.Catalogue) ?? undefined) ||
+      simproRecordId(asRecord(row.Catalog) ?? undefined) ||
+      String(row.CatalogID || row.CatalogueID || "").trim();
+    if (!lineId && !stockId) {
       out.push(row);
       continue;
     }
     budget.remaining -= 1;
-    const detail = await simproGetFirstOk(config, [
-      `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}?display=all`,
-      `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}`,
-      `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}/?display=all`,
-      `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/${lineId}?display=all`,
-      `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/${lineId}`,
-    ]);
+    const detailPaths = [
+      ...(lineId
+        ? [
+            `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}?display=all`,
+            `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}`,
+            `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}/?display=all`,
+            `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/${lineId}?display=all`,
+            `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/${lineId}`,
+          ]
+        : []),
+      // Company stock card often has BasePrice when the quote line only has SellPrice.
+      ...(stockId
+        ? [`/catalogs/${stockId}?display=all`, `/catalogs/${stockId}`, `/catalogs/${stockId}/?display=all`]
+        : []),
+    ];
+    const detail = await simproGetFirstOk(config, detailPaths);
     if (detail.ok) {
       const body = asRecord(detail.body);
       if (body) {
-        out.push({ ...row, ...body });
+        // Stock card BasePrice nests under Catalogue when merged onto the line.
+        const stockBase =
+          body.BasePrice != null
+            ? body.BasePrice
+            : asRecord(body.Catalogue)?.BasePrice != null
+              ? asRecord(body.Catalogue)?.BasePrice
+              : undefined;
+        out.push({
+          ...row,
+          ...body,
+          ...(stockBase != null && row.BasePrice == null ? { BasePrice: stockBase } : {}),
+          ...(stockId && !asRecord(row.Catalogue)
+            ? { Catalogue: { ID: Number(stockId) || stockId, ...(asRecord(body) || {}) } }
+            : {}),
+        });
         continue;
       }
     }

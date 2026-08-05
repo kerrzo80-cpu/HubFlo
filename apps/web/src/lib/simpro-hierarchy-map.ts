@@ -369,12 +369,18 @@ function mapQuoteLine(
   // Cost from simPRO BasePrice. Keep simPRO SellPrice as charge when present so the
   // quoted total stays intact; only apply NeXa default markup when sell is missing.
   const simproSell = lineUnitSell(record, quantity);
-  const unitCost = lineUnitCost(record, quantity, simproSell);
+  let unitCost = lineUnitCost(record, quantity, simproSell);
+  const defaultMarkup = resolveLineMarkup(labour, options);
+  // When BasePrice still missing, back-out cost from charge using NeXa default markup
+  // so Cost and Sell are not identical (charge-only imports).
+  if (!(unitCost > 0) && simproSell > 0 && defaultMarkup > 0) {
+    unitCost = Math.round((simproSell / (1 + defaultMarkup / 100)) * 100) / 100;
+  }
   const unitSell =
     simproSell > 0
       ? simproSell
       : unitCost > 0
-        ? lineSellFromCostMarkup(unitCost, resolveLineMarkup(labour, options))
+        ? lineSellFromCostMarkup(unitCost, defaultMarkup)
         : 0;
   const id = simproRecordId(record) || `${centreId}-line-${index + 1}`;
   return {

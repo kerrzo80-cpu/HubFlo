@@ -329,10 +329,12 @@ describe("simpro hierarchy map", () => {
         ],
       },
       "quote-sell-only",
+      { materialMarkupPercent: 30, labourMarkupPercent: 30 },
     );
     const line = centres[0]?.lines[0];
-    assert.equal(line?.unitCost, 0);
+    // No BasePrice — back out cost from sell using NeXa default markup so cost ≠ charge.
     assert.equal(line?.unitSell, 40);
+    assert.equal(line?.unitCost, Math.round((40 / 1.3) * 100) / 100);
   });
 
   it("maps invoices with line totals and job linkage", () => {
