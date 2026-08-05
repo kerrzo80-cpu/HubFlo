@@ -91,7 +91,7 @@ export async function GET() {
       recurringStockEdit: "edit-remove-v1",
       resetWorkflowRemoved: "no-accidental-wipe-v1",
       dashboardLayout: "pipeline-gantt-v3",
-      takeoffSkill: "drawing-first-v8-routes-page",
+      takeoffSkill: "visual-redesign-v1",
       recurringServices: "upcoming-4w-v1",
     },
     daywork: {

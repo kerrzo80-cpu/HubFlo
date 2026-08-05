@@ -1,5 +1,19 @@
 import type { Metadata, Viewport } from "next";
+import { Fraunces, Source_Sans_3 } from "next/font/google";
 import { TakeoffScrollUnlock } from "./takeoff-scroll-unlock";
+import "./takeoff-routes-v2.css";
+
+const takeoffDisplay = Fraunces({
+  subsets: ["latin"],
+  variable: "--font-takeoff-display",
+  weight: ["500", "600", "700"],
+});
+
+const takeoffSans = Source_Sans_3({
+  subsets: ["latin"],
+  variable: "--font-takeoff-sans",
+  weight: ["400", "600", "700"],
+});
 
 export const metadata: Metadata = {
   title: "NeXa Takeoffs",
@@ -32,9 +46,9 @@ export default function TakeoffLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <>
+    <div className={`takeoff-font-root ${takeoffDisplay.variable} ${takeoffSans.variable}`}>
       <TakeoffScrollUnlock />
       {children}
-    </>
+    </div>
   );
 }

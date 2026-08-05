@@ -25,25 +25,34 @@ export default function TakeoffModeNav({ variant = "skill" }: { variant?: "skill
   const pathname = usePathname() || "/takeoff";
 
   return (
-    <nav className={`takeoff-mode-nav ${variant}`} aria-label="Takeoff mode">
-      {MODES.map((mode) => {
-        const Icon = mode.icon;
-        const active = mode.match(pathname);
-        return (
-          <Link
-            key={mode.href}
-            href={mode.href}
-            className={active ? "mode on" : "mode"}
-            aria-current={active ? "page" : undefined}
-          >
-            <Icon size={15} />
-            <span>
-              <strong>{mode.label}</strong>
-              <small>{mode.detail}</small>
-            </span>
-          </Link>
-        );
-      })}
-    </nav>
+    <div className={`takeoff-mode-wrap ${variant}`}>
+      <div className="takeoff-mode-intro">
+        <p className="takeoff-mode-kicker">Workspace</p>
+        <strong>Choose how you want to take off this job</strong>
+      </div>
+      <nav className={`takeoff-mode-nav ${variant}`} aria-label="Takeoff mode">
+        {MODES.map((mode) => {
+          const Icon = mode.icon;
+          const active = mode.match(pathname);
+          return (
+            <Link
+              key={mode.href}
+              href={mode.href}
+              className={active ? "mode on" : "mode"}
+              aria-current={active ? "page" : undefined}
+            >
+              <span className="mode-icon" aria-hidden>
+                <Icon size={18} />
+              </span>
+              <span>
+                <strong>{mode.label}</strong>
+                <small>{mode.detail}</small>
+              </span>
+              {active ? <em>Open</em> : <em>Switch</em>}
+            </Link>
+          );
+        })}
+      </nav>
+    </div>
   );
 }

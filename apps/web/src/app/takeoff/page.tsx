@@ -359,16 +359,21 @@ export default function TakeoffSkillPage() {
   const assemblies = skill.assemblies;
 
   return (
-    <div className="takeoff-skill-shell">
+    <div className="takeoff-skill-shell takeoff-skill-v2">
       <header className="takeoff-skill-topbar">
         <div className="takeoff-skill-brand">
           <Link href="/" className="takeoff-skill-back">
             <ArrowLeft size={16} />
             Core
           </Link>
+          <img
+            className="takeoff-skill-brand-mark"
+            src="/app-icons/nexa-takeoffs-apple-touch-icon.png"
+            alt="NeXa Takeoffs"
+          />
           <div>
-            <strong>NeXa Takeoff</strong>
-            <span>Quantity takeoff · count fixtures on drawings</span>
+            <strong>NeXa Takeoffs</strong>
+            <span>Quantity takeoff · count fixtures, build the BOQ, hand off to quote</span>
           </div>
         </div>
         <div className="takeoff-skill-top-actions">
@@ -426,9 +431,14 @@ export default function TakeoffSkillPage() {
                   className={project.id === selectedId ? "active" : ""}
                   onClick={() => setSelectedId(project.id)}
                 >
-                  <strong>{project.reference}</strong>
+                  <span className="takeoff-skill-project-meta">
+                    <strong>{project.reference}</strong>
+                    <b className={`takeoff-skill-status ${(project.status || "Draft").toLowerCase().replace(/\s+/g, "-")}`}>
+                      {project.status || "Draft"}
+                    </b>
+                  </span>
                   <span>{project.name}</span>
-                  <small>{project.documents.length} drawings · {project.status}</small>
+                  <small>{project.documents.length} drawings · {project.customer || "No customer"}</small>
                 </button>
               )) : (
                 <p className="takeoff-skill-empty">No projects yet — create one below.</p>
@@ -471,19 +481,25 @@ export default function TakeoffSkillPage() {
         <main className="takeoff-skill-main">
           {!selected ? (
             <section className="takeoff-skill-empty-state">
+              <p className="eyebrow">Start here</p>
               <h1>Ready to take off</h1>
               <p>
-                Create a project on the left, upload drawings, then run the skill prompt.
-                You can use it now — text-tag counting works without OpenAI. AI is optional for harder sheets.
+                Create a project folder on the left, upload drawings, then run the skill.
+                Text-tag counting works without OpenAI — Blake is optional for harder sheets.
               </p>
+              <div className="takeoff-skill-empty-actions">
+                <span className="takeoff-skill-empty-pill">1 · New project</span>
+                <span className="takeoff-skill-empty-pill">2 · Upload drawings</span>
+                <span className="takeoff-skill-empty-pill">3 · Run takeoff skill</span>
+              </div>
             </section>
           ) : (
             <>
               <section className="takeoff-skill-hero">
                 <div>
-                  <p className="eyebrow">{selected.reference}</p>
+                  <p className="eyebrow">{selected.reference} · {selected.status}</p>
                   <h1>{selected.name}</h1>
-                  <p>{selected.customer} · {selected.site}</p>
+                  <p>{selected.customer || "Customer to confirm"} · {selected.site || "Site to confirm"}</p>
                   <div className="takeoff-skill-hero-actions">
                     <input
                       ref={fileInputRef}
