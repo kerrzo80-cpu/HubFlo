@@ -124,6 +124,13 @@ import { SetupConfigPanel, SetupStockLocationsPanel, SetupPrebuildsPanel } from 
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
 import { DashboardWeeklyGantt, computeDashboardGanttNowMarker } from "./DashboardWeeklyGantt";
+import {
+  availabilityForDate as availabilityFromCard,
+  availabilityLabelForDate,
+  employeeHasAnyAvailability as employeeAvailabilityHasTicks,
+  scheduleBookingChipDetail,
+  scheduleBookingChipLabel,
+} from "@/lib/scheduler-availability";
 import { JobFieldLivePanel } from "@/components/JobFieldLivePanel";
 import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
@@ -3731,6 +3738,7 @@ const seedEmployees: EmployeeCard[] = [
       phone: "+44 7481 123456",
       address: "27 Westhill Road, Aberdeen, AB15 6RH",
       startDate: "2019-03-11",
+      // Fri left off — Errol does not work Fridays (card ticks are source of truth).
       payroll: {
         hourlyRate: 0,
         overtimeRate: 0,
@@ -4225,36 +4233,6 @@ const defaultIntegrationSettings: IntegrationSettings = {
   xeroTenantName: "",
   xeroClientId: "",
   xeroLastSync: "",
-};
-
-const surveyorAvailability: Record<string, EmployeeAvailability> = {
-  "Brian Kerr": {
-    Mon: { active: true, from: "08:00", to: "17:00" },
-    Tue: { active: true, from: "08:00", to: "17:00" },
-    Wed: { active: true, from: "08:00", to: "17:00" },
-    Thu: { active: true, from: "08:00", to: "17:00" },
-    Fri: { active: true, from: "08:00", to: "15:00" },
-    Sat: { active: false, from: "00:00", to: "00:00" },
-    Sun: { active: false, from: "00:00", to: "00:00" },
-  },
-  "Chris Lawson": {
-    Mon: { active: true, from: "09:00", to: "17:00" },
-    Tue: { active: true, from: "09:00", to: "17:00" },
-    Wed: { active: true, from: "09:00", to: "17:00" },
-    Thu: { active: true, from: "09:00", to: "17:00" },
-    Fri: { active: true, from: "09:00", to: "14:00" },
-    Sat: { active: false, from: "00:00", to: "00:00" },
-    Sun: { active: false, from: "00:00", to: "00:00" },
-  },
-  "Errol Watson": {
-    Mon: { active: true, from: "08:30", to: "16:30" },
-    Tue: { active: true, from: "08:30", to: "16:30" },
-    Wed: { active: true, from: "08:30", to: "16:30" },
-    Thu: { active: true, from: "08:30", to: "16:30" },
-    Fri: { active: true, from: "08:30", to: "13:00" },
-    Sat: { active: false, from: "00:00", to: "00:00" },
-    Sun: { active: false, from: "00:00", to: "00:00" },
-  },
 };
 
 function makeSchedulerWeek(anchorDate: string) {
@@ -6990,42 +6968,28 @@ function refreshedEstimateCostCentresFromRateBook(
   return changed ? nextCentres : centres;
 }
 
-function weekdayFromDate(date: string): Weekday {
-  const day = new Date(`${date}T00:00:00`).getDay();
-  return weekDays[(day + 6) % 7] ?? "Mon";
-}
-
 /** True when the employee card has at least one weekday availability ticked. */
 function employeeHasAnyAvailability(employee: { profile?: { availability?: EmployeeAvailability } }) {
-  const availability = employee.profile?.availability;
-  if (!availability) return false;
-  return weekDays.some((day) => Boolean(availability[day]?.active));
+  return employeeAvailabilityHasTicks(employee.profile?.availability);
 }
 
+/** Card-authoritative availability — never invent Friday hours from a hardcoded name table. */
 function availabilityForDate(
-  surveyor: string,
+  _surveyor: string,
   date: string,
   cardAvailability?: EmployeeAvailability | null,
+  isContractor = false,
 ) {
-  if (!date) return { active: false, from: "00:00", to: "00:00" };
-  const day = weekdayFromDate(date);
-  // Only honour the employee card when at least one weekday is ticked.
-  if (cardAvailability && weekDays.some((weekday) => Boolean(cardAvailability[weekday]?.active))) {
-    return cardAvailability[day] ?? { active: false, from: "00:00", to: "00:00" };
-  }
-  const configured = surveyorAvailability[surveyor]?.[day];
-  if (configured) return configured;
-  return { active: false, from: "00:00", to: "00:00" };
+  return availabilityFromCard(date, cardAvailability, { isContractor });
 }
 
 function availabilityLabel(
-  surveyor: string,
+  _surveyor: string,
   date: string,
   cardAvailability?: EmployeeAvailability | null,
+  isContractor = false,
 ) {
-  if (!date) return "Pick a date";
-  const availability = availabilityForDate(surveyor, date, cardAvailability);
-  return availability.active ? `${availability.from}-${availability.to}` : "Unavailable";
+  return availabilityLabelForDate(date, cardAvailability, { isContractor });
 }
 
 function timeToMinutes(time: string) {
@@ -8194,15 +8158,40 @@ export default function Dashboard() {
   const employeeAvailabilityByName = useMemo(() => {
     const map = new Map<string, EmployeeAvailability>();
     for (const employee of employees) {
-      if (employee.profile?.availability) {
-        map.set(employee.name.trim().toLowerCase(), employee.profile.availability);
-      }
+      if (employee.archived) continue;
+      const name = employee.name.trim().toLowerCase();
+      if (!name) continue;
+      // Always register the card (blank = all off). Missing availability must NOT fall back to hardcoded Fridays.
+      map.set(name, employee.profile?.availability ?? { ...blankEmployeeAvailability });
     }
     return map;
   }, [employees]);
 
+  const contractorNamesLower = useMemo(
+    () =>
+      new Set(
+        contractors
+          .filter((contractor) => !contractor.archived)
+          .map((contractor) => contractor.name.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    [contractors],
+  );
+
   function cardAvailabilityFor(name: string) {
     return employeeAvailabilityByName.get(name.trim().toLowerCase()) ?? null;
+  }
+
+  function isDiaryContractor(name: string) {
+    return contractorNamesLower.has(name.trim().toLowerCase());
+  }
+
+  function diaryAvailability(name: string, date: string) {
+    return availabilityForDate(name, date, cardAvailabilityFor(name), isDiaryContractor(name));
+  }
+
+  function diaryAvailabilityLabel(name: string, date: string) {
+    return availabilityLabel(name, date, cardAvailabilityFor(name), isDiaryContractor(name));
   }
 
   const engineerFlowLibrary = useMemo(
@@ -9090,16 +9079,8 @@ export default function Dashboard() {
         });
       }
 
-      const startAvailability = availabilityForDate(
-        assignment.employeeName,
-        assignment.startDate,
-        cardAvailabilityFor(assignment.employeeName),
-      );
-      const endAvailability = availabilityForDate(
-        assignment.employeeName,
-        assignment.endDate,
-        cardAvailabilityFor(assignment.employeeName),
-      );
+      const startAvailability = diaryAvailability(assignment.employeeName, assignment.startDate);
+      const endAvailability = diaryAvailability(assignment.employeeName, assignment.endDate);
       if (!startAvailability.active || !endAvailability.active) {
         addIssue({
           id: `availability-${assignment.id}`,
@@ -9233,16 +9214,8 @@ export default function Dashboard() {
       });
       if (leadClash) return true;
 
-      const startAvailability = availabilityForDate(
-        assignment.employeeName,
-        assignment.startDate,
-        cardAvailabilityFor(assignment.employeeName),
-      );
-      const endAvailability = availabilityForDate(
-        assignment.employeeName,
-        assignment.endDate,
-        cardAvailabilityFor(assignment.employeeName),
-      );
+      const startAvailability = diaryAvailability(assignment.employeeName, assignment.startDate);
+      const endAvailability = diaryAvailability(assignment.employeeName, assignment.endDate);
       if (!startAvailability.active || !endAvailability.active) return true;
       if (assignment.startDate !== assignment.endDate) return false;
       return timeToMinutes(assignment.startTime) < timeToMinutes(startAvailability.from) ||
@@ -12538,12 +12511,9 @@ export default function Dashboard() {
       .filter((contractor) => !contractor.archived)
       .map((contractor) => contractor.name.trim())
       .filter(Boolean);
-    const allowed = new Set<string>([
-      ...surveyorOptions,
-      ...availableEmployees,
-      ...contractorNames,
-    ].map((name) => name.toLowerCase()));
-    const names = new Set<string>([...surveyorOptions, ...availableEmployees, ...contractorNames]);
+    // Do not force Brian/Errol/Chris into the diary when their cards have no working days.
+    const allowed = new Set<string>([...availableEmployees, ...contractorNames].map((name) => name.toLowerCase()));
+    const names = new Set<string>([...availableEmployees, ...contractorNames]);
     // Keep booked people only when they are still an allowed diary person (not a supplier-only name).
     for (const booking of allScheduleBookings) {
       const person = (booking.surveyor || "").trim();
@@ -13195,7 +13165,7 @@ export default function Dashboard() {
       setSchedulerJobSearchOpen(true);
       return;
     }
-    const availability = availabilityForDate(employeeName, date, cardAvailabilityFor(employeeName));
+    const availability = diaryAvailability(employeeName, date);
     if (!availability.active) {
       showNotice(`${employeeName} is unavailable on ${formatUkDate(date)}.`);
       return;
@@ -13442,7 +13412,7 @@ export default function Dashboard() {
 
   function validateLeadSurveyBooking(booking: { leadId?: string; surveyor: string; date: string; time: string }) {
     if (!booking.date || !booking.time) return null;
-    const availability = availabilityForDate(booking.surveyor, booking.date, cardAvailabilityFor(booking.surveyor));
+    const availability = diaryAvailability(booking.surveyor, booking.date);
     if (!availability.active) return `${booking.surveyor} is unavailable on ${booking.date}.`;
     const start = timeToMinutes(booking.time);
     const end = start + surveyDurationMinutes;
@@ -40582,7 +40552,7 @@ export default function Dashboard() {
                                 onClick={() => updateLeadSurvey(selectedLead.id, { surveyor })}
                               >
                                 <strong>{surveyor}</strong>
-                                <span>{availabilityLabel(surveyor, selectedLead.surveyDate, cardAvailabilityFor(surveyor))}</span>
+                                <span>{diaryAvailabilityLabel(surveyor, selectedLead.surveyDate)}</span>
                                 <small>{bookedCount} booked</small>
                               </button>
                             );
@@ -40773,7 +40743,7 @@ export default function Dashboard() {
               {scheduleView === "day" ? (
                 <div className="scheduler-grid">
                   {schedulerDiaryPeople.map((surveyor) => {
-                    const availability = availabilityForDate(surveyor, scheduleDate, cardAvailabilityFor(surveyor));
+                    const availability = diaryAvailability(surveyor, scheduleDate);
                     const bookings = bookingsForSelectedDate
                       .filter((booking) => booking.surveyor === surveyor)
                       .sort((first, second) => first.time.localeCompare(second.time));
@@ -40784,7 +40754,7 @@ export default function Dashboard() {
                           <div>
                             <h3>{surveyor}</h3>
                             <span className={availability.active ? "scheduler-available" : "scheduler-unavailable"}>
-                              {availabilityLabel(surveyor, scheduleDate, cardAvailabilityFor(surveyor))}
+                              {diaryAvailabilityLabel(surveyor, scheduleDate)}
                             </span>
                           </div>
                           <strong>{bookings.length}</strong>
@@ -40796,10 +40766,10 @@ export default function Dashboard() {
                               Available {availability.from} to {availability.to}
                             </div>
                           ) : (
-                            <div className="scheduler-closed-window">Unavailable</div>
+                            <div className="scheduler-closed-window">Unavailable · off on employee card</div>
                           )}
 
-                          <div className={schedulerSelectedJob && schedulerSelectedCostCentreId ? "scheduler-drag-planner ready" : "scheduler-drag-planner"}>
+                          <div className={schedulerSelectedJob && schedulerSelectedCostCentreId && availability.active ? "scheduler-drag-planner ready" : "scheduler-drag-planner"}>
                             <div className="scheduler-drag-scale" aria-hidden="true">
                               <span>08:00</span>
                               <span>10:00</span>
@@ -40820,6 +40790,8 @@ export default function Dashboard() {
                               ))}
                               {bookings.map((booking) => {
                                 const range = schedulerBookingSlotRange(booking, scheduleDate);
+                                const chipLabel = scheduleBookingChipLabel(booking);
+                                const chipDetail = scheduleBookingChipDetail(booking);
                                 return (
                                   <button
                                     type="button"
@@ -40829,11 +40801,12 @@ export default function Dashboard() {
                                       left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                       width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                     }}
-                                    title={`Open ${booking.ref} · ${booking.time}`}
+                                    title={`${chipLabel}${chipDetail ? ` · ${chipDetail}` : ""}`}
                                     onPointerDown={(event) => event.stopPropagation()}
                                     onClick={() => openScheduleBooking(booking)}
                                   >
-                                    {booking.ref}
+                                    <strong>{chipLabel}</strong>
+                                    {chipDetail ? <span>{chipDetail}</span> : null}
                                   </button>
                                 );
                               })}
@@ -40891,14 +40864,14 @@ export default function Dashboard() {
                     <div className="scheduler-week-row" key={surveyor}>
                       <header><strong>{surveyor}</strong><span>Team diary</span></header>
                       {scheduleVisibleDays.map((day) => {
-                        const availability = availabilityForDate(surveyor, day, cardAvailabilityFor(surveyor));
+                        const availability = diaryAvailability(surveyor, day);
                         const bookings = allScheduleBookings
                           .filter((booking) => booking.surveyor === surveyor && bookingFallsOnDate(booking, day))
                           .sort((first, second) => first.time.localeCompare(second.time));
                         return (
                           <section className={availability.active ? "scheduler-week-cell" : "scheduler-week-cell unavailable"} key={day}>
                             <small>{availability.active ? `${availability.from}-${availability.to}` : "Unavailable"}</small>
-                            <div className={schedulerSelectedJob && schedulerSelectedCostCentreId ? "scheduler-week-drag-planner ready" : "scheduler-week-drag-planner"}>
+                            <div className={schedulerSelectedJob && schedulerSelectedCostCentreId && availability.active ? "scheduler-week-drag-planner ready" : "scheduler-week-drag-planner"}>
                               <div className="scheduler-week-drag-scale" aria-hidden="true">
                                 <span>08</span>
                                 <span>12</span>
@@ -40917,6 +40890,8 @@ export default function Dashboard() {
                                 ))}
                                 {bookings.map((booking) => {
                                   const range = schedulerBookingSlotRange(booking, day);
+                                  const chipLabel = scheduleBookingChipLabel(booking);
+                                  const chipDetail = scheduleBookingChipDetail(booking);
                                   return (
                                     <button
                                       type="button"
@@ -40926,11 +40901,12 @@ export default function Dashboard() {
                                         left: `${(range.startSlot / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                         width: `${((range.endSlot - range.startSlot) / JOB_GANTT_SLOTS_PER_DAY) * 100}%`,
                                       }}
-                                      title={`Open ${booking.ref} · ${booking.time}`}
+                                      title={`${chipLabel}${chipDetail ? ` · ${chipDetail}` : ""}`}
                                       onPointerDown={(event) => event.stopPropagation()}
                                       onClick={() => openScheduleBooking(booking)}
                                     >
-                                      {booking.ref}
+                                      <strong>{chipLabel}</strong>
+                                      {chipDetail ? <span>{chipDetail}</span> : null}
                                     </button>
                                   );
                                 })}
@@ -40951,8 +40927,8 @@ export default function Dashboard() {
                             {bookings.map((booking) => (
                               <button key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>
                                 <time>{booking.date === day ? booking.time : "Continues"}</time>
-                                <strong>{booking.ref}</strong>
-                                <span>{booking.customerName}</span>
+                                <strong>{scheduleBookingChipLabel(booking)}</strong>
+                                <span>{booking.description}</span>
                               </button>
                             ))}
                           </section>
@@ -40985,7 +40961,7 @@ export default function Dashboard() {
                             {bookings.slice(0, 4).map((booking) => (
                               <button className="scheduler-month-booking" key={booking.id} type="button" onClick={() => openScheduleBooking(booking)}>
                                 <time>{booking.time}</time>
-                                <span>{booking.ref} · {booking.surveyor}</span>
+                                <span>{scheduleBookingChipLabel(booking)}</span>
                               </button>
                             ))}
                             {bookings.length > 4 ? <small>+{bookings.length - 4} more</small> : null}

@@ -15774,14 +15774,15 @@ h1 {
 
 .scheduler-drag-existing,
 .scheduler-drag-selection {
-  align-items: center;
-  border-radius: 3px;
+  align-items: flex-start;
+  border-radius: 4px;
   display: flex;
-  font-size: 7px;
-  font-weight: 850;
+  flex-direction: column;
+  font-size: 10px;
+  font-weight: 750;
   justify-content: center;
   overflow: hidden;
-  padding: 0 3px;
+  padding: 2px 5px;
   position: absolute;
   white-space: nowrap;
 }
@@ -15796,10 +15797,33 @@ h1 {
   border: 0;
   color: #145170;
   cursor: pointer;
-  height: 15px;
+  gap: 0;
+  height: 28px;
+  min-width: 48px;
   pointer-events: auto;
-  top: 5px;
+  top: 3px;
   z-index: 2;
+}
+
+.scheduler-drag-existing strong,
+.scheduler-drag-existing span {
+  display: block;
+  line-height: 1.15;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+}
+
+.scheduler-drag-existing strong {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.scheduler-drag-existing span {
+  font-size: 9px;
+  font-weight: 650;
+  opacity: 0.9;
 }
 
 .scheduler-drag-existing:hover,
@@ -15999,21 +16023,29 @@ h1 {
 }
 
 .scheduler-week-drag-track {
-  height: 52px;
+  height: 58px;
 }
 
 .scheduler-week-drag-track .scheduler-drag-existing {
-  font-size: 6px;
-  height: 11px;
-  top: 3px;
+  font-size: 9px;
+  height: 26px;
+  top: 2px;
+}
+
+.scheduler-week-drag-track .scheduler-drag-existing strong {
+  font-size: 9px;
+}
+
+.scheduler-week-drag-track .scheduler-drag-existing span {
+  font-size: 8px;
 }
 
 .scheduler-week-drag-track .scheduler-drag-selection {
-  font-size: 6px;
-  height: 15px;
-  min-height: 15px;
-  padding: 1px 2px;
-  top: 24px;
+  font-size: 8px;
+  height: 16px;
+  min-height: 16px;
+  padding: 1px 3px;
+  top: 30px;
 }
 
 .scheduler-week-cell > button {
@@ -37647,17 +37679,22 @@ kbd,
 .dashboard-weekly-gantt-bar strong,
 .dashboard-weekly-gantt-bar span {
   display: block;
-  font-size: 10px;
-  line-height: 1.15;
+  font-size: 11px;
+  line-height: 1.2;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   width: 100%;
 }
 
+.dashboard-weekly-gantt-bar strong {
+  font-weight: 800;
+}
+
 .dashboard-weekly-gantt-bar span {
+  font-size: 10px;
   font-weight: 600;
-  opacity: 0.9;
+  opacity: 0.95;
 }
 
 .dashboard-weekly-gantt-empty {

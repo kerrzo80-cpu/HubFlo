@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarDays } from "lucide-react";
+import { scheduleBookingChipDetail, scheduleBookingChipLabel } from "@/lib/scheduler-availability";
 
 const EMPLOYEE_BAR_COLORS = [
   "#006eb8",
@@ -38,6 +39,8 @@ export type DashboardGanttBooking = {
   plannedHours?: number;
   type?: "Job";
   jobId?: string;
+  costCentreName?: string;
+  description?: string;
 };
 
 export type DashboardGanttNowMarker = {
@@ -126,7 +129,7 @@ export function DashboardWeeklyGantt({
         <div>
                   <h3>Weekly schedule · Gantt overview</h3>
                   <p>
-                    {bookingCount} booking{bookingCount === 1 ? "" : "s"} this week · live now-line marks current time
+                    {bookingCount} booking{bookingCount === 1 ? "" : "s"} this week · bars show job, customer and time
                   </p>
         </div>
         <div className="dashboard-weekly-gantt-actions">
@@ -196,6 +199,8 @@ export function DashboardWeeklyGantt({
                     const endSlot = lastDayIndex * SLOTS_PER_DAY + endRange.endSlot;
                     const left = (startSlot / totalSlots) * 100;
                     const width = (Math.max(startSlot + 1, endSlot) - startSlot) / totalSlots * 100;
+                    const chipLabel = scheduleBookingChipLabel(booking);
+                    const chipDetail = scheduleBookingChipDetail(booking);
                     return (
                       <button
                         className="dashboard-weekly-gantt-bar"
@@ -206,11 +211,11 @@ export function DashboardWeeklyGantt({
                           width: `${Math.max(width, 2.2)}%`,
                           background: personColor,
                         }}
-                        title={`${booking.ref} · ${booking.time} · ${booking.customerName}`}
+                        title={[chipLabel, chipDetail, booking.description].filter(Boolean).join(" · ")}
                         onClick={() => onOpenBooking(booking)}
                       >
-                        <strong>{booking.ref}</strong>
-                        <span>{booking.time}</span>
+                        <strong>{chipLabel}</strong>
+                        <span>{chipDetail || booking.time}</span>
                       </button>
                     );
                   })}
