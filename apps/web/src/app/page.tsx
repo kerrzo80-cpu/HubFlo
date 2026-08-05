@@ -42274,7 +42274,7 @@ export default function Dashboard() {
 	                            <div className="setup-sync-entity-copy">
 	                              <span>Import selection</span>
 	                              <strong>Choose exactly what NeXa should pull in</strong>
-	                              <small>Default is Clients + Sites first. Preview should mostly show create/link — not piles of conflicts. Tick Quotes/Jobs/Schedules/Invoices after customers are linked.</small>
+	                              <small>Default is Clients + Sites first. Preview should mostly show create/link — not piles of conflicts. Tick Leads (latest 10) / Quotes / Jobs / Schedules / Invoices after customers are linked.</small>
 	                              <div className="setup-sync-entity-shortcuts">
 	                                <button className="secondary-button" type="button" onClick={() => setSelectedSimproImportEntities(["clients", "sites"])}>
 	                                  Customers &amp; sites
