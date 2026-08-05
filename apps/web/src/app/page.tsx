@@ -11665,10 +11665,12 @@ export default function Dashboard() {
       const progress = filteredJobs.filter((job) =>
         ["Scheduled", "In progress", "Waiting on parts", "Waiting on customer", "Approval required"].includes(job.status),
       );
-      const uninvoiced = filteredJobs.filter((job) => ["Completed", "Ready to invoice"].includes(job.status));
-      const review = filteredJobs.filter((job) => ["Completed", "Ready to invoice", "Invoiced"].includes(job.status));
-      const archived = filteredJobs.filter((job) => job.status === "Closed");
-      const groupedIds = new Set([...pending, ...progress, ...uninvoiced, ...review, ...archived].map((job) => job.id));
+      // Complete = work finished / passaround in progress (before Ready to invoice).
+      const review = filteredJobs.filter((job) => job.status === "Completed");
+      // Ready to invoice = passaround fully approved only.
+      const uninvoiced = filteredJobs.filter((job) => job.status === "Ready to invoice");
+      const archived = filteredJobs.filter((job) => ["Closed", "Invoiced"].includes(job.status));
+      const groupedIds = new Set([...pending, ...progress, ...review, ...uninvoiced, ...archived].map((job) => job.id));
       const other = filteredJobs.filter((job) => !groupedIds.has(job.id));
       return [
         {
@@ -11686,23 +11688,23 @@ export default function Dashboard() {
           items: progress,
         },
         {
-          key: "uninvoiced",
-          label: "Ready to invoice",
-          detail: "Completed work waiting for an invoice",
-          tone: "red",
-          items: uninvoiced,
-        },
-        {
           key: "review",
           label: "Complete",
-          detail: "Completed, reviewed or moved into finance",
+          detail: "Site finished — pass around site, commercial and finance before invoicing",
           tone: "green",
           items: review,
         },
         {
+          key: "uninvoiced",
+          label: "Ready to invoice",
+          detail: "Pass around complete — raise and send the invoice",
+          tone: "red",
+          items: uninvoiced,
+        },
+        {
           key: "archived",
           label: "Archived",
-          detail: "Closed jobs kept for history",
+          detail: "Invoiced or closed jobs kept for history",
           tone: "green",
           items: archived,
         },
@@ -12149,7 +12151,7 @@ export default function Dashboard() {
   const uninvoicedCompletedJobs = useMemo(
     () =>
       jobs
-        .filter((job) => ["Completed", "Ready to invoice"].includes(job.status))
+        .filter((job) => job.status === "Ready to invoice")
         .sort((left, right) => (left.due < right.due ? -1 : 1)),
     [jobs],
   );
@@ -12568,7 +12570,7 @@ export default function Dashboard() {
     const needle = schedulerJobSearch.trim().toLowerCase();
     if (!needle) return [];
     return jobs
-      .filter((job) => !["Complete", "Archived"].includes(job.status))
+      .filter((job) => !["Completed", "Ready to invoice", "Invoiced", "Closed"].includes(job.status))
       .filter((job) =>
         [job.ref, job.customer, job.site, job.description]
           .some((value) => value.toLowerCase().includes(needle)),
@@ -16228,7 +16230,7 @@ export default function Dashboard() {
         if (job && job.status !== "Closed") {
           await updateJobFromDirectory(
             job,
-            { status: "Closed", next: "Archived in complete folder.", due: "Complete", health: "green" },
+            { status: "Closed", next: "Archived after invoice.", due: "Complete", health: "green" },
             `${job.ref} closed.`,
           );
         }
@@ -23216,17 +23218,18 @@ export default function Dashboard() {
       const updated = await patchSelectedJob(
         {
           status: "Completed",
-          next: "Completion review required before invoicing.",
+          next: "Pass around required before Ready to invoice.",
         },
-        `${selectedJob.ref} marked complete and sent for review.`,
+        `${selectedJob.ref} marked Complete — tick pass around, then approve for invoice.`,
       );
       if (!updated) return;
+      setActiveJobFolderKey("review");
       logAuditEvent({
         actor: activeEmployee?.name ?? "NeXa user",
         action: "completed",
         recordType: "job",
         recordId: updated.id,
-        summary: `${updated.ref} marked complete and moved into office review.`,
+        summary: `${updated.ref} marked Complete and awaiting pass around.`,
         source: "job completion",
         importance: "high",
       });
@@ -23239,21 +23242,49 @@ export default function Dashboard() {
 
   function toggleSelectedJobReview(check: JobReviewKey) {
     if (!selectedJob) return;
-    setJobReviewApprovals((current) => {
-      const existing = current[selectedJob.id] ?? emptyJobReviewState;
-      const next = { ...existing, [check]: !existing[check] };
-      return { ...current, [selectedJob.id]: next };
-    });
+    const existing = jobReviewApprovals[selectedJob.id] ?? emptyJobReviewState;
+    const next = { ...existing, [check]: !existing[check] };
+    const allTicked = jobReviewChecks.every((item) => next[item.key]);
+    setJobReviewApprovals((current) => ({ ...current, [selectedJob.id]: next }));
     const checkLabel = jobReviewChecks.find((item) => item.key === check)?.label ?? "Review";
     logAuditEvent({
       actor: activeEmployee?.name ?? "NeXa user",
       action: "reviewed",
       recordType: "job",
       recordId: selectedJob.id,
-      summary: `${checkLabel} ${selectedJobReviewState[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
+      summary: `${checkLabel} ${existing[check] ? "unchecked" : "approved"} for ${selectedJob.ref}.`,
       source: "completion review",
       importance: "normal",
     });
+
+    // Progress → Complete when passaround is fully ticked (Ready to invoice stays a separate approve step).
+    const progressStatuses = [
+      "Scheduled",
+      "In progress",
+      "Waiting on parts",
+      "Waiting on customer",
+      "Approval required",
+    ];
+    if (allTicked && progressStatuses.includes(selectedJob.status)) {
+      void patchSelectedJob(
+        {
+          status: "Completed",
+          next: "Pass around complete — approve for invoice when ready.",
+        },
+        `${selectedJob.ref} moved to Complete after full pass around.`,
+      ).then((updated) => {
+        if (!updated) return;
+        logAuditEvent({
+          actor: activeEmployee?.name ?? "NeXa user",
+          action: "completed",
+          recordType: "job",
+          recordId: updated.id,
+          summary: `${updated.ref} moved to Complete after site, commercial and finance pass around.`,
+          source: "completion review",
+          importance: "high",
+        });
+      });
+    }
   }
 
   async function approveSelectedJobForInvoice() {
@@ -23263,7 +23294,7 @@ export default function Dashboard() {
         showNotice("Commercial review must be logged before this job can be marked ready to invoice.");
         return;
       }
-      showNotice("All completion review checks must be ticked before invoicing.");
+      showNotice("All pass around checks must be ticked before Ready to invoice.");
       return;
     }
     if (workflowRules.requireCommercialReviewBeforeInvoice && !selectedJobReviewState.commercial) {
@@ -23284,10 +23315,11 @@ export default function Dashboard() {
         action: "approved",
         recordType: "job",
         recordId: updated.id,
-        summary: `${updated.ref} passed completion review and is ready to invoice.`,
+        summary: `${updated.ref} passed pass around and moved to Ready to invoice.`,
         source: "completion review",
         importance: "high",
       });
+      setActiveJobFolderKey("uninvoiced");
       openInvoiceForJob(updated);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to approve job for invoice.";
@@ -23299,7 +23331,7 @@ export default function Dashboard() {
   async function closeSelectedJobToCompleteFolder() {
     if (!selectedJob) return;
     if (!["Invoiced", "Closed"].includes(selectedJob.status)) {
-      showNotice("Send the invoice before moving the job into the complete folder.");
+      showNotice("Send the invoice before archiving the job.");
       return;
     }
 
@@ -23307,10 +23339,10 @@ export default function Dashboard() {
       const updated = await patchSelectedJob(
         {
           status: "Closed",
-          next: "Archived in complete folder.",
+          next: "Archived after invoice.",
           due: "Complete",
         },
-        `${selectedJob.ref} moved into the complete folder.`,
+        `${selectedJob.ref} moved to Archived.`,
       );
       if (!updated) return;
       logAuditEvent({
@@ -23318,12 +23350,13 @@ export default function Dashboard() {
         action: "closed",
         recordType: "job",
         recordId: updated.id,
-        summary: `${updated.ref} moved into the complete folder after invoice issue.`,
+        summary: `${updated.ref} archived after invoice issue.`,
         source: "completion folder",
         importance: "high",
       });
+      setActiveJobFolderKey("archived");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to move job into the complete folder.";
+      const message = error instanceof Error ? error.message : "Unable to archive job.";
       setSectionError(message);
       showNotice(message);
     }
@@ -29503,13 +29536,15 @@ export default function Dashboard() {
     const pendingJobs = jobDirectoryGroups.find((group) => group.key === "pending")?.items ?? [];
     const progressJobs = jobDirectoryGroups.find((group) => group.key === "progress")?.items ?? [];
     const completeJobs = jobDirectoryGroups.find((group) => group.key === "review")?.items ?? [];
+    const readyToInvoiceJobs = jobDirectoryGroups.find((group) => group.key === "uninvoiced")?.items ?? [];
     const jobStageBars = [
       { label: "Pending", value: pendingJobs.length, key: "pending" as const },
       { label: "Progress", value: progressJobs.length, key: "progress" as const },
       { label: "Complete", value: completeJobs.length, key: "review" as const },
+      { label: "Ready to invoice", value: readyToInvoiceJobs.length, key: "uninvoiced" as const },
     ];
     const jobStageMax = Math.max(1, ...jobStageBars.map((row) => row.value));
-    const jobStageTotal = pendingJobs.length + progressJobs.length + completeJobs.length;
+    const jobStageTotal = pendingJobs.length + progressJobs.length + completeJobs.length + readyToInvoiceJobs.length;
 
     const draftInvoices = invoices.filter(
       (invoice) => invoice.claimType !== "valuation" && invoice.claimType !== "credit-note" && invoice.status === "Draft",
@@ -30970,7 +31005,7 @@ export default function Dashboard() {
                   ) : null}
                   {homeView === "job-record" && selectedJob?.status === "Invoiced" ? (
                     <button className="primary-button" onClick={closeSelectedJobToCompleteFolder}>
-                      Move to complete folder
+                      Move to archived
                     </button>
                   ) : null}
                   {homeView === "quote-record" && selectedQuote?.status === "Accepted" && access.canCreateJob ? (
@@ -31681,7 +31716,7 @@ export default function Dashboard() {
                                 onClick: () =>
                                   updateJobFromDirectory(
                                     job,
-                                    { status: "Closed", next: "Archived in complete folder.", due: "Complete", health: "green" },
+                                    { status: "Closed", next: "Archived after invoice.", due: "Complete", health: "green" },
                                     `${job.ref} closed.`,
                                   ),
                                 disabled: job.status === "Closed",
@@ -36183,7 +36218,7 @@ export default function Dashboard() {
                       <header>
                         <div>
                           <span className="permission-heading">Completion review</span>
-                          <h2>Pass around before invoicing</h2>
+                          <h2>Pass around before Ready to invoice</h2>
                         </div>
                         <strong>{jobReviewChecks.filter((check) => selectedJobReviewState[check.key]).length}/{jobReviewChecks.length}</strong>
                       </header>
@@ -36211,7 +36246,7 @@ export default function Dashboard() {
                           disabled={!selectedJobReviewComplete}
                           onClick={approveSelectedJobForInvoice}
                         >
-                          Approve for invoice
+                          Move to Ready to invoice
                         </button>
                       </div>
                     </section>
