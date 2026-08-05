@@ -69,6 +69,7 @@ export async function GET() {
       quoteWrongCustomerFix: "no-list-fallback-row-v3",
       quoteCostPriceDistinct: "nexa-default-markup-v1",
       quoteCatalogCostPull: "nested-catalog-labor-v1",
+      quoteHeaderTotal: "keep-simpro-total-v1",
       quoteCcInfoRefresh: "incomplete-centres-repull-v1",
       dashboardLayout: "pipeline-gantt-v3",
       takeoffSkill: "drawing-first-v8-routes-page",

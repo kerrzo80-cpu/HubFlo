@@ -53,6 +53,23 @@ describe("simpro sync preview quality", () => {
     assert.equal(job.site, "Main site");
   });
 
+  it("prefers a positive Total.ExTax and skips zero placeholders", () => {
+    const quote = buildQuoteInput({
+      ID: 2217,
+      Name: "Aberbuild works",
+      Customer: { CompanyName: "Aberbuild" },
+      Total: { ExTax: 0, IncTax: 4537.48 },
+    });
+    assert.equal(quote.value, 4537.48);
+    const quoteEx = buildQuoteInput({
+      ID: 2218,
+      Name: "Aberbuild works",
+      Customer: { CompanyName: "Aberbuild" },
+      Total: { ExTax: 4537.48, Tax: 907.5, IncTax: 5444.98 },
+    });
+    assert.equal(quoteEx.value, 4537.48);
+  });
+
   it("maps simPRO job statuses onto NeXa folder statuses", () => {
     assert.equal(jobStatusFromSimpro("Complete"), "Completed");
     assert.equal(jobStatusFromSimpro("Progress"), "In progress");

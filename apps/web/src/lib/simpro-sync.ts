@@ -240,6 +240,35 @@ function firstNumber(record: UnknownRecord, paths: string[]) {
   return 0;
 }
 
+/** Prefer the first positive money field (skip 0 placeholders that hide a real Total). */
+function firstPositiveNumber(record: UnknownRecord, paths: string[]) {
+  for (const path of paths) {
+    const value = path.split(".").reduce<unknown>((current, part) => {
+      const object = asRecord(current);
+      return object ? object[part] : undefined;
+    }, record);
+    const number = asNumber(value, Number.NaN);
+    if (Number.isFinite(number) && number > 0) return number;
+  }
+  return 0;
+}
+
+function simproQuoteOrJobTotal(record: UnknownRecord) {
+  return firstPositiveNumber(record, [
+    "Total.ExTax",
+    "Totals.ExTax",
+    "Total.Amount.ExTax",
+    "TotalExTax",
+    "Total.IncTax",
+    "Totals.IncTax",
+    "TotalIncTax",
+    "TotalPrice",
+    "Price",
+    "Value",
+    "Amount",
+  ]);
+}
+
 function identifier(record: UnknownRecord) {
   return firstString(record, ["ID", "Id", "id", "QuoteID", "JobID", "CustomerID", "SiteID", "InvoiceID"]);
 }
@@ -1197,17 +1226,7 @@ export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, si
     description: descriptionFromSimproRecord(record, "Imported simPRO quote"),
     owner: firstString(record, ["Salesperson.Name", "Owner.Name", "ProjectManager.Name"]) || "Imported from simPRO",
     status,
-    value: firstNumber(record, [
-      "Total.ExTax",
-      "Total.IncTax",
-      "TotalExTax",
-      "TotalIncTax",
-      "TotalPrice",
-      "Price",
-      "Value",
-      "Amount",
-      "Total",
-    ]),
+    value: simproQuoteOrJobTotal(record),
     next:
       status === "Accepted"
         ? "Convert to job"
@@ -1242,17 +1261,7 @@ export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site
     description: descriptionFromSimproRecord(record, "Imported simPRO job"),
     manager: firstString(record, ["ProjectManager.Name", "Owner.Name", "Salesperson.Name"]) || "Imported from simPRO",
     status: jobStatusFromSimpro(simproStatus),
-    value: firstNumber(record, [
-      "Total.ExTax",
-      "Total.IncTax",
-      "TotalExTax",
-      "TotalIncTax",
-      "TotalPrice",
-      "Price",
-      "Value",
-      "Amount",
-      "Total",
-    ]),
+    value: simproQuoteOrJobTotal(record),
     next: "Review imported job",
     due: dueLabelFromSimpro(record, ["DueDate", "DateCreated", "CreatedDate", "StartDate"]),
     simproJobId: identifier(record),
@@ -1454,6 +1463,17 @@ async function hydrateRecordSite(config: ResolvedSimproDirectConfig, record: Unk
   return mergeSiteOntoRecord(record, detail);
 }
 
+function mergeSimproTotalHints(detail: UnknownRecord, listHint?: UnknownRecord | null): UnknownRecord {
+  if (simproQuoteOrJobTotal(detail) > 0 || !listHint) return detail;
+  const next = { ...detail };
+  if (listHint.Total != null && next.Total == null) next.Total = listHint.Total;
+  if (listHint.Totals != null && next.Totals == null) next.Totals = listHint.Totals;
+  // Detail sometimes returns Total: { ExTax: 0 }; prefer a positive list total.
+  if (simproQuoteOrJobTotal(next) <= 0 && listHint.Total != null) next.Total = listHint.Total;
+  if (simproQuoteOrJobTotal(next) <= 0 && listHint.Totals != null) next.Totals = listHint.Totals;
+  return next;
+}
+
 async function patchQuoteHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, nexaQuoteId: string, record: UnknownRecord) {
   const hydrated = await hydrateRecordSite(config, await hydrateRecordCustomer(config, record));
   const { client } = resolveClientForRecord(hydrated, "apply");
@@ -1522,40 +1542,24 @@ function quoteAlreadyHasCostCentres(nexaQuoteId: string) {
 
 /** True when centres exist but Info briefs or cost prices are still missing — re-pull them. */
 function quoteCostCentresNeedRefresh(nexaQuoteId: string) {
-  const hubs = getHubDetailState();
-  const centres = hubs.quoteCostCentres?.[nexaQuoteId];
+  const centres = getHubDetailState().quoteCostCentres?.[nexaQuoteId];
   if (!Array.isArray(centres) || centres.length === 0) return true;
-  const finance = (hubs.financeSettings || {}) as Record<string, unknown>;
-  const materialMarkup = Number(finance.defaultMaterialMarkupPercent);
-  const labourMarkup = Number(finance.defaultLabourMarkupPercent);
-  const defaultMarkup =
-    Number.isFinite(materialMarkup) && materialMarkup >= 0
-      ? materialMarkup
-      : Number.isFinite(labourMarkup) && labourMarkup >= 0
-        ? labourMarkup
-        : 30;
   return centres.some((centre) => {
     const row = centre as {
       clientDescription?: string;
       engineerDescription?: string;
-      lines?: Array<{ unitCost?: number; unitSell?: number; catalogItemId?: string }>;
+      lines?: Array<{ unitCost?: number; unitSell?: number }>;
     };
     const missingBrief =
       !String(row.clientDescription || "").trim() && !String(row.engineerDescription || "").trim();
     const lines = Array.isArray(row.lines) ? row.lines : [];
-    const pricingStale = lines.some((line) => {
+    // Need a real cost (BasePrice). Sell may be simPRO charge or NeXa markup — either is fine.
+    const missingCost = lines.some((line) => {
       const sell = Number(line.unitSell) || 0;
       const cost = Number(line.unitCost) || 0;
-      if (sell > 0 && !(cost > 0)) return true;
-      if (cost > 0 && cost === sell) return true;
-      if (cost > 0 && sell > 0) {
-        const expected = Math.round(cost * (1 + defaultMarkup / 100) * 100) / 100;
-        // Still on simPRO charge (or other markup) rather than NeXa default.
-        if (Math.abs(sell - expected) > 0.05) return true;
-      }
-      return false;
+      return sell > 0 && !(cost > 0 && cost !== sell);
     });
-    return missingBrief || pricingStale;
+    return missingBrief || missingCost;
   });
 }
 
@@ -1608,7 +1612,11 @@ async function withQuoteHierarchy(
       const record =
         (await fetchSimproEntityDetail(config, "quotes", simproId)) ||
         (await resolveQuoteFullRecord(simproId, prefetch));
-      const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, record);
+      const mapped = await patchQuoteHeaderFromDeepRecord(
+        config,
+        nexaQuoteId,
+        mergeSimproTotalHints(record, listRecord ?? prefetch),
+      );
       return {
         ...op,
         summary: `${op.summary} Cost centres kept; header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`,
@@ -1630,7 +1638,11 @@ async function withQuoteHierarchy(
       const detail =
         (await fetchSimproEntityDetail(config, "quotes", simproId)) ||
         (await resolveQuoteFullRecord(simproId, prefetch));
-      const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, detail);
+      const mapped = await patchQuoteHeaderFromDeepRecord(
+        config,
+        nexaQuoteId,
+        mergeSimproTotalHints(detail, listRecord ?? prefetch),
+      );
       return {
         ...op,
         action: "error",
@@ -1660,7 +1672,11 @@ async function withQuoteHierarchy(
   if (deep.ok && deep.record) {
     try {
       const config = await resolveSimproDirectConfig();
-      const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, deep.record);
+      const mapped = await patchQuoteHeaderFromDeepRecord(
+        config,
+        nexaQuoteId,
+        mergeSimproTotalHints(deep.record, listRecord ?? prefetch),
+      );
       const ccCount = Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
         ? getHubDetailState().quoteCostCentres?.[nexaQuoteId]?.length ?? 0
         : 0;
