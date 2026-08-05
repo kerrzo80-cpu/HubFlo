@@ -230,7 +230,7 @@ describe("simpro hierarchy map", () => {
     assert.match(centres[0]?.engineerDescription || "", /Engineer: isolate/);
   });
 
-  it("keeps cost price distinct from charge price and uses markup when needed", () => {
+  it("maps cost from simPRO BasePrice and builds sell from NeXa default markup", () => {
     const { centres } = mapSimproQuoteCostCentres(
       {
         ID: 1,
@@ -279,16 +279,51 @@ describe("simpro hierarchy map", () => {
         ],
       },
       "quote-cost-price",
+      { materialMarkupPercent: 30, labourMarkupPercent: 30 },
     );
     const copper = centres[0]?.lines.find((line) => line.description === "Copper");
     const fitting = centres[0]?.lines.find((line) => line.description === "Fitting");
     const labour = centres[0]?.lines.find((line) => line.description === "Plumber");
     assert.equal(copper?.unitCost, 2);
-    assert.equal(copper?.unitSell, 3);
-    assert.equal(fitting?.unitSell, 10);
-    assert.equal(fitting?.unitCost, 8); // 10 / 1.25
+    assert.equal(copper?.unitSell, 2.6); // 2 * 1.30 — NeXa markup, not simPRO SellPrice 3
+    assert.equal(fitting?.unitCost, 8); // reverse from simPRO sell/markup when BasePrice missing
+    assert.equal(fitting?.unitSell, 10.4); // 8 * 1.30
     assert.equal(labour?.unitCost, 35);
-    assert.equal(labour?.unitSell, 55);
+    assert.equal(labour?.unitSell, 45.5); // 35 * 1.30 — not simPRO charge 55
+  });
+
+  it("falls back to simPRO sell only when no cost can be derived", () => {
+    const { centres } = mapSimproQuoteCostCentres(
+      {
+        ID: 1,
+        Sections: [
+          {
+            ID: 2,
+            Name: "Works",
+            CostCenters: [
+              {
+                ID: 3,
+                Name: "Materials",
+                Items: {
+                  Catalogs: [
+                    {
+                      ID: 99,
+                      Catalogue: { Name: "Unknown part" },
+                      SellPrice: { ExTax: 40 },
+                      Total: { Qty: 1, Amount: { ExTax: 40 } },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "quote-sell-only",
+    );
+    const line = centres[0]?.lines[0];
+    assert.equal(line?.unitCost, 0);
+    assert.equal(line?.unitSell, 40);
   });
 
   it("maps invoices with line totals and job linkage", () => {

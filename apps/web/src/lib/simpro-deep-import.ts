@@ -132,6 +132,162 @@ async function fetchSectionCostCenters(
 const MAX_SECTIONS_PER_ENTITY = 25;
 /** Prefer listing CCs over per-CC detail storms — detail is only for the first few empty ones. */
 const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 8;
+/** Nested catalog/labour lists carry BasePrice — display=all on the CC often omits it. */
+const MAX_CC_ITEM_BAG_FETCHES_PER_ENTITY = 20;
+const MAX_CATALOG_DETAIL_FETCHES_PER_ENTITY = 40;
+
+function moneyHint(record: UnknownRecord, keys: string[]): number {
+  for (const key of keys) {
+    if (key.includes(".")) {
+      const [head, ...rest] = key.split(".");
+      const nested = asRecord(record[head ?? ""]);
+      if (nested) {
+        const value = moneyHint(nested, [rest.join(".")]);
+        if (Number.isFinite(value) && value > 0) return value;
+      }
+      continue;
+    }
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return raw;
+    if (typeof raw === "string") {
+      const parsed = Number(raw.replace(/[^0-9.-]+/g, ""));
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  }
+  return 0;
+}
+
+/** True when a catalog/labour row already carries a usable cost (BasePrice etc.). */
+function lineRecordHasCost(record: UnknownRecord): boolean {
+  return (
+    moneyHint(record, [
+      "CostPrice.ExTax",
+      "CostPrice",
+      "BasePrice.ExTax",
+      "BasePrice",
+      "EstimatedCost.ExTax",
+      "EstimatedCost",
+      "BuyPrice.ExTax",
+      "BuyPrice",
+      "LaborCost",
+      "LabourCost",
+      "CostRate",
+      "LaborType.CostRate",
+      "LabourType.CostRate",
+      "Catalogue.BasePrice.ExTax",
+      "Catalogue.BasePrice",
+      "Catalog.BasePrice.ExTax",
+      "Catalog.BasePrice",
+      "Markup",
+      "MarkupPercent",
+    ]) > 0
+  );
+}
+
+async function fetchCostCentreItemBags(
+  config: Awaited<ReturnType<typeof getSimproReadConfig>>,
+  entity: "quotes" | "jobs",
+  externalId: string,
+  sectionId: string,
+  ccId: string,
+): Promise<UnknownRecord> {
+  const bags: UnknownRecord = {};
+  const groups: Array<{ key: string; paths: string[] }> = [
+    {
+      key: "Catalogs",
+      paths: [
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/`,
+      ],
+    },
+    {
+      key: "Labors",
+      paths: [
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/labor/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/labors/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/labour/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/labours/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/labor/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/labour/?display=all`,
+      ],
+    },
+    {
+      key: "OneOffs",
+      paths: [
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/oneOffs/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/oneOffs/`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/oneOffs/?display=all`,
+      ],
+    },
+    {
+      key: "Prebuilds",
+      paths: [
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/prebuilds/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/prebuilds/`,
+      ],
+    },
+    {
+      key: "ServiceFees",
+      paths: [
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/serviceFees/?display=all`,
+        `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/serviceFees/`,
+      ],
+    },
+  ];
+
+  for (const group of groups) {
+    for (const path of group.paths) {
+      const listed = await fetchPagedSimproList(config, path, { pageSize: 100, maxPages: 3 });
+      if (listed.length) {
+        bags[group.key] = listed;
+        break;
+      }
+    }
+  }
+  return bags;
+}
+
+async function enrichCatalogLinesWithBasePrice(
+  config: Awaited<ReturnType<typeof getSimproReadConfig>>,
+  entity: "quotes" | "jobs",
+  externalId: string,
+  sectionId: string,
+  ccId: string,
+  catalogs: UnknownRecord[],
+  budget: { remaining: number },
+): Promise<UnknownRecord[]> {
+  const out: UnknownRecord[] = [];
+  for (const row of catalogs) {
+    if (lineRecordHasCost(row) || budget.remaining <= 0) {
+      out.push(row);
+      continue;
+    }
+    const lineId = simproRecordId(row);
+    if (!lineId) {
+      out.push(row);
+      continue;
+    }
+    budget.remaining -= 1;
+    const detail = await simproGetFirstOk(config, [
+      `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}?display=all`,
+      `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}`,
+      `/${entity}/${externalId}/sections/${sectionId}/costCenters/${ccId}/catalogs/${lineId}/?display=all`,
+      `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/${lineId}?display=all`,
+      `/${entity}/${externalId}/sections/${sectionId}/costCentres/${ccId}/catalogues/${lineId}`,
+    ]);
+    if (detail.ok) {
+      const body = asRecord(detail.body);
+      if (body) {
+        out.push({ ...row, ...body });
+        continue;
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
 
 export async function fetchFullEntity(
   entity: "quotes" | "jobs",
@@ -234,6 +390,8 @@ export async function fetchFullEntity(
   sections = sections.slice(0, MAX_SECTIONS_PER_ENTITY);
 
   let ccDetailFetches = 0;
+  let ccItemBagFetches = 0;
+  const catalogDetailBudget = { remaining: MAX_CATALOG_DETAIL_FETCHES_PER_ENTITY };
   const hydrated: UnknownRecord[] = [];
   for (const section of sections) {
     const sectionId = simproRecordId(section);
@@ -253,8 +411,9 @@ export async function fetchFullEntity(
     const detailedCenters: UnknownRecord[] = [];
     for (const centre of costCenters) {
       const ccId = simproRecordId(centre);
-      const missingBrief = !String(centre.Description || centre.Notes || centre.LongDescription || "").trim();
-      const needsDetail = !centreHasLineItems(centre) || missingBrief;
+      let merged: UnknownRecord = { ...centre };
+      const missingBrief = !String(merged.Description || merged.Notes || merged.LongDescription || "").trim();
+      const needsDetail = !centreHasLineItems(merged) || missingBrief;
       if (needsDetail && sectionId && ccId && ccDetailFetches < MAX_CC_DETAIL_FETCHES_PER_ENTITY) {
         ccDetailFetches += 1;
         const detail = await simproGetFirstOk(config, [
@@ -269,13 +428,54 @@ export async function fetchFullEntity(
         ]);
         if (detail.ok) {
           const body = asRecord(detail.body);
-          if (body) {
-            detailedCenters.push({ ...centre, ...body });
-            continue;
-          }
+          if (body) merged = { ...merged, ...body };
         }
       }
-      detailedCenters.push(centre);
+
+      // simPRO often returns empty Items or SellPrice-only rows on display=all;
+      // BasePrice lives on nested /catalogs/ and /labor/ endpoints.
+      const existingItems = asRecord(merged.Items) ?? {};
+      const existingLines = [
+        ...(Array.isArray(existingItems.Catalogs) ? existingItems.Catalogs : []),
+        ...(Array.isArray(existingItems.Catalogues) ? existingItems.Catalogues : []),
+        ...(Array.isArray(existingItems.Labors) ? existingItems.Labors : []),
+        ...(Array.isArray(existingItems.Labours) ? existingItems.Labours : []),
+        ...(Array.isArray(existingItems.OneOffs) ? existingItems.OneOffs : []),
+      ]
+        .map(asRecord)
+        .filter((row): row is UnknownRecord => Boolean(row));
+      const missingCosts =
+        !centreHasLineItems(merged) || existingLines.some((row) => !lineRecordHasCost(row));
+      if (missingCosts && sectionId && ccId && ccItemBagFetches < MAX_CC_ITEM_BAG_FETCHES_PER_ENTITY) {
+        ccItemBagFetches += 1;
+        const bags = await fetchCostCentreItemBags(config, entity, externalId, sectionId, ccId);
+        if (Object.keys(bags).length) {
+          let catalogs = Array.isArray(bags.Catalogs)
+            ? bags.Catalogs.map(asRecord).filter((row): row is UnknownRecord => Boolean(row))
+            : [];
+          if (catalogs.length && catalogs.some((row) => !lineRecordHasCost(row))) {
+            catalogs = await enrichCatalogLinesWithBasePrice(
+              config,
+              entity,
+              externalId,
+              sectionId,
+              ccId,
+              catalogs,
+              catalogDetailBudget,
+            );
+            bags.Catalogs = catalogs;
+          }
+          merged = {
+            ...merged,
+            Items: {
+              ...existingItems,
+              ...bags,
+            },
+          };
+        }
+      }
+
+      detailedCenters.push(merged);
     }
 
     hydrated.push({ ...section, CostCenters: detailedCenters });
@@ -419,9 +619,16 @@ export async function enrichNexaQuoteFromSimpro(input: {
   try {
     const { config, record } = await fetchFullEntity("quotes", input.simproQuoteId, input.prefetchedRecord);
     const companyId = input.companyId || config.companyId;
-    const { centres, stats } = mapSimproQuoteCostCentres(record, input.nexaQuoteId);
+    const hubForMarkup = getHubDetailState();
+    const finance = (hubForMarkup.financeSettings || {}) as Record<string, unknown>;
+    const materialMarkup = Number(finance.defaultMaterialMarkupPercent);
+    const labourMarkup = Number(finance.defaultLabourMarkupPercent);
+    const { centres, stats } = mapSimproQuoteCostCentres(record, input.nexaQuoteId, {
+      materialMarkupPercent: Number.isFinite(materialMarkup) ? materialMarkup : 30,
+      labourMarkupPercent: Number.isFinite(labourMarkup) ? labourMarkup : 30,
+    });
 
-    const hub = getHubDetailState();
+    const hub = hubForMarkup;
     const quoteCostCentres = cloneRecordMap(hub.quoteCostCentres);
     const quoteSections = cloneRecordMap(hub.quoteSections);
 
