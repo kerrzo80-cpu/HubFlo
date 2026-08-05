@@ -64,6 +64,7 @@ export async function GET() {
       simproEodRefresh: "weekday-1800-utc-cron-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
       personalisingBranding: "owner-white-label-v1",
+      customiseForms: "headers-logos-daywork-gassafe-v1",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
       quoteCostCentrePartsScope: "active-centre-only-v1",

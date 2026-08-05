@@ -1,23 +1,45 @@
 import { gasSafeCertificateSections, type GasSafeCertificateContext } from "@/lib/gas-safe-lgsr-form";
+import type { FormDocumentChrome } from "@/lib/form-document-chrome";
 
-export function GasSafeLgsrCertificate({ context }: { context: GasSafeCertificateContext }) {
+export function GasSafeLgsrCertificate({
+  context,
+  chrome,
+}: {
+  context: GasSafeCertificateContext;
+  chrome?: FormDocumentChrome | null;
+}) {
   const sections = gasSafeCertificateSections(context);
   const filledCount = sections.reduce(
     (sum, section) => sum + section.rows.filter((row) => row.filled).length,
     0,
   );
   const totalCount = sections.reduce((sum, section) => sum + section.rows.length, 0);
+  const title = chrome?.title || "Landlord’s Gas Safety Record";
+  const kicker = chrome?.headerNote || chrome?.tradingName || "Gas Safe Register style record";
+  const intro =
+    chrome?.intro ||
+    "CP12 / LGSR layout — completed from Field stop/go on Boiler servicing.";
 
   return (
-    <article className="gas-safe-lgsr-cert">
+    <article className="gas-safe-lgsr-cert" style={chrome?.headerColor ? { ["--gas-safe-accent" as string]: chrome.headerColor } : undefined}>
       <header className="gas-safe-lgsr-masthead">
-        <div>
-          <p className="gas-safe-lgsr-kicker">Gas Safe Register style record</p>
-          <h3>Landlord’s Gas Safety Record</h3>
-          <p>
-            CP12 / LGSR layout for NeXa — same cost-centre gas cert pattern used in simPRO. Completed from Field
-            stop/go on Boiler servicing.
-          </p>
+        <div className="gas-safe-lgsr-brand">
+          {chrome?.showLogo !== false && chrome?.logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={chrome.logoUrl} alt={chrome.tradingName || "Company logo"} />
+          ) : null}
+          <div>
+            <p className="gas-safe-lgsr-kicker">{kicker}</p>
+            <h3>{title}</h3>
+            <p>{intro}</p>
+            {chrome?.showCompanyDetails ? (
+              <small>
+                {chrome.tradingName}
+                {chrome.address ? ` · ${chrome.address}` : ""}
+                {chrome.showVatCompanyNumbers && chrome.vatNumber ? ` · VAT ${chrome.vatNumber}` : ""}
+              </small>
+            ) : null}
+          </div>
         </div>
         <div className="gas-safe-lgsr-ref">
           <strong>{context.jobRef}</strong>
@@ -44,10 +66,8 @@ export function GasSafeLgsrCertificate({ context }: { context: GasSafeCertificat
       ))}
 
       <footer className="gas-safe-lgsr-footer">
-        <p>
-          This is NeXa’s live Gas Safe / LGSR form view for office review. Engineer Gas Safe ID and statutory PDF
-          pack can still be hardened; values already flow from the Field checklist into this record.
-        </p>
+        <p>{chrome?.footer || chrome?.terms || "Office review copy of the Gas Safe / LGSR record completed from Field."}</p>
+        {chrome?.tradingName ? <small>{chrome.tradingName}{chrome.brandLine ? ` · ${chrome.brandLine}` : ""}</small> : null}
       </footer>
     </article>
   );
