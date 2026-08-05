@@ -17,6 +17,7 @@ import {
   DAYWORK_COST_CENTRE_NAME,
   DAYWORK_COST_CENTRE_TEMPLATE,
   createAdditionalDayworkCostCentre,
+  discardUnsignedDayworkSheet,
   ensureDayworkVariationCostCentre,
   listDayworkSheetsForJob,
   requirementsFromFlowTemplate,
@@ -91,6 +92,40 @@ export async function POST(request: Request, { params }: Params) {
       scheduleId,
       checklistMode: "job",
       requirements: workflow.requirements ?? [],
+      sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
+    });
+  }
+
+  if (body.action === "discard") {
+    const costCentreId = body.costCentreId?.trim();
+    if (!costCentreId) {
+      return NextResponse.json({ error: "costCentreId is required to discard a Daywork." }, { status: 400 });
+    }
+    const result = discardUnsignedDayworkSheet({
+      jobId: schedule.jobId,
+      costCentreId,
+    });
+    if (!result.discarded) {
+      return NextResponse.json({ error: result.reason || "Could not discard Daywork." }, { status: 409 });
+    }
+    const workflow = clearDayworkWorkflowMode(scheduleId);
+    recordDayworkWriteAttempt({
+      at: new Date().toISOString(),
+      source: "field-daywork",
+      scheduleId,
+      jobId: schedule.jobId,
+      costCentreId,
+      ok: true,
+      error: "discarded-unsigned",
+    });
+    return NextResponse.json({
+      scheduleId,
+      jobId: schedule.jobId,
+      discarded: true,
+      costCentreId,
+      checklistMode: "job",
+      requirements: workflow.requirements ?? [],
+      sheets: fieldSafeSheets(listDayworkSheetsForJob(schedule.jobId)),
     });
   }
 

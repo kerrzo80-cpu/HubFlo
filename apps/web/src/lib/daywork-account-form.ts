@@ -76,6 +76,22 @@ export function isDayworkSubmittedToCore(record?: DayworkAccountRecord | null): 
   );
 }
 
+/** Field stop/go rows that belong to a Daywork sheet (not the job gas/plumbing checklist). */
+export function isDayworkRequirement(item: {
+  id?: string;
+  stage?: string;
+  stepId?: string;
+  costCentreId?: string;
+}): boolean {
+  if (item.stage === "Daywork") return true;
+  if (item.stepId?.startsWith("daywork-")) return true;
+  if (item.costCentreId && /daywork/i.test(item.costCentreId)) return true;
+  const id = String(item.id || "");
+  if (id.startsWith("daywork-")) return true;
+  if (id.includes("-daywork-account") || id.includes(":daywork-")) return true;
+  return false;
+}
+
 /**
  * Poll/list payload without base64 signature images (keeps bandwidth down).
  * Full signatures stay on disk and are only loaded for PDF / valuation export.

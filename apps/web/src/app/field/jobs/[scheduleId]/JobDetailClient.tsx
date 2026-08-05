@@ -25,6 +25,7 @@ import { toggleMockRequirement } from "@/lib/field/nexa/mock-data";
 import {
   dayworkSheetListLabel,
   formatFieldDayworkEvidenceSummary,
+  isDayworkRequirement,
   isDayworkSubmittedToCore,
   sortDayworkSheetsByNumber,
   type DayworkAccountRecord,
@@ -76,12 +77,7 @@ type FieldWorkflowState = {
 };
 
 function requirementsLookLikeDaywork(requirements: FieldRequirement[]) {
-  return requirements.some(
-    (item) =>
-      item.id.startsWith("daywork-") ||
-      item.stage === "Daywork" ||
-      /labour|materials|plant|week ending|variation/i.test(item.label),
-  );
+  return requirements.some((item) => isDayworkRequirement(item));
 }
 
 type Tab = "pack" | "checklist" | "photos" | "po";
@@ -229,11 +225,10 @@ export default function JobDetailPage() {
 
   const canComplete = useMemo(() => {
     if (!job) return false;
+    // Daywork sheets never gate job Complete — including Handover signature steps
+    // whose stage is not "Daywork" but whose stepId/id is daywork-scoped.
     return !job.requirements.some(
-      (item) =>
-        item.status === "missing" &&
-        !item.id.startsWith("daywork-") &&
-        item.stage !== "Daywork",
+      (item) => item.status === "missing" && !isDayworkRequirement(item),
     );
   }, [job]);
 
@@ -531,19 +526,6 @@ export default function JobDetailPage() {
     setError("");
   }
 
-  async function setOutcome(status: FieldWorkflowOutcome["status"]) {
-    if (status === "Complete" && !canComplete) {
-      setError("Cannot mark complete yet. Finish required checklist items first.");
-      setTab("checklist");
-      return;
-    }
-    await runWorkflowAction(
-      "set_outcome",
-      { status, note: outcomeNote },
-      status === "Needs parts" ? "Marked awaiting parts — office notified." : `${status} sent to office.`,
-    );
-  }
-
   async function openDayworkSheet(options?: {
     fresh?: boolean;
     costCentreId?: string;
@@ -616,9 +598,9 @@ export default function JobDetailPage() {
           : "Daywork";
       setNotice(
         options?.fresh
-          ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish."
+          ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish. Or Discard if opened by mistake."
           : options?.costCentreId
-            ? `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish.`
+            ? `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish. Discard if this sheet was opened by mistake.`
             : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
       );
     } catch (openError) {
@@ -628,8 +610,8 @@ export default function JobDetailPage() {
     }
   }
 
-  async function backToJobChecklist() {
-    if (!job) return;
+  async function backToJobChecklist(options?: { quiet?: boolean }) {
+    if (!job) return null;
     setDayworkBusy(true);
     setError("");
     try {
@@ -639,23 +621,100 @@ export default function JobDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "clear" }),
       });
-      const body = (await response.json()) as { requirements?: FieldRequirement[]; error?: string };
+      const body = (await response.json()) as {
+        requirements?: FieldRequirement[];
+        sheets?: FieldDayworkSheet[];
+        error?: string;
+      };
       if (!response.ok) throw new Error(body.error || "Could not leave daywork sheet.");
       setChecklistMode("job");
       setDayworkRecord(null);
       setDayworkCostCentreId("");
+      if (Array.isArray(body.sheets)) setDayworkSheets(body.sheets);
+      let nextRequirements = body.requirements;
+      if (nextRequirements) {
+        setJob((current) => (current ? { ...current, requirements: nextRequirements! } : current));
+      } else {
+        const item = await client.getJob(job.scheduleId);
+        if (item) {
+          setJob(item);
+          nextRequirements = item.requirements;
+        }
+      }
+      if (!options?.quiet) setNotice("Back on the job checklist.");
+      return nextRequirements || null;
+    } catch (leaveError) {
+      setError(leaveError instanceof Error ? leaveError.message : "Could not leave daywork sheet.");
+      return null;
+    } finally {
+      setDayworkBusy(false);
+    }
+  }
+
+  async function discardDayworkSheet(costCentreId: string) {
+    if (!job || !costCentreId) return;
+    const label = dayworkSheetListLabel(job.jobId, costCentreId);
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Discard ${label}? This removes the in-progress Daywork opened by mistake. Submitted Dayworks stay locked.`)
+    ) {
+      return;
+    }
+    setDayworkBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/field/jobs/${encodeURIComponent(job.scheduleId)}/daywork`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "discard", costCentreId }),
+      });
+      const body = (await response.json()) as {
+        error?: string;
+        requirements?: FieldRequirement[];
+        sheets?: FieldDayworkSheet[];
+      };
+      if (!response.ok) throw new Error(body.error || "Could not discard Daywork.");
+      setChecklistMode("job");
+      setDayworkRecord(null);
+      setDayworkCostCentreId("");
+      if (Array.isArray(body.sheets)) setDayworkSheets(body.sheets);
       if (body.requirements) {
         setJob((current) => (current ? { ...current, requirements: body.requirements! } : current));
       } else {
         const item = await client.getJob(job.scheduleId);
         if (item) setJob(item);
       }
-      setNotice("Back on the job checklist.");
-    } catch (leaveError) {
-      setError(leaveError instanceof Error ? leaveError.message : "Could not leave daywork sheet.");
+      setTab("pack");
+      setNotice(`${label} discarded — back on the job checklist. You can Mark complete when job stop/go items are done.`);
+    } catch (discardError) {
+      setError(discardError instanceof Error ? discardError.message : "Could not discard Daywork.");
     } finally {
       setDayworkBusy(false);
     }
+  }
+
+  async function setOutcome(status: FieldWorkflowOutcome["status"]) {
+    if (status === "Complete") {
+      // Leave a mistaken open Daywork first so we evaluate the real job checklist.
+      let requirements = job?.requirements || [];
+      if (checklistMode === "daywork") {
+        const restored = await backToJobChecklist({ quiet: true });
+        if (restored) requirements = restored;
+      }
+      const blocked = requirements.some((item) => item.status === "missing" && !isDayworkRequirement(item));
+      if (blocked) {
+        setError("Cannot mark complete yet. Finish required checklist items first.");
+        setTab("checklist");
+        return;
+      }
+    }
+    await runWorkflowAction(
+      "set_outcome",
+      { status, note: outcomeNote },
+      status === "Needs parts" ? "Marked awaiting parts — office notified." : `${status} sent to office.`,
+    );
   }
 
   async function reopenRequirement(requirementId: string) {
@@ -906,13 +965,25 @@ export default function JobDetailPage() {
             >
               {dayworkBusy ? "Opening…" : "New Daywork sheet"}
             </button>
+            {dayworkCostCentreId ? (
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={dayworkBusy}
+                onClick={() => void discardDayworkSheet(dayworkCostCentreId)}
+              >
+                Discard this Daywork
+              </button>
+            ) : null}
             <p className="muted" style={{ margin: "8px 0 0" }}>
               {dayworkCostCentreId
                 ? `${dayworkSheetListLabel(job.jobId, dayworkCostCentreId)} open`
                 : "Daywork open"}
               {orderedDayworkSheets.length
                 ? ` · ${orderedDayworkSheets.length} on this job`
-                : ""}. Save and finish locks it. Submitted Dayworks stay listed as Daywork 1, 2, 3 — they don’t reopen on Field.
+                : ""}
+              . Save and finish locks it. Opened by mistake? Tap <strong>Discard this Daywork</strong> — it does not
+              block Mark complete.
             </p>
           </>
         ) : (
@@ -949,16 +1020,25 @@ export default function JobDetailPage() {
                   );
                 }
                 return (
-                  <button
-                    key={costCentreId}
-                    type="button"
-                    className={active ? "field-daywork-sheet-chip is-active" : "field-daywork-sheet-chip"}
-                    disabled={dayworkBusy || active}
-                    onClick={() => void openDayworkSheet({ costCentreId })}
-                  >
-                    <span>{label}</span>
-                    <small>In progress — tap to open</small>
-                  </button>
+                  <div key={costCentreId} className="field-daywork-sheet-chip-row">
+                    <button
+                      type="button"
+                      className={active ? "field-daywork-sheet-chip is-active" : "field-daywork-sheet-chip"}
+                      disabled={dayworkBusy || active}
+                      onClick={() => void openDayworkSheet({ costCentreId })}
+                    >
+                      <span>{label}</span>
+                      <small>In progress — tap to open</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="field-daywork-discard-btn"
+                      disabled={dayworkBusy}
+                      onClick={() => void discardDayworkSheet(costCentreId)}
+                    >
+                      Discard
+                    </button>
+                  </div>
                 );
               })}
             </div>
@@ -1076,7 +1156,7 @@ export default function JobDetailPage() {
                 </div>
               ) : null}
               {job.requirements
-                .filter((item) => !item.id.startsWith("daywork-") && item.stage !== "Daywork")
+                .filter((item) => !isDayworkRequirement(item))
                 .map((item) => {
                   const evidenceType = evidenceTypeOf(item);
                   const draft = draftByRequirement[item.id] || {};

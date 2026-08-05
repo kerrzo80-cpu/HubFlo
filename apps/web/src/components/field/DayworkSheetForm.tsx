@@ -514,7 +514,7 @@ export function DayworkSheetForm({
       <div className="daywork-form-actions">
         {onCancel ? (
           <button type="button" className="secondary-btn" disabled={saving} onClick={onCancel}>
-            {locked ? "Back" : "Cancel"}
+            {locked ? "Back" : "Back to job checklist"}
           </button>
         ) : null}
         {locked ? null : (
