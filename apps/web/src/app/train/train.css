@@ -61,7 +61,9 @@
 
 .blake-train-brand img {
   height: 40px;
-  width: 40px;
+  max-width: 120px;
+  object-fit: contain;
+  width: auto;
 }
 
 .blake-train-brand strong {
