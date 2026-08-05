@@ -252,17 +252,55 @@ function lineUnitCost(record: UnknownRecord, qty: number, sell: number) {
     "CostPrice",
     "BasePrice.ExTax",
     "BasePrice",
-    "LaborRate",
-    "LabourRate",
+    "EstimatedCost.ExTax",
+    "EstimatedCost",
+    "ActualCost.ExTax",
+    "ActualCost",
+    "BuyPrice.ExTax",
+    "BuyPrice",
+    "NettPrice.ExTax",
+    "NettPrice",
+    "LaborCost",
+    "LabourCost",
+    "CostRate",
+    "LaborRate.Cost",
+    "LabourRate.Cost",
     "Cost.ExTax",
     "Cost",
+    "UnitCost.ExTax",
     "UnitCost",
+    "Total.BasePrice.ExTax",
+    "Total.EstimatedCost.ExTax",
+    "Total.CostPrice.ExTax",
   ], Number.NaN);
-  if (Number.isFinite(direct)) return direct;
-  const totalCost = money(record, ["Total.Cost.ExTax", "Total.Cost", "CostTotal.ExTax", "CostTotal"], Number.NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  // LaborRate is often the charge rate on quote labour lines — only treat as cost when no sell was found.
+  const labourRate = money(record, ["LaborRate", "LabourRate"], Number.NaN);
+  if (Number.isFinite(labourRate) && labourRate > 0 && !(sell > 0 && labourRate === sell)) {
+    // If SellPrice exists separately, LaborRate is typically the cost/base rate on some builds.
+    const hasExplicitSell = Number.isFinite(
+      money(record, ["SellPrice.ExTax", "SellPrice", "UnitPrice.ExTax", "UnitPrice"], Number.NaN),
+    );
+    if (hasExplicitSell) return labourRate;
+  }
+  const totalCost = money(
+    record,
+    [
+      "Total.Cost.ExTax",
+      "Total.Cost",
+      "Total.EstimatedCost.ExTax",
+      "Total.EstimatedCost",
+      "Total.BasePrice.ExTax",
+      "Total.BasePrice",
+      "CostTotal.ExTax",
+      "CostTotal",
+    ],
+    Number.NaN,
+  );
   if (Number.isFinite(totalCost) && qty > 0) return Math.round((totalCost / qty) * 100) / 100;
-  // Fall back to sell when Simpro only returns sell on catalogue/one-offs.
-  return sell;
+  // Do not copy sell into cost — that made cost price and charge price look identical.
+  void sell;
+  return 0;
 }
 
 function catalogueId(record: UnknownRecord) {
