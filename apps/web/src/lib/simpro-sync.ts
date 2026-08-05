@@ -907,6 +907,7 @@ let deepHierarchyBudget = SIMPRO_DEEP_HIERARCHY_LIMIT;
 function clearCustomerDetailCache() {
   customerDetailCache.clear();
   clearSiteDetailCache();
+  clearEntityDetailCache();
 }
 
 function resetDeepHierarchyBudget() {
@@ -975,6 +976,79 @@ async function hydrateRecordCustomer(config: ResolvedSimproDirectConfig, record:
   const detail = await fetchSimproCustomerDetail(config, customerId);
   if (!detail) return record;
   return mergeCustomerOntoRecord(record, detail);
+}
+
+/** Full quote/job detail cache — list rows often omit Customer/Site entirely. */
+const entityDetailCache = new Map<string, UnknownRecord | null>();
+
+function clearEntityDetailCache() {
+  entityDetailCache.clear();
+}
+
+async function fetchSimproEntityDetail(
+  config: ResolvedSimproDirectConfig,
+  entity: "quotes" | "jobs",
+  externalId: string,
+) {
+  const cacheKey = `${entity}:${externalId}`;
+  const cached = entityDetailCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const paths = [`/${entity}/${externalId}/?display=all`, `/${entity}/${externalId}/`];
+  for (const path of paths) {
+    try {
+      const response = await fetch(`${config.baseUrl}/companies/${config.companyId}${path}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${config.token}`,
+        },
+        cache: "no-store",
+      });
+      if (!response.ok) continue;
+      const body = await response.json().catch(() => null);
+      const record = asRecord(body);
+      if (record && identifier(record)) {
+        entityDetailCache.set(cacheKey, record);
+        return record;
+      }
+    } catch {
+      // try next path
+    }
+  }
+
+  entityDetailCache.set(cacheKey, null);
+  return null;
+}
+
+function mergeEntityDetailOntoRecord(record: UnknownRecord, detail: UnknownRecord) {
+  const detailCustomer = asRecord(detail.Customer) ?? detail.Customer;
+  const detailSite = asRecord(detail.Site) ?? detail.Site;
+  return {
+    ...record,
+    ...detail,
+    // Keep list Total/Status if detail omits them, but prefer detail Customer/Site/Name.
+    Customer: detailCustomer ?? record.Customer,
+    Site: detailSite ?? record.Site,
+    Name: detail.Name ?? record.Name,
+    Description: detail.Description ?? record.Description,
+    ID: detail.ID ?? record.ID ?? identifier(record),
+  };
+}
+
+async function hydrateQuoteOrJobRecordForImport(
+  config: ResolvedSimproDirectConfig,
+  entity: "quotes" | "jobs",
+  record: UnknownRecord,
+) {
+  const externalId = identifier(record);
+  if (!externalId) return record;
+
+  // Always pull display=all for Apply — list payloads regularly omit Customer/Site.
+  const detail = await fetchSimproEntityDetail(config, entity, externalId);
+  let next = detail ? mergeEntityDetailOntoRecord(record, detail) : record;
+  next = await hydrateRecordCustomer(config, next);
+  next = await hydrateRecordSite(config, next);
+  return next;
 }
 
 async function hydrateCustomersForRecords(config: ResolvedSimproDirectConfig, records: UnknownRecord[]) {
@@ -1121,14 +1195,15 @@ function resolveClientForRecord(record: UnknownRecord, mode: SimproSyncMode) {
 }
 
 function descriptionFromSimproRecord(record: UnknownRecord, fallback: string) {
-  return simproPlainDescription(
-    {
-      title: firstString(record, ["Name", "Title", "Subject", "JobName"]),
-      body: firstString(record, ["Description", "Notes", "LongDescription"]),
-    },
-    fallback,
-    { maxLength: 72, preferTitle: true },
-  );
+  const title = firstString(record, ["Name", "Title", "Subject", "JobName"]);
+  const body = firstString(record, ["Description", "Notes", "LongDescription"]);
+  const plain = simproPlainDescription({ title, body }, fallback, { maxLength: 72, preferTitle: true });
+  // Email-style descriptions without a Name look like "Hi Lesley…" — use a short quote label instead.
+  if (!title && /^(hi|hello|dear)\b/i.test(plain)) {
+    const id = identifier(record);
+    return id ? `Quote ${id}` : fallback;
+  }
+  return plain;
 }
 
 function dueLabelFromSimpro(record: UnknownRecord, keys: string[]) {
@@ -1486,13 +1561,27 @@ async function withQuoteHierarchy(
   mode: SimproSyncMode,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaQuoteId) return op;
+
+  // Even when CCs already exist, refresh customer/site/title from quote detail.
   if (quoteAlreadyHasCostCentres(nexaQuoteId)) {
+    let headerNote = "";
+    try {
+      const config = await resolveSimproDirectConfig();
+      const detail = await fetchSimproEntityDetail(config, "quotes", simproId);
+      if (detail) {
+        const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, detail);
+        headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
+      }
+    } catch (error) {
+      headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
+    }
     return {
       ...op,
-      summary: `${op.summary} Cost centres already present — skipped deep pull.`,
-      detail: "Existing cost centres kept.",
+      summary: `${op.summary} Cost centres already present — skipped deep pull.${headerNote}`,
+      detail: `Existing cost centres kept.${headerNote}`,
     };
   }
+
   if (!takeDeepHierarchySlot()) {
     return {
       ...op,
@@ -1506,7 +1595,11 @@ async function withQuoteHierarchy(
     try {
       const config = await resolveSimproDirectConfig();
       const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, deep.record);
-      headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
+      headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)} · ${
+        Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
+          ? getHubDetailState().quoteCostCentres?.[nexaQuoteId]?.length
+          : 0
+      } cost centres).`;
     } catch (error) {
       headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
     }
@@ -1599,10 +1692,16 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
   const simproId = identifier(record);
   if (!simproId) return operation("quotes", "conflict", "simPRO quote has no stable ID.");
 
+  let working = record;
+  if (mode === "apply") {
+    const config = await resolveSimproDirectConfig();
+    working = await hydrateQuoteOrJobRecordForImport(config, "quotes", record);
+  }
+
   const link = pruneOrphanLink("quotes", simproId);
   if (link) {
     if (mode === "apply") {
-      refreshQuoteHeaderFromListRecord(link.nexaId, record, mode);
+      refreshQuoteHeaderFromListRecord(link.nexaId, working, mode);
     }
     const base = operation(
       "quotes",
@@ -1618,7 +1717,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
   const existing = getQuotes().find((quote) => quote.simproQuoteId === simproId);
   if (existing) {
     if (mode === "apply") {
-      refreshQuoteHeaderFromListRecord(existing.id, record, mode);
+      refreshQuoteHeaderFromListRecord(existing.id, working, mode);
       saveLink({
         nexaType: "quotes",
         nexaId: existing.id,
@@ -1639,9 +1738,9 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
     return withQuoteHierarchy(base, existing.id, simproId, mode);
   }
 
-  const { client } = resolveClientForRecord(record, mode);
-  const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
-  const mapped = buildQuoteInput(record, client, site);
+  const { client } = resolveClientForRecord(working, mode);
+  const site = ensureSiteForRecord(working, client?.id, mode) || matchingSiteForRecord(working, client?.id);
+  const mapped = buildQuoteInput(working, client, site);
   if (mode === "preview") {
     return operation(
       "quotes",
@@ -1684,6 +1783,12 @@ async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<
   const simproId = identifier(record);
   if (!simproId) return operation("jobs", "conflict", "simPRO job has no stable ID.");
 
+  let working = record;
+  if (mode === "apply") {
+    const config = await resolveSimproDirectConfig();
+    working = await hydrateQuoteOrJobRecordForImport(config, "jobs", record);
+  }
+
   const link = pruneOrphanLink("jobs", simproId);
   if (link) {
     const base = operation(
@@ -1720,9 +1825,9 @@ async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<
     return withJobHierarchy(base, existing.id, simproId, mode);
   }
 
-  const { client } = resolveClientForRecord(record, mode);
-  const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
-  const mapped = buildJobInput(record, client, site);
+  const { client } = resolveClientForRecord(working, mode);
+  const site = ensureSiteForRecord(working, client?.id, mode) || matchingSiteForRecord(working, client?.id);
+  const mapped = buildJobInput(working, client, site);
   if (mode === "preview") {
     return operation(
       "jobs",

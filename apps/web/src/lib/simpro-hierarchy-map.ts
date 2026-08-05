@@ -419,8 +419,23 @@ export function splitCostCentreDescriptions(
 }
 
 export function extractSimproSections(record: UnknownRecord): UnknownRecord[] {
-  if (Array.isArray(record.Sections)) {
+  if (Array.isArray(record.Sections) && record.Sections.length) {
     return record.Sections.map(asRecord).filter((item): item is UnknownRecord => Boolean(item));
+  }
+  // Some tenants return cost centres at the quote/job root with no Sections array.
+  const rootCenters = Array.isArray(record.CostCenters)
+    ? record.CostCenters
+    : Array.isArray(record.CostCentres)
+      ? record.CostCentres
+      : [];
+  if (rootCenters.length) {
+    return [
+      {
+        ID: "root",
+        Name: firstString(record, ["Name", "Title"]) || "Main",
+        CostCenters: rootCenters,
+      },
+    ];
   }
   return [];
 }

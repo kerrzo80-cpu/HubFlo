@@ -23789,6 +23789,13 @@ body:has([data-takeoff-mode="page"]) {
   white-space: nowrap;
 }
 
+.quote-directory .job-identity .quote-cc-count {
+  color: #60717e;
+  display: block;
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .record-address-cell {
   align-self: stretch;
   color: #253545;
