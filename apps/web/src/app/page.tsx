@@ -30677,6 +30677,11 @@ export default function Dashboard() {
                                   {linkedJob ? <span>{linkedJob.ref}</span> : quote.sourceLeadRef ? <span>{quote.sourceLeadRef}</span> : null}
                                 </div>
                                 <strong>{quote.description}</strong>
+                                <small className="quote-cc-count">
+                                  {(quoteCostCentres[quote.id] ?? []).length
+                                    ? `${(quoteCostCentres[quote.id] ?? []).length} cost centre${(quoteCostCentres[quote.id] ?? []).length === 1 ? "" : "s"}`
+                                    : "No cost centres yet"}
+                                </small>
                               </div>
                               <span className="record-address-cell">
                                 <strong>{quote.customer}</strong>

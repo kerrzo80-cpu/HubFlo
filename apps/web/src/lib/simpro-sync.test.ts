@@ -226,6 +226,19 @@ describe("simpro sync preview quality", () => {
     assert.notEqual(bareIds.customer, "Customer to confirm");
     assert.equal(bareIds.description, "Wall removal quote");
     assert.ok(bareIds.description.length <= 72);
+
+    const emailOnly = buildQuoteInput({
+      ID: 2002,
+      Description: "Hi Lesley We have amended the quote below, this is now based on the Baxi boiler",
+      Total: { ExTax: 28545 },
+      Status: { Name: "Draft" },
+    });
+    assert.equal(emailOnly.description, "Quote 2002");
+    assert.doesNotMatch(emailOnly.description, /^Hi Lesley/i);
+
+    const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
+    assert.match(source, /hydrateQuoteOrJobRecordForImport/);
+    assert.match(source, /fetchSimproEntityDetail/);
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {

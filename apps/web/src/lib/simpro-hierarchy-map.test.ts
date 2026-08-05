@@ -77,6 +77,28 @@ describe("simpro hierarchy map", () => {
     assert.match(summariseHierarchyStats(stats), /1 cost centre/);
   });
 
+  it("maps root-level CostCenters when Sections is missing", () => {
+    const { centres, stats } = mapSimproQuoteCostCentres(
+      {
+        ID: 55,
+        Name: "Root CC quote",
+        CostCenters: [
+          {
+            ID: 9,
+            Name: "Boiler works",
+            Items: {
+              Catalogues: [{ ID: 1, Catalogue: { Name: "Boiler" }, Total: { Qty: 1, Amount: { ExTax: 900 } }, SellPrice: { ExTax: 900 } }],
+            },
+          },
+        ],
+      },
+      "quote-root",
+    );
+    assert.equal(stats.sections, 1);
+    assert.equal(centres.length, 1);
+    assert.equal(centres[0]?.name, "Boiler works");
+  });
+
   it("maps British CostCentres spelling on quote sections", () => {
     const { centres, stats } = mapSimproQuoteCostCentres(
       {
