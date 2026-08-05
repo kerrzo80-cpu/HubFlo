@@ -9,6 +9,7 @@ import {
   asRecord,
   extractSimproRecords,
   getSimproReadConfig,
+  listSimproCompanyIds,
   simproGet,
   simproGetEntityDetail,
   simproGetFirstOk,
@@ -163,17 +164,41 @@ export async function fetchFullEntity(
 
   if (!record) {
     const result = await simproGetEntityDetail(baseConfig, entity, externalId, { maxRetries: 2 });
-    if (!result.ok) {
-      const tried = result.attempts
-        .slice(0, 6)
-        .map((attempt) => `co${attempt.companyId}:${attempt.path}→${attempt.status}`)
-        .join(", ");
-      throw new Error(
-        `Simpro ${entity.slice(0, -1)} ${externalId} detail failed (HTTP ${result.status}${tried ? `; tried ${tried}` : ""}).`,
-      );
+    if (result.ok) {
+      record = asRecord(result.body);
+      const returnedId = simproRecordId(record);
+      // Guard against wrong-body stamp (e.g. unfiltered list fallback returning another quote).
+      if (returnedId && returnedId !== String(externalId).trim()) {
+        throw new Error(
+          `Simpro ${entity.slice(0, -1)} detail ID mismatch: requested ${externalId}, got ${returnedId}.`,
+        );
+      }
+      config = withSimproCompany(baseConfig, result.companyId);
+    } else {
+      // Detail 404s on some builds while /sections/ still works under the right company.
+      const companyIds = await listSimproCompanyIds(baseConfig);
+      for (const companyId of companyIds) {
+        const scoped = withSimproCompany(baseConfig, companyId);
+        const listedSections = await fetchPagedSimproList(scoped, `/${entity}/${externalId}/sections/`, {
+          pageSize: 100,
+          maxPages: 5,
+        });
+        if (listedSections.length) {
+          record = { ID: Number(externalId) || externalId, Sections: listedSections };
+          config = scoped;
+          break;
+        }
+      }
+      if (!record) {
+        const tried = result.attempts
+          .slice(0, 6)
+          .map((attempt) => `co${attempt.companyId}:${attempt.path}→${attempt.status}`)
+          .join(", ");
+        throw new Error(
+          `Simpro ${entity.slice(0, -1)} ${externalId} detail failed (HTTP ${result.status}${tried ? `; tried ${tried}` : ""}).`,
+        );
+      }
     }
-    record = asRecord(result.body);
-    config = withSimproCompany(baseConfig, result.companyId);
   }
   if (!record) throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} returned an empty body.`);
 
@@ -186,6 +211,23 @@ export async function fetchFullEntity(
       pageSize: 100,
       maxPages: 5,
     });
+  }
+
+  if (!sections.length) {
+    const companyIds = await listSimproCompanyIds(baseConfig);
+    for (const companyId of companyIds) {
+      if (companyId === config.companyId) continue;
+      const scoped = withSimproCompany(baseConfig, companyId);
+      const listedSections = await fetchPagedSimproList(scoped, `/${entity}/${externalId}/sections/`, {
+        pageSize: 100,
+        maxPages: 5,
+      });
+      if (listedSections.length) {
+        sections = listedSections;
+        config = scoped;
+        break;
+      }
+    }
   }
 
   // Cap hierarchy fan-out so one huge quote cannot OOM the sync route.

@@ -24,7 +24,7 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
-import { simproGetFirstOk, simproGetEntityDetail, clearSimproCompanyIdCache } from "@/lib/simpro-client";
+import { simproGetFirstOk, simproGetEntityDetail, simproGetCustomerDetail, clearSimproCompanyIdCache } from "@/lib/simpro-client";
 import {
   enrichNexaJobFromSimpro,
   enrichNexaQuoteFromSimpro,
@@ -926,15 +926,8 @@ async function fetchSimproCustomerDetail(config: ResolvedSimproDirectConfig, cus
   const cached = customerDetailCache.get(customerId);
   if (cached !== undefined) return cached;
 
-  // Two display=all paths cover company + individual customers on most tenants.
-  // Use simproGetFirstOk so 429/5xx retry the same way as quote detail / deep-import.
-  const paths = [
-    `/customers/${customerId}/?display=all`,
-    `/customers/companies/${customerId}/?display=all`,
-    `/customers/individuals/${customerId}/?display=all`,
-  ];
-
-  const result = await simproGetFirstOk(config, paths, { maxRetries: 2 });
+  // Same multi-company / no-slash retry as quote detail — trailing-slash-only was leaving blank names.
+  const result = await simproGetCustomerDetail(config, customerId, { maxRetries: 1 });
   if (result.ok) {
     const record = asRecord(result.body);
     if (record && (identifier(record) || customerNameFromFields(record))) {
@@ -1468,14 +1461,16 @@ async function patchQuoteHeaderFromDeepRecord(config: ResolvedSimproDirectConfig
   const mapped = buildQuoteInput(hydrated, client, site);
   const existing = getQuotes().find((quote) => quote.id === nexaQuoteId);
   if (!existing) return mapped;
+  // Never overwrite a good header with a sections-only / wrong-body blank customer.
+  const nextCustomer = !isBlankImportedCustomerName(mapped.customer)
+    ? mapped.customer
+    : !isBlankImportedCustomerName(existing.customer)
+      ? existing.customer
+      : mapped.customer;
   updateQuote(nexaQuoteId, {
     clientId: mapped.clientId || existing.clientId,
     siteId: mapped.siteId || existing.siteId,
-    customer: !isBlankImportedCustomerName(mapped.customer)
-      ? mapped.customer
-      : !isBlankImportedCustomerName(existing.customer)
-        ? existing.customer
-        : mapped.customer,
+    customer: nextCustomer,
     description:
       mapped.description && mapped.description !== "Imported simPRO quote"
         ? mapped.description
@@ -1486,7 +1481,7 @@ async function patchQuoteHeaderFromDeepRecord(config: ResolvedSimproDirectConfig
     due: mapped.due && mapped.due !== "To be reviewed" ? mapped.due : existing.due || mapped.due,
     simproQuoteId: mapped.simproQuoteId || existing.simproQuoteId,
   });
-  return mapped;
+  return { ...mapped, customer: nextCustomer };
 }
 
 async function patchJobHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, nexaJobId: string, record: UnknownRecord) {
@@ -1770,14 +1765,23 @@ function refreshQuoteHeaderFromListRecord(nexaQuoteId: string, record: UnknownRe
   const mapped = buildQuoteInput(record, client, site);
   const existing = getQuotes().find((quote) => quote.id === nexaQuoteId);
   if (!existing) return mapped;
+  const customerId = simproCustomerId(record);
+  // Prefer this Apply's mapped customer whenever we have a real signal.
+  // Do not keep a previously stamped wrong name (e.g. every quote → "David Bryce") when
+  // this run only has Customer.ID / still-blank — fall back to id label or clear.
+  let nextCustomer = mapped.customer;
+  if (isBlankImportedCustomerName(nextCustomer)) {
+    if (customerId) nextCustomer = fallbackCustomerLabel(customerId);
+    else if (!isBlankImportedCustomerName(existing.customer) && existing.clientId && mapped.clientId && existing.clientId === mapped.clientId) {
+      nextCustomer = existing.customer;
+    } else {
+      nextCustomer = "Customer to confirm";
+    }
+  }
   updateQuote(nexaQuoteId, {
     clientId: mapped.clientId || existing.clientId,
     siteId: mapped.siteId || existing.siteId,
-    customer: !isBlankImportedCustomerName(mapped.customer)
-      ? mapped.customer
-      : !isBlankImportedCustomerName(existing.customer)
-        ? existing.customer
-        : mapped.customer,
+    customer: nextCustomer,
     description:
       mapped.description && mapped.description !== "Imported simPRO quote"
         ? mapped.description
@@ -1789,7 +1793,7 @@ function refreshQuoteHeaderFromListRecord(nexaQuoteId: string, record: UnknownRe
     next: mapped.next || existing.next,
     simproQuoteId: mapped.simproQuoteId || existing.simproQuoteId,
   });
-  return mapped;
+  return { ...mapped, customer: nextCustomer };
 }
 
 async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
