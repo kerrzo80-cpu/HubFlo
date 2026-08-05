@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Mic, MicOff, SendHorizontal, SkipForward } from "lucide-react";
+import { Mic, MicOff, SendHorizontal, SkipForward, Volume2 } from "lucide-react";
 import { BlakeCharacter, type BlakeMood } from "@/components/field/BlakeCharacter";
 import type { HubRole } from "@/lib/access";
 import type {
@@ -73,6 +73,7 @@ export function TrainHomeClient() {
   const [error, setError] = useState("");
   const [activeFlowId, setActiveFlowId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [soundReady, setSoundReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,7 +81,9 @@ export function TrainHomeClient() {
       setLoading(true);
       setError("");
       try {
-        const response = await fetch(`/api/blake-trainer?role=${encodeURIComponent(role)}`);
+        const response = await fetch(`/api/blake-trainer?role=${encodeURIComponent(role)}`, {
+          credentials: "same-origin",
+        });
         const data = (await response.json()) as CatalogResponse & { error?: string };
         if (!response.ok) throw new Error(data.error || "Could not load training.");
         if (!cancelled) setCatalog(data);
@@ -96,12 +99,24 @@ export function TrainHomeClient() {
     };
   }, [role]);
 
+  async function beginFlow(flowId: string) {
+    try {
+      // Must run in the tap handler — browsers block Blake’s voice otherwise.
+      await unlockBlakeVoice();
+      setSoundReady(true);
+    } catch {
+      setSoundReady(false);
+    }
+    setActiveFlowId(flowId);
+  }
+
   if (activeFlowId) {
     return (
       <TrainSession
         flowId={activeFlowId}
         role={role}
         userId={catalog?.userId || "demo-learner"}
+        soundReady={soundReady}
         onExit={() => setActiveFlowId(null)}
       />
     );
@@ -156,7 +171,7 @@ export function TrainHomeClient() {
                   <span key={item}>{item}</span>
                 ))}
               </div>
-              <button type="button" className="blake-train-btn verdigris" onClick={() => setActiveFlowId(flow.id)}>
+              <button type="button" className="blake-train-btn verdigris" onClick={() => void beginFlow(flow.id)}>
                 {existing?.status === "completed" ? "Review with Blake" : existing ? "Continue with Blake" : "Start with Blake"}
               </button>
             </article>
@@ -177,11 +192,13 @@ function TrainSession({
   flowId,
   role,
   userId,
+  soundReady: soundReadyProp,
   onExit,
 }: {
   flowId: string;
   role: HubRole;
   userId: string;
+  soundReady: boolean;
   onExit: () => void;
 }) {
   const [supported, setSupported] = useState(true);
@@ -196,6 +213,8 @@ function TrainSession({
   const [phase, setPhase] = useState<string>("intro");
   const [openaiOk, setOpenaiOk] = useState<boolean | null>(null);
   const [level, setLevel] = useState(0);
+  const [soundReady, setSoundReady] = useState(soundReadyProp);
+  const [pendingSpeak, setPendingSpeak] = useState("");
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const recorderRef = useRef<ActiveVoiceRecorder | null>(null);
@@ -203,15 +222,19 @@ function TrainSession({
   const stopSpeakRef = useRef<(() => void) | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const busyRef = useRef(false);
+  const startedRef = useRef(false);
 
   useEffect(() => {
     setSupported(speechSupported());
-    void fetch("/api/field/ask-blake")
+    void fetch("/api/field/ask-blake", { credentials: "same-origin" })
       .then((res) => res.json())
       .then((data: { connected?: boolean }) => setOpenaiOk(Boolean(data.connected)))
       .catch(() => setOpenaiOk(false));
 
-    void sendTurn("start");
+    if (!startedRef.current) {
+      startedRef.current = true;
+      void sendTurn("start");
+    }
     return () => {
       void hardStop();
     };
@@ -265,25 +288,40 @@ function TrainSession({
   }
 
   async function speak(text: string) {
+    const spoken = text.trim();
+    if (!spoken) return;
     stopSpeakRef.current?.();
+    stopBlakeAudio();
+    setPendingSpeak(spoken);
     setVoiceState("speaking");
+    setError("");
     try {
-      await unlockBlakeVoice();
-      await new Promise<void>((resolve, reject) => {
-        void speakBlakeReply(text, {
-          speakPath: "/api/field/ask-blake/speak",
-          onEnd: () => resolve(),
-        })
-          .then((stop) => {
-            stopSpeakRef.current = stop;
-          })
-          .catch(reject);
+      if (soundReady) {
+        await unlockBlakeVoice();
+      }
+      stopSpeakRef.current = await speakBlakeReply(spoken, {
+        speakPath: "/api/field/ask-blake/speak",
+        preferServer: openaiOk !== false,
+        onEnd: () => {
+          setVoiceState("idle");
+        },
       });
     } catch {
-      // Browser may block audio; transcript still shows.
-    } finally {
-      stopSpeakRef.current = null;
       setVoiceState("idle");
+      setSoundReady(false);
+      setError("Blake replied on screen — tap Enable sound to hear him (check silent mode).");
+    }
+  }
+
+  async function enableSoundAndReplay() {
+    try {
+      await unlockBlakeVoice();
+      setSoundReady(true);
+      setError("");
+      const lastBlake = [...bubbles].reverse().find((item) => item.role === "blake")?.text || pendingSpeak;
+      if (lastBlake) await speak(lastBlake);
+    } catch {
+      setError("Could not unlock sound — check silent mode and try again.");
     }
   }
 
@@ -299,6 +337,7 @@ function TrainSession({
     try {
       const response = await fetch("/api/blake-trainer/turn", {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           flowId,
@@ -320,7 +359,6 @@ function TrainSession({
       setVoiceState("error");
     } finally {
       busyRef.current = false;
-      if (voiceState !== "listening") setVoiceState("idle");
     }
   }
 
@@ -338,6 +376,7 @@ function TrainSession({
     setError("");
     try {
       await unlockBlakeVoice();
+      setSoundReady(true);
       stopBlakeAudio();
       const stream = await ensureOpenMic();
       const recorder = await startVoiceRecorder(stream);
@@ -468,6 +507,15 @@ function TrainSession({
             <button type="button" className="blake-train-btn secondary" onClick={onExit}>
               Exit
             </button>
+            <button
+              type="button"
+              className={`blake-train-btn ${soundReady ? "secondary" : "verdigris"}`}
+              onClick={() => void enableSoundAndReplay()}
+              disabled={voiceState === "thinking" || voiceState === "speaking"}
+            >
+              <Volume2 size={16} />
+              {soundReady ? "Replay Blake" : "Enable sound"}
+            </button>
             {supported ? (
               <button
                 type="button"
@@ -482,7 +530,17 @@ function TrainSession({
             <button
               type="button"
               className="blake-train-btn secondary"
-              onClick={() => void sendTurn("continue", "next", { voice: true })}
+              onClick={() => {
+                void (async () => {
+                  try {
+                    await unlockBlakeVoice();
+                    setSoundReady(true);
+                  } catch {
+                    // ignore — speak will prompt Enable sound
+                  }
+                  await sendTurn("continue", "next", { voice: true });
+                })();
+              }}
               disabled={phase === "complete" || step?.kind === "check" || voiceState === "thinking"}
             >
               <SkipForward size={16} />

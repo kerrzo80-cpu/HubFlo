@@ -434,14 +434,21 @@ async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () 
   const audio = getSharedAudio();
   if (!audio) throw new Error("No audio element");
 
+  await unlockAudioContext();
+
   const response = await fetch(speakPath, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text: cleanForSpeech(text) }),
   });
   if (!response.ok) throw new Error(`Speak failed (${response.status})`);
   const blob = await response.blob();
   if (!blob.size) throw new Error("Empty audio");
+  const contentType = (response.headers.get("content-type") || blob.type || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    throw new Error("Speak endpoint returned JSON instead of audio.");
+  }
 
   const url = URL.createObjectURL(blob);
   let finished = false;
@@ -453,10 +460,16 @@ async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () 
   };
 
   audio.onended = finish;
-  audio.onerror = finish;
+  audio.onerror = () => finish();
   audio.src = url;
   audio.volume = 1;
-  await audio.play();
+  audio.muted = false;
+  try {
+    await audio.play();
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
 
   return () => {
     finished = true;
@@ -476,14 +489,15 @@ async function speakWithServerAudio(text: string, speakPath: string, onEnd?: () 
  */
 export async function speakBlakeReply(
   text: string,
-  options?: { speakPath?: string; onEnd?: () => void },
+  options?: { speakPath?: string; onEnd?: () => void; preferServer?: boolean },
 ) {
   const speakPath = options?.speakPath ?? "/api/field/ask-blake/speak";
   const onEnd = options?.onEnd;
 
   try {
     return await speakWithServerAudio(text, speakPath, onEnd);
-  } catch {
+  } catch (error) {
+    if (options?.preferServer) throw error;
     return speakWithSynthesis(text, onEnd);
   }
 }
