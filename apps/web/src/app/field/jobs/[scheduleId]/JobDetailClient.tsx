@@ -336,9 +336,11 @@ export default function JobDetailPage() {
             `/api/field/jobs/${encodeURIComponent(item.scheduleId)}/daywork?list=1`,
             { credentials: "include", cache: "no-store" },
           );
+          let listedDayworkSheets: FieldDayworkSheet[] = [];
           if (dayworkResponse.ok) {
             const dayworkBody = (await dayworkResponse.json()) as { sheets?: FieldDayworkSheet[] };
             if (!cancelled && Array.isArray(dayworkBody.sheets)) {
+              listedDayworkSheets = dayworkBody.sheets;
               setDayworkSheets(dayworkBody.sheets);
             }
           }
@@ -363,12 +365,29 @@ export default function JobDetailPage() {
             }
           }
 
+          // Only auto-reopen an in-progress Daywork. Submitted sheets stay as Daywork 1/2/3 labels.
           if (!cancelled && serverChecklistMode === "daywork") {
-            await openDayworkSheet({
-              job: item,
-              costCentreId: serverDayworkCostCentreId || undefined,
-              quiet: true,
-            });
+            const targetId = serverDayworkCostCentreId;
+            const targetSheet = targetId
+              ? listedDayworkSheets.find((sheet) => sheet.costCentreId === targetId)
+              : listedDayworkSheets[0];
+            if (targetSheet && isDayworkSubmittedToCore(targetSheet)) {
+              await fetch(`/api/field/jobs/${encodeURIComponent(item.scheduleId)}/daywork`, {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "clear" }),
+              }).catch(() => undefined);
+              setChecklistMode("job");
+              setDayworkRecord(null);
+              setDayworkCostCentreId("");
+            } else {
+              await openDayworkSheet({
+                job: item,
+                costCentreId: serverDayworkCostCentreId || undefined,
+                quiet: true,
+              });
+            }
           }
         }
       } catch (loadError) {
@@ -558,11 +577,28 @@ export default function JobDetailPage() {
         throw new Error("Not signed in — open /login, sign in, then try Add Daywork Account again.");
       }
       if (!response.ok) throw new Error(body.error || "Could not open daywork sheet.");
+      if (body.sheets) setDayworkSheets(body.sheets);
+
+      // Submitted sheets are listed only — don’t pull the full form again.
+      if (!options?.fresh && isDayworkSubmittedToCore(body.record)) {
+        const openedLabel =
+          body.costCentreId || options?.costCentreId
+            ? dayworkSheetListLabel(activeJob.jobId, body.costCentreId || options?.costCentreId || "")
+            : "Daywork";
+        setChecklistMode("job");
+        setDayworkRecord(null);
+        setDayworkCostCentreId("");
+        setTab("pack");
+        if (!options?.quiet) {
+          setNotice(`${openedLabel} is submitted — shown as a label only. Office edits it in Core.`);
+        }
+        return;
+      }
+
       setChecklistMode("daywork");
       setTab("checklist");
       setDayworkRecord(options?.fresh ? null : body.record || null);
       setDayworkCostCentreId(body.costCentreId || options?.costCentreId || "");
-      if (body.sheets) setDayworkSheets(body.sheets);
       if (body.requirements) {
         setJob((current) => {
           const base = current || activeJob;
@@ -582,9 +618,7 @@ export default function JobDetailPage() {
         options?.fresh
           ? "New Daywork sheet open — fill Mon–Sun hours, materials and both signatures, then Save and finish."
           : options?.costCentreId
-            ? isDayworkSubmittedToCore(body.record)
-              ? `${openedLabel} is locked (submitted to Core) — view only on Field.`
-              : `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish.`
+            ? `${openedLabel} open — edit hours/materials/signatures if needed, then Save and finish.`
             : "Daywork Account open — enter Mon–Sun hours, materials and both signatures.",
       );
     } catch (openError) {
@@ -878,7 +912,7 @@ export default function JobDetailPage() {
                 : "Daywork open"}
               {orderedDayworkSheets.length
                 ? ` · ${orderedDayworkSheets.length} on this job`
-                : ""}. Save and finish sends it to Core and locks it on Field. Tap a Daywork below to view it.
+                : ""}. Save and finish locks it. Submitted Dayworks stay listed as Daywork 1, 2, 3 — they don’t reopen on Field.
             </p>
           </>
         ) : (
@@ -901,22 +935,29 @@ export default function JobDetailPage() {
                 const label = dayworkSheetListLabel(job.jobId, costCentreId);
                 const active = checklistMode === "daywork" && dayworkCostCentreId === costCentreId;
                 const locked = isDayworkSubmittedToCore(sheet);
+                // Submitted sheets are labels only — don’t reopen (saves bandwidth; office edits in Core).
+                if (locked) {
+                  return (
+                    <span
+                      key={costCentreId}
+                      className="field-daywork-sheet-chip is-locked"
+                      title="Submitted to Core — not reopened on Field"
+                    >
+                      <span>{label}</span>
+                      <small>Submitted</small>
+                    </span>
+                  );
+                }
                 return (
                   <button
                     key={costCentreId}
                     type="button"
-                    className={
-                      active
-                        ? "field-daywork-sheet-chip is-active"
-                        : locked
-                          ? "field-daywork-sheet-chip is-locked"
-                          : "field-daywork-sheet-chip"
-                    }
+                    className={active ? "field-daywork-sheet-chip is-active" : "field-daywork-sheet-chip"}
                     disabled={dayworkBusy || active}
                     onClick={() => void openDayworkSheet({ costCentreId })}
                   >
                     <span>{label}</span>
-                    <small>{locked ? "Locked · view only" : "In progress"}</small>
+                    <small>In progress — tap to open</small>
                   </button>
                 );
               })}
