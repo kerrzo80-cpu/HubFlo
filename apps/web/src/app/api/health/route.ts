@@ -64,7 +64,7 @@ export async function GET() {
       simproEodRefresh: "weekday-1800-utc-cron-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
       personalisingBranding: "per-app-logos-v1",
-      customiseForms: "headers-logos-daywork-gassafe-v1",
+      customiseForms: "delete-copy-colour-all-v1",
       uiModuleBarIpad: "scroll-and-pin-setup-v1",
       uiSetupScrollIpad: "workspace-scroll-1366-v1",
       descriptionRichText: "toolbar-scripts-v1",

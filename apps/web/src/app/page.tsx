@@ -2653,15 +2653,36 @@ const defaultFormTemplates: FormTemplate[] = [
   },
 ];
 
+const defaultFormTemplateIds = new Set(defaultFormTemplates.map((template) => template.id));
+
+function isBuiltInFormTemplate(template: Pick<FormTemplate, "id">) {
+  return defaultFormTemplateIds.has(template.id);
+}
+
+/** Keep built-in layouts plus any duplicated templates (by unique id). */
 function normalizeFormTemplates(templates: FormTemplate[]) {
   const validTemplates = Array.isArray(templates) ? templates : [];
+  const consumedIds = new Set<string>();
   const normalisedDefaults = defaultFormTemplates.map((defaultTemplate) => {
-    const existing = validTemplates.find((template) => template.layout === defaultTemplate.layout);
-    return normalizeFormDocumentTemplate(existing || defaultTemplate, defaultTemplate);
+    const byId = validTemplates.find((template) => template.id === defaultTemplate.id);
+    const byLayout = validTemplates.find(
+      (template) => template.layout === defaultTemplate.layout && !consumedIds.has(template.id),
+    );
+    const source = byId || byLayout;
+    if (source) consumedIds.add(source.id);
+    return normalizeFormDocumentTemplate(
+      source
+        ? { ...source, id: defaultTemplate.id, layout: defaultTemplate.layout }
+        : defaultTemplate,
+      defaultTemplate,
+    );
   });
   const extras = validTemplates
-    .filter((template) => !defaultFormTemplates.some((defaultTemplate) => defaultTemplate.layout === template.layout))
-    .map((template) => normalizeFormDocumentTemplate(template));
+    .filter((template) => !consumedIds.has(template.id) && !defaultFormTemplateIds.has(template.id))
+    .map((template) => {
+      consumedIds.add(template.id);
+      return normalizeFormDocumentTemplate(template);
+    });
   return [...normalisedDefaults, ...extras];
 }
 
@@ -14909,6 +14930,41 @@ export default function Dashboard() {
     setFormTemplates((current) => [...current, copy]);
     setActiveFormTemplateId(id);
     showNotice(`${activeFormTemplate.name} copied.`);
+  }
+
+  function deleteActiveFormTemplate() {
+    if (!activeFormTemplate) return;
+    if (isBuiltInFormTemplate(activeFormTemplate)) {
+      showNotice("Built-in forms can’t be deleted. Duplicate creates a copy you can delete, or use Reset form.");
+      return;
+    }
+    markSetupEdited();
+    const removedName = activeFormTemplate.name;
+    const removedLayout = activeFormTemplate.layout;
+    const remaining = formTemplates.filter((template) => template.id !== activeFormTemplate.id);
+    setFormTemplates(remaining.length ? remaining : defaultFormTemplates);
+    const next =
+      remaining.find((template) => template.layout === removedLayout) ??
+      remaining[0] ??
+      defaultFormTemplates[0]!;
+    setActiveFormTemplateId(next.id);
+    showNotice(`${removedName} deleted.`);
+  }
+
+  function applyActiveFormColourToAll() {
+    if (!activeFormTemplate) return;
+    const colour =
+      activeFormTemplate.headerColor?.trim() ||
+      businessSettings.brandPrimaryColor?.trim() ||
+      "#157fa8";
+    markSetupEdited();
+    setFormTemplates((current) =>
+      current.map((template) => {
+        const fallback = defaultFormTemplates.find((item) => item.layout === template.layout);
+        return normalizeFormDocumentTemplate({ ...template, headerColor: colour }, fallback);
+      }),
+    );
+    showNotice(`Header colour ${colour} applied to all forms.`);
   }
 
   function resetActiveFormTemplate() {
@@ -41390,6 +41446,11 @@ export default function Dashboard() {
                           <button className="secondary-button" type="button" onClick={duplicateActiveFormTemplate}>
                             Duplicate
                           </button>
+                          {!isBuiltInFormTemplate(activeFormTemplate) ? (
+                            <button className="danger-button" type="button" onClick={deleteActiveFormTemplate}>
+                              Delete
+                            </button>
+                          ) : null}
                           <button className="secondary-button" type="button" onClick={resetActiveFormTemplate}>
                             Reset form
                           </button>
@@ -41463,6 +41524,14 @@ export default function Dashboard() {
                                   onChange={(event) => updateFormTemplate(activeFormTemplate.id, { headerColor: event.target.value })}
                                   placeholder="Blank = Personalising colour"
                                 />
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={applyActiveFormColourToAll}
+                                  title="Set this header colour on every form template"
+                                >
+                                  Apply to all forms
+                                </button>
                               </span>
                             </label>
                             <label className="span-2">
