@@ -1,0 +1,514 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Sora:wght@600;700&display=swap");
+
+.blake-train {
+  --slate: #202a36;
+  --brass: #8e743e;
+  --mist: #e7ecef;
+  --white: #ffffff;
+  --steel: #5d6673;
+  --line: #d9dee5;
+  --verdigris: #2e8c7d;
+  --bind: #22c55e;
+  --amber: #f6b23c;
+  --risk: #e5484d;
+  --pad: clamp(16px, 3vw, 28px);
+  color: var(--slate);
+  font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  min-height: 100dvh;
+  background:
+    radial-gradient(1200px 480px at 10% -10%, rgba(46, 140, 125, 0.18), transparent 55%),
+    radial-gradient(900px 420px at 100% 0%, rgba(142, 116, 62, 0.16), transparent 50%),
+    linear-gradient(180deg, #f4f7f9 0%, var(--mist) 42%, #dfe7ec 100%);
+}
+
+.blake-train *,
+.blake-train *::before,
+.blake-train *::after {
+  box-sizing: border-box;
+}
+
+.blake-train a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.blake-train button,
+.blake-train input,
+.blake-train select,
+.blake-train textarea {
+  font: inherit;
+}
+
+.blake-train-shell {
+  margin: 0 auto;
+  max-width: 1080px;
+  padding: var(--pad) var(--pad) 48px;
+}
+
+.blake-train-top {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.blake-train-brand {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+}
+
+.blake-train-brand img {
+  height: 40px;
+  width: 40px;
+}
+
+.blake-train-brand strong {
+  display: block;
+  font-family: Sora, "DM Sans", sans-serif;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.blake-train-brand span {
+  color: var(--steel);
+  font-size: 0.82rem;
+}
+
+.blake-train-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.blake-train-nav a,
+.blake-train-chip {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--steel);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 8px 14px;
+}
+
+.blake-train-nav a.active,
+.blake-train-chip.active {
+  background: rgba(46, 140, 125, 0.12);
+  border-color: rgba(46, 140, 125, 0.35);
+  color: var(--verdigris);
+}
+
+.blake-train-hero {
+  align-items: end;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  margin-bottom: 28px;
+}
+
+.blake-train-hero h1 {
+  font-family: Sora, "DM Sans", sans-serif;
+  font-size: clamp(1.8rem, 4vw, 2.6rem);
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: 0 0 10px;
+}
+
+.blake-train-hero p {
+  color: var(--steel);
+  font-size: 1.02rem;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 36rem;
+}
+
+.blake-train-hero-visual {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 180px;
+  position: relative;
+}
+
+.blake-train-hero-visual::before {
+  background: linear-gradient(135deg, rgba(184, 160, 106, 0.35), rgba(46, 140, 125, 0.25));
+  border-radius: 50%;
+  content: "";
+  filter: blur(18px);
+  height: 70%;
+  position: absolute;
+  width: 70%;
+  z-index: 0;
+}
+
+.blake-train-hero-visual .blake-character {
+  position: relative;
+  z-index: 1;
+}
+
+.blake-train-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.blake-train-flow {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.blake-train-flow:hover {
+  box-shadow: 0 12px 30px rgba(32, 42, 54, 0.08);
+  transform: translateY(-2px);
+}
+
+.blake-train-flow h2 {
+  font-family: Sora, "DM Sans", sans-serif;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.blake-train-flow p {
+  color: var(--steel);
+  margin: 0;
+}
+
+.blake-train-meta {
+  color: var(--steel);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.blake-train-meta span {
+  background: var(--mist);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.blake-train-btn {
+  align-items: center;
+  background: var(--slate);
+  border: none;
+  border-radius: 14px;
+  color: var(--white);
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 650;
+  gap: 8px;
+  justify-content: center;
+  padding: 12px 16px;
+}
+
+.blake-train-btn.secondary {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--slate);
+}
+
+.blake-train-btn.verdigris {
+  background: var(--verdigris);
+}
+
+.blake-train-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.blake-train-session {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+}
+
+.blake-train-stage {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  padding: 20px;
+}
+
+.blake-train-stage-head {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.blake-train-stage-head h1 {
+  font-family: Sora, "DM Sans", sans-serif;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.blake-train-stage-head p {
+  color: var(--steel);
+  margin: 4px 0 0;
+}
+
+.blake-train-transcript {
+  display: grid;
+  gap: 10px;
+  max-height: min(48vh, 420px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.blake-train-bubble {
+  border-radius: 16px;
+  line-height: 1.45;
+  max-width: 92%;
+  padding: 12px 14px;
+  white-space: pre-wrap;
+}
+
+.blake-train-bubble.blake {
+  background: rgba(46, 140, 125, 0.1);
+  border: 1px solid rgba(46, 140, 125, 0.18);
+}
+
+.blake-train-bubble.user {
+  background: var(--slate);
+  color: var(--white);
+  justify-self: end;
+}
+
+.blake-train-citations {
+  color: var(--steel);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.78rem;
+  margin-top: 12px;
+}
+
+.blake-train-citations span {
+  background: var(--mist);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.blake-train-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.blake-train-input-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr auto;
+  margin-top: 12px;
+}
+
+.blake-train-input-row input {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.blake-train-side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.blake-train-panel {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px;
+}
+
+.blake-train-panel h3 {
+  font-family: Sora, "DM Sans", sans-serif;
+  font-size: 0.95rem;
+  margin: 0 0 10px;
+}
+
+.blake-train-steps {
+  display: grid;
+  gap: 8px;
+}
+
+.blake-train-step {
+  border-left: 3px solid var(--line);
+  color: var(--steel);
+  font-size: 0.86rem;
+  padding: 4px 0 4px 10px;
+}
+
+.blake-train-step.done {
+  border-color: var(--bind);
+  color: var(--slate);
+}
+
+.blake-train-step.current {
+  border-color: var(--verdigris);
+  color: var(--verdigris);
+  font-weight: 650;
+}
+
+.blake-train-status {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  font-size: 0.85rem;
+  margin-top: 8px;
+}
+
+.blake-train-dot {
+  background: var(--steel);
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.blake-train-dot.listening {
+  animation: blake-pulse 1s ease infinite;
+  background: var(--verdigris);
+}
+
+.blake-train-dot.speaking {
+  animation: blake-pulse 0.7s ease infinite;
+  background: var(--brass);
+}
+
+.blake-train-dot.thinking {
+  animation: blake-pulse 1.2s ease infinite;
+  background: var(--amber);
+}
+
+@keyframes blake-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+
+.blake-train-admin-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.blake-train-admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.blake-train-form {
+  display: grid;
+  gap: 10px;
+}
+
+.blake-train-form label {
+  display: grid;
+  gap: 6px;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.blake-train-form input,
+.blake-train-form select,
+.blake-train-form textarea {
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-weight: 400;
+  padding: 10px 12px;
+}
+
+.blake-train-table {
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  width: 100%;
+}
+
+.blake-train-table th,
+.blake-train-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 10px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.blake-train-table th {
+  color: var(--steel);
+  font-size: 0.76rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.blake-train-error {
+  background: rgba(229, 72, 77, 0.1);
+  border: 1px solid rgba(229, 72, 77, 0.25);
+  border-radius: 12px;
+  color: var(--risk);
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+.blake-train-ok {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: 12px;
+  color: #15803d;
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+/* Blake mascot sizes (shared pose sheet) */
+.blake-train .blake-character {
+  display: inline-flex;
+  line-height: 0;
+}
+
+.blake-train .blake-character-stage {
+  display: block;
+  width: 100%;
+}
+
+.blake-train .blake-character.size-sm { width: 34px; }
+.blake-train .blake-character.size-md { width: 48px; }
+.blake-train .blake-character.size-lg { width: 72px; }
+.blake-train .blake-character.size-hero { width: 140px; }
+
+.blake-train .blake-pose {
+  display: block;
+  height: auto;
+  width: 100%;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+@media (max-width: 860px) {
+  .blake-train-hero,
+  .blake-train-session {
+    grid-template-columns: 1fr;
+  }
+
+  .blake-train-top {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .blake-train .blake-character.size-hero { width: 112px; }
+}
