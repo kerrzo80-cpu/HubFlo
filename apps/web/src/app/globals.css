@@ -10116,6 +10116,7 @@ h1 {
 }
 
 .pdf-document-page {
+  --pdf-header: #157fa8;
   aspect-ratio: 210 / 297;
   background: #fff;
   box-shadow: 0 5px 20px rgba(24, 52, 67, 0.14);
@@ -10168,8 +10169,8 @@ h1 {
 
 .pdf-document-title-band {
   align-items: center;
-  background: #173f59;
-  border-left: 7px solid #3ea8d1;
+  background: color-mix(in srgb, var(--pdf-header) 82%, #0b2430);
+  border-left: 7px solid var(--pdf-header);
   color: #fff;
   display: flex;
   justify-content: space-between;
@@ -12846,14 +12847,45 @@ h1 {
   overflow: hidden;
 }
 
+.gas-safe-lgsr-cert {
+  --gas-safe-accent: #243d6d;
+}
+
 .gas-safe-lgsr-masthead {
   align-items: flex-start;
-  background: linear-gradient(135deg, #1b2a4a 0%, #243d6d 55%, #2f5f8f 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--gas-safe-accent) 85%, #0b1628) 0%,
+    var(--gas-safe-accent) 55%,
+    color-mix(in srgb, var(--gas-safe-accent) 70%, #58acd5) 100%
+  );
   color: #fff;
   display: flex;
   gap: 16px;
   justify-content: space-between;
   padding: 18px 20px;
+}
+
+.gas-safe-lgsr-brand {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+}
+
+.gas-safe-lgsr-brand img {
+  background: #fff;
+  border-radius: 8px;
+  height: 52px;
+  object-fit: contain;
+  padding: 4px;
+  width: 52px;
+}
+
+.gas-safe-lgsr-brand small {
+  display: block;
+  font-size: 11px;
+  margin-top: 8px;
+  opacity: 0.85;
 }
 
 .gas-safe-lgsr-kicker {
@@ -12953,14 +12985,38 @@ h1 {
   overflow: hidden;
 }
 
+.daywork-account-form {
+  --daywork-accent: #157fa8;
+}
+
 .daywork-account-masthead {
   align-items: flex-start;
-  background: linear-gradient(135deg, #0f5f7d 0%, #157fa8 55%, #58acd5 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--daywork-accent) 75%, #0b2430) 0%,
+    var(--daywork-accent) 55%,
+    color-mix(in srgb, var(--daywork-accent) 55%, #fff) 100%
+  );
   color: #fff;
   display: flex;
   gap: 16px;
   justify-content: space-between;
   padding: 18px 20px;
+}
+
+.daywork-account-brand {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+}
+
+.daywork-account-brand img {
+  background: #fff;
+  border-radius: 8px;
+  height: 52px;
+  object-fit: contain;
+  padding: 4px;
+  width: 52px;
 }
 
 .daywork-account-kicker {

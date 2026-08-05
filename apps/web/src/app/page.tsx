@@ -129,6 +129,12 @@ import {
   platformLabel,
   type BusinessBrandingSettings,
 } from "@/lib/branding";
+import {
+  normalizeFormDocumentTemplate,
+  resolveFormDocumentChrome,
+  type FormDocumentLayout,
+  type FormDocumentTemplate,
+} from "@/lib/form-document-chrome";
 import { SetupPersonalisingPanel } from "@/components/SetupPersonalisingPanel";
 import { OpenAiKeyCard } from "./OpenAiKeyCard";
 import { DashboardOverview } from "./DashboardOverview";
@@ -1738,24 +1744,11 @@ type QuoteReviewQuestion = {
   centreId?: string;
 };
 
-type QuoteDocumentLayout = "quote" | "job-sheet" | "application-payment" | "invoice" | "purchase-order";
+type QuoteDocumentLayout = FormDocumentLayout;
 
 type BusinessSettings = BusinessBrandingSettings;
 
-type FormTemplate = {
-  id: string;
-  layout: QuoteDocumentLayout;
-  name: string;
-  title: string;
-  intro: string;
-  footer: string;
-  terms: string;
-  defaultAudience: "Client" | "Engineer" | "Office" | "Supplier";
-  includeCostCentreBreakdown: boolean;
-  includePnl: boolean;
-  includeAcceptance: boolean;
-  includeBankDetails: boolean;
-};
+type FormTemplate = FormDocumentTemplate;
 
 type WorkflowRulesSettings = {
   leadQuoteGraceDays: string;
@@ -2529,9 +2522,21 @@ const documentLayouts: Array<{ key: QuoteDocumentLayout; label: string; detail: 
   { key: "application-payment", label: "Application for payment", detail: "Progress claim layout for staged commercial works." },
   { key: "invoice", label: "Invoice", detail: "Final billing layout using approved job or quote totals." },
   { key: "purchase-order", label: "Purchase order", detail: "Supplier-facing order, delivery reference, line items and totals." },
+  { key: "daywork-account", label: "Daywork", detail: "Daywork Account sheet — labour, materials, plant and dual sign-off." },
+  { key: "gas-safe-lgsr", label: "Gas Safe", detail: "Landlord’s Gas Safety Record / CP12 office review layout." },
 ];
 
 const defaultBusinessSettings: BusinessSettings = defaultBusinessBrandingSettings;
+
+const formChromeDefaults = {
+  headerNote: "",
+  showLogo: true,
+  logoUrl: "",
+  headerColor: "",
+  showCompanyDetails: true,
+  showVatCompanyNumbers: true,
+  acceptanceLabel: "Online acceptance recorded",
+};
 
 const defaultFormTemplates: FormTemplate[] = [
   {
@@ -2547,6 +2552,8 @@ const defaultFormTemplates: FormTemplate[] = [
     includePnl: false,
     includeAcceptance: true,
     includeBankDetails: false,
+    ...formChromeDefaults,
+    headerNote: "Client quotation",
   },
   {
     id: "form-template-job-sheet",
@@ -2561,6 +2568,8 @@ const defaultFormTemplates: FormTemplate[] = [
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    ...formChromeDefaults,
+    headerNote: "Engineer pack",
   },
   {
     id: "form-template-application-payment",
@@ -2575,6 +2584,8 @@ const defaultFormTemplates: FormTemplate[] = [
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: true,
+    ...formChromeDefaults,
+    headerNote: "Commercial valuation",
   },
   {
     id: "form-template-invoice",
@@ -2589,6 +2600,8 @@ const defaultFormTemplates: FormTemplate[] = [
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: true,
+    ...formChromeDefaults,
+    headerNote: "Tax invoice",
   },
   {
     id: "form-template-purchase-order",
@@ -2603,15 +2616,53 @@ const defaultFormTemplates: FormTemplate[] = [
     includePnl: false,
     includeAcceptance: false,
     includeBankDetails: false,
+    ...formChromeDefaults,
+    headerNote: "Supplier order",
+  },
+  {
+    id: "form-template-daywork",
+    layout: "daywork-account",
+    name: "Daywork Account",
+    title: "Daywork Account",
+    intro: "Labour hours, materials and dual sign-off for variation works. Office completes rates before valuation.",
+    footer: "Signed Daywork Accounts support applications for payment.",
+    terms: "Rates and material prices are completed by the office after Field sign-off.",
+    defaultAudience: "Client",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    ...formChromeDefaults,
+    headerNote: "Variation sheet",
+  },
+  {
+    id: "form-template-gas-safe",
+    layout: "gas-safe-lgsr",
+    name: "Gas Safe LGSR",
+    title: "Landlord’s Gas Safety Record",
+    intro: "CP12 / LGSR layout completed from Field stop/go on boiler servicing.",
+    footer: "Office review copy of the Gas Safe / LGSR record completed from Field.",
+    terms: "Statutory Gas Safe requirements remain the engineer’s responsibility on site.",
+    defaultAudience: "Office",
+    includeCostCentreBreakdown: false,
+    includePnl: false,
+    includeAcceptance: false,
+    includeBankDetails: false,
+    ...formChromeDefaults,
+    headerNote: "Gas Safe Register style record",
   },
 ];
 
 function normalizeFormTemplates(templates: FormTemplate[]) {
   const validTemplates = Array.isArray(templates) ? templates : [];
-  const missingDefaults = defaultFormTemplates.filter(
-    (defaultTemplate) => !validTemplates.some((template) => template.layout === defaultTemplate.layout),
-  );
-  return [...validTemplates, ...missingDefaults];
+  const normalisedDefaults = defaultFormTemplates.map((defaultTemplate) => {
+    const existing = validTemplates.find((template) => template.layout === defaultTemplate.layout);
+    return normalizeFormDocumentTemplate(existing || defaultTemplate, defaultTemplate);
+  });
+  const extras = validTemplates
+    .filter((template) => !defaultFormTemplates.some((defaultTemplate) => defaultTemplate.layout === template.layout))
+    .map((template) => normalizeFormDocumentTemplate(template));
+  return [...normalisedDefaults, ...extras];
 }
 
 type PdfDocumentRow = {
@@ -2666,23 +2717,36 @@ function PdfDocumentPreview({
   const showUnitRate = rows.some((row) => row.unitRate);
   const showValue = rows.some((row) => row.value);
 
+  const chrome = resolveFormDocumentChrome(template, business);
+
   return (
     <div className="pdf-proof-frame">
-      <article className={`pdf-document-page pdf-layout-${template.layout}`}>
+      <article
+        className={`pdf-document-page pdf-layout-${template.layout}`}
+        style={{ ["--pdf-header" as string]: chrome.headerColor }}
+      >
         <header className="pdf-document-masthead">
-          <img src={business.logoUrl || "/ewg-logo.png"} alt={business.tradingName} />
-          <div>
-            <strong>{business.tradingName}</strong>
-            <span>{business.address}</span>
-            <span>{business.phone} · {business.contactEmail}</span>
-            <span>VAT {business.vatNumber} · Company {business.companyNumber}</span>
-          </div>
+          {chrome.showLogo ? <img src={chrome.logoUrl} alt={chrome.tradingName} /> : null}
+          {chrome.showCompanyDetails ? (
+            <div>
+              <strong>{chrome.tradingName}</strong>
+              <span>{chrome.address}</span>
+              <span>{chrome.phone} · {chrome.contactEmail}</span>
+              {chrome.showVatCompanyNumbers ? (
+                <span>VAT {chrome.vatNumber} · Company {chrome.companyNumber}</span>
+              ) : null}
+            </div>
+          ) : (
+            <div>
+              <strong>{chrome.tradingName}</strong>
+            </div>
+          )}
         </header>
 
         <section className="pdf-document-title-band">
           <div>
-            <span>{template.defaultAudience} document</span>
-            <h2>{template.title}</h2>
+            <span>{chrome.headerNote || `${template.defaultAudience} document`}</span>
+            <h2>{chrome.title}</h2>
             <small>{reference}</small>
           </div>
           {headerValue ? <strong>{headerValue}</strong> : null}
@@ -2702,7 +2766,7 @@ function PdfDocumentPreview({
 
         <section className="pdf-document-scope">
           <h3>{subject}</h3>
-          <p>{template.intro}</p>
+          <p>{chrome.intro}</p>
         </section>
 
         {rows.length ? (
@@ -2741,9 +2805,9 @@ function PdfDocumentPreview({
         <section className="pdf-document-closing">
           <div className="pdf-document-terms">
             <strong>{template.layout === "invoice" ? "Payment terms" : "Terms and notes"}</strong>
-            <p>{template.terms}</p>
+            <p>{chrome.terms}</p>
             {template.includeBankDetails && bankDetails ? <p><b>Payment details:</b> {bankDetails}</p> : null}
-            <small>{template.footer}</small>
+            <small>{chrome.footer}</small>
           </div>
           {subtotal !== undefined && total !== undefined ? (
             <dl className="pdf-document-totals">
@@ -2756,14 +2820,14 @@ function PdfDocumentPreview({
 
         {template.includeAcceptance ? (
           <section className="pdf-document-acceptance">
-            <div><span>Accepted by</span><strong>Online acceptance recorded in NeXa</strong></div>
+            <div><span>Accepted by</span><strong>{chrome.acceptanceLabel}</strong></div>
             <div><span>Date</span><strong>________________</strong></div>
           </section>
         ) : null}
 
         <footer className="pdf-document-footer">
-          <span>{business.tradingName}</span>
-          <span>{business.clientPortalBrandLine}</span>
+          <span>{chrome.tradingName}</span>
+          <span>{chrome.brandLine}</span>
           <span>{reference}</span>
         </footer>
       </article>
@@ -2831,24 +2895,33 @@ function ApplicationPaymentPreview({
   );
   const contractualClaimed = cumulativeForRows(contractualRows);
   const additionsClaimed = cumulativeForRows(variationRows);
+  const chrome = resolveFormDocumentChrome(template, business);
 
   return (
     <div className="pdf-proof-frame application-payment-proof-frame">
-      <article className="application-payment-page">
+      <article className="application-payment-page" style={{ ["--pdf-header" as string]: chrome.headerColor }}>
         <header className="application-payment-masthead">
-          <img src={business.logoUrl || "/ewg-logo.png"} alt={business.tradingName} />
-          <div>
-            <strong>{business.tradingName}</strong>
-            <span>{business.address}</span>
-            <span>{business.phone} · {business.contactEmail}</span>
-            <span>VAT {business.vatNumber} · Company {business.companyNumber}</span>
-          </div>
+          {chrome.showLogo ? <img src={chrome.logoUrl} alt={chrome.tradingName} /> : null}
+          {chrome.showCompanyDetails ? (
+            <div>
+              <strong>{chrome.tradingName}</strong>
+              <span>{chrome.address}</span>
+              <span>{chrome.phone} · {chrome.contactEmail}</span>
+              {chrome.showVatCompanyNumbers ? (
+                <span>VAT {chrome.vatNumber} · Company {chrome.companyNumber}</span>
+              ) : null}
+            </div>
+          ) : (
+            <div>
+              <strong>{chrome.tradingName}</strong>
+            </div>
+          )}
         </header>
 
         <section className="application-payment-heading">
           <div>
-            <span>Commercial valuation</span>
-            <h2>{template.title}</h2>
+            <span>{chrome.headerNote || "Commercial valuation"}</span>
+            <h2>{chrome.title}</h2>
             <small>{subject}</small>
           </div>
           <div className="application-payment-reference">
@@ -3009,7 +3082,7 @@ function ApplicationPaymentPreview({
         </section>
 
         <section className="application-payment-signoff">
-          <div><span>Submitted by</span><strong>Errol Watson Group Ltd</strong></div>
+          <div><span>Submitted by</span><strong>{chrome.tradingName}</strong></div>
           <div><span>Agreed by</span><strong>________________________</strong></div>
           <div><span>Agreed date</span><strong>________________________</strong></div>
           <div><span>Agreed amount</span><strong>________________________</strong></div>
@@ -3077,7 +3150,7 @@ const costCentreTemplates = [
 const setupCategories: Array<{ key: SetupCategory; label: string; detail: string; subItems?: string[] }> = [
   { key: "overview", label: "Overview", detail: "System readiness and live setup position" },
   { key: "business", label: "Business profile", detail: "Company details, personalising, logos and colours across all apps", subItems: ["Company", "Personalising", "Portal"] },
-  { key: "forms", label: "Forms & templates", detail: "Quote, job, payment, invoice and purchase order layouts", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order"] },
+  { key: "forms", label: "Customise forms", detail: "Headers, logos and wording for quotes, jobs, invoices, POs, dayworks and Gas Safe", subItems: ["Quote", "Job sheet", "Application for payment", "Invoice", "Purchase order", "Daywork", "Gas Safe"] },
   { key: "documents", label: "Documents", detail: "Default folders, visibility and record scopes", subItems: ["Folders", "Visibility", "Engineer pack"] },
   { key: "cost-centres", label: "Cost centre types", detail: "Default categories and assigned engineer checklists", subItems: ["Boiler", "Bathroom", "Reactive"] },
   { key: "engineer-checklists", label: "Engineer checklists", detail: "Stop/go flows used inside cost centres", subItems: ["Boiler service", "Boiler replacement", "General works"] },
@@ -3118,28 +3191,38 @@ const setupSubItemPages: Record<SetupCategory, Record<string, { summary: string;
   },
   forms: {
     Quote: {
-      summary: "Edit the quote form layout, wording, cost centre breakdown and online acceptance block.",
-      focus: ["Client-facing quote wording", "Cost centre visibility", "Acceptance button and terms"],
+      summary: "Customise quote headers, logo, colours, intro/terms and online acceptance.",
+      focus: ["Header and logo", "Client wording", "Acceptance block"],
       status: "Editable now",
     },
     "Job sheet": {
-      summary: "Edit the engineer job sheet layout and the information sent into the field pack.",
-      focus: ["Engineer scope wording", "Visible document folders", "Required job information"],
+      summary: "Customise the engineer job sheet header, logo and field pack wording.",
+      focus: ["Header and logo", "Engineer scope wording", "Required job information"],
       status: "Editable now",
     },
     "Application for payment": {
-      summary: "Edit valuation and application wording, progress breakdowns and payment information.",
-      focus: ["Application heading and intro", "Progress breakdown", "Payment and supporting evidence wording"],
+      summary: "Customise valuation headers, logo and commercial application wording.",
+      focus: ["Header and logo", "Application intro", "Payment wording"],
       status: "Editable now",
     },
     Invoice: {
-      summary: "Edit invoice wording, footer text, bank detail visibility and final billing layout.",
-      focus: ["Invoice title and intro", "Payment wording", "Bank detail display"],
+      summary: "Customise invoice headers, logo, payment terms and bank detail visibility.",
+      focus: ["Header and logo", "Invoice title and intro", "Bank details"],
       status: "Editable now",
     },
     "Purchase order": {
-      summary: "Edit the supplier-facing purchase order layout, order lines, delivery wording and PO terms.",
-      focus: ["Supplier and delivery details", "Order lines and totals", "PO reference and terms"],
+      summary: "Customise supplier PO headers, logo, delivery wording and terms.",
+      focus: ["Header and logo", "Order wording", "PO terms"],
+      status: "Editable now",
+    },
+    Daywork: {
+      summary: "Customise the Daywork Account header, logo, colours and sheet wording used in Core and PDFs.",
+      focus: ["Header and logo", "Daywork title and notes", "Footer / terms"],
+      status: "Editable now",
+    },
+    "Gas Safe": {
+      summary: "Customise the Landlord Gas Safety Record header, logo and office review wording.",
+      focus: ["Header and logo", "LGSR title", "Office footer notes"],
       status: "Editable now",
     },
   },
@@ -18442,6 +18525,8 @@ export default function Dashboard() {
         "Application for payment": "application-payment",
         Invoice: "invoice",
         "Purchase order": "purchase-order",
+        Daywork: "daywork-account",
+        "Gas Safe": "gas-safe-lgsr",
       };
       const layout = layoutByItem[item];
       const template = layout ? formTemplates.find((candidate) => candidate.layout === layout) : undefined;
@@ -29176,6 +29261,7 @@ export default function Dashboard() {
         {isGasServiceFlow ? (
           <div style={{ marginBottom: 16 }}>
             <GasSafeLgsrCertificate
+              chrome={resolveFormDocumentChrome(formTemplateForLayout("gas-safe-lgsr"), businessSettings)}
               context={{
                 customer: job.customer,
                 site: job.site,
@@ -29366,6 +29452,7 @@ export default function Dashboard() {
         {isDayworkFlow && dayworkSigned ? (
           <div style={{ marginBottom: 16 }}>
             <DayworkAccountForm
+              chrome={resolveFormDocumentChrome(formTemplateForLayout("daywork-account"), businessSettings)}
               context={{
                 customer: job.customer,
                 site: job.site,
@@ -41272,15 +41359,19 @@ export default function Dashboard() {
                     <section className="setup-panel">
                       <div className="documents-toolbar">
                         <div>
-                          <span className="permission-heading">Forms and templates</span>
-                          <h2>Editable output layouts</h2>
+                          <span className="permission-heading">Customise forms</span>
+                          <h2>Headers, logos and wording</h2>
+                          <p className="setup-panel-lead">
+                            Make quotes, jobs, invoices, POs, Dayworks and Gas Safe look like your company. Logo defaults
+                            come from Personalising — override per form if needed.
+                          </p>
                         </div>
                         <div className="setup-template-actions">
                           <button className="secondary-button" type="button" onClick={duplicateActiveFormTemplate}>
                             Duplicate
                           </button>
                           <button className="secondary-button" type="button" onClick={resetActiveFormTemplate}>
-                            Reset wording
+                            Reset form
                           </button>
                         </div>
                       </div>
@@ -41296,7 +41387,7 @@ export default function Dashboard() {
                             >
                               <span>{documentLayouts.find((layout) => layout.key === template.layout)?.label ?? template.layout}</span>
                               <strong>{template.name}</strong>
-                              <small>{template.defaultAudience} · {template.includeAcceptance ? "Online acceptance" : "No acceptance"}</small>
+                              <small>{template.defaultAudience} · {template.title}</small>
                             </button>
                           ))}
                         </div>
@@ -41308,7 +41399,7 @@ export default function Dashboard() {
                               <input value={activeFormTemplate.name} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { name: event.target.value })} />
                             </label>
                             <label>
-                              Layout type
+                              Form type
                               <select
                                 value={activeFormTemplate.layout}
                                 onChange={(event) => updateFormTemplate(activeFormTemplate.id, { layout: event.target.value as QuoteDocumentLayout })}
@@ -41323,6 +41414,10 @@ export default function Dashboard() {
                               <input value={activeFormTemplate.title} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { title: event.target.value })} />
                             </label>
                             <label>
+                              Header note / kicker
+                              <input value={activeFormTemplate.headerNote} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { headerNote: event.target.value })} placeholder="e.g. Client quotation" />
+                            </label>
+                            <label>
                               Default audience
                               <select
                                 value={activeFormTemplate.defaultAudience}
@@ -41333,6 +41428,30 @@ export default function Dashboard() {
                                 <option>Office</option>
                                 <option>Supplier</option>
                               </select>
+                            </label>
+                            <label>
+                              Header colour
+                              <span className="personalising-color-row">
+                                <input
+                                  type="color"
+                                  value={/^#[0-9a-fA-F]{6}$/.test(activeFormTemplate.headerColor || businessSettings.brandPrimaryColor) ? (activeFormTemplate.headerColor || businessSettings.brandPrimaryColor) : "#157fa8"}
+                                  onChange={(event) => updateFormTemplate(activeFormTemplate.id, { headerColor: event.target.value })}
+                                  aria-label="Pick form header colour"
+                                />
+                                <input
+                                  value={activeFormTemplate.headerColor}
+                                  onChange={(event) => updateFormTemplate(activeFormTemplate.id, { headerColor: event.target.value })}
+                                  placeholder="Blank = Personalising colour"
+                                />
+                              </span>
+                            </label>
+                            <label className="span-2">
+                              Logo URL (optional override)
+                              <input
+                                value={activeFormTemplate.logoUrl}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { logoUrl: event.target.value })}
+                                placeholder="Blank = company logo from Personalising"
+                              />
                             </label>
                             <label className="span-2">
                               Intro wording
@@ -41346,44 +41465,83 @@ export default function Dashboard() {
                               Terms wording
                               <textarea value={activeFormTemplate.terms} onChange={(event) => updateFormTemplate(activeFormTemplate.id, { terms: event.target.value })} />
                             </label>
+                            {activeFormTemplate.includeAcceptance || activeFormTemplate.layout === "quote" ? (
+                              <label className="span-2">
+                                Acceptance label
+                                <input
+                                  value={activeFormTemplate.acceptanceLabel}
+                                  onChange={(event) => updateFormTemplate(activeFormTemplate.id, { acceptanceLabel: event.target.value })}
+                                  placeholder="Online acceptance recorded"
+                                />
+                              </label>
+                            ) : null}
                           </div>
 
                           <div className="setup-switch-grid">
                             <label>
                               <input
                                 type="checkbox"
-                                checked={activeFormTemplate.includeCostCentreBreakdown}
-                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeCostCentreBreakdown: event.target.checked })}
+                                checked={activeFormTemplate.showLogo}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { showLogo: event.target.checked })}
                               />
-                              Cost centre breakdown
+                              Show logo on form
                             </label>
                             <label>
                               <input
                                 type="checkbox"
-                                checked={activeFormTemplate.includePnl}
-                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includePnl: event.target.checked })}
+                                checked={activeFormTemplate.showCompanyDetails}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { showCompanyDetails: event.target.checked })}
                               />
-                              Internal P&L
+                              Show company address / contact
                             </label>
                             <label>
                               <input
                                 type="checkbox"
-                                checked={activeFormTemplate.includeAcceptance}
-                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeAcceptance: event.target.checked })}
+                                checked={activeFormTemplate.showVatCompanyNumbers}
+                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { showVatCompanyNumbers: event.target.checked })}
                               />
-                              Online acceptance block
+                              Show VAT / company number
                             </label>
-                            <label>
-                              <input
-                                type="checkbox"
-                                checked={activeFormTemplate.includeBankDetails}
-                                onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeBankDetails: event.target.checked })}
-                              />
-                              Bank details
-                            </label>
+                            {!["daywork-account", "gas-safe-lgsr"].includes(activeFormTemplate.layout) ? (
+                              <>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={activeFormTemplate.includeCostCentreBreakdown}
+                                    onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeCostCentreBreakdown: event.target.checked })}
+                                  />
+                                  Cost centre breakdown
+                                </label>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={activeFormTemplate.includePnl}
+                                    onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includePnl: event.target.checked })}
+                                  />
+                                  Internal P&L
+                                </label>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={activeFormTemplate.includeAcceptance}
+                                    onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeAcceptance: event.target.checked })}
+                                  />
+                                  Online acceptance block
+                                </label>
+                                <label>
+                                  <input
+                                    type="checkbox"
+                                    checked={activeFormTemplate.includeBankDetails}
+                                    onChange={(event) => updateFormTemplate(activeFormTemplate.id, { includeBankDetails: event.target.checked })}
+                                  />
+                                  Bank details
+                                </label>
+                              </>
+                            ) : null}
                           </div>
 
                           {(() => {
+                            const formChrome = resolveFormDocumentChrome(activeFormTemplate, businessSettings);
                             const sampleRows: Record<QuoteDocumentLayout, PdfDocumentRow[]> = {
                               quote: [
                                 { id: "sample-quote-1", description: "Strip out and preparation", detail: "Carefully remove existing fittings and prepare the work area.", value: "£840" },
@@ -41404,22 +41562,78 @@ export default function Dashboard() {
                                 { id: "sample-po-1", description: "15mm copper tube 3m", detail: "Deliver to the site address shown above.", quantity: "10", unitRate: "£8.50", value: "£85" },
                                 { id: "sample-po-2", description: "15mm press elbows", detail: "Manufacturer-approved fittings.", quantity: "20", unitRate: "£2.10", value: "£42" },
                               ],
+                              "daywork-account": [],
+                              "gas-safe-lgsr": [],
                             };
-                            const financialLayout = activeFormTemplate.layout !== "job-sheet";
+                            const financialLayout = !["job-sheet", "daywork-account", "gas-safe-lgsr"].includes(activeFormTemplate.layout);
                             const subtotal = activeFormTemplate.layout === "purchase-order" ? 127 : activeFormTemplate.layout === "application-payment" ? 10000 : 2400;
                             const vat = subtotal * 0.2;
                             return (
                               <section className="setup-pdf-proof">
                                 <div className="setup-pdf-proof-toolbar">
                                   <div>
-                                    <span className="permission-heading">Live A4 proof</span>
-                                    <strong>This is the printable form the recipient will receive</strong>
+                                    <span className="permission-heading">Live proof</span>
+                                    <strong>This is how the form will look with your header and logo</strong>
                                   </div>
-                                  <button className="secondary-button" type="button" onClick={printDocumentProof}>
-                                    <FileText size={15} /> Print / save PDF
-                                  </button>
+                                  {!["daywork-account", "gas-safe-lgsr"].includes(activeFormTemplate.layout) ? (
+                                    <button className="secondary-button" type="button" onClick={printDocumentProof}>
+                                      <FileText size={15} /> Print / save PDF
+                                    </button>
+                                  ) : null}
                                 </div>
-                                {activeFormTemplate.layout === "application-payment" ? (
+                                {activeFormTemplate.layout === "daywork-account" ? (
+                                  <DayworkAccountForm
+                                    chrome={formChrome}
+                                    context={{
+                                      customer: "Example Client Ltd",
+                                      site: "14 Sample Street, Aberdeen",
+                                      engineer: "Brian Kerr",
+                                      jobRef: "J-1048",
+                                      contract: "Bathroom refurbishment",
+                                      record: {
+                                        populatedFrom: "core",
+                                        description: "Extra first-fix alterations agreed on site.",
+                                        weekEnding: "2026-07-18",
+                                        labourName: "Brian Kerr",
+                                        labourTrade: "Plumber",
+                                        labourDaysJson: JSON.stringify([
+                                          { day: "mon", hours: "8" },
+                                          { day: "tue", hours: "4" },
+                                        ]),
+                                        materialsJson: JSON.stringify([{ description: "15mm copper", qty: "6" }]),
+                                        plantJson: JSON.stringify([{ description: "Pipe freezer", qty: "1" }]),
+                                        plumberSignerName: "Brian Kerr",
+                                        clientSignerName: "Site Manager",
+                                      },
+                                    }}
+                                  />
+                                ) : activeFormTemplate.layout === "gas-safe-lgsr" ? (
+                                  <GasSafeLgsrCertificate
+                                    chrome={formChrome}
+                                    context={{
+                                      jobRef: "J-1048",
+                                      customer: "Example Landlord",
+                                      site: "14 Sample Street, Aberdeen",
+                                      engineer: "Brian Kerr",
+                                      applianceType: "Central heating boiler",
+                                      record: {
+                                        populatedFrom: "core",
+                                        location: "Kitchen",
+                                        makeModel: "Ideal Logic Combi",
+                                        serialNumber: "ABC123",
+                                        gasSafeLicenceNumber: "123456",
+                                        flueVentilationOk: true,
+                                        visualConditionOk: true,
+                                        safetyDevicesOk: true,
+                                        applianceSafeToUse: true,
+                                        operatingPressure: "20 mbar",
+                                        coReading: "12",
+                                        combustionRatio: "0.004",
+                                        nextServiceDate: "2027-07-15",
+                                      },
+                                    }}
+                                  />
+                                ) : activeFormTemplate.layout === "application-payment" ? (
                                   <ApplicationPaymentPreview
                                     template={activeFormTemplate}
                                     business={businessSettings}

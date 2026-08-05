@@ -14,12 +14,21 @@ import {
   type DayworkAccountRecord,
   type DayworkLineItem,
 } from "@/lib/daywork-account-form";
+import { readBrandingAsset } from "@/lib/branding-assets";
+import { normalizeBusinessBranding } from "@/lib/branding";
+import {
+  hexToPdfRgb,
+  normalizeFormDocumentTemplate,
+  resolveFormDocumentChrome,
+  type FormDocumentTemplate,
+} from "@/lib/form-document-chrome";
+import { getHubDetailState } from "@/lib/hub-detail-store";
 
 const ink = rgb(0.08, 0.12, 0.16);
 const muted = rgb(0.35, 0.4, 0.45);
 const rule = rgb(0.55, 0.6, 0.65);
 const light = rgb(0.93, 0.94, 0.95);
-const brand = rgb(0.08, 0.5, 0.66); // EWG cyan
+const defaultBrand = rgb(0.08, 0.5, 0.66);
 
 function safeText(value: unknown) {
   return String(value ?? "")
@@ -65,7 +74,52 @@ async function embedDataUrl(pdf: PDFDocument, value?: string): Promise<PDFImage 
   }
 }
 
-async function embedEwgLogo(pdf: PDFDocument): Promise<PDFImage | undefined> {
+async function embedLogoBytes(pdf: PDFDocument, buffer: Buffer, mimeType: string): Promise<PDFImage | undefined> {
+  try {
+    if (mimeType.includes("png")) return pdf.embedPng(buffer);
+    if (mimeType.includes("jpeg") || mimeType.includes("jpg")) return pdf.embedJpg(buffer);
+    try {
+      return await pdf.embedPng(buffer);
+    } catch {
+      return pdf.embedJpg(buffer);
+    }
+  } catch {
+    return undefined;
+  }
+}
+
+async function embedCompanyLogo(pdf: PDFDocument, logoUrl: string): Promise<PDFImage | undefined> {
+  if (!logoUrl) return undefined;
+  if (logoUrl.startsWith("data:image/")) return embedDataUrl(pdf, logoUrl);
+
+  const clean = (logoUrl.split("?")[0] || logoUrl).trim();
+  if (clean.startsWith("/api/branding/assets/")) {
+    const kind = clean.includes("/icon") ? "icon" : "logo";
+    const asset = readBrandingAsset(kind === "icon" ? "icon" : "logo") || readBrandingAsset("logo");
+    if (asset) return embedLogoBytes(pdf, asset.buffer, asset.mimeType);
+  }
+
+  if (clean.startsWith("/")) {
+    const relative = clean.replace(/^\//, "");
+    const candidates = [
+      path.join(process.cwd(), "public", relative),
+      path.join(process.cwd(), "apps", "web", "public", relative),
+    ];
+    const file = candidates.find((candidate) => existsSync(candidate));
+    if (file) {
+      const buffer = readFileSync(file);
+      const lower = file.toLowerCase();
+      return embedLogoBytes(
+        pdf,
+        buffer,
+        lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg" : "image/png",
+      );
+    }
+  }
+
+  const uploaded = readBrandingAsset("logo");
+  if (uploaded) return embedLogoBytes(pdf, uploaded.buffer, uploaded.mimeType);
+
   const candidates = [
     path.join(process.cwd(), "public", "ewg-logo.png"),
     path.join(process.cwd(), "apps", "web", "public", "ewg-logo.png"),
@@ -79,6 +133,37 @@ async function embedEwgLogo(pdf: PDFDocument): Promise<PDFImage | undefined> {
   }
 }
 
+function resolveDayworkChrome() {
+  const hub = getHubDetailState();
+  const business = normalizeBusinessBranding(hub.businessSettings);
+  const templates = Array.isArray(hub.formTemplates) ? (hub.formTemplates as FormDocumentTemplate[]) : [];
+  const raw = templates.find((template) => template.layout === "daywork-account");
+  const template = normalizeFormDocumentTemplate(
+    raw || {
+      id: "form-template-daywork",
+      layout: "daywork-account",
+      name: "Daywork Account",
+      title: "Daywork Account",
+      intro: "",
+      footer: "",
+      terms: "",
+      defaultAudience: "Client",
+      includeCostCentreBreakdown: false,
+      includePnl: false,
+      includeAcceptance: false,
+      includeBankDetails: false,
+      headerNote: "",
+      showLogo: true,
+      logoUrl: "",
+      headerColor: "",
+      showCompanyDetails: true,
+      showVatCompanyNumbers: true,
+      acceptanceLabel: "",
+    },
+  );
+  return resolveFormDocumentChrome(template, business);
+}
+
 function padLines(items: DayworkLineItem[], minRows: number) {
   const rows = [...items];
   while (rows.length < minRows) rows.push({ description: "", qty: "" });
@@ -87,16 +172,21 @@ function padLines(items: DayworkLineItem[], minRows: number) {
 
 /** Classic Daywork Account paper layout — week grid, materials/plant tables, named signatures. */
 export async function createDayworkAccountPdf(context: DayworkAccountContext) {
+  const chrome = resolveDayworkChrome();
+  const brandChannels = hexToPdfRgb(chrome.headerColor);
+  const brand = brandChannels ? rgb(brandChannels.r, brandChannels.g, brandChannels.b) : defaultBrand;
+
   const pdf = await PDFDocument.create();
   const clientCopy = context.variant === "client";
-  pdf.setTitle(`Daywork Account - ${context.jobRef}${clientCopy ? " (client copy)" : ""}`);
-  pdf.setAuthor("Errol Watson Group Ltd");
-  pdf.setSubject(clientCopy ? "Daywork Account client copy — hours and materials" : "Daywork Account variation sheet");
-  pdf.setCreator("EWG Field / Core");
+  const sheetTitle = chrome.title || "Daywork Account";
+  pdf.setTitle(`${sheetTitle} - ${context.jobRef}${clientCopy ? " (client copy)" : ""}`);
+  pdf.setAuthor(chrome.tradingName);
+  pdf.setSubject(clientCopy ? `${sheetTitle} client copy — hours and materials` : `${sheetTitle} variation sheet`);
+  pdf.setCreator(chrome.tradingName);
 
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
-  const logo = await embedEwgLogo(pdf);
+  const logo = chrome.showLogo ? await embedCompanyLogo(pdf, chrome.logoUrl) : undefined;
   const margin = 36;
   const pageWidth = PageSizes.A4[0];
   const pageHeight = PageSizes.A4[1];
@@ -159,18 +249,22 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
 
   addPage();
 
-  // Masthead — paper Daywork Account style
+  // Masthead — paper Daywork Account style (logo/title/colours from Setup → Customise forms)
+  const mastheadTitle = safeText(sheetTitle).toUpperCase() || "DAYWORK ACCOUNT";
+  const mastheadNote = clientCopy
+    ? "Client copy — hours & materials"
+    : chrome.headerNote || chrome.tradingName;
   if (logo) {
     const size = logo.scaleToFit(118, 40);
     page.drawImage(logo, { x: margin, y: y - size.height, width: size.width, height: size.height });
-    page.drawText("DAYWORK ACCOUNT", {
+    page.drawText(mastheadTitle, {
       x: margin + size.width + 14,
       y: y - 16,
-      size: 18,
+      size: 16,
       font: bold,
       color: brand,
     });
-    page.drawText(clientCopy ? "Client copy — hours & materials" : "Errol Watson Group Ltd", {
+    page.drawText(safeText(mastheadNote), {
       x: margin + size.width + 14,
       y: y - 32,
       size: 9,
@@ -179,8 +273,8 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
     });
     y -= Math.max(size.height, 36) + 8;
   } else {
-    page.drawText("DAYWORK ACCOUNT", { x: margin, y: y - 16, size: 18, font: bold, color: brand });
-    page.drawText(clientCopy ? "Client copy — hours & materials" : "Errol Watson Group Ltd", {
+    page.drawText(mastheadTitle, { x: margin, y: y - 16, size: 16, font: bold, color: brand });
+    page.drawText(safeText(mastheadNote), {
       x: margin,
       y: y - 32,
       size: 9,
@@ -188,6 +282,19 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
       color: muted,
     });
     y -= 42;
+  }
+  if (chrome.showCompanyDetails) {
+    const detail = [
+      chrome.tradingName,
+      chrome.address,
+      [chrome.phone, chrome.contactEmail].filter(Boolean).join(" · "),
+      chrome.showVatCompanyNumbers ? `VAT ${chrome.vatNumber} · Company ${chrome.companyNumber}` : "",
+    ].filter(Boolean);
+    for (const line of detail) {
+      page.drawText(safeText(line), { x: margin, y, size: 8, font: regular, color: muted });
+      y -= 11;
+    }
+    y -= 2;
   }
   drawRule(1.2);
   y -= 14;
@@ -384,18 +491,23 @@ export async function createDayworkAccountPdf(context: DayworkAccountContext) {
   await drawSignerBox("Client / Clerk of Works", record?.clientSignerName, record?.clientSignature);
 
   ensureSpace(28);
-  page.drawText(
-    clientCopy
-      ? "Client copy — hours and materials only. Rates and pricing are completed by Errol Watson Group office."
-      : "This Daywork Account attaches with the valuation / application for payment.",
-    {
+  const closingNote =
+    chrome.footer ||
+    chrome.terms ||
+    (clientCopy
+      ? `Client copy — hours and materials only. Rates and pricing are completed by ${chrome.tradingName} office.`
+      : `This ${sheetTitle} attaches with the valuation / application for payment.`);
+  for (const line of wrapText(closingNote, regular, 8, contentWidth)) {
+    ensureSpace(12);
+    page.drawText(safeText(line), {
       x: margin,
       y,
       size: 8,
       font: regular,
       color: muted,
-    },
-  );
+    });
+    y -= 10;
+  }
 
   return Buffer.from(await pdf.save());
 }
