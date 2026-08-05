@@ -2,21 +2,18 @@ import type { Metadata, Viewport } from "next";
 import { TakeoffScrollUnlock } from "./takeoff-scroll-unlock";
 
 export const metadata: Metadata = {
-  title: "NeXa Takeoffs",
-  description: "AI construction quantity takeoff skill — primary/secondary quantities, confidence scoring, BOQ handoff.",
-  applicationName: "NeXa Takeoffs",
-  manifest: "/manifest-takeoffs.json",
+  title: "Takeoffs",
+  description: "AI construction quantity takeoff — quantities, confidence scoring, BOQ handoff.",
+  applicationName: "Takeoffs",
+  manifest: "/api/manifest/takeoffs",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NeXa Takeoffs",
+    title: "Takeoffs",
   },
   icons: {
-    icon: [
-      { url: "/app-icons/nexa-takeoffs-icon-512.png", sizes: "512x512", type: "image/png" },
-      { url: "/app-icons/nexa-takeoffs-icon-1024.png", sizes: "1024x1024", type: "image/png" },
-    ],
-    apple: [{ url: "/app-icons/nexa-takeoffs-apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/api/branding/assets/icon", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/icon", sizes: "180x180", type: "image/png" }],
   },
 };
 

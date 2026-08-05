@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import { BrandProvider } from "@/components/BrandProvider";
 import { PwaIconLinks } from "./pwa-icon-links";
 import "./globals.css";
 
@@ -11,26 +12,24 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://nexa-live.onrender.com"),
-  title: "NeXa Core",
+  title: "Core",
   description: "Bound into one command center for service operations.",
-  applicationName: "NeXa Core",
-  manifest: "/manifest-core.json",
+  applicationName: "Core",
+  manifest: "/api/manifest/core",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NeXa Core",
+    title: "Core",
   },
   icons: {
-    icon: [
-      { url: "/app-icons/nexa-core-icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [{ url: "/app-icons/nexa-core-apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/api/branding/assets/icon", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/icon", sizes: "180x180", type: "image/png" }],
   },
 };
 
 export const viewport: Viewport = {
   initialScale: 1,
-  themeColor: "#006eb8",
+  themeColor: "#157fa8",
   width: "device-width",
 };
 
@@ -42,8 +41,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={inter.variable}>
       <body>
-        <PwaIconLinks />
-        {children}
+        <BrandProvider>
+          <PwaIconLinks />
+          {children}
+        </BrandProvider>
       </body>
     </html>
   );

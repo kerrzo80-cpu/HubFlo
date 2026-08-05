@@ -2,21 +2,18 @@ import type { Metadata, Viewport } from "next";
 import { SurveyScrollUnlock } from "./survey-scroll-unlock";
 
 export const metadata: Metadata = {
-  title: "NeXa Surveyor",
-  description: "NeXa Surveyor for guided site capture, Blake assistance and AI estimate packs.",
-  applicationName: "NeXa Surveyor",
-  manifest: "/manifest-estimator.json",
+  title: "Survey",
+  description: "Guided site capture, Blake assistance and AI estimate packs.",
+  applicationName: "Survey",
+  manifest: "/api/manifest/survey",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "NeXa Surveyor",
+    title: "Survey",
   },
   icons: {
-    icon: [
-      { url: "/app-icons/nexa-estimator-icon-512.png", sizes: "512x512", type: "image/png" },
-      { url: "/app-icons/nexa-estimator-icon-1024.png", sizes: "1024x1024", type: "image/png" },
-    ],
-    apple: [{ url: "/app-icons/nexa-estimator-apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/api/branding/assets/icon", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/icon", sizes: "180x180", type: "image/png" }],
   },
 };
 

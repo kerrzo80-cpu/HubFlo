@@ -8,11 +8,12 @@ const pilotUser = process.env.NEXA_PILOT_USER?.trim() || "nexa";
 const pilotSessionCookie = "nexa_pilot_session";
 const pilotSessionMaxAgeSeconds = 60 * 60 * 24 * 30;
 const publicPagePrefixes = ["/ai-first", "/heat-design"];
-const publicAssetPrefixes = ["/app-icons/", "/brand/"];
+const publicAssetPrefixes = ["/app-icons/", "/brand/", "/api/manifest/"];
 const userAuthPublicPaths = new Set([
   "/api/auth/login",
   "/api/auth/me",
   "/api/health",
+  "/api/branding",
   "/api/postcode-lookup",
   "/ai-first",
   "/heat-design",
@@ -34,6 +35,12 @@ const publicAssetPaths = new Set([
   "/takeoff/apple-icon.png",
   "/takeoff/icon.png",
 ]);
+
+function isPublicBrandingGet(request: NextRequest) {
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
+  const { pathname } = request.nextUrl;
+  return pathname === "/api/branding" || pathname.startsWith("/api/branding/assets/");
+}
 
 function parseBasicAuth(value: string | null) {
   if (!value?.startsWith("Basic ")) return null;
@@ -65,6 +72,7 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname === "/api/health") return NextResponse.next();
+  if (isPublicBrandingGet(request)) return NextResponse.next();
   if (
     publicAssetPaths.has(pathname) ||
     publicAssetPrefixes.some((prefix) => pathname.startsWith(prefix)) ||

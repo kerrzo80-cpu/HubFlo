@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from "react";
 import { KeyRound, LogIn } from "lucide-react";
+import { useBrand } from "@/components/BrandProvider";
+import { platformLabel } from "@/lib/branding";
 
 function safeNextPath() {
   if (typeof window === "undefined") return "/";
@@ -10,10 +12,12 @@ function safeNextPath() {
 }
 
 export default function LoginPage() {
+  const brand = useBrand();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const label = platformLabel(brand);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -25,14 +29,14 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
-      const result = await response.json().catch(() => ({})) as { error?: string };
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) {
         setError(result.error || "Unable to sign in.");
         return;
       }
       window.location.assign(safeNextPath());
     } catch {
-      setError("NeXa could not reach the login service. Please try again.");
+      setError("Could not reach the login service. Please try again.");
     } finally {
       setSubmitting(false);
     }
@@ -42,17 +46,20 @@ export default function LoginPage() {
     <main className="nexa-secure-login">
       <section>
         <div className="nexa-secure-login-brand">
-          <img src="/ewg-logo.png" alt="Errol Watson Group" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
           <span>
-            <strong>NeXa</strong>
+            <strong>{label}</strong>
             <small>Secure workspace</small>
           </span>
         </div>
         <div className="nexa-secure-login-heading">
-          <span><KeyRound size={17} /></span>
+          <span>
+            <KeyRound size={17} />
+          </span>
           <div>
             <h1>Sign in</h1>
-            <p>Use your individual NeXa account. Activity is recorded against your profile.</p>
+            <p>Use your individual account. Activity is recorded against your profile.</p>
           </div>
         </div>
         <form onSubmit={submit}>

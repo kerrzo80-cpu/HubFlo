@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ClipboardList, FileSearch, LayoutDashboard, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import type { SurveyJobLink, SurveyLinkType, SurveyRecord } from "@hubflo/domain";
+import { useBrand } from "@/components/BrandProvider";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
@@ -346,13 +347,16 @@ export default function SurveyDirectoryPage() {
     }
   }
 
+  const brand = useBrand();
+
   return (
     <main className="survey-simple-app">
       <header className="survey-simple-topbar">
         <div className="survey-simple-brand">
-          <img src="/app-icons/nexa-estimator-apple-touch-icon.png" alt="NeXa" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
           <span>
-            <strong>NeXa Surveyor</strong>
+            <strong>{brand.surveyAppName}</strong>
             <small>Upload · describe · cost centres</small>
           </span>
         </div>
