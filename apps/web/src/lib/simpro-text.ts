@@ -57,3 +57,41 @@ export function simproPlainDescription(
 export function looksLikeHtml(value: string) {
   return /<\s*[a-z][\s\S]*>/i.test(value) || /&nbsp;/i.test(value);
 }
+
+export function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** Convert plain text (including newlines) into simple editor HTML. */
+export function plainTextToEditorHtml(value: string) {
+  const trimmed = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!trimmed.trim()) return "";
+  return trimmed
+    .split(/\n{2,}/)
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+export function isEffectivelyEmptyHtml(value: string) {
+  if (!value?.trim()) return true;
+  const plain = stripSimproHtml(value);
+  if (plain) return false;
+  // Empty editor shells such as <p><br></p> or &nbsp; placeholders.
+  return !/<img\b|<video\b|<hr\b/i.test(value);
+}
+
+/** Light cleanup so stored HTML stays compact and consistent. */
+export function normalizeEditorHtml(value: string) {
+  return value
+    .replace(/\u00a0/g, " ")
+    .replace(/(?:<br\s*\/?>\s*)+$/gi, "")
+    .replace(/<div><br\s*\/?><\/div>/gi, "<p><br></p>")
+    .replace(/<div>/gi, "<p>")
+    .replace(/<\/div>/gi, "</p>")
+    .trim();
+}

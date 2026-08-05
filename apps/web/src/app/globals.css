@@ -8220,9 +8220,10 @@ h1 {
   border: 1px solid #c9cdd0;
   border-bottom: 0;
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 4px;
   min-height: 34px;
-  padding: 0 8px;
+  padding: 4px 8px;
 }
 
 .simpro-editor-toolbar span {
@@ -8231,7 +8232,47 @@ h1 {
   padding-left: 8px;
 }
 
-.simpro-editor-card textarea {
+.simpro-editor-tool {
+  align-items: center;
+  background: #fff;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #2f3337;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 28px;
+  justify-content: center;
+  min-width: 28px;
+  padding: 0 6px;
+}
+
+.simpro-editor-tool:hover {
+  background: #eef2f4;
+  border-color: #c9cdd0;
+}
+
+.simpro-editor-tool-select {
+  align-items: center;
+  display: inline-flex;
+  margin-left: 4px;
+}
+
+.simpro-editor-tool-select select {
+  background: #fff;
+  border: 1px solid #c9cdd0;
+  border-radius: 4px;
+  color: #2f3337;
+  font: inherit;
+  font-size: 12px;
+  height: 28px;
+  padding: 0 6px;
+}
+
+.simpro-editor-card textarea,
+.simpro-editor-surface {
   border: 1px solid #c9cdd0;
   color: #111;
   font: inherit;
@@ -8239,6 +8280,46 @@ h1 {
   min-height: 430px;
   padding: 14px;
   resize: vertical;
+}
+
+.simpro-editor-surface {
+  background: #fff;
+  line-height: 1.45;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.simpro-editor-surface:empty::before {
+  color: #9aa0a6;
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.simpro-editor-surface:focus {
+  outline: 2px solid rgba(46, 140, 125, 0.35);
+  outline-offset: -1px;
+}
+
+.simpro-editor-surface ul,
+.simpro-editor-surface ol {
+  margin: 0.4em 0 0.4em 1.4em;
+  padding: 0;
+}
+
+.simpro-editor-surface p {
+  margin: 0 0 0.55em;
+}
+
+.sr-only {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 .simpro-parts-page {
@@ -8353,6 +8434,12 @@ h1 {
 .quote-scope-material-selector .simpro-billable-row.parts {
   grid-template-columns: 48px minmax(170px, 1fr) minmax(130px, 0.7fr) minmax(58px, 0.42fr) minmax(76px, 0.56fr) minmax(68px, 0.5fr) minmax(78px, 0.58fr) minmax(58px, 0.42fr)
     minmax(94px, 0.72fr);
+}
+
+.quote-catalogue-materials .simpro-billable-row.parts {
+  grid-template-columns:
+    48px minmax(170px, 1fr) minmax(120px, 0.65fr) minmax(58px, 0.42fr) minmax(76px, 0.56fr)
+    minmax(68px, 0.5fr) minmax(78px, 0.58fr) minmax(58px, 0.42fr) minmax(94px, 0.72fr) minmax(92px, 0.7fr);
 }
 
 .quote-line-actions {

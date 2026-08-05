@@ -129,6 +129,8 @@ import { GasSafeLgsrCertificate } from "@/components/GasSafeLgsrCertificate";
 import { DayworkAccountForm } from "@/components/DayworkAccountForm";
 import { DayworkSheetForm } from "@/components/field/DayworkSheetForm";
 import { SignatureImage } from "@/components/SignaturePad";
+import { SimproDescriptionEditor } from "@/components/SimproDescriptionEditor";
+import { stripSimproHtml } from "@/lib/simpro-text";
 import type { GasServiceRecord } from "@/lib/engineer-flow";
 import {
   dayworkAccountTotals,
@@ -4392,6 +4394,9 @@ const postcodeDirectory = [
   },
 ];
 
+const CATALOGUE_FOLDER_ALL = "All groups";
+const CATALOGUE_FOLDER_ON_QUOTE = "On this quote";
+
 const quoteCatalogFolders = [
   "Boiler parts",
   "Radiators",
@@ -7821,7 +7826,7 @@ export default function Dashboard() {
     statusFilter,
     search,
   ]);
-  const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(quoteCatalogFolders[0] ?? "General materials");
+  const [activeCatalogueFolder, setActiveCatalogueFolder] = useState(CATALOGUE_FOLDER_ALL);
   const [catalogueSearch, setCatalogueSearch] = useState("");
   const [catalogueFolderModalCentreId, setCatalogueFolderModalCentreId] = useState<string | null>(null);
   const [catalogueFolderDrafts, setCatalogueFolderDrafts] = useState<Record<string, string>>({});
@@ -10038,7 +10043,7 @@ export default function Dashboard() {
       0,
     );
     const briefedCentres = selectedJobEstimateCostCentres.filter(
-      (centre) => centre.engineerDescription.trim().length > 0,
+      (centre) => stripSimproHtml(centre.engineerDescription || "").length > 0,
     ).length;
     const openPurchaseRequests = selectedJobPurchaseRequests.filter(
       (request) => !["Approved", "Issued"].includes(request.status),
@@ -18821,7 +18826,7 @@ export default function Dashboard() {
         costCentreId: centre.id,
         category: centre.variation ? "variation" : "contractual",
         description: centre.name,
-        comments: centre.variation ? centre.clientDescription : undefined,
+        comments: centre.variation ? stripSimproHtml(centre.clientDescription || "") || undefined : undefined,
         contractValue: totals.totalSell,
         previousApplications: previousByCentre.get(centre.id) ?? 0,
         requestedThisPeriod: 0,
@@ -18906,7 +18911,7 @@ export default function Dashboard() {
         costCentreId: centre.id,
         category: centre.variation ? "variation" : "contractual",
         description: centre.name,
-        comments: centre.variation ? centre.clientDescription : undefined,
+        comments: centre.variation ? stripSimproHtml(centre.clientDescription || "") || undefined : undefined,
         contractValue: totals.totalSell,
         previousApplications: 0,
         requestedThisPeriod: 0,
@@ -21975,10 +21980,10 @@ export default function Dashboard() {
               reference: quote.ref,
               recipient: quote.customer,
               subject: quote.description,
-              rows: costCentres.length
+                  rows: costCentres.length
                 ? costCentres.map((centre) => ({
                     description: centre.name,
-                    detail: centre.clientDescription,
+                    detail: stripSimproHtml(centre.clientDescription || ""),
                     value: currency(quoteCostCentreTotals(centre).totalSell),
                   }))
                 : [{ description: quote.description, value: currency(subtotal) }],
@@ -25315,6 +25320,32 @@ export default function Dashboard() {
 
   function allQuoteMaterialLines() {
     return consolidateQuoteSupplierEntries(allQuoteRawMaterialLines());
+  }
+
+  /** Catalogue browser rows derived from materials already on the open quote. */
+  function onQuoteCatalogueItems(): CatalogItem[] {
+    const items: CatalogItem[] = [];
+    const seen = new Set<string>();
+    allQuoteRawMaterialLines().forEach(({ centreName, line }) => {
+      const name = line.description.trim();
+      if (!name) return;
+      const key = `${(line.catalogItemId || "").toLowerCase()}::${name.toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      items.push({
+        id: line.catalogItemId?.startsWith("material-") || line.catalogItemId?.startsWith("oneoff-")
+          ? line.catalogItemId
+          : `on-quote-${line.id}`,
+        type: "Material",
+        name,
+        unit: "item",
+        costRate: line.unitCost,
+        sellRate: line.unitSell,
+        category: CATALOGUE_FOLDER_ON_QUOTE,
+        supplierName: centreName,
+      });
+    });
+    return items.sort((first, second) => first.name.localeCompare(second.name));
   }
 
   function selectedQuoteMaterialLineEntries() {
@@ -34161,7 +34192,7 @@ export default function Dashboard() {
                               ? selectedQuotePricedCostCentres.map((centre) => ({
                                   id: centre.id,
                                   description: centre.name,
-                                  detail: centre.clientDescription || "Scope description to be confirmed before issue.",
+                                  detail: stripSimproHtml(centre.clientDescription || "") || "Scope description to be confirmed before issue.",
                                   value: documentCurrency(quoteCostCentreTotals(centre).totalSell),
                                 }))
                               : [{ id: selectedQuote.id, description: selectedQuote.description, detail: "Quoted works as described above.", value: documentCurrency(selectedQuoteTotals.sell) }];
@@ -34548,33 +34579,20 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "info" ? (
                   <section className="simpro-info-page">
-                    <div className="simpro-editor-card">
-                      <div className="simpro-editor-header">
-                        <strong>Description</strong>
-                        <select defaultValue="">
-                          <option value="">Insert script</option>
-                        </select>
-                      </div>
-                      <div className="simpro-editor-toolbar">
-                        <b>B</b><i>I</i><u>U</u><span>10pt</span><span>A</span><span>☰</span><span>•</span><span>▦</span><MoreHorizontal size={16} />
-                      </div>
-                      <textarea
-                        value={selectedQuoteCostCentre.clientDescription ?? ""}
-                        onChange={(event) => updateQuoteCostCentre(selectedQuoteCostCentre.id, { clientDescription: event.target.value })}
-                      />
-                    </div>
-                    <div className="simpro-editor-card notes">
-                      <div className="simpro-editor-header">
-                        <strong>Notes <span>These notes are private and are not visible to the customer.</span></strong>
-                      </div>
-                      <div className="simpro-editor-toolbar">
-                        <b>B</b><i>I</i><u>U</u><span>10pt</span><span>A</span><span>☰</span><span>•</span><span>▦</span><MoreHorizontal size={16} />
-                      </div>
-                      <textarea
-                        value={selectedQuoteCostCentre.engineerDescription ?? ""}
-                        onChange={(event) => updateQuoteCostCentre(selectedQuoteCostCentre.id, { engineerDescription: event.target.value })}
-                      />
-                    </div>
+                    <SimproDescriptionEditor
+                      label="Description"
+                      showScripts
+                      value={selectedQuoteCostCentre.clientDescription ?? ""}
+                      onChange={(clientDescription) => updateQuoteCostCentre(selectedQuoteCostCentre.id, { clientDescription })}
+                    />
+                    <SimproDescriptionEditor
+                      className="notes"
+                      label="Notes"
+                      hint="These notes are private and are not visible to the customer."
+                      showScripts
+                      value={selectedQuoteCostCentre.engineerDescription ?? ""}
+                      onChange={(engineerDescription) => updateQuoteCostCentre(selectedQuoteCostCentre.id, { engineerDescription })}
+                    />
                   </section>
                 ) : null}
 
@@ -34627,8 +34645,10 @@ export default function Dashboard() {
                               <div className="quote-build-summary-grid">
                                 <div>
                                   <span>Materials</span>
-                                  <strong>{currency(totals.materialSell)}</strong>
-                                  <small>{totals.materialLines.length} item(s)</small>
+                                  <strong>
+                                    {currency(quoteMaterialEntries.reduce((sum, entry) => sum + quoteLineSell(entry.line), 0))}
+                                  </strong>
+                                  <small>{quoteMaterialEntries.length} item(s) across quote</small>
                                 </div>
                                 <div>
                                   <span>Labour</span>
@@ -34648,7 +34668,7 @@ export default function Dashboard() {
                                 <div className={totals.profit >= 0 ? "profit-positive" : "profit-negative"}>
                                   <span>Potential profit</span>
                                   <strong>{currency(totals.profit)}</strong>
-                                  <small>{totals.margin}% margin</small>
+                                  <small>{totals.margin}% margin · active cost centre</small>
                                 </div>
                               </div>
                               <div className="simpro-billable-table quote-scope-material-selector">
@@ -35311,17 +35331,37 @@ export default function Dashboard() {
 
                     {activeQuoteBuildTab === "catalogue" ? (
                       (() => {
-                        const visibleCatalogItems = availableQuoteCatalog
-                          .filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === activeCatalogueFolder)
-                          .filter((item) => item.name.toLowerCase().includes(catalogueSearch.trim().toLowerCase()))
+                        const onQuoteItems = onQuoteCatalogueItems();
+                        const libraryItems = availableQuoteCatalog.filter((item) => item.type !== "Labour");
+                        const search = catalogueSearch.trim().toLowerCase();
+                        const browserSource =
+                          activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE
+                            ? onQuoteItems
+                            : activeCatalogueFolder === CATALOGUE_FOLDER_ALL
+                              ? libraryItems
+                              : libraryItems.filter((item) => inferCatalogFolder(item) === activeCatalogueFolder);
+                        const visibleCatalogItems = browserSource
+                          .filter((item) => !search || item.name.toLowerCase().includes(search))
                           .sort((first, second) => first.name.localeCompare(second.name));
+                        const folderButtons = [
+                          { id: CATALOGUE_FOLDER_ALL, label: CATALOGUE_FOLDER_ALL, count: libraryItems.length },
+                          { id: CATALOGUE_FOLDER_ON_QUOTE, label: CATALOGUE_FOLDER_ON_QUOTE, count: onQuoteItems.length },
+                          ...catalogFolders.map((folder) => ({
+                            id: folder,
+                            label: folder,
+                            count: libraryItems.filter((item) => inferCatalogFolder(item) === folder).length,
+                          })),
+                        ];
 
                         return (
                           <div className="quote-catalogue-workspace">
                             <div className="quote-catalogue-toolbar">
                               <div>
                                 <h2>Catalogue</h2>
-                                <span>Open a group, add existing items, or create new catalogue items for reuse.</span>
+                                <span>
+                                  Library for adding reusable items. This quote currently has {onQuoteItems.length} material line(s) — open{" "}
+                                  <strong>{CATALOGUE_FOLDER_ON_QUOTE}</strong> or the table below to see them all.
+                                </span>
                               </div>
                               <label className="quote-catalogue-search">
                                 <Search size={15} />
@@ -35389,24 +35429,21 @@ export default function Dashboard() {
                                   <strong>Groups</strong>
                                   <span>Group name</span>
                                 </div>
-                                {catalogFolders.map((folder) => {
-                                  const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
-                                  return (
-                                    <button
-                                      className={activeCatalogueFolder === folder ? "active" : ""}
-                                      key={folder}
-                                      type="button"
-                                      onClick={() => {
-                                        setActiveCatalogueFolder(folder);
-                                        scrollWorkspaceToTop();
-                                      }}
-                                    >
-                                      <span>{folder}</span>
-                                      <small>{folderCount} item(s)</small>
-                                      <MoreHorizontal size={15} />
-                                    </button>
-                                  );
-                                })}
+                                {folderButtons.map((folder) => (
+                                  <button
+                                    className={activeCatalogueFolder === folder.id ? "active" : ""}
+                                    key={folder.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCatalogueFolder(folder.id);
+                                      scrollWorkspaceToTop();
+                                    }}
+                                  >
+                                    <span>{folder.label}</span>
+                                    <small>{folder.count} item(s)</small>
+                                    <MoreHorizontal size={15} />
+                                  </button>
+                                ))}
                               </div>
 
                               <div className="quote-catalogue-items">
@@ -35414,25 +35451,43 @@ export default function Dashboard() {
                                   <strong>Items menu - {activeCatalogueFolder}</strong>
                                   <span>{visibleCatalogItems.length} matching item(s)</span>
                                 </div>
-                                {visibleCatalogItems.map((item) => (
-                                  <div className="quote-catalogue-item-row" key={item.id}>
-                                    <div>
-                                      <strong>{item.name}</strong>
-                                      <span>
-                                        {[item.supplierName, item.type, item.unit, `Cost ${currency(item.costRate)}`, `Sell ${currency(item.sellRate)}`]
-                                          .filter(Boolean)
-                                          .join(" · ")}
-                                      </span>
+                                {visibleCatalogItems.map((item) => {
+                                  const onQuoteOnly = activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE || item.category === CATALOGUE_FOLDER_ON_QUOTE;
+                                  const inLibrary = Boolean(availableQuoteCatalogById.get(item.id));
+                                  return (
+                                    <div className="quote-catalogue-item-row" key={item.id}>
+                                      <div>
+                                        <strong>{item.name}</strong>
+                                        <span>
+                                          {[
+                                            onQuoteOnly ? "On quote" : item.supplierName,
+                                            item.type,
+                                            item.unit,
+                                            `Cost ${currency(item.costRate)}`,
+                                            `Sell ${currency(item.sellRate)}`,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(" · ")}
+                                        </span>
+                                      </div>
+                                      {onQuoteOnly && !inLibrary ? (
+                                        <span className="status-pill amber">On quote</span>
+                                      ) : (
+                                        <button className="simpro-options-button" type="button" onClick={() => addQuoteLine(selectedQuoteCostCentre.id, item.id)}>
+                                          ADD
+                                        </button>
+                                      )}
                                     </div>
-                                    <button className="simpro-options-button" type="button" onClick={() => addQuoteLine(selectedQuoteCostCentre.id, item.id)}>
-                                      ADD
-                                    </button>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                                 {!visibleCatalogItems.length ? (
                                   <div className="quote-catalogue-empty">
                                     <strong>No items in this group yet</strong>
-                                    <span>Create an item or save selected one-off rows into this catalogue folder.</span>
+                                    <span>
+                                      {activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE
+                                        ? "Material lines appear here once they are on the quote (catalogue, one-off, takeoff or simPRO import)."
+                                        : "Create an item or save selected quote rows into this catalogue folder."}
+                                    </span>
                                   </div>
                                 ) : null}
                               </div>
@@ -35459,16 +35514,27 @@ export default function Dashboard() {
 
                     {["catalogue", "one-off"].includes(activeQuoteBuildTab) ? (
                       (() => {
-                        const materialLines = quoteCostCentreTotals(selectedQuoteCostCentre).materialLines;
-                        const selectedIds = new Set(selectedQuoteMaterialLineIds[selectedQuoteCostCentre.id] ?? []);
-                        const selectedCount = materialLines.filter((line) => selectedIds.has(line.id)).length;
-                        const allSelected = materialLines.length > 0 && selectedCount === materialLines.length;
+                        const quoteMaterialEntries = allQuoteMaterialLines();
+                        const selectedQuoteLineCount = quoteMaterialEntries.filter((entry) => isQuoteSupplierEntrySelected(entry)).length;
+                        const allQuoteMaterialsSelected = allQuoteMaterialLinesSelected();
 
                         return (
-                          <div className="simpro-billable-table">
+                          <div className="simpro-billable-table quote-scope-material-selector quote-catalogue-materials">
+                            <div className="simpro-parts-header" style={{ marginBottom: "0.75rem" }}>
+                              <div>
+                                <h3>Materials on this quote</h3>
+                                <span>
+                                  {quoteMaterialEntries.length} item(s) across all cost centres
+                                  {activeQuoteBuildTab === "catalogue"
+                                    ? " — matches Scope summary. Use groups above to browse the reusable library."
+                                    : "."}
+                                </span>
+                              </div>
+                            </div>
                             <div className="simpro-billable-row table-head parts">
                               <span>Select</span>
                               <span>Description</span>
+                              <span>Cost centre</span>
                               <span>Time (hrs)</span>
                               <span>Price</span>
                               <span>Markup</span>
@@ -35477,100 +35543,97 @@ export default function Dashboard() {
                               <span>Total</span>
                               <span />
                             </div>
-                            {materialLines.map((line) => (
-                              <div className="simpro-billable-row parts" key={line.id}>
-                                <input
-                                  checked={selectedIds.has(line.id)}
-                                  type="checkbox"
-                                  aria-label={`Select ${line.description}`}
-                                  onChange={(event) => toggleQuoteMaterialLineSelection(selectedQuoteCostCentre.id, line.id, event.target.checked)}
-                                />
-                                <textarea
-                                  className="quote-line-description"
-                                  value={line.description}
-                                  onChange={(event) => updateQuoteLine(selectedQuoteCostCentre.id, line.id, { description: event.target.value })}
-                                />
-                                <input value={0} readOnly />
-                                <input
-                                  inputMode="decimal"
-                                  placeholder="TBC"
-                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, line.unitCost, true)}
-                                  onChange={(event) => {
-                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.target.value, (unitCost) => {
-                                      const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
-                                        unitCost,
-                                        unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                            {quoteMaterialEntries.map((entry) => {
+                              const { centreId, centreName, line } = entry;
+                              const isSelected = isQuoteSupplierEntrySelected(entry);
+                              return (
+                                <div className="simpro-billable-row parts" key={`${centreId}:${line.id}`}>
+                                  <input
+                                    checked={isSelected}
+                                    type="checkbox"
+                                    aria-label={`Select ${line.description}`}
+                                    onChange={(event) => toggleQuoteMaterialEntrySelection(entry, event.target.checked)}
+                                  />
+                                  <textarea
+                                    className="quote-line-description"
+                                    value={line.description}
+                                    onChange={(event) => updateQuoteSupplierEntryLine(entry, { description: event.target.value })}
+                                  />
+                                  <strong>{centreName}</strong>
+                                  <input value={0} readOnly />
+                                  <input
+                                    inputMode="decimal"
+                                    placeholder="TBC"
+                                    value={costCentreNumberInputValue(`quote:${centreId}:${line.id}:unitCost`, line.unitCost, true)}
+                                    onChange={(event) => {
+                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:unitCost`, event.target.value, (unitCost) => {
+                                        updateQuoteSupplierEntryCost(entry, unitCost);
                                       });
-                                    });
-                                  }}
-                                  onBlur={(event) => {
-                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
-                                      const markupPercent = quoteLineMarkupPercent(line) || defaultMaterialMarkupPercent;
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, {
-                                        unitCost,
-                                        unitSell: lineSellFromMarkup(unitCost, markupPercent),
+                                    }}
+                                    onBlur={(event) => {
+                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:unitCost`, event.currentTarget.value, (unitCost) => {
+                                        updateQuoteSupplierEntryCost(entry, unitCost);
                                       });
-                                    });
-                                  }}
-                                />
-                                <input
-                                  inputMode="decimal"
-                                  placeholder="TBC"
-                                  value={costCentreNumberInputValue(
-                                    `quote:${selectedQuoteCostCentre.id}:${line.id}:markup`,
-                                    line.unitCost > 0 ? quoteLineMarkupPercent(line) : 0,
-                                    line.unitCost <= 0,
-                                  )}
-                                  onChange={(event) => {
-                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.target.value, (markupPercent) => {
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + (markupPercent / 100)) });
-                                    });
-                                  }}
-                                  onBlur={(event) => {
-                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell: line.unitCost * (1 + (markupPercent / 100)) });
-                                    });
-                                  }}
-                                />
-                                <input
-                                  inputMode="decimal"
-                                  placeholder="TBC"
-                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, line.unitSell, true)}
-                                  onChange={(event) => {
-                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.target.value, (unitSell) => {
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
-                                    });
-                                  }}
-                                  onBlur={(event) => {
-                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { unitSell });
-                                    });
-                                  }}
-                                />
-                                <input
-                                  inputMode="decimal"
-                                  value={costCentreNumberInputValue(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, line.quantity)}
-                                  onChange={(event) => {
-                                    updateCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.target.value, (quantity) => {
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
-                                    });
-                                  }}
-                                  onBlur={(event) => {
-                                    commitCostCentreNumberInput(`quote:${selectedQuoteCostCentre.id}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
-                                      updateQuoteLine(selectedQuoteCostCentre.id, line.id, { quantity });
-                                    });
-                                  }}
-                                />
-                                <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
-                                <div className="quote-line-actions">
-                                  <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(selectedQuoteCostCentre.id, line.id)}>
-                                    Remove <ChevronDown size={13} />
-                                  </button>
+                                    }}
+                                  />
+                                  <input
+                                    inputMode="decimal"
+                                    placeholder="TBC"
+                                    value={costCentreNumberInputValue(
+                                      `quote:${centreId}:${line.id}:markup`,
+                                      line.unitCost > 0 ? quoteLineMarkupPercent(line) : 0,
+                                      line.unitCost <= 0,
+                                    )}
+                                    onChange={(event) => {
+                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:markup`, event.target.value, (markupPercent) => {
+                                        updateQuoteSupplierEntryMarkup(entry, markupPercent);
+                                      });
+                                    }}
+                                    onBlur={(event) => {
+                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:markup`, event.currentTarget.value, (markupPercent) => {
+                                        updateQuoteSupplierEntryMarkup(entry, markupPercent);
+                                      });
+                                    }}
+                                  />
+                                  <input
+                                    inputMode="decimal"
+                                    placeholder="TBC"
+                                    value={costCentreNumberInputValue(`quote:${centreId}:${line.id}:unitSell`, line.unitSell, true)}
+                                    onChange={(event) => {
+                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:unitSell`, event.target.value, (unitSell) => {
+                                        updateQuoteSupplierEntryLine(entry, { unitSell });
+                                      });
+                                    }}
+                                    onBlur={(event) => {
+                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:unitSell`, event.currentTarget.value, (unitSell) => {
+                                        updateQuoteSupplierEntryLine(entry, { unitSell });
+                                      });
+                                    }}
+                                  />
+                                  <input
+                                    inputMode="decimal"
+                                    value={costCentreNumberInputValue(`quote:${centreId}:${line.id}:quantity`, line.quantity)}
+                                    onChange={(event) => {
+                                      updateCostCentreNumberInput(`quote:${centreId}:${line.id}:quantity`, event.target.value, (quantity) => {
+                                        updateQuoteSupplierEntryLine(entry, { quantity });
+                                      });
+                                    }}
+                                    onBlur={(event) => {
+                                      commitCostCentreNumberInput(`quote:${centreId}:${line.id}:quantity`, event.currentTarget.value, (quantity) => {
+                                        updateQuoteSupplierEntryLine(entry, { quantity });
+                                      });
+                                    }}
+                                  />
+                                  <strong>{line.unitSell > 0 ? currency(quoteLineSell(line)) : "Awaiting price"}</strong>
+                                  <div className="quote-line-actions">
+                                    <button className="simpro-options-button" type="button" onClick={() => removeQuoteLine(centreId, line.id)}>
+                                      Remove <ChevronDown size={13} />
+                                    </button>
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
-                            {materialLines.length === 0 ? (
+                              );
+                            })}
+                            {quoteMaterialEntries.length === 0 ? (
                               <div className="simpro-billable-row parts empty">
                                 <span />
                                 <strong>No material lines yet. Add a catalogue item, one-off material, or apply the radiator schedule above.</strong>
@@ -35581,18 +35644,19 @@ export default function Dashboard() {
                                 <span />
                                 <span />
                                 <span />
+                                <span />
                               </div>
                             ) : (
                               <div className="quote-bulk-action-bar">
-                                <span>{selectedCount} selected</span>
-                                <button className="simpro-options-button" type="button" onClick={() => toggleAllQuoteMaterialLineSelection(selectedQuoteCostCentre)}>
-                                  {allSelected ? "Clear selection" : "Select all"}
+                                <span>{selectedQuoteLineCount} selected</span>
+                                <button className="simpro-options-button" type="button" onClick={toggleAllQuoteMaterialLineSelectionAcrossQuote}>
+                                  {allQuoteMaterialsSelected ? "Clear selection" : "Select all"}
                                 </button>
                                 <button
                                   className="simpro-options-button"
                                   type="button"
-                                  disabled={selectedCount === 0}
-                                  onClick={() => openSelectedQuoteLinesCatalogFolderModal(selectedQuoteCostCentre)}
+                                  disabled={selectedQuoteLineCount === 0}
+                                  onClick={() => openSelectedQuoteLinesCatalogFolderModal()}
                                 >
                                   Add items to catalog
                                 </button>
@@ -37410,7 +37474,9 @@ export default function Dashboard() {
                           return {
                             id: centre.id,
                             description: centre.name,
-                            detail: centre.engineerDescription || centre.clientDescription || "Work package details to be confirmed.",
+                            detail:
+                              stripSimproHtml(centre.engineerDescription || centre.clientDescription || "") ||
+                              "Work package details to be confirmed.",
                             value: template.defaultAudience === "Client" ? documentCurrency(totals.totalSell) : `${centre.labour.reduce((sum, line) => sum + line.hours, 0)}h`,
                           };
                         })}
@@ -37749,33 +37815,20 @@ export default function Dashboard() {
 
                 {activeCostCentreTab === "info" ? (
                   <section className="simpro-info-page">
-                    <div className="simpro-editor-card">
-                      <div className="simpro-editor-header">
-                        <strong>Description</strong>
-                        <select defaultValue="">
-                          <option value="">Insert script</option>
-                        </select>
-                      </div>
-                      <div className="simpro-editor-toolbar">
-                        <b>B</b><i>I</i><u>U</u><span>10pt</span><span>A</span><span>☰</span><span>•</span><span>▦</span><MoreHorizontal size={16} />
-                      </div>
-                      <textarea
-                        value={selectedCostCentre.clientDescription}
-                        onChange={(event) => updateEstimateCostCentre(selectedCostCentre.id, { clientDescription: event.target.value })}
-                      />
-                    </div>
-                    <div className="simpro-editor-card notes">
-                      <div className="simpro-editor-header">
-                        <strong>Notes <span>These notes are private and are not visible to the customer.</span></strong>
-                      </div>
-                      <div className="simpro-editor-toolbar">
-                        <b>B</b><i>I</i><u>U</u><span>10pt</span><span>A</span><span>☰</span><span>•</span><span>▦</span><MoreHorizontal size={16} />
-                      </div>
-                      <textarea
-                        value={selectedCostCentre.engineerDescription}
-                        onChange={(event) => updateEstimateCostCentre(selectedCostCentre.id, { engineerDescription: event.target.value })}
-                      />
-                    </div>
+                    <SimproDescriptionEditor
+                      label="Description"
+                      showScripts
+                      value={selectedCostCentre.clientDescription}
+                      onChange={(clientDescription) => updateEstimateCostCentre(selectedCostCentre.id, { clientDescription })}
+                    />
+                    <SimproDescriptionEditor
+                      className="notes"
+                      label="Notes"
+                      hint="These notes are private and are not visible to the customer."
+                      showScripts
+                      value={selectedCostCentre.engineerDescription}
+                      onChange={(engineerDescription) => updateEstimateCostCentre(selectedCostCentre.id, { engineerDescription })}
+                    />
                   </section>
                 ) : null}
 
@@ -38090,17 +38143,30 @@ export default function Dashboard() {
 
                     {activeJobBuildTab === "catalogue" ? (
                       (() => {
-                        const visibleCatalogItems = availableQuoteCatalog
-                          .filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === activeCatalogueFolder)
-                          .filter((item) => item.name.toLowerCase().includes(catalogueSearch.trim().toLowerCase()))
+                        const libraryItems = availableQuoteCatalog.filter((item) => item.type !== "Labour");
+                        const search = catalogueSearch.trim().toLowerCase();
+                        const browserSource =
+                          activeCatalogueFolder === CATALOGUE_FOLDER_ALL || activeCatalogueFolder === CATALOGUE_FOLDER_ON_QUOTE
+                            ? libraryItems
+                            : libraryItems.filter((item) => inferCatalogFolder(item) === activeCatalogueFolder);
+                        const visibleCatalogItems = browserSource
+                          .filter((item) => !search || item.name.toLowerCase().includes(search))
                           .sort((first, second) => first.name.localeCompare(second.name));
+                        const folderButtons = [
+                          { id: CATALOGUE_FOLDER_ALL, label: CATALOGUE_FOLDER_ALL, count: libraryItems.length },
+                          ...catalogFolders.map((folder) => ({
+                            id: folder,
+                            label: folder,
+                            count: libraryItems.filter((item) => inferCatalogFolder(item) === folder).length,
+                          })),
+                        ];
 
                         return (
                           <div className="quote-catalogue-workspace">
                             <div className="quote-catalogue-toolbar">
                               <div>
                                 <h2>Catalogue</h2>
-                                <span>Open a group, add existing items, or create new catalogue items for reuse.</span>
+                                <span>Open All groups or a folder, then ADD items to this cost centre. Job materials for the active centre are listed below.</span>
                               </div>
                               <label className="quote-catalogue-search">
                                 <Search size={15} />
@@ -38168,24 +38234,21 @@ export default function Dashboard() {
                                   <strong>Groups</strong>
                                   <span>Group name</span>
                                 </div>
-                                {catalogFolders.map((folder) => {
-                                  const folderCount = availableQuoteCatalog.filter((item) => item.type !== "Labour" && inferCatalogFolder(item) === folder).length;
-                                  return (
-                                    <button
-                                      className={activeCatalogueFolder === folder ? "active" : ""}
-                                      key={folder}
-                                      type="button"
-                                      onClick={() => {
-                                        setActiveCatalogueFolder(folder);
-                                        scrollWorkspaceToTop();
-                                      }}
-                                    >
-                                      <span>{folder}</span>
-                                      <small>{folderCount} item(s)</small>
-                                      <MoreHorizontal size={15} />
-                                    </button>
-                                  );
-                                })}
+                                {folderButtons.map((folder) => (
+                                  <button
+                                    className={activeCatalogueFolder === folder.id ? "active" : ""}
+                                    key={folder.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setActiveCatalogueFolder(folder.id);
+                                      scrollWorkspaceToTop();
+                                    }}
+                                  >
+                                    <span>{folder.label}</span>
+                                    <small>{folder.count} item(s)</small>
+                                    <MoreHorizontal size={15} />
+                                  </button>
+                                ))}
                               </div>
 
                               <div className="quote-catalogue-items">

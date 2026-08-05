@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { looksLikeHtml, simproPlainDescription, stripSimproHtml } from "@/lib/simpro-text";
+import {
+  isEffectivelyEmptyHtml,
+  looksLikeHtml,
+  normalizeEditorHtml,
+  plainTextToEditorHtml,
+  simproPlainDescription,
+  stripSimproHtml,
+} from "@/lib/simpro-text";
 
 describe("simpro text sanitise", () => {
   it("strips HTML email gibberish into readable plain text", () => {
@@ -46,5 +53,14 @@ describe("simpro text sanitise", () => {
       "Imported simPRO quote",
     );
     assert.equal(description, "Replace bathroom suite and extract fan");
+  });
+
+  it("converts plain text newlines into editor HTML paragraphs", () => {
+    const html = plainTextToEditorHtml("Line one\nLine two\n\nNext block");
+    assert.match(html, /<p>Line one<br>Line two<\/p>/);
+    assert.match(html, /<p>Next block<\/p>/);
+    assert.equal(isEffectivelyEmptyHtml("<p><br></p>"), true);
+    assert.equal(isEffectivelyEmptyHtml("<p>Scoped works</p>"), false);
+    assert.equal(normalizeEditorHtml("<div>Hello</div>"), "<p>Hello</p>");
   });
 });
