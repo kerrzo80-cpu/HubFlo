@@ -282,7 +282,7 @@ export default function EstimatorPage() {
       if (!response.ok) throw new Error(body.error || "Unable to push this estimate into the quote.");
       setEstimate(body.estimate as EstimateRecord);
       setEstimates((current) => current.map((item) => item.id === body.estimate.id ? body.estimate as EstimateRecord : item));
-      setNotice(`${body.quote.ref} now contains ${body.costCentres.length} itemised cost centre(s) from this estimate.`);
+      setNotice(`${body.quote.ref} now contains ${body.costCentres.length} itemised cost centre(s) from this estimate${body.unpricedCount ? ` · ${body.unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}.`);
     } catch (pushError) {
       setError(pushError instanceof Error ? pushError.message : "Unable to push estimate into quote.");
     } finally {
@@ -310,7 +310,7 @@ export default function EstimatorPage() {
               <em>Survey v{item.sourceSurveyVersion} · {new Date(item.updatedAt).toLocaleDateString("en-GB")}</em>
             </button>
           ))}
-          {!estimates.length && !loading ? <p>Complete a guided survey and use Generate AI estimate pack to create the first estimate.</p> : null}
+          {!estimates.length && !loading ? <p>Open a survey, generate cost centres, then use Send to quote — or open an estimate pack here.</p> : null}
         </aside>
 
         <section className="estimator-workspace">
@@ -320,7 +320,7 @@ export default function EstimatorPage() {
             <>
               <div className="estimator-titlebar">
                 <div><span className="guided-eyebrow">{estimate.reference} · {estimate.pricingProfile.name}</span><h1>{survey?.customerName || "Survey estimate"}</h1><p>{survey?.siteAddress || estimate.scopeOfWorks[0]}</p></div>
-                <div><b data-status={estimate.status}>{estimate.coreQuoteRef ? `${estimate.status} · ${estimate.coreQuoteRef}` : estimate.status}</b><button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}><RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate</button><button type="button" title={totals.unpriced ? "Price the supplier RFQ items before pushing this estimate" : undefined} onClick={() => void pushToQuote()} disabled={working || Boolean(totals.unpriced) || !estimate.scopeOfWorks.length}><Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}</button></div>
+                <div><b data-status={estimate.status}>{estimate.coreQuoteRef ? `${estimate.status} · ${estimate.coreQuoteRef}` : estimate.status}</b><button type="button" className="secondary" onClick={() => void regenerate()} disabled={working}><RefreshCw className={working ? "spin" : ""} size={16} /> Regenerate</button><button type="button" title={totals.unpriced ? "Unpriced supplier RFQ lines will push at £0 provisional" : undefined} onClick={() => void pushToQuote()} disabled={working || !estimate.scopeOfWorks.length}><Send size={16} /> {estimate.coreQuoteRef ? `Update ${estimate.coreQuoteRef}` : "Push to quote"}</button></div>
               </div>
               {error ? <p className="estimator-message error"><AlertTriangle size={16} /> {error}</p> : null}
               {notice ? <p className="estimator-message"><CheckCircle2 size={16} /> {notice}</p> : null}

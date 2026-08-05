@@ -12,6 +12,7 @@ import {
   Ruler,
   Save,
   ScanLine,
+  Send,
   Sparkles,
   Upload,
 } from "lucide-react";
@@ -113,6 +114,7 @@ export default function SimpleSurveyWorkspacePage() {
   const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
   const [uploading, setUploading] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [sendingToQuote, setSendingToQuote] = useState(false);
   const [costCentres, setCostCentres] = useState<QuickCostCentre[]>([]);
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [linkType, setLinkType] = useState<SurveyLinkType | "">("");
@@ -480,12 +482,62 @@ export default function SimpleSurveyWorkspacePage() {
         throw new Error(body.error || "Unable to generate cost centres.");
       }
       setCostCentres(body.costCentres);
+      if (body.estimateId || body.survey?.estimateId) {
+        // Keep estimate id on survey so Send to quote can run immediately.
+        const estimateId = body.estimateId || body.survey?.estimateId;
+        if (estimateId && body.survey && !body.survey.estimateId) {
+          setSurvey({ ...body.survey, estimateId });
+          surveyRef.current = { ...body.survey, estimateId };
+        }
+      }
       setNoticeTone(body.aiUsed ? "ok" : "warn");
       setNotice(body.summary || (body.aiUsed ? "Blake built the cost centres." : "Rule-based draft ready — check OpenAI status above."));
     } catch (generateError) {
       setError(generateError instanceof Error ? generateError.message : "Unable to generate cost centres.");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function sendToQuote() {
+    const current = await flushAutosave();
+    if (!current) return;
+    const estimateId = current.estimateId;
+    if (!estimateId) {
+      setError("Generate cost centres first, then send them to a quote.");
+      return;
+    }
+    if (current.jobLink?.type !== "Quote") {
+      setError("Link this survey to a Core quote above, then send to quote.");
+      return;
+    }
+    setSendingToQuote(true);
+    setError("");
+    setNotice("");
+    try {
+      const estimateResponse = await fetch(`/api/estimates/${encodeURIComponent(estimateId)}`, { headers: requestHeaders });
+      const estimateBody = await readJsonResponse<{ version?: number; error?: string }>(estimateResponse);
+      if (!estimateResponse.ok) throw new Error(estimateBody.error || "Unable to load the estimate pack.");
+      const response = await fetch(`/api/estimates/${encodeURIComponent(estimateId)}/push-to-quote`, {
+        method: "POST",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ expectedVersion: estimateBody.version }),
+      });
+      const body = await readJsonResponse<{
+        quote?: { id: string; ref: string };
+        costCentres?: unknown[];
+        unpricedCount?: number;
+        error?: string;
+      }>(response);
+      if (!response.ok || !body.quote) throw new Error(body.error || "Unable to send this survey into the quote.");
+      setNoticeTone("ok");
+      setNotice(
+        `Sent to ${body.quote.ref}${body.unpricedCount ? ` · ${body.unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}. Open the quote in Core to review.`,
+      );
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send to quote.");
+    } finally {
+      setSendingToQuote(false);
     }
   }
 
@@ -736,9 +788,25 @@ export default function SimpleSurveyWorkspacePage() {
         </label>
 
         <div className="survey-simple-cta-row">
-          <button type="button" className="survey-simple-primary" disabled={generating || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
+          <button type="button" className="survey-simple-primary" disabled={generating || sendingToQuote || !survey.customerRequirements.trim()} onClick={() => void generateCostCentres()}>
             {generating ? <Loader2 className="spin" size={17} /> : <Sparkles size={17} />}
             {generating ? "Building…" : costCentres.length ? "Rebuild cost centres" : "Generate cost centres"}
+          </button>
+          <button
+            type="button"
+            className="survey-simple-primary"
+            disabled={sendingToQuote || generating || !survey.estimateId || survey.jobLink?.type !== "Quote"}
+            title={
+              !survey.estimateId
+                ? "Generate cost centres first"
+                : survey.jobLink?.type !== "Quote"
+                  ? "Link a Core quote above first"
+                  : "Send cost centres into the linked Core quote"
+            }
+            onClick={() => void sendToQuote()}
+          >
+            {sendingToQuote ? <Loader2 className="spin" size={17} /> : <Send size={17} />}
+            {sendingToQuote ? "Sending…" : "Send to quote"}
           </button>
         </div>
 

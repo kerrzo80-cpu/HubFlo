@@ -60,6 +60,7 @@ export async function GET() {
       simproClientsFullFetch: "newest-80-v1",
       simproEntityFullFetch: "scoped-open-quotes-live-jobs-80-unpaid-v2",
       simproImportScope: "clients-sites-80-leads-10-quotes-30-jobs-80-deep-80-v7",
+      surveySendToQuote: "unpriced-rfq-allowed-v1",
       simproLeadsImport: "latest-10-open-with-schedules-v1",
       simproSiteHydrate: "fetch-by-site-id-v1",
       nexaTopBusyBar: "expand-contract-side-v3",

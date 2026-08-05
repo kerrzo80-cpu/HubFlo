@@ -24,9 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!estimate.scopeOfWorks.length) {
     return NextResponse.json({ error: "Add structured scope items in the source survey and regenerate this estimate before pushing it to a quote." }, { status: 422 });
   }
-  if (estimate.materialLines.some((line) => line.unitCost === undefined)) {
-    return NextResponse.json({ error: "Price every unpriced supplier RFQ item before pushing this estimate to a quote." }, { status: 422 });
-  }
+  // Unpriced Supplier RFQ lines are allowed as £0 provisional — office prices them after RFQ returns.
   if (estimate.materialLines.some((line) => line.status === "TBC" && !line.notes.trim())) {
     return NextResponse.json({ error: "Review TBC materials before pushing the estimate into a quote." }, { status: 422 });
   }
@@ -43,6 +41,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     ? updateQuote(linkedQuote.id, { customer: survey.customerName, description, owner: actor, value: Math.round(totalSell * 100) / 100, next: "Review Estimator cost centres and send quote", due })!
     : createQuote({ ref: "", clientId: survey.customerId, siteId: survey.siteId, customer: survey.customerName, description, owner: actor, status: "Draft", value: Math.round(totalSell * 100) / 100, next: "Review Estimator cost centres and send quote", due });
 
+  const unpricedCount = estimate.materialLines.filter((line) => line.unitCost === undefined).length;
   const sectionId = `estimate-section-${estimate.id}`;
   const names = Array.from(new Set([...estimate.materialLines.map((line) => line.costCentre), ...estimate.labourLines.map((line) => line.costCentre)]));
   const costCentres = names.map((name) => ({
@@ -53,8 +52,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     clientDescription: estimate.scopeOfWorks.filter((scope) => scope.toLowerCase().includes(name.toLowerCase())).join("\n") || estimate.scopeOfWorks.join("\n"),
     engineerDescription: estimate.scopeOfWorks.join("\n"),
     lines: [
-      ...estimate.materialLines.filter((line) => line.costCentre === name).map((line) => ({ id: line.id, catalogItemId: "", description: line.description, quantity: line.quantity, unitCost: line.unitCost || 0, unitSell: materialSell(line), supplierRequired: line.status === "Supplier RFQ", rateSource: "manual" })),
-      ...estimate.labourLines.filter((line) => line.costCentre === name).map((line) => ({ id: line.id, catalogItemId: "", description: `${line.labourType}: ${line.description}`, quantity: line.hours, unitCost: line.costRate, unitSell: line.sellRate, supplierRequired: false, rateSource: "manual" })),
+      ...estimate.materialLines.filter((line) => line.costCentre === name).map((line) => ({
+        id: line.id,
+        catalogItemId: "",
+        description: line.description,
+        quantity: line.quantity,
+        unitCost: line.unitCost || 0,
+        unitSell: materialSell(line),
+        supplierRequired: line.status === "Supplier RFQ" || line.unitCost === undefined,
+        rateSource: "manual" as const,
+      })),
+      ...estimate.labourLines.filter((line) => line.costCentre === name).map((line) => ({
+        id: line.id,
+        catalogItemId: "",
+        description: `${line.labourType}: ${line.description}`,
+        quantity: line.hours,
+        unitCost: line.costRate,
+        unitSell: line.sellRate,
+        supplierRequired: false,
+        rateSource: "manual" as const,
+      })),
     ],
   }));
   const hubState = getHubDetailState();
@@ -65,6 +82,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   });
   const recorded = recordEstimateQuotePush(tenantId, estimate.id, body?.expectedVersion, { id: quote.id, ref: quote.ref });
   if (!recorded.ok) return versionedMutationResponse(recorded);
-  appendAuditEvent({ actor, action: "pushed", recordType: "quote", recordId: quote.id, summary: `${estimate.reference} created ${costCentres.length} itemised cost centre(s) in ${quote.ref}.`, source: "NeXa Estimator", importance: "normal" });
-  return NextResponse.json({ estimate: recorded.value, quote, costCentres }, { status: 200 });
+  appendAuditEvent({
+    actor,
+    action: "pushed",
+    recordType: "quote",
+    recordId: quote.id,
+    summary: `${estimate.reference} created ${costCentres.length} itemised cost centre(s) in ${quote.ref}${unpricedCount ? ` · ${unpricedCount} supplier RFQ line(s) at £0 provisional` : ""}.`,
+    source: "NeXa Estimator",
+    importance: "normal",
+  });
+  return NextResponse.json({ estimate: recorded.value, quote, costCentres, unpricedCount }, { status: 200 });
 }

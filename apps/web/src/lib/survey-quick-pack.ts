@@ -881,13 +881,7 @@ export async function buildQuickCostCentrePack(
   if (!survey.siteAddress.trim()) patch.siteAddress = "Site to confirm";
   if (!survey.surveyorName.trim()) patch.surveyorName = actor;
   if (!survey.surveyDate) patch.surveyDate = nowIso().slice(0, 10);
-  if (!survey.jobLink) {
-    patch.jobLink = {
-      type: "Lead",
-      id: `quick-${survey.id}`,
-      reference: survey.reference,
-    };
-  }
+  // Do not invent a fake Lead jobLink — that breaks Send to quote (only real Quote links update Core).
   if (!survey.scopeItems.length) {
     patch.scopeItems = [{
       id: makeId("survey-scope"),
@@ -962,6 +956,7 @@ export async function buildQuickCostCentrePack(
   const takeoffRows = takeoffRowsFromCostCentres(pack.costCentres);
   let takeoffProjectId = survey.legacyTakeoffProjectId;
   let takeoff = takeoffProjectId ? getTakeoffProject(takeoffProjectId) : null;
+  const linkedQuoteId = survey.jobLink?.type === "Quote" ? survey.jobLink.id : undefined;
   if (!takeoff) {
     const importedDocuments = documentsFromSurveyPhotos(survey, []);
     takeoff = createTakeoffProject({
@@ -969,6 +964,7 @@ export async function buildQuickCostCentrePack(
       customer: survey.customerName,
       site: survey.siteAddress,
       description: survey.customerRequirements,
+      linkedQuoteId,
       documents: importedDocuments,
       materialAllowances: takeoffRows.materials,
       labourAllowances: takeoffRows.labour,
@@ -986,6 +982,7 @@ export async function buildQuickCostCentrePack(
       customer: survey.customerName || takeoff.customer,
       site: survey.siteAddress || takeoff.site,
       description: survey.customerRequirements || takeoff.description,
+      ...(linkedQuoteId ? { linkedQuoteId } : {}),
       documents: [...takeoff.documents, ...importedDocuments],
       materialAllowances: merged.materialAllowances,
       labourAllowances: merged.labourAllowances,
