@@ -11267,6 +11267,9 @@ export default function Dashboard() {
     if (quoteSite?.address && quoteSite.address.trim() && quoteSite.address !== "Address to confirm") {
       return quoteSite.address;
     }
+    if (quoteSite?.name && quoteSite.name.trim() && quoteSite.name !== "simPRO site" && quoteSite.name !== "Address to confirm") {
+      return quoteSite.name;
+    }
     if (linkedJob?.site && linkedJob.site !== "Site to confirm" && linkedJob.site !== "Address to confirm") {
       return linkedJob.site;
     }

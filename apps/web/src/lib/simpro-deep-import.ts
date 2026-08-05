@@ -130,13 +130,34 @@ const MAX_SECTIONS_PER_ENTITY = 25;
 /** Prefer listing CCs over per-CC detail storms — detail is only for the first few empty ones. */
 const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 8;
 
-async function fetchFullEntity(
+export async function fetchFullEntity(
   entity: "quotes" | "jobs",
   externalId: string,
   prefetchedRecord?: UnknownRecord | null,
 ) {
   const config = await getSimproReadConfig();
   let record = prefetchedRecord ? asRecord(prefetchedRecord) : null;
+
+  // Ignore thin/incomplete prefetch — same trap as quote Apply caching a detail
+  // without Customer/Site and then skipping the real display=all pull jobs/schedules use.
+  if (record) {
+    const hasCustomer =
+      Boolean(asRecord(record.Customer)?.ID) ||
+      typeof record.Customer === "number" ||
+      typeof record.Customer === "string" ||
+      Boolean(asRecord(record.Customer)?.CompanyName) ||
+      Boolean(asRecord(record.Customer)?.Name);
+    const hasSite =
+      Boolean(asRecord(record.Site)?.ID) ||
+      typeof record.Site === "number" ||
+      typeof record.Site === "string" ||
+      Boolean(asRecord(record.Site)?.Address) ||
+      Boolean(asRecord(record.Site)?.Name);
+    if (!hasCustomer && !hasSite) {
+      record = null;
+    }
+  }
+
   if (!record) {
     const result = await simproGetFirstOk(config, [
       `/${entity}/${externalId}/?display=all`,
@@ -169,7 +190,7 @@ async function fetchFullEntity(
     const sectionId = simproRecordId(section);
     let costCenters = costCentersFromSection(section);
 
-    // Always list-fetch when nested CCs are missing/empty (matches bridge push path).
+    // Always list-fetch when nested CCs are missing/empty (matches bridge push path / scheduler).
     if (sectionId && !costCenters.length) {
       costCenters = await fetchSectionCostCenters(config, entity, externalId, sectionId);
     } else if (
