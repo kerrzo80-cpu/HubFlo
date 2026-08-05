@@ -7195,7 +7195,29 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
                         <span>Pipe routes are drawn but not calibrated — stock lengths will be 0m until you set a known length on the drawing.</span>
                         <div className="takeoff-markup-cal-banner-actions">
                           <button className="takeoff-primary-button" type="button" onClick={startMarkupCalibration}>
-                            Set scale now
+                            Set scale from drawing
+                          </button>
+                          <button
+                            className="takeoff-small-button"
+                            type="button"
+                            title="Quick scale for a 1:50 drawing"
+                            onClick={() => updateServicesMarkup((current) => ({
+                              ...current,
+                              calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 100, scaleLabel: "1:50" },
+                            }), "Markup scale set to 1:50.")}
+                          >
+                            Use 1:50
+                          </button>
+                          <button
+                            className="takeoff-small-button"
+                            type="button"
+                            title="Quick scale for a 1:100 drawing"
+                            onClick={() => updateServicesMarkup((current) => ({
+                              ...current,
+                              calibration: { ...current.calibration, status: "Calibrated", pixelsPerMetre: 70, scaleLabel: "1:100" },
+                            }), "Markup scale set to 1:100.")}
+                          >
+                            Use 1:100
                           </button>
                           <button className="takeoff-small-button" type="button" onClick={() => pushMarkupToBoq({ force: true })}>
                             Send without lengths
