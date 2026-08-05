@@ -89,18 +89,18 @@ describe("simpro sync preview quality", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
     assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 30/);
-    assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 12/);
+    assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 80/);
     assert.match(source, /SIMPRO_SITE_IMPORT_LIMIT = 80/);
     assert.match(source, /SIMPRO_CLIENT_IMPORT_LIMIT = 80/);
-    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 40/);
+    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 80/);
     assert.match(source, /IsPaid/);
     assert.match(source, /isOpenSimproQuote/);
     assert.match(source, /hydrateCustomersForRecords/);
     assert.match(source, /hydrateSitesForRecords/);
     assert.match(source, /return clone\(persisted\)/);
     assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 30);
-    assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 12);
-    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 40);
+    assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 80);
+    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 80);
 
     assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
     assert.equal(isOpenSimproQuote({ Status: { Name: "Lost" } }), false);
@@ -137,7 +137,7 @@ describe("simpro sync preview quality", () => {
 
     const jobs = scopeSimproRecords(
       "jobs",
-      Array.from({ length: 55 }, (_, index) => ({
+      Array.from({ length: 100 }, (_, index) => ({
         ID: index + 1,
         Stage: "Pending",
         DateModified: `2026-06-${String((index % 28) + 1).padStart(2, "0")}`,

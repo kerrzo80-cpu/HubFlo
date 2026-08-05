@@ -33,6 +33,7 @@ import {
   Inbox,
   KeyRound,
   LayoutDashboard,
+  Link2,
   ListChecks,
   LogOut,
   Mail,
@@ -55,6 +56,7 @@ import {
   TrendingUp,
   UserCheck,
   Users,
+  Warehouse,
   Wrench,
   X,
 } from "lucide-react";
@@ -224,7 +226,7 @@ type DashboardLayout = {
 const dashboardPanelMeta: Record<DashboardPanelId, { label: string; size: DashboardPanelSize }> = {
   jobs: { label: "Jobs", size: "standard" },
   notifications: { label: "Action notifications", size: "standard" },
-  recurringServices: { label: "Upcoming services", size: "standard" },
+  recurringServices: { label: "Upcoming jobs", size: "standard" },
 };
 
 const defaultDashboardLayout: DashboardLayout = {
@@ -2327,7 +2329,10 @@ const modules: ModuleItem[] = [
   { label: "Invoices", icon: PoundSterling },
   { label: "POs", icon: Package },
   { label: "People", icon: Users, subItems: ["Employees", "Clients", "Sites", "Suppliers", "Contacts", "Contractors"] },
-  { label: "More", icon: MoreHorizontal, subItems: ["Stock", "Xero", "Recurring", "Reports", "Add-ons"] },
+  { label: "Recurring", icon: Repeat },
+  { label: "Reports", icon: BarChart3 },
+  { label: "Stock", icon: Warehouse },
+  { label: "Xero", icon: Link2 },
   { label: "Setup", icon: Settings },
 ];
 
@@ -6916,19 +6921,36 @@ function weekdayFromDate(date: string): Weekday {
   return weekDays[(day + 6) % 7] ?? "Mon";
 }
 
-function availabilityForDate(surveyor: string, date: string) {
-  if (!date) return { active: false, from: "00:00", to: "00:00" };
-  const day = weekdayFromDate(date);
-  const configured = surveyorAvailability[surveyor]?.[day];
-  if (configured) return configured;
-  // Imported / unlisted engineers still need a usable diary column.
-  if (day === "Sat" || day === "Sun") return { active: false, from: "00:00", to: "00:00" };
-  return { active: true, from: "08:00", to: "17:00" };
+/** True when the employee card has at least one weekday availability ticked. */
+function employeeHasAnyAvailability(employee: { profile?: { availability?: EmployeeAvailability } }) {
+  const availability = employee.profile?.availability;
+  if (!availability) return false;
+  return weekDays.some((day) => Boolean(availability[day]?.active));
 }
 
-function availabilityLabel(surveyor: string, date: string) {
+function availabilityForDate(
+  surveyor: string,
+  date: string,
+  cardAvailability?: EmployeeAvailability | null,
+) {
+  if (!date) return { active: false, from: "00:00", to: "00:00" };
+  const day = weekdayFromDate(date);
+  // Only honour the employee card when at least one weekday is ticked.
+  if (cardAvailability && weekDays.some((weekday) => Boolean(cardAvailability[weekday]?.active))) {
+    return cardAvailability[day] ?? { active: false, from: "00:00", to: "00:00" };
+  }
+  const configured = surveyorAvailability[surveyor]?.[day];
+  if (configured) return configured;
+  return { active: false, from: "00:00", to: "00:00" };
+}
+
+function availabilityLabel(
+  surveyor: string,
+  date: string,
+  cardAvailability?: EmployeeAvailability | null,
+) {
   if (!date) return "Pick a date";
-  const availability = availabilityForDate(surveyor, date);
+  const availability = availabilityForDate(surveyor, date, cardAvailability);
   return availability.active ? `${availability.from}-${availability.to}` : "Unavailable";
 }
 
@@ -8094,6 +8116,20 @@ export default function Dashboard() {
     [availableQuoteCatalog],
   );
 
+  const employeeAvailabilityByName = useMemo(() => {
+    const map = new Map<string, EmployeeAvailability>();
+    for (const employee of employees) {
+      if (employee.profile?.availability) {
+        map.set(employee.name.trim().toLowerCase(), employee.profile.availability);
+      }
+    }
+    return map;
+  }, [employees]);
+
+  function cardAvailabilityFor(name: string) {
+    return employeeAvailabilityByName.get(name.trim().toLowerCase()) ?? null;
+  }
+
   const engineerFlowLibrary = useMemo(
     () => normalizeEngineerFlowTemplates(engineerFlowTemplates, engineerFlowTemplate),
     [engineerFlowTemplate, engineerFlowTemplates],
@@ -8979,8 +9015,16 @@ export default function Dashboard() {
         });
       }
 
-      const startAvailability = availabilityForDate(assignment.employeeName, assignment.startDate);
-      const endAvailability = availabilityForDate(assignment.employeeName, assignment.endDate);
+      const startAvailability = availabilityForDate(
+        assignment.employeeName,
+        assignment.startDate,
+        cardAvailabilityFor(assignment.employeeName),
+      );
+      const endAvailability = availabilityForDate(
+        assignment.employeeName,
+        assignment.endDate,
+        cardAvailabilityFor(assignment.employeeName),
+      );
       if (!startAvailability.active || !endAvailability.active) {
         addIssue({
           id: `availability-${assignment.id}`,
@@ -9114,8 +9158,16 @@ export default function Dashboard() {
       });
       if (leadClash) return true;
 
-      const startAvailability = availabilityForDate(assignment.employeeName, assignment.startDate);
-      const endAvailability = availabilityForDate(assignment.employeeName, assignment.endDate);
+      const startAvailability = availabilityForDate(
+        assignment.employeeName,
+        assignment.startDate,
+        cardAvailabilityFor(assignment.employeeName),
+      );
+      const endAvailability = availabilityForDate(
+        assignment.employeeName,
+        assignment.endDate,
+        cardAvailabilityFor(assignment.employeeName),
+      );
       if (!startAvailability.active || !endAvailability.active) return true;
       if (assignment.startDate !== assignment.endDate) return false;
       return timeToMinutes(assignment.startTime) < timeToMinutes(startAvailability.from) ||
@@ -10664,6 +10716,9 @@ export default function Dashboard() {
     setJobs((current) => {
       let changed = false;
       const nextJobs = current.map((job) => {
+        // Imported simPRO jobs keep API Total on the header — remapping from cost centres
+        // was flickering values between Total and partial line sells.
+        if (job.simproJobId) return job;
         const centres = jobEstimateCostCentres[job.id];
         if (!centres?.length) return job;
 
@@ -11751,25 +11806,11 @@ export default function Dashboard() {
       if (module.label === "POs") {
         return access.canRequestPurchase || access.canApprovePurchase || access.showFinance;
       }
-      if (module.label === "More") {
-        const canSeeAnyMore =
-          access.showFinance ||
-          access.showStock ||
-          access.canRequestPurchase ||
-          access.canApprovePurchase ||
-          access.showJobs;
-        return canSeeAnyMore;
+      if (module.label === "Stock") {
+        return access.showStock || access.showFinance || access.canRequestPurchase;
       }
-      return true;
-    });
-  }, [access]);
-
-  const visibleMoreItems = useMemo(() => {
-    const more = modules.find((module) => module.label === "More");
-    return (more?.subItems || []).filter((item) => {
-      if (item === "Stock") return access.showStock || access.showFinance || access.canRequestPurchase;
-      if (item === "Xero" || item === "Reports") return access.showFinance;
-      if (item === "Recurring") return access.showJobs || access.showFinance;
+      if (module.label === "Xero" || module.label === "Reports") return access.showFinance;
+      if (module.label === "Recurring") return access.showJobs || access.showFinance;
       return true;
     });
   }, [access]);
@@ -12410,27 +12451,22 @@ export default function Dashboard() {
     [leadSurveyBookings, scheduledJobs],
   );
 
-  const dashboardGanttPeople = useMemo(() => {
-    const names = new Set<string>(surveyorOptions);
-    for (const booking of allScheduleBookings) {
-      const person = (booking.surveyor || "").trim();
-      if (person) names.add(person);
-    }
-    return Array.from(names).sort((first, second) => first.localeCompare(second));
-  }, [allScheduleBookings]);
-
-  /** Day/week diary lanes — employees + anyone already booked (imported simPRO staff included). */
+  /** Day/week diary lanes — employees with availability ticks + surveyors + anyone already booked. */
   const schedulerDiaryPeople = useMemo(() => {
-    const names = new Set<string>([
-      ...surveyorOptions,
-      ...employees.map((employee) => employee.name.trim()).filter(Boolean),
-    ]);
+    const availableEmployees = employees
+      .filter(employeeHasAnyAvailability)
+      .map((employee) => employee.name.trim())
+      .filter(Boolean);
+    const names = new Set<string>([...surveyorOptions, ...availableEmployees]);
     for (const booking of allScheduleBookings) {
       const person = (booking.surveyor || "").trim();
       if (person) names.add(person);
     }
     return Array.from(names).sort((first, second) => first.localeCompare(second));
   }, [allScheduleBookings, employees]);
+
+  // Overview gantt uses the same people set as Schedules (not only the three hardcoded surveyors).
+  const dashboardGanttPeople = schedulerDiaryPeople;
 
   const schedulerSelectedJob = useMemo(
     () => jobs.find((job) => job.id === schedulerSelectedJobId) ?? null,
@@ -13072,7 +13108,7 @@ export default function Dashboard() {
       setSchedulerJobSearchOpen(true);
       return;
     }
-    const availability = availabilityForDate(employeeName, date);
+    const availability = availabilityForDate(employeeName, date, cardAvailabilityFor(employeeName));
     if (!availability.active) {
       showNotice(`${employeeName} is unavailable on ${formatUkDate(date)}.`);
       return;
@@ -13319,7 +13355,7 @@ export default function Dashboard() {
 
   function validateLeadSurveyBooking(booking: { leadId?: string; surveyor: string; date: string; time: string }) {
     if (!booking.date || !booking.time) return null;
-    const availability = availabilityForDate(booking.surveyor, booking.date);
+    const availability = availabilityForDate(booking.surveyor, booking.date, cardAvailabilityFor(booking.surveyor));
     if (!availability.active) return `${booking.surveyor} is unavailable on ${booking.date}.`;
     const start = timeToMinutes(booking.time);
     const end = start + surveyDurationMinutes;
@@ -28997,7 +29033,14 @@ export default function Dashboard() {
         },
       },
     ];
-    const activeActionCards = actionNotificationCards.filter((card) => card.count > 0);
+    const activeActionCards = actionNotificationCards
+      .filter((card) => card.count > 0)
+      .sort((left, right) => {
+        const toneRank = { red: 0, amber: 1, green: 2 } as const;
+        const toneDelta = toneRank[left.tone] - toneRank[right.tone];
+        if (toneDelta !== 0) return toneDelta;
+        return right.count - left.count;
+      });
     const actionTotal = actionNotificationCards.reduce((total, card) => total + card.count, 0);
     const asOf = currentOperatingDate;
     const recurringDueNow = upcomingRecurringJobs.filter((plan) => plan.nextDueDate <= asOf).length;
@@ -29103,7 +29146,7 @@ export default function Dashboard() {
         onClick={() => setHomeView("recurring")}
       >
         <header>
-          <h3>Upcoming services</h3>
+          <h3>Upcoming jobs</h3>
           <span className="nexa-kpi-sub">{upcomingRecurringJobs.length} / 4 wks</span>
         </header>
         <div className="nexa-kpi-card-scroll">
@@ -29112,7 +29155,7 @@ export default function Dashboard() {
             <span>
               {recurringDueNow > 0
                 ? `${recurringDueNow} due now · rest in next 4 weeks`
-                : "annual boiler services to book"}
+                : "recurring jobs to book"}
             </span>
           </div>
           <div className="nexa-kpi-bars">
@@ -29135,7 +29178,7 @@ export default function Dashboard() {
                 </div>
               ))
             ) : (
-              <p className="nexa-kpi-empty">No services due in the next 4 weeks.</p>
+              <p className="nexa-kpi-empty">No recurring jobs due in the next 4 weeks.</p>
             )}
           </div>
         </div>
@@ -29398,12 +29441,23 @@ export default function Dashboard() {
         <label className="global-search">
           <Search size={17} />
           <input
+            id="nexa-global-search-input"
             aria-label="Search NeXa"
             placeholder="Search customers, jobs, quotes, assets..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
-          <kbd>⌘ K</kbd>
+          <button
+            type="button"
+            className="global-search-action"
+            onClick={() => {
+              const input = document.getElementById("nexa-global-search-input") as HTMLInputElement | null;
+              input?.focus();
+              input?.select();
+            }}
+          >
+            Search
+          </button>
         </label>
 
         <div className="header-actions">
@@ -29633,9 +29687,6 @@ export default function Dashboard() {
         </button>
         {visibleModules.map((module) => {
           const Icon = module.icon;
-          const moreActive =
-            module.label === "More" &&
-            ["stock", "xero", "recurring", "reports", "addons"].includes(homeView);
           const isActiveModule =
             (module.label === "Dashboard" && homeView === "dashboard") ||
             (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
@@ -29646,12 +29697,14 @@ export default function Dashboard() {
             (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
             (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
             (module.label === "People" && ["employees", "employee-card", "clients", "client-record", "directory-manager"].includes(homeView)) ||
-            moreActive;
+            (module.label === "Recurring" && homeView === "recurring") ||
+            (module.label === "Reports" && homeView === "reports") ||
+            (module.label === "Stock" && homeView === "stock") ||
+            (module.label === "Xero" && homeView === "xero");
 
           if (module.subItems?.length) {
             const isOpen = openModuleMenu === module.label;
-            const submenuItems = module.label === "More" ? visibleMoreItems : module.subItems;
-            if (module.label === "More" && !submenuItems.length) return null;
+            const submenuItems = module.subItems;
             return (
               <div
                 key={module.label}
@@ -39681,7 +39734,7 @@ export default function Dashboard() {
                                 onClick={() => updateLeadSurvey(selectedLead.id, { surveyor })}
                               >
                                 <strong>{surveyor}</strong>
-                                <span>{availabilityLabel(surveyor, selectedLead.surveyDate)}</span>
+                                <span>{availabilityLabel(surveyor, selectedLead.surveyDate, cardAvailabilityFor(surveyor))}</span>
                                 <small>{bookedCount} booked</small>
                               </button>
                             );
@@ -39872,7 +39925,7 @@ export default function Dashboard() {
               {scheduleView === "day" ? (
                 <div className="scheduler-grid">
                   {schedulerDiaryPeople.map((surveyor) => {
-                    const availability = availabilityForDate(surveyor, scheduleDate);
+                    const availability = availabilityForDate(surveyor, scheduleDate, cardAvailabilityFor(surveyor));
                     const bookings = bookingsForSelectedDate
                       .filter((booking) => booking.surveyor === surveyor)
                       .sort((first, second) => first.time.localeCompare(second.time));
@@ -39883,7 +39936,7 @@ export default function Dashboard() {
                           <div>
                             <h3>{surveyor}</h3>
                             <span className={availability.active ? "scheduler-available" : "scheduler-unavailable"}>
-                              {availabilityLabel(surveyor, scheduleDate)}
+                              {availabilityLabel(surveyor, scheduleDate, cardAvailabilityFor(surveyor))}
                             </span>
                           </div>
                           <strong>{bookings.length}</strong>
@@ -39990,7 +40043,7 @@ export default function Dashboard() {
                     <div className="scheduler-week-row" key={surveyor}>
                       <header><strong>{surveyor}</strong><span>Team diary</span></header>
                       {scheduleVisibleDays.map((day) => {
-                        const availability = availabilityForDate(surveyor, day);
+                        const availability = availabilityForDate(surveyor, day, cardAvailabilityFor(surveyor));
                         const bookings = allScheduleBookings
                           .filter((booking) => booking.surveyor === surveyor && bookingFallsOnDate(booking, day))
                           .sort((first, second) => first.time.localeCompare(second.time));

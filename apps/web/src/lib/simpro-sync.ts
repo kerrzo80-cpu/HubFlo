@@ -439,16 +439,16 @@ function invoiceIssuedTime(record: UnknownRecord) {
 export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
 /** Keep quote/job Apply inside Render/proxy time limits — detail+CC pulls are heavy. */
 export const SIMPRO_QUOTE_IMPORT_LIMIT = 30;
-export const SIMPRO_JOB_IMPORT_LIMIT = 12;
+/** Pending + Progress + Complete working set (simPRO folder counts can exceed 60). */
+export const SIMPRO_JOB_IMPORT_LIMIT = 80;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
 /**
- * Cost-centre hydrate per Apply. Must be >= quote import limit or headers refresh
- * while cost centres (and BasePrice) are deferred — leaving charge-only lines.
- * Quotes that already have complete centres skip the budget.
+ * Cost-centre hydrate per Apply. Must cover quote + job deep pulls in one Apply.
+ * Quotes/jobs that already have complete centres skip the budget.
  */
-export const SIMPRO_DEEP_HIERARCHY_LIMIT = 40;
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 80;
 
 function recordModifiedTime(record: UnknownRecord) {
   const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
