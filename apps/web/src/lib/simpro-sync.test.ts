@@ -16,6 +16,9 @@ import {
   processClient,
   processSite,
   scopeSimproRecords,
+  SIMPRO_DEEP_HIERARCHY_LIMIT,
+  SIMPRO_JOB_IMPORT_LIMIT,
+  SIMPRO_QUOTE_IMPORT_LIMIT,
 } from "@/lib/simpro-sync";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
 
@@ -64,8 +67,16 @@ describe("simpro sync preview quality", () => {
   it("scopes import to open quotes, live jobs, and latest unpaid invoices", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
+    assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 40/);
+    assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 40/);
+    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 20/);
     assert.match(source, /IsPaid/);
     assert.match(source, /isOpenSimproQuote/);
+    assert.match(source, /hydrateCustomersForRecords\(config, scoped\)/);
+    assert.match(source, /return clone\(persisted\)/);
+    assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 40);
+    assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 40);
+    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 20);
 
     assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
     assert.equal(isOpenSimproQuote({ Status: { Name: "Lost" } }), false);
@@ -89,6 +100,26 @@ describe("simpro sync preview quality", () => {
     ]);
     assert.equal(invoices.length, 2);
     assert.equal(invoices[0]?.ID, 3);
+
+    const quotes = scopeSimproRecords(
+      "quotes",
+      Array.from({ length: 60 }, (_, index) => ({
+        ID: index + 1,
+        Status: { Name: "Quote Sent" },
+        DateModified: `2026-07-${String((index % 28) + 1).padStart(2, "0")}`,
+      })),
+    );
+    assert.equal(quotes.length, SIMPRO_QUOTE_IMPORT_LIMIT);
+
+    const jobs = scopeSimproRecords(
+      "jobs",
+      Array.from({ length: 55 }, (_, index) => ({
+        ID: index + 1,
+        Stage: "Pending",
+        DateModified: `2026-06-${String((index % 28) + 1).padStart(2, "0")}`,
+      })),
+    );
+    assert.equal(jobs.length, SIMPRO_JOB_IMPORT_LIMIT);
   });
 
   it("never labels quotes/jobs as literal simPRO customer when a real name or id exists", () => {

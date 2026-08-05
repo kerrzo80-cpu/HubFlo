@@ -378,9 +378,42 @@ function invoiceIssuedTime(record: UnknownRecord) {
 }
 
 export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
+/** Keep quote/job Apply inside Render memory/time limits. */
+export const SIMPRO_QUOTE_IMPORT_LIMIT = 40;
+export const SIMPRO_JOB_IMPORT_LIMIT = 40;
+/** Full cost-centre hydrate is expensive — only do it for the newest N per run. */
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 20;
 
+function recordModifiedTime(record: UnknownRecord) {
+  const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
+  const time = Date.parse(raw);
+  return Number.isFinite(time) ? time : 0;
+}
 
-function matchingSiteForRecord(record: UnknownRecord, clientId?: string) {
+/** Apply live working-set rules so we don't import archive/history that crashes the app. */
+export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules">, records: UnknownRecord[]) {
+  if (entity === "quotes") {
+    return records
+      .filter(isOpenSimproQuote)
+      .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left))
+      .slice(0, SIMPRO_QUOTE_IMPORT_LIMIT);
+  }
+  if (entity === "jobs") {
+    return records
+      .filter(isImportableSimproJob)
+      .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left))
+      .slice(0, SIMPRO_JOB_IMPORT_LIMIT);
+  }
+  if (entity === "invoices") {
+    return records
+      .filter(isUnpaidSimproInvoice)
+      .sort((left, right) => invoiceIssuedTime(right) - invoiceIssuedTime(left))
+      .slice(0, SIMPRO_INVOICE_IMPORT_LIMIT);
+  }
+  return records;
+}
+
+function matchingSiteForRecord(record: UnknownRecord, clientId: string | undefined) {
   const externalId = simproSiteId(record);
   if (externalId) {
     const link = existingLink("sites", externalId);
@@ -461,9 +494,15 @@ function extractRecords(body: unknown) {
 async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
   // Keep ceilings modest — full history imports were crashing the app.
   // Quotes/jobs/invoices are filtered after fetch to the live working set.
-  const pageSize = entity === "invoices" ? 100 : 250;
+  const pageSize = entity === "invoices" || entity === "quotes" || entity === "jobs" ? 100 : 250;
   const maxPages =
-    entity === "invoices" ? 8 : entity === "quotes" || entity === "jobs" ? 40 : entity === "clients" || entity === "sites" ? 40 : 20;
+    entity === "invoices"
+      ? 6
+      : entity === "quotes" || entity === "jobs"
+        ? 8
+        : entity === "clients" || entity === "sites"
+          ? 40
+          : 20;
 
   const url = new URL(entityEndpoint(config, entity));
   url.searchParams.set("pageSize", String(pageSize));
@@ -531,9 +570,18 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       response.headers.get("Result-Pages") || response.headers.get("result-pages") || reportedPages || 0,
     );
 
+    // Newest-first lists: stop once we already have enough for the working set.
     if (entity === "invoices") {
       const unpaidSoFar = collected.filter(isUnpaidSimproInvoice).length;
       if (unpaidSoFar >= SIMPRO_INVOICE_IMPORT_LIMIT) break;
+    }
+    if (entity === "quotes") {
+      const openSoFar = collected.filter(isOpenSimproQuote).length;
+      if (openSoFar >= SIMPRO_QUOTE_IMPORT_LIMIT) break;
+    }
+    if (entity === "jobs") {
+      const liveSoFar = collected.filter(isImportableSimproJob).length;
+      if (liveSoFar >= SIMPRO_JOB_IMPORT_LIMIT) break;
     }
 
     if (records.length === 0) break;
@@ -542,28 +590,12 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     if (reportedPages > 0 && page >= reportedPages) break;
   }
 
+  // Scope first, then hydrate customers only for the capped working set.
+  const scoped = scopeSimproRecords(entity, collected);
   if (entity === "quotes" || entity === "jobs") {
-    return scopeSimproRecords(entity, await hydrateCustomersForRecords(config, collected));
+    return hydrateCustomersForRecords(config, scoped);
   }
-
-  return scopeSimproRecords(entity, collected);
-}
-
-/** Apply live working-set rules so we don't import archive/history that crashes the app. */
-export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules">, records: UnknownRecord[]) {
-  if (entity === "quotes") {
-    return records.filter(isOpenSimproQuote);
-  }
-  if (entity === "jobs") {
-    return records.filter(isImportableSimproJob);
-  }
-  if (entity === "invoices") {
-    return records
-      .filter(isUnpaidSimproInvoice)
-      .sort((left, right) => invoiceIssuedTime(right) - invoiceIssuedTime(left))
-      .slice(0, SIMPRO_INVOICE_IMPORT_LIMIT);
-  }
-  return records;
+  return scoped;
 }
 
 function existingLink(entity: SimproSyncEntity, simproId: string) {
@@ -785,21 +817,33 @@ function isBlankImportedCustomerName(value?: string) {
 /** Per-import cache so quote/job rows that only carry Customer.ID still get real names. */
 const customerDetailCache = new Map<string, UnknownRecord | null>();
 
+/** Caps full section/CC hydrate per Apply run — each one can be dozens of simPRO HTTP calls. */
+let deepHierarchyBudget = SIMPRO_DEEP_HIERARCHY_LIMIT;
+
 function clearCustomerDetailCache() {
   customerDetailCache.clear();
+}
+
+function resetDeepHierarchyBudget() {
+  deepHierarchyBudget = SIMPRO_DEEP_HIERARCHY_LIMIT;
+}
+
+function takeDeepHierarchySlot() {
+  if (deepHierarchyBudget <= 0) return false;
+  deepHierarchyBudget -= 1;
+  return true;
 }
 
 async function fetchSimproCustomerDetail(config: ResolvedSimproDirectConfig, customerId: string) {
   const cached = customerDetailCache.get(customerId);
   if (cached !== undefined) return cached;
 
+  // Two display=all paths cover company + individual customers on most tenants.
+  // Avoid 6 sequential 404s per ID — that was a major quote-import crash contributor.
   const paths = [
     `/customers/${customerId}/?display=all`,
-    `/customers/${customerId}/`,
     `/customers/companies/${customerId}/?display=all`,
-    `/customers/companies/${customerId}/`,
     `/customers/individuals/${customerId}/?display=all`,
-    `/customers/individuals/${customerId}/`,
   ];
 
   for (const path of paths) {
@@ -858,8 +902,9 @@ async function hydrateCustomersForRecords(config: ResolvedSimproDirectConfig, re
     ),
   ] as string[];
 
-  for (let index = 0; index < missingIds.length; index += 8) {
-    const batch = missingIds.slice(index, index + 8);
+  // Low concurrency — Render + simPRO both choke on bursty parallel customer lookups.
+  for (let index = 0; index < missingIds.length; index += 2) {
+    const batch = missingIds.slice(index, index + 2);
     await Promise.all(batch.map((id) => fetchSimproCustomerDetail(config, id)));
   }
 
@@ -1233,6 +1278,13 @@ async function withQuoteHierarchy(
   mode: SimproSyncMode,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaQuoteId) return op;
+  if (!takeDeepHierarchySlot()) {
+    return {
+      ...op,
+      summary: `${op.summary} Header imported; cost-centre hydrate deferred (run Apply again for next ${SIMPRO_DEEP_HIERARCHY_LIMIT}).`,
+      detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} quotes/jobs per Apply to keep the site stable.`,
+    };
+  }
   const deep = await enrichNexaQuoteFromSimpro({ nexaQuoteId, simproQuoteId: simproId });
   let headerNote = "";
   if (deep.ok && deep.record) {
@@ -1261,6 +1313,13 @@ async function withJobHierarchy(
   mode: SimproSyncMode,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaJobId) return op;
+  if (!takeDeepHierarchySlot()) {
+    return {
+      ...op,
+      summary: `${op.summary} Header imported; cost-centre hydrate deferred (run Apply again for next ${SIMPRO_DEEP_HIERARCHY_LIMIT}).`,
+      detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} quotes/jobs per Apply to keep the site stable.`,
+    };
+  }
   const deep = await enrichNexaJobFromSimpro({
     nexaJobId,
     simproJobId: simproId,
@@ -1775,6 +1834,7 @@ export async function runSimproImport(options: {
   actor?: string;
 }): Promise<SimproSyncRun> {
   clearCustomerDetailCache();
+  resetDeepHierarchyBudget();
   const configStatus = getSimproDirectConfigStatus();
   const selectedEntities = (options.entities?.length ? options.entities : simproEntities)
     .filter((entity): entity is SimproSyncEntity => simproEntities.includes(entity))
@@ -1845,7 +1905,8 @@ export async function runSimproImport(options: {
   };
   simproSyncStore.runs = [persisted, ...simproSyncStore.runs].slice(0, 8);
   persistStore();
-  return clone(run);
+  // Return the trimmed run — cloning thousands of ops was blowing response memory.
+  return clone(persisted);
 }
 
 export function queueSimproWebhookEvent(payload: unknown, headers: Headers): SimproWebhookEvent {
