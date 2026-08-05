@@ -130,16 +130,23 @@ const MAX_SECTIONS_PER_ENTITY = 25;
 /** Prefer listing CCs over per-CC detail storms — detail is only for the first few empty ones. */
 const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 8;
 
-async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
+async function fetchFullEntity(
+  entity: "quotes" | "jobs",
+  externalId: string,
+  prefetchedRecord?: UnknownRecord | null,
+) {
   const config = await getSimproReadConfig();
-  const result = await simproGetFirstOk(config, [
-    `/${entity}/${externalId}/?display=all`,
-    `/${entity}/${externalId}/`,
-  ]);
-  if (!result.ok) {
-    throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} detail failed (HTTP ${result.status}).`);
+  let record = prefetchedRecord ? asRecord(prefetchedRecord) : null;
+  if (!record) {
+    const result = await simproGetFirstOk(config, [
+      `/${entity}/${externalId}/?display=all`,
+      `/${entity}/${externalId}/`,
+    ]);
+    if (!result.ok) {
+      throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} detail failed (HTTP ${result.status}).`);
+    }
+    record = asRecord(result.body);
   }
-  const record = asRecord(result.body);
   if (!record) throw new Error(`Simpro ${entity.slice(0, -1)} ${externalId} returned an empty body.`);
 
   let sections = Array.isArray(record.Sections)
@@ -330,9 +337,11 @@ export async function enrichNexaQuoteFromSimpro(input: {
   nexaQuoteId: string;
   simproQuoteId: string;
   companyId?: string;
+  /** Skip the duplicate /quotes/{id}?display=all when Apply already hydrated the header. */
+  prefetchedRecord?: UnknownRecord | null;
 }): Promise<DeepImportResult> {
   try {
-    const { config, record } = await fetchFullEntity("quotes", input.simproQuoteId);
+    const { config, record } = await fetchFullEntity("quotes", input.simproQuoteId, input.prefetchedRecord);
     const companyId = input.companyId || config.companyId;
     const { centres, stats } = mapSimproQuoteCostCentres(record, input.nexaQuoteId);
 
@@ -398,9 +407,11 @@ export async function enrichNexaJobFromSimpro(input: {
   simproJobId: string;
   companyId?: string;
   includeSchedules?: boolean;
+  /** Skip the duplicate /jobs/{id}?display=all when Apply already hydrated the header. */
+  prefetchedRecord?: UnknownRecord | null;
 }): Promise<DeepImportResult> {
   try {
-    const { config, record } = await fetchFullEntity("jobs", input.simproJobId);
+    const { config, record } = await fetchFullEntity("jobs", input.simproJobId, input.prefetchedRecord);
     const companyId = input.companyId || config.companyId;
     const { centres, stats } = mapSimproJobCostCentres(record, input.nexaJobId);
 

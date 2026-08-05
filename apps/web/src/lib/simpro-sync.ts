@@ -24,6 +24,7 @@ import {
   type QuoteStatus,
 } from "@/lib/workflow-data";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
+import { simproGetFirstOk } from "@/lib/simpro-client";
 import {
   enrichNexaJobFromSimpro,
   enrichNexaQuoteFromSimpro,
@@ -407,16 +408,16 @@ function invoiceIssuedTime(record: UnknownRecord) {
 
 export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
 /** Keep quote/job Apply inside Render memory/time limits. */
-export const SIMPRO_QUOTE_IMPORT_LIMIT = 40;
-export const SIMPRO_JOB_IMPORT_LIMIT = 40;
+export const SIMPRO_QUOTE_IMPORT_LIMIT = 20;
+export const SIMPRO_JOB_IMPORT_LIMIT = 20;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
 /**
  * Cost-centre hydrate per Apply. Quotes that already have centres skip the budget,
- * so re-Apply fills the rest without OOM.
+ * so re-Apply fills the rest without OOM. Kept equal to quote/job caps.
  */
-export const SIMPRO_DEEP_HIERARCHY_LIMIT = 40;
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 20;
 
 function recordModifiedTime(record: UnknownRecord) {
   const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
@@ -925,31 +926,19 @@ async function fetchSimproCustomerDetail(config: ResolvedSimproDirectConfig, cus
   if (cached !== undefined) return cached;
 
   // Two display=all paths cover company + individual customers on most tenants.
-  // Avoid 6 sequential 404s per ID — that was a major quote-import crash contributor.
+  // Use simproGetFirstOk so 429/5xx retry the same way as quote detail / deep-import.
   const paths = [
     `/customers/${customerId}/?display=all`,
     `/customers/companies/${customerId}/?display=all`,
     `/customers/individuals/${customerId}/?display=all`,
   ];
 
-  for (const path of paths) {
-    try {
-      const response = await fetch(`${config.baseUrl}/companies/${config.companyId}${path}`, {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${config.token}`,
-        },
-        cache: "no-store",
-      });
-      if (!response.ok) continue;
-      const body = await response.json().catch(() => null);
-      const record = asRecord(body);
-      if (record && (identifier(record) || customerNameFromFields(record))) {
-        customerDetailCache.set(customerId, record);
-        return record;
-      }
-    } catch {
-      // try next path
+  const result = await simproGetFirstOk(config, paths, { maxRetries: 2 });
+  if (result.ok) {
+    const record = asRecord(result.body);
+    if (record && (identifier(record) || customerNameFromFields(record))) {
+      customerDetailCache.set(customerId, record);
+      return record;
     }
   }
 
@@ -992,32 +981,22 @@ async function fetchSimproEntityDetail(
 ) {
   const cacheKey = `${entity}:${externalId}`;
   const cached = entityDetailCache.get(cacheKey);
-  if (cached !== undefined) return cached;
+  // Only reuse successful detail — never poison the Apply run with a cached null from one 429.
+  if (cached) return cached;
 
-  const paths = [`/${entity}/${externalId}/?display=all`, `/${entity}/${externalId}/`];
-  for (const path of paths) {
-    try {
-      const response = await fetch(`${config.baseUrl}/companies/${config.companyId}${path}`, {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${config.token}`,
-        },
-        cache: "no-store",
-      });
-      if (!response.ok) continue;
-      const body = await response.json().catch(() => null);
-      const record = asRecord(body);
-      if (record && identifier(record)) {
-        entityDetailCache.set(cacheKey, record);
-        return record;
-      }
-    } catch {
-      // try next path
-    }
-  }
-
-  entityDetailCache.set(cacheKey, null);
-  return null;
+  // Same auth/base URL as deep-import (`getSimproReadConfig` → `resolveSimproDirectConfig`),
+  // but previously this used raw fetch with no 429/5xx retries and silently cached null.
+  // That left list-only headers ("Quote 2217", "Customer to confirm") while list fetch still worked.
+  const result = await simproGetFirstOk(
+    config,
+    [`/${entity}/${externalId}/?display=all`, `/${entity}/${externalId}/`],
+    { maxRetries: 3 },
+  );
+  if (!result.ok) return null;
+  const record = asRecord(result.body);
+  if (!record || !identifier(record)) return null;
+  entityDetailCache.set(cacheKey, record);
+  return record;
 }
 
 function mergeEntityDetailOntoRecord(record: UnknownRecord, detail: UnknownRecord) {
@@ -1035,6 +1014,10 @@ function mergeEntityDetailOntoRecord(record: UnknownRecord, detail: UnknownRecor
   };
 }
 
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function hydrateQuoteOrJobRecordForImport(
   config: ResolvedSimproDirectConfig,
   entity: "quotes" | "jobs",
@@ -1044,7 +1027,13 @@ async function hydrateQuoteOrJobRecordForImport(
   if (!externalId) return record;
 
   // Always pull display=all for Apply — list payloads regularly omit Customer/Site.
-  const detail = await fetchSimproEntityDetail(config, entity, externalId);
+  let detail = await fetchSimproEntityDetail(config, entity, externalId);
+  if (!detail) {
+    // One recovery pause for rate-limit storms, then retry without a cached null.
+    await sleep(750);
+    entityDetailCache.delete(`${entity}:${externalId}`);
+    detail = await fetchSimproEntityDetail(config, entity, externalId);
+  }
   let next = detail ? mergeEntityDetailOntoRecord(record, detail) : record;
   next = await hydrateRecordCustomer(config, next);
   next = await hydrateRecordSite(config, next);
@@ -1087,25 +1076,16 @@ async function fetchSimproSiteDetail(config: ResolvedSimproDirectConfig, siteId:
   const cached = siteDetailCache.get(siteId);
   if (cached !== undefined) return cached;
 
-  const paths = [`/sites/${siteId}/?display=all`, `/sites/${siteId}/`];
-  for (const path of paths) {
-    try {
-      const response = await fetch(`${config.baseUrl}/companies/${config.companyId}${path}`, {
-        headers: {
-          Accept: "application/json",
-          Authorization: `Bearer ${config.token}`,
-        },
-        cache: "no-store",
-      });
-      if (!response.ok) continue;
-      const body = await response.json().catch(() => null);
-      const record = asRecord(body);
-      if (record && (identifier(record) || siteAddressFromRecord(record) || simproSiteName(record))) {
-        siteDetailCache.set(siteId, record);
-        return record;
-      }
-    } catch {
-      // try next path
+  const result = await simproGetFirstOk(
+    config,
+    [`/sites/${siteId}/?display=all`, `/sites/${siteId}/`],
+    { maxRetries: 2 },
+  );
+  if (result.ok) {
+    const record = asRecord(result.body);
+    if (record && (identifier(record) || siteAddressFromRecord(record) || simproSiteName(record))) {
+      siteDetailCache.set(siteId, record);
+      return record;
     }
   }
 
@@ -1571,6 +1551,8 @@ async function withQuoteHierarchy(
       if (detail) {
         const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, detail);
         headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
+      } else {
+        headerNote = " Header refresh skipped — quote detail fetch failed.";
       }
     } catch (error) {
       headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
@@ -1589,11 +1571,16 @@ async function withQuoteHierarchy(
       detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} quotes/jobs per Apply to keep the site stable.`,
     };
   }
-  const deep = await enrichNexaQuoteFromSimpro({ nexaQuoteId, simproQuoteId: simproId });
+  const config = await resolveSimproDirectConfig();
+  const prefetched = await fetchSimproEntityDetail(config, "quotes", simproId);
+  const deep = await enrichNexaQuoteFromSimpro({
+    nexaQuoteId,
+    simproQuoteId: simproId,
+    prefetchedRecord: prefetched,
+  });
   let headerNote = "";
   if (deep.ok && deep.record) {
     try {
-      const config = await resolveSimproDirectConfig();
       const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, deep.record);
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)} · ${
         Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
@@ -1605,11 +1592,17 @@ async function withQuoteHierarchy(
     }
   }
   const hierarchyDetail = deep.ok ? deep.summary : deep.detail || deep.summary;
+  if (!deep.ok) {
+    return {
+      ...op,
+      action: "error",
+      summary: `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+      detail: `${hierarchyDetail}${headerNote}`.trim(),
+    };
+  }
   return {
     ...op,
-    summary: deep.ok
-      ? `${op.summary} ${deep.summary}.${headerNote}`
-      : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+    summary: `${op.summary} ${deep.summary}.${headerNote}`,
     detail: `${hierarchyDetail}${headerNote}`.trim(),
   };
 }
@@ -1635,15 +1628,17 @@ async function withJobHierarchy(
       detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} quotes/jobs per Apply to keep the site stable.`,
     };
   }
+  const config = await resolveSimproDirectConfig();
+  const prefetched = await fetchSimproEntityDetail(config, "jobs", simproId);
   const deep = await enrichNexaJobFromSimpro({
     nexaJobId,
     simproJobId: simproId,
     includeSchedules: true,
+    prefetchedRecord: prefetched,
   });
   let headerNote = "";
   if (deep.ok && deep.record) {
     try {
-      const config = await resolveSimproDirectConfig();
       const mapped = await patchJobHeaderFromDeepRecord(config, nexaJobId, deep.record);
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
     } catch (error) {
@@ -1651,11 +1646,17 @@ async function withJobHierarchy(
     }
   }
   const hierarchyDetail = deep.ok ? deep.summary : deep.detail || deep.summary;
+  if (!deep.ok) {
+    return {
+      ...op,
+      action: "error",
+      summary: `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+      detail: `${hierarchyDetail}${headerNote}`.trim(),
+    };
+  }
   return {
     ...op,
-    summary: deep.ok
-      ? `${op.summary} ${deep.summary}.${headerNote}`
-      : `${op.summary} Hierarchy pull failed: ${deep.detail || deep.summary}.`,
+    summary: `${op.summary} ${deep.summary}.${headerNote}`,
     detail: `${hierarchyDetail}${headerNote}`.trim(),
   };
 }
@@ -1776,7 +1777,15 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
     nexaId: quote.id,
     nexaRef: quote.ref,
   });
-  return withQuoteHierarchy(base, quote.id, simproId, mode);
+  const result = await withQuoteHierarchy(base, quote.id, simproId, mode);
+  if (mode === "apply" && isBlankImportedCustomerName(mapped.customer) && !simproCustomerId(working)) {
+    return {
+      ...result,
+      action: "error",
+      summary: `${result.summary} Quote detail had no Customer — re-Apply after checking simPRO access / rate limits.`,
+    };
+  }
+  return result;
 }
 
 async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
@@ -2232,6 +2241,10 @@ export async function runSimproImport(options: {
         const records = await fetchSimproRecords(config, entity);
         for (const record of records) {
           try {
+            // Pace quote/job detail+CC pulls — bursty Apply was 429'd into Customer/Address stubs.
+            if (options.mode === "apply" && (entity === "quotes" || entity === "jobs")) {
+              await sleep(300);
+            }
             run.operations.push(await processRecord(entity, record, options.mode));
           } catch (error) {
             run.operations.push(

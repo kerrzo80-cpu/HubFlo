@@ -71,19 +71,19 @@ describe("simpro sync preview quality", () => {
   it("scopes import to open quotes, live jobs, and latest unpaid invoices", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
-    assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 40/);
-    assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 40/);
+    assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 20/);
+    assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 20/);
     assert.match(source, /SIMPRO_SITE_IMPORT_LIMIT = 80/);
     assert.match(source, /SIMPRO_CLIENT_IMPORT_LIMIT = 80/);
-    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 40/);
+    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 20/);
     assert.match(source, /IsPaid/);
     assert.match(source, /isOpenSimproQuote/);
     assert.match(source, /hydrateCustomersForRecords/);
     assert.match(source, /hydrateSitesForRecords/);
     assert.match(source, /return clone\(persisted\)/);
-    assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 40);
-    assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 40);
-    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 40);
+    assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 20);
+    assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 20);
+    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 20);
 
     assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
     assert.equal(isOpenSimproQuote({ Status: { Name: "Lost" } }), false);
@@ -239,6 +239,12 @@ describe("simpro sync preview quality", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /hydrateQuoteOrJobRecordForImport/);
     assert.match(source, /fetchSimproEntityDetail/);
+    assert.match(source, /simproGetFirstOk/);
+    assert.match(source, /never poison the Apply run with a cached null/i);
+    assert.doesNotMatch(
+      source.slice(source.indexOf("async function fetchSimproEntityDetail"), source.indexOf("function mergeEntityDetailOntoRecord")),
+      /entityDetailCache\.set\(cacheKey, null\)/,
+    );
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
