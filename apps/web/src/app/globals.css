@@ -17392,6 +17392,10 @@ h1 {
     padding: 0 9px;
   }
 
+  .module-link-setup {
+    box-shadow: -10px 0 12px rgba(255, 255, 255, 0.9);
+  }
+
   .body-shell {
     grid-template-columns: 190px minmax(0, 1fr);
   }
