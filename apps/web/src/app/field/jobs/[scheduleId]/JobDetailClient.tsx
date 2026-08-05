@@ -930,7 +930,7 @@ export default function JobDetailPage() {
           <button
             type="button"
             className="primary-btn"
-            disabled={workflowBusy}
+            disabled={workflowBusy || dayworkBusy}
             onClick={() => void setOutcome("Complete")}
           >
             <CheckCircle2 size={17} /> Mark complete
@@ -944,6 +944,11 @@ export default function JobDetailPage() {
             <Wrench size={17} /> Awaiting parts
           </button>
         </div>
+        {!canComplete && checklistMode === "job" ? (
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            Finish the job checklist (not Daywork) before Mark complete. In-progress Daywork can be discarded.
+          </p>
+        ) : null}
         {workflow.outcome ? (
           <p className="muted" style={{ margin: "8px 0 0" }}>
             Latest: {workflow.outcome.status === "Needs parts" ? "Awaiting parts" : workflow.outcome.status}
