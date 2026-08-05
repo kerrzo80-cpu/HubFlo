@@ -29695,7 +29695,7 @@ export default function Dashboard() {
     const recurringDueNow = upcomingRecurringJobs.filter((plan) => plan.nextDueDate <= asOf).length;
     const recurringPreview = upcomingRecurringJobs.slice(0, 6);
 
-    function openJobsFolder(folderKey: "pending" | "progress" | "review") {
+    function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced") {
       setActiveJobFolderKey(folderKey);
       setHomeView("jobs");
       scrollWorkspaceToTop();
