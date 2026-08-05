@@ -25,20 +25,22 @@ export function stripSimproHtml(value: string) {
     .trim();
 }
 
-/** Prefer a short title over a long HTML email body for list cards. */
+/** Prefer a short title over a long HTML/email body for list cards. */
 export function simproPlainDescription(
   fields: { title?: string; body?: string },
   fallback: string,
-  options?: { maxLength?: number },
+  options?: { maxLength?: number; preferTitle?: boolean },
 ) {
-  const maxLength = options?.maxLength ?? 220;
+  const maxLength = options?.maxLength ?? 72;
+  const preferTitle = options?.preferTitle ?? true;
   const rawBody = fields.body || "";
   const title = stripSimproHtml(fields.title || "");
   const body = stripSimproHtml(rawBody);
 
   let chosen = "";
-  // HTML / long email bodies are noise on list cards — prefer Name/Title.
-  if (title && (looksLikeHtml(rawBody) || (body && body.length > Math.max(100, title.length * 3)))) {
+  if (preferTitle && title) {
+    chosen = title;
+  } else if (title && (looksLikeHtml(rawBody) || (body && body.length > Math.max(100, title.length * 3)))) {
     chosen = title;
   } else if (body) {
     chosen = body;

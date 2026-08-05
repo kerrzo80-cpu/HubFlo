@@ -26,6 +26,18 @@ describe("simpro text sanitise", () => {
     assert.equal(description, "Baxi boiler amendment — kitchen");
   });
 
+  it("prefers title over plain long body and clamps list length", () => {
+    const description = simproPlainDescription(
+      {
+        title: "Kitchen extract",
+        body: "Hi Lesley We have amended the quote below, this is now based on the Baxi boiler, we have reviewed and adjusted the costs for the wall removal and kitchen fitting.",
+      },
+      "Imported simPRO quote",
+      { maxLength: 72, preferTitle: true },
+    );
+    assert.equal(description, "Kitchen extract");
+  });
+
   it("falls back to stripped body when title is missing", () => {
     const description = simproPlainDescription(
       {
