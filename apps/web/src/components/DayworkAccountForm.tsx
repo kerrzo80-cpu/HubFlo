@@ -27,6 +27,9 @@ type Props = {
   /** When set, office can price labour rate + each material/plant line before valuations. */
   onSaveOfficeCosts?: (costs: DayworkOfficeCostsPayload) => Promise<void> | void;
   savingOfficeCosts?: boolean;
+  /** Clears the Action notification once office has finished with this sheet. */
+  onMarkDealtWith?: () => void | Promise<void>;
+  markingDealtWith?: boolean;
   /** Opens the valuation PDF preview (same file attached to valuations). */
   onPreviewPdf?: () => void | Promise<void>;
   previewingPdf?: boolean;
@@ -41,6 +44,8 @@ export function DayworkAccountForm({
   context,
   onSaveOfficeCosts,
   savingOfficeCosts,
+  onMarkDealtWith,
+  markingDealtWith,
   onPreviewPdf,
   previewingPdf,
 }: Props) {
@@ -238,14 +243,26 @@ export function DayworkAccountForm({
               {liveTotals.labourHours ? `${liveTotals.labourHours} hrs from Field` : "No Field hours yet"}
               {` · mats ${money(liveTotals.materials)} · plant ${money(liveTotals.plant)} · total ${money(liveTotals.total)}`}
             </strong>
-            <button
-              className="simpro-blue-button"
-              type="button"
-              disabled={Boolean(savingOfficeCosts)}
-              onClick={() => void saveCosts()}
-            >
-              {savingOfficeCosts ? "Saving…" : "Save office costs"}
-            </button>
+            <div className="daywork-office-pricing-buttons">
+              <button
+                className="simpro-blue-button"
+                type="button"
+                disabled={Boolean(savingOfficeCosts) || Boolean(markingDealtWith)}
+                onClick={() => void saveCosts()}
+              >
+                {savingOfficeCosts ? "Saving…" : "Save office costs"}
+              </button>
+              {onMarkDealtWith ? (
+                <button
+                  className="simpro-grey-button"
+                  type="button"
+                  disabled={Boolean(savingOfficeCosts) || Boolean(markingDealtWith)}
+                  onClick={() => void onMarkDealtWith()}
+                >
+                  {markingDealtWith ? "Signing off…" : "Mark dealt with"}
+                </button>
+              ) : null}
+            </div>
           </div>
         </section>
       ) : null}

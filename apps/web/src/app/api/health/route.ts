@@ -62,6 +62,7 @@ export async function GET() {
       simproImportScope: "clients-sites-80-leads-10-quotes-30-jobs-80-deep-80-v7",
       simproLeadsImport: "latest-10-open-stage-status-v2",
       simproEodRefresh: "weekday-1800-utc-cron-v1",
+      actionAlertsRouting: "folders-and-daywork-signoff-v1",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
       quoteCostCentrePartsScope: "active-centre-only-v1",

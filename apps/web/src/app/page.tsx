@@ -7658,7 +7658,9 @@ export default function Dashboard() {
   });
   const [activeQuoteFolderKey, setActiveQuoteFolderKey] = useState("incomplete");
   const [activeJobFolderKey, setActiveJobFolderKey] = useState("all");
+  const [activeLeadFolderKey, setActiveLeadFolderKey] = useState<"all" | "followup">("all");
   const [activeInvoiceFolderKey, setActiveInvoiceFolderKey] = useState("overdue");
+  const [markingDayworkDealtWith, setMarkingDayworkDealtWith] = useState(false);
   const [reportDateRange, setReportDateRange] = useState<ReportDateRange>("All time");
   const [reportCustomStartDate, setReportCustomStartDate] = useState(startOfScheduleWeek(currentOperatingDate));
   const [reportCustomEndDate, setReportCustomEndDate] = useState(currentOperatingDate);
@@ -11701,22 +11703,6 @@ export default function Dashboard() {
     [filteredJobs],
   );
 
-  const visibleJobDirectoryGroups = useMemo(
-    () =>
-      activeJobFolderKey === "all"
-        ? [
-            {
-              key: "all",
-              label: "All jobs",
-              detail: "Every job matching the current search and status filter",
-              tone: "blue",
-              items: filteredJobs,
-            },
-          ]
-        : jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey),
-    [activeJobFolderKey, filteredJobs, jobDirectoryGroups],
-  );
-
   const invoiceDirectoryGroups = useMemo(() => {
     const isOverdue = (invoice: Invoice) =>
       invoice.status !== "Paid" &&
@@ -12012,7 +11998,12 @@ export default function Dashboard() {
     [jobs],
   );
 
-  /** Field-signed Daywork sheets waiting for office pricing / review in Core. */
+  const dayworkTerminalStatuses = useMemo(
+    () => new Set(["Priced", "Approved", "Dealt", "Rejected", "Client approved", "Proceed"]),
+    [],
+  );
+
+  /** Field-signed Daywork sheets still needing office pricing / sign-off in Core. */
   const dashboardDayworkReviews = useMemo(() => {
     const byKey = new Map<
       string,
@@ -12020,6 +12011,8 @@ export default function Dashboard() {
     >();
     for (const event of jobDeliveryEvents) {
       if (event.formType !== "daywork") continue;
+      const status = event.status || "Office review";
+      if (dayworkTerminalStatuses.has(status)) continue;
       const job = jobs.find((item) => item.id === event.jobId);
       if (!job) continue;
       const costCentreId = event.costCentreId || `${event.jobId}-daywork-account`;
@@ -12028,7 +12021,7 @@ export default function Dashboard() {
         jobId: event.jobId,
         jobRef: job.ref,
         costCentreId,
-        status: event.status || "Office review",
+        status,
         summary: event.summary || event.description || "Daywork Account from Field",
       });
     }
@@ -12042,18 +12035,27 @@ export default function Dashboard() {
       if (!job) continue;
       const costCentreId = sheet.costCentreId || `${sheet.jobId}-daywork-account`;
       const key = `${sheet.jobId}:${costCentreId}`;
-      if (!byKey.has(key)) {
-        byKey.set(key, {
-          jobId: sheet.jobId,
-          jobRef: job.ref,
-          costCentreId,
-          status: "Office review",
-          summary: sheet.description || "Signed Daywork Account from Field",
-        });
-      }
+      if (byKey.has(key)) continue;
+      // Sheet-only rows are open until a delivery event marks them dealt/priced.
+      byKey.set(key, {
+        jobId: sheet.jobId,
+        jobRef: job.ref,
+        costCentreId,
+        status: "Office review",
+        summary: sheet.description || "Signed Daywork Account from Field",
+      });
     }
     return Array.from(byKey.values());
-  }, [dayworkSheets, jobDeliveryEvents, jobs]);
+  }, [dayworkSheets, dayworkTerminalStatuses, jobDeliveryEvents, jobs]);
+
+  const dayworkReviewJobs = useMemo(() => {
+    const byId = new Map<string, Job>();
+    for (const review of dashboardDayworkReviews) {
+      const job = jobs.find((item) => item.id === review.jobId);
+      if (job) byId.set(job.id, job);
+    }
+    return Array.from(byId.values()).sort((left, right) => left.ref.localeCompare(right.ref));
+  }, [dashboardDayworkReviews, jobs]);
 
   const overdueLeadQuoteFollowUps = useMemo(
     () =>
@@ -12114,6 +12116,69 @@ export default function Dashboard() {
       }),
     [jobDeliveryEvents, jobs],
   );
+
+  const timesheetReviewJobs = useMemo(() => {
+    const byId = new Map<string, Job>();
+    for (const event of pendingTimesheetApprovals) {
+      const job = jobs.find((item) => item.id === event.jobId);
+      if (job) byId.set(job.id, job);
+    }
+    for (const job of overdueTimesheetJobs) {
+      byId.set(job.id, job);
+    }
+    return Array.from(byId.values()).sort((left, right) => left.ref.localeCompare(right.ref));
+  }, [jobs, overdueTimesheetJobs, pendingTimesheetApprovals]);
+
+  const actionJobDirectoryGroups = useMemo(
+    () => [
+      {
+        key: "timesheets",
+        label: "Timesheets to review",
+        detail: "Approve submitted hours or chase overdue timesheets",
+        tone: "amber",
+        items: timesheetReviewJobs,
+      },
+      {
+        key: "daywork",
+        label: "Daywork to review",
+        detail: "Signed Field sheets waiting for office pricing or sign-off",
+        tone: "amber",
+        items: dayworkReviewJobs,
+      },
+    ],
+    [dayworkReviewJobs, timesheetReviewJobs],
+  );
+
+  const jobDirectoryTabs = useMemo(
+    () => [
+      {
+        key: "all",
+        label: "All jobs",
+        tone: "blue",
+        items: filteredJobs,
+      },
+      ...actionJobDirectoryGroups,
+      ...jobDirectoryGroups,
+    ],
+    [actionJobDirectoryGroups, filteredJobs, jobDirectoryGroups],
+  );
+
+  const visibleJobDirectoryGroups = useMemo(() => {
+    if (activeJobFolderKey === "all") {
+      return [
+        {
+          key: "all",
+          label: "All jobs",
+          detail: "Every job matching the current search and status filter",
+          tone: "blue",
+          items: filteredJobs,
+        },
+      ];
+    }
+    const actionMatch = actionJobDirectoryGroups.filter((group) => group.key === activeJobFolderKey);
+    if (actionMatch.length) return actionMatch;
+    return jobDirectoryGroups.filter((group) => group.key === activeJobFolderKey);
+  }, [actionJobDirectoryGroups, activeJobFolderKey, filteredJobs, jobDirectoryGroups]);
 
   const overdueScheduledJobs = useMemo(() => {
     const closed = new Set(["Completed", "Ready to invoice", "Invoiced", "Cancelled", "Closed"]);
@@ -22399,6 +22464,48 @@ export default function Dashboard() {
     showNotice("Timesheet submitted for office approval.");
   }
 
+  function markDayworkDealtWith(jobId: string, costCentreId: string, jobRef?: string) {
+    const now = new Date().toISOString();
+    const eventId = `daywork-${jobId}-${costCentreId}`;
+    setJobDeliveryEvents((current) => {
+      const existing = current.find(
+        (event) =>
+          event.formType === "daywork" &&
+          event.jobId === jobId &&
+          (event.costCentreId === costCentreId || event.id === eventId),
+      );
+      if (existing) {
+        return current.map((event) =>
+          event.id === existing.id
+            ? {
+                ...event,
+                status: "Dealt",
+                summary: event.summary || "Daywork marked dealt with by office",
+              }
+            : event,
+        );
+      }
+      return [
+        {
+          id: eventId,
+          jobId,
+          jobRef: jobRef || jobs.find((item) => item.id === jobId)?.ref || jobId,
+          kind: "variation" as const,
+          actor: activeEmployee?.name || "Office",
+          summary: "Daywork marked dealt with by office",
+          createdAt: now,
+          status: "Dealt",
+          source: "NeXa" as const,
+          costCentreId,
+          formType: "daywork",
+          reason: "Daywork account",
+        },
+        ...current,
+      ];
+    });
+    showNotice("Daywork signed off — removed from Action notifications.");
+  }
+
   function reviewJobTimesheet(eventId: string, decision: "Approved" | "Rejected") {
     const event = jobDeliveryEvents.find((row) => row.id === eventId);
     if (!event || event.kind !== "timesheet") return;
@@ -29380,11 +29487,21 @@ export default function Dashboard() {
                     }
                     return next;
                   });
-                  showNotice("Daywork office costs saved — ready for valuations.");
+                  showNotice("Daywork office costs saved — cleared from Action notifications.");
                 } catch (error) {
                   showNotice(error instanceof Error ? error.message : "Could not save office costs.");
                 } finally {
                   setSavingDayworkOfficeCosts(false);
+                }
+              }}
+              markingDealtWith={markingDayworkDealtWith}
+              onMarkDealtWith={async () => {
+                if (!centre) return;
+                setMarkingDayworkDealtWith(true);
+                try {
+                  markDayworkDealtWith(job.id, centre.id, job.ref);
+                } finally {
+                  setMarkingDayworkDealtWith(false);
                 }
               }}
             />
@@ -29575,6 +29692,18 @@ export default function Dashboard() {
     const invoiceMax = Math.max(1, ...invoiceBars.map((row) => row.value));
     const invoiceTotal = invoiceBars.reduce((sum, row) => sum + row.value, 0);
 
+    function openQuotesFolder(folderKey: string) {
+      setActiveQuoteFolderKey(folderKey);
+      setHomeView("quotes");
+      scrollWorkspaceToTop();
+    }
+
+    function openLeadsFolder(folderKey: "all" | "followup") {
+      setActiveLeadFolderKey(folderKey);
+      setHomeView("leads");
+      scrollWorkspaceToTop();
+    }
+
     const actionNotificationCards = [
       {
         id: "unassigned",
@@ -29590,28 +29719,15 @@ export default function Dashboard() {
         count: overdueTimesheetJobs.length + pendingTimesheetApprovals.length,
         title: "Timesheets",
         detail: `${pendingTimesheetApprovals.length} approve · ${overdueTimesheetJobs.length} overdue`,
-        onClick: () => {
-          const firstApproval = pendingTimesheetApprovals[0];
-          if (firstApproval) {
-            openJobDrawer(firstApproval.jobId);
-            return;
-          }
-          const firstOverdue = overdueTimesheetJobs[0];
-          if (firstOverdue) openJobDrawer(firstOverdue.id);
-          else setHomeView("jobs");
-        },
+        onClick: () => openJobsFolder("timesheets"),
       },
       {
         id: "daywork",
         tone: "amber" as const,
         count: dashboardDayworkReviews.length,
         title: "Daywork",
-        detail: "From Field",
-        onClick: () => {
-          const first = dashboardDayworkReviews[0];
-          if (first) openDayworkAccountRecord(first.jobId, { costCentreId: first.costCentreId });
-          else showNotice("No Daywork sheets from Field yet.");
-        },
+        detail: "From Field — review & sign off",
+        onClick: () => openJobsFolder("daywork"),
       },
       {
         id: "po-requests",
@@ -29643,11 +29759,7 @@ export default function Dashboard() {
         count: overdueLeadQuoteFollowUps.length,
         title: "Lead follow-ups",
         detail: "Overdue for quote",
-        onClick: () => {
-          const first = overdueLeadQuoteFollowUps[0];
-          if (first) openLeadRecord(first.lead.id);
-          else setHomeView("leads");
-        },
+        onClick: () => openLeadsFolder("followup"),
       },
       {
         id: "quote-followups",
@@ -29655,11 +29767,7 @@ export default function Dashboard() {
         count: quoteResponseFollowUps.length,
         title: "Quote follow-ups",
         detail: "Waiting on customer",
-        onClick: () => {
-          const first = quoteResponseFollowUps[0];
-          if (first) openQuoteDrawer(first.quote.id);
-          else setHomeView("quotes");
-        },
+        onClick: () => openQuotesFolder("followup"),
       },
       {
         id: "approved-quotes",
@@ -29667,11 +29775,7 @@ export default function Dashboard() {
         count: approvedQuotesAwaitingScheduling.length,
         title: "Approved quotes",
         detail: "Awaiting schedule",
-        onClick: () => {
-          const first = approvedQuotesAwaitingScheduling[0];
-          if (first) openQuoteDrawer(first.id);
-          else setHomeView("quotes");
-        },
+        onClick: () => openUnassignedJobsOnSchedule(),
       },
       {
         id: "overdue-jobs",
@@ -29679,11 +29783,7 @@ export default function Dashboard() {
         count: overdueScheduledJobs.length,
         title: "Overdue jobs",
         detail: "Past booked date",
-        onClick: () => {
-          const first = overdueScheduledJobs[0];
-          if (first) openJobDrawer(first.id);
-          else setHomeView("jobs");
-        },
+        onClick: () => openJobsFolder("progress"),
       },
     ];
     const activeActionCards = actionNotificationCards
@@ -29699,7 +29799,7 @@ export default function Dashboard() {
     const recurringDueNow = upcomingRecurringJobs.filter((plan) => plan.nextDueDate <= asOf).length;
     const recurringPreview = upcomingRecurringJobs.slice(0, 6);
 
-    function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced") {
+    function openJobsFolder(folderKey: "pending" | "progress" | "review" | "uninvoiced" | "timesheets" | "daywork") {
       setActiveJobFolderKey(folderKey);
       setHomeView("jobs");
       scrollWorkspaceToTop();
@@ -31615,7 +31715,7 @@ export default function Dashboard() {
               </div>
 
               <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Job folders">
-                {[{ key: "all", label: "All jobs", tone: "blue", items: filteredJobs }, ...jobDirectoryGroups].map((group) => (
+                {jobDirectoryTabs.map((group) => (
                   <button
                     aria-selected={activeJobFolderKey === group.key}
                     className={`record-folder-card ${group.tone} ${activeJobFolderKey === group.key ? "active" : ""}`}
@@ -31683,8 +31783,92 @@ export default function Dashboard() {
                             <span className={`status-pill ${job.health}`}>{job.status}</span>
                             <strong className="value">{currency(job.value)}</strong>
                             <span className="next-action quote-workflow-action">
-                              <strong>{job.next}</strong>
-                              <small>{job.scheduledDate && job.scheduledTime ? `${job.scheduledDate} at ${job.scheduledTime}` : `Due ${job.due}`}</small>
+                              <strong>
+                                {activeJobFolderKey === "timesheets"
+                                  ? (() => {
+                                      const pending = pendingTimesheetApprovals.filter((event) => event.jobId === job.id);
+                                      if (pending.length) return `${pending.length} timesheet(s) to approve`;
+                                      return "Timesheet overdue — chase engineer";
+                                    })()
+                                  : activeJobFolderKey === "daywork"
+                                    ? (() => {
+                                        const pending = dashboardDayworkReviews.filter((item) => item.jobId === job.id);
+                                        return pending[0]?.summary || "Daywork awaiting office";
+                                      })()
+                                    : job.next}
+                              </strong>
+                              <small>
+                                {activeJobFolderKey === "timesheets"
+                                  ? pendingTimesheetApprovals
+                                      .filter((event) => event.jobId === job.id)
+                                      .map((event) => `${event.actor} · ${event.hours ?? 0}h`)
+                                      .join(" · ") || "No hours submitted yet"
+                                  : activeJobFolderKey === "daywork"
+                                    ? dashboardDayworkReviews
+                                        .filter((item) => item.jobId === job.id)
+                                        .map((item) => item.status)
+                                        .join(" · ") || "Open Daywork to price or sign off"
+                                    : job.scheduledDate && job.scheduledTime
+                                      ? `${job.scheduledDate} at ${job.scheduledTime}`
+                                      : `Due ${job.due}`}
+                              </small>
+                              {activeJobFolderKey === "timesheets"
+                                ? pendingTimesheetApprovals
+                                    .filter((event) => event.jobId === job.id)
+                                    .slice(0, 2)
+                                    .map((event) => (
+                                      <span className="directory-inline-actions" key={event.id}>
+                                        <button
+                                          className="secondary-button"
+                                          type="button"
+                                          onClick={(clickEvent) => {
+                                            clickEvent.stopPropagation();
+                                            reviewJobTimesheet(event.id, "Approved");
+                                          }}
+                                        >
+                                          Approve {event.hours ?? 0}h
+                                        </button>
+                                        <button
+                                          className="secondary-button"
+                                          type="button"
+                                          onClick={(clickEvent) => {
+                                            clickEvent.stopPropagation();
+                                            reviewJobTimesheet(event.id, "Rejected");
+                                          }}
+                                        >
+                                          Reject
+                                        </button>
+                                      </span>
+                                    ))
+                                : null}
+                              {activeJobFolderKey === "daywork" ? (
+                                <span className="directory-inline-actions">
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={(clickEvent) => {
+                                      clickEvent.stopPropagation();
+                                      const first = dashboardDayworkReviews.find((item) => item.jobId === job.id);
+                                      openDayworkAccountRecord(job.id, { costCentreId: first?.costCentreId });
+                                    }}
+                                  >
+                                    Open Daywork
+                                  </button>
+                                  <button
+                                    className="secondary-button"
+                                    type="button"
+                                    onClick={(clickEvent) => {
+                                      clickEvent.stopPropagation();
+                                      const pending = dashboardDayworkReviews.filter((item) => item.jobId === job.id);
+                                      for (const item of pending) {
+                                        markDayworkDealtWith(job.id, item.costCentreId, job.ref);
+                                      }
+                                    }}
+                                  >
+                                    Mark dealt with
+                                  </button>
+                                </span>
+                              ) : null}
                             </span>
                             {renderDirectoryActionMenu("job", job.id, [
                               { label: "Open job", onClick: () => openJobDrawer(job.id) },
@@ -43151,10 +43335,38 @@ export default function Dashboard() {
                   <span>Need scheduling</span>
                   <strong>{leads.filter((lead) => lead.status === "Needs scheduling").length}</strong>
                 </article>
-                <article className={overdueLeadQuoteFollowUps.length ? "attention" : ""}>
+                <button
+                  className={`lead-summary-button ${overdueLeadQuoteFollowUps.length ? "attention" : ""} ${activeLeadFolderKey === "followup" ? "active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveLeadFolderKey(activeLeadFolderKey === "followup" ? "all" : "followup")}
+                >
                   <span>Quote overdue</span>
                   <strong>{overdueLeadQuoteFollowUps.length}</strong>
-                </article>
+                  <small>{activeLeadFolderKey === "followup" ? "Showing follow-ups · click for all" : "Click to show all follow-ups"}</small>
+                </button>
+              </div>
+
+              <div className="record-folder-grid record-folder-tabs" role="tablist" aria-label="Lead folders">
+                <button
+                  aria-selected={activeLeadFolderKey === "all"}
+                  className={`record-folder-card blue ${activeLeadFolderKey === "all" ? "active" : ""}`}
+                  type="button"
+                  role="tab"
+                  onClick={() => setActiveLeadFolderKey("all")}
+                >
+                  <span>All leads</span>
+                  <strong>{filteredLeads.length}</strong>
+                </button>
+                <button
+                  aria-selected={activeLeadFolderKey === "followup"}
+                  className={`record-folder-card red ${activeLeadFolderKey === "followup" ? "active" : ""}`}
+                  type="button"
+                  role="tab"
+                  onClick={() => setActiveLeadFolderKey("followup")}
+                >
+                  <span>Follow-ups due</span>
+                  <strong>{overdueLeadQuoteFollowUps.length}</strong>
+                </button>
               </div>
 
               <div className="lead-layout">
@@ -43169,7 +43381,10 @@ export default function Dashboard() {
                     <span>Next action</span>
                     <span>Options</span>
                   </div>
-                  {filteredLeads.map((lead) => {
+                  {(activeLeadFolderKey === "followup"
+                    ? overdueLeadQuoteFollowUps.map((item) => item.lead)
+                    : filteredLeads
+                  ).map((lead) => {
                     const linkedQuote = getLeadQuote(lead);
                     const followUp = getLeadQuoteFollowUp(lead);
                     return (
