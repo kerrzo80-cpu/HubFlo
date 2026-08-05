@@ -13,7 +13,7 @@ import {
 } from "@/lib/branding";
 import { useBrand } from "@/components/BrandProvider";
 
-const iconVersion = "20260805a";
+const iconVersion = "20260805b";
 
 type Profile = {
   app: BrandAppKey;
@@ -58,7 +58,7 @@ function chooseApp(pathname: string): BrandAppKey {
 function buildProfile(pathname: string, brand: PublicBranding): Profile {
   const app = chooseApp(pathname);
   const title = appDisplayName(brand, app);
-  const icon = resolveBrandIconUrl(brand);
+  const icon = resolveBrandIconUrl(brand, app);
   const manifestApp =
     app === "survey" && pathname.startsWith("/estimator")
       ? "estimator"

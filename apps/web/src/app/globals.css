@@ -12520,6 +12520,35 @@ h1 {
   margin: 8px 0 4px;
 }
 
+.personalising-app-logo-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 8px 0 4px;
+}
+
+.personalising-app-logo-card {
+  align-items: start;
+  background: #f8fbfc;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 72px 1fr;
+  padding: 14px;
+}
+
+.personalising-app-logo-card .personalising-upload-preview {
+  height: 72px;
+  width: 72px;
+}
+
+.personalising-app-logo-card label {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
 .personalising-upload-card {
   align-items: start;
   background: #f8fbfc;
@@ -12601,7 +12630,8 @@ h1 {
 }
 
 @media (max-width: 900px) {
-  .personalising-upload-grid {
+  .personalising-upload-grid,
+  .personalising-app-logo-grid {
     grid-template-columns: 1fr;
   }
 }

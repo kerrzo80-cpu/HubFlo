@@ -38,6 +38,7 @@ import {
   type HeatingSystemLayout,
 } from "@/lib/heat-design";
 import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 import { FloorPlanCanvas } from "./FloorPlanCanvas";
 import { MaterialsWizard } from "./MaterialsWizard";
 import { DesignReport } from "./DesignReport";
@@ -500,6 +501,8 @@ export default function HeatDesignLabPage() {
       <div className="hd-shell">
         <header className="hd-topbar">
           <div className="hd-brand">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img className="hd-brand-logo" src={resolveBrandLogoUrl(brand, "heat-design")} alt={brand.companyName} />
             <div className="hd-brand-kicker">Live · links to Core quotes & jobs</div>
             <h1>{brand.heatDesignAppName}</h1>
             {tab !== "plan" ? (

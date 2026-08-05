@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Archive, ClipboardList, FileSearch, LayoutDashboard, Loader2, Plus, Sparkles, Trash2, X } from "lucide-react";
 import type { SurveyJobLink, SurveyLinkType, SurveyRecord } from "@hubflo/domain";
 import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
@@ -354,7 +355,7 @@ export default function SurveyDirectoryPage() {
       <header className="survey-simple-topbar">
         <div className="survey-simple-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
+          <img src={resolveBrandLogoUrl(brand, "survey")} alt={brand.companyName} />
           <span>
             <strong>{brand.surveyAppName}</strong>
             <small>Upload · describe · cost centres</small>
