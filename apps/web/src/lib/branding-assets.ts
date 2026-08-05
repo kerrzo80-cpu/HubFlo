@@ -2,8 +2,26 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import path from "node:path";
 
 import { getServerStoreDirectory } from "@/lib/server-store";
+import type { BrandAppLogoField } from "@/lib/branding";
 
-export type BrandingAssetKind = "logo" | "icon";
+export type BrandingAssetKind =
+  | "logo"
+  | "icon"
+  | "logo-core"
+  | "logo-field"
+  | "logo-survey"
+  | "logo-takeoffs"
+  | "logo-heat-design";
+
+export const BRANDING_ASSET_KINDS: BrandingAssetKind[] = [
+  "logo",
+  "icon",
+  "logo-core",
+  "logo-field",
+  "logo-survey",
+  "logo-takeoffs",
+  "logo-heat-design",
+];
 
 const MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
@@ -33,6 +51,31 @@ function extensionFor(fileName: string, mimeType: string) {
 
 function metaPath(kind: BrandingAssetKind) {
   return path.join(brandingDir(), `${kind}.meta.json`);
+}
+
+export function asBrandingAssetKind(value: string): BrandingAssetKind | null {
+  return (BRANDING_ASSET_KINDS as string[]).includes(value) ? (value as BrandingAssetKind) : null;
+}
+
+export function brandingAssetSettingsField(kind: BrandingAssetKind): "logoUrl" | "appIconUrl" | BrandAppLogoField {
+  switch (kind) {
+    case "logo":
+      return "logoUrl";
+    case "icon":
+      return "appIconUrl";
+    case "logo-core":
+      return "coreLogoUrl";
+    case "logo-field":
+      return "fieldLogoUrl";
+    case "logo-survey":
+      return "surveyLogoUrl";
+    case "logo-takeoffs":
+      return "takeoffsLogoUrl";
+    case "logo-heat-design":
+      return "heatDesignLogoUrl";
+    default:
+      return "logoUrl";
+  }
 }
 
 export function brandingAssetPublicPath(kind: BrandingAssetKind) {

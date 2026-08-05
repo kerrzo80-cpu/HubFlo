@@ -63,7 +63,7 @@ export async function GET() {
       simproLeadsImport: "latest-10-open-stage-status-v2",
       simproEodRefresh: "weekday-1800-utc-cron-v1",
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
-      personalisingBranding: "owner-white-label-v1",
+      personalisingBranding: "per-app-logos-v1",
       customiseForms: "headers-logos-daywork-gassafe-v1",
       uiModuleBarIpad: "scroll-and-pin-setup-v1",
       uiSetupScrollIpad: "workspace-scroll-1366-v1",

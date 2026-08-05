@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type { EstimateLabourLine, EstimateMaterialLine, EstimateRecord, SurveyRecord } from "@hubflo/domain";
 import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 
 const requestHeaders: HeadersInit = {
   "x-hubflo-role": "Office",
@@ -298,7 +299,7 @@ export default function EstimatorPage() {
       <header className="estimator-header">
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
+          <img src={resolveBrandLogoUrl(brand, "estimator")} alt={brand.companyName} />
           <span><strong>{brand.surveyAppName}</strong><small>Survey to priced work package</small></span>
         </div>
         <nav><a href="/"><ArrowLeft size={17} /> Core</a><a href="/survey"><ClipboardList size={17} /> Surveys</a></nav>

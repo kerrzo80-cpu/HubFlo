@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, Clock3, MessageCircle } from "lucide-react";
 import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 import { FIELD_BASE, fieldPath } from "@/lib/field/routes";
 
 const links = [
@@ -28,7 +29,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
     >
       <header className="field-topbar">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
+        <img src={resolveBrandLogoUrl(brand, "field")} alt={brand.companyName} />
         <div>
           <strong>{brand.fieldAppName}</strong>
           <span>{brand.companyName}</span>

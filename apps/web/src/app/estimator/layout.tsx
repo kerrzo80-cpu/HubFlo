@@ -11,8 +11,8 @@ export const metadata: Metadata = {
     title: "Estimator",
   },
   icons: {
-    icon: [{ url: "/api/branding/assets/icon", sizes: "512x512", type: "image/png" }],
-    apple: [{ url: "/api/branding/assets/icon", sizes: "180x180", type: "image/png" }],
+    icon: [{ url: "/api/branding/assets/logo-survey", sizes: "512x512", type: "image/png" }],
+    apple: [{ url: "/api/branding/assets/logo-survey", sizes: "180x180", type: "image/png" }],
   },
 };
 

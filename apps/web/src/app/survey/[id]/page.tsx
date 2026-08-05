@@ -20,6 +20,7 @@ import type { SurveyAnswer, SurveyJobLink, SurveyLinkType, SurveyPhoto, SurveyPh
 import type { QuickCostCentre } from "@/lib/survey-quick-pack";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 import { prepareSurveyEvidenceFile } from "@/lib/survey-evidence-prepare";
 
 const requestHeaders: HeadersInit = {
@@ -586,7 +587,7 @@ export default function SimpleSurveyWorkspacePage() {
       <header className="survey-simple-topbar">
         <div className="survey-simple-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.companyName} />
+          <img src={resolveBrandLogoUrl(brand, "survey")} alt={brand.companyName} />
           <span>
             <strong>{brand.surveyAppName}</strong>
             <small>{survey.reference}</small>

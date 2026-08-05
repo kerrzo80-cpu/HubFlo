@@ -3,7 +3,13 @@
 import { useRef, useState } from "react";
 import { ImagePlus, Palette, Smartphone } from "lucide-react";
 
-import type { BusinessBrandingSettings } from "@/lib/branding";
+import {
+  resolveBrandIconUrl,
+  type BrandAppKey,
+  type BrandAppLogoField,
+  type BusinessBrandingSettings,
+} from "@/lib/branding";
+import type { BrandingAssetKind } from "@/lib/branding-assets";
 
 type Props = {
   businessSettings: BusinessBrandingSettings;
@@ -14,6 +20,44 @@ type Props = {
   focus?: "Company" | "Personalising" | "Portal" | null;
 };
 
+type AppLogoRow = {
+  key: BrandAppKey;
+  kind: BrandingAssetKind;
+  field: BrandAppLogoField;
+  nameField: keyof BusinessBrandingSettings;
+  label: string;
+  href: string;
+};
+
+const APP_LOGO_ROWS: AppLogoRow[] = [
+  { key: "core", kind: "logo-core", field: "coreLogoUrl", nameField: "coreAppName", label: "Core", href: "/" },
+  { key: "field", kind: "logo-field", field: "fieldLogoUrl", nameField: "fieldAppName", label: "Field", href: "/field" },
+  {
+    key: "survey",
+    kind: "logo-survey",
+    field: "surveyLogoUrl",
+    nameField: "surveyAppName",
+    label: "Survey / Estimator",
+    href: "/survey",
+  },
+  {
+    key: "takeoffs",
+    kind: "logo-takeoffs",
+    field: "takeoffsLogoUrl",
+    nameField: "takeoffsAppName",
+    label: "Takeoffs",
+    href: "/takeoff",
+  },
+  {
+    key: "heat-design",
+    kind: "logo-heat-design",
+    field: "heatDesignLogoUrl",
+    nameField: "heatDesignAppName",
+    label: "Heat Design",
+    href: "/heat-design",
+  },
+];
+
 export function SetupPersonalisingPanel({
   businessSettings,
   requestHeaders,
@@ -23,13 +67,14 @@ export function SetupPersonalisingPanel({
 }: Props) {
   const logoInputRef = useRef<HTMLInputElement | null>(null);
   const iconInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploading, setUploading] = useState<"logo" | "icon" | null>(null);
+  const appInputRefs = useRef<Partial<Record<BrandingAssetKind, HTMLInputElement | null>>>({});
+  const [uploading, setUploading] = useState<BrandingAssetKind | null>(null);
 
   const showCompany = !focus || focus === "Company";
   const showPersonalising = !focus || focus === "Personalising";
   const showPortal = !focus || focus === "Portal";
 
-  async function uploadAsset(kind: "logo" | "icon", file: File | null | undefined) {
+  async function uploadAsset(kind: BrandingAssetKind, file: File | null | undefined, notice: string) {
     if (!file) return;
     setUploading(kind);
     try {
@@ -49,9 +94,14 @@ export function SetupPersonalisingPanel({
       if (result?.businessSettings) {
         onChange(result.businessSettings);
       } else if (result?.url) {
-        onChange(kind === "logo" ? { logoUrl: result.url, appIconUrl: result.url } : { appIconUrl: result.url });
+        if (kind === "logo") onChange({ logoUrl: result.url, appIconUrl: result.url });
+        else if (kind === "icon") onChange({ appIconUrl: result.url });
+        else {
+          const row = APP_LOGO_ROWS.find((item) => item.kind === kind);
+          if (row) onChange({ [row.field]: result.url });
+        }
       }
-      onNotice(kind === "logo" ? "Company logo uploaded." : "Home-screen app icon uploaded.");
+      onNotice(notice);
     } catch (error) {
       onNotice(error instanceof Error ? error.message : "Could not upload image.");
     } finally {
@@ -75,8 +125,8 @@ export function SetupPersonalisingPanel({
           </h2>
           {showPersonalising ? (
             <p className="setup-panel-lead">
-              Make Core, Field, Survey, Takeoffs and Heat Design feel like your company — logos, colours, app names and
-              home-screen icons. NeXa stays hidden when white-label is on.
+              Make Core, Field, Survey, Takeoffs and Heat Design feel like your company — logos per app, colours, app
+              names and home-screen icons. NeXa stays hidden when white-label is on.
             </p>
           ) : null}
         </div>
@@ -130,7 +180,7 @@ export function SetupPersonalisingPanel({
             <Palette size={18} />
             <div>
               <strong>Look & feel</strong>
-              <small>Colours apply across the platform. Logo appears on headers, PDFs and login.</small>
+              <small>Colours apply across the platform. Company logo appears on login, PDFs and forms.</small>
             </div>
           </div>
 
@@ -196,14 +246,14 @@ export function SetupPersonalisingPanel({
               </div>
               <div>
                 <strong>Company logo</strong>
-                <p>Used on Core, Field, login, PDFs and forms.</p>
+                <p>Used on login, PDFs, forms and as fallback when an app has no logo of its own.</p>
                 <input
                   ref={logoInputRef}
                   type="file"
                   accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
                   hidden
                   onChange={(event) => {
-                    void uploadAsset("logo", event.target.files?.[0]);
+                    void uploadAsset("logo", event.target.files?.[0], "Company logo uploaded.");
                     event.target.value = "";
                   }}
                 />
@@ -232,18 +282,18 @@ export function SetupPersonalisingPanel({
             <article className="personalising-upload-card">
               <div className="personalising-upload-preview personalising-upload-preview-icon" style={{ borderColor: businessSettings.brandPrimaryColor }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={businessSettings.appIconUrl || businessSettings.logoUrl || "/ewg-logo.png"} alt="App icon preview" />
+                <img src={businessSettings.appIconUrl || businessSettings.logoUrl || "/ewg-logo.png"} alt="Default app icon preview" />
               </div>
               <div>
-                <strong>Home-screen app icon</strong>
-                <p>Shown when staff save Core / Field / Survey / Takeoffs / Heat Design to their home screen.</p>
+                <strong>Default home-screen icon</strong>
+                <p>Used for any app that does not have its own logo uploaded below.</p>
                 <input
                   ref={iconInputRef}
                   type="file"
                   accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
                   hidden
                   onChange={(event) => {
-                    void uploadAsset("icon", event.target.files?.[0]);
+                    void uploadAsset("icon", event.target.files?.[0], "Default home-screen icon uploaded.");
                     event.target.value = "";
                   }}
                 />
@@ -255,7 +305,7 @@ export function SetupPersonalisingPanel({
                     onClick={() => iconInputRef.current?.click()}
                   >
                     <Smartphone size={16} />
-                    {uploading === "icon" ? "Uploading…" : "Upload app icon"}
+                    {uploading === "icon" ? "Uploading…" : "Upload default icon"}
                   </button>
                 </div>
                 <label>
@@ -273,46 +323,83 @@ export function SetupPersonalisingPanel({
           <div className="personalising-section-head">
             <Smartphone size={18} />
             <div>
-              <strong>App names on home screens</strong>
-              <small>These titles appear under the icon when an app is saved to the phone or tablet.</small>
+              <strong>App names & logos</strong>
+              <small>Each app can have its own logo for headers and the home-screen icon. Leave blank to use the default icon.</small>
             </div>
           </div>
 
-          <div className="setup-form-grid">
-            <label>
-              Core
-              <input value={businessSettings.coreAppName} onChange={(event) => onChange({ coreAppName: event.target.value })} />
-            </label>
-            <label>
-              Field
-              <input value={businessSettings.fieldAppName} onChange={(event) => onChange({ fieldAppName: event.target.value })} />
-            </label>
-            <label>
-              Survey / Estimator
-              <input value={businessSettings.surveyAppName} onChange={(event) => onChange({ surveyAppName: event.target.value })} />
-            </label>
-            <label>
-              Takeoffs
-              <input value={businessSettings.takeoffsAppName} onChange={(event) => onChange({ takeoffsAppName: event.target.value })} />
-            </label>
-            <label className="span-2">
-              Heat Design
-              <input value={businessSettings.heatDesignAppName} onChange={(event) => onChange({ heatDesignAppName: event.target.value })} />
-            </label>
+          <div className="personalising-app-logo-grid">
+            {APP_LOGO_ROWS.map((app) => {
+              const preview = resolveBrandIconUrl(businessSettings, app.key);
+              const nameValue = String(businessSettings[app.nameField] ?? "");
+              const logoValue = businessSettings[app.field];
+              return (
+                <article key={app.kind} className="personalising-app-logo-card">
+                  <div className="personalising-upload-preview personalising-upload-preview-icon" style={{ borderColor: businessSettings.brandPrimaryColor }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={preview} alt={`${app.label} logo preview`} />
+                  </div>
+                  <div>
+                    <strong>{app.label}</strong>
+                    <label>
+                      App name
+                      <input
+                        value={nameValue}
+                        onChange={(event) => onChange({ [app.nameField]: event.target.value })}
+                      />
+                    </label>
+                    <input
+                      ref={(node) => {
+                        appInputRefs.current[app.kind] = node;
+                      }}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif"
+                      hidden
+                      onChange={(event) => {
+                        void uploadAsset(app.kind, event.target.files?.[0], `${app.label} logo uploaded.`);
+                        event.target.value = "";
+                      }}
+                    />
+                    <div className="personalising-upload-actions">
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={uploading === app.kind}
+                        onClick={() => appInputRefs.current[app.kind]?.click()}
+                      >
+                        <ImagePlus size={16} />
+                        {uploading === app.kind ? "Uploading…" : "Upload logo"}
+                      </button>
+                      {logoValue ? (
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          onClick={() => onChange({ [app.field]: "" })}
+                        >
+                          Use default
+                        </button>
+                      ) : null}
+                    </div>
+                    <label>
+                      Or logo URL
+                      <input
+                        value={logoValue}
+                        onChange={(event) => onChange({ [app.field]: event.target.value })}
+                        placeholder="Uses default icon when blank"
+                      />
+                    </label>
+                  </div>
+                </article>
+              );
+            })}
           </div>
 
           <div className="personalising-preview-row">
-            {[
-              { label: businessSettings.coreAppName, href: "/" },
-              { label: businessSettings.fieldAppName, href: "/field" },
-              { label: businessSettings.surveyAppName, href: "/survey" },
-              { label: businessSettings.takeoffsAppName, href: "/takeoff" },
-              { label: businessSettings.heatDesignAppName, href: "/heat-design" },
-            ].map((app) => (
+            {APP_LOGO_ROWS.map((app) => (
               <a key={app.href} className="personalising-home-preview" href={app.href} target="_blank" rel="noreferrer">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={businessSettings.appIconUrl || businessSettings.logoUrl || "/ewg-logo.png"} alt="" />
-                <span>{app.label}</span>
+                <img src={resolveBrandIconUrl(businessSettings, app.key)} alt="" />
+                <span>{String(businessSettings[app.nameField] ?? app.label)}</span>
               </a>
             ))}
           </div>

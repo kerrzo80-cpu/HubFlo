@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 
 import { useBrand } from "@/components/BrandProvider";
+import { resolveBrandLogoUrl } from "@/lib/branding";
 import { roleHeaderName } from "@/lib/access";
 import { BuddyCharacter } from "@/lib/BuddyCharacter";
 import type { BlakeBoqReviewDraft } from "@/lib/blake-boq-review";
@@ -6757,7 +6758,7 @@ function releaseMarkupPointer(target: SVGSVGElement, pointerId: number) {
       <header className="takeoff-header">
         <div className="takeoff-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={brand.appIconUrl || brand.logoUrl || "/ewg-logo.png"} alt={brand.takeoffsAppName} />
+          <img src={resolveBrandLogoUrl(brand, "takeoffs")} alt={brand.takeoffsAppName} />
           <span>{brand.takeoffsAppName}</span>
         </div>
         <div className="takeoff-header-actions">

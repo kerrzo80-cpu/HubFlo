@@ -44,6 +44,14 @@
   margin-bottom: 0.5rem;
 }
 
+.hd-brand-logo {
+  display: block;
+  height: 40px;
+  margin: 0 0 0.35rem;
+  max-width: 160px;
+  object-fit: contain;
+}
+
 .hd-brand-kicker {
   margin: 0 0 0.15rem;
   letter-spacing: 0.14em;

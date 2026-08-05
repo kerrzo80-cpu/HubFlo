@@ -65,7 +65,7 @@ export async function GET(_request: Request, { params }: Params) {
 
   const brand = toPublicBranding(getHubDetailState().businessSettings);
   const name = appDisplayName(brand, config.key);
-  const icon = resolveBrandIconUrl(brand);
+  const icon = resolveBrandIconUrl(brand, config.key);
   const theme = brand.brandPrimaryColor || "#157fa8";
 
   const manifest = {

@@ -1,29 +1,62 @@
 import { NextResponse } from "next/server";
 
 import { getAccessProfileFromHeaders } from "@/lib/access";
-import { brandingAssetPublicPath, readBrandingAsset, saveBrandingAsset, type BrandingAssetKind } from "@/lib/branding-assets";
-import { normalizeBusinessBranding } from "@/lib/branding";
+import {
+  asBrandingAssetKind,
+  brandingAssetPublicPath,
+  brandingAssetSettingsField,
+  readBrandingAsset,
+  saveBrandingAsset,
+} from "@/lib/branding-assets";
+import { normalizeBusinessBranding, resolveBrandIconUrl, resolveBrandLogoUrl, type BrandAppKey } from "@/lib/branding";
 import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
 export const runtime = "nodejs";
 
 type Params = { params: Promise<{ kind: string }> };
 
-function asKind(value: string): BrandingAssetKind | null {
-  if (value === "logo" || value === "icon") return value;
-  return null;
+function appKeyForKind(kind: string): BrandAppKey | undefined {
+  switch (kind) {
+    case "logo-core":
+      return "core";
+    case "logo-field":
+      return "field";
+    case "logo-survey":
+      return "survey";
+    case "logo-takeoffs":
+      return "takeoffs";
+    case "logo-heat-design":
+      return "heat-design";
+    default:
+      return undefined;
+  }
 }
 
 /** Serve uploaded owner logo / home-screen icon (public for PWA install). */
 export async function GET(request: Request, { params }: Params) {
-  const kind = asKind((await params).kind);
+  const kind = asBrandingAssetKind((await params).kind);
   if (!kind) return NextResponse.json({ error: "Unknown asset." }, { status: 404 });
 
   const asset = readBrandingAsset(kind);
   if (!asset) {
-    // Fall back to configured static path so home-screen install still works before upload.
+    // Chain: per-app → shared icon → company logo → static default.
+    if (kind.startsWith("logo-")) {
+      return NextResponse.redirect(new URL("/api/branding/assets/icon", request.url), 302);
+    }
+    if (kind === "icon") {
+      const sharedLogo = readBrandingAsset("logo");
+      if (sharedLogo) {
+        return new NextResponse(new Uint8Array(sharedLogo.buffer), {
+          headers: {
+            "Content-Type": sharedLogo.mimeType,
+            "Cache-Control": "public, max-age=3600",
+          },
+        });
+      }
+    }
     const brand = normalizeBusinessBranding(getHubDetailState().businessSettings);
-    const fallback = kind === "icon" ? brand.appIconUrl || brand.logoUrl : brand.logoUrl;
+    const fallback =
+      kind === "logo" ? resolveBrandLogoUrl(brand) : resolveBrandIconUrl(brand, appKeyForKind(kind));
     const safeFallback =
       !fallback || fallback.startsWith("/api/branding/assets/") ? "/ewg-logo.png" : fallback;
     return NextResponse.redirect(new URL(safeFallback, request.url), 302);
@@ -37,14 +70,14 @@ export async function GET(request: Request, { params }: Params) {
   });
 }
 
-/** Upload owner logo or square app icon (Setup → Personalising). */
+/** Upload owner logo, shared app icon, or per-app logo (Setup → Personalising). */
 export async function POST(request: Request, { params }: Params) {
   const access = getAccessProfileFromHeaders(request.headers);
   if (!access.canEditJobs && !access.canCreateQuote && !access.canEditInvoice) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const kind = asKind((await params).kind);
+  const kind = asBrandingAssetKind((await params).kind);
   if (!kind) return NextResponse.json({ error: "Unknown asset." }, { status: 404 });
 
   let formData: FormData;
@@ -70,10 +103,12 @@ export async function POST(request: Request, { params }: Params) {
 
   const hub = getHubDetailState();
   const current = normalizeBusinessBranding(hub.businessSettings);
-  const patch =
-    kind === "logo"
-      ? { logoUrl: saved.url, ...(current.appIconUrl === current.logoUrl || !current.appIconUrl ? { appIconUrl: saved.url } : {}) }
-      : { appIconUrl: saved.url };
+  const field = brandingAssetSettingsField(kind);
+  const patch: Record<string, string> = { [field]: saved.url };
+
+  if (kind === "logo" && (current.appIconUrl === current.logoUrl || !current.appIconUrl)) {
+    patch.appIconUrl = saved.url;
+  }
 
   saveHubDetailState({
     ...hub,
