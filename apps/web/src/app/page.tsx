@@ -50,6 +50,7 @@ import {
   ShieldAlert,
   SlidersHorizontal,
   Sparkles,
+  MessageCircle,
   TrendingDown,
   TrendingUp,
   UserCheck,
@@ -27878,6 +27879,15 @@ export default function Dashboard() {
           </div>
 
           <nav aria-label="Dashboard navigation">
+            <a
+              href="/train"
+              className="context-link"
+              aria-label="Blake Trainer"
+              data-tooltip="Blake voice-first staff trainer"
+            >
+              <MessageCircle size={17} />
+              <span>Blake Trainer</span>
+            </a>
             {visibleSideNav.map((item) => {
               const Icon = item.icon;
               return (
@@ -29988,6 +29998,15 @@ export default function Dashboard() {
                     <strong>NeXa Field</strong>
                     <p>Engineer packs, Ask Blake, photos, hours and job evidence from site.</p>
                     <small>Outputs job events, evidence, timesheets, variations and completion checks.</small>
+                  </div>
+                  <ChevronRight size={17} />
+                </a>
+                <a className="addon-product-card" href="/train">
+                  <span className="addon-icon"><Sparkles size={20} /></span>
+                  <div>
+                    <strong>Blake Trainer</strong>
+                    <p>Voice-first staff training with role-aware modules and understanding checks.</p>
+                    <small>Answers only from approved guides, screenshots, videos, FAQs and company rules.</small>
                   </div>
                   <ChevronRight size={17} />
                 </a>
