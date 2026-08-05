@@ -4765,8 +4765,10 @@ a,
 .workspace.setup-workspace-host {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   overflow: hidden;
   padding: 12px 18px 18px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .workspace.setup-workspace-host .workspace-header {
@@ -11970,36 +11972,68 @@ h1 {
   display: grid;
   gap: 10px;
   max-height: 100%;
+  min-height: 0;
   min-width: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
   padding-right: 4px;
   position: relative;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
   z-index: 1;
 }
 
-/* Mobile/tablet: Setup was trapping scroll (overflow:hidden + two-column override). */
-@media (max-width: 980px) {
+/*
+  iPad / tablet (incl. landscape ~1024–1366): nested Setup scroll is unreliable in Safari.
+  Scroll the workspace itself so Customise forms / Personalising pages can move vertically.
+*/
+@media (max-width: 1366px) {
   .workspace.setup-workspace-host {
     height: 100%;
     min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
     overscroll-behavior-y: contain;
+    touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
   }
 
   .setup-page-shell {
     flex: 0 0 auto;
-    height: auto;
+    height: auto !important;
+    max-height: none !important;
     min-height: 0;
-    overflow: visible;
+    overflow: visible !important;
   }
 
   .setup-layout {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0;
+  }
+
+  .setup-category-content {
+    max-height: none !important;
+    overflow: visible !important;
+    padding-right: 0;
+  }
+
+  .setup-category-nav {
+    max-height: calc(100dvh - 160px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    position: sticky;
+    top: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Phone / small tablet: stack Setup nav horizontally above content. */
+@media (max-width: 980px) {
+  .setup-layout {
     align-items: stretch;
     grid-template-columns: 1fr;
-    height: auto;
-    min-height: 0;
   }
 
   .setup-category-nav {
@@ -12044,12 +12078,6 @@ h1 {
   .setup-category-item:focus-within .setup-category-submenu,
   .setup-category-item:has(.setup-category-trigger.active) .setup-category-submenu {
     display: grid;
-  }
-
-  .setup-category-content {
-    max-height: none;
-    overflow: visible;
-    padding-right: 0;
   }
 
   .setup-readiness-grid,
