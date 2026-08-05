@@ -66,6 +66,7 @@ export async function GET() {
       personalisingBranding: "owner-white-label-v1",
       customiseForms: "headers-logos-daywork-gassafe-v1",
       uiModuleBarIpad: "scroll-and-pin-setup-v1",
+      uiSetupScrollIpad: "workspace-scroll-1366-v1",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
       quoteCostCentrePartsScope: "active-centre-only-v1",
