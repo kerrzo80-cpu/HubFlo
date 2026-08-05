@@ -28,6 +28,7 @@ import { simproGetFirstOk } from "@/lib/simpro-client";
 import {
   enrichNexaJobFromSimpro,
   enrichNexaQuoteFromSimpro,
+  fetchFullEntity,
   importSimproInvoiceIntoHub,
   pullSchedulesForLinkedJobs,
 } from "@/lib/simpro-deep-import";
@@ -1026,10 +1027,10 @@ async function hydrateQuoteOrJobRecordForImport(
   const externalId = identifier(record);
   if (!externalId) return record;
 
-  // Always pull display=all for Apply — list payloads regularly omit Customer/Site.
+  // Light display=all for customer/site on create. Full section/CC fan-out is the
+  // same fetchFullEntity path jobs/scheduler use — done in withQuoteHierarchy / withJobHierarchy.
   let detail = await fetchSimproEntityDetail(config, entity, externalId);
   if (!detail) {
-    // One recovery pause for rate-limit storms, then retry without a cached null.
     await sleep(750);
     entityDetailCache.delete(`${entity}:${externalId}`);
     detail = await fetchSimproEntityDetail(config, entity, externalId);
@@ -1534,6 +1535,23 @@ function jobAlreadyHasCostCentres(nexaJobId: string) {
   return Array.isArray(centres) && centres.length > 0;
 }
 
+async function resolveQuoteFullRecord(simproId: string, cached: UnknownRecord | null | undefined) {
+  // Only reuse cache when it already carried section/CC hierarchy from fetchFullEntity.
+  // Light hydrate cache (customer/site only) must not skip the real full-entity pull.
+  if (
+    cached &&
+    (Array.isArray(cached.Sections) || Array.isArray(cached.CostCenters) || Array.isArray(cached.CostCentres)) &&
+    ((Array.isArray(cached.Sections) && cached.Sections.length > 0) ||
+      (Array.isArray(cached.CostCenters) && cached.CostCenters.length > 0) ||
+      (Array.isArray(cached.CostCentres) && cached.CostCentres.length > 0))
+  ) {
+    return cached;
+  }
+  const { record } = await fetchFullEntity("quotes", simproId, null);
+  entityDetailCache.set(`quotes:${simproId}`, record);
+  return record;
+}
+
 async function withQuoteHierarchy(
   op: SimproSyncOperation,
   nexaQuoteId: string,
@@ -1542,51 +1560,88 @@ async function withQuoteHierarchy(
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaQuoteId) return op;
 
-  // Even when CCs already exist, refresh customer/site/title from quote detail.
+  const cachedFull = entityDetailCache.get(`quotes:${simproId}`) ?? null;
+
+  // Job/scheduler pattern: always refresh header from full entity; pull CCs unless already present.
   if (quoteAlreadyHasCostCentres(nexaQuoteId)) {
-    let headerNote = "";
     try {
       const config = await resolveSimproDirectConfig();
-      const detail = await fetchSimproEntityDetail(config, "quotes", simproId);
-      if (detail) {
-        const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, detail);
-        headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
-      } else {
-        headerNote = " Header refresh skipped — quote detail fetch failed.";
-      }
+      const record =
+        (await fetchSimproEntityDetail(config, "quotes", simproId)) ||
+        (await resolveQuoteFullRecord(simproId, cachedFull));
+      const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, record);
+      return {
+        ...op,
+        summary: `${op.summary} Cost centres kept; header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`,
+        detail: "Existing cost centres kept; header refreshed via display=all (same path as job/scheduler enrich).",
+      };
     } catch (error) {
-      headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
+      return {
+        ...op,
+        action: "error",
+        summary: `${op.summary} Cost centres kept but header refresh failed: ${error instanceof Error ? error.message : String(error)}.`,
+      };
     }
-    return {
-      ...op,
-      summary: `${op.summary} Cost centres already present — skipped deep pull.${headerNote}`,
-      detail: `Existing cost centres kept.${headerNote}`,
-    };
   }
 
   if (!takeDeepHierarchySlot()) {
-    return {
-      ...op,
-      summary: `${op.summary} Header imported; cost-centre hydrate deferred (run Apply again for next ${SIMPRO_DEEP_HIERARCHY_LIMIT}).`,
-      detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} quotes/jobs per Apply to keep the site stable.`,
-    };
+    try {
+      const config = await resolveSimproDirectConfig();
+      // Header only — do not burn a full section/CC fan-out when mapping is deferred.
+      const detail =
+        (await fetchSimproEntityDetail(config, "quotes", simproId)) ||
+        (await resolveQuoteFullRecord(simproId, cachedFull));
+      const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, detail);
+      return {
+        ...op,
+        action: "error",
+        summary: `${op.summary} Header refreshed (${mapped.customer}) but cost centres deferred — Apply Quotes again.`,
+        detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} per Apply.`,
+      };
+    } catch (error) {
+      return {
+        ...op,
+        action: "error",
+        summary: `${op.summary} Detail hydrate failed: ${error instanceof Error ? error.message : String(error)}.`,
+      };
+    }
   }
-  const config = await resolveSimproDirectConfig();
-  const prefetched = await fetchSimproEntityDetail(config, "quotes", simproId);
+
   const deep = await enrichNexaQuoteFromSimpro({
     nexaQuoteId,
     simproQuoteId: simproId,
-    prefetchedRecord: prefetched,
+    // Never pass thin hydrate cache — force the same fetchFullEntity path jobs/scheduler use.
+    // (fetchFullEntity also ignores prefetch with no Customer/Site as a safety net.)
+    prefetchedRecord: null,
   });
+  if (deep.ok && deep.record) {
+    entityDetailCache.set(`quotes:${simproId}`, deep.record);
+  }
   let headerNote = "";
   if (deep.ok && deep.record) {
     try {
+      const config = await resolveSimproDirectConfig();
       const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, deep.record);
-      headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)} · ${
-        Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
-          ? getHubDetailState().quoteCostCentres?.[nexaQuoteId]?.length
-          : 0
-      } cost centres).`;
+      const ccCount = Array.isArray(getHubDetailState().quoteCostCentres?.[nexaQuoteId])
+        ? getHubDetailState().quoteCostCentres?.[nexaQuoteId]?.length ?? 0
+        : 0;
+      headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)} · ${ccCount} cost centres).`;
+      if (isBlankImportedCustomerName(mapped.customer)) {
+        return {
+          ...op,
+          action: "error",
+          summary: `${op.summary} ${deep.summary}.${headerNote} Customer still blank after display=all.`,
+          detail: `${deep.detail || deep.summary}${headerNote}`.trim(),
+        };
+      }
+      if (ccCount === 0) {
+        return {
+          ...op,
+          action: "error",
+          summary: `${op.summary} ${deep.summary}.${headerNote}`,
+          detail: `${deep.detail || deep.summary}${headerNote}`.trim(),
+        };
+      }
     } catch (error) {
       headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
     }
@@ -1614,33 +1669,86 @@ async function withJobHierarchy(
   mode: SimproSyncMode,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaJobId) return op;
+  const cachedFull = entityDetailCache.get(`jobs:${simproId}`) ?? null;
+  const hasFullHierarchy =
+    Boolean(cachedFull) &&
+    ((Array.isArray(cachedFull?.Sections) && (cachedFull?.Sections as unknown[]).length > 0) ||
+      (Array.isArray(cachedFull?.CostCenters) && (cachedFull?.CostCenters as unknown[]).length > 0) ||
+      (Array.isArray(cachedFull?.CostCentres) && (cachedFull?.CostCentres as unknown[]).length > 0));
+
   if (jobAlreadyHasCostCentres(nexaJobId)) {
-    return {
-      ...op,
-      summary: `${op.summary} Cost centres already present — skipped deep pull.`,
-      detail: "Existing cost centres kept.",
-    };
+    try {
+      const config = await resolveSimproDirectConfig();
+      const record =
+        (await fetchSimproEntityDetail(config, "jobs", simproId)) ||
+        (hasFullHierarchy ? cachedFull! : (await fetchFullEntity("jobs", simproId, null)).record);
+      if (record && record !== cachedFull && Array.isArray((record as UnknownRecord).Sections)) {
+        entityDetailCache.set(`jobs:${simproId}`, record as UnknownRecord);
+      }
+      const mapped = await patchJobHeaderFromDeepRecord(config, nexaJobId, record as UnknownRecord);
+      return {
+        ...op,
+        summary: `${op.summary} Cost centres kept; header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`,
+        detail: "Existing cost centres kept; header refreshed via display=all (scheduler/job enrich path).",
+      };
+    } catch (error) {
+      return {
+        ...op,
+        action: "error",
+        summary: `${op.summary} Cost centres kept but header refresh failed: ${error instanceof Error ? error.message : String(error)}.`,
+      };
+    }
   }
   if (!takeDeepHierarchySlot()) {
-    return {
-      ...op,
-      summary: `${op.summary} Header imported; cost-centre hydrate deferred (run Apply again for next ${SIMPRO_DEEP_HIERARCHY_LIMIT}).`,
-      detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} quotes/jobs per Apply to keep the site stable.`,
-    };
+    try {
+      const config = await resolveSimproDirectConfig();
+      const detail =
+        (await fetchSimproEntityDetail(config, "jobs", simproId)) ||
+        (hasFullHierarchy
+          ? cachedFull!
+          : (await fetchFullEntity("jobs", simproId, null)).record);
+      if (detail && detail !== cachedFull && Array.isArray((detail as UnknownRecord).Sections)) {
+        entityDetailCache.set(`jobs:${simproId}`, detail as UnknownRecord);
+      }
+      const mapped = await patchJobHeaderFromDeepRecord(config, nexaJobId, detail as UnknownRecord);
+      return {
+        ...op,
+        action: "error",
+        summary: `${op.summary} Header refreshed (${mapped.customer}) but cost centres deferred — Apply Jobs again.`,
+        detail: `Deep hierarchy capped at ${SIMPRO_DEEP_HIERARCHY_LIMIT} per Apply.`,
+      };
+    } catch (error) {
+      return {
+        ...op,
+        action: "error",
+        summary: `${op.summary} Detail hydrate failed: ${error instanceof Error ? error.message : String(error)}.`,
+      };
+    }
   }
   const config = await resolveSimproDirectConfig();
-  const prefetched = await fetchSimproEntityDetail(config, "jobs", simproId);
   const deep = await enrichNexaJobFromSimpro({
     nexaJobId,
     simproJobId: simproId,
     includeSchedules: true,
-    prefetchedRecord: prefetched,
+    // Force fetchFullEntity — do not pass thin hydrate cache (same trap as quotes).
+    prefetchedRecord: hasFullHierarchy ? cachedFull : null,
   });
+  if (deep.ok && deep.record) {
+    entityDetailCache.set(`jobs:${simproId}`, deep.record);
+  }
   let headerNote = "";
   if (deep.ok && deep.record) {
     try {
       const mapped = await patchJobHeaderFromDeepRecord(config, nexaJobId, deep.record);
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
+      if (isBlankImportedCustomerName(mapped.customer)) {
+        return {
+          ...op,
+          action: "error",
+          summary: `${op.summary} ${deep.summary}.${headerNote} Customer still blank after display=all.`,
+          detail: `${deep.detail || deep.summary}${headerNote}`.trim(),
+        };
+      }
     } catch (error) {
       headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
     }

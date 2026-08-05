@@ -240,11 +240,19 @@ describe("simpro sync preview quality", () => {
     assert.match(source, /hydrateQuoteOrJobRecordForImport/);
     assert.match(source, /fetchSimproEntityDetail/);
     assert.match(source, /simproGetFirstOk/);
+    assert.match(source, /fetchFullEntity/);
+    assert.match(source, /prefetchedRecord: null/);
+    assert.match(source, /same path as job\/scheduler enrich/i);
     assert.match(source, /never poison the Apply run with a cached null/i);
     assert.doesNotMatch(
       source.slice(source.indexOf("async function fetchSimproEntityDetail"), source.indexOf("function mergeEntityDetailOntoRecord")),
       /entityDetailCache\.set\(cacheKey, null\)/,
     );
+
+    const deepSource = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-deep-import.ts"), "utf8");
+    assert.match(deepSource, /export async function fetchFullEntity/);
+    assert.match(deepSource, /Ignore thin\/incomplete prefetch/);
+    assert.match(deepSource, /if \(!hasCustomer && !hasSite\)/);
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {
