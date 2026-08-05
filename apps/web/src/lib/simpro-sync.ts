@@ -472,6 +472,11 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     url.searchParams.set("IsPaid", "false");
   } else if (entity === "quotes" || entity === "jobs") {
     url.searchParams.set("orderby", "-DateModified");
+    // Ask simPRO for nested customer/site fields — list payloads often only return Customer.ID.
+    url.searchParams.set(
+      "columns",
+      "ID,Name,Description,Customer,Site,Total,Status,Stage,DateIssued,DateModified,DateCreated,DueDate,ProjectManager,Salesperson,Archived",
+    );
   } else {
     url.searchParams.set("orderby", "ID");
   }
@@ -496,6 +501,12 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       // IsPaid filter is not supported on every build — retry invoices without it.
       if (entity === "invoices" && page === 1 && url.searchParams.has("IsPaid")) {
         url.searchParams.delete("IsPaid");
+        page = 0;
+        continue;
+      }
+      // Some builds reject rich columns — fall back to default list fields.
+      if ((entity === "quotes" || entity === "jobs") && page === 1 && url.searchParams.has("columns")) {
+        url.searchParams.delete("columns");
         page = 0;
         continue;
       }
@@ -529,6 +540,10 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     if (records.length < pageSize) break;
     if (reportedTotal > 0 && collected.length >= reportedTotal) break;
     if (reportedPages > 0 && page >= reportedPages) break;
+  }
+
+  if (entity === "quotes" || entity === "jobs") {
+    return scopeSimproRecords(entity, await hydrateCustomersForRecords(config, collected));
   }
 
   return scopeSimproRecords(entity, collected);
@@ -659,10 +674,7 @@ function operation(
 }
 
 function clientFromSimpro(record: UnknownRecord): Omit<ClientRecord, "id" | "accountReference" | "status"> {
-  const name =
-    firstString(record, ["CompanyName", "Name", "CustomerName", "DisplayName"]) ||
-    [firstString(record, ["GivenName", "FirstName"]), firstString(record, ["FamilyName", "LastName"])].filter(Boolean).join(" ") ||
-    "simPRO customer";
+  const name = usableCustomerName(record) || fallbackCustomerLabel(identifier(record));
   return {
     name,
     primaryContact: firstString(record, ["PrimaryContact.Name", "Contact.Name", "Contact", "Attention"]) || name,
@@ -735,17 +747,129 @@ function simproCustomerId(record: UnknownRecord) {
   return firstString(record, ["Customer.ID", "Customer.Id", "Customer.id", "CustomerID", "ClientID", "Client.ID"]);
 }
 
+function customerNameFromFields(record: UnknownRecord) {
+  return (
+    firstString(record, ["CompanyName", "Name", "DisplayName", "CustomerName"]) ||
+    [firstString(record, ["GivenName", "FirstName"]), firstString(record, ["FamilyName", "LastName"])]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
 function simproCustomerName(record: UnknownRecord) {
   const nested = asRecord(record.Customer);
   if (nested) {
-    const nestedName =
-      firstString(nested, ["CompanyName", "Name", "DisplayName", "CustomerName"]) ||
-      [firstString(nested, ["GivenName", "FirstName"]), firstString(nested, ["FamilyName", "LastName"])]
-        .filter(Boolean)
-        .join(" ");
-    if (nestedName) return nestedName;
+    const nestedName = customerNameFromFields(nested);
+    if (nestedName && !isPlaceholderSimproValue(nestedName)) return nestedName;
   }
-  return firstString(record, ["Customer.CompanyName", "Customer.Name", "CustomerName", "Client.Name"]);
+  const flat = firstString(record, ["Customer.CompanyName", "Customer.Name", "CustomerName", "Client.Name"]);
+  if (flat && !isPlaceholderSimproValue(flat)) return flat;
+  return "";
+}
+
+function usableCustomerName(record: UnknownRecord) {
+  const name = simproCustomerName(record) || customerNameFromFields(record);
+  if (!name || isPlaceholderSimproValue(name)) return "";
+  return name;
+}
+
+function fallbackCustomerLabel(simproId?: string) {
+  return simproId ? `Customer ${simproId}` : "Customer to confirm";
+}
+
+function isBlankImportedCustomerName(value?: string) {
+  const normalized = normaliseText(value);
+  return !normalized || normalized === "simpro customer" || normalized === "customer to confirm" || isPlaceholderSimproValue(value);
+}
+
+/** Per-import cache so quote/job rows that only carry Customer.ID still get real names. */
+const customerDetailCache = new Map<string, UnknownRecord | null>();
+
+function clearCustomerDetailCache() {
+  customerDetailCache.clear();
+}
+
+async function fetchSimproCustomerDetail(config: ResolvedSimproDirectConfig, customerId: string) {
+  const cached = customerDetailCache.get(customerId);
+  if (cached !== undefined) return cached;
+
+  const paths = [
+    `/customers/${customerId}/?display=all`,
+    `/customers/${customerId}/`,
+    `/customers/companies/${customerId}/?display=all`,
+    `/customers/companies/${customerId}/`,
+    `/customers/individuals/${customerId}/?display=all`,
+    `/customers/individuals/${customerId}/`,
+  ];
+
+  for (const path of paths) {
+    try {
+      const response = await fetch(`${config.baseUrl}/companies/${config.companyId}${path}`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${config.token}`,
+        },
+        cache: "no-store",
+      });
+      if (!response.ok) continue;
+      const body = await response.json().catch(() => null);
+      const record = asRecord(body);
+      if (record && (identifier(record) || customerNameFromFields(record))) {
+        customerDetailCache.set(customerId, record);
+        return record;
+      }
+    } catch {
+      // try next path
+    }
+  }
+
+  customerDetailCache.set(customerId, null);
+  return null;
+}
+
+function mergeCustomerOntoRecord(record: UnknownRecord, customer: UnknownRecord) {
+  const existing = asRecord(record.Customer) || {};
+  return {
+    ...record,
+    Customer: {
+      ...existing,
+      ...customer,
+      ID: identifier(customer) || existing.ID || simproCustomerId(record),
+    },
+  };
+}
+
+async function hydrateRecordCustomer(config: ResolvedSimproDirectConfig, record: UnknownRecord) {
+  if (usableCustomerName(record)) return record;
+  const customerId = simproCustomerId(record);
+  if (!customerId) return record;
+  const detail = await fetchSimproCustomerDetail(config, customerId);
+  if (!detail) return record;
+  return mergeCustomerOntoRecord(record, detail);
+}
+
+async function hydrateCustomersForRecords(config: ResolvedSimproDirectConfig, records: UnknownRecord[]) {
+  const missingIds = [
+    ...new Set(
+      records
+        .filter((record) => !usableCustomerName(record))
+        .map((record) => simproCustomerId(record))
+        .filter(Boolean),
+    ),
+  ] as string[];
+
+  for (let index = 0; index < missingIds.length; index += 8) {
+    const batch = missingIds.slice(index, index + 8);
+    await Promise.all(batch.map((id) => fetchSimproCustomerDetail(config, id)));
+  }
+
+  return records.map((record) => {
+    if (usableCustomerName(record)) return record;
+    const customerId = simproCustomerId(record);
+    if (!customerId) return record;
+    const detail = customerDetailCache.get(customerId);
+    return detail ? mergeCustomerOntoRecord(record, detail) : record;
+  });
 }
 
 function matchingClientIdForRecord(record: UnknownRecord) {
@@ -754,18 +878,48 @@ function matchingClientIdForRecord(record: UnknownRecord) {
     const link = existingLink("clients", externalId);
     if (link) return link.nexaId;
   }
-  const name = simproCustomerName(record);
+  const name = usableCustomerName(record);
   if (!name) return undefined;
   const matches = findClientByNameOrEmail(name);
   return matches.length === 1 ? matches[0]?.id : undefined;
 }
 
+function resolveClientForRecord(record: UnknownRecord, mode: SimproSyncMode) {
+  let clientId = matchingClientIdForRecord(record);
+  let client = clientId ? getClients().find((item) => item.id === clientId) : undefined;
+
+  // Quote/job list rows often only have Customer.ID. Once hydrated, create/link the NeXa customer
+  // so the quote does not land as a blank "simPRO customer" label.
+  if (!client && mode === "apply") {
+    const customerId = simproCustomerId(record);
+    const customerRecord =
+      asRecord(record.Customer) ||
+      (customerId && customerDetailCache.get(customerId) ? customerDetailCache.get(customerId) : null);
+    if (customerRecord && (identifier(customerRecord) || usableCustomerName({ Customer: customerRecord }))) {
+      const result = processClient(customerRecord, mode);
+      if (result.nexaId) {
+        clientId = result.nexaId;
+        client = getClients().find((item) => item.id === result.nexaId);
+      }
+    }
+  }
+
+  if (!client && clientId) {
+    client = getClients().find((item) => item.id === clientId);
+  }
+  return { clientId, client };
+}
+
 export function buildQuoteInput(record: UnknownRecord, client?: ClientRecord, site?: ClientSite): Omit<Quote, "id" | "ref"> {
   const simproStatus = firstString(record, ["Status.Name", "Status", "Stage", "Stage.Name"]);
+  const customerName =
+    (client?.name && !isBlankImportedCustomerName(client.name) ? client.name : "") ||
+    usableCustomerName(record) ||
+    fallbackCustomerLabel(simproCustomerId(record));
   return {
     clientId: client?.id,
     siteId: site?.id,
-    customer: client?.name || simproCustomerName(record) || firstString(record, ["CustomerName"]) || "simPRO customer",
+    customer: customerName,
     description:
       firstString(record, ["Description", "Name", "Title", "Subject", "JobName"]) || "Imported simPRO quote",
     owner: firstString(record, ["Salesperson.Name", "Owner.Name", "ProjectManager.Name"]) || "Imported from simPRO",
@@ -797,10 +951,14 @@ export function buildJobInput(record: UnknownRecord, client?: ClientRecord, site
     simproSiteName(record) ||
     firstString(record, ["Site.Name", "SiteName"]) ||
     "Site to confirm";
+  const customerName =
+    (client?.name && !isBlankImportedCustomerName(client.name) ? client.name : "") ||
+    usableCustomerName(record) ||
+    fallbackCustomerLabel(simproCustomerId(record));
   return {
     clientId: client?.id,
     siteId: site?.id,
-    customer: client?.name || simproCustomerName(record) || firstString(record, ["CustomerName"]) || "simPRO customer",
+    customer: customerName,
     site: siteLabel,
     description:
       firstString(record, ["Description", "Name", "Title", "Subject", "JobName"]) || "Imported simPRO job",
@@ -913,7 +1071,7 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
 
   let clientId = matchingClientIdForRecord(record);
   const customerExternalId = simproCustomerId(record);
-  const customerName = simproCustomerName(record) || "simPRO customer";
+  const customerName = usableCustomerName(record) || fallbackCustomerLabel(customerExternalId);
   const siteName =
     firstString(record, ["Name", "SiteName"]) || addressFromRecord(record).split(",")[0]?.trim() || "simPRO site";
 
@@ -1009,17 +1167,21 @@ export function processSite(record: UnknownRecord, mode: SimproSyncMode): Simpro
   return operation("sites", "create", `Created NeXa site ${site.name}.`, { simproId, simproName: mapped.name, nexaId: site.id });
 }
 
-function patchQuoteHeaderFromDeepRecord(nexaQuoteId: string, record: UnknownRecord) {
-  const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
-  const site = ensureSiteForRecord(record, client?.id, "apply") || matchingSiteForRecord(record, client?.id);
-  const mapped = buildQuoteInput(record, client, site);
+async function patchQuoteHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, nexaQuoteId: string, record: UnknownRecord) {
+  const hydrated = await hydrateRecordCustomer(config, record);
+  const { client } = resolveClientForRecord(hydrated, "apply");
+  const site = ensureSiteForRecord(hydrated, client?.id, "apply") || matchingSiteForRecord(hydrated, client?.id);
+  const mapped = buildQuoteInput(hydrated, client, site);
   const existing = getQuotes().find((quote) => quote.id === nexaQuoteId);
   if (!existing) return mapped;
   updateQuote(nexaQuoteId, {
     clientId: mapped.clientId || existing.clientId,
     siteId: mapped.siteId || existing.siteId,
-    customer:
-      mapped.customer && mapped.customer !== "simPRO customer" ? mapped.customer : existing.customer || mapped.customer,
+    customer: !isBlankImportedCustomerName(mapped.customer)
+      ? mapped.customer
+      : !isBlankImportedCustomerName(existing.customer)
+        ? existing.customer
+        : mapped.customer,
     description:
       mapped.description && mapped.description !== "Imported simPRO quote"
         ? mapped.description
@@ -1033,17 +1195,21 @@ function patchQuoteHeaderFromDeepRecord(nexaQuoteId: string, record: UnknownReco
   return mapped;
 }
 
-function patchJobHeaderFromDeepRecord(nexaJobId: string, record: UnknownRecord) {
-  const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
-  const site = ensureSiteForRecord(record, client?.id, "apply") || matchingSiteForRecord(record, client?.id);
-  const mapped = buildJobInput(record, client, site);
+async function patchJobHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, nexaJobId: string, record: UnknownRecord) {
+  const hydrated = await hydrateRecordCustomer(config, record);
+  const { client } = resolveClientForRecord(hydrated, "apply");
+  const site = ensureSiteForRecord(hydrated, client?.id, "apply") || matchingSiteForRecord(hydrated, client?.id);
+  const mapped = buildJobInput(hydrated, client, site);
   const existing = getJobs().find((job) => job.id === nexaJobId);
   if (!existing) return mapped;
   updateJob(nexaJobId, {
     clientId: mapped.clientId || existing.clientId,
     siteId: mapped.siteId || existing.siteId,
-    customer:
-      mapped.customer && mapped.customer !== "simPRO customer" ? mapped.customer : existing.customer || mapped.customer,
+    customer: !isBlankImportedCustomerName(mapped.customer)
+      ? mapped.customer
+      : !isBlankImportedCustomerName(existing.customer)
+        ? existing.customer
+        : mapped.customer,
     site:
       mapped.site && mapped.site !== "Site to confirm" ? mapped.site : existing.site || mapped.site,
     description:
@@ -1071,7 +1237,8 @@ async function withQuoteHierarchy(
   let headerNote = "";
   if (deep.ok && deep.record) {
     try {
-      const mapped = patchQuoteHeaderFromDeepRecord(nexaQuoteId, deep.record);
+      const config = await resolveSimproDirectConfig();
+      const mapped = await patchQuoteHeaderFromDeepRecord(config, nexaQuoteId, deep.record);
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
     } catch (error) {
       headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
@@ -1102,7 +1269,8 @@ async function withJobHierarchy(
   let headerNote = "";
   if (deep.ok && deep.record) {
     try {
-      const mapped = patchJobHeaderFromDeepRecord(nexaJobId, deep.record);
+      const config = await resolveSimproDirectConfig();
+      const mapped = await patchJobHeaderFromDeepRecord(config, nexaJobId, deep.record);
       headerNote = ` Header refreshed (${mapped.customer} · £${mapped.value.toFixed(2)}).`;
     } catch (error) {
       headerNote = ` Header refresh failed: ${error instanceof Error ? error.message : String(error)}.`;
@@ -1158,7 +1326,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
     return withQuoteHierarchy(base, existing.id, simproId, mode);
   }
 
-  const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
+  const { client } = resolveClientForRecord(record, mode);
   const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
   const mapped = buildQuoteInput(record, client, site);
   if (mode === "preview") {
@@ -1239,7 +1407,7 @@ async function processJob(record: UnknownRecord, mode: SimproSyncMode): Promise<
     return withJobHierarchy(base, existing.id, simproId, mode);
   }
 
-  const client = getClients().find((item) => item.id === matchingClientIdForRecord(record));
+  const { client } = resolveClientForRecord(record, mode);
   const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
   const mapped = buildJobInput(record, client, site);
   if (mode === "preview") {
@@ -1483,7 +1651,9 @@ export function resolveSimproSyncConflict(input: {
   if (!current.simproId) throw new Error("Cannot create from a conflict without a simPRO ID.");
   if (current.entity === "clients") {
     const mapped = current.seed?.client || {
-      name: current.simproName || "simPRO customer",
+      name: (current.simproName && !isBlankImportedCustomerName(current.simproName)
+        ? current.simproName
+        : fallbackCustomerLabel(current.simproId)),
       primaryContact: current.simproName || "To confirm",
       email: "To confirm",
       phone: "To confirm",
@@ -1604,6 +1774,7 @@ export async function runSimproImport(options: {
   entities?: SimproSyncEntity[];
   actor?: string;
 }): Promise<SimproSyncRun> {
+  clearCustomerDetailCache();
   const configStatus = getSimproDirectConfigStatus();
   const selectedEntities = (options.entities?.length ? options.entities : simproEntities)
     .filter((entity): entity is SimproSyncEntity => simproEntities.includes(entity))
