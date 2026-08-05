@@ -291,17 +291,14 @@ function TrainSession({
     const spoken = text.trim();
     if (!spoken) return;
     stopSpeakRef.current?.();
-    stopBlakeAudio();
     setPendingSpeak(spoken);
     setVoiceState("speaking");
     setError("");
     try {
-      if (soundReady) {
-        await unlockBlakeVoice();
-      }
+      // Do not call stopBlakeAudio here — it can tear down the iPhone unlock.
       stopSpeakRef.current = await speakBlakeReply(spoken, {
-        speakPath: "/api/field/ask-blake/speak",
-        preferServer: openaiOk !== false,
+        speakPath: "/api/blake-trainer/speak",
+        preferServer: false,
         onEnd: () => {
           setVoiceState("idle");
         },
@@ -309,19 +306,37 @@ function TrainSession({
     } catch {
       setVoiceState("idle");
       setSoundReady(false);
-      setError("Blake replied on screen — tap Enable sound to hear him (check silent mode).");
+      setError("No sound yet — tap Enable sound (keep the screen on).");
     }
   }
 
   async function enableSoundAndReplay() {
+    setError("");
+    setVoiceState("speaking");
     try {
+      // User gesture: unlock Web Audio, then fetch + play through that context.
       await unlockBlakeVoice();
       setSoundReady(true);
-      setError("");
       const lastBlake = [...bubbles].reverse().find((item) => item.role === "blake")?.text || pendingSpeak;
-      if (lastBlake) await speak(lastBlake);
-    } catch {
-      setError("Could not unlock sound — check silent mode and try again.");
+      if (!lastBlake) {
+        setVoiceState("idle");
+        setError("Nothing to play yet — start a module first.");
+        return;
+      }
+      stopSpeakRef.current?.();
+      stopSpeakRef.current = await speakBlakeReply(lastBlake, {
+        speakPath: "/api/blake-trainer/speak",
+        preferServer: false,
+        onEnd: () => setVoiceState("idle"),
+      });
+    } catch (err) {
+      setVoiceState("idle");
+      setSoundReady(false);
+      setError(
+        err instanceof Error
+          ? `Still no audio (${err.message}). Check OpenAI voice in Setup, then tap Enable sound again.`
+          : "Still no audio — check OpenAI voice in Setup, then tap Enable sound again.",
+      );
     }
   }
 
