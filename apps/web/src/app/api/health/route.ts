@@ -61,7 +61,7 @@ export async function GET() {
       simproEntityFullFetch: "scoped-open-quotes-live-jobs-30-unpaid-v1",
       simproImportScope: "clients-sites-80-quotes-20-deep-20-retry-v3",
       simproSiteHydrate: "fetch-by-site-id-v1",
-      nexaTopBusyBar: "bounce-v1",
+      nexaTopBusyBar: "expand-contract-shuttle-v2",
       quoteListTitleClamp: "one-line-v1",
       quoteListCostCentreCount: "v1",
       dashboardLayout: "pipeline-gantt-v3",

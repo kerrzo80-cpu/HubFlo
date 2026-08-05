@@ -29353,9 +29353,18 @@ export default function Dashboard() {
   return (
     <div className="platform">
       {showTopBusyBar ? (
-        <div className="nexa-top-busy" role="progressbar" aria-busy="true" aria-label="Working">
-          <span className="nexa-top-busy-bar" />
-        </div>
+        <>
+          <div className="nexa-top-busy" role="progressbar" aria-busy="true" aria-label="Working">
+            <span className="nexa-top-busy-bar" />
+          </div>
+          <div className="nexa-top-busy-label" aria-live="polite">
+            {isApplyingSimproImport
+              ? "Applying simPRO import…"
+              : isRunningSimproPreview
+                ? "Previewing simPRO import…"
+                : "Working…"}
+          </div>
+        </>
       ) : null}
       <header className="global-header">
         <div className="brand-lockup">
