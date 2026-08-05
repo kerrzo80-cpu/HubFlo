@@ -2285,7 +2285,10 @@ export default function TakeoffPage() {
 
   useEffect(() => {
     if (activeTab !== "markup") return;
-    setIsMarkupMaterialsCollapsed(false);
+    // On tablet/phone the floating tool panels cover the drawing, so keep them
+    // collapsed there (the drawer tab reopens them); open by default on desktop.
+    const wideScreen = typeof window === "undefined" || window.innerWidth >= 1024;
+    setIsMarkupMaterialsCollapsed(!wideScreen);
   }, [activeTab, selectedProject?.id]);
 
   const takeoffDrawingMode = activeTab === "markup";
@@ -2598,6 +2601,8 @@ const filteredMarkupPlantTools = useMemo(() => {
 
   useEffect(() => {
     if (!promptMarkupPackages.length) return;
+    // Don't auto-open the tool drawer over the canvas on tablet/phone widths.
+    if (typeof window !== "undefined" && window.innerWidth < 1024) return;
     if (promptMarkupPackages.some((pack) => pack.status === "suggested")) {
       setIsMarkupMaterialsCollapsed(false);
     }
