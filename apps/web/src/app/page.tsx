@@ -8106,6 +8106,7 @@ export default function Dashboard() {
   const [hasHydratedLocalData, setHasHydratedLocalData] = useState(false);
   const [hasLoadedHubDetailState, setHasLoadedHubDetailState] = useState(false);
   const [recordSaveStatus, setRecordSaveStatus] = useState<RecordSaveStatus>("saved");
+  const [setupSaveStatus, setSetupSaveStatus] = useState<RecordSaveStatus>("saved");
   const [handledInitialRoute, setHandledInitialRoute] = useState(false);
   const noticeClearTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastLocalSetupEditAt = useRef(0);
@@ -10969,6 +10970,9 @@ export default function Dashboard() {
     const controller = new AbortController();
     const timer = setTimeout(() => {
       const payload = buildHubDetailStatePayload();
+      if (setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) {
+        setSetupSaveStatus("saving");
+      }
 
       fetch("/api/hub-state", {
         method: "PUT",
@@ -10983,8 +10987,9 @@ export default function Dashboard() {
           setSectionError((current) =>
             current === "Could not save shared hub detail state, so local fallback is being used." ? null : current,
           );
-          if (setupSaveIncludesRecentEdit) {
+          if (setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) {
             pendingSetupSaveRef.current = false;
+            setSetupSaveStatus("saved");
           }
           if (costCentreSaveIncludesRecentEdit) {
             pendingCostCentreSaveRef.current = false;
@@ -10995,8 +11000,9 @@ export default function Dashboard() {
         })
         .catch(() => {
           if (!controller.signal.aborted) {
-            if (setupSaveIncludesRecentEdit) {
+            if (setupSaveIncludesRecentEdit || pendingSetupSaveRef.current) {
               pendingSetupSaveRef.current = false;
+              setSetupSaveStatus("error");
             }
             if (costCentreSaveIncludesRecentEdit) {
               pendingCostCentreSaveRef.current = false;
@@ -14731,6 +14737,58 @@ export default function Dashboard() {
     lastLocalSetupEditAt.current = Date.now();
     pendingSetupSaveRef.current = true;
     hasAppliedHubSetupState.current = true;
+    setSetupSaveStatus((current) => (current === "saving" ? current : "unsaved"));
+  }
+
+  async function saveSetupNow() {
+    if (!hasLoadedHubDetailState) {
+      showNotice("Setup is still loading — try again in a moment.");
+      return;
+    }
+    setSetupSaveStatus("saving");
+    lastLocalSetupEditAt.current = Date.now();
+    pendingSetupSaveRef.current = true;
+    hasAppliedHubSetupState.current = true;
+    try {
+      const response = await fetch("/api/hub-state", {
+        method: "PUT",
+        headers: { ...requestHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify(buildHubDetailStatePayload()),
+      });
+      if (!response.ok) throw new Error(`Setup save failed (${response.status}).`);
+      pendingSetupSaveRef.current = false;
+      setSetupSaveStatus("saved");
+      showNotice("Setup saved.");
+    } catch (error) {
+      setSetupSaveStatus("error");
+      showNotice(error instanceof Error ? error.message : "Could not save setup.");
+    }
+  }
+
+  function renderSetupSaveControls() {
+    const statusLabel =
+      setupSaveStatus === "saving"
+        ? "Saving…"
+        : setupSaveStatus === "unsaved"
+          ? "Unsaved changes"
+          : setupSaveStatus === "error"
+            ? "Save failed"
+            : "All changes saved";
+    return (
+      <div className="setup-save-controls">
+        <span className={`setup-save-status ${setupSaveStatus}`} aria-live="polite">
+          {statusLabel}
+        </span>
+        <button
+          className="primary-button"
+          type="button"
+          disabled={setupSaveStatus === "saving"}
+          onClick={() => void saveSetupNow()}
+        >
+          {setupSaveStatus === "saving" ? "Saving…" : "Save setup"}
+        </button>
+      </div>
+    );
   }
 
   function markCostCentreEdited() {
@@ -31380,10 +31438,7 @@ export default function Dashboard() {
                   <button className="secondary-button" onClick={returnToDashboard}>
                     Back to dashboard
                   </button>
-                  <button className="primary-button" onClick={addDocumentFolderTemplate}>
-                    <Plus size={16} />
-                    Add folder
-                  </button>
+                  {renderSetupSaveControls()}
                 </>
               ) : homeView === "addons" ? (
                 <>
@@ -41370,10 +41425,13 @@ export default function Dashboard() {
 
                 <div className="setup-category-content">
                   <div className="setup-category-heading">
-                    <span className="permission-heading">
-                      {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
-                    </span>
-                    <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
+                    <div>
+                      <span className="permission-heading">
+                        {activeSetupSubItem ? `${activeSetupCategoryMeta.label} / ${activeSetupSubItem}` : "Setup page"}
+                      </span>
+                      <h2>{activeSetupSubItem ?? activeSetupCategoryMeta.label}</h2>
+                    </div>
+                    {renderSetupSaveControls()}
                   </div>
 
                   {activeSetupSubItemMeta && !(activeSetupCategory === "communications" && (activeSetupSubItem === "Outlook" || activeSetupSubItem === "WhatsApp")) ? (

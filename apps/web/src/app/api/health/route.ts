@@ -70,6 +70,8 @@ export async function GET() {
       customiseForms: "delete-copy-colour-all-v1",
       uiModuleBarIpad: "scroll-and-pin-setup-v1",
       uiSetupScrollIpad: "workspace-scroll-1366-v1",
+      uiSearchBrandBlue: "nexa-cyan-v1",
+      uiSetupSaveButton: "status-and-save-v1",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
       quoteCostCentrePartsScope: "active-centre-only-v1",
