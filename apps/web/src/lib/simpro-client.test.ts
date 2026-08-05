@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 
 import { simproEntityDetailPaths, withSimproCompany } from "@/lib/simpro-client";
 import type { ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
@@ -23,5 +26,23 @@ describe("simpro client detail paths", () => {
     assert.equal(next.companyId, "2");
     assert.equal(next.baseUrl, config.baseUrl);
     assert.equal(withSimproCompany(config, "0"), config);
+  });
+
+  it("never falls back to an unrelated list row when quote ID is missing from the page", () => {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const clientSource = readFileSync(join(dir, "simpro-client.ts"), "utf8");
+    assert.match(clientSource, /never take records\[0\]/);
+    assert.doesNotMatch(
+      clientSource.slice(
+        clientSource.indexOf("Last resort: list filter"),
+        clientSource.indexOf("export function simproCustomerDetailPaths"),
+      ),
+      /extractSimproRecords\(listed\.body\)\[0\]/,
+    );
+    assert.match(clientSource, /simproGetCustomerDetail/);
+
+    const deepSource = readFileSync(join(dir, "simpro-deep-import.ts"), "utf8");
+    assert.match(deepSource, /detail ID mismatch/);
+    assert.match(deepSource, /sections\/ still works/);
   });
 });

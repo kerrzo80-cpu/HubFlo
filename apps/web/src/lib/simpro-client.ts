@@ -195,7 +195,7 @@ export function clearSimproCompanyIdCache() {
   cachedCompanyIds = null;
 }
 
-async function listSimproCompanyIds(config: ResolvedSimproDirectConfig) {
+export async function listSimproCompanyIds(config: ResolvedSimproDirectConfig) {
   if (cachedCompanyIds?.length) return cachedCompanyIds;
   const result = await simproGetAbsolute(config, "/api/v1.0/companies/", { maxRetries: 1 });
   const ids = result.ok
@@ -251,8 +251,10 @@ export async function simproGetEntityDetail(
   }
 
   // Last resort: list filter by ID (some builds still return the row even when detail 404s).
+  // CRITICAL: never take records[0] — unfiltered lists would stamp every quote with the same customer.
   for (const companyId of companyIds) {
     const listPaths = [
+      `/${entity}/?pageSize=25&ID=${encodeURIComponent(id)}&columns=ID,Name,Description,Customer,Site,Total,Status,Stage`,
       `/${entity}/?pageSize=25&ID=${encodeURIComponent(id)}`,
       `/${entity}/?pageSize=25&search=all&ID=${encodeURIComponent(id)}`,
     ];
@@ -260,10 +262,8 @@ export async function simproGetEntityDetail(
       const listed = await simproGet(config, path, { companyId, maxRetries: 1 });
       attempts.push({ path, status: listed.status, endpoint: listed.endpoint, companyId });
       if (!listed.ok) continue;
-      const match =
-        extractSimproRecords(listed.body).find((record) => simproRecordId(record) === id) ||
-        extractSimproRecords(listed.body)[0];
-      if (match && simproRecordId(match)) {
+      const match = extractSimproRecords(listed.body).find((record) => simproRecordId(record) === id);
+      if (match) {
         return {
           endpoint: listed.endpoint,
           status: 200,
@@ -273,6 +273,79 @@ export async function simproGetEntityDetail(
           attempts,
           companyId,
         };
+      }
+    }
+  }
+
+  return {
+    endpoint: attempts[attempts.length - 1]?.endpoint ?? "",
+    status: attempts[attempts.length - 1]?.status ?? 0,
+    ok: false as const,
+    body: null,
+    headers: {},
+    attempts,
+    companyId: config.companyId,
+  };
+}
+
+/** Customer detail paths — prefer no trailing slash (same quirk as quotes). */
+export function simproCustomerDetailPaths(customerId: string) {
+  const id = String(customerId || "").trim();
+  return [
+    `/customers/${id}?display=all`,
+    `/customers/companies/${id}?display=all`,
+    `/customers/individuals/${id}?display=all`,
+    `/customers/${id}`,
+    `/customers/${id}/?display=all`,
+    `/customers/companies/${id}/?display=all`,
+    `/customers/individuals/${id}/?display=all`,
+  ];
+}
+
+/**
+ * Retrieve a customer by ID across path variants and companies.
+ * Does not invent a match from an unrelated list row.
+ */
+export async function simproGetCustomerDetail(
+  config: ResolvedSimproDirectConfig,
+  customerId: string,
+  options?: SimproClientOptions,
+) {
+  const id = String(customerId || "").trim();
+  if (!id) {
+    return {
+      endpoint: "",
+      status: 0,
+      ok: false as const,
+      body: null,
+      headers: {},
+      attempts: [] as Array<{ path: string; status: number; endpoint: string; companyId: string }>,
+      companyId: config.companyId,
+    };
+  }
+
+  const paths = simproCustomerDetailPaths(id);
+  const attempts: Array<{ path: string; status: number; endpoint: string; companyId: string }> = [];
+  const companyIds = await listSimproCompanyIds(config);
+
+  for (const companyId of companyIds) {
+    const pathsForCompany =
+      companyId === config.companyId
+        ? paths
+        : paths.slice(0, 3);
+    for (const path of pathsForCompany) {
+      const result = await simproGet(config, path, { ...options, companyId, maxRetries: options?.maxRetries ?? 1 });
+      attempts.push({ path, status: result.status, endpoint: result.endpoint, companyId });
+      if (result.ok) {
+        const record = asRecord(result.body);
+        const returnedId = simproRecordId(record);
+        // Reject wrong-body matches (mirrors quote list-filter exact-ID rule).
+        if (record && (!returnedId || returnedId === id)) {
+          return { ...result, attempts, companyId };
+        }
+      }
+      if (result.status === 401 || result.status === 403) {
+        return { ...result, ok: false as const, body: null, attempts, companyId };
       }
     }
   }
