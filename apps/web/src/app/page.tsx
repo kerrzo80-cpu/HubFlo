@@ -11264,8 +11264,12 @@ export default function Dashboard() {
 
   function getQuoteAddress(quote: Quote, linkedJob: Job | null) {
     const quoteSite = quote.siteId ? clientSites.find((site) => site.id === quote.siteId) : undefined;
-    if (quoteSite?.address) return quoteSite.address;
-    if (linkedJob?.site) return linkedJob.site;
+    if (quoteSite?.address && quoteSite.address.trim() && quoteSite.address !== "Address to confirm") {
+      return quoteSite.address;
+    }
+    if (linkedJob?.site && linkedJob.site !== "Site to confirm" && linkedJob.site !== "Address to confirm") {
+      return linkedJob.site;
+    }
 
     const sourceLead = quote.sourceLeadId
       ? leads.find((lead) => lead.id === quote.sourceLeadId)

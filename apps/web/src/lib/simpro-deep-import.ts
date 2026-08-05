@@ -127,7 +127,8 @@ async function fetchSectionCostCenters(
 }
 
 const MAX_SECTIONS_PER_ENTITY = 25;
-const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 40;
+/** Prefer listing CCs over per-CC detail storms — detail is only for the first few empty ones. */
+const MAX_CC_DETAIL_FETCHES_PER_ENTITY = 8;
 
 async function fetchFullEntity(entity: "quotes" | "jobs", externalId: string) {
   const config = await getSimproReadConfig();

@@ -292,12 +292,20 @@ function addressFromRecord(record: UnknownRecord) {
   return siteAddressFromRecord(record) || billingAddressFromRecord(record);
 }
 
+function scalarId(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string" && value.trim()) return value.trim();
+  return "";
+}
+
 function simproSiteId(record: UnknownRecord) {
   const nested = asRecord(record.Site);
   if (nested) {
     const nestedId = firstString(nested, ["ID", "Id", "id"]);
     if (nestedId) return nestedId;
   }
+  const bare = scalarId(record.Site);
+  if (bare) return bare;
   return firstString(record, ["Site.ID", "Site.Id", "Site.id", "SiteID", "SiteId"]);
 }
 
@@ -401,8 +409,14 @@ export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
 /** Keep quote/job Apply inside Render memory/time limits. */
 export const SIMPRO_QUOTE_IMPORT_LIMIT = 40;
 export const SIMPRO_JOB_IMPORT_LIMIT = 40;
-/** Full cost-centre hydrate is expensive — only do it for the newest N per run. */
-export const SIMPRO_DEEP_HIERARCHY_LIMIT = 20;
+/** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
+export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
+export const SIMPRO_SITE_IMPORT_LIMIT = 80;
+/**
+ * Cost-centre hydrate per Apply. Quotes that already have centres skip the budget,
+ * so re-Apply fills the rest without OOM.
+ */
+export const SIMPRO_DEEP_HIERARCHY_LIMIT = 40;
 
 function recordModifiedTime(record: UnknownRecord) {
   const raw = firstString(record, ["DateModified", "DateIssued", "DateCreated", "CreatedDate", "DueDate"]);
@@ -429,6 +443,16 @@ export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules"
       .filter(isUnpaidSimproInvoice)
       .sort((left, right) => invoiceIssuedTime(right) - invoiceIssuedTime(left))
       .slice(0, SIMPRO_INVOICE_IMPORT_LIMIT);
+  }
+  if (entity === "clients") {
+    return records
+      .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left) || Number(identifier(right) || 0) - Number(identifier(left) || 0))
+      .slice(0, SIMPRO_CLIENT_IMPORT_LIMIT);
+  }
+  if (entity === "sites") {
+    return records
+      .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left) || Number(identifier(right) || 0) - Number(identifier(left) || 0))
+      .slice(0, SIMPRO_SITE_IMPORT_LIMIT);
   }
   return records;
 }
@@ -524,16 +548,16 @@ function extractRecords(body: unknown) {
 
 async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Exclude<SimproSyncEntity, "schedules">) {
   // Keep ceilings modest — full history imports were crashing the app.
-  // Quotes/jobs/invoices are filtered after fetch to the live working set.
-  const pageSize = entity === "invoices" || entity === "quotes" || entity === "jobs" ? 100 : 250;
+  // Quotes/jobs/invoices/clients/sites are filtered after fetch to the live working set.
+  const pageSize = 100;
   const maxPages =
     entity === "invoices"
       ? 6
       : entity === "quotes" || entity === "jobs"
         ? 8
         : entity === "clients" || entity === "sites"
-          ? 40
-          : 20;
+          ? 3
+          : 10;
 
   const url = new URL(entityEndpoint(config, entity));
   url.searchParams.set("pageSize", String(pageSize));
@@ -547,6 +571,9 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       "columns",
       "ID,Name,Description,Customer,Site,Total,Status,Stage,DateIssued,DateModified,DateCreated,DueDate,ProjectManager,Salesperson,Archived",
     );
+  } else if (entity === "clients" || entity === "sites") {
+    // Newest first so the 80-record cap is useful; fall back to -ID if DateModified rejected.
+    url.searchParams.set("orderby", "-DateModified");
   } else {
     url.searchParams.set("orderby", "ID");
   }
@@ -577,6 +604,16 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       // Some builds reject rich columns — fall back to default list fields.
       if ((entity === "quotes" || entity === "jobs") && page === 1 && url.searchParams.has("columns")) {
         url.searchParams.delete("columns");
+        page = 0;
+        continue;
+      }
+      // Some builds reject -DateModified on customers/sites — fall back to -ID.
+      if (
+        (entity === "clients" || entity === "sites") &&
+        page === 1 &&
+        url.searchParams.get("orderby") === "-DateModified"
+      ) {
+        url.searchParams.set("orderby", "-ID");
         page = 0;
         continue;
       }
@@ -614,6 +651,8 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       const liveSoFar = collected.filter(isImportableSimproJob).length;
       if (liveSoFar >= SIMPRO_JOB_IMPORT_LIMIT) break;
     }
+    if (entity === "clients" && collected.length >= SIMPRO_CLIENT_IMPORT_LIMIT) break;
+    if (entity === "sites" && collected.length >= SIMPRO_SITE_IMPORT_LIMIT) break;
 
     if (records.length === 0) break;
     if (records.length < pageSize) break;
@@ -813,6 +852,8 @@ function simproCustomerId(record: UnknownRecord) {
     const nestedId = firstString(nested, ["ID", "Id", "id"]);
     if (nestedId) return nestedId;
   }
+  const bare = scalarId(record.Customer) || scalarId(record.Client);
+  if (bare) return bare;
   return firstString(record, ["Customer.ID", "Customer.Id", "Customer.id", "CustomerID", "ClientID", "Client.ID"]);
 }
 
@@ -837,7 +878,13 @@ function simproCustomerName(record: UnknownRecord) {
 }
 
 function usableCustomerName(record: UnknownRecord) {
-  const name = simproCustomerName(record) || customerNameFromFields(record);
+  const nestedName = simproCustomerName(record);
+  if (nestedName) return nestedName;
+  // Quote/job rows use top-level Name as the quote/job title — never treat that as the customer.
+  if (record.Customer != null || record.Site != null || record.Total != null || record.Stage != null) {
+    return "";
+  }
+  const name = customerNameFromFields(record);
   if (!name || isPlaceholderSimproValue(name)) return "";
   return name;
 }
@@ -1043,15 +1090,23 @@ function resolveClientForRecord(record: UnknownRecord, mode: SimproSyncMode) {
   let clientId = matchingClientIdForRecord(record);
   let client = clientId ? getClients().find((item) => item.id === clientId) : undefined;
 
-  // Quote/job list rows often only have Customer.ID. Once hydrated, create/link the NeXa customer
-  // so the quote does not land as a blank "simPRO customer" label.
+  // Quote/job list rows often only have Customer.ID (sometimes as a bare number).
+  // Create/link the NeXa customer so the quote does not land as "Customer to confirm".
   if (!client && mode === "apply") {
     const customerId = simproCustomerId(record);
+    const cached = customerId ? customerDetailCache.get(customerId) : null;
     const customerRecord =
       asRecord(record.Customer) ||
-      (customerId && customerDetailCache.get(customerId) ? customerDetailCache.get(customerId) : null);
-    if (customerRecord && (identifier(customerRecord) || usableCustomerName({ Customer: customerRecord }))) {
-      const result = processClient(customerRecord, mode);
+      cached ||
+      (customerId ? { ID: customerId, CompanyName: usableCustomerName(record) || fallbackCustomerLabel(customerId) } : null);
+    if (customerRecord && (identifier(customerRecord) || customerId)) {
+      const result = processClient(
+        {
+          ...customerRecord,
+          ID: identifier(customerRecord) || customerId,
+        },
+        mode,
+      );
       if (result.nexaId) {
         clientId = result.nexaId;
         client = getClients().find((item) => item.id === result.nexaId);
@@ -1072,6 +1127,7 @@ function descriptionFromSimproRecord(record: UnknownRecord, fallback: string) {
       body: firstString(record, ["Description", "Notes", "LongDescription"]),
     },
     fallback,
+    { maxLength: 72, preferTitle: true },
   );
 }
 
@@ -1413,6 +1469,16 @@ async function patchJobHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, 
   return mapped;
 }
 
+function quoteAlreadyHasCostCentres(nexaQuoteId: string) {
+  const centres = getHubDetailState().quoteCostCentres?.[nexaQuoteId];
+  return Array.isArray(centres) && centres.length > 0;
+}
+
+function jobAlreadyHasCostCentres(nexaJobId: string) {
+  const centres = getHubDetailState().jobCostCentres?.[nexaJobId];
+  return Array.isArray(centres) && centres.length > 0;
+}
+
 async function withQuoteHierarchy(
   op: SimproSyncOperation,
   nexaQuoteId: string,
@@ -1420,6 +1486,13 @@ async function withQuoteHierarchy(
   mode: SimproSyncMode,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaQuoteId) return op;
+  if (quoteAlreadyHasCostCentres(nexaQuoteId)) {
+    return {
+      ...op,
+      summary: `${op.summary} Cost centres already present — skipped deep pull.`,
+      detail: "Existing cost centres kept.",
+    };
+  }
   if (!takeDeepHierarchySlot()) {
     return {
       ...op,
@@ -1455,6 +1528,13 @@ async function withJobHierarchy(
   mode: SimproSyncMode,
 ): Promise<SimproSyncOperation> {
   if (mode !== "apply" || !nexaJobId) return op;
+  if (jobAlreadyHasCostCentres(nexaJobId)) {
+    return {
+      ...op,
+      summary: `${op.summary} Cost centres already present — skipped deep pull.`,
+      detail: "Existing cost centres kept.",
+    };
+  }
   if (!takeDeepHierarchySlot()) {
     return {
       ...op,
@@ -1487,12 +1567,43 @@ async function withJobHierarchy(
   };
 }
 
+function refreshQuoteHeaderFromListRecord(nexaQuoteId: string, record: UnknownRecord, mode: SimproSyncMode) {
+  const { client } = resolveClientForRecord(record, mode);
+  const site = ensureSiteForRecord(record, client?.id, mode) || matchingSiteForRecord(record, client?.id);
+  const mapped = buildQuoteInput(record, client, site);
+  const existing = getQuotes().find((quote) => quote.id === nexaQuoteId);
+  if (!existing) return mapped;
+  updateQuote(nexaQuoteId, {
+    clientId: mapped.clientId || existing.clientId,
+    siteId: mapped.siteId || existing.siteId,
+    customer: !isBlankImportedCustomerName(mapped.customer)
+      ? mapped.customer
+      : !isBlankImportedCustomerName(existing.customer)
+        ? existing.customer
+        : mapped.customer,
+    description:
+      mapped.description && mapped.description !== "Imported simPRO quote"
+        ? mapped.description
+        : existing.description || mapped.description,
+    owner: mapped.owner && mapped.owner !== "Imported from simPRO" ? mapped.owner : existing.owner || mapped.owner,
+    status: mapped.status || existing.status,
+    value: mapped.value > 0 ? mapped.value : existing.value,
+    due: mapped.due && mapped.due !== "Imported" && mapped.due !== "To be reviewed" ? mapped.due : existing.due || mapped.due,
+    next: mapped.next || existing.next,
+    simproQuoteId: mapped.simproQuoteId || existing.simproQuoteId,
+  });
+  return mapped;
+}
+
 async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
   const simproId = identifier(record);
   if (!simproId) return operation("quotes", "conflict", "simPRO quote has no stable ID.");
 
   const link = pruneOrphanLink("quotes", simproId);
   if (link) {
+    if (mode === "apply") {
+      refreshQuoteHeaderFromListRecord(link.nexaId, record, mode);
+    }
     const base = operation(
       "quotes",
       "link",
@@ -1507,6 +1618,7 @@ async function processQuote(record: UnknownRecord, mode: SimproSyncMode): Promis
   const existing = getQuotes().find((quote) => quote.simproQuoteId === simproId);
   if (existing) {
     if (mode === "apply") {
+      refreshQuoteHeaderFromListRecord(existing.id, record, mode);
       saveLink({
         nexaType: "quotes",
         nexaId: existing.id,

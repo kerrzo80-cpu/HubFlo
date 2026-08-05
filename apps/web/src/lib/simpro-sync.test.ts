@@ -18,9 +18,11 @@ import {
   processSite,
   scopeSimproRecords,
   siteAddressFromRecord,
+  SIMPRO_CLIENT_IMPORT_LIMIT,
   SIMPRO_DEEP_HIERARCHY_LIMIT,
   SIMPRO_JOB_IMPORT_LIMIT,
   SIMPRO_QUOTE_IMPORT_LIMIT,
+  SIMPRO_SITE_IMPORT_LIMIT,
 } from "@/lib/simpro-sync";
 import { mergeHubDetailState } from "@/lib/hub-state-merge";
 
@@ -71,14 +73,17 @@ describe("simpro sync preview quality", () => {
     assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
     assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 40/);
     assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 40/);
-    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 20/);
+    assert.match(source, /SIMPRO_SITE_IMPORT_LIMIT = 80/);
+    assert.match(source, /SIMPRO_CLIENT_IMPORT_LIMIT = 80/);
+    assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 40/);
     assert.match(source, /IsPaid/);
     assert.match(source, /isOpenSimproQuote/);
-    assert.match(source, /hydrateCustomersForRecords\(config, scoped\)/);
+    assert.match(source, /hydrateCustomersForRecords/);
+    assert.match(source, /hydrateSitesForRecords/);
     assert.match(source, /return clone\(persisted\)/);
     assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 40);
     assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 40);
-    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 20);
+    assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 40);
 
     assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
     assert.equal(isOpenSimproQuote({ Status: { Name: "Lost" } }), false);
@@ -122,6 +127,17 @@ describe("simpro sync preview quality", () => {
       })),
     );
     assert.equal(jobs.length, SIMPRO_JOB_IMPORT_LIMIT);
+
+    const sites = scopeSimproRecords(
+      "sites",
+      Array.from({ length: 120 }, (_, index) => ({
+        ID: index + 1,
+        Name: `Site ${index + 1}`,
+        DateModified: `2026-07-${String((index % 28) + 1).padStart(2, "0")}`,
+      })),
+    );
+    assert.equal(sites.length, SIMPRO_SITE_IMPORT_LIMIT);
+    assert.equal(SIMPRO_CLIENT_IMPORT_LIMIT, 80);
   });
 
   it("never labels quotes/jobs as literal simPRO customer when a real name or id exists", () => {
@@ -193,8 +209,23 @@ describe("simpro sync preview quality", () => {
     const mappedB = buildQuoteInput(quoteB);
     assert.equal(mappedA.description, "Baxi boiler amendment");
     assert.doesNotMatch(mappedA.description, /<div|font-size|&nbsp;/i);
-    assert.equal(mappedB.description, "Imported notes");
+    assert.equal(mappedB.description, "Kitchen extract fan");
     assert.equal(mappedA.next, "Review imported quote");
+
+    // Bare numeric Customer/Site IDs must still resolve (list payloads often look like this).
+    const bareIds = buildQuoteInput({
+      ID: 3952,
+      Name: "Wall removal quote",
+      Description: "Hi Lesley We have amended the quote below, this is now based on the Baxi boiler",
+      Customer: 991,
+      Site: 402,
+      Total: { ExTax: 100 },
+      Status: { Name: "Draft" },
+    });
+    assert.equal(bareIds.customer, "Customer 991");
+    assert.notEqual(bareIds.customer, "Customer to confirm");
+    assert.equal(bareIds.description, "Wall removal quote");
+    assert.ok(bareIds.description.length <= 72);
   });
 
   it("keeps richer server quote cost centres when the browser sends an empty map", () => {

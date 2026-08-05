@@ -30858,9 +30858,24 @@ body {
     grid-column: 1 / -1 !important;
   }
 
-  .record-directory .quote-row .job-identity > strong,
+  /* Keep quote titles to one clipped line on mobile — essays were drowning the list. */
+  .record-directory .quote-row .job-identity > strong {
+    display: block !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
   .record-directory .record-address-cell strong,
-  .record-directory .record-address-cell small,
+  .record-directory .record-address-cell small {
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
+    white-space: normal !important;
+  }
+
   .record-directory .quote-site,
   .record-directory .next-action strong,
   .record-directory .next-action small {
