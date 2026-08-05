@@ -230,6 +230,67 @@ describe("simpro hierarchy map", () => {
     assert.match(centres[0]?.engineerDescription || "", /Engineer: isolate/);
   });
 
+  it("keeps cost price distinct from charge price and uses markup when needed", () => {
+    const { centres } = mapSimproQuoteCostCentres(
+      {
+        ID: 1,
+        Sections: [
+          {
+            ID: 2,
+            Name: "Works",
+            CostCenters: [
+              {
+                ID: 3,
+                Name: "Materials",
+                Items: {
+                  Catalogs: [
+                    {
+                      ID: 10,
+                      Catalogue: { ID: 55, Name: "Copper", BasePrice: { ExTax: 2 } },
+                      BasePrice: 2,
+                      Markup: 50,
+                      SellPrice: { ExTax: 3 },
+                      Total: { Qty: 10, Amount: { ExTax: 30 } },
+                    },
+                    {
+                      ID: 11,
+                      Catalogue: { Name: "Fitting" },
+                      Markup: 25,
+                      SellPrice: { ExTax: 10 },
+                      Total: { Qty: 1, Amount: { ExTax: 10 } },
+                    },
+                  ],
+                  Labors: [
+                    {
+                      ID: 12,
+                      LaborType: { Name: "Plumber", CostRate: 35 },
+                      LaborRate: 35,
+                      SellPrice: { ExTax: 55 },
+                      Total: { Qty: 2, Amount: { ExTax: 110 } },
+                    },
+                  ],
+                  OneOffs: [],
+                  Prebuilds: [],
+                  ServiceFees: [],
+                },
+              },
+            ],
+          },
+        ],
+      },
+      "quote-cost-price",
+    );
+    const copper = centres[0]?.lines.find((line) => line.description === "Copper");
+    const fitting = centres[0]?.lines.find((line) => line.description === "Fitting");
+    const labour = centres[0]?.lines.find((line) => line.description === "Plumber");
+    assert.equal(copper?.unitCost, 2);
+    assert.equal(copper?.unitSell, 3);
+    assert.equal(fitting?.unitSell, 10);
+    assert.equal(fitting?.unitCost, 8); // 10 / 1.25
+    assert.equal(labour?.unitCost, 35);
+    assert.equal(labour?.unitSell, 55);
+  });
+
   it("maps invoices with line totals and job linkage", () => {
     const mapped = mapSimproInvoice({
       ID: 88,
