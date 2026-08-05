@@ -27879,6 +27879,15 @@ export default function Dashboard() {
           </div>
 
           <nav aria-label="Dashboard navigation">
+            <a
+              href="/train"
+              className="context-link"
+              aria-label="Blake Trainer"
+              data-tooltip="Blake voice-first staff trainer"
+            >
+              <MessageCircle size={17} />
+              <span>Blake Trainer</span>
+            </a>
             {visibleSideNav.map((item) => {
               const Icon = item.icon;
               return (
@@ -27927,10 +27936,6 @@ export default function Dashboard() {
           <a href="/field" className="context-link" aria-label="NeXa Field" data-tooltip="NeXa Field">
             <HardHat size={17} />
             <span>NeXa Field</span>
-          </a>
-          <a href="/train" className="context-link" aria-label="Blake Trainer" data-tooltip="Blake voice-first staff trainer">
-            <MessageCircle size={17} />
-            <span>Blake Trainer</span>
           </a>
           <a href="/office/alerts" className="context-link" aria-label="Office alerts" data-tooltip="Office alerts">
             <Bell size={17} />
