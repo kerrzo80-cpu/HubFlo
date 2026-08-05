@@ -266,16 +266,21 @@ function lineUnitSell(record: UnknownRecord, qty: number) {
   return 0;
 }
 
+function costsLookLikeSell(cost: number, sell: number) {
+  return sell > 0 && cost > 0 && Math.abs(cost - sell) < 0.005;
+}
+
 function lineUnitCost(record: UnknownRecord, qty: number, sell: number) {
-  const direct = money(record, [
-    "CostPrice.ExTax",
-    "CostPrice",
+  // Prefer true BasePrice keys before CostPrice — some tenants mirror SellPrice into CostPrice.
+  const preferredKeys = [
     "BasePrice.ExTax",
     "BasePrice",
+    "Catalogue.BasePrice.ExTax",
+    "Catalogue.BasePrice",
+    "Catalog.BasePrice.ExTax",
+    "Catalog.BasePrice",
     "EstimatedCost.ExTax",
     "EstimatedCost",
-    "ActualCost.ExTax",
-    "ActualCost",
     "BuyPrice.ExTax",
     "BuyPrice",
     "NettPrice.ExTax",
@@ -285,40 +290,45 @@ function lineUnitCost(record: UnknownRecord, qty: number, sell: number) {
     "CostRate",
     "LaborRate.Cost",
     "LabourRate.Cost",
-    "Cost.ExTax",
-    "Cost",
-    "UnitCost.ExTax",
-    "UnitCost",
-    "Total.BasePrice.ExTax",
-    "Total.EstimatedCost.ExTax",
-    "Total.CostPrice.ExTax",
-    // Nested catalogue master prices (line often only carries SellPrice).
-    "Catalogue.BasePrice.ExTax",
-    "Catalogue.BasePrice",
-    "Catalogue.CostPrice.ExTax",
-    "Catalogue.CostPrice",
-    "Catalogue.EstimatedCost.ExTax",
-    "Catalogue.EstimatedCost",
-    "Catalog.BasePrice.ExTax",
-    "Catalog.BasePrice",
-    "Catalog.CostPrice.ExTax",
-    "Catalog.CostPrice",
     "LaborType.CostRate",
     "LabourType.CostRate",
     "LaborType.BaseRate",
     "LabourType.BaseRate",
-  ], Number.NaN);
-  if (Number.isFinite(direct) && direct > 0) return direct;
+    "CostPrice.ExTax",
+    "CostPrice",
+    "Catalogue.CostPrice.ExTax",
+    "Catalogue.CostPrice",
+    "Catalog.CostPrice.ExTax",
+    "Catalog.CostPrice",
+    "Catalogue.EstimatedCost.ExTax",
+    "Catalogue.EstimatedCost",
+    "ActualCost.ExTax",
+    "ActualCost",
+    "UnitCost.ExTax",
+    "UnitCost",
+    "Cost.ExTax",
+    "Cost",
+    "Total.BasePrice.ExTax",
+    "Total.EstimatedCost.ExTax",
+    "Total.CostPrice.ExTax",
+  ];
+  for (const key of preferredKeys) {
+    const direct = money(record, [key], Number.NaN);
+    if (Number.isFinite(direct) && direct > 0 && !costsLookLikeSell(direct, sell)) {
+      return direct;
+    }
+  }
 
   // Reverse from Markup when Simpro only sends sell + markup %.
   const markup = money(record, ["Markup", "MarkupPercent", "MarkUp"], Number.NaN);
   if (Number.isFinite(markup) && markup > 0 && sell > 0) {
-    return Math.round((sell / (1 + markup / 100)) * 100) / 100;
+    const reversed = Math.round((sell / (1 + markup / 100)) * 100) / 100;
+    if (!costsLookLikeSell(reversed, sell)) return reversed;
   }
 
   // LaborRate is often the charge rate on quote labour lines — only treat as cost when sell is separate.
   const labourRate = money(record, ["LaborRate", "LabourRate"], Number.NaN);
-  if (Number.isFinite(labourRate) && labourRate > 0 && !(sell > 0 && labourRate === sell)) {
+  if (Number.isFinite(labourRate) && labourRate > 0 && !costsLookLikeSell(labourRate, sell)) {
     const hasExplicitSell = Number.isFinite(
       money(record, ["SellPrice.ExTax", "SellPrice", "UnitPrice.ExTax", "UnitPrice"], Number.NaN),
     );
@@ -338,9 +348,11 @@ function lineUnitCost(record: UnknownRecord, qty: number, sell: number) {
     ],
     Number.NaN,
   );
-  if (Number.isFinite(totalCost) && qty > 0) return Math.round((totalCost / qty) * 100) / 100;
+  if (Number.isFinite(totalCost) && qty > 0) {
+    const unit = Math.round((totalCost / qty) * 100) / 100;
+    if (!costsLookLikeSell(unit, sell)) return unit;
+  }
   // Do not copy sell into cost — that made cost price and charge price look identical.
-  void sell;
   return 0;
 }
 
@@ -371,9 +383,9 @@ function mapQuoteLine(
   const simproSell = lineUnitSell(record, quantity);
   let unitCost = lineUnitCost(record, quantity, simproSell);
   const defaultMarkup = resolveLineMarkup(labour, options);
-  // When BasePrice still missing, back-out cost from charge using NeXa default markup
-  // so Cost and Sell are not identical (charge-only imports).
-  if (!(unitCost > 0) && simproSell > 0 && defaultMarkup > 0) {
+  // Charge-only / mirrored-cost rows: back out cost from sell using NeXa default markup
+  // so Cost and Sell are never identical after import.
+  if (simproSell > 0 && defaultMarkup > 0 && (!(unitCost > 0) || costsLookLikeSell(unitCost, simproSell))) {
     unitCost = Math.round((simproSell / (1 + defaultMarkup / 100)) * 100) / 100;
   }
   const unitSell =

@@ -5,6 +5,32 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function lineArrayHasDistinctCost(rows: unknown[]): boolean {
+  let sawSell = false;
+  for (const row of rows) {
+    const record = asRecord(row);
+    if (!record) continue;
+    const sell = Number(record.unitSell) || 0;
+    const cost = Number(record.unitCost) || 0;
+    if (sell > 0) sawSell = true;
+    if (sell > 0 && cost > 0 && Math.abs(cost - sell) >= 0.005) return true;
+  }
+  // No sell lines → not a charge-only stamp to defend against.
+  return !sawSell;
+}
+
+function preferRicherLineArray(serverArr: unknown[], clientArr: unknown[]): unknown[] | null {
+  if (serverArr.length > clientArr.length) return serverArr;
+  if (!serverArr.length) return null;
+  if (serverArr.length === clientArr.length) {
+    const serverDistinct = lineArrayHasDistinctCost(serverArr);
+    const clientDistinct = lineArrayHasDistinctCost(clientArr);
+    // Stale browser tab still holding cost===sell must not wipe a fresh import.
+    if (serverDistinct && !clientDistinct) return serverArr;
+  }
+  return null;
+}
+
 function eventId(value: unknown) {
   const record = asRecord(value);
   return typeof record?.id === "string" && record.id.trim() ? record.id.trim() : "";
@@ -374,13 +400,13 @@ function mergeKeyedArraysById(serverValue: unknown, clientValue: unknown) {
       if (!id || !record) continue;
       const existing = byId.get(id) || {};
       const next = { ...existing, ...record };
-      // Prefer richer line arrays so a stale browser tab cannot strip imported materials/labour.
+      // Prefer richer line arrays so a stale browser tab cannot strip imported materials/labour
+      // or re-stamp charge-only (cost===sell) prices over a good Apply write.
       for (const field of ["lines", "materials", "labour", "labor"] as const) {
         const serverArr = Array.isArray(existing[field]) ? (existing[field] as unknown[]) : [];
         const clientArr = Array.isArray(record[field]) ? (record[field] as unknown[]) : [];
-        if (serverArr.length > clientArr.length) {
-          next[field] = serverArr;
-        }
+        const preferred = preferRicherLineArray(serverArr, clientArr);
+        if (preferred) next[field] = preferred;
       }
       const serverDesc = String(existing.clientDescription || existing.engineerDescription || "").trim();
       const clientDesc = String(record.clientDescription || record.engineerDescription || "").trim();
