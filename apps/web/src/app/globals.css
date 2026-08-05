@@ -3778,13 +3778,45 @@ a,
   box-shadow: 0 1px 0 rgba(16, 24, 40, 0.03);
   display: flex;
   flex-wrap: nowrap;
-  gap: 3px;
+  gap: 4px;
   height: 49px;
-  overflow: visible;
-  padding: 0 14px;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 10px 0 8px;
   position: sticky;
   top: 0;
   z-index: 10;
+}
+
+.module-bar-scroll {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 3px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.module-bar-scroll::-webkit-scrollbar {
+  height: 3px;
+}
+
+.module-bar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(36, 72, 93, 0.28);
+  border-radius: 999px;
+}
+
+.module-link-setup {
+  background: var(--blue-soft);
+  border: 1px solid rgba(40, 126, 168, 0.18);
+  flex: 0 0 auto;
+  margin-left: 2px;
 }
 
 .open-record-tabs {
@@ -3877,9 +3909,9 @@ a,
   flex: 0 0 auto;
   font-size: 12.5px;
   font-weight: 600;
-  gap: 7px;
+  gap: 6px;
   height: 34px;
-  padding: 0 13px;
+  padding: 0 11px;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -17350,8 +17382,14 @@ h1 {
     width: 38px;
   }
 
-  .module-link:nth-of-type(n + 7) {
-    display: none;
+  .module-bar {
+    padding: 0 8px 0 6px;
+  }
+
+  .module-link {
+    font-size: 12px;
+    gap: 5px;
+    padding: 0 9px;
   }
 
   .body-shell {
@@ -17600,8 +17638,12 @@ h1 {
 
   .module-bar {
     height: 48px;
+    overflow: hidden;
+    padding: 0 6px;
+  }
+
+  .module-bar-scroll {
     overflow-x: auto;
-    padding: 0 8px;
   }
 
   .open-record-tabs {
@@ -17622,18 +17664,18 @@ h1 {
   }
 
   .module-link {
-    flex: 0 0 56px;
+    flex: 0 0 auto;
     justify-content: center;
-    min-width: 56px;
-    padding: 0 7px;
+    min-width: 48px;
+    padding: 0 8px;
   }
 
-  .module-link span {
+  .module-bar-scroll .module-link span {
     display: none;
   }
 
-  .module-link:nth-of-type(n + 6) {
-    display: flex;
+  .module-link-setup span {
+    display: inline;
   }
 
   .module-more {

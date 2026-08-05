@@ -30510,84 +30510,100 @@ export default function Dashboard() {
         >
           <Menu size={19} />
         </button>
-        {visibleModules.map((module) => {
-          const Icon = module.icon;
-          const isActiveModule =
-            (module.label === "Dashboard" && homeView === "dashboard") ||
-            (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
-            (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
-            (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
-            (module.label === "Schedules" && homeView === "schedule") ||
-            (module.label === "Setup" && homeView === "settings") ||
-            (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
-            (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
-            (module.label === "People" && ["employees", "employee-card", "clients", "client-record", "directory-manager"].includes(homeView)) ||
-            (module.label === "Recurring" && homeView === "recurring") ||
-            (module.label === "Reports" && homeView === "reports") ||
-            (module.label === "Stock" && homeView === "stock") ||
-            (module.label === "Xero" && homeView === "xero");
+        <div className="module-bar-scroll">
+          {visibleModules
+            .filter((module) => module.label !== "Setup")
+            .map((module) => {
+              const Icon = module.icon;
+              const isActiveModule =
+                (module.label === "Dashboard" && homeView === "dashboard") ||
+                (module.label === "Leads" && ["leads", "lead-record"].includes(homeView)) ||
+                (module.label === "Quotes" && ["quotes", "quote-record", "quote-cost-centre-record"].includes(homeView)) ||
+                (module.label === "Jobs" && ["jobs", "job-record", "cost-centre-record"].includes(homeView)) ||
+                (module.label === "Schedules" && homeView === "schedule") ||
+                (module.label === "Invoices" && ["invoices", "invoice-record", "invoice-create"].includes(homeView)) ||
+                (module.label === "POs" && ["purchase-orders", "purchase-order-record"].includes(homeView)) ||
+                (module.label === "People" && ["employees", "employee-card", "clients", "client-record", "directory-manager"].includes(homeView)) ||
+                (module.label === "Recurring" && homeView === "recurring") ||
+                (module.label === "Reports" && homeView === "reports") ||
+                (module.label === "Stock" && homeView === "stock") ||
+                (module.label === "Xero" && homeView === "xero");
 
-          if (module.subItems?.length) {
-            const isOpen = openModuleMenu === module.label;
-            const submenuItems = module.subItems;
-            return (
-              <div
-                key={module.label}
-                className="module-dropdown-host"
-                onMouseEnter={() => setOpenModuleMenu(module.label)}
-                onMouseLeave={() => setOpenModuleMenu(null)}
-              >
-                <button
-                  type="button"
-                  className={`${isOpen || isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
-                  aria-expanded={isOpen}
-                  onClick={() => setOpenModuleMenu(isOpen ? null : module.label)}
+              if (module.subItems?.length) {
+                const isOpen = openModuleMenu === module.label;
+                const submenuItems = module.subItems;
+                return (
+                  <div
+                    key={module.label}
+                    className="module-dropdown-host"
+                    onMouseEnter={() => setOpenModuleMenu(module.label)}
+                    onMouseLeave={() => setOpenModuleMenu(null)}
+                  >
+                    <button
+                      type="button"
+                      className={`${isOpen || isActiveModule ? "module-link active" : "module-link"} module-dropdown-trigger`}
+                      aria-expanded={isOpen}
+                      onClick={() => setOpenModuleMenu(isOpen ? null : module.label)}
+                    >
+                      <Icon size={16} strokeWidth={1.8} />
+                      <span>{module.label}</span>
+                      <ChevronDown size={13} />
+                    </button>
+                    <div className={isOpen ? "module-submenu open" : "module-submenu"}>
+                      {submenuItems.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => {
+                            if (module.label === "People") {
+                              goToPeopleSection(item);
+                              closeContextSidebarOnMobile();
+                            } else {
+                              navigateToModule(item);
+                            }
+                            setOpenModuleMenu(null);
+                          }}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+
+              const moduleHref = module.href ?? "#";
+
+              return (
+                <a
+                  href={moduleHref}
+                  key={module.label}
+                  className={isActiveModule ? "module-link active" : "module-link"}
+                  onClick={(event) => {
+                    if (module.href) return;
+                    event.preventDefault();
+                    navigateToModule(module.label);
+                  }}
                 >
                   <Icon size={16} strokeWidth={1.8} />
                   <span>{module.label}</span>
-                  <ChevronDown size={13} />
-                </button>
-                <div className={isOpen ? "module-submenu open" : "module-submenu"}>
-                  {submenuItems.map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => {
-                        if (module.label === "People") {
-                          goToPeopleSection(item);
-                          closeContextSidebarOnMobile();
-                        } else {
-                          navigateToModule(item);
-                        }
-                        setOpenModuleMenu(null);
-                      }}
-                    >
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          }
-
-          const moduleHref = module.href ?? "#";
-
-          return (
-            <a
-              href={moduleHref}
-              key={module.label}
-              className={isActiveModule ? "module-link active" : "module-link"}
-              onClick={(event) => {
-                if (module.href) return;
-                event.preventDefault();
-                navigateToModule(module.label);
-              }}
-            >
-              <Icon size={16} strokeWidth={1.8} />
-              <span>{module.label}</span>
-            </a>
-          );
-        })}
+                </a>
+              );
+            })}
+        </div>
+        {visibleModules.some((module) => module.label === "Setup") ? (
+          <a
+            href="#"
+            className={homeView === "settings" ? "module-link module-link-setup active" : "module-link module-link-setup"}
+            onClick={(event) => {
+              event.preventDefault();
+              navigateToModule("Setup");
+            }}
+          >
+            <Settings size={16} strokeWidth={1.8} />
+            <span>Setup</span>
+          </a>
+        ) : null}
       </nav>
 
       {openWorkspaceTabs.length ? (

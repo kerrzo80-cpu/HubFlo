@@ -65,6 +65,7 @@ export async function GET() {
       actionAlertsRouting: "folders-and-daywork-signoff-v1",
       personalisingBranding: "owner-white-label-v1",
       customiseForms: "headers-logos-daywork-gassafe-v1",
+      uiModuleBarIpad: "scroll-and-pin-setup-v1",
       descriptionRichText: "toolbar-scripts-v1",
       quoteCatalogueOnQuote: "all-groups-on-quote-v1",
       quoteCostCentrePartsScope: "active-centre-only-v1",
