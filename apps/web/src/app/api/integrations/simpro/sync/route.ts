@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 /** Quote/job Apply can be long — give Render enough room before the platform kills the request. */
 export const maxDuration = 300;
 
-const allowedEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices", "schedules"];
+const allowedEntities: SimproSyncEntity[] = ["clients", "sites", "leads", "quotes", "jobs", "invoices", "schedules"];
 
 type SyncRequestBody = {
   mode?: SimproSyncMode;

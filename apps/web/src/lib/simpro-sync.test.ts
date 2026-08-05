@@ -9,6 +9,7 @@ import {
   buildJobInput,
   buildQuoteInput,
   isImportableSimproJob,
+  isImportableSimproLead,
   isOpenSimproQuote,
   isPlaceholderSimproValue,
   isUnpaidSimproInvoice,
@@ -22,6 +23,7 @@ import {
   SIMPRO_CLIENT_IMPORT_LIMIT,
   SIMPRO_DEEP_HIERARCHY_LIMIT,
   SIMPRO_JOB_IMPORT_LIMIT,
+  SIMPRO_LEAD_IMPORT_LIMIT,
   SIMPRO_QUOTE_IMPORT_LIMIT,
   SIMPRO_SITE_IMPORT_LIMIT,
 } from "@/lib/simpro-sync";
@@ -93,21 +95,24 @@ describe("simpro sync preview quality", () => {
     assert.equal(result.syncLinksRemoved, 0);
   });
 
-  it("scopes import to open quotes, live jobs, and latest unpaid invoices", () => {
+  it("scopes import to open quotes, live jobs, latest leads, and unpaid invoices", () => {
     const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "simpro-sync.ts"), "utf8");
     assert.match(source, /SIMPRO_INVOICE_IMPORT_LIMIT = 30/);
     assert.match(source, /SIMPRO_QUOTE_IMPORT_LIMIT = 30/);
     assert.match(source, /SIMPRO_JOB_IMPORT_LIMIT = 80/);
+    assert.match(source, /SIMPRO_LEAD_IMPORT_LIMIT = 10/);
     assert.match(source, /SIMPRO_SITE_IMPORT_LIMIT = 80/);
     assert.match(source, /SIMPRO_CLIENT_IMPORT_LIMIT = 80/);
     assert.match(source, /SIMPRO_DEEP_HIERARCHY_LIMIT = 80/);
     assert.match(source, /IsPaid/);
     assert.match(source, /isOpenSimproQuote/);
+    assert.match(source, /isImportableSimproLead/);
     assert.match(source, /hydrateCustomersForRecords/);
     assert.match(source, /hydrateSitesForRecords/);
     assert.match(source, /return clone\(persisted\)/);
     assert.equal(SIMPRO_QUOTE_IMPORT_LIMIT, 30);
     assert.equal(SIMPRO_JOB_IMPORT_LIMIT, 80);
+    assert.equal(SIMPRO_LEAD_IMPORT_LIMIT, 10);
     assert.equal(SIMPRO_DEEP_HIERARCHY_LIMIT, 80);
 
     assert.equal(isOpenSimproQuote({ Status: { Name: "Quote Sent" } }), true);
@@ -120,6 +125,18 @@ describe("simpro sync preview quality", () => {
     assert.equal(isImportableSimproJob({ Status: { Name: "Complete" } }), true);
     assert.equal(isImportableSimproJob({ Stage: "Invoiced" }), false);
     assert.equal(isImportableSimproJob({ Stage: "Archived" }), false);
+
+    assert.equal(isImportableSimproLead({ Stage: "Open" }), true);
+    assert.equal(isImportableSimproLead({ Stage: "Closed" }), false);
+    assert.equal(isImportableSimproLead({ Archived: true, Stage: "Open" }), false);
+    assert.equal(
+      scopeSimproRecords("leads", [
+        { ID: 1, Stage: "Open", DateModified: "2026-08-01" },
+        { ID: 2, Stage: "Closed", DateModified: "2026-08-05" },
+        { ID: 3, Stage: "Open", DateModified: "2026-08-04" },
+      ]).map((row) => row.ID).join(","),
+      "3,1",
+    );
 
     assert.equal(isUnpaidSimproInvoice({ IsPaid: false, Status: { Name: "Sent" } }), true);
     assert.equal(isUnpaidSimproInvoice({ IsPaid: true }), false);

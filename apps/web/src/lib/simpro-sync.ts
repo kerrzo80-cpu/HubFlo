@@ -23,8 +23,9 @@ import {
   type Quote,
   type QuoteStatus,
 } from "@/lib/workflow-data";
+import { createLead, getLeads, updateLead, type LeadRecord, type LeadSource, type LeadStatus } from "@/lib/lead-store";
 import { getSimproDirectConfigStatus, resolveSimproDirectConfig, type ResolvedSimproDirectConfig } from "@/lib/simpro-auth";
-import { simproGetFirstOk, simproGetEntityDetail, simproGetCustomerDetail, clearSimproCompanyIdCache } from "@/lib/simpro-client";
+import { simproGet, simproGetFirstOk, simproGetEntityDetail, simproGetCustomerDetail, clearSimproCompanyIdCache, extractSimproRecords } from "@/lib/simpro-client";
 import {
   enrichNexaJobFromSimpro,
   enrichNexaQuoteFromSimpro,
@@ -32,6 +33,7 @@ import {
   importSimproInvoiceIntoHub,
   pullSchedulesForLinkedJobs,
 } from "@/lib/simpro-deep-import";
+import { blockTimes } from "@/lib/simpro-hierarchy-map";
 import {
   removeSimproEntityLinksByNexa,
   removeSimproEntityLinksByTypes,
@@ -42,7 +44,7 @@ import { getHubDetailState, saveHubDetailState } from "@/lib/hub-detail-store";
 
 type UnknownRecord = Record<string, unknown>;
 
-export type SimproSyncEntity = "clients" | "sites" | "quotes" | "jobs" | "invoices" | "schedules";
+export type SimproSyncEntity = "clients" | "sites" | "leads" | "quotes" | "jobs" | "invoices" | "schedules";
 export type SimproSyncMode = "preview" | "apply";
 export type SimproSyncOperationAction = "create" | "link" | "skip" | "conflict" | "error" | "preview";
 export type SimproConflictResolveAction = "link" | "create" | "skip";
@@ -131,11 +133,12 @@ type SimproSyncStore = {
   webhooks: SimproWebhookEvent[];
 };
 
-const simproEntities: SimproSyncEntity[] = ["clients", "sites", "quotes", "jobs", "invoices", "schedules"];
+const simproEntities: SimproSyncEntity[] = ["clients", "sites", "leads", "quotes", "jobs", "invoices", "schedules"];
 
 const endpointByEntity: Record<Exclude<SimproSyncEntity, "schedules">, string> = {
   clients: "customers",
   sites: "sites",
+  leads: "leads",
   quotes: "quotes",
   jobs: "jobs",
   invoices: "invoices",
@@ -470,6 +473,8 @@ export const SIMPRO_INVOICE_IMPORT_LIMIT = 30;
 export const SIMPRO_QUOTE_IMPORT_LIMIT = 30;
 /** Pending + Progress + Complete working set (simPRO folder counts can exceed 60). */
 export const SIMPRO_JOB_IMPORT_LIMIT = 80;
+/** Latest open leads (including scheduled surveys) for the diary. */
+export const SIMPRO_LEAD_IMPORT_LIMIT = 10;
 /** Bulk client/site directory imports must stay small — uncapped 40×250 was crashing Apply. */
 export const SIMPRO_CLIENT_IMPORT_LIMIT = 80;
 export const SIMPRO_SITE_IMPORT_LIMIT = 80;
@@ -485,6 +490,14 @@ function recordModifiedTime(record: UnknownRecord) {
   return Number.isFinite(time) ? time : 0;
 }
 
+/** Open leads only — exclude archived / closed. */
+export function isImportableSimproLead(record: UnknownRecord) {
+  if (record.Archived === true || record.IsArchived === true) return false;
+  const stage = normaliseText(firstString(record, ["Stage", "Stage.Name"]));
+  if (stage === "closed" || stage.includes("archiv") || stage.includes("lost")) return false;
+  return true;
+}
+
 /** Apply live working-set rules so we don't import archive/history that crashes the app. */
 export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules">, records: UnknownRecord[]) {
   if (entity === "quotes") {
@@ -498,6 +511,12 @@ export function scopeSimproRecords(entity: Exclude<SimproSyncEntity, "schedules"
       .filter(isImportableSimproJob)
       .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left))
       .slice(0, SIMPRO_JOB_IMPORT_LIMIT);
+  }
+  if (entity === "leads") {
+    return records
+      .filter(isImportableSimproLead)
+      .sort((left, right) => recordModifiedTime(right) - recordModifiedTime(left) || Number(identifier(right) || 0) - Number(identifier(left) || 0))
+      .slice(0, SIMPRO_LEAD_IMPORT_LIMIT);
   }
   if (entity === "invoices") {
     return records
@@ -612,13 +631,15 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
   // Quotes/jobs/invoices/clients/sites are filtered after fetch to the live working set.
   const pageSize = 100;
   const maxPages =
-    entity === "invoices"
-      ? 6
-      : entity === "quotes" || entity === "jobs"
-        ? 8
-        : entity === "clients" || entity === "sites"
-          ? 3
-          : 10;
+    entity === "leads"
+      ? 2
+      : entity === "invoices"
+        ? 6
+        : entity === "quotes" || entity === "jobs"
+          ? 8
+          : entity === "clients" || entity === "sites"
+            ? 3
+            : 10;
 
   const url = new URL(entityEndpoint(config, entity));
   url.searchParams.set("pageSize", String(pageSize));
@@ -631,6 +652,12 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
     url.searchParams.set(
       "columns",
       "ID,Name,Description,Customer,Site,Total,Status,Stage,DateIssued,DateModified,DateCreated,DueDate,ProjectManager,Salesperson,Archived",
+    );
+  } else if (entity === "leads") {
+    url.searchParams.set("orderby", "-DateModified");
+    url.searchParams.set(
+      "columns",
+      "ID,LeadName,Name,Description,Notes,Customer,Site,Stage,Status,FollowUpDate,DateCreated,DateModified,Salesperson,ProjectManager,Archived",
     );
   } else if (entity === "clients" || entity === "sites") {
     // Newest first so the 80-record cap is useful; fall back to -ID if DateModified rejected.
@@ -663,14 +690,18 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
         continue;
       }
       // Some builds reject rich columns — fall back to default list fields.
-      if ((entity === "quotes" || entity === "jobs") && page === 1 && url.searchParams.has("columns")) {
+      if (
+        (entity === "quotes" || entity === "jobs" || entity === "leads") &&
+        page === 1 &&
+        url.searchParams.has("columns")
+      ) {
         url.searchParams.delete("columns");
         page = 0;
         continue;
       }
-      // Some builds reject -DateModified on customers/sites — fall back to -ID.
+      // Some builds reject -DateModified on customers/sites/leads — fall back to -ID.
       if (
-        (entity === "clients" || entity === "sites") &&
+        (entity === "clients" || entity === "sites" || entity === "leads") &&
         page === 1 &&
         url.searchParams.get("orderby") === "-DateModified"
       ) {
@@ -712,6 +743,10 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
       const liveSoFar = collected.filter(isImportableSimproJob).length;
       if (liveSoFar >= SIMPRO_JOB_IMPORT_LIMIT) break;
     }
+    if (entity === "leads") {
+      const openSoFar = collected.filter(isImportableSimproLead).length;
+      if (openSoFar >= SIMPRO_LEAD_IMPORT_LIMIT) break;
+    }
     if (entity === "clients" && collected.length >= SIMPRO_CLIENT_IMPORT_LIMIT) break;
     if (entity === "sites" && collected.length >= SIMPRO_SITE_IMPORT_LIMIT) break;
 
@@ -723,7 +758,7 @@ async function fetchSimproRecords(config: ResolvedSimproDirectConfig, entity: Ex
 
   // Scope first, then hydrate customers + sites only for the capped working set.
   const scoped = scopeSimproRecords(entity, collected);
-  if (entity === "quotes" || entity === "jobs") {
+  if (entity === "quotes" || entity === "jobs" || entity === "leads") {
     const withCustomers = await hydrateCustomersForRecords(config, scoped);
     return hydrateSitesForRecords(config, withCustomers);
   }
@@ -797,6 +832,7 @@ export function clearSimproLinksForNexaRecord(entity: SimproSyncEntity, nexaId: 
 function nexaRecordExistsForLink(link: SimproSyncLink): boolean {
   if (link.nexaType === "quotes") return Boolean(getQuotes().find((quote) => quote.id === link.nexaId));
   if (link.nexaType === "jobs") return Boolean(getJobs().find((job) => job.id === link.nexaId));
+  if (link.nexaType === "leads") return Boolean(getLeads().find((lead) => lead.id === link.nexaId));
   if (link.nexaType === "clients") return Boolean(getClients().find((client) => client.id === link.nexaId));
   if (link.nexaType === "sites") return Boolean(getClientSites().find((site) => site.id === link.nexaId));
   return true;
@@ -2128,12 +2164,269 @@ async function processInvoice(record: UnknownRecord, mode: SimproSyncMode): Prom
 async function processRecord(entity: SimproSyncEntity, record: UnknownRecord, mode: SimproSyncMode) {
   if (entity === "clients") return processClient(record, mode);
   if (entity === "sites") return processSite(record, mode);
+  if (entity === "leads") return processLead(record, mode);
   if (entity === "quotes") return processQuote(record, mode);
   if (entity === "jobs") return processJob(record, mode);
   if (entity === "schedules") {
     return operation("schedules", "skip", "Schedules are pulled for linked jobs as a batch, not per list record.");
   }
   return processInvoice(record, mode);
+}
+
+type LeadScheduleHint = {
+  surveyor: string;
+  surveyDate: string;
+  surveyTime: string;
+};
+
+function leadScheduleStaffName(record: UnknownRecord) {
+  const staffRaw = record.Staff;
+  if (typeof staffRaw === "number" || (typeof staffRaw === "string" && /^\d+$/.test(staffRaw.trim()))) {
+    return "";
+  }
+  const staff = asRecord(staffRaw) ?? {};
+  return (
+    firstString(staff, ["Name", "DisplayName"]) ||
+    [firstString(staff, ["FirstName"]), firstString(staff, ["Surname", "LastName"])].filter(Boolean).join(" ")
+  );
+}
+
+async function fetchLeadScheduleHint(config: ResolvedSimproDirectConfig, leadId: string): Promise<LeadScheduleHint | null> {
+  const paths = [
+    `/schedules/?LeadID=${encodeURIComponent(leadId)}&pageSize=10&orderby=-Date`,
+    `/leads/${encodeURIComponent(leadId)}/schedules/?pageSize=10&orderby=-Date`,
+  ];
+  for (const path of paths) {
+    try {
+      const result = await simproGet(config, path, { maxRetries: 1 });
+      if (!result.ok) continue;
+      const records = extractSimproRecords(result.body);
+      const today = new Date().toISOString().slice(0, 10);
+      const dated = records
+        .map((record) => {
+          const surveyDate = firstString(record, ["Date", "StartDate"]).slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(surveyDate)) return null;
+          const times = blockTimes(record.Blocks);
+          const surveyor =
+            leadScheduleStaffName(record) ||
+            firstString(record, ["Staff.Name", "Employee.Name", "Name"]) ||
+            "";
+          return { surveyor, surveyDate, surveyTime: times.startTime };
+        })
+        .filter((item): item is LeadScheduleHint => Boolean(item))
+        .sort((left, right) => left.surveyDate.localeCompare(right.surveyDate));
+      const upcoming = dated.find((item) => item.surveyDate >= today) || dated[dated.length - 1];
+      if (upcoming) return upcoming;
+    } catch {
+      // try next path
+    }
+  }
+  return null;
+}
+
+function descriptionFromSimproLead(record: UnknownRecord) {
+  const title = firstString(record, ["LeadName", "Name", "Title", "Subject"]);
+  const body = firstString(record, ["Description", "Notes", "LongDescription"]);
+  return simproPlainDescription({ title, body }, "Imported simPRO lead", { maxLength: 120, preferTitle: true });
+}
+
+function leadStatusFromSimpro(stage: string, hasSchedule: boolean): LeadStatus {
+  const normalized = normaliseText(stage);
+  if (normalized === "closed" || normalized.includes("lost") || normalized.includes("archiv")) return "Lost";
+  if (hasSchedule) return "Survey booked";
+  return "Needs scheduling";
+}
+
+function buildLeadInput(
+  record: UnknownRecord,
+  client?: ClientRecord,
+  site?: ClientSite,
+  schedule?: LeadScheduleHint | null,
+): Omit<LeadRecord, "id" | "ref" | "createdAt"> {
+  const customerName =
+    (client?.name && !isBlankImportedCustomerName(client.name) ? client.name : "") ||
+    usableCustomerName(record) ||
+    fallbackCustomerLabel(simproCustomerId(record));
+  const address =
+    (site?.address && !isPlaceholderSimproValue(site.address) ? site.address : "") ||
+    siteAddressFromRecord(record) ||
+    (site?.name && !isPlaceholderSimproValue(site.name) ? site.name : "") ||
+    "Address to confirm";
+  const followUp = firstString(record, ["FollowUpDate"]);
+  const hasSchedule = Boolean(schedule?.surveyDate && schedule.surveyTime);
+  const status = leadStatusFromSimpro(firstString(record, ["Stage", "Stage.Name", "Status.Name", "Status"]), hasSchedule);
+  const surveyor =
+    schedule?.surveyor ||
+    firstString(record, ["Salesperson.Name", "ProjectManager.Name", "Owner.Name"]) ||
+    "";
+  const source: LeadSource = "Email";
+  return {
+    source,
+    clientId: client?.id,
+    siteId: site?.id,
+    customerName,
+    phone: client?.phone && !isPlaceholderSimproValue(client.phone) ? client.phone : "Pending",
+    email: client?.email && isUsableEmailForMatch(client.email) ? client.email : "pending@example.com",
+    address,
+    description: descriptionFromSimproLead(record),
+    status,
+    surveyor: hasSchedule ? surveyor || "Surveyor to confirm" : surveyor,
+    surveyDate: hasSchedule ? schedule!.surveyDate : "",
+    surveyTime: hasSchedule ? schedule!.surveyTime : "",
+    createdBy: "simPRO sync",
+    next: hasSchedule
+      ? `Survey booked${surveyor ? ` with ${surveyor}` : ""} on ${schedule!.surveyDate} at ${schedule!.surveyTime}.`
+      : followUp
+        ? `Follow up ${followUp}.`
+        : "Review imported lead and book survey.",
+  };
+}
+
+async function processLead(record: UnknownRecord, mode: SimproSyncMode): Promise<SimproSyncOperation> {
+  const simproId = identifier(record);
+  if (!simproId) return operation("leads", "conflict", "simPRO lead has no stable ID.");
+
+  let working = record;
+  let schedule: LeadScheduleHint | null = null;
+  try {
+    const config = await resolveSimproDirectConfig();
+    // Prefer display=all lead detail when available, then customer/site names.
+    const detail = await simproGet(config, `/leads/${encodeURIComponent(simproId)}?display=all`, { maxRetries: 1 });
+    if (detail.ok) {
+      const body = asRecord(detail.body);
+      if (body) working = { ...working, ...body, ID: body.ID ?? working.ID ?? simproId };
+    }
+    working = await hydrateRecordCustomer(config, working);
+    working = await hydrateRecordSite(config, working);
+    schedule = await fetchLeadScheduleHint(config, simproId);
+  } catch {
+    schedule = null;
+  }
+
+  const { client } = resolveClientForRecord(working, mode);
+  const site = ensureSiteForRecord(working, client?.id, mode) || matchingSiteForRecord(working, client?.id);
+  const mapped = buildLeadInput(working, client, site, schedule);
+  const scheduleNote = schedule
+    ? ` Scheduled ${schedule.surveyDate} ${schedule.surveyTime}${schedule.surveyor ? ` · ${schedule.surveyor}` : ""}.`
+    : "";
+
+  const link = pruneOrphanLink("leads", simproId);
+  if (link) {
+    if (mode === "apply" && schedule) {
+      updateLead(
+        link.nexaId,
+        {
+          status: "Survey booked",
+          surveyor: schedule.surveyor || undefined,
+          surveyDate: schedule.surveyDate,
+          surveyTime: schedule.surveyTime,
+          next: mapped.next,
+        },
+        "simPRO sync",
+      );
+    }
+    return operation(
+      "leads",
+      mode === "apply" && schedule ? "link" : "skip",
+      mode === "apply" && schedule
+        ? `Refreshing ${link.nexaRef ?? link.nexaName} schedule from simPRO lead ${simproId}.${scheduleNote}`
+        : `${mapped.customerName}: ${mapped.description} is already linked to ${link.nexaRef ?? link.nexaName}.`,
+      { simproId, simproName: mapped.description, nexaId: link.nexaId, nexaRef: link.nexaRef },
+    );
+  }
+
+  const existing = getLeads().find(
+    (lead) =>
+      normaliseText(lead.customerName) === normaliseText(mapped.customerName) &&
+      normaliseText(lead.description) === normaliseText(mapped.description),
+  );
+  if (existing) {
+    if (mode === "apply") {
+      saveLink({
+        nexaType: "leads",
+        nexaId: existing.id,
+        nexaRef: existing.ref,
+        nexaName: existing.description,
+        simproType: "leads",
+        simproId,
+        simproName: mapped.description,
+        lastDirection: "simpro-to-nexa",
+      });
+      if (schedule) {
+        updateLead(
+          existing.id,
+          {
+            status: "Survey booked",
+            surveyor: schedule.surveyor || existing.surveyor,
+            surveyDate: schedule.surveyDate,
+            surveyTime: schedule.surveyTime,
+            next: mapped.next,
+          },
+          "simPRO sync",
+        );
+      }
+    }
+    return operation("leads", "link", `Link simPRO lead ${simproId} to ${existing.ref}.${scheduleNote}`, {
+      simproId,
+      simproName: mapped.description,
+      nexaId: existing.id,
+      nexaRef: existing.ref,
+    });
+  }
+
+  if (mode === "preview") {
+    return operation(
+      "leads",
+      "create",
+      `Create NeXa lead for ${mapped.customerName}: ${mapped.description}.${scheduleNote}`,
+      { simproId, simproName: mapped.description, detail: mapped.address },
+    );
+  }
+
+  const created = createLead(
+    {
+      source: mapped.source,
+      clientId: mapped.clientId,
+      siteId: mapped.siteId,
+      customerName: mapped.customerName,
+      phone: mapped.phone,
+      email: mapped.email,
+      address: mapped.address,
+      description: mapped.description,
+      status: mapped.status,
+      surveyor: mapped.surveyor,
+      surveyDate: mapped.surveyDate,
+      surveyTime: mapped.surveyTime,
+      createdBy: mapped.createdBy,
+      next: mapped.next,
+    },
+    "simPRO sync",
+  );
+  saveLink({
+    nexaType: "leads",
+    nexaId: created.lead.id,
+    nexaRef: created.lead.ref,
+    nexaName: created.lead.description,
+    simproType: "leads",
+    simproId,
+    simproName: mapped.description,
+    lastDirection: "simpro-to-nexa",
+  });
+  appendAuditEvent({
+    actor: "simPRO sync",
+    action: "created",
+    recordType: "lead",
+    recordId: created.lead.id,
+    summary: `${created.lead.ref} imported from simPRO lead ${simproId}.${scheduleNote}`,
+    source: "simPRO sync",
+    importance: "high",
+  });
+  return operation("leads", "create", `Created ${created.lead.ref} for ${mapped.customerName}.${scheduleNote}`, {
+    simproId,
+    simproName: mapped.description,
+    nexaId: created.lead.id,
+    nexaRef: created.lead.ref,
+  });
 }
 
 async function processSchedulesEntity(mode: SimproSyncMode): Promise<SimproSyncOperation[]> {

@@ -2213,7 +2213,7 @@ type SimproExportRecord = {
 
 type SimproSyncOperation = {
   id: string;
-  entity: "clients" | "sites" | "quotes" | "jobs" | "invoices" | "schedules";
+  entity: "clients" | "sites" | "leads" | "quotes" | "jobs" | "invoices" | "schedules";
   action: "create" | "link" | "skip" | "conflict" | "error" | "preview";
   simproId?: string;
   simproName?: string;
@@ -2260,6 +2260,7 @@ type SimproSyncStatus = {
 const simproImportEntityOptions: Array<{ key: SimproSyncEntity; label: string }> = [
   { key: "clients", label: "Clients" },
   { key: "sites", label: "Sites" },
+  { key: "leads", label: "Leads (latest 10)" },
   { key: "quotes", label: "Quotes" },
   { key: "jobs", label: "Jobs" },
   { key: "schedules", label: "Schedules" },
@@ -13880,11 +13881,12 @@ export default function Dashboard() {
   }
 
   async function refreshCoreWorkflowRecords() {
-    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, auditResponse, hubStateResponse] = await Promise.all([
+    const [clientsResponse, clientSitesResponse, jobsResponse, quotesResponse, leadsResponse, auditResponse, hubStateResponse] = await Promise.all([
       fetch("/api/clients", { headers: requestHeaders }),
       fetch("/api/client-sites", { headers: requestHeaders }),
       fetch("/api/jobs", { headers: requestHeaders }),
       fetch("/api/quotes", { headers: requestHeaders }),
+      fetch("/api/leads", { headers: requestHeaders }),
       fetch("/api/audit", { headers: requestHeaders }),
       fetch("/api/hub-state", { headers: requestHeaders }),
     ]);
@@ -13911,6 +13913,7 @@ export default function Dashboard() {
       const nextQuotes = (await quotesResponse.json()) as Quote[];
       setQuotes(nextQuotes.map((quote) => quoteWithCostCentreValue(quote, quoteCostCentresRef.current)));
     }
+    if (leadsResponse.ok) setLeads((await leadsResponse.json()) as Lead[]);
     if (auditResponse.ok) setAuditEvents((await auditResponse.json()) as AuditEvent[]);
   }
 
