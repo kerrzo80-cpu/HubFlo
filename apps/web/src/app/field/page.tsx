@@ -177,6 +177,11 @@ export default function MyDayPage() {
         </Link>
       ) : null}
 
+      <Link href="/train" className="field-next-job" style={{ marginTop: 10 }}>
+        <span>Blake Trainer</span>
+        <strong>Voice training · approved NeXa materials only</strong>
+      </Link>
+
       {error ? <div className="feedback error">{error}</div> : null}
 
       <section className="job-list" aria-label={`Jobs for ${todayLabel(selectedDate)}`}>
