@@ -1522,23 +1522,40 @@ function quoteAlreadyHasCostCentres(nexaQuoteId: string) {
 
 /** True when centres exist but Info briefs or cost prices are still missing — re-pull them. */
 function quoteCostCentresNeedRefresh(nexaQuoteId: string) {
-  const centres = getHubDetailState().quoteCostCentres?.[nexaQuoteId];
+  const hubs = getHubDetailState();
+  const centres = hubs.quoteCostCentres?.[nexaQuoteId];
   if (!Array.isArray(centres) || centres.length === 0) return true;
+  const finance = (hubs.financeSettings || {}) as Record<string, unknown>;
+  const materialMarkup = Number(finance.defaultMaterialMarkupPercent);
+  const labourMarkup = Number(finance.defaultLabourMarkupPercent);
+  const defaultMarkup =
+    Number.isFinite(materialMarkup) && materialMarkup >= 0
+      ? materialMarkup
+      : Number.isFinite(labourMarkup) && labourMarkup >= 0
+        ? labourMarkup
+        : 30;
   return centres.some((centre) => {
     const row = centre as {
       clientDescription?: string;
       engineerDescription?: string;
-      lines?: Array<{ unitCost?: number; unitSell?: number }>;
+      lines?: Array<{ unitCost?: number; unitSell?: number; catalogItemId?: string }>;
     };
     const missingBrief =
       !String(row.clientDescription || "").trim() && !String(row.engineerDescription || "").trim();
     const lines = Array.isArray(row.lines) ? row.lines : [];
-    const missingCost = lines.some((line) => {
+    const pricingStale = lines.some((line) => {
       const sell = Number(line.unitSell) || 0;
       const cost = Number(line.unitCost) || 0;
-      return sell > 0 && !(cost > 0 && cost !== sell);
+      if (sell > 0 && !(cost > 0)) return true;
+      if (cost > 0 && cost === sell) return true;
+      if (cost > 0 && sell > 0) {
+        const expected = Math.round(cost * (1 + defaultMarkup / 100) * 100) / 100;
+        // Still on simPRO charge (or other markup) rather than NeXa default.
+        if (Math.abs(sell - expected) > 0.05) return true;
+      }
+      return false;
     });
-    return missingBrief || missingCost;
+    return missingBrief || pricingStale;
   });
 }
 

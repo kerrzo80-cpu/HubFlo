@@ -65,6 +65,26 @@ function markupPercent(unitCost: number, unitSell: number) {
   return Math.round(((unitSell - unitCost) / unitCost) * 1000) / 10;
 }
 
+/** NeXa sell from cost + default markup % (Finance settings). */
+export function lineSellFromCostMarkup(unitCost: number, markupPercentValue: number) {
+  if (!(unitCost > 0)) return 0;
+  const markup = Number.isFinite(markupPercentValue) ? markupPercentValue : 30;
+  return Math.round(unitCost * (1 + markup / 100) * 100) / 100;
+}
+
+export type QuoteLinePriceOptions = {
+  /** Default material markup % from Finance (typically 30). */
+  materialMarkupPercent?: number;
+  /** Default labour markup % from Finance (typically 30). */
+  labourMarkupPercent?: number;
+};
+
+function resolveLineMarkup(labour: boolean, options?: QuoteLinePriceOptions) {
+  const raw = labour ? options?.labourMarkupPercent : options?.materialMarkupPercent;
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : 30;
+}
+
 export type MappedQuoteCostLine = {
   id: string;
   catalogItemId: string;
@@ -338,11 +358,19 @@ function catalogueId(record: UnknownRecord) {
   );
 }
 
-function mapQuoteLine(record: UnknownRecord, centreId: string, index: number): MappedQuoteCostLine {
+function mapQuoteLine(
+  record: UnknownRecord,
+  centreId: string,
+  index: number,
+  options?: QuoteLinePriceOptions,
+): MappedQuoteCostLine {
   const labour = isLabourItem(record);
   const quantity = lineQuantity(record);
-  const unitSell = lineUnitSell(record, quantity);
-  const unitCost = lineUnitCost(record, quantity, unitSell);
+  // Prefer simPRO cost (BasePrice); build charge from NeXa default markup — not simPRO SellPrice.
+  const simproSell = lineUnitSell(record, quantity);
+  const unitCost = lineUnitCost(record, quantity, simproSell);
+  const unitSell =
+    unitCost > 0 ? lineSellFromCostMarkup(unitCost, resolveLineMarkup(labour, options)) : simproSell;
   const id = simproRecordId(record) || `${centreId}-line-${index + 1}`;
   return {
     id: `simpro-${id}`,
@@ -536,6 +564,7 @@ function sectionCostCenters(section: UnknownRecord): UnknownRecord[] {
 export function mapSimproQuoteCostCentres(
   record: UnknownRecord,
   nexaQuoteId: string,
+  priceOptions?: QuoteLinePriceOptions,
 ): { centres: MappedQuoteCostCentre[]; stats: HierarchyStats } {
   const sections = extractSimproSections(record);
   const centres: MappedQuoteCostCentre[] = [];
@@ -559,7 +588,7 @@ export function mapSimproQuoteCostCentres(
       const lines: MappedQuoteCostLine[] = [];
 
       items.forEach((item, itemIndex) => {
-        const line = mapQuoteLine(item, ccId, itemIndex);
+        const line = mapQuoteLine(item, ccId, itemIndex, priceOptions);
         lines.push(line);
         if (isLabourItem(item)) labourLines += 1;
         else materialLines += 1;
