@@ -13308,6 +13308,43 @@ h1 {
   justify-content: space-between;
 }
 
+.daywork-office-pricing-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.directory-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.lead-summary-button {
+  appearance: none;
+  background: inherit;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.lead-summary-button small {
+  color: var(--muted, #667085);
+  font-size: 11px;
+}
+
+.lead-summary-button.active,
+.lead-summary-button.attention.active {
+  border-color: rgba(240, 68, 56, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(240, 68, 56, 0.2);
+}
+
 .daywork-line-pricing {
   display: grid;
   gap: 8px;
