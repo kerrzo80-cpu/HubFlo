@@ -14889,7 +14889,11 @@ export default function Dashboard() {
   function updateFormTemplate(templateId: string, patch: Partial<FormTemplate>) {
     markSetupEdited();
     setFormTemplates((current) =>
-      current.map((template) => (template.id === templateId ? { ...template, ...patch } : template)),
+      current.map((template) => {
+        if (template.id !== templateId) return template;
+        const fallback = defaultFormTemplates.find((item) => item.layout === (patch.layout || template.layout));
+        return normalizeFormDocumentTemplate({ ...template, ...patch }, fallback);
+      }),
     );
   }
 
