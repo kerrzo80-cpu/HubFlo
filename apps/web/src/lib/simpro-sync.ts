@@ -370,6 +370,35 @@ export function jobStatusFromSimpro(value: string): string {
   return "Pending";
 }
 
+/** Keep NeXa workflow advances (Complete → Ready to invoice → Invoiced) when simPRO still says Complete. */
+export function preferNexaJobWorkflowStatus(existingStatus: string | undefined, mappedStatus: string | undefined) {
+  const existing = String(existingStatus || "").trim();
+  const mapped = String(mappedStatus || "").trim();
+  if (!mapped) return existing || "Pending";
+  if (!existing) return mapped;
+
+  const rank: Record<string, number> = {
+    Enquiry: 1,
+    Quoted: 2,
+    Accepted: 3,
+    Pending: 4,
+    Scheduled: 5,
+    "In progress": 6,
+    "Waiting on parts": 6,
+    "Waiting on customer": 6,
+    "Approval required": 6,
+    Completed: 7,
+    "Ready to invoice": 8,
+    Invoiced: 9,
+    Closed: 10,
+  };
+  const existingRank = rank[existing] ?? 0;
+  const mappedRank = rank[mapped] ?? 0;
+  // Never pull a job backwards from Ready to invoice / Invoiced / Closed down to Completed.
+  if (existingRank >= 8 && mappedRank < existingRank) return existing;
+  return mapped;
+}
+
 function simproStageOrStatus(record: UnknownRecord) {
   return firstString(record, ["Stage", "Stage.Name", "Status.Name", "Status"]);
 }
@@ -1528,7 +1557,7 @@ async function patchJobHeaderFromDeepRecord(config: ResolvedSimproDirectConfig, 
         : existing.description || mapped.description,
     manager:
       mapped.manager && mapped.manager !== "Imported from simPRO" ? mapped.manager : existing.manager || mapped.manager,
-    status: mapped.status || existing.status,
+    status: preferNexaJobWorkflowStatus(existing.status, mapped.status),
     value: mapped.value > 0 ? mapped.value : existing.value,
     due: mapped.due && mapped.due !== "To be reviewed" ? mapped.due : existing.due || mapped.due,
     simproJobId: mapped.simproJobId || existing.simproJobId,

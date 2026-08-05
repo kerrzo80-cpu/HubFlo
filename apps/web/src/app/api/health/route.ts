@@ -80,7 +80,7 @@ export async function GET() {
       schedulerPeople: "employees-contractors-not-suppliers-v1",
       peopleDirectoryCrud: "manual-add-edit-v1",
       invoiceImportFolders: "sent-unpaid-overdue-v1",
-      jobFoldersPassaround: "complete-then-ready-v1",
+      jobFoldersPassaround: "complete-then-ready-v2",
       resetWorkflowRemoved: "no-accidental-wipe-v1",
       dashboardLayout: "pipeline-gantt-v3",
       takeoffSkill: "drawing-first-v8-routes-page",

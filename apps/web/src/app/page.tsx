@@ -31702,12 +31702,22 @@ export default function Dashboard() {
                                 disabled: job.status === "In progress",
                               },
                               {
-                                label: "Ready to invoice",
+                                label: "Move to Complete",
+                                onClick: () =>
+                                  updateJobFromDirectory(
+                                    job,
+                                    { status: "Completed", next: "Pass around required before Ready to invoice.", health: "green" },
+                                    `${job.ref} moved to Complete.`,
+                                  ),
+                                disabled: job.status === "Completed",
+                              },
+                              {
+                                label: "Move to Ready to invoice",
                                 onClick: () =>
                                   updateJobFromDirectory(
                                     job,
                                     { status: "Ready to invoice", next: "Raise and email final invoice.", health: "green" },
-                                    `${job.ref} ready to invoice.`,
+                                    `${job.ref} moved to Ready to invoice.`,
                                   ),
                                 disabled: job.status === "Ready to invoice",
                               },

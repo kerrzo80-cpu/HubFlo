@@ -14,6 +14,7 @@ import {
   isUnpaidSimproInvoice,
   isUsableEmailForMatch,
   jobStatusFromSimpro,
+  preferNexaJobWorkflowStatus,
   processClient,
   processSite,
   scopeSimproRecords,
@@ -76,6 +77,13 @@ describe("simpro sync preview quality", () => {
     assert.equal(jobStatusFromSimpro("Scheduled"), "Scheduled");
     assert.equal(jobStatusFromSimpro("Imported"), "Pending");
     assert.equal(jobStatusFromSimpro(""), "Pending");
+  });
+
+  it("keeps Ready to invoice when simPRO still reports Complete", () => {
+    assert.equal(preferNexaJobWorkflowStatus("Ready to invoice", "Completed"), "Ready to invoice");
+    assert.equal(preferNexaJobWorkflowStatus("Invoiced", "Completed"), "Invoiced");
+    assert.equal(preferNexaJobWorkflowStatus("Completed", "Ready to invoice"), "Ready to invoice");
+    assert.equal(preferNexaJobWorkflowStatus("In progress", "Completed"), "Completed");
   });
 
   it("exposes clearSimproLinksForNexaRecord for delete/re-import", async () => {
